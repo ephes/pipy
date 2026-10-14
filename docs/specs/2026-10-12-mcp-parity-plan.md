@@ -533,7 +533,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-32 | EXP-12 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin mcp`. The `builtin:mcp` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). | other form | Decided in S19 |
 | DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
-| DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built. `event.system_prompt` is a string taken when the handler is called, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20; `docs/extension-api.md` |
+| DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built. `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
 | DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. | stricter | Decided in S16, S17 |
 | DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21 |
 | DEV-38 | SLH-01, SLH-02, SLH-06 | For a line typed into a session the order is built-in command, prompt template or custom command, extension command, `/mcp`, so a template or custom command named `mcp` takes the command's place; in Pi only an extension command does. For a prompt of print, JSON and RPC mode the order is Pi's. An unknown action prints the usage without waiting for the startup connections. | other form | Decided in S21, X1 |
@@ -4071,6 +4071,14 @@ which only a function that is not a pure function of the loadout can notice
 (`docs/extension-api.md`, Different from Pi). Tests:
 `test_the_loadout_runs_once_per_capability_value`,
 `test_a_replaced_value_keeps_its_own_loadout_per_snapshot`.
+Part 2 (finding E22): `BeforeAgentStartEvent.system_prompt` is a property
+that renders the prompt from the shared sections on every read (Pi's `get
+systemPrompt()`), followed by the text earlier hooks appended; the event is
+built with a text or a rendering function. Tests:
+`test_event_system_prompt_is_rendered_on_every_read`,
+`test_an_event_built_with_a_text_keeps_it`, the changed
+`test_before_agent_start_hooks_share_the_prompt_sections` and
+`test_a_before_agent_start_hook_reads_and_changes_prompt_sections`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

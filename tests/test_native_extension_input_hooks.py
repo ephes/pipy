@@ -248,8 +248,9 @@ def test_before_agent_start_concatenates(tmp_path: Path) -> None:
 
 def test_before_agent_start_hooks_share_the_prompt_sections(tmp_path: Path) -> None:
     # EXT-16 (Pi `systemPromptOptions.sections`): hooks change one mapping in
-    # place, a later hook is shown the prompt rendered from it, and what a
-    # hook changed before it raised stays.
+    # place, `event.system_prompt` is rendered from it whenever it is read
+    # (Pi's getter; goal-check finding E22), so a hook sees its own changes
+    # too, and what a hook changed before it raised stays.
     workspace = _make_workspace(tmp_path)
     _write(
         workspace,
@@ -286,7 +287,7 @@ def test_before_agent_start_hooks_share_the_prompt_sections(tmp_path: Path) -> N
     assert result.append_system_prompt == "EXTRA"
     assert sections == {
         "notes": "S+first",
-        "seen_by_first": "BASE",
+        "seen_by_first": "RENDERED:notes",
         "kept": "yes",
         "seen_by_last": "RENDERED:kept,notes,seen_by_first\nEXTRA",
     }
@@ -589,3 +590,46 @@ def test_keyboard_interrupt_propagates_in_input_hook(tmp_path: Path) -> None:
 
     with pytest.raises(KeyboardInterrupt):
         dispatch_input_hooks(hooks, "x", cwd=str(workspace), has_ui=False)
+
+
+def test_event_system_prompt_is_rendered_on_every_read(tmp_path: Path) -> None:
+    # Goal-check finding E22: Pi's `get systemPrompt()` renders the current
+    # options each time; the text earlier hooks appended follows it.
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "a",
+        "from pipy_harness.extensions import BeforeAgentStartResult\n"
+        "def activate(api):\n"
+        "    @api.on('before_agent_start')\n"
+        "    def first(event, ctx):\n"
+        "        return BeforeAgentStartResult(append_system_prompt='EXTRA')\n"
+        "    @api.on('before_agent_start')\n"
+        "    def second(event, ctx):\n"
+        "        sections = event.system_prompt_options.sections\n"
+        "        before = event.system_prompt\n"
+        "        sections['notes'] = 'N'\n"
+        "        after = event.system_prompt\n"
+        "        sections['seen'] = before + '|' + after\n",
+    )
+    hooks = extension_event_hooks(_activate(workspace), "before_agent_start")
+    sections: dict[str, str] = {}
+
+    dispatch_before_agent_start_hooks(
+        hooks,
+        cwd=str(workspace),
+        has_ui=False,
+        system_prompt="BASE",
+        sections=sections,
+        render_system_prompt=lambda: "R:" + ",".join(sorted(sections)),
+    )
+
+    assert sections["seen"] == "R:\nEXTRA|R:notes\nEXTRA"
+
+
+def test_an_event_built_with_a_text_keeps_it() -> None:
+    event = BeforeAgentStartEvent("p")
+
+    assert event.system_prompt == "p"
+    assert event.system_prompt_options.sections == {}
+    assert BeforeAgentStartEvent(lambda: "rendered").system_prompt == "rendered"

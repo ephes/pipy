@@ -632,8 +632,9 @@ keeps get_state.isStreaming true and a queued successor pending until it returns
 A `before_agent_start` handler runs once before a run starts, after the
 `input` handlers. Its event has:
 
-- `event.system_prompt`: the prompt as it is when the handler is called, with
-  what earlier handlers changed.
+- `event.system_prompt`: the prompt for the sections as they are when it is
+  read, as in Pi: it shows what earlier handlers and the handler itself
+  changed, followed by the text earlier handlers appended.
 - `event.system_prompt_options.sections`: a `dict` of the prompt sections the
   run adds to pipy's own, name to text. pipy puts the list of MCP servers
   there as `mcp_servers` (see
@@ -683,10 +684,9 @@ Different from Pi: `system_prompt_options` has only `sections`. Pi's other
 fields (`selectedTools`, `toolSnippets`, `toolGuidelines`,
 `promptGuidelines`, `appendSystemPrompt`, `contextFiles`, `skills`,
 `customPrompt`, `forceSystemPrompt`) do not exist, and the event has no
-`messageType`, `prompt` or `images`. `event.system_prompt` is a plain string
-taken when the handler is called, so it does not show what the handler itself
-has changed; Pi renders it on every read. An invalid section name fails the
-prompt in Pi; pipy reports it and goes on. Assign into the `dict`; replacing
+`messageType`, `prompt` or `images`. `event.system_prompt` also holds the
+text earlier handlers appended with `append_system_prompt`. An invalid
+section name fails the prompt in Pi; pipy reports it and goes on. Assign into the `dict`; replacing
 `system_prompt_options.sections` with another `dict` is not possible.
 
 ### D6b public and RPC transition ordering

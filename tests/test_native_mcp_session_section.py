@@ -313,6 +313,9 @@ def activate(api):
         else:
             sections['notes'] = 'Answer in German.'
         Path(ctx.cwd, 'seen.jsonl').open('a').write(json.dumps(seen) + '\\n')
+        own = '<notes>\\n' + sections['notes'] + '\\n</notes>'
+        Path(ctx.cwd, 'own.jsonl').open('a').write(
+            json.dumps(own in event.system_prompt) + '\\n')
 
     @api.on('before_agent_start')
     def second(event, ctx):
@@ -357,6 +360,8 @@ def test_a_before_agent_start_hook_reads_and_changes_prompt_sections(
     # A hook sees the session's sections, and each run starts from them
     # again: what a hook did for one run does not reach the next.
     assert _json_lines(workspace / "seen.jsonl") == [{"mcp_servers": listed}] * 3
+    # A hook's own change shows in `event.system_prompt` (goal-check E22).
+    assert _json_lines(workspace / "own.jsonl") == [True] * 3
     # A later hook sees what an earlier one set, also in the prompt text.
     assert _json_lines(workspace / "second.jsonl") == [
         {"notes": "Answer in German.", "in_prompt": True},

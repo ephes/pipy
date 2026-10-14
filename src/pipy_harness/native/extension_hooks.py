@@ -53,6 +53,7 @@ malicious extension cannot create unbounded provider input.
 
 from __future__ import annotations
 
+import functools
 import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
@@ -522,9 +523,10 @@ def dispatch_before_agent_start_hooks(
     mapping as ``event.system_prompt_options.sections`` and changes it in
     place, so the caller reads the outcome from it (what a hook changed
     before it raised stays). ``render_system_prompt`` renders the prompt for
-    the mapping as it is now, so a later hook's ``event.system_prompt`` shows
-    the sections earlier hooks changed; without it every hook is shown
-    ``system_prompt``.
+    the mapping as it is now; ``event.system_prompt`` calls it on every read
+    (Pi's getter), so a hook sees the sections it and earlier hooks changed.
+    Without it every hook is shown ``system_prompt``. Either way the text
+    earlier hooks appended follows the prompt.
     """
 
     appended: list[str] = []
@@ -537,17 +539,17 @@ def dispatch_before_agent_start_hooks(
             project_trusted=project_trusted,
         )
         options = SystemPromptOptions(sections={} if sections is None else sections)
-        for index, hook in enumerate(hooks):
-            if index and render_system_prompt is not None:
-                system_prompt = render_system_prompt()
+        for hook in hooks:
             # Later hooks see earlier hooks' appended context (ordered
             # composition), matching `BeforeAgentStartEvent.system_prompt`.
-            current_prompt = "\n".join([system_prompt, *appended])
+            prompt: str | Callable[[], str] = "\n".join([system_prompt, *appended])
+            if render_system_prompt is not None:
+                prompt = functools.partial(
+                    _prompt_with_appended, render_system_prompt, tuple(appended)
+                )
             try:
                 result = hook(
-                    BeforeAgentStartEvent(
-                        system_prompt=current_prompt, system_prompt_options=options
-                    ),
+                    BeforeAgentStartEvent(prompt, system_prompt_options=options),
                     ctx,
                 )
                 if inspect.isawaitable(result):
@@ -571,6 +573,10 @@ def dispatch_before_agent_start_hooks(
             + "\n[pipy: before_agent_start injection truncated]"
         )
     return BeforeAgentStartResult(append_system_prompt=combined)
+
+
+def _prompt_with_appended(render: Callable[[], str], appended: tuple[str, ...]) -> str:
+    return "\n".join([render(), *appended])
 
 
 def bounded_result_blocks(

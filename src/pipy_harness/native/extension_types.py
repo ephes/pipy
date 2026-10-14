@@ -746,18 +746,39 @@ class SystemPromptOptions:
     sections: dict[str, str] = field(default_factory=dict)
 
 
-@dataclass(frozen=True, slots=True)
 class BeforeAgentStartEvent:
     """Presented to a `before_agent_start` hook before an agent run.
 
-    `system_prompt` is the prompt as it was when the hook was called, with
-    the changes of earlier hooks.
+    `system_prompt` is the prompt for the sections as they are when it is
+    read (Pi's `systemPrompt` getter): it shows the changes of earlier hooks
+    and of the hook reading it, and the text earlier hooks appended. The
+    event is built with a text, or with a function that renders it.
     """
 
-    system_prompt: str
-    system_prompt_options: SystemPromptOptions = field(
-        default_factory=SystemPromptOptions
-    )
+    __slots__ = ("_system_prompt", "system_prompt_options")
+
+    def __init__(
+        self,
+        system_prompt: str | Callable[[], str],
+        system_prompt_options: SystemPromptOptions | None = None,
+    ) -> None:
+        self._system_prompt = system_prompt
+        self.system_prompt_options = (
+            SystemPromptOptions()
+            if system_prompt_options is None
+            else system_prompt_options
+        )
+
+    @property
+    def system_prompt(self) -> str:
+        prompt = self._system_prompt
+        return prompt if isinstance(prompt, str) else prompt()
+
+    def __repr__(self) -> str:
+        return (
+            f"BeforeAgentStartEvent(system_prompt={self.system_prompt!r}, "
+            f"system_prompt_options={self.system_prompt_options!r})"
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -486,6 +486,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   declarations, several times per turn. See
   [Presenting the loadout](docs/extension-api.md#presenting-the-loadout).
 
+- `event.system_prompt` of a `before_agent_start` handler is rendered from
+  the sections whenever it is read, as Pi's getter is, so a handler sees its
+  own section changes too; before, it was the text taken when the handler
+  was called. See [the prompt and its sections](docs/extension-api.md#prompt-sections).
+
 - `tool_call` hooks run after argument validation, as in Pi: a call whose
   arguments do not fit the tool's schema gets the validation error and
   reaches no `tool_call` or `tool_result` hook (before, the hooks saw the
