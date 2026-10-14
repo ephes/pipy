@@ -496,3 +496,40 @@ in, one section per item.
   `::test_codemode_result_counts_wrapped_lines_and_names_the_full_output`,
   `::test_codemode_result_is_empty_while_the_script_runs`,
   `::test_codemode_error_result_uses_the_error_colour`.
+
+## N3-d: nested calls in the HTML export (goal-check M20)
+
+### Changelog (Unreleased, Changed)
+
+- Export: the HTML page shows the nested calls of a tool result (a codemode
+  script's calls, from its `nestedCalls` record) as Pi's page does:
+  `Nested calls: <n>`, and on a click one line per call with its status,
+  arguments, duration and error. `docs/extension-api.md` already said the
+  export shows them; now it does.
+
+### Plan updates
+
+- "Decided in S35" (export part of RND-03/RND-04): the page script
+  (`export_distribution._HTML_TEMPLATE`) has `nestedCallsText` and
+  `appendNestedCalls` (Pi `renderNestedCalls` with `formatExpandableOutput(
+  text, 1)`), applied to every tool result with a `details.nestedCalls`
+  record (Pi reads `result.nestedCalls`; pipy keeps the record in
+  `details`). It goes into the drawn call's box (`renderedBoxes`) when the
+  result is drawn there, and into the "Tool result" entry otherwise. The
+  boxes are a `Map` and a call is shown only with a string `name` and
+  `status` (imported files may hold anything in `details`).
+- Section 3.1, difference (proposal, kind "other form"): a cancelled call
+  is `⊘` (Pi's page has no icon for it and prints `?`); durations are
+  rounded to whole milliseconds; codemode calls themselves are not drawn
+  ahead (no `renderedTools` entry), because pipy has no codemode call
+  renderer (see N3-c).
+
+### Acceptance note / audit test
+
+- RND-04 (export): tests
+  `tests/test_native_export_nested_calls.py::test_a_result_with_nested_calls_shows_them`,
+  `::test_a_drawn_call_shows_its_nested_calls_in_its_box`,
+  `::test_a_result_without_nested_calls_shows_none`,
+  `::test_malformed_calls_are_left_out_and_the_page_goes_on`,
+  `::test_a_drawn_result_before_its_call_is_shown_on_its_own` (the page script run
+  under Node with a stand-in DOM; skipped where `node` is missing).
