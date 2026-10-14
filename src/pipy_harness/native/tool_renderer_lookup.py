@@ -10,8 +10,9 @@ way before their server connected, and when it never does. Here that rule is
 part of what the tool itself has.
 
 pipy draws the rows of its built-in tools and of MCP tools itself
-(``tool_rows``), so what a lookup answers for them is a marker, not a pair
-of extension renderers.
+(``tool_rows``). What a lookup answers for them is a marker the rows
+recognise, and also real renderers a resolver can call and wrap: they draw
+pipy's own rows of the call through the context's row.
 """
 
 from __future__ import annotations
@@ -25,30 +26,51 @@ from pipy_harness.native.tools.name_patterns import mcp_tool_label_from_name
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import (
         ExtensionTool,
+        ToolRenderContext,
         ToolRendererResolver,
     )
+
+
+def _own_rows(ctx: ToolRenderContext, phase: str, label: str | None) -> object:
+    """A component with pipy's own rows of ``ctx``'s call, or None where no
+    row asked (a context made outside pipy's rows)."""
+
+    from pipy_harness.native.extension_ui import lines_component
+
+    draw = ctx._own_rows
+    lines = None if draw is None else draw(phase, label)
+    return None if lines is None else lines_component(list(lines))
 
 
 @dataclass(frozen=True, slots=True)
 class BuiltinToolRows:
     """pipy's own rows for the calls to a built-in tool.
 
-    A resolver gets this from ``next()``. It has the two attributes of
-    ``ToolRenderers``, both None: pipy's own rows cannot be called.
+    A resolver gets this from ``next()``. Like Pi's built-in renderers, its
+    ``render_call`` and ``render_result`` can be called and wrapped: they
+    draw pipy's rows of the call (``ToolRenderers``'s shape).
     """
 
-    render_call: None = field(default=None, init=False)
-    render_result: None = field(default=None, init=False)
+    def render_call(self, ctx: ToolRenderContext) -> object:
+        return _own_rows(ctx, "call", None)
+
+    def render_result(self, ctx: ToolRenderContext) -> object:
+        return _own_rows(ctx, "result", None)
 
 
 @dataclass(frozen=True, slots=True)
 class McpToolRows:
-    """pipy's own rows for the calls to an MCP server tool."""
+    """pipy's own rows for the calls to an MCP server tool (Pi
+    ``createMcpToolRenderers``), callable like ``BuiltinToolRows``."""
 
     # `<server>/<tool>` (Pi `label`), safe to print: see `_printable`.
     label: str
-    render_call: None = field(default=None, init=False)
-    render_result: None = field(default=None, init=False)
+
+    def render_call(self, ctx: ToolRenderContext) -> object:
+        return _own_rows(ctx, "call", self.label)
+
+    def render_result(self, ctx: ToolRenderContext) -> object:
+        return _own_rows(ctx, "result", self.label)
 
 
 @dataclass(frozen=True, slots=True)

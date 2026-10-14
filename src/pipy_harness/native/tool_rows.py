@@ -28,7 +28,7 @@ import json
 import posixpath
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -1259,12 +1259,76 @@ def _render_extension(
         ),
         invalidate=lambda: _redraw(state),
         last_component=state.last_components.get(phase),
+        _own_rows=lambda own_phase, label: _own_lines(
+            state, inputs, result, own_phase, label
+        ),
     )
 
     def keep(component: object | None) -> None:
         state.last_components[phase] = component
 
     return render_tool_phase(renderer, ctx, keep=keep)
+
+
+def _own_lines(
+    state: ToolRowState,
+    inputs: RowRenderInputs,
+    result: ToolRowResult | None,
+    phase: str,
+    mcp_label: str | None,
+) -> list[str] | None:
+    """pipy's own rows of ``state``'s call, for a renderer that wraps them
+    (``BuiltinToolRows``, ``McpToolRows``): the built-in tool's rows, or
+    the MCP rows titled ``mcp_label``. Wrapped at the content width, since
+    a renderer's lines are drawn as they are. None for a result phase
+    without a result."""
+
+    own = replace(
+        state,
+        extension=None,
+        mcp_label=mcp_label,
+        renderer_state={},
+        last_components={},
+        invalidate=None,
+    )
+    bg: RowBackground = "pending"
+    if state.result is not None:
+        bg = "error" if state.result.is_error else "success"
+    theme = inputs.theme
+    if is_builtin_edit(own):
+        # The edit box: its title and diff are the call, what the result
+        # adds below it is the result (Pi's edit renderer).
+        if own.result is not None:
+            apply_edit_result(own)
+        if phase == "call":
+            box = [
+                f"{_title(theme, 'edit')} {_tool_path(theme, _js_str(_file_path_arg(own.args)))}"
+            ]
+            if own.preview is not None:
+                box.extend(
+                    [
+                        "",
+                        theme.fg("error", own.preview.error)
+                        if own.preview.error is not None
+                        else render_diff(theme, own.preview.diff or ""),
+                    ]
+                )
+            rows = _text_rows("\n".join(box), bg)
+        else:
+            rows = _text_rows(_edit_result(own, theme) or "", bg)
+    elif phase == "call":
+        rows = _call_rows(own, inputs, bg)
+    elif result is None:
+        return None
+    else:
+        rows = _result_rows(own, inputs, result, bg, partial=state.result is None)
+    width = max(1, inputs.width - 2)
+    return [
+        wrapped
+        for row in rows
+        for line in row.text.split("\n")
+        for wrapped in wrap_text_with_ansi(line, width)
+    ]
 
 
 def _redraw(state: ToolRowState) -> None:

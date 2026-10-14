@@ -543,7 +543,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-42 | none | The RPC command `get_commands` answers an empty list; Pi lists the extension commands, prompt templates and skills. | narrower | Decided in X1 |
 | DEV-43 | MGR-09 | The manager view beside the open part of MGR-09: the copy key is fixed to Ctrl+X (pipy has no `app.message.copy` action); titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal is cut above its controls, where Pi's scrolls; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34; `docs/mcp.md` "The `/mcp` manager" |
 | DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` and `/share` run no extension code. | other form | Decided in S35, S39 (part 3) |
-| DEV-45 | EXT-15 | A resolver's `next()` gives a marker for pipy's own rows and `None` for an extension tool without renderers, so a resolver cannot call and wrap pipy's rows as it can wrap Pi's renderers. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35 |
+| DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9), but a wrapped `edit` row has no live preview and a wrapped `bash` row no ticking time while it runs. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
 | DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls always run concurrently (no sequential mode, no `executionMode`), and those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result is a text chunk (G2). No event is emitted for a name that is not callable. Usage is DEV-13. | narrower | Decided in S37 |
@@ -4110,6 +4110,20 @@ so a resumed row is drawn where it is shown. Captured rows
 so their `invalidate` does nothing; `render_tool_phase` reports the returned
 component through `keep`. `outputPad` is not ported (no `renderShell`).
 Tests: `test_native_tool_render_context.py`.
+Part 5 (findings E6, M23): `BuiltinToolRows` and `McpToolRows` have real
+`render_call` and `render_result` (Pi's built-in renderers and
+`createMcpToolRenderers` returned by `next()`): they call the context's
+private `_own_rows(phase, mcp_label)`, which the row that asked supplies,
+and return pipy's lines of that part as a component (None for a context
+pipy did not make). The terminal rows (`tool_rows._own_lines`) draw a copy
+of the row without its extension renderers, with the MCP title or as the
+built-in tool (the `edit` box with its diff is the call, what its result
+adds is the result), wrapped at the content width; the captured renderer
+gives its header and its result preview. A marker returned as it is keeps
+pipy's own rows as before. Tests: `test_a_resolver_wraps_a_built_in_tools_rows`,
+`test_a_resolver_wraps_an_mcp_tools_rows`,
+`test_the_line_renderer_lets_a_resolver_wrap_its_own_rows`,
+`test_own_rows_outside_a_row_draw_nothing`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

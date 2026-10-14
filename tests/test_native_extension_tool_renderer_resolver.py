@@ -108,11 +108,12 @@ def test_a_resolver_that_only_fills_in_keeps_pipys_own_rows() -> None:
         "read",
         "not_registered",
     ]
-    # What `next()` hands out has the two attributes, both None.
+    # What `next()` hands out has the two renderers, which can be called
+    # (goal-check findings E6, M23; see the wrapping tests).
     for _name, following in seen[:3]:
         assert following is not None
-        assert getattr(following, "render_call", 0) is None
-        assert getattr(following, "render_result", 0) is None
+        assert callable(getattr(following, "render_call", None))
+        assert callable(getattr(following, "render_result", None))
 
 
 def test_a_resolver_can_replace_any_tools_rows() -> None:
@@ -531,3 +532,100 @@ def test_a_session_draws_calls_with_a_registered_resolver(
     # `following()` had pipy's own rows for these.
     assert "docs/search q=1" in lines
     assert "ls ." in lines
+
+
+# -- wrapping what `next()` gives (goal-check findings E6, M23) ---------------
+
+
+def _wrapping(name: str, following: Any) -> object | None:
+    """Pi: a resolver calls `next()`'s renderers and adds a line."""
+
+    inner = following()
+    if inner is None:
+        return None
+
+    def wrap(render: Any, tag: str) -> Any:
+        def draw(ctx: Any) -> object:
+            component = render(ctx)
+            lines = [] if component is None else list(component.render(ctx.width))
+            return lines_component([f"[{tag}]", *lines])
+
+        return draw
+
+    return ToolRenderers(
+        render_call=wrap(inner.render_call, "call"),
+        render_result=wrap(inner.render_result, "result"),
+    )
+
+
+def test_a_resolver_wraps_a_built_in_tools_rows(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n")
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(_wrapping,)))
+
+    live.call("ls", {"path": "src"})
+    live.renderer.render_tool_result(output_text="a.py", is_error=False)
+    live.call("edit", {"path": "a.py", "edits": [{"oldText": "1", "newText": "2"}]})
+    live.renderer.render_tool_result(
+        output_text="edited",
+        is_error=False,
+        details={"diff": "-1 x = 1\n+1 x = 2", "firstChangedLine": 1},
+    )
+
+    ls_row, edit_row = live.rows()
+    assert ls_row == ["[call]", "ls src", "[result]", "a.py"]
+    # The edit's box (title and diff) is its call; its result adds nothing.
+    assert edit_row[:4] == ["[call]", "edit a.py", "-1 x = 1", "+1 x = 2"]
+    assert edit_row[4:] == ["[result]"]
+
+
+def test_a_resolver_wraps_an_mcp_tools_rows(tmp_path: Path) -> None:
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(
+            mcp_labels={"mcp__docs__search": "docs/search"}, resolvers=(_wrapping,)
+        )
+    )
+
+    live.call("mcp__docs__search", {"query": "pi"})
+    live.renderer.render_tool_result(
+        output_text="\n".join(f"hit {n}" for n in range(7)), is_error=False
+    )
+
+    (row,) = live.rows()
+    assert row[:3] == ["[call]", 'docs/search query="pi"', "[result]"]
+    # Pi's MCP renderer: the first five lines collapsed.
+    assert row[3:8] == [f"hit {n}" for n in range(5)]
+    assert "hit 6" not in row
+
+
+def test_the_line_renderer_lets_a_resolver_wrap_its_own_rows() -> None:
+    # The write content and the edit diff are part of the wrapped result.
+    assert _line_rows(_wrapping, [_LS, _WRITE, _EDIT]) == [
+        "[call]",
+        "ls src",
+        "[result]",
+        "a.py",
+        "[call]",
+        "write a.py",
+        "[result]",
+        "SECRET BODY",
+        "wrote",
+        "[call]",
+        "edit a.py",
+        "[result]",
+        "-1 old",
+        "+1 new",
+        "edited",
+    ]
+
+
+def test_own_rows_outside_a_row_draw_nothing() -> None:
+    from pipy_harness.native.extension_types import ToolRenderContext
+
+    ctx = ToolRenderContext("ls", {}, False, False, None, None, False, 40, None, {})
+
+    assert BuiltinToolRows().render_call(ctx) is None
+    assert McpToolRows("docs/search").render_result(ctx) is None

@@ -1400,9 +1400,26 @@ def activate(api):
 - What the tool itself has: for an extension tool that has a renderer, the
   `ExtensionTool`; for a built-in tool and for a call to
   `mcp__<server>__<tool>` (whether such a tool is registered or not), an
-  object that stands for pipy's own rows. That object has `render_call` and
-  `render_result` set to `None`: return it to keep pipy's rows, but there is
-  nothing in it to call. For every other name it is `None`.
+  object that stands for pipy's own rows. Return it to keep pipy's rows, or
+  call its `render_call(ctx)` and `render_result(ctx)` inside your own
+  renderers to wrap them, as Pi's built-in and MCP renderers can be: each
+  returns a component with pipy's lines of that part of the row (for `edit`
+  the call is the box with its diff), drawn at `ctx.width`. Called with a
+  context pipy did not make, they return `None`. For every other name it is
+  `None`.
+
+  ```python
+  def resolve(tool_name, next):
+      inner = next()
+      if inner is None:
+          return None
+
+      def call(ctx):
+          lines = inner.render_call(ctx).render(ctx.width)
+          return lines_component(["[audited]", *lines])
+
+      return ToolRenderers(render_call=call, render_result=inner.render_result)
+  ```
 - A renderer of the returned object that is `None` leaves that part to
   pipy's generic row (`name key=value …`, the first 10 result lines), also
   when the tool is a built-in or MCP tool: nothing of pipy's own row for
@@ -1418,9 +1435,11 @@ def activate(api):
 Different from Pi:
 
 - In Pi `next()` returns a registered tool's definition also when it has no
-  renderers, and the built-in tools' and the MCP extension's real renderers,
-  which a resolver can call and wrap. pipy returns `None` for an extension
-  tool without renderers and a marker for its own rows.
+  renderers; pipy returns `None` for an extension tool without renderers.
+- pipy's own rows keep what is outside the two parts when a resolver wraps
+  them only as long as the object itself is returned: a wrapped built-in
+  row has no live `edit` preview and no ticking `bash` time while the call
+  runs, and the HTML export draws built-in tools itself.
 - Pi's `renderShell` is not part of `ToolRenderers`, and the render
   context has no `outputPad`.
 

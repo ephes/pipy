@@ -495,6 +495,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- A tool renderer resolver can call and wrap what `next()` gives for a
+  built-in or MCP tool, as Pi's renderers can be: its `render_call(ctx)`
+  and `render_result(ctx)` now return pipy's own lines of the row instead
+  of being `None`. See [Tool rendering](docs/extension-api.md#tool-rendering).
+
 - A tool's `prepare_loadout` function runs once for each new set of active
   and registered tools, and pipy keeps its result, as Pi does: the
   descriptions, the hidden declarations and the system prompt's tool list

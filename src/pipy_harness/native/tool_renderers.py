@@ -914,19 +914,9 @@ class _ToolLoopRenderer:
         result's ``details.diff`` and the call's ``content`` argument.
         """
 
-        if is_error or not self._own_rows:
+        if not self._own_rows:
             return
-        text = ""
-        if self._last_tool_name == "edit" and details is not None:
-            diff = details.get("diff")
-            text = diff if isinstance(diff, str) else ""
-        elif self._last_tool_name == "write":
-            content = self._last_arguments.get("content")
-            if isinstance(content, str):
-                lines = content.replace("\r", "").replace("\t", "   ").split("\n")
-                while lines and lines[-1] == "":
-                    lines.pop()
-                text = "\n".join(lines)
+        text = self._mutation_preview(is_error, details)
         if text:
             try:
                 with self._terminal_lock:
@@ -934,6 +924,25 @@ class _ToolLoopRenderer:
                     self._error_stream.flush()
             except (ValueError, OSError):
                 pass
+
+    def _mutation_preview(
+        self, is_error: bool, details: Mapping[str, Any] | None
+    ) -> str:
+        """The edit diff or the write content of the current call, or ""."""
+
+        if is_error:
+            return ""
+        if self._last_tool_name == "edit" and details is not None:
+            diff = details.get("diff")
+            return diff if isinstance(diff, str) else ""
+        if self._last_tool_name == "write":
+            content = self._last_arguments.get("content")
+            if isinstance(content, str):
+                lines = content.replace("\r", "").replace("\t", "   ").split("\n")
+                while lines and lines[-1] == "":
+                    lines.pop()
+                return "\n".join(lines)
+        return ""
 
     def _extension_result_lines(
         self,
@@ -974,30 +983,34 @@ class _ToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None,
     ) -> None:
-        lines = output_text.splitlines() or [""]
-        tail_preview = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
-        earlier = len(lines) - len(tail_preview)
-        if earlier > 0:
-            self._error_stream.write(
-                self._tool_panel_line(
-                    f"... ({earlier} earlier lines, ctrl+o to expand)",
-                    style=self._ANSI_DIM,
-                )
-            )
-            tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
-        for line in tail_preview:
-            self._error_stream.write(self._tool_panel_line(line, style=self._ANSI_DIM))
-        if is_error:
-            self._error_stream.write(
-                self._tool_panel_line(
-                    "[error] tool reported a failure",
-                    style=self._ANSI_RED + self._ANSI_DIM,
-                )
-            )
+        for text, style in self._default_result_lines(output_text, is_error):
+            self._error_stream.write(self._tool_panel_line(text, style=style))
         if duration_seconds is not None:
             self._write_result_duration(duration_seconds)
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
+
+    def _default_result_lines(
+        self, output_text: str, is_error: bool
+    ) -> list[tuple[str, str]]:
+        """The result preview as ``(text, style)`` lines: the last lines of
+        the output and an error marker."""
+
+        lines = output_text.splitlines() or [""]
+        tail_preview = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+        earlier = len(lines) - len(tail_preview)
+        shown: list[tuple[str, str]] = []
+        if earlier > 0:
+            shown.append(
+                (f"... ({earlier} earlier lines, ctrl+o to expand)", self._ANSI_DIM)
+            )
+            tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
+        shown.extend((line, self._ANSI_DIM) for line in tail_preview)
+        if is_error:
+            shown.append(
+                ("[error] tool reported a failure", self._ANSI_RED + self._ANSI_DIM)
+            )
+        return shown
 
     def _write_result_duration(self, duration_seconds: float) -> None:
         # Keep the caption inside the contiguous panel with a breathing row.
@@ -1043,8 +1056,43 @@ class _ToolLoopRenderer:
             execution_started=self._execution_started,
             is_partial=not is_result,
             duration_ms=duration_ms,
+            _own_rows=lambda phase, label: self._own_lines(
+                phase, label, args, content, is_error, details
+            ),
         )
         return render_tool_phase(renderer, ctx)
+
+    def _own_lines(
+        self,
+        phase: str,
+        mcp_label: str | None,
+        args: Mapping[str, object],
+        content: str | None,
+        is_error: bool,
+        details: Mapping[str, Any] | None,
+    ) -> list[str] | None:
+        """This renderer's own lines of the current call, for a renderer
+        that wraps them: the call header as built-in or MCP rows draw it,
+        or the result preview, after the edit diff or write content of a
+        built-in call. Plain text; the panel styles them."""
+
+        if phase == "call":
+            segments = self._format_pi_call_header_rich(
+                self._last_tool_name,
+                json.dumps(dict(args)),
+                mcp_label=mcp_label,
+                own_rows=mcp_label is None,
+            )
+            return ["".join(text for text, _style in segments)]
+        if content is None:
+            return None
+        preview = (
+            "" if mcp_label is not None else self._mutation_preview(is_error, details)
+        )
+        return [
+            *(preview.split("\n") if preview else ()),
+            *(text for text, _style in self._default_result_lines(content, is_error)),
+        ]
 
     def _tool_panel_line(
         self,
