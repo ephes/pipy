@@ -781,6 +781,16 @@ def test_no_resource_without_metadata() -> None:
         ("http://127.0.0.1:8080/mcp", "http://127.0.0.1:8080/mcp?tenant=1"),
         ("https://mcp.example/a/x/../mcp", "https://mcp.example/a/mcp"),
         ("https://mcp.example/a/mcp", "https://mcp.example/a/x/.."),
+        # Paths are compared as a WHATWG URL parser writes them: characters
+        # of the path percent-encode set and non-ASCII ones are encoded.
+        ("https://mcp.example/café/mcp", "https://mcp.example/caf%C3%A9"),
+        ("https://mcp.example/caf%C3%A9/mcp", "https://mcp.example/café"),
+        ("https://mcp.example/a b/mcp", "https://mcp.example/a%20b"),
+        (
+            'https://mcp.example/a^`{}"<>\x7f/mcp',
+            "https://mcp.example/a%5E%60%7B%7D%22%3C%3E%7F",
+        ),
+        ("https://mcp.example/\ud800/mcp", "https://mcp.example/%EF%BF%BD"),
     ],
 )
 def test_a_resource_at_or_above_the_server_url_is_selected(
@@ -805,6 +815,10 @@ def test_a_resource_at_or_above_the_server_url_is_selected(
         ("https://mcp.example/a/%2e%2E/mcp", "https://mcp.example/a"),
         ("https://mcp.example/mcp", "urn:example:mcp"),
         ("https://mcp.example/mcp", "https:mcp.example/mcp"),
+        # An escape is kept as written, and `|` is not encoded (as by Node).
+        ("https://mcp.example/café/mcp", "https://mcp.example/caf%c3%a9"),
+        ("https://mcp.example/%41/mcp", "https://mcp.example/A"),
+        ("https://mcp.example/a|b/mcp", "https://mcp.example/a%7Cb"),
     ],
 )
 def test_a_resource_that_is_not_the_server_s_fails(

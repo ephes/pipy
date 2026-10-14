@@ -24,8 +24,10 @@ Where this differs from Pi:
 - URLs are read with the config parser (``config.parse_http_url``) and not
   with a WHATWG URL parser. A path loses its dot segments here as there, in
   the URLs built here and in the ones given (a challenge's metadata URL, a
-  configured metadata document), but no character of it is percent-encoded
-  before the comparison in ``select_resource``. A URL that parser does not accept (also one that is
+  configured metadata document). ``select_resource`` compares the paths
+  percent-encoded as a WHATWG parser writes them, so ``/café`` and
+  ``/caf%C3%A9`` are one path; the host is compared as the parser reads it,
+  without IDNA. A URL that parser does not accept (also one that is
   not ``http`` or ``https``) raises ``http.client.InvalidURL`` where a
   request to it would be made, which counts as a network failure, and is no
   match in ``select_resource``.
@@ -39,6 +41,7 @@ from __future__ import annotations
 import http.client
 import re
 import threading
+import urllib.parse
 from typing import Final, Literal
 
 from pipy_harness.native.mcp.config import HttpUrl, parse_http_url
@@ -69,6 +72,8 @@ DiscoveryUrlType = Literal["oauth", "oidc"]
 _SPACE: Final = "\t\n\v\f\r    -     　﻿"
 _CHALLENGE_SCHEMES: Final = ("bearer", "dpop")
 _PROTECTED_RESOURCE: Final = "/.well-known/oauth-protected-resource"
+# The printable ASCII characters of the WHATWG path percent-encode set.
+_PATH_PERCENT_ENCODE: Final = frozenset('"#<>?^`{}')
 
 
 def _field(header: str, name: str) -> str | None:
@@ -331,6 +336,23 @@ def select_resource(
     return resource
 
 
+def _encoded_path(pathname: str) -> str:
+    """``pathname`` as a WHATWG URL parser writes it: the characters of the
+    path percent-encode set, and every one that is not ASCII, as their UTF-8
+    bytes in ``%XX`` escapes; an escape that is there already stays as it
+    was written."""
+
+    return "".join(
+        char
+        if " " < char < "\x7f" and char not in _PATH_PERCENT_ENCODE
+        # UTF-8 has no lone surrogate; the parser writes U+FFFD for one.
+        else urllib.parse.quote(
+            "\ufffd" if "\ud800" <= char <= "\udfff" else char, safe=""
+        )
+        for char in pathname
+    )
+
+
 def _directory(url: HttpUrl) -> str:
-    pathname = url.pathname
+    pathname = _encoded_path(url.pathname)
     return pathname if pathname.endswith("/") else f"{pathname}/"

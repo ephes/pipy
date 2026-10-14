@@ -245,3 +245,40 @@ Plan rows and texts:
 - A deviation to record for the OAuth fetch: `br` and `zstd` are neither
   asked for nor decoded (Node asks for both over `https`); user info in a
   `Location` is refused; a `Location` is resolved with `urljoin`.
+
+## L2, commit 2: O4 (path encoding before the resource comparison)
+
+Pi source read again: `packages/mcp/src/oauth/discovery.ts`,
+`selectResource` (line 202): both URLs go through `new URL`, whose
+`pathname` percent-encodes the path percent-encode set (`"`, `#`, `<`, `>`,
+`?`, `^`, `` ` ``, `{`, `}`, space, C0 controls, DEL) and every non-ASCII
+character as UTF-8, keeps existing escapes as written and leaves `|` alone
+(checked with Node 26: `/café/mcp` against `/caf%C3%A9` matches, against
+`/caf%c3%a9` does not, `/a|b` against `/a%7Cb` does not). The finding holds:
+pipy compared `/café/mcp` with `/caf%C3%A9` as written and stopped the
+authorization.
+
+What changed, in `src/pipy_harness/native/mcp/oauth/discovery.py`:
+`select_resource` encodes both paths that way (after removing dot segments,
+as before) before the prefix comparison. The `resource` value sent is still
+the one the metadata names, and the error text still names the server URL
+as `parse_http_url` writes it.
+
+Changelog line (section Unreleased):
+
+- Signing in to an MCP server whose configured URL has a non-ASCII or
+  otherwise unencoded path character (`https://example.com/café/mcp`) works
+  when the server's protected resource metadata writes that path
+  percent-encoded. Before, the sign-in stopped with `Protected resource ...
+  does not match MCP server ...`.
+
+Plan rows and texts:
+
+- OAU-06 stays closed; its text does not change.
+- The S27 notes that say no character of a path is percent-encoded before
+  the comparison in `select_resource` are superseded by the module text.
+- A difference that stays: the host is compared as `parse_http_url` reads
+  it, without IDNA, so a server URL with `bücher.de` and a resource with
+  `xn--bcher-kva.de` do not match, where Pi's `URL` writes both in punycode.
+  Store keys and the CIMD callback id are computed over the URL as
+  `parse_http_url` writes it, as recorded since S30 and S32.
