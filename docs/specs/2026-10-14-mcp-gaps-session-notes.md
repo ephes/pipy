@@ -366,3 +366,53 @@ in, one section per item.
   `/mcp reconnect` and `/mcp` status); the existing
   `tests/test_product_session_api.py::test_submit_is_literal_multiline_provider_content`
   still pins that `/exit` and `!` reach the model as text.
+
+## N3-a: the `/mcp` manager scrolls long text and copies with `app.message.copy` (goal-check E19, E21, O8)
+
+### Changelog (Unreleased, Changed)
+
+- MCP: a screen of the `/mcp` manager that is taller than the terminal
+  shows a server's details and error, a status message or the
+  authorization URL through a window that PageUp and PageDown
+  (`tui.select.pageUp`/`pageDown`) scroll, with a line such as
+  `… lines 1-9 of 26, pageup/pagedown to scroll`. Before, the text was cut
+  short and the rest could not be read.
+- Keybindings: new action `app.message.copy` (default `ctrl+x`), which can
+  be rebound in `keybindings.json`. The sign-in screen of the `/mcp`
+  manager copies the authorization URL with it, as Pi's does; before, the
+  key was fixed to Ctrl+X.
+
+### Plan updates
+
+- DEV-43: remove "the copy key is fixed to Ctrl+X (pipy has no
+  `app.message.copy` action)" and replace "a screen taller than the
+  terminal is cut above its controls, where Pi's scrolls" with "a screen
+  taller than the terminal shows the text above its controls through a
+  window that PageUp/PageDown scroll, where Pi's output scrolls with the
+  terminal". Add: `app.message.copy` is used only on the sign-in screen;
+  Pi also copies the selected `/tree` message and the last assistant
+  message with it (not ported; the editor has no copy action).
+- "Decided in S34", "Narrower than Pi": remove "the copy key is fixed to
+  `ctrl+x` because pipy has no `app.message.copy` action". Add: the view's
+  scroll state (`_Scroll.scroll`/`page`) belongs to the screen shown; a new
+  screen starts at the top, a live menu built again keeps its window, and
+  drawing clamps the window to the text. A menu's text above a long list
+  keeps three rows (two lines and the note), so it can always be
+  scrolled. Page keys scroll only while the text does not fit and never
+  when they are one of the screen's own keys (a copy key bound to PageDown
+  copies). `app.message.copy` joins
+  `ui/key_specs.USER_KEYBINDING_ACTIONS`; the other keys of the view
+  (`tui.select.*`) stay at their defaults, as before.
+
+### Acceptance note / audit test
+
+- MGR-02/MGR-03 (long details and errors readable): tests
+  `tests/test_native_mcp_manager_view.py::test_page_keys_scroll_a_message_that_does_not_fit`,
+  `::test_a_long_error_scrolls_while_the_menu_keeps_its_keys`,
+  `::test_page_keys_do_not_reach_the_input_of_the_sign_in_screen`, and the
+  updated `::test_a_long_error_leaves_the_actions_on_the_screen`,
+  `::test_a_long_url_leaves_the_input_and_the_keys_on_the_screen`,
+  `::test_a_status_message_is_cut_short_too`.
+- MGR-09 row: remove "The copy key is fixed to Ctrl+X." and "DEV-43 for the
+  copy key"; add test
+  `tests/test_native_mcp_manager_view.py::test_the_copy_key_is_the_users_app_message_copy_binding`.

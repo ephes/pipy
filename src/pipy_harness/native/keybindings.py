@@ -105,6 +105,9 @@ APP_KEYBINDINGS: dict[str, KeybindingDefault] = {
     "app.thinking.toggle": _kb("ctrl+t", "Toggle thinking blocks"),
     "app.session.toggleNamedFilter": _kb("ctrl+n", "Toggle named session filter"),
     "app.editor.external": _kb("ctrl+g", "Open external editor"),
+    # Pi also copies the last assistant message with it in the editor; pipy
+    # uses it only on the MCP sign-in screen, to copy the sign-in URL.
+    "app.message.copy": _kb("ctrl+x", "Copy selection or last assistant message"),
     "app.message.followUp": _kb("alt+enter", "Queue follow-up message"),
     "app.message.dequeue": _kb("alt+up", "Restore queued messages"),
     "app.clipboard.pasteImage": _kb("ctrl+v", "Paste image from clipboard"),

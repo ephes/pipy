@@ -403,9 +403,10 @@ closed gets `codemode` or `tool_search` activated, when its exposure needs
 one, before the next prompt runs.
 
 A screen that is taller than the terminal keeps its controls on the screen:
-a long error or URL is cut short, with a line such as `… 16 more lines`, and
-a long list shows fewer servers at a time. [`pipy mcp list`](#list) in a
-shell prints a server's whole error.
+a long error or URL is shown through a window, with a line such as
+`… lines 1-9 of 26, pageup/pagedown to scroll`, and a long list shows fewer
+servers at a time. PageUp and PageDown move the window by its height.
+[`pipy mcp list`](#list) in a shell prints a server's whole error.
 
 #### Signing in from the manager
 
@@ -430,7 +431,8 @@ When the browser comes back to this machine the sign-in goes on by itself.
 When it cannot reach this machine, over SSH for example, copy the URL from
 the address bar of the page the browser ended on (it starts with
 `http://127.0.0.1:`), paste it into the input and press Enter; an empty
-input is not submitted. Ctrl+X copies the authorization URL to the
+input is not submitted. Ctrl+X (the key bound to `app.message.copy` in
+[`keybindings.json`](keybindings.md)) copies the authorization URL to the
 clipboard, for a URL too long to select in the terminal. While the server
 is connected again the screen says `Connecting…`. Escape or Ctrl+C cancels
 the sign-in at each of these steps and closes the screen at once.
@@ -447,14 +449,15 @@ Different from Pi in the manager:
 - The authorization URL is plain text, not a terminal hyperlink, so there
   is no "click to open" hint. Most terminals still let you click a URL that
   fits on one line; use Ctrl+X for one that wraps.
-- Ctrl+X is fixed. In Pi it is the key bound to `app.message.copy`, an
-  action pipy does not have.
+- `app.message.copy` copies only the sign-in URL in pipy. In Pi the same
+  key also copies messages in the editor and in `/tree`.
 - The title of a screen is not bold, and the note after a copy has no colour
   of its own.
 - The pasted URL is edited with the keys of pipy's selector input:
   Backspace, Left and Right, Home and End, Ctrl+U and Ctrl+K.
 - Pi's screen scrolls with the terminal when it is taller than the window.
-  pipy cuts the text above the controls short instead, as described above.
+  pipy shows the text above the controls through a window that PageUp and
+  PageDown scroll instead, as described above.
 - In Pi the cancel key does nothing while the server is connected again
   after the tokens were stored; in pipy it ends the waiting.
 - A `Sign out` that cannot delete the credentials (the credentials file

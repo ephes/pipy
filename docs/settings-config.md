@@ -429,6 +429,8 @@ pipy ships the same default app-binding table Pi defines in
 - `app.thinking.toggle` = `ctrl+t` — toggle thinking blocks
 - `app.session.toggleNamedFilter` = `ctrl+n`
 - `app.editor.external` = `ctrl+g` — open external editor
+- `app.message.copy` = `ctrl+x` — on the MCP sign-in screen, copy the
+  sign-in URL (Pi also copies the last assistant message with it)
 - `app.message.followUp` = `alt+enter` — queue follow-up
 - `app.message.dequeue` = `alt+up` — restore queued messages
 - `app.clipboard.pasteImage` = `ctrl+v` (`alt+v` on Windows)
