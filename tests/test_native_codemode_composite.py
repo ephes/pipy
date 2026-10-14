@@ -44,7 +44,13 @@ from pipy_harness.native.agent.tools import (
     ToolInterruptWaiter,
 )
 from pipy_harness.native.codemode import host
-from pipy_harness.native.codemode.outcome import CallResult, ScriptLimits
+from pipy_harness.native.codemode.outcome import (
+    CPU_SECONDS_MAX,
+    CallResult,
+    ScriptImage,
+    ScriptLimits,
+    ScriptOutcome,
+)
 from pipy_harness.native.codemode.runtime import RUNTIME_PIN, CodemodePaths
 from pipy_harness.native.coding.codemode_runner import CodemodeCompositeRunner
 from pipy_harness.native.repl.turn_leaves import wait_for_external_tool_interrupt
@@ -1265,3 +1271,135 @@ def test_a_call_a_script_call_made_ends_when_that_call_returns(
         ("parent/1/1", "cancelled"),
     ]
     assert cancelled.wait(1)
+
+
+# Goal-check finding M17, Pi ``executeCodemode``: per-script options from the
+# first line, and no deadline by default.
+
+
+def test_the_options_line_sets_the_deadline_and_the_output_budget(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    code = (
+        '// @options: {"timeout_ms": 1500, "max_output_tokens": 10}\n'
+        "print('x' * 100)\n"
+        "while True:\n"
+        "    pass\n"
+    )
+    runner = CodemodeCompositeRunner(paths=paths)
+    loop, _, _ = _loop(tmp_path, code, runner=runner)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert parent.is_error
+    assert parent.details is not None
+    assert parent.details["truncation"]["maxTokens"] == 10
+    body = Path(parent.details["fullOutputPath"]).read_text()
+    assert body.startswith("x" * 100 + "\nScript error:\n")
+    assert "Script timed out: Execution timed out after 1.5 s" in body
+
+
+def test_the_options_line_keeps_the_line_numbers(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    code = '// @options: {"max_output_tokens": 2000}\n\nraise ValueError("third")\n'
+    loop, _, _ = _loop(tmp_path, code, paths=paths)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert parent.is_error
+    assert "line 3" in parent.content.value
+    assert "ValueError: third" in parent.content.value
+
+
+def test_invalid_options_are_an_error_before_any_script_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_run(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the script must not run")
+
+    monkeypatch.setattr("pipy_harness.native.coding.codemode_runner.run_script", no_run)
+    loop, _, _ = _loop(tmp_path, '// @options: {"retries": 2}\ntext(1)')
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert parent.is_error
+    assert parent.content.value == (
+        "@options only supports `max_output_tokens` and `timeout_ms`; got `retries`"
+    )
+
+
+@pytest.mark.parametrize(
+    ("first_line", "wall_seconds", "max_tokens"),
+    [
+        ("", None, 10_000),
+        ('// @options: {"timeout_ms": 2500}\n', 2.5, 10_000),
+        # A budget past the 64 KiB a result's text may hold acts as the most
+        # that fits.
+        ('// @options: {"max_output_tokens": 1000000}\n', None, 16_000),
+    ],
+)
+def test_a_script_has_no_deadline_unless_it_sets_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_line: str,
+    wall_seconds: float | None,
+    max_tokens: int,
+) -> None:
+    seen: list[ScriptLimits] = []
+
+    def fake_run(code: str, **kwargs: object) -> ScriptOutcome:
+        limits = kwargs["limits"]
+        assert isinstance(limits, ScriptLimits)
+        seen.append(limits)
+        return ScriptOutcome(None, output=("y" * 200_000,))
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", fake_run
+    )
+    runner = CodemodeCompositeRunner()
+    loop, _, _ = _loop(tmp_path, first_line + "text(1)", runner=runner)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert [limits.wall_seconds for limits in seen] == [wall_seconds]
+    if wall_seconds is None:
+        assert seen[0].cpu_seconds == CPU_SECONDS_MAX
+    assert not parent.is_error
+    assert parent.details is not None
+    assert parent.details["truncation"]["maxTokens"] == max_tokens
+    assert len(parent.content.value) < 64 * 1024
+
+
+def test_the_budget_leaves_room_for_the_images_path_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review finding: the largest budget plus 40 image path lines must still
+    # fit the 64 KiB a result's text may hold; each image is saved once.
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    output: tuple[str | ScriptImage, ...] = (
+        "z" * 64_000,
+        *([ScriptImage(png, "image/png")] * 40),
+    )
+
+    def fake_run(code: str, **kwargs: object) -> ScriptOutcome:
+        return ScriptOutcome(None, output=output)
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", fake_run
+    )
+    loop, _, _ = _loop(
+        tmp_path,
+        '// @options: {"max_output_tokens": 16000}\ntext(1)',
+        runner=CodemodeCompositeRunner(),
+    )
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert not parent.is_error, parent.content.value[:300]
+    assert len(parent.content.value) <= 64 * 1024
+    assert parent.content.value.count("[Image saved to ") == 40
+    assert len(list(tmp_path.glob("pipy-codemode-*.png"))) == 1
+    assert parent.details is not None
+    assert parent.details["truncation"]["maxTokens"] < 16_000

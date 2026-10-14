@@ -41,10 +41,12 @@ def test_definition_literal_contract_and_fallback(tmp_path: Path) -> None:
         "starts the call and returns at once; its `.result()` returns or raises as "
         "the call would, so calls submitted together run at the same time. Calls "
         "still running when the script ends are cancelled.\n"
+        '- Optional first line: `// @options: {"max_output_tokens": 10000, '
+        '"timeout_ms": 60000}`\n'
         "- Unavailable modules: subprocess, socket networking, ssl, threading, "
-        "ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 120 s wall time, 256 MiB "
-        "memory, about 10k tokens of output. Tool calls already made are not undone "
-        "when the script fails.\n"
+        "ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 256 MiB memory, about 10k "
+        "tokens of output; no wall time limit unless `timeout_ms` sets one. Tool "
+        "calls already made are not undone when the script fails.\n"
         "\n"
         "Globals:\n"
         "- `text(value)` emits output: strings as-is, anything else as JSON. "

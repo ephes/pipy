@@ -426,20 +426,21 @@ inspected end-to-end/tmux evidence.
 
 | Limit | Default | Mechanism |
 |---|---|---|
-| Wall time per script, including nested tool time | 120 s | Host deadline on the I/O thread, then kill. During a nested call, the deadline also cancels the active tool through the executor's `cancel_event` path. |
-| Guest CPU backstop | wall + 5 s | Epoch deadline (10 ms ticks). The ticks count wall time, including time blocked on host replies (verified in T2), so the host wall timer is primary. |
+| Wall time per script, including nested tool time | none; a script's `timeout_ms` option sets one (MCP parity plan G5; 120 s before) | Host deadline on the I/O thread, then kill. During a nested call, the deadline also cancels the active tool through the executor's `cancel_event` path. |
+| Guest CPU backstop | wall + 5 s; 25 days without a deadline | Epoch deadline (10 ms ticks). The ticks count wall time, including time blocked on host replies (verified in T2), so the host wall timer is primary. |
 | Guest memory | 256 MiB | `Store.set_limits(memory_size=…)`. Verified to give `MemoryError` and let the script continue. |
 | Code size | 256 KiB | Host check before spawn |
 | Protocol line | 1 MiB | Each line the guest sends, checked while buffering |
 | Tool reply | 16 MiB | Each reply line the host sends, checked when it is encoded; a larger result becomes a `ToolError` for that call (MCP parity plan S04) |
 | Total output | 1 MiB or 100 000 `text` messages | Host kills the worker and returns a script error with guidance to write large data through a tool |
-| Model-visible output | 10 000 tokens (chars/4) | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
+| Model-visible output | 10 000 tokens (chars/4); a script's `max_output_tokens` option sets it, at most what fits the 64 KiB result text | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
 | Diagnostic stderr | 64 KiB | Captured, never parsed |
 | Nested calls | Turn tool budget | §4.4 |
 
-Pi's default wall limit is effectively unlimited. pipy deliberately sets a
-finite one, because the plan requires it. Per-script overrides (Pi's
-`// @options:` line) are deferred.
+Pi's default wall limit is effectively unlimited. pipy first set a finite
+one (120 s); since MCP parity plan G5 it follows Pi: no deadline unless the
+script's `// @options:` line sets `timeout_ms`, and `max_output_tokens`
+there sets the output budget.
 
 ### 4.6 Error result shape (Pi-adopted)
 
@@ -525,10 +526,11 @@ Fixed part, followed by pipy's read/filter guidance and its runnable example
 >   `.result()` returns or raises as the call would, so calls submitted
 >   together run at the same time. Calls still running when the script ends
 >   are cancelled.
+> - Optional first line: `// @options: {"max_output_tokens": 10000, "timeout_ms": 60000}`
 > - Unavailable modules: subprocess, socket networking, ssl, threading,
->   ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 120 s wall time, 256 MiB
->   memory, about 10k tokens of output. Tool calls already made are not undone
->   when the script fails.
+>   ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 256 MiB memory, about 10k
+>   tokens of output; no wall time limit unless `timeout_ms` sets one. Tool
+>   calls already made are not undone when the script fails.
 >
 > Globals:
 >
@@ -574,15 +576,18 @@ directly instead of adding format-probe calls." No tool adds to them.
 
 - Python instead of JavaScript.
 - A process plus a wasm runtime instead of a worker thread.
-- A finite default wall limit.
+- The options line keeps Pi's `//` form inside a JSON `code` string, and
+  the output budget is capped by the 64 KiB result text (MCP parity plan
+  G5; before G5 a finite 120 s wall limit was the default).
 - Calls run at the same time only when the script submits them
   (`tools.<name>.submit`, MCP parity plan G3), at most 16 at once; a plain
   call waits for its result. Before G3 calls were sequential.
 - A JSON `code` string instead of raw-source grammar.
 - No `return`, `console.*` or `exit()`; print is equivalent to text.
 - Deferred: `image()`, `models.*`, `searchTools()` and
-  related helpers, MCP exposure tiers, structured tool results and the
-  options line. `store()`/`load()` landed with MCP parity plan G4.
+  related helpers, MCP exposure tiers and structured tool results.
+  `store()`/`load()` landed with MCP parity plan G4, the options line with
+  G5.
 
 ## 5. First-slice task list
 
@@ -746,7 +751,7 @@ Each task is small and lands with its own tests. The plan's acceptance items
        anything but a `CallResult` is a sandbox error. Running out of fds or
        threads while starting is a sandbox error too. `ScriptLimits` refuses
        values the worker would reject (memory above 4 GiB or not an `int`,
-       wall plus margin above 24 h).
+       wall plus margin above 24 h; 25 days since MCP parity plan G5).
      - The I/O thread owns every pipe, all non-blocking (replies wait in a
        buffer until the guest's stdin is writable), and checks cancel and
        the deadline every iteration (≤ 20 ms). A call stays outstanding

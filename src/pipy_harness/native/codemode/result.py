@@ -144,10 +144,13 @@ def call_summary(calls: Sequence[ToolCallRecord]) -> str:
 
 
 def truncate_output(text: str, max_tokens: int) -> str:
-    """Keep the head and tail of ``text`` within ``max_tokens`` (chars/4)."""
+    """Keep the head and tail of ``text`` within ``max_tokens`` (chars/4).
 
-    if max_tokens < 1:
-        raise ValueError("max_tokens must be at least 1")
+    Pi allows 0, which keeps neither.
+    """
+
+    if max_tokens < 0:
+        raise ValueError("max_tokens must not be negative")
     budget = max_tokens * CHARS_PER_TOKEN
     if len(text) <= budget:
         return text

@@ -282,7 +282,9 @@ def _run_script(
             pin=pin,
             names=frozenset(record["name"] for record in records),
             identifiers=tuple(entry["name"] for entry in tool_table(records)[1]),
-            deadline=started + limits.wall_seconds,
+            deadline=math.inf
+            if limits.wall_seconds is None
+            else started + limits.wall_seconds,
             cancel=cancel,
             tool_stop=tool_stop,
             snapshot=snapshot,
@@ -967,7 +969,14 @@ class _Channel:
                     self.finished,
                     self._launch.tool_stop,
                 )
-                if self.done and self._launch.tool_stop is not None:
+                if (
+                    self.done
+                    and self._launch.tool_stop is not None
+                    and not math.isfinite(self._launch.deadline)
+                ):
+                    # No deadline: only the runner sets it.
+                    stops = (self.finished,)
+                elif self.done and self._launch.tool_stop is not None:
                     try:
                         self._deadline_stop = threading.Timer(
                             max(self._launch.deadline - time.monotonic(), 0),

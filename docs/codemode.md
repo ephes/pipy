@@ -99,6 +99,28 @@ reads two text files through the normal read tool and filters KEEP lines:
 {"code":"matches = []\nfor path in ('alpha.txt', 'beta.txt'):\n    content = tools.read({'path': path})\n    matches.extend({'path': path, 'line': line} for line in content.splitlines() if line.startswith('KEEP '))\ntext({'matches': matches, 'count': len(matches)})"}
 ```
 
+The script may start with Pi's options line, in Pi's `//` form although it is
+not Python; it is replaced by an empty line before the script runs, so line
+numbers stay the same:
+
+```python
+// @options: {"max_output_tokens": 2000, "timeout_ms": 60000}
+text(tools.read({"path": "pyproject.toml"})[:400])
+```
+
+- `max_output_tokens` (default 10000) is the budget of the result's text
+  (characters / 4). Longer output keeps its start and end, and the full text
+  is written to a temp file the result names. pipy's result text holds at
+  most 64 KiB, so a budget above 16000 acts as 16000, and as less when the
+  path lines of the script's images need the room.
+- `timeout_ms` is a deadline for the whole script, tool calls included. There
+  is none by default.
+
+Only these two fields are accepted, `max_output_tokens` as an integer from 0
+and `timeout_ms` from 1 to 2147483647; anything else, an options line with
+no script after it, or an empty script is an error result with Pi's message,
+and the script does not run.
+
 `tools.read({...})` takes the same JSON arguments as a direct call. Calls return
 model-facing text as `str`, after normal result hooks/validation, or raise
 catchable `ToolError`:
@@ -478,16 +500,16 @@ Scripts are not automatically retried after effects.
 
 | Limit | Default |
 | --- | --- |
-| Wall deadline | 120 seconds, including startup and time inside tools |
+| Wall deadline | none; `timeout_ms` in the [options line](#writing-a-script) sets one, including startup and time inside tools |
 | Guest memory | 256 MiB; exhaustion raises catchable `MemoryError` |
 | Source | 256 KiB UTF-8, checked before spawning |
 | Protocol line | 1 MiB per line the script sends (a tool call with its arguments, a text message); violation fails the sandbox. An image message may be as long as the image limit allows |
 | Tool reply | 16 MiB as JSON per call; a larger result raises `ToolError` |
 | Emitted output | 1 MiB of text or 100,000 messages (text and images); excess fails the script |
 | Emitted images | 16 MiB of base64 data in all; `image()` raises `ValueError` beyond it |
-| Result display | 10,000 estimated tokens (characters / 4), head and tail |
+| Result display | 10,000 estimated tokens (characters / 4), head and tail; `max_output_tokens` sets it, up to 16,000 |
 | Worker diagnostics | 64 KiB stderr retained |
-| CPU backstop | wall deadline + 5 seconds |
+| CPU backstop | wall deadline + 5 seconds; 25 days without a deadline |
 
 Before a script starts, pipy waits for the MCP servers the script names that
 are still connecting (see [waiting for servers](mcp.md#waiting-for-servers));
@@ -541,6 +563,5 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-`models.*` and
-options lines are deferred. A resident engine requires
+`models.*` is deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

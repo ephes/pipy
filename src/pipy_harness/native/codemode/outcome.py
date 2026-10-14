@@ -19,7 +19,9 @@ MIB = 1024 * KIB
 # worker.CPU_SECONDS_MAX; the host never imports the worker, a test pins that
 # they match). Limits beyond them are refused here, not by the worker.
 MEMORY_BYTES_MAX = 4 * 1024 * MIB
-CPU_SECONDS_MAX = 24 * 3600.0
+# Above Pi's longest ``timeout_ms`` (2^31 - 1 ms) plus the CPU margin; also
+# the backstop of a script without a deadline.
+CPU_SECONDS_MAX = 25 * 24 * 3600.0
 
 
 class ErrorKind(StrEnum):
@@ -53,13 +55,15 @@ class ScriptLimits:
     base64 data of the images it shows with ``image()``; ``output_messages``
     counts both. An image line may be as long as ``image_bytes`` allows.
 
-    ``wall_seconds`` covers the whole run, nested tool time included. The
-    guest's epoch backstop is set ``cpu_margin_seconds`` above it, because the
-    epoch counts wall time, time blocked on a tool reply included, so the
-    host's wall deadline must fire first.
+    ``wall_seconds`` covers the whole run, nested tool time included; as in
+    Pi there is none by default (``None``), and a script sets one with its
+    ``timeout_ms`` option. The guest's epoch backstop is set
+    ``cpu_margin_seconds`` above it, because the epoch counts wall time, time
+    blocked on a tool reply included, so the host's wall deadline must fire
+    first. Without a deadline the backstop is :data:`CPU_SECONDS_MAX`.
     """
 
-    wall_seconds: float = 120.0
+    wall_seconds: float | None = None
     memory_bytes: int = 256 * MIB
     code_bytes: int = 256 * KIB
     line_bytes: int = 1 * MIB
@@ -73,6 +77,8 @@ class ScriptLimits:
     def __post_init__(self) -> None:
         for limit in fields(self):
             value = getattr(self, limit.name)
+            if limit.name == "wall_seconds" and value is None:
+                continue
             if (
                 isinstance(value, bool)
                 or not isinstance(value, int | float)
@@ -87,11 +93,13 @@ class ScriptLimits:
         if self.cpu_seconds > CPU_SECONDS_MAX:
             raise ValueError(
                 "wall_seconds + cpu_margin_seconds must be at most "
-                f"{CPU_SECONDS_MAX:g} s"
+                f"{CPU_SECONDS_MAX:.0f} s"
             )
 
     @property
     def cpu_seconds(self) -> float:
+        if self.wall_seconds is None:
+            return CPU_SECONDS_MAX
         return self.wall_seconds + self.cpu_margin_seconds
 
 

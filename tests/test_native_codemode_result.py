@@ -106,8 +106,13 @@ def test_truncation_keeps_head_and_tail_like_pi() -> None:
         + "t" * 19
     )
     assert truncate_output("short", max_tokens=10) == "short"
+    # Pi's `max_output_tokens` may be 0, which keeps neither end.
+    assert truncate_output("x", max_tokens=0) == (
+        "Warning: truncated output (original token count: 1)\n"
+        "Total output lines: 1\n\n…1 tokens truncated…"
+    )
     with pytest.raises(ValueError):
-        truncate_output("x", max_tokens=0)
+        truncate_output("x", max_tokens=-1)
 
 
 def test_truncation_covers_the_error_and_exposes_the_full_text() -> None:

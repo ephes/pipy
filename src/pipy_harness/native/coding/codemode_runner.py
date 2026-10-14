@@ -7,7 +7,7 @@ import json
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from pipy_harness.native.agent.content import (
@@ -41,12 +41,18 @@ from pipy_harness.native.codemode.outcome import (
     ScriptOutcome,
 )
 from pipy_harness.native.codemode.result import (
+    CHARS_PER_TOKEN,
     DEFAULT_MAX_OUTPUT_TOKENS,
     ResultText,
     format_result,
     join_output,
 )
 from pipy_harness.native.codemode.runtime import CodemodePaths
+from pipy_harness.native.codemode.source import (
+    CodemodeSourceError,
+    ParsedCodemodeSource,
+    parse_codemode_source,
+)
 from pipy_harness.native.coding.codemode_description import (
     codemode_tool_guidelines,
 )
@@ -60,8 +66,19 @@ from pipy_harness.native.tools.base import (
 from pipy_harness.native.tools.codemode import codemode_definition
 from pipy_harness.native.tools.truncate import format_size
 
+# A result's text is at most 64 KiB (``AgentToolResultMessage``); Pi has no
+# such limit. The output budget leaves this much of it to the header, the
+# truncation lines and the spill notice, so ``max_output_tokens`` acts as at
+# most ``MAX_RESULT_OUTPUT_TOKENS``; the images' path lines take more.
+_RESULT_TEXT_ROOM = 1536
+MAX_RESULT_OUTPUT_TOKENS = (
+    AgentToolResultMessage.CONTENT_MAX_LENGTH - _RESULT_TEXT_ROOM
+) // CHARS_PER_TOKEN
 
-def _spill_result(formatted: ResultText) -> tuple[str, dict[str, object]]:
+
+def _spill_result(
+    formatted: ResultText, max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+) -> tuple[str, dict[str, object]]:
     """Host-only optional spill; publish a path only after successful close."""
     body = formatted.full_output
     if body is None:
@@ -73,7 +90,7 @@ def _spill_result(formatted: ResultText) -> tuple[str, dict[str, object]]:
             "truncatedBy": "tokens",
             "totalCharacters": len(body),
             "totalBytes": len(data),
-            "maxTokens": DEFAULT_MAX_OUTPUT_TOKENS,
+            "maxTokens": max_tokens,
             "estimate": "characters/4",
         }
     }
@@ -157,6 +174,40 @@ def _image_label(image: ScriptImage, save: ImageSaver) -> str:
         reason = str(error) or type(error).__name__
         return f"[Image ({kind}) could not be saved: {reason}]"
     return f"[Image saved to {path} ({kind})]"
+
+
+class SaveOnce:
+    """An :data:`ImageSaver` that saves each image once and gives the same
+    path (or raises the same error) when asked again, so a result's labels
+    can be measured before the result is built."""
+
+    def __init__(self, save: ImageSaver = save_image_file) -> None:
+        self._save = save
+        self._saved: dict[bytes, str | Exception] = {}
+
+    def __call__(self, data: bytes, extension: str) -> str:
+        if data not in self._saved:
+            try:
+                self._saved[data] = self._save(data, extension)
+            except Exception as error:  # noqa: BLE001 - replayed to every caller
+                self._saved[data] = error
+        saved = self._saved[data]
+        if isinstance(saved, Exception):
+            raise saved
+        return saved
+
+
+def fitting_budget(outcome: ScriptOutcome, max_tokens: int, save: ImageSaver) -> int:
+    """The output budget that keeps the result's text within its 64 KiB:
+    ``max_tokens``, less what the images' path lines take."""
+
+    labels = sum(
+        len(_image_label(item, save)) + 1
+        for item in outcome.output
+        if isinstance(item, ScriptImage)
+    )
+    room = AgentToolResultMessage.CONTENT_MAX_LENGTH - _RESULT_TEXT_ROOM - labels
+    return max(0, min(max_tokens, room // CHARS_PER_TOKEN))
 
 
 def result_content(
@@ -253,6 +304,18 @@ class CodemodeCompositeRunner:
     paths: CodemodePaths | None = None
     store: CodemodeStore | None = None
 
+    def _options(self, source: ParsedCodemodeSource) -> tuple[ScriptLimits, int]:
+        """The limits and the output budget of a script with these options:
+        ``timeout_ms`` is the deadline, ``max_output_tokens`` the budget
+        (which :func:`fitting_budget` may lower)."""
+
+        limits = self.limits
+        if source.timeout_ms is not None:
+            limits = replace(limits, wall_seconds=source.timeout_ms / 1000)
+        if source.max_output_tokens is None:
+            return limits, DEFAULT_MAX_OUTPUT_TOKENS
+        return limits, source.max_output_tokens
+
     def execute(
         self,
         call: AgentToolCall,
@@ -294,6 +357,12 @@ class CodemodeCompositeRunner:
             )
         except ValueError as exc:
             return result(str(exc), error=True, malformed=True)
+        # Pi ``parseCodemodeSource``: an optional first line of options.
+        try:
+            source = parse_codemode_source(arguments["code"])
+        except CodemodeSourceError as exc:
+            return result(str(exc), error=True)
+        limits, max_tokens = self._options(source)
         control = _RunControl(tool_waiter)
         # The script's calls run at the same time; each starts in the order
         # the script made it, and ``stop`` ends those still running.
@@ -343,11 +412,11 @@ class CodemodeCompositeRunner:
                 service.callable_tools(), guidelines=codemode_tool_guidelines()
             )
             outcome = run_script(
-                arguments["code"],
+                source.code,
                 start_tool=start,
                 tools=discovery.script_tools(),
                 discover=discovery,
-                limits=self.limits,
+                limits=limits,
                 paths=self.paths,
                 cancel=control.cancel,
                 tool_stop=control.stop,
@@ -359,10 +428,12 @@ class CodemodeCompositeRunner:
             # Pi: only a script that succeeded keeps what it stored.
             if outcome.ok and outcome.store_writes and self.store is not None:
                 self.store.append(outcome.store_writes)
-            formatted = format_result(outcome)
-            text, details = _spill_result(formatted)
+            save = SaveOnce()
+            budget = fitting_budget(outcome, max_tokens, save)
+            formatted = format_result(outcome, max_output_tokens=budget)
+            text, details = _spill_result(formatted, budget)
             text, blocks = result_content(
-                formatted.header, _spilled_items(formatted, text)
+                formatted.header, _spilled_items(formatted, text), save
             )
             return result(
                 text,

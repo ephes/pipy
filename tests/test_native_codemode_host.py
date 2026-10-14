@@ -520,12 +520,14 @@ def test_a_violation_after_a_call_in_the_same_chunk_ends_the_run_before_the_tool
     assert ran == []
 
 
+@pytest.mark.parametrize("limits", [LIMITS, ScriptLimits()])
 def test_a_call_made_just_before_done_always_starts(
-    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], limits: ScriptLimits
 ) -> None:
     # Pi: a call the script made has started, also when the script ends
     # right after it; whether its write shares a chunk with the done does
-    # not matter.
+    # not matter. Without a deadline (goal-check M17) nothing but the end
+    # of the run sets the stop.
     stop = threading.Event()
     started: list[str] = []
     settles: list[Callable[[CallResult], None]] = []
@@ -547,6 +549,7 @@ def test_a_call_made_just_before_done_always_starts(
             f"start()\nraw({line!r})\nhang()\n",
             start_tool=start_tool,
             tool_stop=stop,
+            limits=limits,
         )
         assert outcome.ok, outcome
         # It did not settle before the run ended: it counts as cancelled.
@@ -976,8 +979,8 @@ def test_limits_must_be_positive_and_finite(value: float) -> None:
 @pytest.mark.parametrize(
     ("limits", "message"),
     [
-        ({"wall_seconds": 90_000.0}, "at most 86400 s"),
-        ({"wall_seconds": 86_400.0 - 4}, "at most 86400 s"),
+        ({"wall_seconds": 2_200_000.0}, "at most 2160000 s"),
+        ({"wall_seconds": 2_160_000.0 - 4}, "at most 2160000 s"),
         ({"memory_bytes": 4 * 1024**3 + 1}, "memory_bytes must be at most"),
         ({"memory_bytes": 1024.0 * 1024}, "memory_bytes must be an int"),
     ],

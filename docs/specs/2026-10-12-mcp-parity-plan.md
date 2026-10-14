@@ -480,7 +480,7 @@ owner has decided.
 | DEV-01 (decided) | JavaScript script API: `searchTools`, `describeTool`, `describeNamespace`; TypeScript declarations. | Python names `search_tools`, `describe_tool`, `describe_namespace`; declarations rendered as Python-style types with `#` comment lines. Same information (CMD-11 to CMD-15). | Codemode is Python by decision. |
 | DEV-02 (decided) | Config and state under `~/.pi/agent/`, project `.pi/`. | `<config home>/mcp.json`, `mcp-auth.json`, `mcp.log`; project `.pipy/mcp.json`. | Decision. |
 | DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Ported in G3, in a Python form: `tools.<name>.submit(args)` starts a call and returns at once, its `.result()` waits for it; a plain `tools.<name>(args)` waits for its call. At most 16 requests of one script wait for their reply at once; a script that submits more first waits for one. Until G3 nested calls were sequential, as CM1 specified. | The guest has no promises or event loop; the bound keeps the host's buffer of unread replies finite, where Pi has no bound. |
-| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4), structured `bash` results and image results from `read` (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
+| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4), structured `bash` results, image results from `read` and the `// @options:` line (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
 | DEV-05 | The client identifies as `pi` in `initialize` and in dynamic client registration. | `pipy` and pipy's version. `oauth.clientName` covers servers that accept only known client names, as in Pi. | Product name. |
 | DEV-06 | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. If the owner later names a default (section 7, Q1), the field becomes optional. | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
 | DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
@@ -3890,6 +3890,29 @@ image is refused there with a pointer to `@image:` as before. Tests:
 `test_read_tool_structured_result_of_a_text_file_is_its_text` and
 `test_a_script_reads_an_image_and_shows_it` (real guest, Pi docs "tools.read()
 returns an image file as an image block").
+Part 4 (finding M17): Pi's options line. `codemode/source.py` ports
+`parseCodemodeSource`: an optional first line `// @options: {...}` (Pi's
+`//` form, not Python) with `max_output_tokens` (a safe integer from 0) and
+`timeout_ms` (1 to 2^31 - 1), replaced by an empty line so line numbers
+stay; an empty script, an options line without a script after it and any
+other field or value are an error result with Pi's message (naming Python
+for JavaScript), before a worker starts. `ScriptLimits.wall_seconds` is
+`None` by default: no deadline, as in Pi; then the worker's epoch backstop
+is `CPU_SECONDS_MAX`, now 25 days (above Pi's longest `timeout_ms` plus the
+margin), and after a `done` only the runner sets `tool_stop`. The runner
+takes `timeout_ms` as the deadline and `max_output_tokens` as the result
+budget, lowered by `fitting_budget` so the result's text stays within
+pipy's 64 KiB: at most `MAX_RESULT_OUTPUT_TOKENS` (16000) and less what the
+images' path lines take (measured with `SaveOnce`, which saves each image
+once for the measurement and the result); `truncate_output` takes 0. The description's
+intro gains Pi's `Optional first line` bullet and names no wall time.
+Tests: `test_native_codemode_source.py`,
+`test_the_options_line_sets_the_deadline_and_the_output_budget`,
+`test_the_options_line_keeps_the_line_numbers`,
+`test_invalid_options_are_an_error_before_any_script_runs`,
+`test_a_script_has_no_deadline_unless_it_sets_one`,
+`test_the_budget_leaves_room_for_the_images_path_lines`,
+`test_a_call_made_just_before_done_always_starts` (also without a deadline).
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

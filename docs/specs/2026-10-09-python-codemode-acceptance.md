@@ -267,7 +267,7 @@ and `stdlib-operation-probe.txt`; no host authority follows from an import.
 ### Remaining owner decisions
 
 Extension tools, MCP, parallel calls, images, models/store/load/options lines and
-structured bash are separate follow-ons (structured bash landed in MCP1 G5). Resident engine requires an owner
+structured bash are separate follow-ons (structured bash and options lines landed in MCP1 G5). Resident engine requires an owner
 decision after T10, with no measured benefit claimed for production. Runtime
 provenance/mirroring/packaging and platform gaps remain open. Per-call CustomEntry
 crash durability requires an owner decision: returning failures persist parent

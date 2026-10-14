@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- A codemode script may start with Pi's options line,
+  `// @options: {"max_output_tokens": 2000, "timeout_ms": 60000}`: a budget
+  for the result's text (up to 16000 tokens in pipy) and a deadline for the
+  whole script. A script without `timeout_ms` now has no deadline, as in Pi;
+  before, every script was stopped after 120 seconds. See
+  [Writing a script](docs/codemode.md#writing-a-script).
+
 - `read` attaches JPEG, PNG, GIF and WebP files as images, after a `Read
   image file [<type>]` line, as Pi's `read` does; before, it returned an
   error for images. pipy does not resize or convert images: one over
