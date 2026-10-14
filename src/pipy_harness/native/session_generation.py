@@ -62,6 +62,10 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredShortcut,
     _ExtensionRuntime,
 )
+from pipy_harness.native.extensions.live_tools import (
+    LiveToolRegistry,
+    LiveToolRenderers,
+)
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
     GenerationMessageRouting,
@@ -212,6 +216,11 @@ class ExtensionToolProjection:
     registered: tuple[RegisteredTool, ...]
     ports: Mapping[str, ToolPort]
     capability_state: ToolCapabilityState
+    # Where the generation's extensions register tools after they loaded,
+    # and how such a registration becomes a port (with the generation's
+    # flag values), for the session to publish it.
+    live: LiveToolRegistry
+    build_port: Callable[[RegisteredTool], ToolPort]
 
 
 @dataclass(frozen=True, slots=True)
@@ -444,22 +453,20 @@ def build_extension_projection(
         ports[port.definition.name] = port
     capability_state = build_tool_capability(ports)
     _validate_capability_projection(ports, capability_state)
+    live_tools = LiveToolRegistry(runtime.tools)
     tools = ExtensionToolProjection(
         registered=_freeze_tuple(runtime.tools),
         ports=_freeze_mapping(ports),
         capability_state=capability_state,
+        live=live_tools,
+        build_port=lambda registered: build_tool_port(registered, values),
     )
 
     step("renderer_mappings")
     renderers = ExtensionRendererProjection(
-        tools=_freeze_mapping(
-            {
-                registered.tool.name: registered.tool
-                for registered in runtime.tools
-                if registered.tool.render_call is not None
-                or registered.tool.render_result is not None
-            }
-        ),
+        # A view: a tool registered again after loading draws with its
+        # latest renderers.
+        tools=LiveToolRenderers(live_tools),
         tool_resolvers=_freeze_tuple(runtime.tool_renderers),
         messages=_freeze_mapping(runtime.message_renderers),
         entries=_freeze_mapping(runtime.entry_renderers),

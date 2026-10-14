@@ -356,6 +356,52 @@ class ToolCapabilityState:
             pending_tool_names=pending,
         )
 
+    def with_extension_registry(
+        self,
+        extension_registry: Mapping[str, ToolPort],
+        *,
+        cancel_join_timeout_seconds: float,
+    ) -> "ToolCapabilityState":
+        """This value with other extension tools, as a new complete value of
+        the same extension generation (Pi ``_refreshToolRegistry`` after an
+        extension registered a tool).
+
+        With an allowlist every declarable tool it names or matches is
+        active; otherwise a tool becomes active when registration activates
+        it and did not before, so a tool that changed from ``hidden`` to
+        ``direct`` is activated like a new one. A selection of ``None``
+        already means "as registration left it". A tool registered again as
+        ``hidden`` keeps its name in the selection and is never declared.
+        """
+
+        extensions = dict(extension_registry)
+        registry = _merged_registry(
+            self.builtin_registry, extensions, self.mcp_registry
+        )
+        active = self.active_tool_names
+        if active is not None:
+            if self.filter_options.allow:
+                activated = frozenset(
+                    name
+                    for name in frozenset(extensions) & declarable(registry)
+                    if self.filter_options.allows(name)
+                )
+            else:
+                activated = activated_on_registration(
+                    extensions
+                ) - activated_on_registration(self.extension_registry)
+            active = active | activated
+        return replace(
+            self,
+            extension_registry=extensions,
+            registry=registry,
+            executor=ToolExecutor(
+                registry,
+                cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+            ),
+            active_tool_names=active,
+        )
+
 
 def _filters_keep_codemode(options: ToolFilterOptions) -> bool:
     """Whether the filters would keep a built-in ``codemode`` registered."""
@@ -1206,6 +1252,28 @@ class NativeToolCapabilities:
                 if restorable:
                     state = replace(state, pending_tool_names=restorable)
             self._state = state
+
+    def publish_extension_tools(
+        self,
+        ports: Callable[[], Mapping[str, ToolPort]],
+        *,
+        extension_generation: object,
+    ) -> bool:
+        """Replace the extension tools of the live value with ``ports()``,
+        which runs under the state lock, so of two calls the later one
+        publishes what was registered last. Nothing changes, and the answer
+        is False, when the live value belongs to another extension
+        generation (a ``/reload`` replaced the one that registered)."""
+
+        with self._state_lock:
+            live = self._state
+            if live.extension_generation is not extension_generation:
+                return False
+            self._state = live.with_extension_registry(
+                ports(),
+                cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
+            )
+            return True
 
     def publish_mcp_tools(
         self, mcp_registry: Mapping[str, ToolPort]

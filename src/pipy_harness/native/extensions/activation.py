@@ -82,6 +82,7 @@ from pipy_harness.native.extensions.contribution_names import (
     _TakenContributionState,
 )
 from pipy_harness.native.extensions.custom_payloads import coerce_custom_message
+from pipy_harness.native.extensions.live_tools import LiveToolRegistry
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageReservation,
     GenerationMessageRouting,
@@ -405,6 +406,9 @@ class _ActivationApi:
         self._staged_custom_messages: list[QueuedCustomMessage] = []
         self._frozen_activation: _FrozenActivation | None = None
         self._activated = False
+        # Where tools registered after loading go; bound by the session once
+        # the generation is published (`_bind_live_tools`).
+        self._live_tools: LiveToolRegistry | None = None
 
     def _observe_boundary(self, event: str) -> None:
         observer = self._boundary_observer
@@ -732,6 +736,21 @@ class _ActivationApi:
         return snapshot.custom_messages
 
     def register_tool(self, tool: ExtensionTool) -> None:
+        """Register a tool. While the extension loads it is staged with the
+        extension's other contributions. Once the session runs it (Pi
+        ``registerTool`` and ``refreshTools``), the tool is published at
+        once: a new name, or one of the extension's own names again, with
+        ``exposure="hidden"`` to withdraw that tool. An invalid tool, a
+        reserved name and a name another extension registered then raise
+        ``ExtensionCapabilityError`` and change nothing."""
+
+        with self._guard:
+            live = (
+                self._live_tools if self._state in ("committed", "published") else None
+            )
+        if live is not None:
+            self._register_live_tool(tool, live)
+            return
         self._stage_registration(
             "tool",
             lambda: self._normalize_tool_name(tool),
@@ -739,6 +758,33 @@ class _ActivationApi:
                 tool, name=name, extension=self._extension_name
             ),
         )
+
+    def _register_live_tool(self, tool: ExtensionTool, live: LiveToolRegistry) -> None:
+        try:
+            name = self._normalize_tool_name(tool)
+            if name in self._reserved_tools:
+                raise _ActivationError(REASON_RESERVED_TOOL)
+            registered = _normalize_extension_tool(
+                tool, name=name, extension=self._extension_name
+            )
+        except _ActivationError as err:
+            detail = f": {err.diagnostic}" if err.diagnostic else ""
+            raise ExtensionCapabilityError(
+                f"tool registration refused ({err.reason}){detail}"
+            ) from None
+        with self._guard:
+            # A reload disposes this host; its tools are not the session's.
+            if self._state not in ("committed", "published"):
+                raise ExtensionCapabilityError(
+                    "extension contribution registration is closed"
+                )
+        live.register(registered)
+
+    def _bind_live_tools(self, live: LiveToolRegistry) -> None:
+        """Host-internal: let tools registered from now on reach ``live``."""
+
+        with self._guard:
+            self._live_tools = live
 
     @staticmethod
     def _normalize_tool_name(tool: ExtensionTool) -> str:

@@ -978,6 +978,9 @@ class _ReplLoopStep:
                     )
         if not first_close:
             return
+        if generation is not None and generation.projection is not None:
+            # A kept extension API registers no tools once the session ended.
+            generation.projection.tools.live.close()
 
         retained: tuple[object, ...] = ()
         queue_error: BaseException | None = None

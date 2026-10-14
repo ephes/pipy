@@ -524,7 +524,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-23 | CMD-22 | With `codemode.mode: "only"` a direct model call to a tool whose declaration is left out is an unknown tool; Pi would run it. `codemode.mode` and `codemode.inlineBudget` are read at session start and on `/reload`, not before every prompt. | other form | Decided in S08 |
 | DEV-24 | CMD-27 | The codemode system prompt contribution has two guideline lines. The second comes from the codemode adherence slice and predates this plan. | other form | Decided in S08 |
 | DEV-25 | EXT-03 | `get_all_tools()` is a method of the handler context (`ctx.get_all_tools()`), not of the activation API, and reports no `sourceInfo`. (Extension tools have `prompt_guidelines` and `get_all_tools()` reports them since G9.) | narrower | Decided in S02, S07, S08, G9 |
-| DEV-26 | EXT-04 | Tools are registered while an extension loads and not afterwards. A tool whose last registration is `hidden` is registered and never declared; a session sees a withdrawal after the next `/reload`. A tool name another extension registered disables the second extension, where Pi lets the first one win silently. | other form | Decided in S02 |
+| DEV-26 | EXT-04 | A tool whose last registration is `hidden` is registered and never declared. Since G9 `register_tool` also works while the session runs the extension and takes effect at once, as in Pi; the other `register_*` methods stay closed after loading. A tool name another extension registered disables the second extension while loading and raises afterwards, where Pi lets the first one win silently. | other form | Decided in S02, G9 |
 | DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. `limit` must be an `int` (`8.0` is refused). When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
@@ -2673,7 +2673,8 @@ Decided in S02:
   description, input schema, exposure, namespace, annotations and the reach
   function. Pi's `promptGuidelines` and `sourceInfo` are not reported; pipy
   tools have neither yet.
-- Registration is open only during activation, so EXT-04 reads: an extension
+- (G9 opened `register_tool` while the session runs; see the G9 paragraph.)
+  Registration is open only during activation, so EXT-04 reads: an extension
   that registers one of its own tool names again replaces the earlier
   registration (Pi `extension.tools.set`), and a tool whose last registration
   is `hidden` is registered but never declared. A session sees a withdrawal
@@ -4124,6 +4125,32 @@ pipy's own rows as before. Tests: `test_a_resolver_wraps_a_built_in_tools_rows`,
 `test_a_resolver_wraps_an_mcp_tools_rows`,
 `test_the_line_renderer_lets_a_resolver_wrap_its_own_rows`,
 `test_own_rows_outside_a_row_draw_nothing`.
+Part 6 (finding E1): `register_tool` works after loading, while the session
+runs the extension (Pi `registerTool` and `refreshTools`). Each generation's
+`ExtensionToolProjection` has a `LiveToolRegistry` (`extensions/live_tools.py`,
+seeded with which extension has each name) and `build_port`, the
+generation's port builder with its flag values. Every activation host is
+bound to its candidate's registry when the projection is built, so a
+reload's `session_start` handlers can register before publication; a
+committed or published host validates the tool as at loading (a reserved
+name too) and registers it. After the generation is published (startup and
+reload), `extension_attach._bind_live_tools` sets the registry's listener and
+publishes what was registered before; the listener publishes the generation's ports with the latest
+registrations through `NativeToolCapabilities.publish_extension_tools`,
+which builds them under the state lock and keeps the extension generation
+(`ToolCapabilityState.with_extension_registry`: an allowlist activates what
+it names, otherwise a tool activated on registration that was not before is
+activated, as Pi's `_refreshToolRegistry`). A name another extension has
+raises; once a reload replaced the generation the listener closes the
+registry and raises, and an unpublished candidate's registry and the last
+generation's (when the session closes, in `close_extension_session`) are
+closed. Ports are kept for the current registrations only. `projection.renderers.tools` is a `LiveToolRenderers`
+view, so a re-registered tool draws with its latest renderers. Tests:
+`test_a_tool_registered_while_the_session_runs_takes_effect_at_once`,
+`test_an_api_of_replaced_extensions_registers_no_tools`,
+`test_a_tool_registered_in_session_start_is_kept_across_a_reload`,
+`test_a_kept_api_registers_no_tools_after_the_session_ended`,
+`test_native_extension_live_tools.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

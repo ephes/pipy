@@ -355,7 +355,9 @@ async activation before the native session starts.
 
 Activation receives only the extension API. Runtime event handlers receive
 event-specific contexts later. Contribution registration is activation-bounded:
-after activation succeeds or is rejected, every retained `register_*`,
+after activation succeeds or is rejected, every retained `register_*` (except
+`register_tool`, which registers at once while the session runs the
+extension; see "Withdrawing a tool"),
 `unregister_provider(...)`, and direct or decorator-form `on(...)` call raises
 `ExtensionCapabilityError` at that call boundary. This includes void-return
 registrations, `register_flag(...)`, `on(event, handler)`, and `on(event)`; pipy
@@ -1133,9 +1135,17 @@ def gate(event, ctx):
 with `exposure="hidden"` to withdraw it: the tool stays registered and
 `get_all_tools()` reports it as `hidden`, but no request declares it,
 `ctx.set_active_tools(...)` cannot bring it back, and a model call to it is
-answered with `unknown tool`. Registration is open only while `activate(api)`
-runs, so a tool is withdrawn for a session by the extension's next activation
-(a `/reload`); the transcript then tells the model that the tool was removed.
+answered with `unknown tool`. As in Pi, `api.register_tool` stays usable while
+the session runs the extension, for example from a command: the tool is
+published at once, and the next request no longer declares a withdrawn tool;
+the transcript tells the model that it was removed. Such a registration may
+add a new tool or register one of the extension's own tools again; it raises
+`ExtensionCapabilityError` and changes nothing for an invalid tool, a reserved
+name and a name another extension registered, and once `/reload` replaced the
+extensions or the session ended (an `api` kept from before). A tool registered
+in a `session_start` handler is kept across `/reload` that way too. A tool that becomes `direct` or
+`model-only` is activated like a new one. The other `register_*` methods stay
+closed after `activate(api)`.
 
 ### Running other tools
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pipy_harness.native.extension_types import (
     ExtensionFlag,
@@ -20,6 +20,9 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extensions import message_routing as _message_routing
 from pipy_harness.native.mcp.registry import McpServerRegistry, RegisteredMcpServer
+
+if TYPE_CHECKING:
+    from pipy_harness.native.extensions.live_tools import LiveToolRegistry
 
 CommandHandler = Callable[..., object]
 HookHandler = Callable[..., object]
@@ -165,6 +168,8 @@ class _ActivationHost(Protocol):
     def get_flag(self, name: str) -> object | None: ...
 
     def _dispose(self) -> bool: ...
+
+    def _bind_live_tools(self, live: LiveToolRegistry) -> None: ...
 
 
 class _PendingActivationHost(Protocol):

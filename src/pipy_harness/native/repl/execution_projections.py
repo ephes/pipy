@@ -246,8 +246,7 @@ class SessionExecutionProjections:
     def tool_renderers(
         self, advertised_names: Sequence[str]
     ) -> Mapping[str, ExtensionTool]:
-        renderers = self._require_active().renderers
-        return {name: renderers[name] for name in advertised_names if name in renderers}
+        return renderers_of(self._require_active().renderers, advertised_names)
 
     def tool_renderer_lookup(
         self, advertised_names: Sequence[str]
@@ -293,6 +292,21 @@ class SessionExecutionProjections:
             active.flags,
             active.ui_driver,
         )
+
+
+def renderers_of(
+    renderers: Mapping[str, ExtensionTool], names: Sequence[str]
+) -> dict[str, ExtensionTool]:
+    """The renderers of ``names`` that have some. One ``get`` per name: the
+    renderers follow tools registered while the session runs, so a name's
+    membership and its renderers are read in one step."""
+
+    chosen: dict[str, ExtensionTool] = {}
+    for name in names:
+        tool = renderers.get(name)
+        if tool is not None:
+            chosen[name] = tool
+    return chosen
 
 
 def build_projected_extension_tool_port(

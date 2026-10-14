@@ -70,6 +70,7 @@ from pipy_harness.native.extensions.contracts import (
     _ExtensionRuntime,
 )
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
+from pipy_harness.native.extensions.live_tools import LiveToolRenderers
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
     GenerationMessageRouting,
@@ -1379,7 +1380,6 @@ def test_successor_projections_share_no_mutable_mapping_or_list(
         old.hooks.lifecycle,
         old.tools.ports,
         old.tools.capability_state.extension_registry,
-        old.renderers.tools,
         old.renderers.messages,
         old.renderers.entries,
     )
@@ -1391,13 +1391,17 @@ def test_successor_projections_share_no_mutable_mapping_or_list(
         candidate.hooks.lifecycle,
         candidate.tools.ports,
         candidate.tools.capability_state.extension_registry,
-        candidate.renderers.tools,
         candidate.renderers.messages,
         candidate.renderers.entries,
     )
 
     assert all(isinstance(value, MappingProxyType) for value in old_mappings)
     assert all(isinstance(value, MappingProxyType) for value in candidate_mappings)
+    # The tool renderers are a read-only view of each generation's own live
+    # tool registry (tools registered after loading draw with theirs).
+    assert isinstance(old.renderers.tools, LiveToolRenderers)
+    assert isinstance(candidate.renderers.tools, LiveToolRenderers)
+    assert old.tools.live is not candidate.tools.live
     assert not {id(value) for value in old_mappings}.intersection(
         id(value) for value in candidate_mappings
     )

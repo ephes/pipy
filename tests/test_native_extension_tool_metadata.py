@@ -695,3 +695,201 @@ def test_hidden_re_registration_removes_the_tool_from_the_next_request(
     assert "lookup" not in _tool_names(second)
     # The transcript tells the model that the tool is gone.
     assert second.system_messages[-1].message.tools_removed == ("lookup",)
+
+
+_LIVE = (
+    "from pathlib import Path\n"
+    "OUT = Path(__file__).with_name('live.out')\n"
+    "def tool(name, exposure='direct', description='look up'):\n"
+    "    return ExtensionTool(\n"
+    "        name=name, description=description,\n"
+    "        input_schema={'type': 'object'}, exposure=exposure,\n"
+    "        handler=lambda ctx, params: ToolResult(content=name + ' ran'))\n"
+    "def activate(api):\n"
+    "    api.register_tool(tool('lookup'))\n"
+    "    def attempt(register):\n"
+    "        try:\n"
+    "            register()\n"
+    "        except Exception as error:\n"
+    "            OUT.open('a').write(type(error).__name__ + ': ' + str(error) + '\\n')\n"
+    "    api.register_command('withdraw', 'withdraw lookup',\n"
+    "        lambda ctx, args: api.register_tool(tool('lookup', 'hidden')))\n"
+    "    api.register_command('restore', 'restore lookup',\n"
+    "        lambda ctx, args: api.register_tool(tool('lookup', description='again')))\n"
+    "    api.register_command('add', 'add a tool',\n"
+    "        lambda ctx, args: api.register_tool(tool('fresh')))\n"
+    "    api.register_command('steal', 'take another extension\\'s name',\n"
+    "        lambda ctx, args: attempt(lambda: api.register_tool(tool('theirs'))))\n"
+    "    api.register_command('reserved', 'take a built-in name',\n"
+    "        lambda ctx, args: attempt(lambda: api.register_tool(tool('read'))))\n"
+)
+
+_OTHER = (
+    "def activate(api):\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='theirs', description='theirs', input_schema={'type': 'object'},\n"
+    "        handler=lambda ctx, params: ToolResult(content='theirs')))\n"
+)
+
+
+def test_a_tool_registered_while_the_session_runs_takes_effect_at_once(
+    tmp_path, monkeypatch
+) -> None:
+    # Goal-check finding E1 (EXT-04): Pi `registerTool` stays usable after
+    # loading and refreshes the tool registry; re-registering a tool with
+    # `hidden` withdraws it in the running session.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(tmp_path, "live", _LIVE)
+    _write(tmp_path, "other", _OTHER)
+    calls = (ProviderToolCall("c1", "lookup", "{}"),)
+    provider = _StubProvider(
+        [
+            _result(final_text="one"),
+            _result(tool_calls=calls),
+            _result(final_text="two"),
+            _result(tool_calls=(ProviderToolCall("c2", "fresh", "{}"),)),
+            _result(final_text="three"),
+        ]
+    )
+
+    result = _run(
+        tmp_path,
+        provider,
+        "first\n/withdraw\nsecond\n/restore\n/add\n/steal\n/reserved\nthird\n",
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second, after_call, third, after_fresh = provider.requests
+    assert "lookup" in _tool_names(first)
+    # Withdrawn at once, without a reload: not declared, and a call to it is
+    # an unknown tool.
+    assert "lookup" not in _tool_names(second)
+    assert second.system_messages[-1].message.tools_removed == ("lookup",)
+    (withdrawn,) = _tool_results(after_call)
+    assert withdrawn.is_error is True
+    assert withdrawn.content.value == "unknown tool: lookup"
+    # Registered again as `direct`, and a new tool: both are declared and
+    # run; the description is the latest registration's.
+    names = _tool_names(third)
+    assert "lookup" in names and "fresh" in names
+    assert next(t for t in third.available_tools if t.name == "lookup").description == (
+        "again"
+    )
+    fresh = _tool_results(after_fresh)[-1]
+    assert (fresh.is_error, fresh.content.value) == (False, "fresh ran")
+    # Another extension's name and a reserved name are refused and change
+    # nothing.
+    refused = (tmp_path / ".pipy" / "extensions" / "live.out").read_text()
+    assert 'tool "theirs" is already registered by extension' in refused
+    assert "ExtensionCapabilityError: tool registration refused (reserved_tool)" in (
+        refused
+    )
+    assert "theirs" in _tool_names(third)
+
+
+def test_an_api_of_replaced_extensions_registers_no_tools(
+    tmp_path, monkeypatch
+) -> None:
+    # After `/reload` the earlier extensions' API refuses, as Pi's stale
+    # extension context does; the session's tools are the new ones'.
+    import sys
+    import types
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    store = types.ModuleType("pipy_test_live_store")
+    store.apis = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pipy_test_live_store", store)
+    _write(
+        tmp_path,
+        "stale",
+        "import sys\n"
+        "OUT = Path(__file__).with_name('stale.out')\n"
+        "def activate(api):\n"
+        "    sys.modules['pipy_test_live_store'].apis.append(api)\n"
+        "    def late(ctx, args):\n"
+        "        first = sys.modules['pipy_test_live_store'].apis[0]\n"
+        "        try:\n"
+        "            first.register_tool(ExtensionTool(\n"
+        "                name='late', description='late', input_schema={'type': 'object'},\n"
+        "                handler=lambda ctx, params: ToolResult(content='late')))\n"
+        "            OUT.write_text('registered')\n"
+        "        except Exception as error:\n"
+        "            OUT.write_text(type(error).__name__ + ': ' + str(error))\n"
+        "    api.register_command('late', 'register with the first api', late)\n",
+    )
+    provider = _StubProvider([_result(final_text="one")])
+
+    result = _run(tmp_path, provider, "/reload\n/late\nfirst\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert len(store.apis) == 2  # type: ignore[attr-defined]
+    out = (tmp_path / ".pipy" / "extensions" / "stale.out").read_text()
+    assert out == (
+        "ExtensionCapabilityError: tools can no longer be registered here: "
+        "the extensions were loaded again or their session ended"
+    )
+    assert "late" not in _tool_names(provider.requests[0])
+
+
+def test_a_tool_registered_in_session_start_is_kept_across_a_reload(
+    tmp_path, monkeypatch
+) -> None:
+    # A reload fires `session_start` for the new extensions before it
+    # publishes them; what they register there is published with them.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(
+        tmp_path,
+        "starter",
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def start(event, ctx):\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name='started', description='started',\n"
+        "            input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params: ToolResult(content='ok')))\n",
+    )
+    provider = _StubProvider([_result(final_text="one"), _result(final_text="two")])
+
+    result = _run(tmp_path, provider, "first\n/reload\nsecond\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second = provider.requests
+    assert "started" in _tool_names(first)
+    assert "started" in _tool_names(second)
+
+
+def test_a_kept_api_registers_no_tools_after_the_session_ended(
+    tmp_path, monkeypatch
+) -> None:
+    import sys
+    import types
+
+    from pipy_harness.native.extensions.command_context import (
+        ExtensionCapabilityError,
+    )
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    store = types.ModuleType("pipy_test_live_store")
+    store.apis = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pipy_test_live_store", store)
+    _write(
+        tmp_path,
+        "kept",
+        "import sys\n"
+        "def activate(api):\n"
+        "    sys.modules['pipy_test_live_store'].apis.append(api)\n",
+    )
+
+    result = _run(tmp_path, _StubProvider([_result(final_text="one")]), "first\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    (api,) = store.apis  # type: ignore[attr-defined]
+    with pytest.raises(ExtensionCapabilityError, match="loaded again"):
+        api.register_tool(
+            ExtensionTool(
+                name="late",
+                description="late",
+                input_schema={"type": "object"},
+                handler=lambda ctx, params: ToolResult(content="late"),
+            )
+        )

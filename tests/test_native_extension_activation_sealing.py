@@ -717,7 +717,9 @@ def test_every_candidate_reader_and_writer_uses_the_host_guard() -> None:
     calls: tuple[tuple[int, Callable[[], object]], ...] = (
         (3, lambda: api.register_command("command", "command", handler)),
         (3, lambda: api.register_shortcut("ctrl-k", handler)),
-        (3, lambda: api.register_tool(_tool())),
+        # One more for the tool: it reads whether the session runs the
+        # extension, where a tool is registered at once (goal-check E1).
+        (4, lambda: api.register_tool(_tool())),
         (2, lambda: api.register_provider(_provider())),
         (2, lambda: api.unregister_provider("builtin")),
         (3, lambda: api.register_flag(ExtensionFlag("flag", "boolean", default=False))),

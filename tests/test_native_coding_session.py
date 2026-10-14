@@ -873,6 +873,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
         "_attach_reload_generation",
         "_prepare_reload_generation",
         "_accept_reload_generation",
+        "_bind_live_tools",
         "_deliver_reload_staged",
         "_report_reload_presentation",
         "_diagnose_reload_refusal",

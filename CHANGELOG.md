@@ -495,6 +495,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- `api.register_tool` works while the session runs the extension, as Pi's
+  `registerTool` does: a command can add a tool or register one of its
+  tools again, with `exposure="hidden"` to withdraw it, and the next request
+  has the change. Before, registration closed when `activate(api)`
+  returned, and a withdrawal needed `/reload`. A name another extension
+  registered, a reserved name, and an `api` kept from before a `/reload` or
+  after the session ended raise `ExtensionCapabilityError`. See
+  [Withdrawing a tool](docs/extension-api.md#extension-tool-metadata).
+
 - A tool renderer resolver can call and wrap what `next()` gives for a
   built-in or MCP tool, as Pi's renderers can be: its `render_call(ctx)`
   and `render_result(ctx)` now return pipy's own lines of the row instead
