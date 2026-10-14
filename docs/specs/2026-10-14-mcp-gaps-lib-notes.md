@@ -686,3 +686,69 @@ Audit test references: `tests/test_native_tool_result_image_normalize.py`
 (unit tests of processing, the loop hook order with a nested call, and two
 session tests: the resized image and note in the next request, and
 `images.blockImages`).
+
+## G8, commit 1: T1 (`--tools ''` selects no tools) and T2 (the no-tools flags with `--tools`)
+
+Pi source read: `coding-agent/src/cli/args.ts` (`--tools ""` gives `[]`),
+`src/main.ts` lines 540-550 (`noTools: "all" | "builtin"`, `tools` copied
+when given, also empty), `src/core/sdk.ts` lines 280-293 (the default
+selection is empty under either `noTools`; a plain `tools` list is the
+allowlist whatever `noTools` says; modifiers start from the empty selection
+and are the allowlist only under `"all"`) and `src/core/agent-session.ts`
+(constructor: an empty allowlist filters MCP tools; `_isAllowedTool`;
+`_refreshToolRegistry`: under `"builtin"` the built-in tools stay
+registered and only the initial selection activates them). Both findings
+hold.
+
+What changed:
+
+- `cli._tool_filter_options_from_args` folds the flags as Pi does: a given
+  `--tools` list, also an empty one, is the allowlist (`--tools ''` is
+  `no_tools`); `--no-tools` with modifiers makes what they add from nothing
+  the allowlist; `--no-builtin-tools` with modifiers keeps them as
+  modifiers of an empty default selection; `--no-tools` wins over
+  `--no-builtin-tools`.
+- `ToolFilterOptions`: `no_tools` is Pi's empty allowlist and
+  `no_builtin_tools` Pi's `noTools: "builtin"`. The value refuses
+  `no_tools` with names, modifiers or `no_builtin_tools`, and
+  `no_builtin_tools` with an allowlist. `provider_visible_names` lost its
+  `builtin_names` parameter: `no_builtin_tools` no longer unregisters
+  built-in tools. `ToolCapabilityState.filter_configured` ignores
+  `no_builtin_tools`, like modifiers, so a selection is carried across a
+  reload as without flags. `build` and `prepare_extensions` start the
+  default selection empty under `no_builtin_tools` (modifiers apply to it,
+  the `defaultTools` setting is not read; neither is it under `no_tools`).
+  `codemode` and `tool_search` are no longer removed by
+  `no_builtin_tools` (they are extension tools in Pi), so MCP can still
+  activate them.
+- The adapter's first system prompt, made before extensions load, lists
+  under `--no-builtin-tools` only the built-in tools modifiers add.
+
+Changelog lines (section Unreleased):
+
+- `--tools ''` disables every tool, MCP tools included, as `--no-tools`
+  does; before, an empty list was the same as no list.
+- `--no-tools` and `--no-builtin-tools` only empty the default selection,
+  as in Pi: `pipy --no-tools --tools tool_search` declares `tool_search`,
+  `--no-builtin-tools --tools read` declares `read`, and
+  `--no-builtin-tools --tools +read` activates `read` and keeps the
+  extension tools. Under `--no-builtin-tools` the built-in tools stay
+  registered (an extension can select one), and `codemode` and
+  `tool_search` stay available for MCP.
+
+Plan rows and texts:
+
+- EXP-06 and EXP-09: the empty `--tools` list and the combination with
+  `--no-tools`/`--no-builtin-tools` now match Pi; the audit can cite the
+  tests below. The capability docstring note "Pi's empty allowlist is
+  `no_tools` here" now also holds for `--tools ''`.
+
+Audit test references: `tests/test_harness_native_cli.py`
+(`test_tool_selection_flags_combine_as_in_pi`,
+`test_tool_filter_flags_parse_pi_aliases`),
+`tests/test_native_tool_capabilities_mcp.py`
+(`test_an_allowlist_after_no_tools_declares_tool_search`,
+`test_no_builtin_tools_keeps_builtins_registered_and_inactive`,
+`test_modifiers_after_no_builtin_tools_start_from_nothing`),
+`tests/test_native_tool_capabilities.py`
+(`test_filter_precedence_is_selection_then_exclude`, the validation test).

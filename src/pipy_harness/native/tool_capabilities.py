@@ -91,6 +91,14 @@ class ToolFilterOptions:
 
     ``allow`` and ``exclude`` entries are exact tool names or patterns in
     which ``*`` matches any characters; ``modifiers`` take exact names only.
+
+    ``no_tools`` is Pi's empty allowlist (``--tools ''``, or ``--no-tools``
+    without ``--tools``): no tool is registered. ``no_builtin_tools`` is Pi's
+    ``noTools: "builtin"``: the default selection starts empty, so built-in
+    tools stay registered but only those the ``modifiers`` add are active,
+    and the ``defaultTools`` setting is not read. A plain allowlist replaces
+    the default selection, so neither flag goes with ``allow``; the command
+    line folds them in (``--no-tools --tools tool_search`` is an allowlist).
     """
 
     allow: tuple[str, ...] = ()
@@ -121,6 +129,12 @@ class ToolFilterOptions:
             raise TypeError("ToolFilterOptions.no_tools must be a bool")
         if not isinstance(self.no_builtin_tools, bool):
             raise TypeError("ToolFilterOptions.no_builtin_tools must be a bool")
+        if self.no_tools and (self.allow or self.modifiers or self.no_builtin_tools):
+            raise ValueError("no_tools is the empty allowlist and takes no tool names")
+        if self.no_builtin_tools and self.allow:
+            raise ValueError(
+                "an allowlist replaces the default selection no_builtin_tools empties"
+            )
 
     @classmethod
     def empty(cls) -> ToolFilterOptions:
@@ -143,7 +157,8 @@ class ToolFilterOptions:
         Pi ``_allowlistFiltersMcp``: an allowlist of plain names selects the
         tools declared to the model and leaves MCP tools registered. Once an
         entry starts with ``mcp__`` it filters MCP tools like other tools.
-        (Pi's empty allowlist is ``no_tools`` here.)
+        (Pi's empty allowlist is ``no_tools`` here, which filters MCP tools
+        as well.)
         """
 
         return any(entry.startswith(MCP_TOOL_NAME_PREFIX) for entry in self.allow)
@@ -151,7 +166,6 @@ class ToolFilterOptions:
     def provider_visible_names(
         self,
         *,
-        builtin_names: Collection[str],
         registered_names: Collection[str],
     ) -> frozenset[str]:
         """Return the names the filters keep registered (Pi ``_isAllowedTool``).
@@ -164,8 +178,6 @@ class ToolFilterOptions:
         if self.no_tools:
             return frozenset()
         names = set(registered_names)
-        if self.no_builtin_tools:
-            names.difference_update(builtin_names)
         if self.allow:
             keeps_mcp = not self.allowlist_filters_mcp
             names = {
@@ -243,7 +255,14 @@ class ToolCapabilityState:
 
     @property
     def filter_configured(self) -> bool:
-        return replace(self.filter_options, modifiers=()) != ToolFilterOptions.empty()
+        """Whether ``--tools``, ``--exclude-tools`` or ``--no-tools`` decide
+        which tools stay registered. Modifiers and ``no_builtin_tools`` only
+        change the default selection."""
+
+        return (
+            replace(self.filter_options, modifiers=(), no_builtin_tools=False)
+            != ToolFilterOptions.empty()
+        )
 
     @classmethod
     def build(
@@ -276,10 +295,7 @@ class ToolCapabilityState:
             # allowlist activates the tools it names or matches, also one
             # that is inactive by default; an MCP tool it keeps without
             # naming it stays inactive.
-            kept = filter_options.provider_visible_names(
-                builtin_names=builtin,
-                registered_names=registry,
-            )
+            kept = filter_options.provider_visible_names(registered_names=registry)
             if filter_options.allow:
                 active = frozenset(
                     name
@@ -288,6 +304,11 @@ class ToolCapabilityState:
                 )
             else:
                 active = kept & activated_on_registration(registry)
+                if filter_options.no_builtin_tools:
+                    # Pi ``noTools: "builtin"``: the built-in tools stay
+                    # registered, and only those the modifiers add are active.
+                    added = apply_tool_modifiers((), filter_options.modifiers)
+                    active = (active - builtin.keys()) | (kept & frozenset(added))
         executor = ToolExecutor(
             registry,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
@@ -361,7 +382,6 @@ def _filters_keep_codemode(options: ToolFilterOptions) -> bool:
 
     return not (
         options.no_tools
-        or options.no_builtin_tools
         or options.excludes("codemode")
         or (bool(options.allow) and not options.allows("codemode"))
     )
@@ -979,19 +999,32 @@ class NativeToolCapabilities:
         with self._state_lock:
             state = self._state
             options = state.filter_options
+            # Pi reads the ``defaultTools`` setting only when no ``noTools``
+            # mode empties the default selection.
             configured = (
                 self._default_tools()
-                if self._production_defaults and self._default_tools
+                if self._production_defaults
+                and self._default_tools
+                and not options.no_tools
+                and not options.no_builtin_tools
                 else None
             )
             codemode_loadout = (
                 self._codemode_loadout() if self._codemode_loadout else None
             )
-        selected = (
-            tuple(configured) if configured is not None else tuple(self._base_registry)
-        )
+        selected: tuple[str, ...]
+        if options.no_builtin_tools:
+            selected = ()
+        elif configured is not None:
+            selected = tuple(configured)
+        else:
+            selected = tuple(self._base_registry)
         selected = apply_tool_modifiers(selected, options.modifiers)
-        explicit = configured is not None or bool(options.modifiers)
+        explicit = (
+            configured is not None
+            or bool(options.modifiers)
+            or options.no_builtin_tools
+        )
         builtin = dict(self._base_registry)
         # Registered optional ports persist for this lifetime, like Pi's
         # registry; removing a default does not deactivate an active tool.
@@ -1012,10 +1045,7 @@ class NativeToolCapabilities:
             options.allows("codemode") if options.allow else "codemode" in selected
         )
         wants_codemode = (
-            wants_codemode
-            and not options.no_tools
-            and not options.no_builtin_tools
-            and not options.excludes("codemode")
+            wants_codemode and not options.no_tools and not options.excludes("codemode")
         )
         if self._offers_codemode and wants_codemode and "codemode" not in mapping:
             if self._probe_codemode():
@@ -1044,7 +1074,7 @@ class NativeToolCapabilities:
                 )
             )
             active &= options.provider_visible_names(
-                builtin_names=builtin, registered_names=candidate.registry
+                registered_names=candidate.registry
             )
         return replace(
             candidate,
@@ -1267,9 +1297,7 @@ def _unregistered_mcp_names(
     )
     if not missing or not state.filter_configured:
         return missing
-    return state.filter_options.provider_visible_names(
-        builtin_names=(), registered_names=missing
-    )
+    return state.filter_options.provider_visible_names(registered_names=missing)
 
 
 def _active_names(state: ToolCapabilityState) -> frozenset[str]:
@@ -1315,10 +1343,7 @@ def _kept_names(state: ToolCapabilityState) -> Collection[str]:
 
     if not state.filter_configured:
         return state.registry
-    return state.filter_options.provider_visible_names(
-        builtin_names=state.builtin_registry,
-        registered_names=state.registry,
-    )
+    return state.filter_options.provider_visible_names(registered_names=state.registry)
 
 
 def _is_activatable(

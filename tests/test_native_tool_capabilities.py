@@ -120,6 +120,16 @@ def test_filter_options_are_frozen_and_runtime_validated() -> None:
         ToolFilterOptions(no_tools=cast(bool, 1))
     with pytest.raises(TypeError, match="no_builtin_tools must be a bool"):
         ToolFilterOptions(no_builtin_tools=cast(bool, 0))
+    # ``no_tools`` is the empty allowlist; an allowlist replaces the default
+    # selection that ``no_builtin_tools`` empties.
+    with pytest.raises(ValueError, match="empty allowlist"):
+        ToolFilterOptions(no_tools=True, allow=("read",))
+    with pytest.raises(ValueError, match="empty allowlist"):
+        ToolFilterOptions(no_tools=True, modifiers=("+read",))
+    with pytest.raises(ValueError, match="empty allowlist"):
+        ToolFilterOptions(no_tools=True, no_builtin_tools=True)
+    with pytest.raises(ValueError, match="allowlist replaces"):
+        ToolFilterOptions(no_builtin_tools=True, allow=("read",))
 
 
 @pytest.mark.parametrize(
@@ -127,7 +137,9 @@ def test_filter_options_are_frozen_and_runtime_validated() -> None:
     [
         (ToolFilterOptions.empty(), frozenset({"read", "extension"})),
         (ToolFilterOptions(no_tools=True), frozenset()),
-        (ToolFilterOptions(no_builtin_tools=True), frozenset({"extension"})),
+        # Pi ``noTools: "builtin"`` empties the default selection only: the
+        # built-in tools stay registered.
+        (ToolFilterOptions(no_builtin_tools=True), frozenset({"read", "extension"})),
         (ToolFilterOptions(allow=("read",)), frozenset({"read"})),
         (
             ToolFilterOptions(exclude=("read",)),
@@ -140,10 +152,7 @@ def test_filter_options_are_the_canonical_provider_visibility_policy(
     expected: frozenset[str],
 ) -> None:
     assert (
-        options.provider_visible_names(
-            builtin_names=("read",),
-            registered_names=("read", "extension"),
-        )
+        options.provider_visible_names(registered_names=("read", "extension"))
         == expected
     )
 
@@ -178,19 +187,22 @@ def test_definitions_preserve_merged_registry_order_and_report_unknown_filters(
 @pytest.mark.parametrize(
     ("options", "expected"),
     [
-        (ToolFilterOptions(no_tools=True, allow=("extension",)), ()),
+        (ToolFilterOptions(no_tools=True), ()),
         (ToolFilterOptions(no_builtin_tools=True), ("extension",)),
         (
+            ToolFilterOptions(no_builtin_tools=True, modifiers=("+builtin",)),
+            ("builtin", "extension"),
+        ),
+        (
             ToolFilterOptions(
-                no_builtin_tools=True,
                 allow=("builtin", "extension"),
                 exclude=("extension",),
             ),
-            (),
+            ("builtin",),
         ),
     ],
 )
-def test_filter_precedence_is_no_tools_then_builtin_then_allow_then_exclude(
+def test_filter_precedence_is_selection_then_exclude(
     tmp_path: Path,
     options: ToolFilterOptions,
     expected: tuple[str, ...],

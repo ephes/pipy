@@ -17,6 +17,7 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.version_check import (
     PIPY_OFFLINE_ENV,
     PIPY_SKIP_VERSION_CHECK_ENV,
@@ -2280,10 +2281,47 @@ def test_tool_filter_flags_parse_pi_aliases():
     )
 
     options = _tool_filter_options_from_args(args)
+    # Pi ``createAgentSession``: a plain list is the allowlist whatever the
+    # no-tools flags say.
     assert options.allow == ("read", "grep")
     assert options.exclude == ("bash",)
-    assert options.no_tools is True
-    assert options.no_builtin_tools is True
+    assert options.no_tools is False
+    assert options.no_builtin_tools is False
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        # An empty list disables every tool, as --no-tools does.
+        (["--tools", ""], ToolFilterOptions(no_tools=True)),
+        (["--tools", " , "], ToolFilterOptions(no_tools=True)),
+        (["-nt"], ToolFilterOptions(no_tools=True)),
+        (["-nt", "-nbt"], ToolFilterOptions(no_tools=True)),
+        (["-nbt"], ToolFilterOptions(no_builtin_tools=True)),
+        # The no-tools flags empty the default selection; --tools selects.
+        (["-nt", "--tools", "tool_search"], ToolFilterOptions(allow=("tool_search",))),
+        (["-nbt", "--tools", "tool_search"], ToolFilterOptions(allow=("tool_search",))),
+        (["-nbt", "--tools", ""], ToolFilterOptions(no_tools=True)),
+        # Modifiers start from nothing; with --no-tools they are the allowlist.
+        (
+            ["-nt", "--tools", "+read,+codemode"],
+            ToolFilterOptions(allow=("read", "codemode")),
+        ),
+        (["-nt", "--tools", "+read,-read"], ToolFilterOptions(no_tools=True)),
+        (
+            ["-nbt", "--tools", "+read"],
+            ToolFilterOptions(modifiers=("+read",), no_builtin_tools=True),
+        ),
+    ],
+)
+def test_tool_selection_flags_combine_as_in_pi(
+    argv: list[str], expected: ToolFilterOptions
+) -> None:
+    from pipy_harness.cli import _tool_filter_options_from_args, build_parser
+
+    args = build_parser().parse_args(["repl", *argv])
+
+    assert _tool_filter_options_from_args(args) == expected
 
 
 def test_openai_codex_default_transport_is_auto() -> None:

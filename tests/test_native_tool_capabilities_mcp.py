@@ -331,6 +331,59 @@ def test_no_tools_removes_mcp_tools_too(tmp_path: Path) -> None:
     assert _callable(tools) == frozenset()
 
 
+def test_an_allowlist_after_no_tools_declares_tool_search(tmp_path: Path) -> None:
+    # Pi ``createAgentSession``: ``--no-tools --tools tool_search`` and
+    # ``--no-builtin-tools --tools tool_search`` are the allowlist
+    # ``tool_search`` (the command line folds the flags in), which keeps the
+    # MCP tools registered for it.
+    tools = _session(
+        tmp_path, ToolFilterOptions(allow=("tool_search",)), production=True
+    )
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+
+    assert _declared(tools) == ("tool_search",)
+    assert [definition.name for definition in tools.loadable_tools()] == [
+        "mcp__docs__find"
+    ]
+
+
+def test_no_builtin_tools_keeps_builtins_registered_and_inactive(
+    tmp_path: Path,
+) -> None:
+    # Pi ``noTools: "builtin"`` empties the default selection only: the
+    # built-in tools stay registered (an extension may select one), extension
+    # and MCP tools are activated by registering, and ``tool_search``, an
+    # extension tool in Pi, stays available for MCP to activate.
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(no_builtin_tools=True),
+        extensions={"lookup": _Tool("lookup")},
+        production=True,
+    )
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+
+    assert _declared(tools) == ("lookup", "mcp__docs__search")
+    assert "read" in _registered(tools)
+    tools.activate_tools(("tool_search",))
+    assert _declared(tools) == ("tool_search", "lookup", "mcp__docs__search")
+    assert tools.set_active_tools(("read", "lookup"))
+    assert _declared(tools) == ("read", "lookup")
+
+
+def test_modifiers_after_no_builtin_tools_start_from_nothing(tmp_path: Path) -> None:
+    # Pi: ``--no-builtin-tools --tools +read`` activates read and keeps the
+    # extension tools; the defaultTools setting is not read.
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(no_builtin_tools=True, modifiers=("+read",)),
+        extensions={"lookup": _Tool("lookup")},
+    )
+
+    assert _declared(tools) == ("read", "lookup")
+    tools.publish(tools.prepare_extensions({"lookup": _Tool("lookup")}))
+    assert _declared(tools) == ("read", "lookup")
+
+
 @pytest.mark.parametrize(
     "options",
     [

@@ -49,7 +49,10 @@ from pipy_harness.native.system_prompt_sections import (
     render_system_prompt,
 )
 from pipy_harness.native.tool import ToolPort
-from pipy_harness.native.tool_capabilities import ToolFilterOptions
+from pipy_harness.native.tool_capabilities import (
+    ToolFilterOptions,
+    apply_tool_modifiers,
+)
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
 from pipy_harness.native.tools.registry import (
     ProductionToolRegistry,
@@ -411,10 +414,10 @@ class CodingSessionAdapter:
         # model reads a skill file by its absolute location with `read` (or
         # `bash`, Pi's second loader).
         skills = self._discover_skill_files(cwd, runtime_settings)
-        visible = self.tool_filter_options.provider_visible_names(
-            builtin_names=self.tool_registry,
-            registered_names=self.tool_registry,
-        )
+        options = self.tool_filter_options
+        visible = options.provider_visible_names(registered_names=self.tool_registry)
+        if options.no_builtin_tools:
+            visible &= frozenset(apply_tool_modifiers((), options.modifiers))
         resume_block = ""
         if self.resume_context is not None:
             # Seed the resumed tool-loop session with only the safe
