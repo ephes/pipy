@@ -326,3 +326,67 @@ Plan rows and texts:
 - A difference that stays: the legacy key is not Pi's WHATWG `href` where
   the two differ (percent-encoding of the path, a URL that ends in an empty
   fragment `#`), so such an entry is not found.
+
+## L2, commit 4: O5 (a counterpart of Pi's `adaptOAuthProvider`)
+
+Pi source read again: `packages/mcp/src/oauth/flow.ts`,
+`adaptOAuthProvider` (line 452) and `stepUpScope` (line 314), re-exported
+from `oauth/index.ts`; used in `packages/mcp/README.md` (line 89) and in
+`test/oauth.test.ts` ("discovers, registers, authorizes with PKCE, and
+refreshes on 401", "shares one refresh between concurrent 401s when refresh
+tokens rotate", "asks for authorization instead of refreshing when the
+server needs more scope"). The finding holds: pipy's library had no way to
+connect an `OAuthClientProvider` (for example `McpOAuthProvider` with a
+`MemoryOAuthStateStore`) to the HTTP transport; `McpServerAuthProvider`
+needs the file-backed server store.
+
+What changed:
+
+- `src/pipy_harness/native/mcp/oauth/flow.py`:
+  `adapt_oauth_provider(provider, *, fetch=None)` returns an
+  `OAuthTransportAuth`, an `McpAuthProvider` with `token()` (the provider's
+  access token) and `on_unauthorized(context)`: as Pi, a 401 whose token
+  was replaced already (and no run in flight) returns for a retry; else one
+  shared run of `authorize_mcp` with the challenge's resource metadata URL
+  and scope, or for `insufficient_scope` with `skip_refresh` and
+  `step_up_scope(granted, challenged)`; `REDIRECT` raises
+  `McpOAuthAuthorizationRequiredError`. Requests that arrive during a run
+  wait for it and get its outcome (Pi's shared `inFlight` promise; here an
+  event under a lock, as `McpServerAuthProvider` does).
+- `step_up_scope` moved from `mcp/sign_in.py` to `mcp/oauth/flow.py`, where
+  Pi has it; `sign_in.py` imports it from there.
+- New test file `tests/test_native_mcp_oauth_adapter.py` (Pi's three cases,
+  one through `StreamableHttpTransport` and `McpClient` against the fake
+  OAuth MCP server).
+
+A difference that stays: the adapter's flow requests go through the
+library's OAuth fetch, or the one passed as `fetch=`; Pi passes
+`context.fetch`, the transport's fetch. `UnauthorizedContext` still has no
+fetch (decided in S30), and the transport's fetch has another interface
+than the OAuth fetch.
+
+Changelog line (section Unreleased):
+
+- `pipy_harness.native.mcp.oauth.flow.adapt_oauth_provider(provider)`: a
+  program that builds on pipy's MCP library can connect an HTTP MCP server
+  that wants OAuth with any OAuth client provider and a store of its own,
+  with a shared refresh after a 401 and a step-up authorization for more
+  scope (Pi's `adaptOAuthProvider`).
+
+Plan rows and texts:
+
+- No checklist row covered the adapter (the goal check called it "not in
+  the checklist"). Suggested new row in the OAU block: "`adaptOAuthProvider`
+  connects any `OAuthClientProvider` to the HTTP transport: the provider's
+  access token; after a 401 a shared run of the flow, a retry when the
+  token was replaced meanwhile, a step-up authorization for
+  `insufficient_scope`; `REDIRECT` fails the request with
+  `McpOAuthAuthorizationRequiredError`. | `mcp/oauth/flow.ts`
+  `adaptOAuthProvider` | L2", closed.
+- S28 block (line 1255 as judged): remove "Pi's `adaptOAuthProvider` is not
+  ported; S30 builds the connection's provider directly." New text: pipy's
+  connections build their provider directly (S30);
+  `adapt_oauth_provider` is the library's counterpart of Pi's adapter
+  (L2).
+- S31 block (line 1385 as judged): `step_up_scope` now lives in
+  `mcp/oauth/flow.py`, as in Pi; `merge_scopes` stays in `sign_in.py`.

@@ -28,6 +28,7 @@ from pipy_harness.native.mcp.oauth.errors import (
     OAuthFlowError,
     OAuthIssuerMismatchError,
 )
+from pipy_harness.native.mcp.oauth.flow import step_up_scope
 from pipy_harness.native.mcp.oauth.types import OAuthChallenge
 from pipy_harness.native.mcp.sign_in import (
     CallbackSettings,
@@ -36,7 +37,6 @@ from pipy_harness.native.mcp.sign_in import (
     merge_scopes,
     response_from_redirect_url,
     sign_in_mcp_server,
-    step_up_scope,
     wait_for_cancel,
 )
 

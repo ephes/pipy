@@ -1964,7 +1964,7 @@ describes what the modules do for those who read or build on the code.
 | `types`, `errors` | The OAuth documents (server metadata, client information, tokens) with their checks, and the error types. |
 | `fetch` | The HTTP client of the library, with a 1 MiB limit on a response body. The fetch the other modules use by default has no time limit; `create_oauth_fetch(timeout_ms=...)` makes one that has. |
 | `discovery` | Parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
-| `flow` | `authorize_mcp`: one pass of the authorization code flow for a provider. Also the single steps: `register_client`, `start_authorization`, `exchange_authorization_code`, `refresh_authorization`. |
+| `flow` | `authorize_mcp`: one pass of the authorization code flow for a provider. Also the single steps: `register_client`, `start_authorization`, `exchange_authorization_code`, `refresh_authorization`, and `step_up_scope`. `adapt_oauth_provider`: the auth provider of an HTTP transport for any provider. |
 | `provider` | `McpOAuthProvider`: the provider the flow is run with. It keeps one server's client registration, tokens, PKCE verifier, `state` value and discovery result as one document in a store its caller supplies. |
 | `callback` | `OAuthCallbackServer`: the local HTTP server the browser is redirected to at the end of a sign-in. |
 | `page` | The HTML pages that server shows. |
@@ -2007,6 +2007,31 @@ the authorization response.
 - A token answer without `scope` is stored with the requested scope. A
   refresh answer without `scope` or without a refresh token keeps the old
   one.
+
+`adapt_oauth_provider(provider)` connects a provider to the HTTP transport
+(`StreamableHttpTransportOptions(auth_provider=...)`), as Pi's
+`adaptOAuthProvider` does. A program that builds on the library uses it
+with a `McpOAuthProvider` and a `MemoryOAuthStateStore` or a store of its
+own:
+
+- The transport sends the provider's access token.
+- After a 401 the flow runs and refreshes the tokens. When the user has to
+  authorize, the request fails with `McpOAuthAuthorizationRequiredError`
+  and the provider has been handed the authorization URL; the program
+  waits for the authorization response, calls `authorize_mcp` with its
+  code and connects again.
+- A 403 whose challenge reports `insufficient_scope` goes to the
+  authorization at once, for the scopes granted so far and the challenged
+  ones; the stored tokens stay until then.
+- Rejected requests share one run of the flow, and a request whose token
+  another request already replaced is sent again without a refresh, so a
+  rotating refresh token is used once.
+- The flow's requests go through the library's fetch, or the one passed as
+  `adapt_oauth_provider(provider, fetch=...)`; they have no time limit
+  unless that fetch sets one.
+
+pipy's own connections do not use it: they use the
+[credentials file](#the-credentials-file) and its refresh lock.
 
 The provider (`McpOAuthProvider`) binds its document to one server URL: a
 document stored for another URL counts as empty and is replaced by the first
@@ -2131,8 +2156,9 @@ build on it:
   a refresh.
 - The OAuth provider compares server URLs without their fragment, and
   refuses a server URL with user info.
-- An auth provider sends the requests of a refresh itself; Pi sends them
-  with the fetch of the transport whose request was rejected. A request
+- An auth provider, also the one of `adapt_oauth_provider`, sends the
+  requests of a refresh itself; Pi sends them with the fetch of the
+  transport whose request was rejected. A request
   that was given up while the provider worked is not sent again.
 - The refresh lock of the credentials file is a `flock`. The lock of a
   process that died is free at once; Pi takes such a lock over after 20
