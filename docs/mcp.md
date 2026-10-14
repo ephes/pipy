@@ -1949,8 +1949,6 @@ six either.
 - Images drawn in the terminal. An image in a result reaches the model; the
   transcript shows a line that names it, see
   [images in results](#images-in-results).
-- Tool calls of one script at the same time. A codemode script's calls run
-  one after another, see [codemode](codemode.md).
 - A clickable link for the authorization URL in the sign-in screen, see
   [signing in from the manager](#signing-in-from-the-manager).
 - `/mcp` and other extension commands in a message that an RPC client

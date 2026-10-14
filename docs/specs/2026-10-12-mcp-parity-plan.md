@@ -479,7 +479,7 @@ owner has decided.
 | --- | --- | --- | --- |
 | DEV-01 (decided) | JavaScript script API: `searchTools`, `describeTool`, `describeNamespace`; TypeScript declarations. | Python names `search_tools`, `describe_tool`, `describe_namespace`; declarations rendered as Python-style types with `#` comment lines. Same information (CMD-11 to CMD-15). | Codemode is Python by decision. |
 | DEV-02 (decided) | Config and state under `~/.pi/agent/`, project `.pi/`. | `<config home>/mcp.json`, `mcp-auth.json`, `mcp.log`; project `.pipy/mcp.json`. | Decision. |
-| DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Nested calls stay sequential, as CM1 specified. | Parallel tools are a standing backlog deferral with its own evidence gate; MCP calls run through the same nested service. Not an MCP rule. |
+| DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Ported in G3, in a Python form: `tools.<name>.submit(args)` starts a call and returns at once, its `.result()` waits for it; a plain `tools.<name>(args)` waits for its call. At most 16 requests of one script wait for their reply at once; a script that submits more first waits for one. Until G3 nested calls were sequential, as CM1 specified. | The guest has no promises or event loop; the bound keeps the host's buffer of unread replies finite, where Pi has no bound. |
 | DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign. They remain CM1 follow-ons in the backlog. | They do not change whether or how MCP and extension tools are reached. `image()` is the exception and is in slice S39. |
 | DEV-05 | The client identifies as `pi` in `initialize` and in dynamic client registration. | `pipy` and pipy's version. `oauth.clientName` covers servers that accept only known client names, as in Pi. | Product name. |
 | DEV-06 | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. If the owner later names a default (section 7, Q1), the field becomes optional. | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
@@ -546,7 +546,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-45 | EXT-15 | A resolver's `next()` gives a marker for pipy's own rows and `None` for an extension tool without renderers, so a resolver cannot call and wrap pipy's rows as it can wrap Pi's renderers. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
-| DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls always run concurrently (no sequential mode, no `executionMode`), and those still running when the tool the model called returns are cancelled (G2). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result is a text chunk (G2). No event is emitted for a name that is not callable. Usage is DEV-13. | narrower | Decided in S37 |
+| DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls always run concurrently (no sequential mode, no `executionMode`), and those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result is a text chunk (G2). No event is emitted for a name that is not callable. Usage is DEV-13. | narrower | Decided in S37 |
 | DEV-49 | EXT-12 | The loadout has no `getExposure`, `getNamespace` or `getPromptGuidelines`. The function is called at every read of the declarations and must be pure; Pi calls it when the active tools change. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session runs no slash command (`submit()` sends its text to the model), so `open_url` and `update_config` reach the command and the manager and nothing in a product session uses them. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38; `docs/sdk.md` |
@@ -2719,7 +2719,7 @@ This keeps the property CM1 protected (a script never sees a half-published
 generation and its eligibility cannot change under it) while allowing tools
 that were registered after the request was built. `NestedToolCallService`
 keeps its session-thread ownership, its bounded records and its sequential
-rule; `BUILTIN_NESTED_NAMES` is deleted and `eligible_names()` returns the
+rule (G2 and G3 replaced the sequential rule: calls run at the same time); `BUILTIN_NESTED_NAMES` is deleted and `eligible_names()` returns the
 snapshot's names. The CM1 spike spec section 4.7 and `docs/codemode.md` are
 updated in S03.
 
@@ -3298,6 +3298,7 @@ Slices outside these two lists are serial.
 | X2 | Leaked stdio server processes: the fake server and the suite guard; SIGTERM and SIGHUP end pipy like an exit | none (STD-05 and STD-06 on a signalled pipy) | S, two commits | S40 | no |
 | G1 | Stdio close keeps signalling the group while a child holds the server's pipes (goal-check finding C1) | STD-05 | S | X2 | no |
 | G2 | Nested tool calls: async handlers, every depth, concurrent calls, `signal` and `on_update`, update events, the full outcome (goal-check findings M1, M2, M12, E2 to E5) | EXT-11, CMD-24, CMD-26 | M, several commits | G1 | no |
+| G3 | A codemode script's calls at the same time (goal-check finding M3, DEV-03) | CMD-24, CMD-26 | M | G2 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3714,6 +3715,63 @@ published. Tests: `test_a_nested_call_has_a_signal_and_updates`,
 `test_a_signal_ends_the_readiness_wait_of_a_call`,
 `test_live_output_of_another_thread_is_published_on_the_session_thread`, the
 update rows of `test_loop_to_live_transcript_and_all_projections`.
+
+**G3 A script's calls at the same time.** Added after the goal check
+(finding M3; DEV-03 is now ported). The Python form of Pi's `Promise.all`:
+`tools.<name>.submit(args)` (and `tools["<name>"].submit(args)`) sends the
+call and returns a pending call at once; its `.result()` waits for the reply
+and returns the value or raises the `ToolError` that `tools.<name>(args)`
+would, each time it is asked. A plain call waits for its own reply as before.
+Protocol: the guest may send further messages before a reply, and replies
+come in the order the calls settle; a request stays outstanding until its
+reply is written in full, at most `MAX_PENDING_REQUESTS` (16, prelude and
+host share it) at once. The prelude waits for a reply before it sends a 17th;
+the host treats a 17th as a protocol violation, so the buffer of unread
+replies stays bounded. Host: `run_script(start_tool=)` starts each call on
+the session thread in the order the guest made it and settles it later
+(`call_tool` remains for callers that run a call to its end); the outcome's
+calls keep that order and a call that did not settle before the run ended is
+`cancelled`, as Pi's records start out. A `done` hands the calls of its chunk
+to the session thread before the end, and `tool_stop` is then set only after
+they were started, so a call made just before the script ends always starts;
+after a violation, a cap, the deadline or an abort they do not start.
+Service: `NestedToolCallService.batch(waiter, stop)` returns a
+`NestedCallBatch`; `start` begins a call (admission, `tool_call` hooks,
+readiness, budget, id) and runs its tool on a thread of its own, `pump` waits
+for guest activity while it settles finished calls and serves the calls
+their tools make, `end` ends and settles the calls still running. `stop` ends
+a call's readiness wait and its tool with `SCRIPT_STOP`; an operator
+interruption ends every running call. The record now keeps calls in the
+order they began (a place is taken when a call begins, Pi's recorder), for
+every nested caller, and a record with an unfinished call is not complete
+(Pi's `snapshot`). A failure of the session's wait while calls run is the
+parent's failure; while only the script computes it stays a parent error.
+A nested call still running when the nested call that made it returned is
+cancelled then (for every nested caller, as `serve` does for the tool it
+waits for), not only at the end of the parent. After a `done` the deadline
+still sets `tool_stop` while the calls made before it start, and a call the
+end of the run cancelled does not change the script's outcome; a starter
+that fails while those calls start is the outcome's sandbox error.
+The codemode guideline names `submit()` where Pi names
+`Promise.allSettled`. Not ported: Pi's exclusive queue (DEV-48). Tests:
+`test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order`
+(Pi "runs nested calls in parallel and returns only the script result"),
+`test_submitted_calls_take_the_budget_in_the_order_they_were_made`,
+`test_a_call_still_running_when_the_script_ends_is_cancelled`,
+`test_an_interruption_cancels_every_running_call`,
+`test_a_call_a_script_call_made_ends_when_that_call_returns` in
+`test_native_codemode_composite.py`;
+`test_calls_run_at_the_same_time_and_settle_in_any_order`,
+`test_a_call_made_just_before_done_always_starts`,
+`test_requests_up_to_the_limit_run_and_get_their_replies`,
+`test_a_starter_failure_before_done_is_the_outcome`,
+`test_the_deadline_ends_a_start_that_blocks_after_done`,
+`test_more_outstanding_requests_than_the_limit_are_a_violation` in
+`test_native_codemode_host.py`;
+`test_a_real_script_submits_calls_that_settle_in_any_order` in
+`test_native_codemode_host_runtime.py`; the prelude units
+`test_submitted_calls_are_sent_at_once_and_take_their_own_replies` and
+`test_a_script_past_the_pending_limit_waits_for_a_reply`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

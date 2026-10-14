@@ -19,6 +19,7 @@ from pipy_harness.native.agent.content import (
 )
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
+    NestedToolCallOutcome,
     NestedToolCallService,
     tool_error_text,
 )
@@ -49,6 +50,7 @@ from pipy_harness.native.coding.codemode_description import (
 )
 from pipy_harness.native.coding.codemode_discovery import CodemodeDiscovery
 from pipy_harness.native.tools.base import (
+    NestedToolResult,
     make_tool_request_id,
     validate_arguments,
 )
@@ -186,8 +188,17 @@ def result_content(
     return tool_result_text(blocks), tuple(blocks)
 
 
+_OPERATOR = frozenset(
+    {ToolExecutionInterruption.OPERATOR_ABORT, ToolExecutionInterruption.LOCAL_COMMAND}
+)
+
+
 class _RunControl:
-    """Fresh per parent. Session state stays here; monitor only signals events."""
+    """Fresh per parent; session thread only.
+
+    ``stop`` is the host's ``tool_stop``: set when the script's run ended,
+    it ends the calls still running. ``cancel`` ends the run as aborted.
+    """
 
     def __init__(self, waiter: ToolInterruptWaiter | None) -> None:
         self.waiter = waiter
@@ -195,14 +206,18 @@ class _RunControl:
         self.stop = threading.Event()
         self.interruption = ToolExecutionInterruption.SETTLED
 
-    def activity(self, done: threading.Event, cancel: threading.Event) -> None:
-        interruption = self._wait(done, cancel)
-        if interruption in {
-            ToolExecutionInterruption.OPERATOR_ABORT,
-            ToolExecutionInterruption.LOCAL_COMMAND,
-        }:
+    def interrupted(self, interruption: ToolExecutionInterruption | None) -> None:
+        """An operator interruption ends the run as aborted."""
+        if interruption in _OPERATOR:
+            assert interruption is not None
             self.interruption = interruption
             self.cancel.set()
+
+    def wait(
+        self, done: threading.Event, cancel: threading.Event
+    ) -> ToolExecutionInterruption:
+        """The session's wait, which Ctrl-C ends as an operator abort."""
+        return self._wait(done, cancel)
 
     def _wait(
         self, done: threading.Event, cancel: threading.Event
@@ -220,45 +235,6 @@ class _RunControl:
         except KeyboardInterrupt:
             cancel.set()
             return ToolExecutionInterruption.OPERATOR_ABORT
-
-    def nested(
-        self, done: threading.Event, cancel: threading.Event
-    ) -> ToolExecutionInterruption:
-        # The existing waiter must wake for either tool completion or backend
-        # termination. This monitor reads no service/canonical/session state.
-        wake = threading.Event()
-        monitor_stop = threading.Event()
-
-        def monitor() -> None:
-            while not monitor_stop.wait(0.01):
-                if self.stop.is_set():
-                    cancel.set()
-                    wake.set()
-                    return
-                if done.is_set():
-                    wake.set()
-                    return
-
-        thread = threading.Thread(
-            target=monitor, name="codemode-tool-stop", daemon=True
-        )
-        thread.start()
-        try:
-            interruption = self._wait(wake, cancel)
-            if interruption in {
-                ToolExecutionInterruption.OPERATOR_ABORT,
-                ToolExecutionInterruption.LOCAL_COMMAND,
-            }:
-                self.interruption = interruption
-                self.cancel.set()
-                return interruption
-            if self.stop.is_set():
-                cancel.set()
-                return ToolExecutionInterruption.SCRIPT_STOP
-            return ToolExecutionInterruption.SETTLED
-        finally:
-            monitor_stop.set()
-            thread.join(timeout=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,29 +286,44 @@ class CodemodeCompositeRunner:
         except ValueError as exc:
             return result(str(exc), error=True, malformed=True)
         control = _RunControl(tool_waiter)
+        # The script's calls run at the same time; each starts in the order
+        # the script made it, and ``stop`` ends those still running.
+        batch = service.batch(control.wait, control.stop)
 
-        def child(name: str, arguments_json: str) -> CallResult:
-            outcome = service.call(name, arguments_json, waiter=control.nested)
-            if outcome.interruption is not None:
-                control.interruption = outcome.interruption
-                control.cancel.set()
-                service.close()
-            result = outcome.result
-            # Pi ``toScriptValue``: a tool that declares an output schema
-            # resolves to its structured content, also for an error result
-            # that carries one; any other tool resolves to its text, and a
-            # failure raises with the tool's error text.
-            return CallResult(
-                ok=not result.is_error,
-                text=tool_error_text(name, result.content.value)
-                if result.is_error
-                else result.content.value,
-                cancelled=outcome.interruption is not None
-                or outcome.status is NestedCallStatus.CANCELLED,
-                value=result.structured_content
-                if service.declares_output_schema(name)
-                else None,
-            )
+        def start(
+            name: str, arguments_json: str, settle: Callable[[CallResult], None]
+        ) -> None:
+            structured = service.declares_output_schema(name)
+
+            def settled(
+                answer: NestedToolResult, outcome: NestedToolCallOutcome | None
+            ) -> None:
+                if outcome is None:
+                    # Refused before it got an id: the parent's calls ended.
+                    settle(CallResult(ok=False, text=answer.content))
+                    return
+                control.interrupted(outcome.interruption)
+                result = outcome.result
+                # Pi ``toScriptValue``: a tool that declares an output schema
+                # resolves to its structured content, also for an error result
+                # that carries one; any other tool resolves to its text, and a
+                # failure raises with the tool's error text.
+                settle(
+                    CallResult(
+                        ok=not result.is_error,
+                        text=tool_error_text(name, result.content.value)
+                        if result.is_error
+                        else result.content.value,
+                        cancelled=outcome.interruption is not None
+                        or outcome.status is NestedCallStatus.CANCELLED,
+                        value=result.structured_content if structured else None,
+                    )
+                )
+
+            batch.start(name, arguments_json, settled)
+
+        def activity(done: threading.Event, cancel: threading.Event) -> None:
+            control.interrupted(batch.pump(done, cancel))
 
         try:
             discovery = CodemodeDiscovery(
@@ -340,15 +331,17 @@ class CodemodeCompositeRunner:
             )
             outcome = run_script(
                 arguments["code"],
-                call_tool=child,
+                start_tool=start,
                 tools=discovery.script_tools(),
                 discover=discovery,
                 limits=self.limits,
                 paths=self.paths,
                 cancel=control.cancel,
                 tool_stop=control.stop,
-                activity_waiter=control.activity,
+                activity_waiter=activity,
             )
+            # Pi: the calls still running when the script ended are cancelled.
+            batch.end(ToolExecutionInterruption.SCRIPT_STOP)
             formatted = format_result(outcome)
             text, details = _spill_result(formatted)
             text, blocks = result_content(

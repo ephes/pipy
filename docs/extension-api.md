@@ -1145,7 +1145,7 @@ def read_all(ctx, params):
   the calling call (`parentToolCallId` in
   [JSON mode](json.md) and [RPC mode](rpc.md)). The result of the calling
   tool the model called keeps a bounded record of them, at every depth, as
-  `nestedCalls` in its `details`
+  `nestedCalls` in its `details`, in the order the calls began
   (name, arguments, status, duration and error, never results; at most 256
   calls, arguments up to 8 KiB per call and 32 KiB in all, with
   `complete: false` when something was left out). A tool that called nothing
@@ -1160,7 +1160,8 @@ caller until it ended. The handler runs on a worker thread, and the session
 thread runs the pipeline of each call (validation, handlers, budget) while
 the tools themselves run on threads of their own. When the tool the model
 called returned, the nested calls still running are cancelled with the
-error `tool cancelled by its caller`, and a call that is still waiting or is
+error `tool cancelled by its caller`, as is a call still running when the
+nested tool that made it returned, and a call that is still waiting or is
 made later is answered with
 `Nested tool calls are not available in this context`; so is a call of a
 nested tool that already returned.
@@ -1178,7 +1179,7 @@ Different from Pi:
   agent executes tool calls sequentially or the tool's `executionMode` is
   `sequential`; pipy has neither setting.
 - Pi lets a nested call still running when its calling tool returned go on;
-  pipy cancels it when the tool the model called returned.
+  pipy cancels it when its calling tool returned.
 - In the outcome, `result.content` is the result's text and `result.blocks`
   its ordered text and image blocks when it has an image; Pi's
   `result.content` is always the block list. A partial result is a chunk of

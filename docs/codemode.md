@@ -141,6 +141,34 @@ emitting it.
 included in order. Filter before emitting: bulk raw results can exhaust output
 budgets and require another model turn.
 
+### Calls at the same time
+
+`tools.<name>(args)` waits for its call. `tools.<name>.submit(args)` (also
+`tools["<name>"].submit(args)`) starts the call and returns at once, so calls
+submitted one after another run at the same time, as `Promise.all` runs
+them in Pi. Its `.result()` waits for the call and returns what
+`tools.<name>(args)` would have returned, or raises its `ToolError`, every
+time it is asked:
+
+```python
+calls = [tools.read.submit(path=path) for path in ("alpha.txt", "beta.txt")]
+texts = []
+for call in calls:
+    try:
+        texts.append(call.result())
+    except ToolError as error:  # like Promise.allSettled: keep the others
+        texts.append(f"failed: {error}")
+```
+
+The calls start in the order the script submits them: their ids, their place
+in the tool budget, the `tool_call` hooks and the nested-call record follow
+that order, whichever call finishes first. A call still running when the
+script ends, because the script did not ask for its result or because the
+script failed, is cancelled and recorded as `cancelled`; a call submitted just
+before the script ends has still started. At most 16 calls and discovery
+requests can wait for their result at once; a script that submits more waits
+for one of them first. Pi has no such limit.
+
 ### Images
 
 `image(value)` adds an image to the result, where the model sees it as an
@@ -196,7 +224,7 @@ example does not implement pagination. This is model guidance, not an enforced
 single-script rule or a guarantee that a model follows it. See the
 [adherence slice](specs/2026-10-09-codemode-adherence.md) for evidence and limits.
 
-Calls are sequential. A script can call:
+A script can call:
 
 - every active tool with exposure `direct`: the built-ins `read`, `ls`, `grep`,
   `find`, `write`, `edit` and `bash` while they are active, and extension tools,
@@ -238,6 +266,7 @@ With no match it lists the tools when there are at most 20.
 | Global | Purpose |
 | --- | --- |
 | `tools.<identifier>(args)`, `tools["<name>"](args)` | Call a tool with one `dict` or with keyword arguments. |
+| `tools.<identifier>.submit(args)` | Start the call and return at once; `.result()` waits for it. See [calls at the same time](#calls-at-the-same-time). |
 | `text(value)` | Emit a string unchanged, another value as JSON. |
 | `image(value)` | Add an image to the output; see [images](#images). |
 | `ToolError` | Raised by a tool call that failed. |
@@ -290,7 +319,8 @@ next request on and does not change the running script.
 
 The `codemode` tool description explains the call contract (a call returns a
 string, or a structured value when the tool's declaration says so, also for a
-failure that carries one) and names the globals, including the discovery
+failure that carries one; `submit()` starts calls that run at the same time;
+calls still running when the script ends are cancelled) and names the globals, including the discovery
 helpers as the way to find tools that are not listed. That part names no tool
 and is the same in every session.
 
@@ -451,6 +481,6 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-Parallel calls, image results from `read`, `models.*`,
+Image results from `read`, `models.*`,
 `store()`/`load()`, options lines and structured bash results are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

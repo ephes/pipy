@@ -12,7 +12,10 @@ stdin and stdout carry it:
   str, "id": str, "description": str}]}``: the callable tools in order, each
   with its own name, the identifier scripts write and its ``ALL_TOOLS``
   description
-- guest -> host: ``{"type": "call", "id": int, "name": str, "args": object}``
+- guest -> host: ``{"type": "call", "id": int, "name": str, "args": object}``;
+  ids count up from 1. The guest may send further messages before the
+  reply, with at most :data:`MAX_PENDING_REQUESTS` requests whose reply it
+  has not read
 - host -> guest: ``{"type": "result", "id": int, "ok": true, "text": str}``
   (the call returns the tool's text), ``{"type": "result", "id": int, "ok":
   true, "value": <JSON>}`` (the call returns the tool's structured content) or
@@ -20,7 +23,8 @@ stdin and stdout carry it:
   raises ``ToolError``)
 - guest -> host: ``{"type": "discover", "id": int, "name": str, "args":
   object}`` for ``search_tools``, ``describe_tool`` and ``describe_namespace``;
-  ids continue the sequence of the tool calls
+  ids continue the sequence of the tool calls. Replies come in the order
+  the requests settle, not the order they were made
 - host -> guest: ``{"type": "result", "id": int, "ok": true, "value": <JSON>}``
   (the helper returns the value) or ``{"type": "result", "id": int, "ok":
   false, "error": str}`` (the helper raises ``ValueError``)
@@ -62,6 +66,10 @@ MAX_LISTED_TOOLS = 20
 MAX_CLOSE_MATCHES = 5
 DISCOVERY_NAMES = ("search_tools", "describe_tool", "describe_namespace")
 DEFAULT_SEARCH_LIMIT = 8
+# Requests the guest may have made whose reply it has not read. The host
+# counts a request until its reply is written in full and treats one more as
+# a protocol violation; a script that submits more waits for a reply first.
+MAX_PENDING_REQUESTS = 16
 
 # Pi's output cap for one script: characters of base64 image data. The host
 # enforces its own (``ScriptLimits.image_bytes``); a test pins that they match.
@@ -192,13 +200,56 @@ def is_interpreter_attribute(name: str) -> bool:
 
 
 def _bound_tool(
-    key: str, name: str, call: Callable[[str, dict[str, Any]], Any]
+    key: str,
+    name: str,
+    call: Callable[[str, dict[str, Any]], Any],
+    submit: Callable[[str, dict[str, Any]], Any] | None,
 ) -> Callable[..., Any]:
     def tool(args: object = NO_ARGS, /, **kwargs: Any) -> Any:
         return call(name, call_arguments(key, args, kwargs))
 
+    def submit_call(args: object = NO_ARGS, /, **kwargs: Any) -> Any:
+        """Start the call and return at once; ``.result()`` waits for it."""
+
+        if submit is None:
+            raise TypeError(f"tools.{key}.submit() is not available")
+        return submit(name, call_arguments(key, args, kwargs))
+
     tool.__name__ = tool.__qualname__ = key
+    submit_call.__name__ = "submit"
+    submit_call.__qualname__ = f"{key}.submit"
+    tool.submit = submit_call  # type: ignore[attr-defined]
     return tool
+
+
+class PendingCall:
+    """A tool call that runs while the script goes on: what
+    ``tools.<name>.submit(args)`` returns."""
+
+    __slots__ = ("_name", "_outcome", "_wait")
+
+    def __init__(self, name: str, wait: Callable[[], Any]) -> None:
+        self._name = name
+        self._wait = wait
+        self._outcome: tuple[bool, Any] | None = None
+
+    def result(self) -> Any:
+        """Wait for the call; return what ``tools.<name>(args)`` would
+        return, or raise its ``ToolError``."""
+
+        if self._outcome is None:
+            try:
+                self._outcome = (True, self._wait())
+            except ToolError as exc:
+                self._outcome = (False, str(exc))
+        ok, value = self._outcome
+        if ok:
+            return value
+        raise ToolError(value)
+
+    def __repr__(self) -> str:
+        state = "pending" if self._outcome is None else "settled"
+        return f"<{state} call of tools.{self._name}>"
 
 
 class Tools:
@@ -216,23 +267,25 @@ class Tools:
         keys: dict[str, str],
         listed: Iterable[str],
         call: Callable[[str, dict[str, Any]], Any],
+        submit: Callable[[str, dict[str, Any]], Any] | None = None,
     ) -> None:
         """``keys`` maps every key to its tool's name; ``listed`` holds the
-        ``ALL_TOOLS`` names in order."""
+        ``ALL_TOOLS`` names in order. ``call`` runs a call to its end,
+        ``submit`` starts one (``tools.<name>.submit``)."""
 
-        object.__setattr__(self, "_state", (dict(keys), tuple(listed), call))
+        object.__setattr__(self, "_state", (dict(keys), tuple(listed), call, submit))
 
     def __getattribute__(self, name: str) -> Any:
         if is_interpreter_attribute(name):
             # What the interpreter looks up (methods, copying, pickling).
             return object.__getattribute__(self, name)
         try:
-            keys, listed, call = object.__getattribute__(self, "_state")
+            keys, listed, call, submit = object.__getattribute__(self, "_state")
         except AttributeError:
             # An instance made without __init__, as copying makes one.
             raise AttributeError(name) from None
         if name in keys:
-            return _bound_tool(name, keys[name], call)
+            return _bound_tool(name, keys[name], call, submit)
         # An explicit name=None stops the interpreter from filling in name
         # and obj, so its own "Did you mean" does not repeat ours.
         raise AttributeError(unknown_tool_message(name, listed), name=None, obj=None)
@@ -242,12 +295,12 @@ class Tools:
         return type(self), object.__getattribute__(self, "_state")
 
     def __getitem__(self, key: object) -> Callable[..., Any]:
-        keys, listed, call = object.__getattribute__(self, "_state")
+        keys, listed, call, submit = object.__getattribute__(self, "_state")
         if not isinstance(key, str):
             raise TypeError(f"tools[...] takes a tool name, not {type(key).__name__}")
         if key not in keys:
             raise KeyError(unknown_tool_message(key, listed))
-        return _bound_tool(key, keys[key], call)
+        return _bound_tool(key, keys[key], call, submit)
 
     def __contains__(self, key: object) -> bool:
         return (
@@ -567,6 +620,10 @@ class Wire:
         self._in = open(in_fd, "rb", closefd=False)
         self._out_fd = out_fd
         self._next_id = 0
+        # Requests whose reply has not been read, and replies read for a
+        # request nobody waited for yet.
+        self._waiting: set[int] = set()
+        self._replies: dict[int, dict[str, Any]] = {}
 
     def send(self, message: dict[str, Any]) -> None:
         self._write(encode(message))
@@ -595,8 +652,8 @@ class Wire:
         # ``type`` first: the host tells an image line by how it starts.
         self.send({"type": "image", "data": data, "mimeType": mime_type})
 
-    def _exchange(self, message: dict[str, Any], label: str) -> dict[str, Any]:
-        """Send one request with the next id and return its ``result`` line."""
+    def _request(self, message: dict[str, Any], label: str) -> int:
+        """Send one request with the next id; return the id."""
 
         call_id = self._next_id + 1
         message["id"] = call_id
@@ -606,22 +663,53 @@ class Wire:
             raise TypeError(
                 f"{label}() arguments must be JSON serializable: {exc}"
             ) from None
+        while len(self._waiting) >= MAX_PENDING_REQUESTS:
+            self._read_reply()
         self._next_id = call_id
         self._write(line)
+        self._waiting.add(call_id)
+        return call_id
+
+    def _read_reply(self) -> None:
         reply = self.receive()
         reply_id = reply.get("id")
         if (
             reply.get("type") != "result"
             or type(reply_id) is not int  # bool is an int subclass: True == 1
-            or reply_id != call_id
+            or reply_id not in self._waiting
         ):
             protocol_failure("the host sent an unexpected reply to a tool call")
-        return reply
+        self._waiting.discard(reply_id)
+        self._replies[reply_id] = reply
+
+    def _reply(self, call_id: int) -> dict[str, Any]:
+        """Wait for the reply to request ``call_id``; replies to other
+        requests that arrive first are kept for them."""
+
+        while call_id not in self._replies:
+            self._read_reply()
+        return self._replies.pop(call_id)
+
+    def _exchange(self, message: dict[str, Any], label: str) -> dict[str, Any]:
+        """Send one request with the next id and return its ``result`` line."""
+
+        return self._reply(self._request(message, label))
 
     def call(self, name: str, args: dict[str, Any]) -> Any:
-        reply = self._exchange(
-            {"type": "call", "name": name, "args": args}, f"tools.{name}"
+        return self._call_value(
+            name,
+            self._exchange(
+                {"type": "call", "name": name, "args": args}, f"tools.{name}"
+            ),
         )
+
+    def submit_call(self, name: str, args: dict[str, Any]) -> PendingCall:
+        call_id = self._request(
+            {"type": "call", "name": name, "args": args}, f"tools.{name}.submit"
+        )
+        return PendingCall(name, lambda: self._call_value(name, self._reply(call_id)))
+
+    def _call_value(self, name: str, reply: dict[str, Any]) -> Any:
         ok = reply.get("ok")
         if ok is True and "value" in reply and "text" not in reply:
             return reply["value"]
@@ -695,7 +783,9 @@ def main() -> None:
     namespace: dict[str, Any] = {
         "__name__": "__main__",
         "__builtins__": builtins,
-        "tools": Tools(keys, [entry["name"] for entry in all_tools], wire.call),
+        "tools": Tools(
+            keys, [entry["name"] for entry in all_tools], wire.call, wire.submit_call
+        ),
         "ALL_TOOLS": all_tools,
         "text": text,
         "image": image_helper(wire.image),

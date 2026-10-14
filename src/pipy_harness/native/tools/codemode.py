@@ -51,7 +51,7 @@ text({"matches": matches, "count": len(matches)})"""
 # call returns.
 _DESCRIPTION_INTRO = (
     "Run a Python script that calls other tools. The script runs in an isolated Python 3.14 interpreter with no file system, network or process access of its own. All effects go through `tools.<name>(args)`, which runs the named tool exactly as a direct call would, with the same JSON arguments.\n"
-    "- `tools.<name>(args)` returns a string, or a structured value if the tool's declaration says so, and raises `ToolError` on failure. A tool whose declaration returns a structured value returns it on failure too when the failed result carries one; check its fields. Calls run one at a time.\n"
+    "- `tools.<name>(args)` returns a string, or a structured value if the tool's declaration says so, and raises `ToolError` on failure. A tool whose declaration returns a structured value returns it on failure too when the failed result carries one; check its fields. `tools.<name>.submit(args)` starts the call and returns at once; its `.result()` returns or raises as the call would, so calls submitted together run at the same time. Calls still running when the script ends are cancelled.\n"
     "- Unavailable modules: subprocess, socket networking, ssl, threading, ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 120 s wall time, 256 MiB memory, about 10k tokens of output. Tool calls already made are not undone when the script fails."
 )
 

@@ -26,12 +26,11 @@ from test_native_codemode_delivery import (
     runtime,  # noqa: F401 - the real-runtime fixture
 )
 from test_native_codemode_extension_tools import _output, _run_script
+from test_native_codemode_host import _run as _run_fake
 from test_native_codemode_host import (
-    _no_tools,
     _sandbox_error,
     spawned,  # noqa: F401 - points the runner at the fake worker
 )
-from test_native_codemode_host import _run as _run_fake
 
 from pipy_harness.native.agent import NestedToolCallStarted
 from pipy_harness.native.codemode import prelude
@@ -385,7 +384,7 @@ def test_a_malformed_discovery_message_is_a_protocol_violation(
     assert calls == []
 
 
-def test_a_second_request_while_discovery_is_pending_is_a_violation(
+def test_a_call_made_while_discovery_is_pending_gets_its_own_reply(
     monkeypatch: pytest.MonkeyPatch,
     spawned: list[int],  # noqa: F811
 ) -> None:
@@ -393,11 +392,22 @@ def test_a_second_request_while_discovery_is_pending_is_a_violation(
         "start()\n"
         "send({'type': 'discover', 'id': 1, 'name': 'describe_tool', 'args': {}})\n"
         "send({'type': 'call', 'id': 2, 'name': 'read', 'args': {}})\n"
-        "hang()\n"
+        "replies = sorted((recv() for _ in range(2)), key=lambda r: r['id'])\n"
+        "send({'type': 'text', 'value': json.dumps(replies)})\n"
+        "done()\n"
+        "exit_status()\n"
     )
-    outcome = _run_fake(monkeypatch, scenario, call_tool=_no_tools)
-    _sandbox_error(outcome, "while a tool call was pending")
-    assert outcome.calls == ()
+    outcome = _run_fake(
+        monkeypatch,
+        scenario,
+        call_tool=lambda name, arguments: CallResult(ok=True, text="body"),
+        discover=lambda name, args: DiscoveryResult(None),
+    )
+    assert outcome.ok, outcome
+    assert json.loads(outcome.texts[0]) == [
+        {"type": "result", "id": 1, "ok": True, "value": None},
+        {"type": "result", "id": 2, "ok": True, "text": "body"},
+    ]
 
 
 def test_discovery_failures_become_errors_in_the_script_or_the_sandbox(

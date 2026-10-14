@@ -147,12 +147,15 @@ def test_builtin_tool_prompts_are_pis_contributions() -> None:
     ]
 
 
-def test_codemode_prompt_matches_sequential_python_contract() -> None:
+def test_codemode_prompt_matches_the_python_contract() -> None:
     contribution = BUILTIN_TOOL_PROMPTS["codemode"]
     assert contribution.snippet == "Run Python that calls other tools"
+    # Pi: "Use codemode to batch independent tool calls (Promise.allSettled),
+    # chain them, or filter large output, instead of many separate calls."
     assert contribution.guidelines == (
-        "Use codemode to chain several tool calls or filter large output "
-        "in one step instead of many separate calls.",
+        "Use codemode to batch independent tool calls (`tools.<name>.submit()`), "
+        "chain them, or filter large output in one step instead of many separate "
+        "calls.",
         "Keep intermediate tool results in Python and emit only the task-relevant "
         "answer; parse documented text output directly instead of adding "
         "format-probe calls.",

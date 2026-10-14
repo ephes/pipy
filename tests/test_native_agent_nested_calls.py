@@ -1269,4 +1269,5 @@ def test_a_script_child_serves_the_calls_of_its_own_threads() -> None:
     loop.run(_run_input())
 
     assert outcomes[0].result.content.value.startswith("read saw ")
-    assert ids == [["parent0/1/1", "parent0/1"]]
+    # The record keeps the order the calls began in, as Pi's recorder does.
+    assert ids == [["parent0/1", "parent0/1/1"]]

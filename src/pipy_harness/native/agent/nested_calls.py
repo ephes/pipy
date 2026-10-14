@@ -159,8 +159,18 @@ NestedSettle = Callable[[AgentToolCall], "NestedToolCallOutcome | PendingNestedC
 _POLL_SECONDS: Final = 0.05
 
 
+Settled = Callable[[NestedToolResult, "NestedToolCallOutcome | None"], None]
+"""Session thread: what one started call ended with, and its outcome; no
+outcome for a call refused before it got an id."""
+
+
 class _Request:
-    """A call asked for on a thread that is not the session thread."""
+    """A call asked for on a thread that is not the session thread, or
+    started by a ``NestedCallBatch``.
+
+    ``stop_reason`` is how its ``signal`` (and the end of its caller) ends
+    it; ``settled`` is told the answer on the session thread.
+    """
 
     __slots__ = (
         "arguments_json",
@@ -168,7 +178,9 @@ class _Request:
         "on_update",
         "ready",
         "result",
+        "settled",
         "signal",
+        "stop_reason",
         "tool_name",
     )
 
@@ -179,18 +191,28 @@ class _Request:
         arguments_json: str,
         signal: threading.Event | None = None,
         on_update: Callable[[str], None] | None = None,
+        *,
+        stop_reason: ToolExecutionInterruption = ToolExecutionInterruption.CALLER_STOP,
+        settled: Settled | None = None,
     ) -> None:
         self.caller_id = caller_id
         self.tool_name = tool_name
         self.arguments_json = arguments_json
         self.signal = signal
         self.on_update = on_update
+        self.stop_reason = stop_reason
+        self.settled = settled
         self.ready = threading.Event()
         self.result = unavailable_result(caller_id)
 
-    def answer(self, result: NestedToolResult) -> None:
+    def answer(
+        self, result: NestedToolResult, outcome: NestedToolCallOutcome | None = None
+    ) -> None:
         self.result = result
         self.ready.set()
+        settled, self.settled = self.settled, None
+        if settled is not None:
+            settled(result, outcome)
 
 
 class _Running:
@@ -223,8 +245,19 @@ class _Running:
             if self.stop.is_set():
                 return self.reason
             if signal is not None and signal.is_set():
-                return ToolExecutionInterruption.CALLER_STOP
+                return self.request.stop_reason
         return ToolExecutionInterruption.SETTLED
+
+
+class _Slot:
+    """A call's place in the record while it runs: the call with the
+    arguments the record keeps, and the byte count of omitted ones."""
+
+    __slots__ = ("arguments_bytes", "nested_call")
+
+    def __init__(self, nested_call: AgentToolCall, arguments_bytes: int | None) -> None:
+        self.nested_call = nested_call
+        self.arguments_bytes = arguments_bytes
 
 
 class _Update:
@@ -250,10 +283,12 @@ class _Finished:
 
 
 def _until_ended(
-    waiter: ToolInterruptWaiter, ends: tuple[threading.Event, ...]
+    waiter: ToolInterruptWaiter,
+    ends: tuple[threading.Event, ...],
+    reason: ToolExecutionInterruption = ToolExecutionInterruption.CALLER_STOP,
 ) -> ToolInterruptWaiter:
     """``waiter``, ended also by any of ``ends``: the wait then gives
-    ``CALLER_STOP``."""
+    ``reason``."""
 
     def wait(
         done_event: threading.Event, cancel_event: threading.Event, /
@@ -276,7 +311,7 @@ def _until_ended(
             return interruption
         if done_event.is_set():
             return ToolExecutionInterruption.SETTLED
-        return ToolExecutionInterruption.CALLER_STOP
+        return reason
 
     return wait
 
@@ -416,7 +451,7 @@ class NestedToolCallService:
         # a call it makes from there is refused, not run inside it.
         self._in_pipeline = False
         self._next: dict[str, int] = {}
-        self._records: list[NestedToolCallOutcome] = []
+        self._records: list[NestedToolCallOutcome | _Slot] = []
         self._argument_bytes = 0
         self._complete = True
         self._failure: BaseException | None = None
@@ -434,7 +469,19 @@ class NestedToolCallService:
         self._lock = threading.Lock()
         self._jobs: deque[_Request | _Finished | _Update] = deque()
         self._wake = threading.Event()
+        # Also set for a job while a batch pumps: what the batch waits for.
+        self._also_wake: threading.Event | None = None
         self._callers: set[str] = set()
+        # Session thread: where each call that runs keeps its place in the
+        # record, taken when it began (Pi records a call as it starts).
+        self._slots: dict[str, int] = {}
+
+    def _post(self, job: _Request | _Finished | _Update) -> None:
+        """Queue a job for the session thread; the caller holds the lock."""
+        self._jobs.append(job)
+        self._wake.set()
+        if self._also_wake is not None:
+            self._also_wake.set()
 
     def _require_thread(self) -> None:
         if threading.current_thread() is not self._thread:
@@ -452,8 +499,14 @@ class NestedToolCallService:
             request.answer(unavailable_result(request.caller_id))
 
     def records(self) -> tuple[NestedToolCallOutcome, ...]:
+        """The kept calls in the order they began; a call still running has
+        no record yet."""
         self._require_thread()
-        return tuple(self._records)
+        return tuple(
+            record
+            for record in self._records
+            if isinstance(record, NestedToolCallOutcome)
+        )
 
     @property
     def interruption(self) -> ToolExecutionInterruption | None:
@@ -482,6 +535,18 @@ class NestedToolCallService:
         ``toScriptValue``: ``tool.outputSchema`` in the parent's snapshot)."""
         self._require_thread()
         return tool_name in self._output_schema_names
+
+    def batch(
+        self, waiter: ToolInterruptWaiter, stop: threading.Event, /
+    ) -> NestedCallBatch:
+        """Calls of the parent that run at the same time, started one by one
+        on the session thread without waiting for them (a codemode script's
+        calls). ``waiter`` is the session's wait; ``stop`` ends them."""
+        self._require_thread()
+        with self._lock:
+            if not self._closed:
+                self._callers.add(self._parent_id)
+        return NestedCallBatch(self, waiter, stop)
 
     def nested_tools(self, caller_id: str, /) -> NestedToolCalls:
         """What the tool call ``caller_id`` runs other tools with. Its tool
@@ -536,8 +601,7 @@ class NestedToolCallService:
         with self._lock:
             if caller_id not in self._callers:
                 return request.result
-            self._jobs.append(request)
-            self._wake.set()
+            self._post(request)
         request.ready.wait()
         return request.result
 
@@ -655,8 +719,7 @@ class NestedToolCallService:
                 self._publish(call_id, chunk)
                 return
             with self._lock:
-                self._jobs.append(_Update(call_id, chunk))
-                self._wake.set()
+                self._post(_Update(call_id, chunk))
 
         return sink
 
@@ -710,6 +773,7 @@ class NestedToolCallService:
         finally:
             self._in_pipeline = False
         if isinstance(began, PendingNestedCall):
+            self._open_slot(call)
             return began, started
         return self._keep(began)
 
@@ -737,6 +801,10 @@ class NestedToolCallService:
         if self._failure is None:
             self._failure = failure
         self._closed = True
+        self._keep_unfinished(call, started)
+
+    def _keep_unfinished(self, call: AgentToolCall, started: float) -> None:
+        """Keep a call the pipeline did not finish as unfinished, once."""
         call_id = call.provider_correlation_id
         if call_id in self._failed_ids:
             return  # kept as unfinished already, when it failed to publish
@@ -894,7 +962,7 @@ class NestedToolCallService:
                 request.tool_name,
                 request.arguments_json,
                 f"Tool {request.tool_name} not found",
-                _until_ended(waiter, ends)
+                _until_ended(waiter, ends, request.stop_reason)
                 if self._settle_with_waiter is not None
                 else None,
             )
@@ -907,16 +975,14 @@ class NestedToolCallService:
                     pending,
                     at,
                     cancelled_tool_outcome(
-                        self._error_result,
-                        pending.call,
-                        ToolExecutionInterruption.CALLER_STOP,
+                        self._error_result, pending.call, request.stop_reason
                     ),
                 )
         except BaseException:
             request.answer(unavailable_result(request.caller_id))
             raise
         if isinstance(began, NestedToolCallOutcome):
-            request.answer(nested_tool_result(began))
+            request.answer(nested_tool_result(began), began)
             return began
         pending, at = began
         call_id = pending.call.provider_correlation_id
@@ -939,8 +1005,7 @@ class NestedToolCallService:
                 execution = exc
             running.ended.set()
             with self._lock:
-                self._jobs.append(_Finished(call_id, execution))
-                self._wake.set()
+                self._post(_Finished(call_id, execution))
 
         threading.Thread(target=run, name="pipy-nested-call", daemon=True).start()
         return None
@@ -950,6 +1015,12 @@ class NestedToolCallService:
         running = self._running.pop(finished.call_id, None)
         self._live.pop(finished.call_id, None)
         self.end_caller(finished.call_id)
+        # Its own calls still running end with it, as ``serve`` ends the
+        # calls of the tool it waits for.
+        descendants = finished.call_id + "/"
+        for call_id, other in self._running.items():
+            if call_id.startswith(descendants):
+                other.end(ToolExecutionInterruption.CALLER_STOP)
         if running is None:  # abandoned when the pipeline failed
             return None
         try:
@@ -960,7 +1031,7 @@ class NestedToolCallService:
         except BaseException:
             running.request.answer(unavailable_result(running.request.caller_id))
             raise
-        running.request.answer(nested_tool_result(outcome))
+        running.request.answer(nested_tool_result(outcome), outcome)
         return outcome
 
     def _end_running(
@@ -984,6 +1055,7 @@ class NestedToolCallService:
             self._live.pop(call_id, None)
             if running is not None:
                 running.end(ToolExecutionInterruption.CALLER_STOP)
+                self._keep_unfinished(running.pending.call, running.started)
                 running.request.answer(unavailable_result(running.request.caller_id))
         self.close()
 
@@ -999,21 +1071,35 @@ class NestedToolCallService:
             self._retain(refused)
         return refused
 
-    def _retain(self, outcome: NestedToolCallOutcome) -> None:
+    def _open_slot(self, call: AgentToolCall) -> int | None:
+        """Give a call its place in the record and keep its arguments, as
+        the record's bounds allow; ``None`` when the record is full."""
+        call_id = call.provider_correlation_id
+        if call_id in self._slots:
+            return self._slots[call_id]
         if len(self._records) >= 256:
             self._complete = False
-            return
-        raw = outcome.nested_call.arguments_json.value
+            return None
+        raw = call.arguments_json.value
         size = len(raw.encode("utf-8", errors="surrogatepass"))
         arguments = bounded_arguments(raw)
         if arguments is None or self._argument_bytes + size > 32768:
             self._complete = False
-            call = replace(outcome.nested_call, arguments_json=ProductContent("{}"))
-            omitted = size
+            call = replace(call, arguments_json=ProductContent("{}"))
+            omitted: int | None = size
         else:
             self._argument_bytes += size
-            call = outcome.nested_call
             omitted = None
+        self._slots[call_id] = len(self._records)
+        self._records.append(_Slot(call, omitted))
+        return self._slots[call_id]
+
+    def _retain(self, outcome: NestedToolCallOutcome) -> None:
+        index = self._open_slot(outcome.nested_call)
+        if index is None:
+            return
+        slot = self._records[index]
+        call, omitted = slot.nested_call, slot.arguments_bytes
         error = (
             tool_error_text(outcome.nested_call.tool_name, outcome.result.content.value)
             if outcome.result.is_error
@@ -1023,26 +1109,25 @@ class NestedToolCallService:
             self._complete = False
         # Retain no nested result output, details or structured content, only
         # the bounded error field.
-        self._records.append(
-            replace(
-                outcome,
-                nested_call=call,
-                arguments_bytes=omitted,
-                result=replace(
-                    outcome.result,
-                    content=ProductContent(error[:500]),
-                    details=None,
-                    structured_content=None,
-                    blocks=(),
-                ),
-            )
+        self._records[index] = replace(
+            outcome,
+            nested_call=call,
+            arguments_bytes=omitted,
+            result=replace(
+                outcome.result,
+                content=ProductContent(error[:500]),
+                details=None,
+                structured_content=None,
+                blocks=(),
+            ),
         )
 
     def durable_record(self) -> dict[str, object]:
         """Fresh independent snapshot; canonical state never leaves this thread."""
         self._require_thread()
         calls: list[dict[str, object]] = []
-        for outcome in self._records:
+        outcomes = self.records()
+        for outcome in outcomes:
             status = (
                 "unfinished"
                 if outcome.status is NestedCallStatus.UNFINISHED
@@ -1066,10 +1151,111 @@ class NestedToolCallService:
             if outcome.result.is_error:
                 row["error"] = outcome.result.content.value
             calls.append(row)
-        return {"calls": calls, "complete": self._complete}
+        # Pi: a record with a call that did not finish is not complete.
+        complete = (
+            self._complete
+            and len(outcomes) == len(self._records)
+            and all(row["status"] != "unfinished" for row in calls)
+        )
+        return {"calls": calls, "complete": complete}
 
     def has_record(self) -> bool:
         """Whether a call was kept or dropped: Pi leaves ``nestedCalls`` off
         a result whose tool called nothing."""
         self._require_thread()
         return bool(self._records) or not self._complete
+
+
+class NestedCallBatch:
+    """Calls the parent starts without waiting for them; session thread only.
+
+    ``start`` begins each call in the order it is asked for, so admission,
+    the budget, the ids and the record follow that order, and runs its tool
+    on a thread of its own. ``pump`` settles the calls whose tools returned,
+    and serves the calls those tools ask for, while it waits for something
+    else. ``end`` ends the calls still running and settles them. A set
+    ``stop`` ends a call's readiness wait and its tool with ``SCRIPT_STOP``.
+    """
+
+    def __init__(
+        self,
+        service: NestedToolCallService,
+        waiter: ToolInterruptWaiter,
+        stop: threading.Event,
+    ) -> None:
+        self._service = service
+        self._waiter = waiter
+        self._stop = stop
+        self._started: set[str] = set()
+
+    def start(self, tool_name: str, arguments_json: str, settled: Settled, /) -> None:
+        """Begin one call; ``settled`` is told how it ended, once, on this
+        thread: at once for a call that does not run, else from ``pump`` or
+        ``end``. A call interrupted while it waited for readiness ends the
+        others with it."""
+        service = self._service
+        service._require_thread()
+        request = _Request(
+            service._parent_id,
+            tool_name,
+            arguments_json,
+            self._stop,
+            stop_reason=ToolExecutionInterruption.SCRIPT_STOP,
+            settled=settled,
+        )
+        try:
+            outcome = service._start(request, self._started, self._waiter, self._stop)
+        except BaseException as exc:
+            self._abandon(exc)
+            raise
+        if outcome is not None and outcome.interruption is not None:
+            service._end_running(self._started, outcome.interruption)
+
+    def pump(
+        self, until: threading.Event, cancel_event: threading.Event, /
+    ) -> ToolExecutionInterruption:
+        """Wait for ``until`` as the session's waiter would, settling and
+        serving calls meanwhile. An interruption of the wait or of a call
+        ends every call still running with it and is returned."""
+        service = self._service
+        service._require_thread()
+        with service._lock:
+            service._also_wake = until
+        try:
+            while True:
+                interrupted = service._take_jobs(
+                    self._started, accept=True, waiter=self._waiter, ended=self._stop
+                )
+                if interrupted is None and until.is_set():
+                    return ToolExecutionInterruption.SETTLED
+                if interrupted is None:
+                    interrupted = self._waiter(until, cancel_event)
+                if interrupted is not ToolExecutionInterruption.SETTLED:
+                    service._end_running(self._started, interrupted)
+                    return interrupted
+        except BaseException as exc:
+            self._abandon(exc)
+            raise
+        finally:
+            with service._lock:
+                service._also_wake = None
+
+    def end(self, reason: ToolExecutionInterruption, /) -> None:
+        """End the calls still running with ``reason`` and settle them."""
+        service = self._service
+        service._require_thread()
+        try:
+            service._end_running(self._started, reason)
+        except BaseException as exc:
+            self._abandon(exc)
+            raise
+
+    def _abandon(self, failure: BaseException) -> None:
+        """The pipeline or the session's wait failed: the calls still
+        running stop unsettled, which makes it the parent's failure."""
+        service = self._service
+        if service._failure is None and any(
+            call_id in service._running for call_id in self._started
+        ):
+            service._failure = failure
+        service._abandon(self._started)

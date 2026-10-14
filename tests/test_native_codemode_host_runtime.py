@@ -125,6 +125,55 @@ def test_a_real_script_error_keeps_output_and_calls(
     assert [c.status for c in outcome.calls] == [CallStatus.OK]
 
 
+def test_a_real_script_submits_calls_that_settle_in_any_order(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    pending: list[tuple[str, Callable[[CallResult], None]]] = []
+
+    def start_tool(
+        name: str, arguments_json: str, settle: Callable[[CallResult], None]
+    ) -> None:
+        pending.append((arguments_json, settle))
+
+    def waiter(activity: threading.Event, cancel: threading.Event) -> None:
+        if len(pending) == 3:
+            # All three started before any settled: settle the last first.
+            for arguments_json, settle in reversed(pending):
+                n = json.loads(arguments_json)["n"]
+                settle(
+                    CallResult(ok=True, text=f"r{n}")
+                    if n != 2
+                    else CallResult(ok=False, text="two failed")
+                )
+            pending.clear()
+        activity.wait(0.05)
+
+    code = (
+        "calls = [tools.read.submit(n=n) for n in (1, 2, 3)]\n"
+        "text('submitted')\n"
+        "for call in calls:\n"
+        "    try:\n"
+        "        text(call.result())\n"
+        "    except ToolError as exc:\n"
+        "        text(f'caught {exc}')\n"
+    )
+    outcome = host.run_script(
+        code,
+        start_tool=start_tool,
+        tools=(ScriptTool("read"),),
+        limits=ScriptLimits(wall_seconds=30.0),
+        paths=paths,
+        activity_waiter=waiter,
+    )
+    assert outcome.ok, outcome
+    assert outcome.output == ("submitted", "r1", "caught two failed", "r3")
+    assert [c.status for c in outcome.calls] == [
+        CallStatus.OK,
+        CallStatus.ERROR,
+        CallStatus.OK,
+    ]
+
+
 # --- red-team vectors from a real guest -------------------------------------------
 
 RAW = "import os\nos.write(1, {line!r})\n"
@@ -134,27 +183,32 @@ RAW = "import os\nos.write(1, {line!r})\n"
     ("line", "fragment"),
     [
         (b"not json\n", "not JSON"),
-        (
-            b'{"type":"call","id":1,"name":"read","args":{}}\n'
-            b'{"type":"call","id":2,"name":"read","args":{}}\n',
-            "while a tool call was pending",
-        ),
         (b'{"type":"call","id":7,"name":"read","args":{}}\n', "unexpected id"),
         (
-            b'{"type":"call","id":1,"name":"read","args":{}}\n'
-            b'{"type":"done","ok":true}\n',
-            "while a tool call was pending",
+            b"".join(
+                b'{"type":"call","id":%d,"name":"read","args":{}}\n' % n
+                for n in range(1, 18)
+            ),
+            "more than 16 requests outstanding",
         ),
     ],
 )
 def test_hostile_lines_from_a_real_guest_are_violations(
     paths: CodemodePaths, pids: list[int], line: bytes, fragment: str
 ) -> None:
-    outcome = _run(paths, RAW.format(line=line) + "import time\ntime.sleep(60)\n")
+    def big(name: str, arguments_json: str) -> CallResult:
+        # Larger than the pipe: an unread reply stays outstanding.
+        return CallResult(ok=True, text="r" * (1024 * 1024))
+
+    outcome = _run(
+        paths, RAW.format(line=line) + "import time\ntime.sleep(60)\n", call_tool=big
+    )
     assert outcome.error is not None
     assert outcome.error.kind is ErrorKind.SANDBOX, outcome.error
     assert fragment in outcome.error.message
-    assert outcome.calls == ()
+    # The calls of the chunk that held the violation never start; a pipe
+    # may split the 17 calls into two chunks.
+    assert len(outcome.calls) < 17
 
 
 def test_lone_surrogates_from_a_real_guest_are_replaced(
@@ -189,9 +243,11 @@ def test_a_call_flood_without_reading_stdin_does_not_hang(
     )
     started = time.monotonic()
     outcome = _run(paths, code, call_tool=big, wall_seconds=10)
+    # The unread reply does not stop the host from reading the flood, which
+    # ends at the output cap.
     assert outcome.error is not None
-    assert outcome.error.kind is ErrorKind.SANDBOX, outcome.error
-    assert "while a tool call was pending" in outcome.error.message
+    assert outcome.error.kind is ErrorKind.SCRIPT, outcome.error
+    assert "output exceeded" in outcome.error.message
     assert time.monotonic() - started < 8
 
 

@@ -133,7 +133,7 @@ pipy test that carries the case's name in a `Pi:` comment or as its own
 name. "In scope" leaves out the cases the plan excludes: the JavaScript-only
 case of `streamable-http.test.ts`, the two legacy-key cases of
 `mcp-oauth-store.test.ts` (DEV-08), the codemode cases that are not about
-reaching tools (DEV-03, DEV-04, DEV-13), and the three declaration cases
+reaching tools (DEV-04, DEV-13), and the three declaration cases
 outside the two groups the plan names. The counts are taken from the files.
 `agent-session-mcp.test.ts` has 48 cases there (44 plain and four
 parametrized ones); the plan said 44 and is corrected.
@@ -154,9 +154,9 @@ parametrized ones); the plan said 44 and is corrected.
 | `coding-agent/test/suite/agent-session-mcp.test.ts` | 48 | 48 | 48 | none |
 | `coding-agent/test/suite/agent-session-mcp-oauth.test.ts` | 9 | 9 | 9 | none |
 | `coding-agent/test/suite/agent-session-tool-orchestration.test.ts` | 3 | 3 | 3 | none |
-| `coding-agent/test/suite/agent-session-codemode.test.ts` | 24 | 5 | 5 | none |
+| `coding-agent/test/suite/agent-session-codemode.test.ts` | 24 | 6 | 6 | none |
 | `codemode/test/declarations.test.ts` | 17 | 14 | 14 | none |
-| Total | 203 | 178 | 178 | |
+| Total | 203 | 179 | 179 | |
 
 The counts are of test names, not of assertions. A mirror may run at another
 level than Pi's case: Pi's session cases use its faux provider and an
@@ -404,7 +404,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMD-21 | S08 | closed | `test_native_codemode_description.py`: `test_leaves_deferred_tools_and_their_namespaces_out_entirely`, `test_leaves_namespace_instructions_out`, `test_description_is_byte_identical_when_a_deferred_tool_registers` |  |
 | CMD-22 | S08 | closed, with limits | `test_native_codemode_description.py`: `test_presents_callable_tools_per_codemode_mode`, `test_script_call_line_says_what_a_call_resolves_to`, `test_session_request_with_mode_only_leaves_direct_declarations_out`, `test_tools_hidden_by_mode_only_stay_callable_from_a_script` | With `only`, a direct model call to a tool whose declaration is left out is an unknown tool in pipy (Pi would run it). Settings are read at session start and on `/reload`, not before every prompt. DEV-23. |
 | CMD-23 | S16 | closed | `test_native_mcp_tools.py`: `test_a_direct_tool_tells_scripts_what_a_call_resolves_to` |  |
-| CMD-24 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_nested_pipeline_statuses_budget_and_parent_only_records`; `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model` |  |
+| CMD-24 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_nested_pipeline_statuses_budget_and_parent_only_records`; `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model`; `test_native_codemode_composite.py`: `test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order`, `test_submitted_calls_take_the_budget_in_the_order_they_were_made` (G3) |  |
 | CMD-25 | S04 | closed, with limits | `test_native_extension_tool_result_hooks.py`: `test_tool_result_hooks_see_and_decide_the_structured_content`; `test_native_agent_nested_calls.py`: `test_structured_content_follows_the_result_policy_and_the_output_schema` | Pipy's `tool_result` transform always replaces the content; Pi's can also replace details, `isError` and usage. DEV-22. |
 | CMD-26 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_transient_records_bound_argument_bytes_and_drop_mutable_details` |  |
 | CMD-27 | S08 | closed, with limits | `test_native_codemode_description.py`: `test_prompt_contribution_is_one_snippet_and_does_not_depend_on_tools` | Pipy's contribution has two guideline lines; the second predates this plan (codemode adherence). MCP adds nothing. DEV-24. |

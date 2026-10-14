@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from codemode_driver import (
@@ -52,6 +52,89 @@ def test_unknown_tool_lists_up_to_twenty_names_and_no_more() -> None:
         "tools.zzz does not exist. ALL_TOOLS lists every tool;"
     )
     assert prelude.unknown_tool_message("zzz", []).endswith("No tools are available.")
+
+
+def _wire_with_replies(
+    *replies: dict[str, Any],
+) -> tuple[prelude.Wire, int, list[int]]:
+    """A wire whose host side already wrote ``replies``."""
+
+    read_fd, write_fd = os.pipe()
+    out_read, out_write = os.pipe()
+    for reply in replies:
+        os.write(write_fd, (json.dumps({"type": "result", **reply}) + "\n").encode())
+    return (
+        prelude.Wire(read_fd, out_write),
+        out_read,
+        [read_fd, write_fd, out_read, out_write],
+    )
+
+
+def _sent(out_read: int) -> list[dict[str, Any]]:
+    os.set_blocking(out_read, False)
+    try:
+        data = os.read(out_read, 1 << 16)
+    except BlockingIOError:
+        return []
+    return [json.loads(line) for line in data.splitlines()]
+
+
+def test_submitted_calls_are_sent_at_once_and_take_their_own_replies() -> None:
+    # Replies come in the order the calls settle, not the order they were made.
+    wire, out_read, fds = _wire_with_replies(
+        {"id": 2, "ok": True, "text": "second"},
+        {"id": 1, "ok": False, "error": "first failed"},
+        {"id": 3, "ok": True, "text": "third"},
+    )
+    try:
+        tools = prelude.Tools({"read": "read"}, ["read"], wire.call, wire.submit_call)
+        first = tools.read.submit(path="a")
+        second = cast(Any, tools["read"]).submit({"path": "b"})
+        assert [m["id"] for m in _sent(out_read)] == [1, 2]
+        assert repr(first) == "<pending call of tools.read>"
+        assert second.result() == "second"
+        assert second.result() == "second"
+        for _ in range(2):  # every result() raises again
+            with pytest.raises(prelude.ToolError, match="first failed"):
+                first.result()
+        assert repr(first) == "<settled call of tools.read>"
+        # A plain call waits for its own reply.
+        assert tools.read(path="c") == "third"
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_a_script_past_the_pending_limit_waits_for_a_reply() -> None:
+    limit = prelude.MAX_PENDING_REQUESTS
+    wire, out_read, fds = _wire_with_replies({"id": 1, "ok": True, "text": "one"})
+    try:
+        calls = [wire.submit_call("read", {"n": n}) for n in range(limit)]
+        assert len(_sent(out_read)) == limit
+        # The next request first reads a reply, so no more than the limit
+        # are ever waiting for the host.
+        calls.append(wire.submit_call("read", {"n": limit}))
+        assert [m["id"] for m in _sent(out_read)] == [limit + 1]
+        assert calls[0].result() == "one"
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_submit_without_a_submitting_wire_is_a_type_error() -> None:
+    tools = prelude.Tools({"read": "read"}, ["read"], lambda name, args: "x")
+    with pytest.raises(TypeError, match=r"tools\.read\.submit\(\) is not available"):
+        tools.read.submit()
+    with pytest.raises(TypeError, match="one dict of arguments or keyword"):
+        prelude.Tools(
+            {"read": "read"}, ["read"], lambda name, args: "x", lambda n, a: None
+        ).read.submit({"a": 1}, b=2)
+
+
+def test_the_host_and_the_prelude_share_the_pending_limit() -> None:
+    from pipy_harness.native.codemode import host
+
+    assert vars(host)["MAX_PENDING_REQUESTS"] is prelude.MAX_PENDING_REQUESTS == 16
 
 
 def test_call_arguments_accept_one_dict_or_keywords() -> None:
@@ -731,7 +814,7 @@ def test_a_worker_dies_with_its_sigkilled_host(code: str, tmp_path: Path) -> Non
         "    on_text(self, message)\n"
         "    print(message['value'], flush=True)\n"
         "host._Channel._on_text = report_text\n"
-        "outcome = host.run_script(sys.argv[1], call_tool=None, tools=(),\n"
+        "outcome = host.run_script(sys.argv[1], call_tool=print, tools=(),\n"
         "    limits=host.ScriptLimits(wall_seconds=60),\n"
         "    paths=host.CodemodePaths(Path(sys.argv[2])))\n"
         "print(outcome, flush=True)\n"

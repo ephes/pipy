@@ -295,7 +295,7 @@ def test_library_session_advertisement_and_prompt(tmp_path, monkeypatch, availab
     assert ("codemode" in {tool.name for tool in request.available_tools}) == available
     prompt = str(request.system_prompt)
     assert ("Run Python that calls other tools" in prompt) == available
-    assert ("Use codemode to chain" in prompt) == available
+    assert ("Use codemode to batch" in prompt) == available
     assert errors.getvalue().count("codemode unavailable:") == (0 if available else 1)
 
 
@@ -638,7 +638,7 @@ def test_extension_named_codemode_has_no_builtin_prompt_contribution(
     )()
     prompt = render_system_prompt(sections)
     assert "Run Python that calls other tools" not in prompt
-    assert "Use codemode to chain" not in prompt
+    assert "Use codemode to batch" not in prompt
     assert probes == []
 
 

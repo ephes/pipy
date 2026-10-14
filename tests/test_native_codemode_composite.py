@@ -44,7 +44,7 @@ from pipy_harness.native.agent.tools import (
     ToolInterruptWaiter,
 )
 from pipy_harness.native.codemode import host
-from pipy_harness.native.codemode.outcome import ScriptLimits
+from pipy_harness.native.codemode.outcome import CallResult, ScriptLimits
 from pipy_harness.native.codemode.runtime import RUNTIME_PIN, CodemodePaths
 from pipy_harness.native.coding.codemode_runner import CodemodeCompositeRunner
 from pipy_harness.native.repl.turn_leaves import wait_for_external_tool_interrupt
@@ -959,9 +959,19 @@ def test_stopped_composite_spill_preserves_records_and_interruption(
 
     abort_requested = False
 
-    def stopped(code, *, call_tool, activity_waiter, **kwargs):
+    def stopped(code, *, start_tool, activity_waiter, **kwargs):
         nonlocal abort_requested
-        assert call_tool("write", '{"path":"effect","content":"retained"}').ok
+        settled: list[CallResult] = []
+        until = threading.Event()
+
+        def settle(result: CallResult) -> None:
+            settled.append(result)
+            until.set()
+
+        start_tool("write", '{"path":"effect","content":"retained"}', settle)
+        while not settled:
+            activity_waiter(until, threading.Event())
+        assert settled[0].ok
         if kind == "aborted":
             abort_requested = True
             activity_waiter(threading.Event(), threading.Event())
@@ -997,3 +1007,261 @@ def test_stopped_composite_spill_preserves_records_and_interruption(
     assert (tmp_path / "effect").read_text() == "retained"
     assert (outcome.result.outcome is AgentRunOutcome.CANCELLED) == (kind == "aborted")
     assert ("fullOutputPath" in parent.details) is not spill_failure
+
+
+# --- calls that run at the same time (G3) --------------------------------------
+
+
+@dataclass
+class _Answering:
+    """A fixture tool whose result text ``answer`` gives."""
+
+    name: str
+    answer: Callable[[ToolRequest, ToolContext], str]
+    properties: dict[str, object] | None = None
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            self.name,
+            "internal fixture",
+            {"type": "object", "properties": self.properties or {}},
+        )
+
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            request.tool_request_id, self.answer(request, context)
+        )
+
+
+def test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Pi: "runs nested calls in parallel and returns only the script result"
+    # (agent-session-codemode.test.ts). The three tools return only once all
+    # three run, so the script finishes only if they run at the same time.
+    together = threading.Barrier(3, timeout=5)
+
+    def echo(request: ToolRequest, context: ToolContext) -> str:
+        together.wait()
+        return f"echo: {request.arguments['text']}"
+
+    def stats(request: ToolRequest, context: ToolContext) -> str:
+        together.wait()
+        return "files 2"
+
+    code = """
+a = tools.echo.submit(text="one")
+b = tools.echo.submit({"text": "two"})
+stats = tools.stats.submit()
+print(stats.result())
+text(",".join(tool["name"] for tool in ALL_TOOLS if tool["name"] in ("echo", "stats")))
+text({"a": a.result(), "b": b.result(), "again": a.result()})
+"""
+    loop, _, events = _loop(
+        tmp_path,
+        code,
+        paths=paths,
+        extra={
+            "echo": _Answering("echo", echo, {"text": {"type": "string"}}),
+            "stats": _Answering("stats", stats),
+        },
+    )
+    outcome = loop.run(_run_input())
+    parent = _parent(outcome)
+    assert not parent.is_error, parent.content.value
+    assert parent.content.value.endswith(
+        'files 2\necho,stats\n{"a": "echo: one", "b": "echo: two", "again": "echo: one"}'
+    )
+    assert parent.details is not None
+    record = parent.details["nestedCalls"]
+    assert [(c["id"], c["name"], c["status"]) for c in record["calls"]] == [
+        ("parent/1", "echo", "ok"),
+        ("parent/2", "echo", "ok"),
+        ("parent/3", "stats", "ok"),
+    ]
+    assert [c["arguments"] for c in record["calls"]] == [
+        {"text": "one"},
+        {"text": "two"},
+        {},
+    ]
+    assert record["complete"] is True
+    started = [e for e in events.events if isinstance(e, NestedToolCallStarted)]
+    assert [e.call.provider_correlation_id for e in started] == [
+        "parent/1",
+        "parent/2",
+        "parent/3",
+    ]
+    # Nested calls never become results of their own.
+    results = [
+        m for m in outcome.final_history if isinstance(m, AgentToolResultMessage)
+    ]
+    assert len(results) == 1
+    state = outcome.final_tool_state
+    assert (state.tool_invocation_count, state.invocations_this_turn) == (4, 4)
+    assert not state.reserved_parent_slot
+
+
+def test_submitted_calls_take_the_budget_in_the_order_they_were_made(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    release = threading.Event()
+
+    def slow(request: ToolRequest, context: ToolContext) -> str:
+        release.wait(5)
+        return f"done {request.arguments['n']}"
+
+    def fast(request: ToolRequest, context: ToolContext) -> str:
+        release.set()
+        return f"done {request.arguments['n']}"
+
+    code = """
+calls = [tools.slow.submit(n=1), tools.fast.submit(n=2), tools.slow.submit(n=3)]
+for call in calls:
+    try:
+        text(call.result())
+    except ToolError as exc:
+        text("error: " + str(exc))
+"""
+    loop, _, _ = _loop(
+        tmp_path,
+        code,
+        paths=paths,
+        extra={
+            "slow": _Answering("slow", slow, {"n": {"type": "integer"}}),
+            "fast": _Answering("fast", fast, {"n": {"type": "integer"}}),
+        },
+    )
+    # The parent's place and two calls: the third call is over the budget,
+    # although the first is still running when it is made.
+    outcome = loop.run(_run_input(tool_budget=3))
+    parent = _parent(outcome)
+    assert "done 1\ndone 2\nerror: tool budget exhausted (limit 3)" in (
+        parent.content.value
+    )
+    assert parent.details is not None
+    assert [
+        (c["id"], c["name"], c["status"])
+        for c in parent.details["nestedCalls"]["calls"]
+    ] == [
+        ("parent/1", "slow", "ok"),
+        ("parent/2", "fast", "ok"),
+        ("parent/3", "slow", "error"),
+    ]
+    assert outcome.final_tool_state.budget_exhausted_count == 1
+
+
+def test_a_call_still_running_when_the_script_ends_is_cancelled(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    cancelled = threading.Event()
+
+    def slow(request: ToolRequest, context: ToolContext) -> str:
+        assert context.cancel_event is not None
+        if context.cancel_event.wait(5):
+            cancelled.set()
+        return "finished"
+
+    loop, _, _ = _loop(
+        tmp_path,
+        "tools.slow.submit()\ntext('ended')",
+        paths=paths,
+        extra={"slow": _Answering("slow", slow)},
+    )
+    started = time.monotonic()
+    outcome = loop.run(_run_input())
+    assert time.monotonic() - started < 4
+    parent = _parent(outcome)
+    assert not parent.is_error
+    assert "ended" in parent.content.value
+    assert parent.details is not None
+    (row,) = parent.details["nestedCalls"]["calls"]
+    assert (row["name"], row["status"]) == ("slow", "cancelled")
+    assert row["error"] == "tool stopped by script backend"
+    assert cancelled.wait(1)
+    assert not outcome.final_tool_state.reserved_parent_slot
+
+
+def test_an_interruption_cancels_every_running_call(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    entered: list[str] = []
+    cancelled: list[str] = []
+
+    def wait(request: ToolRequest, context: ToolContext) -> str:
+        entered.append(request.arguments["n"])
+        assert context.cancel_event is not None
+        if context.cancel_event.wait(5):
+            cancelled.append(request.arguments["n"])
+        return "finished"
+
+    def waiter(
+        done: threading.Event, cancel: threading.Event
+    ) -> ToolExecutionInterruption:
+        while not done.wait(0.01):
+            if len(entered) == 2:
+                cancel.set()
+                return ToolExecutionInterruption.OPERATOR_ABORT
+        return ToolExecutionInterruption.SETTLED
+
+    loop, _, _ = _loop(
+        tmp_path,
+        "a = tools.wait.submit(n='a')\nb = tools.wait.submit(n='b')\n"
+        "a.result(); b.result()\ntools.write(path='late', content='bad')",
+        paths=paths,
+        waiter=waiter,
+        extra={"wait": _Answering("wait", wait, {"n": {"type": "string"}})},
+    )
+    started = time.monotonic()
+    outcome = loop.run(_run_input())
+    assert time.monotonic() - started < 4
+    assert outcome.result.outcome is AgentRunOutcome.CANCELLED
+    parent = _parent(outcome)
+    assert parent.details is not None
+    assert [c["status"] for c in parent.details["nestedCalls"]["calls"]] == [
+        "cancelled",
+        "cancelled",
+    ]
+    assert sorted(cancelled) == ["a", "b"]
+    assert not (tmp_path / "late").exists()
+    assert not outcome.final_tool_state.reserved_parent_slot
+
+
+def test_a_call_a_script_call_made_ends_when_that_call_returns(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # A tool the script called starts a call on a thread of its own and
+    # returns without waiting: that call is cancelled before the script goes
+    # on, as when the tool ran under ``serve``.
+    entered = threading.Event()
+    cancelled = threading.Event()
+
+    def leaf(request: ToolRequest, context: ToolContext) -> str:
+        entered.set()
+        assert context.cancel_event is not None
+        if context.cancel_event.wait(5):
+            cancelled.set()
+        return "leaf"
+
+    def child(request: ToolRequest, context: ToolContext) -> str:
+        nested = context.nested_tools
+        assert nested is not None
+        threading.Thread(target=nested.execute, args=("leaf", {}), daemon=True).start()
+        assert entered.wait(5)
+        return "child"
+
+    loop, _, _ = _loop(
+        tmp_path,
+        "text(tools.child())",
+        paths=paths,
+        extra={"child": _Answering("child", child), "leaf": _Answering("leaf", leaf)},
+    )
+    outcome = loop.run(_run_input())
+    parent = _parent(outcome)
+    assert not parent.is_error, parent.content.value
+    assert parent.details is not None
+    assert [(c["id"], c["status"]) for c in parent.details["nestedCalls"]["calls"]] == [
+        ("parent/1", "ok"),
+        ("parent/1/1", "cancelled"),
+    ]
+    assert cancelled.wait(1)

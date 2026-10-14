@@ -147,7 +147,13 @@ the REPL composition seam for both interactive and headless/RPC waiters. A froze
 product identity guard requires an advertised native builtin `codemode`, excluding
 extension overrides. T8b registers the public definition only when selected and available. Existing internal test ports can omit the optional guard.
 
-Each admitted parent owns a fresh sequential service on the session thread.
+Each admitted parent owns a fresh service on the session thread. A script's
+calls go through its `NestedCallBatch` (MCP parity plan G3): the session thread
+begins each call in the order the script made it (admission, hooks, readiness,
+budget, id and record place) and runs its tool on a thread of its own; while
+it waits for guest activity, `NestedCallBatch.pump` settles the calls whose
+tools returned and serves the calls those tools make. A plain
+`tools.<name>(args)` waits for its own reply, so it behaves as before.
 Child calls reuse shared admission/settlement policy, product hooks, the normal
 executor and waiter, and result transformation/validation. Eligibility is a
 separate injectable port (`NestedToolEligibility.callable_snapshot()`), read
@@ -229,9 +235,12 @@ Every I/O-thread exit publishes completion and wakes activity in a narrow final
 path, including failures during kill, diagnostics or finish signalling. A dead
 I/O thread without completion fails closed as a sandbox error. Cleanup retries
 signal faults through the same owned process group before the bounded reap.
-During a child tool, a monitor signals events for completion or the fresh
-script stop event; it never reads or writes canonical or service state. The
-session thread combines that signal with the existing operator waiter. The
+A running child tool's executor waits on the fresh script stop event (the
+host's `tool_stop`), and the session thread waits for activity with the
+existing operator waiter; an operator interruption there ends every running
+child with it. When the run ends, after a `done` once the calls made before it
+were begun, the stop event is set and `NestedCallBatch.end` settles the
+children still running. The
 explicit `SCRIPT_STOP` waiter value makes the executor cancel and bound its
 join, then return an ordinary error observation with typed cancellation evidence rather
 than operator interruption. T7a projects the in-flight child as cancelled.
@@ -308,7 +317,9 @@ A script calls `tools.<name>(dict)` or `tools.<name>(**kwargs)` to run a nested
 tool through the host, emits its result with `text(value)` or `print(...)`, and
 sees a failed call as `ToolError`. A call returns the tool's text, or the
 structured content of a tool that declares an output schema (also for a failed
-result that carries one). Nested calls are sequential.
+result that carries one). `tools.<name>.submit(args)` starts a call without
+waiting; its `.result()` returns the same, so submitted calls run at the same
+time (at most 16 unanswered requests).
 
 ## Installing
 
@@ -464,7 +475,14 @@ time, the output truncated to a token budget, and on failure the error and the
 list of tool calls that are not undone.
 
 `call_tool` runs on the calling thread, one call at a time, and only for the
-names in `tools`. `tools` is ordered: the script sees each entry in `ALL_TOOLS`
+names in `tools`. Instead of it a caller may pass
+`start_tool(name, args_json, settle)`, which starts a call and returns; it
+calls `settle(CallResult)` once on the calling thread, at once or later from
+its `activity_waiter`. Calls the script submits then run at the same time, the
+outcome's calls keep the order the script made them, and a call that did not
+settle before the run ended is recorded as `cancelled`. After a `done` the
+calls made before it are still started and `tool_stop` is set after them;
+after any other end it is set by the I/O thread at once. `tools` is ordered: the script sees each entry in `ALL_TOOLS`
 under its identifier, with the given description. `discover` runs on the same
 thread for `search_tools`, `describe_tool` and `describe_namespace`; it gets
 the helper's name and the script's arguments unchecked, and its calls are not

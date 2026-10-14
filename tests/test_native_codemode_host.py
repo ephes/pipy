@@ -75,7 +75,8 @@ def _run(
     monkeypatch: pytest.MonkeyPatch,
     scenario: str,
     *,
-    call_tool: Callback = _no_tools,
+    call_tool: Callback | None = _no_tools,
+    start_tool: host.ToolStarter | None = None,
     tool_names: tuple[str, ...] = ("read", "write"),
     discover: host.DiscoverCallback | None = None,
     limits: ScriptLimits = LIMITS,
@@ -91,7 +92,8 @@ def _run(
     monkeypatch.setattr(host, "_worker_argv", fake_argv)
     return host.run_script(
         code,
-        call_tool=call_tool,
+        call_tool=None if start_tool is not None else call_tool,
+        start_tool=start_tool,
         tools=[ScriptTool(name) for name in tool_names],
         discover=discover,
         limits=limits,
@@ -397,7 +399,7 @@ def test_protocol_violations_kill_the_worker_without_raising(
     assert time.monotonic() - started < 3
 
 
-def test_a_second_outstanding_call_is_a_violation(
+def test_more_outstanding_requests_than_the_limit_are_a_violation(
     monkeypatch: pytest.MonkeyPatch, spawned: list[int]
 ) -> None:
     stop = threading.Event()
@@ -416,23 +418,44 @@ def test_a_second_outstanding_call_is_a_violation(
         "hang()\n"
     )
     outcome = _run(monkeypatch, scenario, call_tool=call_tool, tool_stop=stop)
-    _sandbox_error(outcome, "while a tool call was pending")
-    # Both calls usually arrive in one chunk, so the run may end before the
-    # first callback starts; it never runs more than once.
+    _sandbox_error(outcome, "more than 16 requests outstanding")
+    # The calls usually arrive in one chunk, so the run may end before the
+    # first callback starts; the callback blocks, so it runs at most once.
     assert calls in ([], ["read"])
     assert stop.is_set()
+
+
+def test_requests_up_to_the_limit_run_and_get_their_replies(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    def call_tool(name: str, arguments_json: str) -> CallResult:
+        return CallResult(ok=True, text=arguments_json)
+
+    scenario = (
+        "start()\n"
+        "for n in range(1, 17):\n"
+        "    send({'type': 'call', 'id': n, 'name': 'read', 'args': {'n': n}})\n"
+        "replies = [recv() for _ in range(16)]\n"
+        "send({'type': 'text', 'value': json.dumps(sorted(r['id'] for r in replies))})\n"
+        "done()\n"
+        "exit_status()\n"
+    )
+    outcome = _run(monkeypatch, scenario, call_tool=call_tool)
+    assert outcome.ok, outcome
+    assert json.loads(outcome.texts[0]) == list(range(1, 17))
+    assert [c.status for c in outcome.calls] == [CallStatus.OK] * 16
 
 
 @pytest.mark.parametrize(
     ("name", "reply_bytes"), [("read", 4 * 1024 * 1024), ("unknown", 0)]
 )
-def test_unread_replies_keep_the_call_outstanding(
+def test_unread_replies_keep_their_calls_outstanding(
     monkeypatch: pytest.MonkeyPatch, spawned: list[int], name: str, reply_bytes: int
 ) -> None:
     # The guest never reads its stdin and keeps calling. A reply stays
-    # outstanding until it is written in full, so at most one unread reply is
-    # ever buffered and the next call is a violation. Small (unknown-tool)
-    # replies fit in the pipe until it fills.
+    # outstanding until it is written in full, so at most 16 unread replies
+    # are ever buffered and a further call is a violation. Small
+    # (unknown-tool) replies fit in the pipe until it fills.
     def call_tool(tool: str, arguments_json: str) -> CallResult:
         return CallResult(ok=True, text="r" * reply_bytes)
 
@@ -444,16 +467,15 @@ def test_unread_replies_keep_the_call_outstanding(
         "hang()\n"
     )
     outcome = _run(monkeypatch, scenario, call_tool=call_tool)
-    _sandbox_error(outcome, "while a tool call was pending")
-    assert len(outcome.calls) <= 1
+    _sandbox_error(outcome, "more than 16 requests outstanding")
+    assert len(outcome.calls) <= 16
 
 
 def test_a_large_reply_the_guest_never_reads_does_not_block_the_host(
     monkeypatch: pytest.MonkeyPatch, spawned: list[int]
 ) -> None:
     # The guest asks for 8 MiB, never reads it, and floods output: the host's
-    # writes must not block, so it still sees the flood (a violation, since
-    # nothing may arrive while a call is pending).
+    # writes must not block, so it still reads the flood up to the cap.
     def call_tool(name: str, arguments_json: str) -> CallResult:
         return CallResult(ok=True, text="x" * (8 * 1024 * 1024))
 
@@ -465,26 +487,24 @@ def test_a_large_reply_the_guest_never_reads_does_not_block_the_host(
     )
     started = time.monotonic()
     outcome = _run(monkeypatch, scenario, call_tool=call_tool)
-    _sandbox_error(outcome, "while a tool call was pending")
+    assert outcome.error is not None
+    assert outcome.error.kind is ErrorKind.SCRIPT, outcome.error
+    assert "output exceeded" in outcome.error.message
     assert time.monotonic() - started < 4
 
 
-@pytest.mark.parametrize(
-    "after",
-    [b'{"type":"done","ok":true}\n', b"garbage\n", b'{"type":"text","value":"t"}\n'],
-)
-def test_a_line_after_a_call_in_the_same_chunk_ends_the_run_before_the_tool(
-    monkeypatch: pytest.MonkeyPatch, spawned: list[int], after: bytes
+def test_a_violation_after_a_call_in_the_same_chunk_ends_the_run_before_the_tool(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
 ) -> None:
-    # Red-team V4: a call and a done in one write raced the I/O thread, so the
-    # tool sometimes ran after the guest had declared success.
+    # Red-team V4: a call and a broken line in one write raced the I/O
+    # thread, so the tool sometimes ran although the run had failed.
     ran: list[str] = []
 
     def call_tool(name: str, arguments_json: str) -> CallResult:
         ran.append(name)
         return CallResult(ok=True, text="did it")
 
-    line = b'{"type":"call","id":1,"name":"write","args":{"path":"x"}}\n' + after
+    line = b'{"type":"call","id":1,"name":"write","args":{"path":"x"}}\ngarbage\n'
     scenario = f"start()\nraw({line!r})\nhang()\n"
     for _ in range(10):
         outcome = _run(monkeypatch, scenario, call_tool=call_tool)
@@ -493,15 +513,147 @@ def test_a_line_after_a_call_in_the_same_chunk_ends_the_run_before_the_tool(
     assert ran == []
 
 
-def test_a_done_in_a_later_chunk_while_a_call_runs_is_a_violation(
+def test_a_call_made_just_before_done_always_starts(
     monkeypatch: pytest.MonkeyPatch, spawned: list[int]
 ) -> None:
-    entered = threading.Event()
-    release = threading.Event()
+    # Pi: a call the script made has started, also when the script ends
+    # right after it; whether its write shares a chunk with the done does
+    # not matter.
+    stop = threading.Event()
+    started: list[str] = []
+    settles: list[Callable[[CallResult], None]] = []
+
+    def start_tool(
+        name: str, arguments_json: str, settle: Callable[[CallResult], None]
+    ) -> None:
+        assert not stop.is_set()  # set only once the call has started
+        started.append(name)
+        settles.append(settle)
+
+    line = (
+        b'{"type":"call","id":1,"name":"write","args":{}}\n{"type":"done","ok":true}\n'
+    )
+    for _ in range(10):
+        stop = threading.Event()
+        outcome = _run(
+            monkeypatch,
+            f"start()\nraw({line!r})\nhang()\n",
+            start_tool=start_tool,
+            tool_stop=stop,
+        )
+        assert outcome.ok, outcome
+        # It did not settle before the run ended: it counts as cancelled.
+        assert [(c.name, c.status) for c in outcome.calls] == [
+            ("write", CallStatus.CANCELLED)
+        ]
+        assert stop.is_set()
+    assert started == ["write"] * 10
+    for settle in settles:
+        settle(CallResult(ok=True, text="late"))  # after the run: ignored
+
+
+def test_a_starter_failure_before_done_is_the_outcome(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    def start_tool(
+        name: str, arguments_json: str, settle: Callable[[CallResult], None]
+    ) -> None:
+        raise RuntimeError("starter broke")
+
+    line = (
+        b'{"type":"call","id":1,"name":"write","args":{}}\n{"type":"done","ok":true}\n'
+    )
+    for _ in range(5):
+        outcome = _run(
+            monkeypatch, f"start()\nraw({line!r})\nhang()\n", start_tool=start_tool
+        )
+        _sandbox_error(
+            outcome, "the write tool callback failed: RuntimeError: starter broke"
+        )
+        assert [c.status for c in outcome.calls] == [CallStatus.ERROR]
+
+
+def test_the_deadline_ends_a_start_that_blocks_after_done(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # A call made before the done may wait (for a server's readiness) while
+    # it starts; the deadline still sets tool_stop, which ends that wait.
+    stop = threading.Event()
+
+    def start_tool(
+        name: str, arguments_json: str, settle: Callable[[CallResult], None]
+    ) -> None:
+        assert stop.wait(5)
+        settle(CallResult(ok=False, text="stopped", cancelled=True))
+
+    line = (
+        b'{"type":"call","id":1,"name":"write","args":{}}\n{"type":"done","ok":true}\n'
+    )
+    started = time.monotonic()
+    outcome = _run(
+        monkeypatch,
+        f"start()\nraw({line!r})\nhang()\n",
+        start_tool=start_tool,
+        tool_stop=stop,
+        limits=ScriptLimits(wall_seconds=0.5),
+    )
+    assert time.monotonic() - started < 2
+    # The script had finished; the end of the run cancelled the call.
+    assert outcome.ok, outcome
+    assert [c.status for c in outcome.calls] == [CallStatus.CANCELLED]
+
+
+def test_calls_run_at_the_same_time_and_settle_in_any_order(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    pending: list[tuple[str, Callable[[CallResult], None]]] = []
+    activity_threads: set[int] = set()
+
+    def start_tool(
+        name: str, arguments_json: str, settle: Callable[[CallResult], None]
+    ) -> None:
+        pending.append((arguments_json, settle))
+
+    def waiter(activity: threading.Event, cancel: threading.Event) -> None:
+        activity_threads.add(threading.get_ident())
+        if len(pending) == 2:
+            # Both calls started before either settled; settle the second
+            # first, as a faster tool would.
+            for arguments_json, settle in reversed(pending):
+                settle(CallResult(ok=True, text=arguments_json))
+            pending.clear()
+        activity.wait(0.05)
+
+    scenario = (
+        "start()\n"
+        "send({'type': 'call', 'id': 1, 'name': 'read', 'args': {'n': 1}})\n"
+        "send({'type': 'call', 'id': 2, 'name': 'write', 'args': {'n': 2}})\n"
+        "send({'type': 'text', 'value': 'while they run'})\n"
+        "replies = [recv(), recv()]\n"
+        "send({'type': 'text', 'value': json.dumps([r['id'] for r in replies])})\n"
+        "done()\n"
+        "exit_status()\n"
+    )
+    outcome = _run(monkeypatch, scenario, start_tool=start_tool, activity_waiter=waiter)
+    assert outcome.ok, outcome
+    assert outcome.output == ("while they run", "[2, 1]")
+    # The record keeps the order the script made the calls in.
+    assert [(c.name, c.status) for c in outcome.calls] == [
+        ("read", CallStatus.OK),
+        ("write", CallStatus.OK),
+    ]
+    assert activity_threads == {threading.get_ident()}
+
+
+def test_a_done_while_a_call_runs_ends_the_run_and_drops_the_reply(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    stop = threading.Event()
+    stopped_while_running: list[bool] = []
 
     def call_tool(name: str, arguments_json: str) -> CallResult:
-        entered.set()
-        release.wait(5)
+        time.sleep(0.6)
+        stopped_while_running.append(stop.is_set())
         return CallResult(ok=True, text="did it")
 
     scenario = (
@@ -511,17 +663,12 @@ def test_a_done_in_a_later_chunk_while_a_call_runs_is_a_violation(
         "done()\n"
         "hang()\n"
     )
-    stop = threading.Event()
-
-    def release_when_stopped() -> None:
-        stop.wait(5)
-        release.set()
-
-    threading.Thread(target=release_when_stopped, daemon=True).start()
     outcome = _run(monkeypatch, scenario, call_tool=call_tool, tool_stop=stop)
-    assert entered.is_set()
-    _sandbox_error(outcome, "while a tool call was pending")
+    assert outcome.ok, outcome
     assert [c.status for c in outcome.calls] == [CallStatus.OK]
+    # After a done the stop waits for the calling thread.
+    assert stopped_while_running == [False]
+    assert stop.is_set()
 
 
 def test_lone_surrogates_from_the_guest_become_replacement_characters(
@@ -1212,7 +1359,9 @@ def test_completion_failure_returns_and_reaps(
             outcomes.append(
                 _run(
                     monkeypatch,
-                    "start(); done(); hang()",
+                    # A violation: the I/O thread sets tool_stop itself (after
+                    # a done the calling thread does, see run_script).
+                    "start(); raw(b'garbage\\n'); hang()",
                     tool_stop=stop,
                     activity_waiter=waiter if with_waiter else None,
                 )
@@ -1274,6 +1423,7 @@ def test_dead_io_thread_never_waits_for_missing_completion(queued: bool) -> None
     channel.inbox = queue.SimpleQueue()
     channel.activity = threading.Event()
     channel._activity_lock = threading.Lock()
+    channel.stopped_with = None
     channel._thread = threading.Thread(target=lambda: None)
     channel._thread.start()
     channel._thread.join(timeout=1)
@@ -1285,7 +1435,7 @@ def test_dead_io_thread_never_waits_for_missing_completion(queued: bool) -> None
     def waiter(activity: threading.Event, cancel: threading.Event) -> None:
         pytest.fail("dead I/O thread must not invoke an unbounded waiter")
 
-    callbacks = host._Callbacks(_no_tools, None)
+    callbacks = host._Callbacks(host._starter(_no_tools), None)
     outcome = host._serve(channel, callbacks, threading.Event(), [], waiter)
     if queued:
         assert outcome is completed

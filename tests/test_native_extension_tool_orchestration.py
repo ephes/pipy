@@ -266,9 +266,10 @@ def test_a_nested_tool_runs_tools_itself(tmp_path, monkeypatch) -> None:
     completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
     assert completed.details is not None
     record = completed.details["nestedCalls"]
+    # In the order the calls began, as Pi's recorder keeps them.
     assert [(c["id"], c["name"], c["status"]) for c in record["calls"]] == [
-        ("p1/1/1", "echo", "ok"),
         ("p1/1", "inner", "ok"),
+        ("p1/1/1", "echo", "ok"),
     ]
     started = [e for e in sink.events if isinstance(e, NestedToolCallStarted)]
     assert [
@@ -323,9 +324,9 @@ def test_a_tool_calls_itself(tmp_path, monkeypatch, interruptible) -> None:
     completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
     assert completed.details is not None
     assert [c["id"] for c in completed.details["nestedCalls"]["calls"]] == [
-        "p1/1/1/1",
-        "p1/1/1",
         "p1/1",
+        "p1/1/1",
+        "p1/1/1/1",
     ]
 
 
@@ -870,8 +871,8 @@ def test_a_nested_call_runs_tools_through_the_same_service() -> None:
 
     assert outcome.result.content.value == "child > leaf"
     assert [r.nested_call.provider_correlation_id for r in service.records()] == [
-        "p/1/1",
         "p/1",
+        "p/1/1",
     ]
 
 

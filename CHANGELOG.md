@@ -502,6 +502,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   calls now also emit their live output, such as an MCP server's progress
   or a `bash` command's output, as `tool_execution_update` events with
   `parentToolCallId` in JSON and RPC mode; it was dropped.
+- A codemode script can run tool calls at the same time, as Pi's scripts do
+  with `Promise.all`: `tools.<name>.submit(args)` starts a call and returns
+  at once, and its `.result()` waits for it and returns or raises what
+  `tools.<name>(args)` would. The calls start in the order the script
+  submits them, so their ids, the tool budget, the hooks and the record
+  follow that order; a call still running when the script ends is
+  cancelled. At most 16 calls of a script wait for their result at once.
+  The record of nested calls (`nestedCalls`) now lists every tool's calls in
+  the order they began instead of the order they ended, and a record with
+  an unfinished call says `complete: false`. The codemode guideline now
+  names `submit()` for independent calls. See
+  [calls at the same time](docs/codemode.md#calls-at-the-same-time).
 
 ### Fixed
 

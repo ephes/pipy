@@ -204,7 +204,7 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 | Direction | Message |
 |---|---|
 | host → guest | `{"type":"run","code":str,"tools":[{"name":str,"id":str,"description":str}]}` (first line; `tools` lists the callable tools in registration order, each with its own name, the identifier scripts write and its `ALL_TOOLS` description; MCP parity plan S07) |
-| guest → host | `{"type":"call","id":int,"name":str,"args":object}` (`name` is the tool's own name) |
+| guest → host | `{"type":"call","id":int,"name":str,"args":object}` (`name` is the tool's own name; since MCP parity plan G3 the guest may send further messages before the reply, with at most 16 requests unanswered) |
 | guest → host | `{"type":"discover","id":int,"name":"search_tools"\|"describe_tool"\|"describe_namespace","args":object}` (ids continue the sequence of the calls; answered with a `result` that carries `value` or `error`; runs no tool and is no call record; MCP parity plan S07) |
 | host → guest | `{"type":"result","id":int,"ok":true,"text":str}`, `{"type":"result","id":int,"ok":true,"value":<JSON>}` (the structured content of a tool that declares an output schema; MCP parity plan S04) or `{"type":"result","id":int,"ok":false,"error":str}` |
 | guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
@@ -220,6 +220,10 @@ Host rules. Each one closes a red-team finding:
   or an unknown `type`, a wrong `id`, malformed JSON or a non-object line,
   counts as a protocol violation. The host kills the worker and returns a
   sandbox error, and the host itself never raises (fixes the JSON crash).
+  Revised by MCP parity plan G3: up to 16 requests (calls and discovery
+  calls) may be outstanding, each until its reply is written in full, and
+  replies go back in the order the calls settle; a 17th is the violation.
+  The bound keeps the reply buffer of a guest that does not read finite.
 - The line length cap is checked while bytes are being buffered.
 - `done` is terminal. After it, the host stops reading and kills the worker.
 - Every I/O-thread exit publishes completion and wakes activity in a narrow
@@ -488,6 +492,9 @@ snapshot:
   A tool error raises `ToolError(message)`. Since MCP parity plan S04 a tool
   that declares an output schema returns its structured content instead.
   Structured results of the built-ins (Pi's `bash` object) are deferred.
+  Since MCP parity plan G3 `tools.<name>.submit(args)` starts a call without
+  waiting and its `.result()` gives the same value or `ToolError`, so calls
+  run at the same time, as Pi's `Promise.all` runs them.
 
 ### 4.8 What the model sees (stable, byte-pinned)
 
@@ -513,8 +520,11 @@ Fixed part, followed by pipy's read/filter guidance and its runnable example
 > - `tools.<name>(args)` returns a string, or a structured value if the
 >   tool's declaration says so, and raises `ToolError` on failure. A tool
 >   whose declaration returns a structured value returns it on failure too
->   when the failed result carries one; check its fields. Calls run one at a
->   time.
+>   when the failed result carries one; check its fields.
+>   `tools.<name>.submit(args)` starts the call and returns at once; its
+>   `.result()` returns or raises as the call would, so calls submitted
+>   together run at the same time. Calls still running when the script ends
+>   are cancelled.
 > - Unavailable modules: subprocess, socket networking, ssl, threading,
 >   ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 120 s wall time, 256 MiB
 >   memory, about 10k tokens of output. Tool calls already made are not undone
@@ -532,8 +542,11 @@ Until S08 the description ended with the sentence "Callable tools: read, ls,
 grep, find, write, edit, bash." and said that a call returns the tool's text.
 
 Prompt snippet: "Run Python that calls other tools". Guidelines: "Use codemode
-to chain several tool calls or filter large output in one step instead of many
-separate calls." and the adherence slice's "Keep intermediate tool results in
+to batch independent tool calls (`tools.<name>.submit()`), chain them, or
+filter large output in one step instead of many separate calls." (Pi's
+wording with `.submit()` for `Promise.allSettled` since MCP parity plan G3;
+before it "Use codemode to chain several tool calls or filter large output in
+one step instead of many separate calls.") and the adherence slice's "Keep intermediate tool results in
 Python and emit only the task-relevant answer; parse documented text output
 directly instead of adding format-probe calls." No tool adds to them.
 
@@ -562,7 +575,9 @@ directly instead of adding format-probe calls." No tool adds to them.
 - Python instead of JavaScript.
 - A process plus a wasm runtime instead of a worker thread.
 - A finite default wall limit.
-- Sequential calls only.
+- Calls run at the same time only when the script submits them
+  (`tools.<name>.submit`, MCP parity plan G3), at most 16 at once; a plain
+  call waits for its result. Before G3 calls were sequential.
 - A JSON `code` string instead of raw-source grammar.
 - No `return`, `console.*` or `exit()`; print is equivalent to text.
 - Deferred: `store()`/`load()`, `image()`, `models.*`, `searchTools()` and
@@ -1003,5 +1018,5 @@ Each task is small and lands with its own tests. The plan's acceptance items
     decision.
 13. **Deferred Pi surface.** Options line or timeout override, structured
     `bash` results, exposure tiers (direct, model-only, codemode, deferred),
-    `store()`/`load()`, `image()`, `models.*`, parallel calls with Pi's
-    exclusive-queue rule.
+    `store()`/`load()`, `image()`, `models.*`. Parallel calls landed with MCP
+    parity plan G3, without Pi's exclusive queue (plan DEV-48).
