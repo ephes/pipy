@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_types import (
     ControlGetAllToolsFn,
     ExtensionModelRuntimeControl,
@@ -106,6 +108,10 @@ class _ExtensionToolPort:
         )
         try:
             result = self._registered.tool.handler(ctx, dict(request.arguments))
+            # Pi awaits a tool's ``execute``: an ``async def`` handler runs
+            # to its end here, on the thread that runs the handler.
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as err:  # noqa: BLE001 - bound a bad tool

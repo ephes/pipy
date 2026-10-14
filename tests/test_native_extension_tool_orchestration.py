@@ -250,6 +250,66 @@ def test_a_nested_tool_cannot_run_tools_itself(tmp_path, monkeypatch) -> None:
     assert ["nested tools", []] in _log(log)
 
 
+_ASYNC_TOOLS = """import asyncio
+from pipy_harness.extensions import ExtensionTool, ToolResult
+
+_NONE = {'type': 'object', 'properties': {}, 'additionalProperties': False}
+
+
+def activate(api):
+    async def slow(ctx, params):
+        await asyncio.sleep(0)
+        return ToolResult(content='awaited', structured_content={'n': 1})
+
+    async def broken(ctx, params):
+        await asyncio.sleep(0)
+        raise RuntimeError('late failure')
+
+    def calls_slow(ctx, params):
+        nested = ctx.execute_tool('slow')
+        failed = ctx.execute_tool('broken')
+        return ToolResult(content=f'{nested.content} / {failed.content}')
+
+    api.register_tool(ExtensionTool(
+        name='slow', description='Async.', input_schema=_NONE, handler=slow))
+    api.register_tool(ExtensionTool(
+        name='broken', description='Async, fails.', input_schema=_NONE,
+        handler=broken))
+    api.register_tool(ExtensionTool(
+        name='calls_slow', description='Runs slow.', input_schema=_NONE,
+        handler=calls_slow))
+"""
+
+
+@pytest.mark.parametrize("interruptible", [False, True])
+def test_an_async_tool_handler_is_awaited(tmp_path, monkeypatch, interruptible) -> None:
+    # Pi awaits a tool's `execute`, also when another tool called it.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True)
+    (directory / "async_tools.py").write_text(_ASYNC_TOOLS, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("p1", "slow", "{}"),
+                    ProviderToolCall("p2", "calls_slow", "{}"),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    result, _ = _session(
+        tmp_path, provider, abort_event=threading.Event() if interruptible else None
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    direct, parent = _tool_results(provider.requests[1])
+    assert (direct.content.value, direct.is_error) == ("awaited", False)
+    assert parent.content.value == ("awaited / extension tool error: RuntimeError")
+
+
 # -- the bridge between a handler's thread and the session thread -----------
 
 

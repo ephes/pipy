@@ -3297,6 +3297,7 @@ Slices outside these two lists are serial.
 | S40 | Conformance recipe, user docs pass, changelog, parity audit against section 2 | DOC-01 to DOC-05 | M | all | no |
 | X2 | Leaked stdio server processes: the fake server and the suite guard; SIGTERM and SIGHUP end pipy like an exit | none (STD-05 and STD-06 on a signalled pipy) | S, two commits | S40 | no |
 | G1 | Stdio close keeps signalling the group while a child holds the server's pipes (goal-check finding C1) | STD-05 | S | X2 | no |
+| G2 | Nested tool calls: async handlers, every depth, concurrent calls, `signal` and `on_update`, update events, the full outcome (goal-check findings M1, M2, M12, E2 to E5) | EXT-11, CMD-24, CMD-26 | M, several commits | G1 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3642,6 +3643,18 @@ the server are then not ended. Tests in `test_native_mcp_stdio.py`:
 `test_without_waitid_a_reaped_server_is_not_tracked_while_a_child_holds_its_output`,
 `test_close_from_a_message_listener_does_not_wait_for_its_own_stream`,
 `test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server`.
+
+**G2 Nested tool calls.** Added after the goal check (findings M1, M2,
+M12, E2 to E5), in several commits. Async handlers (M1): an extension
+tool's handler that returns an awaitable (an `async def` handler) is run to
+its end with the driver the hooks use (`_drive_awaitable`) on the thread
+that called it, also as a nested call; command and shortcut handlers too,
+as Pi awaits all three. Before, a tool returned the text of the unstarted
+coroutine as its successful result. Renderers, `prepare_loadout` and
+`reaches_tools` stay synchronous, as in Pi. Test:
+`test_an_async_tool_handler_is_awaited`,
+`test_dispatch_awaits_an_async_command_handler`,
+`test_dispatch_awaits_an_async_shortcut_handler`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

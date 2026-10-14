@@ -557,6 +557,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   sent one SIGTERM and kept running; now the group gets SIGTERM and then
   SIGKILL until the pipes close, as with Pi. See
   [when pipy ends](docs/mcp.md#when-pipy-ends).
+- An extension tool, command or shortcut handler written as `async def` now
+  runs, as Pi awaits them. A tool returned the text of the unstarted
+  coroutine as its successful result, also when another tool called it, and
+  a command or shortcut did nothing. See
+  [tools](docs/extension-api.md#tools).
 
 ### Documentation
 

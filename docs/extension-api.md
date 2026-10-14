@@ -437,7 +437,9 @@ class ExtensionTool:
     name: str
     description: str
     input_schema: JsonSchema
-    handler: Callable[["ToolCallContext", Mapping[str, Any]], "ToolResult"]
+    handler: Callable[
+        ["ToolCallContext", Mapping[str, Any]], "ToolResult | Awaitable[ToolResult]"
+    ]
     # Keyword-only tool metadata; see "Tool model" below.
     exposure: Literal["direct", "model-only", "codemode", "deferred", "hidden"] = "direct"
     namespace: "ToolNamespace | None" = None
@@ -841,6 +843,10 @@ Rules:
 - Tool descriptions are model-visible and should support optional
   tool-specific prompt guidance in a later slice.
 - Tool handlers receive a workspace-scoped context with safe helper methods.
+- A tool, command or shortcut handler may be an `async def` function, as Pi's
+  are: pipy runs the coroutine to its end on the thread that called the
+  handler (its own event loop, or a helper thread when that thread already
+  runs one) and uses what it returns or raises like a synchronous handler's.
 - Tool handlers receive parsed input, a cancellation signal, and a progress
   callback or sink for partial updates.
 - Tool results use Pi-shaped `content` plus `details`, where `content` is the

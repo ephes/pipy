@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_types import (
     CustomComponentDriver,
     ExtensionCodingSessionControl,
@@ -201,7 +203,10 @@ def _run_extension_handler(
         project_trusted=project_trusted,
     )
     try:
-        handler(ctx, args)
+        # Pi awaits command and shortcut handlers.
+        result = handler(ctx, args)
+        if inspect.isawaitable(result):
+            _drive_awaitable(result)
     except (KeyboardInterrupt, SystemExit):
         # A genuine user abort / interpreter exit is control flow, not an
         # extension failure: never swallow it into a bounded error.

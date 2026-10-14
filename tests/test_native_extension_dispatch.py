@@ -161,6 +161,42 @@ def test_dispatch_runs_handler_and_captures_notify(tmp_path: Path) -> None:
     assert dispatch.messages == (("info", "extension status: ok"),)
 
 
+def test_dispatch_awaits_an_async_command_handler(tmp_path: Path) -> None:
+    # Pi awaits a command's handler: an `async def` handler runs to its end,
+    # and what it raises is the command's error.
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "asyncext",
+        "import asyncio\n"
+        "def activate(api):\n"
+        "    async def status(ctx, args):\n"
+        "        await asyncio.sleep(0)\n"
+        "        ctx.ui.notify('awaited ' + args)\n"
+        "    async def broken(ctx, args):\n"
+        "        await asyncio.sleep(0)\n"
+        "        raise RuntimeError('late failure')\n"
+        "    api.register_command('async-status', 'Show status', status)\n"
+        "    api.register_command('async-broken', 'Fail', broken)\n",
+    )
+    command_map = _command_map(workspace)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        dispatch = dispatch_extension_command(
+            "/async-status now", command_map, cwd=str(workspace), has_ui=True
+        )
+        broken = dispatch_extension_command(
+            "/async-broken", command_map, cwd=str(workspace), has_ui=True
+        )
+        gc.collect()
+
+    assert dispatch is not None and dispatch.ran and dispatch.error is None
+    assert dispatch.messages == (("info", "awaited now"),)
+    assert broken is not None and not broken.ran
+    assert broken.error == "RuntimeError"
+
+
 def test_dispatch_passes_raw_args(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write(

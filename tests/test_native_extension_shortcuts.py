@@ -169,6 +169,31 @@ def activate(api):
     assert ("info", "seen:hello there") in dispatch.messages
 
 
+def test_dispatch_awaits_an_async_shortcut_handler(tmp_path) -> None:
+    # Pi: a shortcut handler returns `Promise<void> | void` and is awaited.
+    _write_ext(
+        tmp_path,
+        "ans",
+        """
+import asyncio
+
+def activate(api):
+    async def handler(ctx, args):
+        await asyncio.sleep(0)
+        ctx.ui.notify("awaited", "info")
+    api.register_shortcut("ctrl-x", handler)
+""",
+    )
+    shortcuts = extension_shortcuts(_activate(tmp_path))
+
+    dispatch = dispatch_extension_shortcut(
+        "ctrl-x", shortcuts, cwd=str(tmp_path), has_ui=True
+    )
+
+    assert dispatch is not None and dispatch.ran
+    assert dispatch.messages == (("info", "awaited"),)
+
+
 def test_dispatch_unknown_shortcut_returns_none(tmp_path) -> None:
     assert (
         dispatch_extension_shortcut("ctrl-g", {}, cwd=str(tmp_path), has_ui=True)
