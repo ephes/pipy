@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Keep token-count fields such as `totalTokens` and `tokensBefore` in native
+  HTML/JSONL exports instead of redacting them, so exported sessions re-import
+  with every assistant message and compaction. Prefixed secret keys such as
+  `access_token`, `OPENAI_API_KEY=` and `GITHUB_TOKEN=` inside text are now
+  redacted too.
+
 - Reject malformed scalar metadata in workflow archive exports before it can
   leak nested payloads or be stringified into labels; keep errors field-only.
 

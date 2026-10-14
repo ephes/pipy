@@ -35,14 +35,29 @@ from pipy_harness.native.session_tree import (
     _load_file_entries,
 )
 
-_SENSITIVE_KEY_RE = r"api[_-]?key|apikey|secret|token|password|credential"
-_JSON_SECRET_FIELD_RE = re.compile(
-    rf"(?i)(?P<prefix>(?P<quote>['\"])(?:{_SENSITIVE_KEY_RE})(?P=quote)\s*:\s*)"
-    r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,}\]]+)"
+# Text keys containing a marker are candidates; ``_key_is_sensitive`` then
+# decides, so token-count fields such as ``totalTokens`` survive.
+_SENSITIVE_KEY_MARKERS = r"api[_-]?key|token|secret|password|passwd|credential"
+_SENSITIVE_KEY_CANDIDATE_RE = (
+    rf"[A-Za-z0-9_.-]*?(?:{_SENSITIVE_KEY_MARKERS})[A-Za-z0-9_.-]*"
 )
-_SECRET_ASSIGN_RE = re.compile(
-    rf"(?i)\b({_SENSITIVE_KEY_RE})\b"
-    r"\s*([:=])\s*(?:\"[^\"]*\"|'[^']*'|[^\s<>'\"]+)"
+# A key prefix is matched first; its value is consumed only when the key is
+# sensitive, so a skipped key's value is still scanned for nested secrets.
+_JSON_SECRET_KEY_RE = re.compile(
+    rf"(?i)(?P<quote>['\"])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})(?P=quote)\s*:\s*"
+)
+_JSON_SECRET_VALUE_RE = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,}\]]+")
+_SECRET_ASSIGN_KEY_RE = re.compile(
+    rf"(?i)(?<![A-Za-z0-9_.-])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})"
+    r"\s*(?P<sep>[:=])\s*"
+)
+_SECRET_ASSIGN_VALUE_RE = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s<>'\"]+")
+_SECRET_KEY_MARKER_RE = re.compile(r"api_?key|secret|password|passwd|credential")
+# ``token`` marks a credential unless it is token accounting: the plural
+# (``totalTokens``, ``tokensBefore``) or a count-shaped suffix
+# (``totalTokenCount``, ``promptTokenDetails``).
+_TOKEN_KEY_MARKER_RE = re.compile(
+    r"token(?!s|_?(?:count|details|start|end|limit|usage|budget))"
 )
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}")
 _COMMON_TOKEN_RE = re.compile(
@@ -110,27 +125,128 @@ def _redact_export_mapping(
 
 
 def _key_is_sensitive(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    return any(
-        marker in normalized
-        for marker in ("api_key", "apikey", "secret", "token", "password", "credential")
+    """Return whether ``key`` names a credential rather than a token count.
+
+    ``OPENAI_API_KEY``, ``accessToken``, ``GITHUB_TOKEN`` and ``client_secret``
+    are sensitive; ``totalTokens``, ``tokensBefore`` and ``totalTokenCount``
+    are not.
+    """
+
+    normalized = key.lower().replace("-", "_").replace(".", "_")
+    return bool(
+        _SECRET_KEY_MARKER_RE.search(normalized)
+        or _TOKEN_KEY_MARKER_RE.search(normalized)
     )
 
 
 def _redact_text(value: str) -> str:
-    value = _JSON_SECRET_FIELD_RE.sub(_redact_json_secret_field, value)
-    value = _SECRET_ASSIGN_RE.sub(
-        lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", value
+    value = _redact_keyed_values(
+        value, _JSON_SECRET_KEY_RE, _JSON_SECRET_VALUE_RE, _redact_json_secret_field
+    )
+    value = _redact_keyed_values(
+        value,
+        _SECRET_ASSIGN_KEY_RE,
+        _SECRET_ASSIGN_VALUE_RE,
+        _redact_secret_assignment,
     )
     value = _BEARER_RE.sub("Bearer [REDACTED]", value)
     return _COMMON_TOKEN_RE.sub("[REDACTED]", value)
 
 
-def _redact_json_secret_field(match: re.Match[str]) -> str:
-    raw_value = match.group("value")
+def _redact_keyed_values(
+    text: str,
+    key_re: re.Pattern[str],
+    value_re: re.Pattern[str],
+    render: Callable[[re.Match[str], str], str],
+) -> str:
+    """Replace the value after each sensitive key matched by ``key_re``.
+
+    A non-sensitive key such as ``tokenUsage`` or ``max_tokens`` is skipped
+    without consuming its value, so secrets nested in or following that value
+    are still found.
+    """
+
+    parts: list[str] = []
+    position = 0
+    while (key_match := key_re.search(text, position)) is not None:
+        value_end = (
+            _secret_value_end(text, key_match.end(), value_re)
+            if _key_is_sensitive(key_match.group("key"))
+            else None
+        )
+        if value_end is None:
+            parts.append(text[position : key_match.end()])
+            position = key_match.end()
+            continue
+        parts.append(text[position : key_match.start()])
+        parts.append(render(key_match, text[key_match.end() : value_end]))
+        position = value_end
+    parts.append(text[position:])
+    return "".join(parts)
+
+
+def _secret_value_end(text: str, start: int, value_re: re.Pattern[str]) -> int | None:
+    """Return where the value starting at ``start`` ends, or ``None``.
+
+    An object or array value is consumed through its matching bracket
+    (quote-aware), or to the end of the text when it is unbalanced, so no part
+    of a structured secret survives.
+    """
+
+    if text[start : start + 1] not in _CONTAINER_CLOSERS:
+        value_match = value_re.match(text, start)
+        return None if value_match is None else value_match.end()
+    return _container_end(text, start)
+
+
+_CONTAINER_CLOSERS = {"{": "}", "[": "]"}
+
+
+def _container_end(text: str, start: int) -> int:
+    """End of the bracketed value at ``start``; end of text if mismatched."""
+
+    closers: list[str] = []
+    index = start
+    while index < len(text):
+        char = text[index]
+        if char in {'"', "'"}:
+            index = _quoted_end(text, index)
+            continue
+        if char in _CONTAINER_CLOSERS:
+            closers.append(_CONTAINER_CLOSERS[char])
+        elif char in {"}", "]"}:
+            if char != closers.pop():
+                return len(text)
+            if not closers:
+                return index + 1
+        index += 1
+    return len(text)
+
+
+def _quoted_end(text: str, start: int) -> int:
+    """Index after the quoted string opening at ``start`` (or end of text)."""
+
+    quote = text[start]
+    index = start + 1
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+        elif text[index] == quote:
+            return index + 1
+        else:
+            index += 1
+    return len(text)
+
+
+def _redact_json_secret_field(key_match: re.Match[str], raw_value: str) -> str:
     quote = raw_value[0] if raw_value[:1] in {"'", '"'} else ""
     redacted = f"{quote}[REDACTED]{quote}" if quote else "[REDACTED]"
-    return f"{match.group('prefix')}{redacted}"
+    return f"{key_match.group(0)}{redacted}"
+
+
+def _redact_secret_assignment(key_match: re.Match[str], raw_value: str) -> str:
+    del raw_value
+    return f"{key_match.group('key')}{key_match.group('sep')}[REDACTED]"
 
 
 def parse_command_path_argument(argument: str) -> str:

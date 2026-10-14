@@ -17,6 +17,7 @@ from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentMessageUsage,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
@@ -140,6 +141,73 @@ def test_redaction_covers_json_quoted_secret_assignments() -> None:
     assert '"password": "[REDACTED]"' in redacted
     assert '"token":"[REDACTED]"' in redacted
     assert '"safe":"ok"' in redacted
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "api_key",
+        "apiKey",
+        "OPENAI_API_KEY",
+        "x-api-key",
+        "token",
+        "access_token",
+        "accessToken",
+        "GITHUB_TOKEN",
+        "HF_TOKEN",
+        "refresh_token",
+        "client_secret",
+        "password",
+        "credentials",
+    ],
+)
+def test_redaction_redacts_prefixed_secret_keys(key: str) -> None:
+    assert redact_export_value({key: "s3cr3t-value"}) == {key: "[REDACTED]"}
+    assert redact_export_value(f'{{"{key}": "s3cr3t-value"}}') == (
+        f'{{"{key}": "[REDACTED]"}}'
+    )
+    assert redact_export_value(f"{key}=s3cr3t-value") == f"{key}=[REDACTED]"
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "totalTokens",
+        "tokensBefore",
+        "maxTokens",
+        "max_tokens",
+        "input_tokens",
+        "cache_read_input_tokens",
+        "totalTokenCount",
+        "promptTokenDetails",
+        "token_start",
+    ],
+)
+def test_redaction_keeps_token_count_fields(key: str) -> None:
+    assert redact_export_value({key: 42}) == {key: 42}
+    assert redact_export_value(f'{{"{key}": 42}}') == f'{{"{key}": 42}}'
+    assert redact_export_value(f"{key}=42") == f"{key}=42"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"tokenUsage": {"token": "opaque-credential-value"}}',
+        "tokenUsage: {token: opaque-credential-value}",
+        "max_tokens=42&token=opaque-credential-value",
+        '{"token": ["opaque-credential-value"]}',
+        '{"password": {"value":"opaque-credential-value"}}',
+        '{"password": {"value": "opaque-credential-value"}, "safe": "ok"}',
+        '{"token": ["first", "opaque-credential-value"]}',
+        "api_key: [one, opaque-credential-value]",
+        "api_key=[one}opaque-credential-value]",
+    ],
+)
+def test_redaction_reaches_secrets_nested_in_or_after_other_values(text: str) -> None:
+    redacted = redact_export_value(text)
+
+    assert "opaque-credential-value" not in redacted
+    assert "[REDACTED]" in redacted
 
 
 def test_redaction_preserves_recursive_container_and_mapping_key_behavior() -> None:
@@ -329,6 +397,43 @@ def test_jsonl_export_linearizes_active_branch_and_import_round_trips(
     assert "MAIN prompt" in texts
     assert "ALT prompt" not in texts
     assert output.read_text(encoding="utf-8") == before_import
+
+
+def test_jsonl_export_import_keeps_usage_and_compaction_token_counts(
+    tmp_path: Path,
+) -> None:
+    cwd = tmp_path / "workspace"
+    cwd.mkdir()
+    tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
+    user = tree.append_message(AgentUserMessage(content=ProductContent("hello")))
+    tree.append_message(
+        AgentAssistantMessage(
+            content=ProductContent("hi OPENAI_API_KEY=sk-should-not-leak"),
+            usage=AgentMessageUsage(input=3, output=4, total_tokens=7),
+        )
+    )
+    tree.append_compaction(
+        summary="summary", first_kept_entry_id=user.id, tokens_before=1234
+    )
+    output = tmp_path / "counts.jsonl"
+
+    export_native_branch_to_jsonl(tree, output)
+
+    lines = [
+        json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()
+    ]
+    serialized = json.dumps(lines)
+    assert "sk-should-not-leak" not in serialized
+    assert lines[2]["message"]["usage"]["totalTokens"] == 7
+    assert lines[3]["tokensBefore"] == 1234
+    imported = import_native_session_jsonl(output, session_dir=tmp_path / "store")
+    assert len(imported.get_entries()) == 3
+    assert [type(message).__name__ for message in imported.build_context().messages][
+        -2:
+    ] == ["AgentUserMessage", "AgentAssistantMessage"]
+    assert imported.path is not None
+    reopened = NativeSessionTree.open(imported.path)
+    assert len(reopened.get_entries()) == 3
 
 
 def test_import_missing_cwd_rewrites_only_imported_copy(tmp_path: Path) -> None:

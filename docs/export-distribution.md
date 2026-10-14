@@ -216,6 +216,20 @@ other transcript content is dropped: privacy is not a reason to reduce exported
 content; the artifact is the user's own session and is exported in full minus
 auth tokens.
 
+Redaction decides by key name. A mapping key, a quoted JSON key inside text, or
+a `KEY=value` / `key: value` assignment is withheld when its key contains
+`api_key`/`apikey`, `secret`, `password`, `passwd`, `credential`, or a singular
+`token` (so `access_token`, `OPENAI_API_KEY`, `GITHUB_TOKEN` and
+`client_secret` are withheld). Token-accounting fields are kept: the plural
+`tokens` (`totalTokens`, `tokensBefore`, `max_tokens`) and a `token` followed
+by `count`, `details`, `start`, `end`, `limit`, `usage` or `budget`
+(`totalTokenCount`). This keeps usage and compaction integers intact so an
+exported JSONL session re-imports with every entry. In text, an object or
+array value under a sensitive key is withheld whole, and a skipped key's value
+is still scanned for nested secrets. Bearer values and common
+token prefixes (`sk-`, `ghp_`, `github_pat_`, `ya29.`, `xoxb-`/`xoxp-`) are
+withheld wherever they appear.
+
 ### Artifact shape
 
 Pipy builds the HTML through stdlib string templating (`str.replace` /
