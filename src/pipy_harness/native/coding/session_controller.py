@@ -465,8 +465,12 @@ class _NativeSessionControlBridge:
             verify_authorized=self._require_authorized,
         )
 
-    def request_abort(self) -> _NativeControlSnapshot:
-        return self._ready().control.request_abort()
+    def request_abort(
+        self, *, discard_follow_ups: bool = False
+    ) -> _NativeControlSnapshot:
+        return self._ready().control.request_abort(
+            discard_follow_ups=discard_follow_ups
+        )
 
     def admit_steering(self, content: ProductContent) -> _NativeControlSnapshot:
         return self._ready().control._bridge_admit_steering(

@@ -16,6 +16,7 @@ from pipy_harness.adapters import (
 )
 from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
+from pipy_harness.exit_signals import exit_on_termination_signals
 from pipy_harness.models import (
     RunRequest,
 )
@@ -1022,6 +1023,13 @@ def _bind_tool_modifier_values(argv: list[str]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # SIGTERM and SIGHUP unwind the command like any other exit, so a session
+    # restores its terminal and ends its MCP servers (Pi's signal handlers).
+    with exit_on_termination_signals():
+        return _main(argv)
+
+
+def _main(argv: list[str] | None) -> int:
     parser = build_parser()
     incoming_argv = sys.argv[1:] if argv is None else argv
     if incoming_argv[:1] == ["mcp"]:

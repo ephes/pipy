@@ -1019,6 +1019,10 @@ Not built, different from Pi:
   stdout (except on SIGTERM), and exits. It joins tracked direct-bash workers;
   explicit abort and timeout terminate their child process groups before the
   terminal response is written.
+- The end of input lets the run in flight and the queued messages finish
+  first. SIGTERM and SIGHUP do not: the run and the running direct-bash
+  commands are aborted and queued steering and follow-up messages are
+  dropped, as Pi disposes its runtime at once.
 
 ## Commands in a prompt
 

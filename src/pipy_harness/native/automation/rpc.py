@@ -428,6 +428,7 @@ class NativeRpcServer:
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._worker.start()
         ready = False
+        ending = False
         try:
             outcome = self._bridge.wait_ready(120.0)
             if outcome is None:
@@ -447,6 +448,15 @@ class NativeRpcServer:
             self._bridge.bind_handled_prompt_handler(self._settle_handled_prompt)
             ready = True
             self._read_loop()
+        except SystemExit:
+            # pipy is being ended (SIGTERM or SIGHUP, `exit_signals`). Pi
+            # disposes the runtime at once: the run in flight and the running
+            # `bash` commands are aborted, and what is queued is not run.
+            ending = True
+            if ready:
+                self._bridge.request_abort(discard_follow_ups=True)
+            self._abort_bash_operations()
+            raise
         finally:
             # Nobody answers a UI request any more; the command that waits
             # for one goes on as if it had been cancelled.
@@ -457,7 +467,7 @@ class NativeRpcServer:
             # EOF sentinel ahead of a reserved queued message and drop it. Batch
             # clients (submit commands, then close stdin) therefore still get
             # their queued steering/follow-up runs delivered.
-            if ready and not self._retired:
+            if ready and not self._retired and not ending:
                 self._await_drain(timeout=120.0)
             self._channel.signal_eof()
             if self._worker is not None:
@@ -809,6 +819,10 @@ class NativeRpcServer:
             self._emit_queue_update(snapshot)
 
     def _cmd_abort_bash(self, cid: str | None, command: dict[str, Any]) -> None:
+        self._abort_bash_operations()
+        self._respond(cid, "abort_bash")
+
+    def _abort_bash_operations(self) -> None:
         # Mark and snapshot while the operation registry is stable. Signalling
         # happens after releasing the RPC lock: an Event callback must never be
         # able to block command correlation or terminal fixation.
@@ -819,7 +833,6 @@ class NativeRpcServer:
                 events.append(operation.cancel_event)
         for event in events:
             event.set()
-        self._respond(cid, "abort_bash")
 
     def _cmd_abort_retry(self, cid: str | None, command: dict[str, Any]) -> None:
         self._retry_port().abort_retry()

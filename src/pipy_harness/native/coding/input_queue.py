@@ -431,11 +431,19 @@ class _NativeSessionControl:
         with self._gate:
             return self._queue._capture_external_claimed_latch()
 
-    def request_abort(self) -> _NativeControlSnapshot:
-        """Clear steering under both guards and signal its captured latch after."""
+    def request_abort(
+        self, *, discard_follow_ups: bool = False
+    ) -> _NativeControlSnapshot:
+        """Clear steering under both guards and signal its captured latch after.
+
+        ``discard_follow_ups`` clears the queued follow-ups too, for a session
+        that is being ended.
+        """
 
         with self._gate:
-            snapshot, latch = self._queue._prepare_external_abort()
+            snapshot, latch = self._queue._prepare_external_abort(
+                discard_follow_ups=discard_follow_ups
+            )
             result = _native_control_snapshot(snapshot)
         if latch is not None:
             latch.set()
@@ -743,11 +751,14 @@ class CodingInputQueue:
 
     @_guarded_queue_api
     def _prepare_external_abort(
-        self,
+        self, *, discard_follow_ups: bool = False
     ) -> tuple[_ExternalAdmissionSnapshot, _AcceptedAbortSignal | None]:
-        """Clear steering and capture a latch without observing or signaling it."""
+        """Clear steering (and follow-ups when asked) and capture a latch
+        without observing or signaling it."""
 
         self._external_steering.clear()
+        if discard_follow_ups:
+            self._external_follow_ups.clear()
         slot = self._external_active_slot
         latch = None if slot is None else slot.abort_signal
         return self._external_snapshot(), latch

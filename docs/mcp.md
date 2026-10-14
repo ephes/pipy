@@ -1535,6 +1535,39 @@ streamable HTTP, see [HTTP servers](#http-servers). Signing in to an HTTP
 server is described under
 [authenticate with OAuth](#authenticate-with-oauth).
 
+### When pipy ends
+
+A session closes its connections when it ends: `/exit`, Ctrl+D, the end of a
+print or JSON run, the end of input in RPC mode. A server process gets the
+close sequence of the [stdio transport](#what-exists-as-a-library): its stdin
+is closed, its process group is sent SIGTERM after 500 ms and SIGKILL after a
+further 2 seconds. `pipy mcp list` does the same with the servers it started.
+
+SIGTERM and SIGHUP end pipy the same way, in every mode and for the `pipy
+mcp` commands: the command is unwound as for any other exit, so the terminal
+is restored and the servers are closed, and pipy exits with status 143
+(SIGTERM) or 129 (SIGHUP). A second signal during that shutdown is ignored.
+A signal that is ignored when pipy starts (`nohup`) stays ignored. In RPC
+mode the run in flight and running `bash` commands are aborted and queued
+messages are not run, where the end of input lets them finish.
+
+If pipy still ends without having closed a server, for example because the
+signal arrived while a finished run was closing its servers, an exit hook
+ends the servers that are left: their process groups are sent SIGTERM, and
+SIGKILL when a server's close time (2 seconds) is over, and pipy exits when
+they are gone. What is left of a server's group after the server exited,
+such as a child that ignores SIGTERM, is sent SIGKILL.
+
+Nothing can be done when pipy is killed with SIGKILL. A server then ends
+when it notices that its stdin closed, as a server should; one that does
+not stays until it is killed.
+
+Different from Pi: Pi exits with status 0 when its interactive mode is ended
+by SIGTERM or SIGHUP; pipy uses 143 and 129 in every mode. Pi's exit hook
+sends SIGTERM only and does not wait. An embedded
+session ([MCP in an embedded session](#mcp-in-an-embedded-session)) installs
+no signal handlers, as in Pi; the program that embeds it closes the session.
+
 ### Values resolved at connect time
 
 - `timeout` is the time a request to the server may take, 60 seconds when not

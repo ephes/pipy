@@ -561,6 +561,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-60 | TLS-12, TLS-15 | Results of MCP tools: a resource link without `uri` or `name` is shown as `[unsupported MCP content resource_link]`; the message of a failed call is cut to 20 KB like a result and nothing is saved for it; a lone surrogate in a server's text reaches the model as U+FFFD. | other form | `docs/mcp.md` "Differences from Pi in tools" |
 | DEV-61 | none | Texts that come from the platform are Python's, not Node's: errors of the operating system (a missing executable is `[Errno 2] No such file or directory: '<command>'`), messages of the JSON parser, and the reason of a failed save. A JSON number such as `1.0` in log data or a listing is written `1.0`. | other form | `docs/mcp.md` "Differences from Pi" paragraphs |
 | DEV-62 | none (DEV-12) | The conformance runner checks `--mode` in its argument parser (exit status 2), reports a missing `npx` and a temporary directory with a space in its path before anything runs, and fails the `runner` check for a `checks.json` it cannot read. | other form | Decided in S40 (part 1) |
+| DEV-63 | none | Ended by SIGTERM or SIGHUP, pipy exits with status 143 or 129 in every mode; Pi's interactive mode exits with 0. A second signal during the shutdown is ignored in every mode; Pi's RPC mode exits at once on it. The exit hook for server processes that are still running sends SIGKILL to a group that is not gone when its close timeout is over and waits until the servers are reaped (at most a second after the last SIGKILL); Pi's hook sends SIGTERM and returns. | other form | Decided in X2 |
 
 Two rows are open and are not deviations until the owner decides to accept
 them as such: SLH-13 (commands and expansion in queued RPC input) and the
@@ -2554,6 +2555,61 @@ Changed modules, by seam:
 | OAuth plumbing | `auth_store.py` | `resolve_config_value` and `auth_file_lock` are reused, not changed. |
 | Rendering | `tool_rows.py`, `tool_renderer_lookup.py`, `tool_renderers.py`, `ui/components/tool_loop_renderer.py`, `export_tool_rows.py`, `export_distribution.py` | MCP rows, the lookup that says which rows a call gets, and the rows of an HTML export (see "Decided in S35"). |
 
+Decided in X2 (leaked server processes; `pipy_harness/exit_signals.py`,
+`tests/mcp_fake_server_guard.py`, `tests/fixtures/mcp_fake_server.py`):
+
+- What was found. Orphaned fake servers (parent pid 1) were alive hours
+  after test runs. One was left to look at: its scenario was the one of the
+  TUI driver (`initialize` sleeps 600 s, the end of stdin is ignored), and
+  it was started by a developer script that killed the session with
+  SIGKILL, as the PTY tests' `_finish` does after a failed assertion.
+- What was tried, with a server that never answers `initialize` and ignores
+  the end of its stdin. A run of all MCP test modules, when they pass,
+  leaves no process. A session ended by `/exit`, Ctrl+D, SIGINT or a closed
+  terminal closes the server. A session ended by SIGTERM or SIGHUP did not:
+  Python's default action ends the process without `finally` blocks and
+  without the `atexit` hook of STD-06. The same held for print mode, RPC
+  mode (whose page already promised status 143 and 129) and `pipy mcp
+  list`. No leaking path was found inside a living pipy (reconnect while
+  connecting, disable, exposure change, reload, failed or timed-out
+  connect): the tests of those paths leave nothing behind.
+- The fix in pipy: `exit_on_termination_signals()` around `cli.main`. The
+  first SIGTERM or SIGHUP raises `SystemExit(128 + signal)` on the main
+  thread, so the command unwinds as for any other exit: the session's
+  `_close_session` runs `McpManager.close()` (STD-05) and the `atexit` hook
+  (STD-06) still runs. Pi reaches the same through its per-mode handlers
+  (`interactive-mode.ts`, `print-mode.ts`, `rpc-mode.ts`
+  `registerSignalHandlers`) that dispose the runtime and call
+  `process.exit`. Later signals are ignored. A signal that is ignored or
+  has a handler when pipy starts is left alone; off the main thread nothing
+  is installed, so an embedded session is unchanged. DEV-63 has the
+  differences from Pi.
+- A signal can arrive while a finished run is already closing its servers.
+  The exit then interrupts that close on the main thread. Therefore the
+  exit hook of STD-06 (`stdio._terminate_live_process_groups`) finishes the
+  job: SIGTERM to every tracked group, SIGKILL to a group that is still
+  tracked when its transport's `close_timeout_ms` is over, and it returns
+  when the watcher threads stopped tracking the servers (they do so before
+  they reap, under the hook's lock, so the hook cannot signal a reused id),
+  or one second after the last SIGKILL. Once the hook runs, a watcher sends
+  SIGKILL to the group of a server that exited, before it reaps it, so
+  children that ignored SIGTERM do not outlive it. The hook is the backstop
+  for every exit that did not close a server, also a worker thread that did
+  not end in time.
+- RPC mode runs the session on a worker thread; its `run()` waited up to 120
+  seconds for the run in flight and the queue before it let the session
+  end. On the `SystemExit` of a signal it now aborts the run
+  (`request_abort(discard_follow_ups=True)`: the `abort` command clears only
+  queued steering, this also clears the queued follow-ups) and the running
+  direct-bash commands, skips that wait, and then ends the session as before
+  (Pi's `shutdown` disposes the runtime at once). The end of input still
+  drains. Follow-ups queued by extensions are not cleared there.
+- Not solved, and not solvable in pipy: SIGKILL. A server that ignores the
+  end of its stdin then stays, as with Pi.
+- The test side is in section 6.1: the fake server ends itself after its
+  parent ended, the PTY teardown ends the servers of a killed session, and
+  a suite guard fails a module that leaves a fake server behind.
+
 ### 4.2 Tool model
 
 Pi's MCP support rests on five properties of a tool that pipy does not have
@@ -2880,6 +2936,8 @@ inversion (a lock wrapper that records order in tests).
   progress and retry waits, CON-09), cancels running sign-ins and joins the
   worker threads with a bound. Stdio servers get the close sequence of STD-05.
   An `atexit` hook SIGTERMs process groups that are still alive (STD-06).
+  SIGTERM and SIGHUP are turned into an exit, so both also run when pipy is
+  signalled (X2).
 - A connection attempt is identified by a token object. Late results of an
   attempt that is no longer current (disabled, replaced, session ended) are
   dropped, as Pi's `isCurrent()`.
@@ -3237,6 +3295,7 @@ Slices outside these two lists are serial.
 | S39 | Images: tool-result images, MCP images and image resources, codemode `image()` | TLS-11, RES-09 (image parts), CMD-28 to CMD-30 | L, several commits | S23 | no |
 | X1 | Prompts of print, JSON and RPC mode run extension commands and `/mcp`; RPC UI requests for `/mcp` | SLH-02 (remainder), SLH-07 to SLH-13 | M | S38 | no |
 | S40 | Conformance recipe, user docs pass, changelog, parity audit against section 2 | DOC-01 to DOC-05 | M | all | no |
+| X2 | Leaked stdio server processes: the fake server and the suite guard; SIGTERM and SIGHUP end pipy like an exit | none (STD-05 and STD-06 on a signalled pipy) | S, two commits | S40 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3549,6 +3608,13 @@ image(), in output order, each after its saved path" from
 `agent-session-codemode.test.ts`; `image()` with each accepted input form and
 each rejected one (CMD-28); the same image shown twice is saved once; images
 follow a truncated text block (CMD-30).
+
+**X2 Leaked server processes.** Added after S40, when orphaned fake servers
+were found alive hours after test runs. Tests: the fake server ends itself
+after its parent ended; a module that leaves one behind fails; the real
+command with a server that ignores its stdin, sent SIGTERM and SIGHUP in RPC
+mode, SIGTERM in print mode, in the terminal UI and in `pipy mcp list`, ends
+the server and exits with 143 or 129. See "Decided in X2".
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

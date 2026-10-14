@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from mcp_fake_server_guard import end_fake_servers, fake_servers
 
 from pipy_harness.native.mcp import stdio
 from pipy_harness.native.mcp.client import McpClient, McpClientOptions
@@ -837,7 +838,11 @@ _EXIT_WITHOUT_CLOSING = """
 import sys, threading
 from pipy_harness.native.mcp.stdio import StdioTransport, StdioTransportOptions
 
-transport = StdioTransport(StdioTransportOptions(command=sys.executable, args=sys.argv[1:]))
+transport = StdioTransport(
+    StdioTransportOptions(
+        command=sys.executable, args=sys.argv[1:], close_timeout_ms=300
+    )
+)
 answered = threading.Event()
 transport.on_message(lambda message: answered.set())
 transport.start()
@@ -886,3 +891,95 @@ def test_servers_still_alive_at_interpreter_exit_are_sent_sigterm(
         json.loads(line).get("event") for line in record_path.read_text().splitlines()
     ]
     assert "sigterm" in events
+
+
+def test_a_server_that_ignores_sigterm_at_interpreter_exit_is_killed(
+    tmp_path: Path,
+) -> None:
+    record_path = tmp_path / "record.jsonl"
+    scenario_path = tmp_path / "scenario.json"
+    scenario = {
+        "record": str(record_path),
+        "startup": [{"spawn": {"ignoreSigterm": True}}],
+        "onStdinClose": [],
+        "onSigterm": [],
+    }
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+
+    host = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _EXIT_WITHOUT_CLOSING,
+            "-I",
+            str(_FAKE_SERVER),
+            "--scenario",
+            str(scenario_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert host.returncode == 0, host.stderr
+    server_pid = int(host.stdout)
+    try:
+        # The host did not end before the server was reaped, and the kill
+        # went to the server's group.
+        assert not _is_alive(server_pid)
+        _wait_until(lambda: not fake_servers(tmp_path))
+    finally:
+        end_fake_servers(tmp_path)
+    records = [json.loads(line) for line in record_path.read_text().splitlines()]
+    assert [record["event"] for record in records if "event" in record] == ["sigterm"]
+
+
+def test_the_exit_hook_kills_only_after_the_close_timeout(
+    start_server: StartServer,
+) -> None:
+    server = start_server({"onStdinClose": [], "onSigterm": []}, close_timeout_ms=400)
+    assert server.request(1, "ping")["id"] == 1
+    started = time.monotonic()
+
+    stdio._terminate_live_process_groups()
+
+    assert time.monotonic() - started >= 0.4
+    assert server.closed.wait(_WAIT_SECONDS)
+    assert server.events() == ["sigterm"]
+    assert stdio._live_process_groups == {}
+
+
+def test_children_that_outlive_a_server_at_interpreter_exit_are_killed(
+    tmp_path: Path,
+) -> None:
+    scenario_path = tmp_path / "scenario.json"
+    # The server ends on SIGTERM; its child ignores it.
+    scenario = {
+        "startup": [{"spawn": {"ignoreSigterm": True}}],
+        "onStdinClose": [],
+        "onSigterm": [{"exit": 0}],
+    }
+    scenario_path.write_text(json.dumps(scenario), encoding="utf-8")
+
+    host = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _EXIT_WITHOUT_CLOSING,
+            "-I",
+            str(_FAKE_SERVER),
+            "--scenario",
+            str(scenario_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert host.returncode == 0, host.stderr
+    try:
+        _wait_until(lambda: not fake_servers(tmp_path))
+    finally:
+        end_fake_servers(tmp_path)

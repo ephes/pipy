@@ -534,6 +534,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   during manual `/compact` and `Auto-compacting...` during automatic
   compaction; previously nothing was shown while the summary ran.
 
+- SIGTERM and SIGHUP end pipy like an exit. Until now either signal ended
+  the process at once: a terminal session left the terminal in raw mode, and
+  an MCP server process that does not exit when its stdin closes was left
+  running without a parent. The command is now unwound as for any other
+  exit, so the terminal is restored and the servers get their close
+  sequence, and pipy exits with status 143 or 129, in every mode and for
+  `pipy mcp`. In RPC mode the signal aborts the run in flight instead of
+  waiting for it. The exit hook for server processes that are still running
+  when pipy exits now sends SIGKILL to a server that is not gone when its
+  close time is over, and waits for it; it sent SIGTERM only. See
+  [when pipy ends](docs/mcp.md#when-pipy-ends).
 - The test suite no longer leaves fake MCP server processes behind. A test
   that failed, or a run that was killed, could leave a scripted server that
   ignores the end of its stdin running for good. The fake server now ends

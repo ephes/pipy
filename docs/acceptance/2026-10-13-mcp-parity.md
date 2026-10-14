@@ -21,7 +21,8 @@ judgement accepts the deviation or limit each one names (plan section 3).
 
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
   (2026-10-12), as the plan records.
-- pipy: branch `feat/mcp-parity`, slices S01 to S40 and X1. The merge to
+- pipy: branch `feat/mcp-parity`, slices S01 to S40 and X1. (X2 came after
+  this note and added DEV-63, which changes no row.) The merge to
   `main` is an owner approval (plan section 7, Q5).
 - Checks at the time of writing: `just check` passes (see the slice's
   commit), `just docs-build` reports no issues.
@@ -81,7 +82,7 @@ Plan section 3 lists DEV-01 to DEV-14, which were proposed before or while
 the slices were built. They hold as written.
 
 The slices recorded further differences from Pi. Plan section 3.1 now lists
-them as DEV-15 to DEV-62, each with the rows it changes, its kind (narrower,
+them as DEV-15 to DEV-63, each with the rows it changes, its kind (narrower,
 other form, stricter) and where it is recorded. Every row named there names
 the DEV row in the "Limits and deviations" column of the tables below and
 is `closed, with limits`. The ones a user is most likely to meet:
@@ -106,7 +107,7 @@ is `closed, with limits`. The ones a user is most likely to meet:
 - **A sign-in screen taller than the terminal is cut, not scrolled**
   (DEV-43; `docs/mcp.md` "The `/mcp` manager").
 
-All of DEV-15 to DEV-62 are proposals. Which of them are accepted is for
+All of DEV-15 to DEV-63 are proposals. Which of them are accepted is for
 the final judgement.
 
 ## Conformance suite
@@ -596,7 +597,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 3. Q1: a default Client ID Metadata Document. Until one is named, `cimd`
    needs `oauth.clientMetadataBaseUrl` (DEV-06).
 4. SLH-13 and the hyperlink part of MGR-09: build or accept.
-5. Which of DEV-15 to DEV-62 (plan section 3.1) are accepted. Until then
+5. Which of DEV-15 to DEV-63 (plan section 3.1) are accepted. Until then
    the rows that name one are closed on that condition.
 6. One observation no slice owns: notices are drained only before the next
    step, so the startup report of a session whose first action is `/mcp`

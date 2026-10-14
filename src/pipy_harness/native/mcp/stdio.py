@@ -28,6 +28,11 @@ Limits of what is promised:
   listeners ran.
 - A ``send`` that is blocked because the server does not read its stdin ends
   when the server exits or is killed by ``close()``.
+- Servers that still run when the interpreter exits are ended by an
+  ``atexit`` hook: SIGTERM, then SIGKILL when the server's close timeout is
+  over; once a server exited, what is left of its group is sent SIGKILL. The
+  hook waits for them, at most a second longer than the longest close
+  timeout. Nothing runs when the process is killed with SIGKILL.
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ import selectors
 import signal
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import IO, Final, NoReturn
@@ -59,11 +65,17 @@ DEFAULT_CLOSE_TIMEOUT_MS: Final = 2_000
 STDIN_CLOSE_GRACE_MS: Final = 500
 _READ_BYTES: Final = 64 * 1024
 
-# Process groups of running servers, sent SIGTERM if pipy exits without
-# closing them.
+# Process groups of running servers, ended if pipy exits without closing
+# them. The value is the time in seconds a group gets after SIGTERM.
 _live_groups_lock = threading.Lock()
-_live_process_groups: set[int] = set()
+_live_process_groups: dict[int, float] = {}
 _exit_hook_installed = False
+# Set by the exit hook. From then on a server that exits takes its group
+# with it.
+_exiting = False
+# How long the exit hook waits for a server it killed to be reaped.
+_EXIT_REAP_SECONDS: Final = 1.0
+_EXIT_POLL_SECONDS: Final = 0.01
 
 
 def _signal_group(pid: int, signum: signal.Signals) -> None:
@@ -74,23 +86,64 @@ def _signal_group(pid: int, signum: signal.Signals) -> None:
 
 
 def _terminate_live_process_groups() -> None:
+    """End the servers that are still running. The exit hook.
+
+    Every group is sent SIGTERM. One that is still there when its close
+    timeout is over is sent SIGKILL, and the hook returns when the servers
+    are reaped, or ``_EXIT_REAP_SECONDS`` after the last SIGKILL. A group is
+    signalled only while it is tracked; a watcher thread stops tracking a
+    server, under the same lock, before it reaps it, so a signal cannot reach
+    an unrelated group that reused the id.
+    """
+
+    global _exiting
     with _live_groups_lock:
-        for pid in _live_process_groups:
+        _exiting = True
+        waits = dict(_live_process_groups)
+        for pid in waits:
             _signal_group(pid, signal.SIGTERM)
+    started = time.monotonic()
+    killed: set[int] = set()
+    give_up_at: float | None = None
+    while True:
+        now = time.monotonic()
+        with _live_groups_lock:
+            left = [pid for pid in waits if pid in _live_process_groups]
+            for pid in left:
+                if pid not in killed and now - started >= waits[pid]:
+                    _signal_group(pid, signal.SIGKILL)
+                    killed.add(pid)
+        if not left:
+            return
+        if all(pid in killed for pid in left):
+            if give_up_at is None:
+                give_up_at = now + _EXIT_REAP_SECONDS
+            elif now >= give_up_at:
+                return
+        time.sleep(_EXIT_POLL_SECONDS)
 
 
-def _track_process_group(pid: int) -> None:
+def _track_process_group(pid: int, kill_after_seconds: float) -> None:
     global _exit_hook_installed
     with _live_groups_lock:
         if not _exit_hook_installed:
             atexit.register(_terminate_live_process_groups)
             _exit_hook_installed = True
-        _live_process_groups.add(pid)
+        _live_process_groups[pid] = kill_after_seconds
 
 
 def _untrack_process_group(pid: int) -> None:
+    """Stop tracking a server that exited and is not reaped yet.
+
+    While the exit hook runs, the rest of the server's group is sent SIGKILL
+    here: children that outlived the server would otherwise stay. The id
+    cannot have been reused, because the server is still unreaped.
+    """
+
     with _live_groups_lock:
-        _live_process_groups.discard(pid)
+        _live_process_groups.pop(pid, None)
+        if _exiting:
+            _signal_group(pid, signal.SIGKILL)
 
 
 def _wait_for_exit(process: subprocess.Popen[bytes]) -> None:
@@ -271,7 +324,9 @@ class StdioTransport(TransportEvents):
             )
             self._process = process
             self._watcher = watcher
-            _track_process_group(process.pid)
+            _track_process_group(
+                process.pid, max(0.0, self.options.close_timeout_ms / 1000)
+            )
             # The watcher starts first: once it runs, the server is reaped and
             # the close reported even if a reader thread cannot be started.
             watcher.start()
