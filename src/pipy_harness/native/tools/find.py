@@ -49,6 +49,7 @@ from pipy_harness.native.tools.base import (
 from pipy_harness.native.tools.glob_match import GlobError, compile_glob
 from pipy_harness.native.tools.ignore_walk import FD_IGNORE_FILE, WalkIgnore
 from pipy_harness.native.tools.path_utils import resolve_to_cwd
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     format_size,
@@ -90,6 +91,8 @@ class FindTool:
         return ToolDefinition(
             name="find",
             description=FIND_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["find"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["find"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

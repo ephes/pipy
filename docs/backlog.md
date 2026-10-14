@@ -476,9 +476,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - Pi's bash guideline names `PI_*` session environment variables that
     pipy's bash tool does not set (pipy acts as Pi with
     `exposeSessionEnvironment: false`);
-  - extension tools have no `promptSnippet`/`promptGuidelines`, and the
-    `systemPromptOptions` of `before_agent_start` has only `sections`
-    (`event.system_prompt_options.sections`);
+  - the `systemPromptOptions` of `before_agent_start` has only `sections`
+    (`event.system_prompt_options.sections`); extension tools have
+    `prompt_snippet`/`prompt_guidelines` since the MCP parity slice G9;
   - Pi also refreshes the sections before each turn inside a run; pipy
     rebuilds them per run;
   - `/reload` rebuilds the `skills` section, but the `project_context` and

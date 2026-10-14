@@ -17,13 +17,12 @@ tools of MCP servers do when the servers connect.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pipy_harness.native.codemode.declarations import render_tool_output_type
 from pipy_harness.native.coding.codemode_discovery import CodemodeDiscovery
-from pipy_harness.native.system_prompt_sections import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.base import ToolDefinition, ToolNamespace
 from pipy_harness.native.tools.codemode import CODEMODE_DESCRIPTION
 from pipy_harness.native.tools.loadout import ToolLoadout, ToolLoadoutChanges
@@ -39,7 +38,9 @@ _CODEMODE_TOOL_NAME = "codemode"
 _TEXT_OUTPUT_SCHEMA: Mapping[str, Any] = {"type": "string"}
 
 
-def codemode_tool_guidelines() -> Mapping[str, tuple[str, ...]]:
+def codemode_tool_guidelines(
+    tools: Iterable[ToolDefinition],
+) -> Mapping[str, tuple[str, ...]]:
     """The prompt guidelines of each tool that has some, by tool name.
 
     The system prompt gives them for declared tools only; a tool that scripts
@@ -47,9 +48,7 @@ def codemode_tool_guidelines() -> Mapping[str, tuple[str, ...]]:
     """
 
     return {
-        name: prompt.guidelines
-        for name, prompt in BUILTIN_TOOL_PROMPTS.items()
-        if prompt.guidelines
+        tool.name: tool.prompt_guidelines for tool in tools if tool.prompt_guidelines
     }
 
 
@@ -250,13 +249,16 @@ class CodemodeLoadout:
 
     mode: CodemodeMode = DEFAULT_CODEMODE_MODE
     inline_budget: float = DEFAULT_CODEMODE_INLINE_BUDGET
-    guidelines: Mapping[str, Sequence[str]] = field(
-        default_factory=codemode_tool_guidelines
-    )
 
     def __call__(self, loadout: ToolLoadout) -> ToolLoadoutChanges:
         callable_tools = loadout.callable_tools
-        discovery = CodemodeDiscovery(callable_tools, guidelines=self.guidelines)
+        # Pi ``prepareCodemodeLoadout``: the listed tools carry their
+        # guidelines, which the system prompt has for declared tools only.
+        guidelines = {
+            tool.name: loadout.get_prompt_guidelines(tool.name)
+            for tool in callable_tools
+        }
+        discovery = CodemodeDiscovery(callable_tools, guidelines=guidelines)
         # A tool no key reaches cannot be called, whatever the loadout says.
         targets = {
             tool.name: target

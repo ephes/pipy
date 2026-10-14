@@ -80,7 +80,6 @@ from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.system_prompt_sections import (
-    BUILTIN_TOOL_PROMPTS,
     SystemPromptTemplate,
     pipy_docs_info,
     render_system_prompt,
@@ -94,6 +93,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     ToolRequest,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,

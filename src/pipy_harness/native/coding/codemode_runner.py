@@ -408,8 +408,9 @@ class CodemodeCompositeRunner:
             control.interrupted(batch.pump(done, cancel))
 
         try:
+            callable_tools = service.callable_tools()
             discovery = CodemodeDiscovery(
-                service.callable_tools(), guidelines=codemode_tool_guidelines()
+                callable_tools, guidelines=codemode_tool_guidelines(callable_tools)
             )
             outcome = run_script(
                 source.code,

@@ -11,7 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.base import ToolDefinition, ToolExposure, ToolNamespace
+from pipy_harness.native.tools.prompts import normalized_prompt_guidelines
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,35 @@ class ToolLoadout:
     declared_tools: tuple[ToolDefinition, ...]
     callable_tools: tuple[ToolDefinition, ...]
     registered_tools: tuple[ToolDefinition, ...] = ()
+
+    def _definition(self, name: str) -> ToolDefinition | None:
+        for tools in (self.registered_tools, self.callable_tools, self.declared_tools):
+            for tool in tools:
+                if tool.name == name:
+                    return tool
+        return None
+
+    def get_exposure(self, name: str) -> ToolExposure:
+        """Pi ``getExposure``: the tool's exposure, ``direct`` for a name
+        that is not registered."""
+
+        tool = self._definition(name)
+        return "direct" if tool is None else tool.exposure
+
+    def get_namespace(self, name: str) -> ToolNamespace | None:
+        """Pi ``getNamespace``."""
+
+        tool = self._definition(name)
+        return None if tool is None else tool.namespace
+
+    def get_prompt_guidelines(self, name: str) -> tuple[str, ...]:
+        """Pi ``getPromptGuidelines``: the tool's prompt guidelines, trimmed
+        and without repeats; none for a name that is not registered."""
+
+        tool = self._definition(name)
+        if tool is None:
+            return ()
+        return normalized_prompt_guidelines(tool.prompt_guidelines)
 
 
 @dataclass(frozen=True, slots=True)

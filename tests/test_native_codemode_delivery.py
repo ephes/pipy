@@ -33,8 +33,14 @@ from pipy_harness.sdk import CodemodeOptions, create_product_session
 
 def _declared_codemode():
     # A request carries what a provider sees; the reach function stays with
-    # the registered definition.
-    return replace(CodemodeTool().definition, reaches_tools=None, exposure="direct")
+    # the registered definition, as do the prompt snippet and guidelines.
+    return replace(
+        CodemodeTool().definition,
+        reaches_tools=None,
+        exposure="direct",
+        prompt_snippet=None,
+        prompt_guidelines=(),
+    )
 
 
 def wait_until(predicate, timeout=10):

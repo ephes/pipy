@@ -54,6 +54,7 @@ from pipy_harness.native.tools.image_mime import (
     detect_supported_image_mime_type_from_file,
 )
 from pipy_harness.native.tools.path_utils import resolve_read_path
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.read_image import process_image
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
@@ -117,6 +118,8 @@ class ReadTool:
         return ToolDefinition(
             name="read",
             description=READ_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["read"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["read"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

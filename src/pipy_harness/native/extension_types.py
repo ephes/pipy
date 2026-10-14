@@ -951,6 +951,11 @@ class ExtensionTool:
     - `prepare_loadout(loadout)`: for a tool that presents other tools, the
       `ToolLoadoutChanges` it wants in what the model sees while it is
       declared, or `None`.
+    - `prompt_snippet`: one line for the default system prompt's tool list
+      (Pi `promptSnippet`); a tool without one is not listed there.
+    - `prompt_guidelines`: bullets added to the default system prompt's
+      rules while the tool is declared; scripts see them with the tool's
+      declaration (Pi `promptGuidelines`).
     """
 
     name: str
@@ -968,6 +973,8 @@ class ExtensionTool:
     prepare_loadout: "Callable[[ToolLoadout], ToolLoadoutChanges | None] | None" = (
         field(default=None, kw_only=True)
     )
+    prompt_snippet: str | None = field(default=None, kw_only=True)
+    prompt_guidelines: Sequence[str] = field(default=(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)

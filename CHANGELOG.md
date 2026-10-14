@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- An extension tool can give `prompt_snippet` and `prompt_guidelines`, as
+  Pi's `promptSnippet` and `promptGuidelines`: the default system prompt
+  lists the tool with its snippet and adds its guidelines to the rules
+  while it is declared, and a codemode script sees the guidelines with the
+  tool's description. `ctx.get_all_tools()` reports `prompt_guidelines`, and
+  the loadout of `prepare_loadout` gains `get_exposure`, `get_namespace` and
+  `get_prompt_guidelines`. A tool that replaces `codemode` or `tool_search`
+  is shown with its own texts. See
+  [Extension tool metadata](docs/extension-api.md#extension-tool-metadata).
+
 - A codemode script may start with Pi's options line,
   `// @options: {"max_output_tokens": 2000, "timeout_ms": 60000}`: a budget
   for the result's text (up to 16000 tokens in pipy) and a deadline for the

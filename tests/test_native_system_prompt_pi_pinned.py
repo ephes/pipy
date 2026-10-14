@@ -21,12 +21,12 @@ import pytest
 
 from pipy_harness.native.skills import SkillFile
 from pipy_harness.native.system_prompt_sections import (
-    BUILTIN_TOOL_PROMPTS,
     DEFAULT_PREAMBLE,
     DocsInfo,
     SystemPromptTemplate,
     pipy_docs_info,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.workspace_context import PROJECT_CONTEXT_INTRO
 
 REPO = Path(__file__).resolve().parents[1]

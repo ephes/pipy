@@ -13,6 +13,7 @@ from pipy_harness.native.tools.base import (
     ToolReach,
     ToolRequest,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 
 # Script globals that list or look up tools and namespaces, which the script
 # may then call by any name (Pi ``DISCOVERY_GLOBALS``, with the Python names).
@@ -91,6 +92,8 @@ def codemode_definition() -> ToolDefinition:
     return ToolDefinition(
         name="codemode",
         description=CODEMODE_DESCRIPTION,
+        prompt_snippet=BUILTIN_TOOL_PROMPTS["codemode"].snippet,
+        prompt_guidelines=BUILTIN_TOOL_PROMPTS["codemode"].guidelines,
         input_schema={
             "type": "object",
             "properties": {

@@ -74,6 +74,7 @@ from pipy_harness.native.tools.output_accumulator import (
     OutputAccumulator,
     OutputSnapshot,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
@@ -139,6 +140,8 @@ class BashTool:
         return ToolDefinition(
             name="bash",
             description=BASH_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["bash"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["bash"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

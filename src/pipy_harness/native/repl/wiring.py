@@ -227,6 +227,7 @@ from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer as _ToolLoopRenderer,
 )
 from pipy_harness.native.tools import ToolPort
+from pipy_harness.native.tools.prompts import prompt_guidelines, prompt_snippets
 from pipy_harness.native.tui import TerminalUi, _LiveExtensionUiDriver
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.components.custom_entry_renderer import (
@@ -261,12 +262,21 @@ def _system_sections_source(
             # The tool list and rules match the declarations a request
             # carries: hidden declarations are not listed (Pi ``hiddenTools``).
             hidden = snapshot.hidden_declarations()
-            return replace(source, skills=ctl.workspace_resources.skills).sections(
+            # Pi ``_rebuildSystemPrompt``: the snippets and guidelines of the
+            # registered tools' definitions, extension tools' included.
+            registered = tuple(
+                port.definition for port in snapshot.state.registry.values()
+            )
+            return replace(
+                source,
+                skills=ctl.workspace_resources.skills,
+                tool_snippets=prompt_snippets(registered),
+                tool_guidelines=prompt_guidelines(registered),
+            ).sections(
                 tuple(
                     definition.name
                     for definition in snapshot.definitions()
                     if definition.name not in hidden
-                    and (definition.name != "codemode" or snapshot.composite_enabled())
                 )
             )
 

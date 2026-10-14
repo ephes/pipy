@@ -50,6 +50,7 @@ from pipy_harness.native.tools.base import (
     ToolRequest,
 )
 from pipy_harness.native.tools.path_utils import resolve_to_cwd
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     GREP_MAX_LINE_LENGTH,
@@ -114,6 +115,8 @@ class GrepTool:
         return ToolDefinition(
             name="grep",
             description=GREP_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["grep"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["grep"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

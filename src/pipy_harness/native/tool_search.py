@@ -31,6 +31,7 @@ from pipy_harness.native.tools.base import (
     ToolReach,
     ToolRequest,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 
 __all__ = [
     "DEFAULT_TOOL_SEARCH_LIMIT",
@@ -318,6 +319,8 @@ def tool_search_definition() -> ToolDefinition:
     return ToolDefinition(
         name=TOOL_SEARCH_TOOL_NAME,
         description=TOOL_SEARCH_DESCRIPTION,
+        prompt_snippet=BUILTIN_TOOL_PROMPTS[TOOL_SEARCH_TOOL_NAME].snippet,
+        prompt_guidelines=BUILTIN_TOOL_PROMPTS[TOOL_SEARCH_TOOL_NAME].guidelines,
         input_schema={
             "type": "object",
             "properties": {

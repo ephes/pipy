@@ -37,6 +37,7 @@ from pipy_harness.native.tools.base import (
 )
 from pipy_harness.native.tools.collation import ls_sort_key
 from pipy_harness.native.tools.path_utils import resolve_to_cwd
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     format_size,
@@ -69,6 +70,8 @@ class LsTool:
         return ToolDefinition(
             name="ls",
             description=LS_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["ls"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["ls"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

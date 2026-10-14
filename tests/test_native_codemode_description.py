@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from test_native_codemode_delivery import (
@@ -42,7 +43,6 @@ from pipy_harness.native.providers.transcript import (
 )
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.system_prompt_sections import (
-    BUILTIN_TOOL_PROMPTS,
     SystemPromptTemplate,
 )
 from pipy_harness.native.tool_capabilities import (
@@ -59,6 +59,8 @@ from pipy_harness.native.tools.base import (
 )
 from pipy_harness.native.tools.codemode import CODEMODE_DESCRIPTION, CodemodeTool
 from pipy_harness.native.tools.loadout import ToolLoadout
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
+from pipy_harness.native.tools.registry import production_tool_registry
 
 _READ_GUIDELINE = "- Use read to examine files instead of cat or sed."
 
@@ -301,6 +303,13 @@ class _Port:
             {"type": "object", "properties": {}, "additionalProperties": False},
             exposure=exposure,
             namespace=namespace,
+            # The guidelines travel with the definition, as the built-in
+            # tool's do (Pi `promptGuidelines`).
+            prompt_guidelines=(
+                BUILTIN_TOOL_PROMPTS[name].guidelines
+                if name in BUILTIN_TOOL_PROMPTS
+                else ()
+            ),
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -536,10 +545,18 @@ def test_a_tool_no_key_reaches_is_neither_described_nor_hidden() -> None:
 
 
 def test_discovery_descriptions_carry_the_prompt_guidelines() -> None:
-    assert codemode_tool_guidelines()["read"] == BUILTIN_TOOL_PROMPTS["read"].guidelines
-    assert "bash" not in codemode_tool_guidelines()
-    read = _tool("read", "Read a file.", exposure="direct")
-    discovery = CodemodeDiscovery([read], guidelines=codemode_tool_guidelines())
+    registry = production_tool_registry()
+    builtins = [port.definition for port in registry.values()]
+    assert (
+        codemode_tool_guidelines(builtins)["read"]
+        == BUILTIN_TOOL_PROMPTS["read"].guidelines
+    )
+    assert "bash" not in codemode_tool_guidelines(builtins)
+    read = replace(
+        _tool("read", "Read a file.", exposure="direct"),
+        prompt_guidelines=registry["read"].definition.prompt_guidelines,
+    )
+    discovery = CodemodeDiscovery([read], guidelines=codemode_tool_guidelines([read]))
 
     described = discovery("describe_tool", {"name": "read"}).value
     assert described.startswith(f"Read a file.\n\n{_READ_GUIDELINE}\n\ncodemode tool")

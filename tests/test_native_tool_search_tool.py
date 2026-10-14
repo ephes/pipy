@@ -39,7 +39,6 @@ from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.system_prompt_sections import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
@@ -59,6 +58,7 @@ from pipy_harness.native.tools import (
     ToolRequest,
 )
 from pipy_harness.native.tools.base import ToolExposure, ToolNamespace
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.registry import (
     ProductionToolRegistry,
     production_tool_registry,

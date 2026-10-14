@@ -843,8 +843,9 @@ Rules:
   second extension. An extension that registers one of its own tool names
   again replaces its earlier registration, as in Pi.
 - Tool schemas use the same JSON-schema subset as native tools.
-- Tool descriptions are model-visible and should support optional
-  tool-specific prompt guidance in a later slice.
+- Tool descriptions are model-visible; `prompt_snippet` and
+  `prompt_guidelines` add the tool to the system prompt (see "Extension tool
+  metadata" below).
 - Tool handlers receive a workspace-scoped context with safe helper methods.
 - A tool, command or shortcut handler may be an `async def` function, as Pi's
   are: pipy runs the coroutine to its end on the thread that called the
@@ -1020,6 +1021,16 @@ def activate(api):
   The other exposures are never activated by being registered.
 - `prepare_loadout(loadout)` is for a tool that presents other tools; see
   [presenting the loadout](#presenting-the-loadout).
+- `prompt_snippet` is one line for the tool list of pipy's default system
+  prompt (Pi `promptSnippet`): `- <name>: <snippet>`. A tool without one is
+  not listed there. Line breaks and runs of spaces become single spaces.
+- `prompt_guidelines` is a list of bullets the default system prompt adds to
+  its rules while the tool is declared (Pi `promptGuidelines`); each is
+  trimmed, and empty and repeated ones are left out. A codemode script that
+  reaches the tool sees them with its description in `ALL_TOOLS`,
+  `describe_tool()` and the `codemode` description, since the prompt lists
+  them for declared tools only. A custom system prompt (`--system-prompt`,
+  `SYSTEM.md`) has no tool list or rules, so neither field shows there.
 
 **Results.** A handler that returns data declares an `output_schema` and
 returns the data as `ToolResult(structured_content=...)` next to `content`. It
@@ -1098,7 +1109,8 @@ registered tool, built-in and extension, active or not (the built-in
 [`tool_search`](mcp.md#tool-search) is registered inactive, and naming it in
 `ctx.set_active_tools(...)` activates it), in registration order, without the
 tools that `--tools`, `--exclude-tools` or `--no-tools` removed: `name`, `description`, `input_schema` (a copy), `exposure`,
-`namespace`, `annotations` and `reaches_tools` (the function, or `None`). It
+`namespace`, `annotations`, `reaches_tools` (the function, or `None`) and
+`prompt_guidelines` (as registered). It
 is available in command, shortcut, hook and tool handler contexts of a
 session and raises `ExtensionCapabilityError` where no session backs the
 context. In Pi this is `pi.getAllTools()`; pipy puts it on the context, next
@@ -1255,8 +1267,10 @@ api.register_tool(ExtensionTool(
   `ctx.execute_tool` and scripts can call) and `registered_tools` (every
   registered tool, without those `--tools`, `--exclude-tools` or
   `--no-tools` removed). A definition has `name`, `description`,
-  `input_schema`, `exposure`, `namespace`, `annotations` and
-  `output_schema`.
+  `input_schema`, `exposure`, `namespace`, `annotations`, `output_schema`,
+  `prompt_snippet` and `prompt_guidelines`. As in Pi, the loadout also has
+  `get_exposure(name)`, `get_namespace(name)` and
+  `get_prompt_guidelines(name)` (trimmed, without empty or repeated ones).
 - It returns `ToolLoadoutChanges`, or `None` to change nothing.
   `descriptions` maps the names of declared tools, also the tool's own, to
   the description the model is to see. `hidden_declarations` names declared
@@ -1294,10 +1308,6 @@ Different from Pi:
   once per set of active and registered tools, so a function whose answer
   changes without the tools changing is not asked again before the next
   request.
-- Pi's loadout has `getExposure(name)`, `getNamespace(name)` and
-  `getPromptGuidelines(name)`. In pipy the exposure and the namespace are
-  fields of the definitions; extension tools have no prompt guidelines, and
-  those of the built-in tools are not given.
 - Pi reports a failing function as an error of its extension each time. pipy
   warns once per session, tool and error type, naming the tool and the type
   but not the error's text.
@@ -1315,7 +1325,9 @@ replaceable).
   probed, and the built-in presenter of the loadout does not run; a
   replacement presents the tools with its own
   [`prepare_loadout`](#presenting-the-loadout) and runs them with
-  [`ctx.execute_tool`](#running-other-tools).
+  [`ctx.execute_tool`](#running-other-tools). The system prompt shows the
+  replacement's own `prompt_snippet` and `prompt_guidelines`, not the
+  built-in tool's.
 - [MCP](mcp.md#control-tool-exposure) activates `codemode` for servers with
   `codemode` tools and `tool_search` for servers with `deferred` tools.
   It activates a replacement only when that tool declares `reaches_tools`;

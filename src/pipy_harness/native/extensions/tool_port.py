@@ -87,6 +87,8 @@ class _ExtensionToolPort:
             reaches_tools=tool.reaches_tools,
             default_active=tool.default_active,
             prepare_loadout=tool.prepare_loadout,
+            prompt_snippet=tool.prompt_snippet,
+            prompt_guidelines=tuple(tool.prompt_guidelines),
         )
 
     @property

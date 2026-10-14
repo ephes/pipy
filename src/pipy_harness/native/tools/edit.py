@@ -56,6 +56,7 @@ from pipy_harness.native.tools.fs_errors import (
     node_null_byte_message,
 )
 from pipy_harness.native.tools.path_utils import resolve_to_cwd
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.write import OPERATION_ABORTED
 
 EDIT_TOOL_DESCRIPTION = (
@@ -76,6 +77,8 @@ class EditTool:
         return ToolDefinition(
             name="edit",
             description=EDIT_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["edit"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["edit"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

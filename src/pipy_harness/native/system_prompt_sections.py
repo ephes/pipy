@@ -25,10 +25,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 from pipy_harness.native.skills import SkillFile, skills_section_body
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 
 SystemPromptSections = tuple[tuple[str, str], ...]
 """Ordered ``(name, rendered text)`` pairs; the text includes the tag wrapper."""
@@ -50,62 +50,6 @@ TOOLS_SECTION_FOOTER = (
 DEFAULT_RULES = (
     "Be concise in your responses",
     "Show file paths clearly when working with files",
-)
-
-
-@dataclass(frozen=True, slots=True)
-class ToolPrompt:
-    """A tool's Pi ``promptSnippet`` and ``promptGuidelines``."""
-
-    snippet: str
-    guidelines: tuple[str, ...] = ()
-
-
-BUILTIN_TOOL_PROMPTS: Mapping[str, ToolPrompt] = MappingProxyType(
-    {
-        # Pi `core/tools/*.ts` `*ToolSystemPromptContribution`. Pi's bash
-        # guideline names the PI_* session environment variables, which it
-        # sets only with `exposeSessionEnvironment`; pipy's bash tool sets
-        # none, so it carries no guideline (docs/backlog.md).
-        "read": ToolPrompt(
-            "Read file contents",
-            ("Use read to examine files instead of cat or sed.",),
-        ),
-        "bash": ToolPrompt("Execute bash commands (ls, grep, find, etc.)"),
-        "edit": ToolPrompt(
-            "Make precise file edits with exact text replacement, including "
-            "multiple disjoint edits in one call",
-            (
-                "Use edit for precise changes (edits[].oldText must match exactly)",
-                "When changing multiple separate locations in one file, use one "
-                "edit call with multiple entries in edits[] instead of multiple "
-                "edit calls",
-                "Each edits[].oldText is matched against the original file, not "
-                "after earlier edits are applied. Do not emit overlapping or "
-                "nested edits. Merge nearby changes into one edit.",
-                "Keep edits[].oldText as small as possible while still being "
-                "unique in the file. Do not pad with large unchanged regions.",
-            ),
-        ),
-        "write": ToolPrompt(
-            "Create or overwrite files",
-            ("Use write only for new files or complete rewrites.",),
-        ),
-        "grep": ToolPrompt("Search file contents for patterns (respects .gitignore)"),
-        "find": ToolPrompt("Find files by glob pattern (respects .gitignore)"),
-        "ls": ToolPrompt("List directory contents"),
-        "codemode": ToolPrompt(
-            "Run Python that calls other tools",
-            (
-                "Use codemode to batch independent tool calls (`tools.<name>.submit()`), chain them, or filter large output in one step instead of many separate calls.",
-                "Keep intermediate tool results in Python and emit only the task-relevant answer; parse documented text output directly instead of adding format-probe calls.",
-            ),
-        ),
-        # Pi `extensions/tool-search/tool.ts`.
-        "tool_search": ToolPrompt(
-            "Search for tools that are not loaded yet and load the matches"
-        ),
-    }
 )
 
 

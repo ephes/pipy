@@ -250,6 +250,11 @@ class ToolDefinition:
     - `prepare_loadout`: for a tool that presents other tools, a function
       from a `ToolLoadout` to the `ToolLoadoutChanges` it wants while it is
       declared (`native/tools/loadout.py`).
+    - `prompt_snippet`: one line for the system prompt's tool list (Pi
+      `promptSnippet`); a tool without one is not listed there.
+    - `prompt_guidelines`: bullets for the system prompt's rules while the
+      tool is declared, which scripts see with its declaration (Pi
+      `promptGuidelines`; `native/tools/prompts.py`).
     """
 
     name: str
@@ -263,6 +268,8 @@ class ToolDefinition:
     default_active: bool = field(default=True, kw_only=True)
     prepare_loadout: Callable[[Any], Any] | None = field(default=None, kw_only=True)
     schema_mode: ToolSchemaMode = field(default="strict", kw_only=True)
+    prompt_snippet: str | None = field(default=None, kw_only=True)
+    prompt_guidelines: tuple[str, ...] = field(default=(), kw_only=True)
 
     NAME_MAX_LENGTH: ClassVar[int] = 64
     DESCRIPTION_MAX_LENGTH: ClassVar[int] = 4 * 1024
@@ -297,6 +304,7 @@ class ToolDefinition:
         else:
             _validate_schema_shape(self.input_schema, top_level=True)
         self._validate_metadata()
+        self._validate_prompts()
 
     def _validate_metadata(self) -> None:
         if self.exposure not in TOOL_EXPOSURES:
@@ -321,6 +329,22 @@ class ToolDefinition:
         if self.prepare_loadout is not None and not callable(self.prepare_loadout):
             raise ValueError("ToolDefinition.prepare_loadout must be callable or None")
 
+    def _validate_prompts(self) -> None:
+        if self.prompt_snippet is not None and not isinstance(self.prompt_snippet, str):
+            raise ValueError("ToolDefinition.prompt_snippet must be a string or None")
+        guidelines = self.prompt_guidelines
+        if isinstance(guidelines, (str, bytes)) or not isinstance(
+            guidelines, (tuple, list)
+        ):
+            raise ValueError(
+                "ToolDefinition.prompt_guidelines must be a list of strings"
+            )
+        if not all(isinstance(guideline, str) for guideline in guidelines):
+            raise ValueError(
+                "ToolDefinition.prompt_guidelines must be a list of strings"
+            )
+        object.__setattr__(self, "prompt_guidelines", tuple(guidelines))
+
 
 @dataclass(frozen=True, slots=True)
 class ToolInfo:
@@ -338,6 +362,7 @@ class ToolInfo:
     namespace: ToolNamespace | None = None
     annotations: ToolAnnotations | None = None
     reaches_tools: ReachesTools | None = None
+    prompt_guidelines: tuple[str, ...] = ()
 
 
 def tool_info(definition: ToolDefinition) -> ToolInfo:
@@ -351,6 +376,7 @@ def tool_info(definition: ToolDefinition) -> ToolInfo:
         namespace=definition.namespace,
         annotations=definition.annotations,
         reaches_tools=definition.reaches_tools,
+        prompt_guidelines=definition.prompt_guidelines,
     )
 
 
