@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import gzip
 import http.client
 import socket
 import sys
 import threading
 import time
+import zlib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -174,14 +176,80 @@ def test_a_redirect_to_another_origin_drops_the_credential_headers(
         assert dropped.headers["accept"] == "text/plain"
 
 
-def test_a_request_with_a_body_does_not_follow_a_redirect(
+@pytest.mark.parametrize("status", [307, 308])
+def test_a_request_with_a_body_is_sent_again_after_a_307_or_308(
+    server: FakeOAuthServer, status: int
+) -> None:
+    server.route("/token", _redirect("/moved", status))
+    server.route("/moved", Reply(200, {}, b"tokens"))
+    response = oauth_fetch(
+        f"{server.origin}/token",
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        body=b"secret=1",
+    )
+    assert response.text() == "tokens"
+    token, moved = server.requests
+    for request in (token, moved):
+        assert (request.method, request.body) == ("POST", b"secret=1")
+        assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+
+
+@pytest.mark.parametrize(
+    ("status", "method", "follows_as"),
+    [
+        (301, "POST", "GET"),
+        (302, "POST", "GET"),
+        (303, "POST", "GET"),
+        (303, "PUT", "GET"),
+        (301, "PUT", "PUT"),
+        (302, "DELETE", "DELETE"),
+        (303, "HEAD", "HEAD"),
+    ],
+)
+def test_a_redirect_that_changes_the_method_drops_the_body(
+    server: FakeOAuthServer, status: int, method: str, follows_as: str
+) -> None:
+    server.route("/a", _redirect("/b", status))
+    server.route("/b", Reply(200, {}, b"done"))
+    body = None if method == "HEAD" else b"x=1"
+    headers = {
+        "Content-Type": "text/plain",
+        "Content-Language": "en",
+        "Content-Location": "/x",
+        "Content-Encoding": "identity",
+        "X-Kept": "1",
+    }
+    oauth_fetch(f"{server.origin}/a", method=method, headers=headers, body=body)
+    first, second = server.requests
+    assert (first.method, second.method) == (method, follows_as)
+    assert second.headers["x-kept"] == "1"
+    changed = follows_as != method
+    assert second.body == (b"" if changed or body is None else body)
+    for name in ("content-type", "content-language", "content-location"):
+        assert (name in second.headers) is not changed
+    assert ("content-encoding" in second.headers) is not changed
+
+
+def test_a_body_follows_a_redirect_to_another_origin_without_credential_headers(
     server: FakeOAuthServer,
 ) -> None:
-    server.route("/token", _redirect("/elsewhere", 307))
-    response = oauth_fetch(f"{server.origin}/token", method="POST", body=b"secret=1")
-    assert response.status == 307
-    assert response.header("location") == "/elsewhere"
-    assert server.paths == ["/token"]
+    with FakeOAuthServer() as other:
+        other.route("/token", Reply(200, {}, b"tokens"))
+        server.route("/token", _redirect(f"{other.origin}/token", 307))
+        response = oauth_fetch(
+            f"{server.origin}/token",
+            method="POST",
+            headers={"Authorization": "Basic x", "Host": "auth.example", "X-A": "1"},
+            body=b"refresh_token=r1",
+        )
+        [there] = other.requests
+    assert response.text() == "tokens"
+    assert server.requests[0].headers["host"] == "auth.example"
+    assert (there.method, there.body) == ("POST", b"refresh_token=r1")
+    assert "authorization" not in there.headers
+    assert there.headers["host"] == f"127.0.0.1:{other.port}"
+    assert there.headers["x-a"] == "1"
 
 
 def test_a_redirect_status_without_a_location_is_the_response(
@@ -215,6 +283,176 @@ def test_a_redirect_to_a_malformed_url_is_a_network_failure(
         oauth_fetch(f"{server.origin}/a")
     assert is_network_error(raised.value)
     assert server.paths == ["/a"]
+
+
+# -- content codings ------------------------------------------------------------
+
+
+def _deflate_raw(data: bytes) -> bytes:
+    encoder = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    return encoder.compress(data) + encoder.flush()
+
+
+_DOCUMENT = b'{"issuer": "https://auth.example"}'
+
+
+def _encoded(encoding: str, body: bytes, status: int = 200) -> Reply:
+    return Reply(status, {"Content-Encoding": encoding}, body)
+
+
+@pytest.mark.parametrize(
+    ("encoding", "body"),
+    [
+        ("gzip", gzip.compress(_DOCUMENT)),
+        ("x-gzip", gzip.compress(_DOCUMENT)),
+        ("GZip", gzip.compress(_DOCUMENT)),
+        ("deflate", zlib.compress(_DOCUMENT)),
+        ("deflate", _deflate_raw(_DOCUMENT)),
+        # The codings are undone from the last one to the first.
+        ("deflate, gzip", gzip.compress(zlib.compress(_DOCUMENT))),
+        (" gzip ,deflate", zlib.compress(gzip.compress(_DOCUMENT))),
+        # Several gzip members are one body.
+        ("gzip", gzip.compress(_DOCUMENT[:9]) + gzip.compress(_DOCUMENT[9:])),
+    ],
+)
+def test_a_compressed_answer_is_decoded(
+    server: FakeOAuthServer, encoding: str, body: bytes
+) -> None:
+    server.route("/doc", _encoded(encoding, body))
+    response = oauth_fetch(f"{server.origin}/doc")
+    assert response.body == _DOCUMENT
+    assert response.json() == {"issuer": "https://auth.example"}
+    # The headers are the ones of the answer, as with fetch.
+    assert response.header("content-encoding") == encoding.strip()
+
+
+def test_a_request_asks_for_the_codings_it_can_decode(server: FakeOAuthServer) -> None:
+    oauth_fetch(f"{server.origin}/a")
+    oauth_fetch(f"{server.origin}/b", method="POST", body=b"x")
+    oauth_fetch(f"{server.origin}/c", headers={"accept-encoding": "identity"})
+    assert [request.headers["accept-encoding"] for request in server.requests] == [
+        "gzip, deflate",
+        "gzip, deflate",
+        "identity",
+    ]
+
+
+def test_a_compressed_error_answer_is_decoded(server: FakeOAuthServer) -> None:
+    server.route("/token", _encoded("gzip", gzip.compress(b'{"error": "x"}'), 400))
+    response = oauth_fetch(f"{server.origin}/token", method="POST", body=b"a=1")
+    assert (response.status, response.json()) == (400, {"error": "x"})
+
+
+@pytest.mark.parametrize("encoding", ["br", "zstd", "identity", "gzip, br", "", ","])
+def test_an_answer_with_another_coding_is_left_as_it_arrived(
+    server: FakeOAuthServer, encoding: str
+) -> None:
+    body = gzip.compress(_DOCUMENT)
+    server.route("/doc", _encoded(encoding, body))
+    assert oauth_fetch(f"{server.origin}/doc").body == body
+
+
+def test_a_compressed_body_that_ends_early_gives_what_it_held(
+    server: FakeOAuthServer,
+) -> None:
+    whole = gzip.compress(b"a" * 50 + bytes(range(256)) * 4)
+    server.route("/gzip", _encoded("gzip", whole[: len(whole) // 2]))
+    server.route("/deflate", _encoded("deflate", zlib.compress(b"b" * 4000)[:-6]))
+    assert oauth_fetch(f"{server.origin}/gzip").body.startswith(b"a" * 50)
+    assert set(oauth_fetch(f"{server.origin}/deflate").body) == {ord("b")}
+    server.route("/empty", _encoded("gzip", b""))
+    assert oauth_fetch(f"{server.origin}/empty").body == b""
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        b"\x00" * 8,
+        b"\x00\x00garbage",
+        # The start of another member that ends early.
+        b"\x1f",
+        b"\x1f\x8b\x08",
+    ],
+)
+def test_padding_and_a_cut_member_after_a_gzip_member_are_accepted(
+    server: FakeOAuthServer, tail: bytes
+) -> None:
+    server.route("/doc", _encoded("gzip", gzip.compress(_DOCUMENT) + tail))
+    assert oauth_fetch(f"{server.origin}/doc").body == _DOCUMENT
+
+
+@pytest.mark.parametrize("tail", [b"garbage", b"\x1f\x8bxxxxxxxxxxxx"])
+def test_other_data_after_a_gzip_member_is_a_network_failure(
+    server: FakeOAuthServer, tail: bytes
+) -> None:
+    # As Node's fetch, which fails with "incorrect header check" and
+    # "unknown compression method" there.
+    server.route("/doc", _encoded("gzip", gzip.compress(_DOCUMENT) + tail))
+    with pytest.raises(http.client.HTTPException, match="Cannot decode"):
+        oauth_fetch(f"{server.origin}/doc")
+
+
+@pytest.mark.parametrize("compress", [zlib.compress, _deflate_raw])
+def test_data_after_a_deflate_stream_is_ignored(
+    server: FakeOAuthServer, compress: Callable[[bytes], bytes]
+) -> None:
+    server.route("/doc", _encoded("deflate", compress(_DOCUMENT) + b"garbage"))
+    assert oauth_fetch(f"{server.origin}/doc").body == _DOCUMENT
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate", "deflate, gzip"])
+def test_data_that_is_not_in_the_coding_is_a_network_failure(
+    server: FakeOAuthServer, encoding: str
+) -> None:
+    server.route("/doc", _encoded(encoding, b"\x08 this is not compressed data"))
+    with pytest.raises(http.client.HTTPException, match="Cannot decode") as raised:
+        oauth_fetch(f"{server.origin}/doc")
+    assert is_network_error(raised.value)
+
+
+def test_more_than_five_codings_are_a_network_failure(server: FakeOAuthServer) -> None:
+    server.route("/five", _encoded(", ".join(["identity"] * 5), b"x"))
+    server.route("/six", _encoded(", ".join(["gzip"] * 6), b"x"))
+    assert oauth_fetch(f"{server.origin}/five").body == b"x"
+    with pytest.raises(http.client.HTTPException, match="Too many content encodings"):
+        oauth_fetch(f"{server.origin}/six")
+
+
+@pytest.mark.parametrize("status", [204, 205, 304])
+def test_an_answer_without_a_body_is_not_decoded(
+    server: FakeOAuthServer, status: int
+) -> None:
+    server.route("/doc", _encoded("gzip", b"", status))
+    assert oauth_fetch(f"{server.origin}/doc").status == status
+    server.route("/head", _encoded("gzip", b"not gzip"))
+    assert oauth_fetch(f"{server.origin}/head", method="HEAD").body == b""
+
+
+def test_the_answer_of_a_redirect_that_is_followed_is_not_decoded(
+    server: FakeOAuthServer,
+) -> None:
+    server.route(
+        "/a", Reply(302, {"Location": "/b", "Content-Encoding": "gzip"}, b"not gzip")
+    )
+    server.route("/b", Reply(200, {}, b"done"))
+    assert oauth_fetch(f"{server.origin}/a").text() == "done"
+    # Without a `Location` the redirect status is the answer, and is decoded.
+    server.route("/c", _encoded("gzip", gzip.compress(b"moved"), 302))
+    assert oauth_fetch(f"{server.origin}/c").text() == "moved"
+
+
+def test_the_size_limit_holds_for_a_decoded_body(server: FakeOAuthServer) -> None:
+    fetch = create_oauth_fetch(max_response_bytes=1000)
+    server.route("/fits", _encoded("gzip", gzip.compress(b"a" * 1000)))
+    server.route("/bomb", _encoded("gzip", gzip.compress(b"a" * 1001)))
+    server.route("/members", _encoded("gzip", gzip.compress(b"a" * 600) * 2))
+    server.route(
+        "/twice", _encoded("gzip, gzip", gzip.compress(gzip.compress(b"a" * 100_000)))
+    )
+    assert len(fetch(f"{server.origin}/fits").body) == 1000
+    for path in ("/bomb", "/members", "/twice"):
+        with pytest.raises(McpProtocolError, match="OAuth response exceeds 1000 bytes"):
+            fetch(server.origin + path)
 
 
 # -- failures -------------------------------------------------------------------

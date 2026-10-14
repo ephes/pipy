@@ -113,12 +113,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(length))
         self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(reply.body)
+        if self.command != "HEAD":
+            self.wfile.write(reply.body)
         self.wfile.flush()
         if reply.stall:
             fake.stopped.wait()
 
-    do_GET = do_POST = do_DELETE = _handle
+    do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = _handle
 
 
 class _Server(ThreadingHTTPServer):

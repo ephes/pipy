@@ -45,8 +45,6 @@ Where this differs from Pi:
   writes ``*`` as ``%2A``; the rest of the endpoint is kept as written.
 - Whether the scope includes ``offline_access`` is decided with
   ``str.split``, whose white space is not exactly JavaScript's ``\\s``.
-- The default fetch does not follow the redirect answer to a POST, so a
-  registration or token request that is redirected fails with that status.
 - A request that was cancelled always ends the flow, whether or not the
   cancel event is still set when its ``McpAbortError`` is seen.
 - A registration answer that is not JSON is an ``OAuthFlowError``; client

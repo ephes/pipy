@@ -174,3 +174,74 @@ Plan rows and texts:
   listing per notification, so several of one kind may overlap and the last
   answer wins; pipy runs one listing of a kind at a time and lists once more
   when a change arrived meanwhile.
+
+## L2, commit 1: O2 (OAuth requests with a body follow redirects) and O3 (compressed OAuth answers)
+
+The findings are those of the goal check's area "oauth", O2 and O3. Pi
+source read again: `packages/mcp/src/oauth/flow.ts` (`tokenRequest` line
+223, `registerClient` line 259: `(options.fetch ?? globalThis.fetch)(url,
+{method: "POST", headers, body, signal})`, no `redirect` option) and
+`packages/mcp/src/oauth/discovery.ts` (`fetchMetadata` line 58, the same).
+What the default `follow` and the transparent decoding do was read in
+undici 8.10.2 under pi-mono's `node_modules`, `lib/web/fetch/index.js`:
+`httpRedirectFetch` (line 1254; step 11 fails only for a body without a
+source, which a string and a `URLSearchParams` have; step 12 method change;
+step 13 header removal), `httpNetworkOrCacheFetch` (line 1571,
+`Accept-Encoding`) and the response handler (lines 2262 to 2335, the content
+codings), and `lib/web/fetch/util.js` `createInflate` (line 1243). Both
+findings hold.
+
+What changed, all in the default fetch of the OAuth library
+(`mcp/oauth/fetch.py`):
+
+- O2. Redirects are followed by the rules the HTTP transport's default
+  fetch got in L1: 301, 302, 303, 307, 308 with a `Location`, to any origin,
+  at most 20. A 307 and a 308 send method and body again. A 303 for a method
+  other than GET and HEAD, and a 301 or 302 for a POST, change the method to
+  GET and drop the body and `Content-Encoding`, `Content-Language`,
+  `Content-Location`, `Content-Type`. A change of origin drops
+  `Authorization`, `Proxy-Authorization`, `Cookie` and now also `Host`. The
+  body goes along to another origin, as with `fetch`: the form of a token
+  request (authorization code, refresh token, `client_secret` with
+  `client_secret_post`) is sent where the token endpoint redirects with 307
+  or 308. The owner may want to see this, as with the credentials row of L1.
+- O3. A request sends `Accept-Encoding: gzip, deflate` unless the caller set
+  the header. `Content-Encoding` is undone from the last coding to the
+  first: `gzip`, `x-gzip`, `deflate` (zlib or raw, told apart by the first
+  byte as undici does). A compressed body that ends early gives what it
+  held (undici decodes with `Z_SYNC_FLUSH`). After a gzip member comes
+  another member or zero bytes (padding), as Node's zlib reads it; other
+  data there is a decoding failure. Data after a deflate stream is ignored. A list that names another
+  coding leaves the body as it arrived. No decoding for HEAD, for 101, 204,
+  205, 304 and for a redirect that is followed. More than five codings and
+  data that is not in the coding are network failures
+  (`http.client.HTTPException`), as the fetch rejects or its body errors
+  with a `TypeError` in Pi. The 1 MiB limit holds for the body as it arrived
+  and after each decoding.
+
+Changelog lines (section Unreleased):
+
+- Signing in to an MCP server works when the authorization server answers a
+  client registration or a token request with a 307 or 308 redirect: the
+  request is sent again where it moved, as in Pi. Before, it failed with the
+  redirect's status.
+- Answers of an authorization server that are compressed with gzip or
+  deflate are read. Before, such metadata, registration and token answers
+  failed as invalid JSON.
+
+Plan rows and texts:
+
+- OAU-02, OAU-03, OAU-08, OAU-11 stay closed; their text does not change.
+- Section 4.1, the bullet on redirects (line 615 in the plan as judged):
+  "the OAuth fetch follows one only for a request without a body and drops
+  credentials headers across origins" becomes: the OAuth fetch follows
+  redirects by the same rules as the HTTP transport's default fetch, with
+  the body for 307 and 308.
+- The S28 block: remove "The default fetch does not follow the redirect of
+  a POST."
+- The S27 notes on `oauth/fetch.py`, where they say "no transparent
+  decompression" or list redirects for requests without a body only, are
+  superseded by the module text.
+- A deviation to record for the OAuth fetch: `br` and `zstd` are neither
+  asked for nor decoded (Node asks for both over `https`); user info in a
+  `Location` is refused; a `Location` is resolved with `urljoin`.

@@ -2111,10 +2111,12 @@ build on it:
 - A fetch is not JavaScript's: it takes one request object and returns an
   object with `status`, `header(name)`, `read(limit)`, `chunks()` and
   `close()`, and it is handed a cancel token instead of an abort signal.
-- The OAuth fetch follows redirects only for requests without a body, drops
-  `Authorization`, `Proxy-Authorization` and `Cookie` on a redirect to
-  another origin, and limits a response body to 1 MiB. So a registration or
-  token request that the server redirects fails with the redirect's status.
+- The OAuth fetch follows redirects by the same rules of Node's `fetch`,
+  also with a body: a registration or token request that the server answers
+  with 307 or 308 is sent again where it moved. It asks for `gzip` and
+  `deflate` and decodes an answer in those codings. It limits a response
+  body to 1 MiB, compressed and decoded. It does not ask for `br` and
+  `zstd` and does not decode them, and it has no proxy support.
 - The OAuth flow reads URLs with the strict parser of the
   [configuration](#configuration-rules). A token endpoint that parser does
   not accept is refused like an insecure one. A registration answer that is
