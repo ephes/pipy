@@ -463,3 +463,36 @@ in, one section per item.
   (the OSC 8 link and the click hint reach a real terminal).
 - The list item "SLH-13 and the hyperlink part of MGR-09: build or accept"
   (line ~599) loses its hyperlink part.
+
+## N3-c: codemode result rows cut like Pi's (goal-check M19)
+
+### Changelog (Unreleased, Changed)
+
+- Codemode: a codemode row shows the script's output as Pi's codemode
+  renderer does: without the `Script completed`/`Wall time`/`Output:`
+  header, collapsed to the first five wrapped lines (a long one-line JSON
+  output no longer fills the screen) with `... (N more lines, ctrl+o to
+  expand)`, and `Full output: <path>` when the output was spilled to a
+  file. Before, codemode had the generic result preview (ten logical lines,
+  no spill path).
+
+### Plan updates
+
+- "Decided in S35" (rendering): add that `tool_rows._other_result_rows` has
+  a codemode branch (`_codemode_result_rows`, Pi
+  `codemodeRenderers.renderResult` output part) after the extension and MCP
+  branches; the MCP and codemode previews share `_preview_rows` (Pi
+  `VisualLinePreview`, `keep: "start"`) and `_full_output_rows`.
+- Section 3.1, difference (proposal, kind "other form"): the codemode call is
+  still the generic `codemode code="…"` row, not Pi's highlighted script
+  preview of ten visual lines, and there is no `Model calls:` cost line
+  (pipy's nested record has no cost). Nested calls are drawn between the
+  call and the output without Pi's spacer.
+
+### Acceptance note / audit test
+
+- RND-04 (codemode rows): tests
+  `tests/test_native_tool_rows.py::test_codemode_result_drops_the_script_header`,
+  `::test_codemode_result_counts_wrapped_lines_and_names_the_full_output`,
+  `::test_codemode_result_is_empty_while_the_script_runs`,
+  `::test_codemode_error_result_uses_the_error_colour`.

@@ -92,6 +92,11 @@ _GREP_PREVIEW_LINES = 15
 _FIND_LS_PREVIEW_LINES = 20
 _BASH_PREVIEW_LINES = 5
 _MCP_PREVIEW_LINES = 5
+# Pi `extensions/codemode/renderer.ts` OUTPUT_PREVIEW_LINES and SCRIPT_HEADER.
+_CODEMODE_PREVIEW_LINES = 5
+_SCRIPT_HEADER = re.compile(
+    r"Script (?:completed|failed)\nWall time [0-9.]+ seconds\nOutput:\n"
+)
 _COLLAPSED_ARGS_CHARS = 100
 _COMPACT_RESOURCE_FILE_NAMES = frozenset(
     {"AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"}
@@ -1082,11 +1087,28 @@ def _mcp_result_rows(
     )
     if expanded:
         return [RowLine("", bg), *_text_rows(styled, bg)]
+    return [
+        RowLine("", bg),
+        *_preview_rows(styled, theme, key, bg, width, _MCP_PREVIEW_LINES),
+        *_full_output_rows(result, theme, bg),
+    ]
+
+
+def _preview_rows(
+    styled: str,
+    theme: RowTheme,
+    key: str,
+    bg: RowBackground,
+    width: int,
+    limit: int,
+) -> list[RowLine]:
+    """Pi ``VisualLinePreview`` with ``keep: "start"``: the first ``limit``
+    visual lines at the box's width, then how many more there are."""
+
     content_width = max(1, width - 2)
     visual = _visual_lines(styled, content_width)
-    hidden = max(0, len(visual) - _MCP_PREVIEW_LINES)
-    rows = [RowLine("", bg)]
-    rows.extend(RowLine(line, bg, False) for line in visual[:_MCP_PREVIEW_LINES])
+    hidden = max(0, len(visual) - limit)
+    rows = [RowLine(line, bg, False) for line in visual[:limit]]
     if hidden:
         hint = (
             theme.fg("muted", f"... ({hidden} more lines,")
@@ -1095,12 +1117,59 @@ def _mcp_result_rows(
             + theme.fg("muted", ")")
         )
         rows.append(RowLine(_truncate_to_width(hint, content_width), bg, False))
-    # The preview hides the truncation notice at the end of the text.
+    return rows
+
+
+def _full_output_rows(
+    result: ToolRowResult, theme: RowTheme, bg: RowBackground
+) -> list[RowLine]:
+    """``Full output: <path>``: a collapsed preview hides the truncation
+    notice at the end of the text."""
+
     details = result.details
     full_path = details.get("fullOutputPath") if details is not None else None
     if isinstance(full_path, str) and full_path:
-        rows.extend(_text_rows(theme.fg("muted", f"Full output: {full_path}"), bg))
-    return rows
+        return _text_rows(theme.fg("muted", f"Full output: {full_path}"), bg)
+    return []
+
+
+def _codemode_result_rows(
+    result: ToolRowResult,
+    theme: RowTheme,
+    key: str,
+    bg: RowBackground,
+    *,
+    expanded: bool,
+    partial: bool,
+    width: int,
+) -> list[RowLine]:
+    """The output part of Pi ``codemodeRenderers.renderResult``.
+
+    The script's output without the ``Script completed``/``Wall time``/
+    ``Output:`` header (input that was rejected has none), nothing while the
+    script runs, and collapsed the first 5 visual lines, because script
+    output is often one long JSON line. The nested calls are drawn above by
+    ``render_tool_row``.
+    """
+
+    if partial:
+        return []
+    text = _text_output(result.content)
+    header = _SCRIPT_HEADER.match(text)
+    output = _js_trim(text[header.end() :] if header is not None else text)
+    if not output:
+        return []
+    color = "error" if result.is_error else "toolOutput"
+    styled = "\n".join(
+        theme.fg(color, line) for line in _replace_tabs(output).split("\n")
+    )
+    if expanded:
+        return [RowLine("", bg), *_text_rows(styled, bg)]
+    return [
+        RowLine("", bg),
+        *_preview_rows(styled, theme, key, bg, width, _CODEMODE_PREVIEW_LINES),
+        *_full_output_rows(result, theme, bg),
+    ]
 
 
 def _bash_warnings(
@@ -1473,6 +1542,16 @@ def _other_result_rows(
         return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
     if state.mcp_label is not None:
         return _mcp_result_rows(
+            result,
+            theme,
+            key,
+            bg,
+            expanded=expanded,
+            partial=partial,
+            width=inputs.width,
+        )
+    if state.tool_name == "codemode":
+        return _codemode_result_rows(
             result,
             theme,
             key,

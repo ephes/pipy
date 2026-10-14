@@ -416,6 +416,15 @@ not be saved, publish no path and preserve the primary outcome and nested record
 ## Nested evidence and availability
 
 Live children appear inside the parent row; Ctrl+O expands retained evidence.
+Below them the row shows the script's output as Pi's codemode renderer does:
+without the `Script completed`, `Wall time` and `Output:` lines, nothing while
+the script runs, and collapsed only the first five lines as wrapped at the
+row's width (script output is often one long JSON line), followed by
+`... (N more lines, ctrl+o to expand)` and, when the output was spilled,
+`Full output: <path>`. Ctrl+O shows all of it, with the notice that ends a
+spilled result. Unlike Pi, the call is still drawn as `codemode code="…"`
+rather than as the highlighted script, and the row adds no `Model calls:`
+cost line.
 JSON/RPC child lifecycle events carry `parentToolCallId`. Only the parent result
 enters provider and durable product history, with a bounded `nestedCalls` record:
 256 calls, 8 KiB arguments per call, 32 KiB total arguments and 500 characters
