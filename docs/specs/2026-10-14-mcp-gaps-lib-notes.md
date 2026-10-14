@@ -521,3 +521,85 @@ Plan rows and texts:
   number" becomes "as JavaScript's `Number()` reads it").
 - K4: no row; the goal check's verification refuted it, and this item
   confirms that.
+
+## L4: K5 and O1 (`auth.provider` tokens from every source a model request uses)
+
+Pi source read again: `extensions/mcp/index.ts` line 575 (`providerToken:
+async (provider) => modelRegistry?.getApiKeyForProvider(provider)`),
+`core/model-registry.ts` lines 197-203 (`getApiKeyForProvider` returns
+`(await this.runtime.getAuth(provider))?.auth.apiKey` and catches),
+`packages/ai/src/auth/resolve.ts` (`resolveProviderAuth`: a runtime key
+override, then the stored credential, which owns the provider, then
+ambient/env), `core/runtime-credentials.ts` (`--api-key` is a credential
+overlay for one provider) and `main.ts` line 837 (`setRuntimeApiKey(
+sessionOptions.model.provider, ...)`). Both findings hold.
+
+What changed:
+
+- `provider_login_token` answers with the key a model request to the
+  provider would carry, from the same sources in pipy's model-request
+  order: for `openai-codex` the Codex login file when there is a login
+  (what a model request to a Codex model uses; refreshed and saved through
+  `OpenAICodexAuthManager.get_credentials`; without a login the general
+  sources below, which a `models.json` model of that provider with another
+  `api` uses; a login that cannot be read or refreshed is no token); then the session's `--api-key`; then `auth.json`
+  (read at every call; a stored entry owns the provider, refresh through the
+  session's `OAuthCredentialCache` for `PER_REQUEST_OAUTH_PROVIDERS`); then
+  the API-key environment variable; then the `models.json` `apiKey`,
+  resolved like a stored key. A provider an extension registered is
+  answered from `auth.json` and the environment only (login sent as stored),
+  as before.
+- New signature: `refreshes` is gone; the function takes `replaced`
+  (an extension registered the provider), `runtime_api_key`,
+  `models_json_key` and `codex_login`, each a function asked at the call.
+  `repl/mcp_loading.provider_token` binds them to the live catalog
+  (`extension_provider_for`, `runtime_api_key`,
+  `catalog.provider_request_configs`) and an `OpenAICodexAuthManager` for
+  the catalog's Codex login file.
+- Unchanged rules from S33: request threads never touch the session's
+  `AuthStore`; a damaged `auth.json` is no token and no later source
+  (environment, `models.json`) is used in its place; `close`/`settled` of
+  the auth provider; any failure is no token.
+- `native/openai_codex_provider.py` (outside the track's files, needed
+  because model requests and MCP requests now both refresh the Codex
+  login): `OpenAICodexAuthManager.get_credentials` loads, refreshes and
+  saves under one process-wide lock (`_CREDENTIALS_LOCK`), so a refresh
+  token that rotates is never sent twice by two threads.
+- `native/models_json.py` (outside the track's files, needed for the
+  thread rule): `ModelCatalog.refresh` no longer empties
+  `provider_request_configs` before the merge refills it; the map is
+  replaced by one assignment, so an MCP request thread never sees it empty
+  while the session thread refreshes the catalog after a reload. Same
+  result as before.
+
+Removed deviations (module text, docs/mcp.md "A provider's token"): a
+`models.json` key, `--api-key` and the `openai-codex` login are no longer
+"no token for an MCP server". Still different, documented: ambient cloud
+credentials are no token; `--api-key` applies to every provider (Pi: the
+starting model's provider only), as for pipy's model requests; an OAuth
+login pipy does not refresh for its own requests is sent as stored; the
+token is per provider, so with a Codex login an `openai-codex` server gets
+the login even where a `models.json` model of that provider with another
+`api` uses a stored key.
+
+Changelog lines (section Unreleased; replace the end of the `auth` entry's
+first sentence, "the token that `/login <provider>` stored for that model
+provider, or the provider's API-key environment variable", with "the key a
+model request to that provider would use"), plus:
+
+- An MCP server with `"auth": {"provider": "<provider>"}` is also sent the
+  `openai-codex` login, the key given with `--api-key` and the `apiKey`
+  that `models.json` configures for the provider, as a model request to
+  that provider would use them; these sources sent no token before.
+
+Plan rows and texts:
+
+- OAU-36 stays closed. In "Decided in S33", replace the bullet "Pi's
+  function is `modelRegistry.getApiKeyForProvider` ..." with the order
+  above, replace "Whether a login is refreshed is asked at each call
+  (`refreshes`) ..." by "Which providers an extension registered, the
+  `--api-key` and the `models.json` request settings are read from the
+  live catalog at each call (attributes replaced by assignment)", and
+  shorten "Narrower than Pi" to: ambient cloud credentials, `--api-key`
+  for every provider, no refresh of a login pipy does not refresh for its
+  own requests, a `!command` key run for every MCP request.

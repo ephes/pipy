@@ -27,7 +27,11 @@ from pipy_harness.native.mcp.manager import (
 from pipy_harness.native.mcp.manager_flow import McpBackgroundActions
 from pipy_harness.native.mcp.options import McpOptions
 from pipy_harness.native.mcp.readiness import McpReadiness
-from pipy_harness.native.oauth_providers import PER_REQUEST_OAUTH_PROVIDERS
+from pipy_harness.native.openai_codex_provider import (
+    FileOpenAICodexCredentialStore,
+    OpenAICodexAuthManager,
+    default_openai_codex_auth_path,
+)
 from pipy_harness.native.provider_login_token import provider_login_token
 from pipy_harness.native.repl.mcp_session import McpServers
 from pipy_harness.native.repl_state import (
@@ -132,12 +136,14 @@ def provider_token(
     with an injected provider, or one whose auth store is unavailable.
 
     The function it returns runs on MCP request threads. It is given the
-    path of ``auth.json``, the environment and the lock-protected OAuth
-    cache, and not the catalog's auth store, which belongs to the session
-    thread. Of the catalog it reads one thing there: whether an extension
-    registered the provider now (an immutable map that a reload replaces by
-    assignment). A snapshot taken here would be the one before a reload's
-    new extensions, because the servers are loaded first.
+    path of ``auth.json``, the environment, the lock-protected OAuth cache
+    and the Codex login file, and not the catalog's auth store, which belongs
+    to the session thread. Of the catalog it reads three things there, each
+    an attribute the session thread replaces by assignment and does not
+    change in place: whether an extension registered the provider, the
+    ``--api-key`` and the ``models.json`` request settings. A snapshot taken
+    here would be the one before a reload's new extensions and
+    ``models.json``, because the servers are loaded first.
     """
 
     if not isinstance(provider_state, NativeReplProviderState):
@@ -146,19 +152,24 @@ def provider_token(
     auth_store = catalog.auth_store
     if auth_store is None:
         return None
-
-    def refreshes(provider: str) -> bool:
-        # As ``per_request_oauth_credential``: a login of a provider that an
-        # extension replaced is not one the built-in refresh understands.
-        return (
-            provider in PER_REQUEST_OAUTH_PROVIDERS
-            and catalog.extension_provider_for(provider) is None
+    # The Codex login a model request uses (``OpenAICodexAuthManager``).
+    codex = OpenAICodexAuthManager(
+        store=FileOpenAICodexCredentialStore(
+            catalog.openai_codex_auth_path or default_openai_codex_auth_path()
         )
+    )
+
+    def models_json_key(provider: str) -> str | None:
+        config = catalog.catalog.provider_request_configs.get(provider)
+        return config.api_key if config is not None else None
 
     return partial(
         provider_login_token,
         auth_path=auth_store.path,
         env=catalog.env if catalog.env is not None else os.environ,
         oauth_credentials=catalog.oauth_credentials,
-        refreshes=refreshes,
+        replaced=lambda provider: catalog.extension_provider_for(provider) is not None,
+        runtime_api_key=lambda: catalog.runtime_api_key,
+        models_json_key=models_json_key,
+        codex_login=codex.get_credentials,
     )

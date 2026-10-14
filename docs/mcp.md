@@ -1015,17 +1015,38 @@ For such a server, name the provider in the user-level `mcp.json`:
   the token the provider has at that moment. pipy asks for it before each
   request and keeps no copy, so a login, a logout or a refreshed token
   applies to the next request. Nothing is written to `mcp-auth.json`.
-- The token is what is stored for the provider in
-  [the auth store](providers.md#credentials-and-auth-sources), `auth.json`,
-  where `/login <provider>` puts a login: an API key entry (the name of a set
-  environment variable is that variable's value, `!command` is the output
-  of the command, which then runs for every request), or the access token
-  of a stored OAuth login. A `github-copilot` or `openai` login is
-  refreshed first when it expires within five minutes, as before a model
-  request (not when an extension registered a provider of that name). When nothing is stored for the provider, its API-key environment
-  variable is used. A provider without any of these has no token, and the
-  request carries none. The same holds when `auth.json` exists and cannot
-  be read: the environment variable is not used in its place.
+- The token is the key a model request to the provider would carry, from
+  the same sources in the same order
+  ([credentials and auth sources](providers.md#credentials-and-auth-sources)):
+    - For `openai-codex`, the Codex login of `/login openai-codex` or
+      `pipy auth openai-codex login`, which is kept in its own file. It is
+      refreshed first when it is about to expire, as before a model
+      request. Without a login the sources below are asked, as for a
+      `models.json` model of that provider with another `api`; a login
+      that cannot be read or refreshed is no token. Where such a model
+      uses a stored key while there is a Codex login, the server is still
+      sent the login: the token is the provider's, not a model's.
+    - The key given with `--api-key`. As for a model request, it is the key
+      of every provider.
+    - What is stored for the provider in the auth store, `auth.json`, where
+      `/login <provider>` puts a login: an API key entry (the name of a set
+      environment variable is that variable's value, `!command` is the
+      output of the command, which then runs for every request), or the
+      access token of a stored OAuth login. A `github-copilot` or `openai`
+      login is refreshed first when it expires within five minutes, as
+      before a model request. A stored entry that has no token, such as an
+      OAuth login without an access token, is no token: the sources below
+      are not asked.
+    - The provider's API-key environment variable.
+    - The `apiKey` that `models.json` configures for the provider, resolved
+      like a stored key.
+
+    A provider that an extension registered is answered from `auth.json`
+    (a login is sent as stored) and its API-key environment variable only,
+    since model requests leave its credentials to the extension. A
+    provider without any of these has no token, and the request carries
+    none. The same holds when `auth.json` exists and cannot be read: no
+    later source is used in its place.
 - The server never signs in with OAuth: `/mcp login` and `pipy mcp login`
   answer that it does not use OAuth, and a 401 is not answered with a
   refresh.
@@ -1040,11 +1061,10 @@ For such a server, name the provider in the user-level `mcp.json`:
 
 Differences from Pi:
 
-- Pi answers with whatever its model registry resolves for the provider.
-  pipy reads `auth.json` and the environment only: a key that `models.json`
-  configures for the provider, `--api-key`, the `openai-codex` login (kept
-  in its own file) and ambient cloud credentials are no token for an MCP
-  server.
+- Pi gives the `--api-key` key only to the provider of the model the
+  session starts with; pipy, as for its model requests, to every provider.
+- Ambient cloud credentials (an AWS profile, Google application default
+  credentials) are no token for an MCP server.
 - An OAuth login that pipy does not refresh before its own model requests
   (a provider an extension registered, for example) is sent as stored.
 - `pipy mcp list` knows no provider logins, as `pi mcp list` does not: it
