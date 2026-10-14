@@ -479,6 +479,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- A tool's `prepare_loadout` function runs once for each new set of active
+  and registered tools, and pipy keeps its result, as Pi does: the
+  descriptions, the hidden declarations and the system prompt's tool list
+  come from the same call. Before, pipy called it every time it read the
+  declarations, several times per turn. See
+  [Presenting the loadout](docs/extension-api.md#presenting-the-loadout).
+
 - `tool_call` hooks run after argument validation, as in Pi: a call whose
   arguments do not fit the tool's schema gets the validation error and
   reaches no `tool_call` or `tool_result` hook (before, the hooks saw the

@@ -547,7 +547,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
 | DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls always run concurrently (no sequential mode, no `executionMode`), and those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result is a text chunk (G2). No event is emitted for a name that is not callable. Usage is DEV-13. | narrower | Decided in S37 |
-| DEV-49 | EXT-12 | The loadout has no `getExposure`, `getNamespace` or `getPromptGuidelines`. The function is called at every read of the declarations and must be pure; Pi calls it when the active tools change. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37 |
+| DEV-49 | EXT-12 | The loadout has no `getExposure`, `getNamespace` or `getPromptGuidelines`. The function is called once per capability value and its result kept (since G9); Pi also calls it again before each request with unchanged tools. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37, G9 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session runs no slash command (`submit()` sends its text to the model), so `open_url` and `update_config` reach the command and the manager and nothing in a product session uses them. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38; `docs/sdk.md` |
 | DEV-52 | OAU-36 | `auth.provider` reads `auth.json` and the environment only: a `models.json` key, `--api-key`, the `openai-codex` login and ambient cloud credentials give no token, and a login pipy does not refresh for its own requests is sent as stored. A stored `!command` key runs for every MCP request. | narrower | Decided in S33 |
@@ -3157,7 +3157,8 @@ Decided in S08 (description, catalog and `codemode.mode`,
   an extension's own `codemode` tool and a request that does not declare
   `codemode` get no changes. Nothing is cached: a value's definitions are a
   function of the value. S37 (`prepare_loadout` for extensions) can widen the
-  one presenter to one per tool.
+  one presenter to one per tool. (G9 keeps the changes per value: see the G9
+  paragraph.)
 - Settings are read when a capability value is built, at session start and on
   `/reload`, with `defaultTools`; they are part of the value, so the
   declarations, the hidden set and the system prompt of one value always
@@ -3308,6 +3309,7 @@ Slices outside these two lists are serial.
 | G4 | Codemode `store()`/`load()` per session branch (goal-check finding M4, DEV-04) | none (DEV-04) | M | G3 | no |
 | G5 | What a codemode script gets and may emit: a `null` structured result, structured `bash` results, images from `read`, the `// @options:` line, output over the limits truncated (goal-check findings M6, M15 to M18, DEV-04) | CMD-03 | M, several commits | G4 | no |
 | G6 | Tool hooks and argument validation as Pi has them: validation before the `tool_call` hooks, their argument changes run, call ids on the hook events, `tool_result` hooks that change `is_error`, details and images, foreign arguments validated and coerced, a record with an unfinished call is not complete (goal-check findings M8 to M11, M13, M14, E8, T6, T8) | CMD-24, CMD-25, CMD-26, SES-19, TLS-10 | M, several commits | G5 | no |
+| G9 | Extension API as Pi has it: `prepare_loadout` once per capability value, `event.system_prompt` that follows section changes, tool prompt snippets and guidelines, renderers a resolver can wrap, Pi's render context, re-registering a tool after activation (goal-check findings E1, E6, E7, E22, M7, M23, M24) | EXT-04, EXT-12, EXT-15, EXT-16, CMD-06, CMD-19 | M, several commits | G6 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -4053,6 +4055,22 @@ validator accepts. Tests: the new cases of
 `test_a_keyword_the_checks_skip_makes_not_refuse_nothing`,
 `test_native_tools_json_formats.py` (its cases checked against TypeBox's
 `Format.Test`).
+
+
+**G9 Extension API as Pi has it.** Added after the goal check, in several
+commits. Part 1 (finding E7): the loadout changes of a capability value
+are computed once per value and declared set and kept, so a request's
+declarations, its hidden set and the system prompt's tool list come from
+one call of the `prepare_loadout` functions (Pi `_applyToolLoadout` keeps
+them until it is applied again). `NativeToolCapabilities.kept_loadout_changes`
+keeps the live value's changes under the state lock, computing them without
+it; a `NativeToolCapabilitySnapshot` keeps its own, so a provider turn's pinned
+value stays consistent when the live value changes in between. Pi also calls
+the functions again before each request with unchanged tools; pipy does not,
+which only a function that is not a pure function of the loadout can notice
+(`docs/extension-api.md`, Different from Pi). Tests:
+`test_the_loadout_runs_once_per_capability_value`,
+`test_a_replaced_value_keeps_its_own_loadout_per_snapshot`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

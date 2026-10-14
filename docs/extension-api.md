@@ -1265,10 +1265,13 @@ api.register_tool(ExtensionTool(
   prompt leaves them out of its tool list and rules. A tool that hides
   declarations should present those tools itself, as `codemode` lists them
   in its description with mode `only`.
-- It runs only while its tool is declared, whenever pipy reads the
-  declarations: for every request and for the system prompt, so several
-  times per turn. It has to be fast and to return the same changes for the
-  same loadout. It may run on any thread that reads the declarations.
+- It runs only while its tool is declared, once for each new set of
+  active and registered tools (a change of the active tools, an MCP server's
+  tools arriving, `/reload`). pipy keeps the result: the descriptions, the
+  hidden declarations and the system prompt's tool list come from the same
+  call. It may run on any thread that reads the declarations; should two
+  threads read them for a new set at once, both call it and the first
+  result is used.
 - When several declared tools have the function (the built-in `codemode`
   counts as one), their changes are merged in the order the tools are
   declared: a later tool's description of a name replaces an earlier one's,
@@ -1286,9 +1289,11 @@ can build a tool that behaves like it under another name.
 
 Different from Pi:
 
-- Pi calls the function when the active tools change and keeps the result.
-  pipy calls it when it reads the declarations and keeps nothing, so the
-  function must be pure.
+- Pi calls the function when the active tools change and again before
+  each request, and keeps the result until the next call. pipy calls it
+  once per set of active and registered tools, so a function whose answer
+  changes without the tools changing is not asked again before the next
+  request.
 - Pi's loadout has `getExposure(name)`, `getNamespace(name)` and
   `getPromptGuidelines(name)`. In pipy the exposure and the namespace are
   fields of the definitions; extension tools have no prompt guidelines, and

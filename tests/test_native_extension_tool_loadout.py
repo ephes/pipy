@@ -318,3 +318,88 @@ def test_changes_are_copied_and_a_list_of_hidden_names_is_accepted() -> None:
 
     assert changes == ToolLoadoutChanges({"a": "text"}, frozenset({"a"}))
     assert checked_loadout_changes(None) is None
+
+
+def _counting_presenter(calls: list[int]):
+    """A presenter that is not a pure function: each call hides another tool."""
+
+    def present(loadout: ToolLoadout) -> ToolLoadoutChanges:
+        calls.append(len(calls) + 1)
+        n = len(calls)
+        return ToolLoadoutChanges(
+            {"present": f"call {n}"}, frozenset({"a" if n % 2 else "b"})
+        )
+
+    return present
+
+
+def test_the_loadout_runs_once_per_capability_value(tmp_path) -> None:
+    # Goal-check finding E7: Pi ``_applyToolLoadout`` derives the
+    # descriptions and the hidden declarations from one ``prepareLoadout``
+    # call and keeps them.
+    calls: list[int] = []
+    capabilities = NativeToolCapabilities(
+        {},
+        {
+            port.definition.name: port
+            for port in (
+                _Port("a"),
+                _Port("b"),
+                _Port("present", prepare_loadout=_counting_presenter(calls)),
+            )
+        },
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+    )
+    first = NativeToolCapabilitySnapshot(capabilities, capabilities.state)
+
+    assert first.hidden_declarations() == frozenset({"a"})
+    described = {tool.name: tool.description for tool in first.definitions()}
+    again = NativeToolCapabilitySnapshot(capabilities, capabilities.state)
+    assert again.hidden_declarations() == frozenset({"a"})
+    assert capabilities.definitions()[-1].description == "call 1"
+
+    assert described["present"] == "call 1"
+    assert calls == [1]
+
+    # A new capability value applies the loadout again, once.
+    assert capabilities.set_active_tools(["a", "present"])
+    live = NativeToolCapabilitySnapshot(capabilities, capabilities.state)
+    assert live.definitions()[-1].description == "call 2"
+    assert live.hidden_declarations() == frozenset({"b"})
+    assert calls == [1, 2]
+    # The snapshot of the earlier value keeps what it was given.
+    assert first.hidden_declarations() == frozenset({"a"})
+    assert first.definitions()[-1].description == "call 1"
+    assert calls == [1, 2]
+
+
+def test_a_replaced_value_keeps_its_own_loadout_per_snapshot(tmp_path) -> None:
+    calls: list[int] = []
+    capabilities = NativeToolCapabilities(
+        {},
+        {
+            port.definition.name: port
+            for port in (
+                _Port("a"),
+                _Port("b"),
+                _Port("present", prepare_loadout=_counting_presenter(calls)),
+            )
+        },
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+    )
+    pinned = NativeToolCapabilitySnapshot(capabilities, capabilities.state)
+    assert capabilities.set_active_tools(["a", "b", "present"])
+    live = NativeToolCapabilitySnapshot(capabilities, capabilities.state)
+    assert live.hidden_declarations() == frozenset({"a"})
+
+    # The pinned snapshot's value is no longer live: its changes are its own
+    # and do not displace the live value's.
+    assert pinned.definitions()[-1].description == "call 2"
+    assert pinned.hidden_declarations() == frozenset({"b"})
+    again = NativeToolCapabilitySnapshot(capabilities, capabilities.state)
+    assert again.definitions()[-1].description == "call 1"
+    assert calls == [1, 2]

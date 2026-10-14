@@ -399,6 +399,12 @@ class NativeToolCapabilitySnapshot:
 
     owner: NativeToolCapabilities
     state: ToolCapabilityState
+    # This snapshot's loadout changes by declared names, so one provider
+    # turn's declarations and hidden set agree also when the live value
+    # changed in between.
+    _loadouts: dict[tuple[str, ...], ToolLoadoutChanges | None] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
     def definitions(
         self,
@@ -455,8 +461,24 @@ class NativeToolCapabilitySnapshot:
         a later tool's description of a name replaces an earlier one's, and
         the hidden declarations add up. A tool whose function fails, or
         returns something that is no ``ToolLoadoutChanges``, changes nothing
-        and is reported once."""
+        and is reported once.
 
+        The functions run once per capability value and declared set, and
+        the owner keeps their result (Pi keeps it until the loadout is
+        applied again): the descriptions, the hidden declarations and the
+        system prompt's tool list of one value come from one call."""
+
+        key = tuple(definition.name for definition in declared)
+        if key not in self._loadouts:
+            changes = self.owner.kept_loadout_changes(
+                self.state, declared, lambda: self._compute_loadout_changes(declared)
+            )
+            self._loadouts.setdefault(key, changes)
+        return self._loadouts[key]
+
+    def _compute_loadout_changes(
+        self, declared: tuple[ToolDefinition, ...]
+    ) -> ToolLoadoutChanges | None:
         state = self.state
         builtin_codemode = state.codemode_loadout
         if builtin_codemode is not None and not _is_builtin_codemode(state):
@@ -616,6 +638,10 @@ class NativeToolCapabilities:
         self._codemode_probe_lock = threading.Lock()
         # The loadout failures that were reported; guarded by _state_lock.
         self._reported_loadout_errors: set[str] = set()
+        # The loadout changes of the latest capability value, by declared
+        # names; guarded by _state_lock. A new value replaces them.
+        self._loadout_value: ToolCapabilityState | None = None
+        self._loadout_kept: dict[tuple[str, ...], ToolLoadoutChanges | None] = {}
         self._state = ToolCapabilityState.build(
             builtin_registry,
             extension_registry,
@@ -678,11 +704,42 @@ class NativeToolCapabilities:
             if name in kept
         )
 
+    def kept_loadout_changes(
+        self,
+        state: ToolCapabilityState,
+        declared: tuple[ToolDefinition, ...],
+        compute: Callable[[], ToolLoadoutChanges | None],
+        /,
+    ) -> ToolLoadoutChanges | None:
+        """The loadout changes of ``state`` for ``declared``, computed once.
+
+        ``compute`` runs the tools' ``prepare_loadout`` functions, which are
+        extension code, so it runs without the state lock. Should two threads
+        read the declarations of a new value at the same time, both compute
+        and the first result is kept and returned to both. Only the live
+        value's changes are kept here; a snapshot keeps its own.
+        """
+
+        key = tuple(definition.name for definition in declared)
+        with self._state_lock:
+            if self._loadout_value is state and key in self._loadout_kept:
+                return self._loadout_kept[key]
+        changes = compute()
+        with self._state_lock:
+            if self._loadout_value is not state:
+                if state is not self._state:
+                    # A value that is no longer live (a provider turn's
+                    # pinned one) does not displace the live value's changes.
+                    return changes
+                self._loadout_value = state
+                self._loadout_kept = {}
+            return self._loadout_kept.setdefault(key, changes)
+
     def report_loadout_error(self, tool_name: str, error: BaseException) -> None:
         """Tell the user once that a tool's ``prepare_loadout`` failed.
 
-        The function is asked whenever the declarations are read, so the same
-        failure comes again with every request; it is shown the first time.
+        The function runs again for every new capability value, so the same
+        failure can come again; it is shown the first time.
         Only the type of the error is shown: its text is the extension's and
         may hold paths or secrets, and reading it runs the extension's code.
         """
