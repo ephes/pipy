@@ -51,10 +51,11 @@ header, here read from the environment variable `DOCS_TOKEN` at each connect:
 pipy mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
 ```
 
-See [the `pipy mcp` commands](#the-pipy-mcp-commands). Or write the servers
-yourself into `mcp.json` in the config home (`~/.pipy/mcp.json`
-unless `PIPY_CONFIG_HOME` or `XDG_CONFIG_HOME` say otherwise), or into
-`.pipy/mcp.json` of a trusted project:
+See [the `pipy mcp` commands](#the-pipy-mcp-commands); `pipy mcp add` prints
+the file it wrote. Or write the servers yourself into `mcp.json` in the
+config home, or into `.pipy/mcp.json` of a trusted project. The config home
+is `$PIPY_CONFIG_HOME` when that is set, else `$XDG_CONFIG_HOME/pipy`, else
+`~/.pipy` when that directory exists, else `~/.config/pipy`:
 
 ```json
 {
@@ -87,7 +88,8 @@ disables a server.
 ## Configure servers
 
 User-level servers are in `mcp.json` in the config home (`PIPY_CONFIG_HOME`,
-then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy`, then `~/.config/pipy`), project
+then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when it exists, then
+`~/.config/pipy`), project
 servers in `.pipy/mcp.json`. The project file is loaded only for a
 [trusted project](settings-config.md#project-trust-complete-runtime-track-shipped).
 A missing file is not an error. A project entry replaces a user-level entry
@@ -204,8 +206,7 @@ Differences from Pi in the configuration:
   Metadata Documents from its own site; pipy has no such document, so `cimd`
   needs the address where you host one, see
   [OAuth settings](#oauth-settings).
-- A file that is not valid UTF-8 is an error, and JSON error messages are
-  Python's.
+- JSON error messages are Python's.
 - A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
 
 ## Migrate configuration from another client
@@ -786,8 +787,6 @@ server again, see [sign-in with OAuth](#sign-in-with-oauth).
 
 ### Differences from Pi
 
-- `--oauth-callback-port` and `--timeout` take a decimal number. Pi also
-  reads JavaScript's other spellings of a number, such as `0x50`.
 - `logout` reports a credentials file it cannot read as `Could not update
   <path>: <reason>` with status 1.
 - When the question for the redirect URL ends without an answer, pipy ends

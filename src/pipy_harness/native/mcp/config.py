@@ -35,8 +35,7 @@ Where this differs from Pi:
   keeps characters a WHATWG parser percent-encodes.
 - ``oauth.clientMetadataBaseUrl`` exists only in pipy and is required with
   ``oauth.clientRegistration: "cimd"``.
-- A file that is not valid UTF-8 is an error instead of being read with
-  replacement characters, and the parser messages are Python's.
+- The JSON parser messages are Python's.
 - Entries are read in JavaScript's order, in which keys that look like array
   indexes (``"1"``, ``"20"``) come first, but a rewritten file keeps the
   order of its keys where ``JSON.stringify`` would move those keys up.
@@ -721,13 +720,17 @@ def _reject_constant(name: str) -> object:
 
 
 def _read_text(path: Path) -> str | None:
-    """The file's text, or None when there is no such file."""
+    """The file's text, or None when there is no such file.
+
+    Bytes that are not UTF-8 become replacement characters, as with Node's
+    ``readFileSync(path, "utf8")``, so the rest of the file still loads.
+    """
 
     try:
         data = path.read_bytes()
     except (FileNotFoundError, NotADirectoryError):
         return None
-    return data.decode("utf-8")
+    return data.decode("utf-8", "replace")
 
 
 def _parse_json(text: str) -> object:

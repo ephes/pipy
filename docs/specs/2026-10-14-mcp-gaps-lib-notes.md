@@ -448,3 +448,76 @@ Plan rows and texts:
   share. It is strict and repairs nothing." becomes: "... that config
   validation, OAuth and the HTTP transport's default fetch share. It
   follows the WHATWG URL parser for `http` and `https`, without IDNA."
+
+Addendum to commit 1 (from its review): `parse_http_url` reads its input
+as a USVString, so a lone surrogate (which JSON can spell, `"\ud800"`) is
+U+FFFD as in Node, and a host with U+FFFD (from a surrogate or from
+percent-escaped bytes that are no UTF-8) is not a URL. A surrogate in the
+path is requested as `%EF%BF%BD`, as Node does; it no longer raises
+`UnicodeEncodeError` out of `load_mcp_config` or the transport.
+
+## L3, commit 2: K2 (non-UTF-8 config files), K3 (option numbers), K7 (config home in the quick setup); K4 checked
+
+Pi source read again: `extensions/mcp/config.ts` line 96 (`readConfigFile`:
+`JSON.parse(readFileSync(path, "utf8"))`) and line 232 (`editMcpServers`,
+the same read, then `writeFileSync` of `JSON.stringify`); `extensions/mcp/
+cli.ts` line 245 (`Number(parsed.values.get("timeout") ?? 300)`, then
+`Number.isFinite(timeout) && timeout > 0`) and line 344
+(`callbackPort: Number(port)`), the only two numeric options of `pi mcp`.
+Node 26 was the oracle for the decoding and for every `Number()` value in
+the new tests.
+
+What changed:
+
+- K2: `config._read_text` decodes with `errors="replace"`. Node's `utf8`
+  decoding and Python's substitute U+FFFD for the same maximal invalid
+  sequences (checked with `a\xff\xed\xa0\x80b\xf0\x9f\x98c`, four and one
+  replacement characters in both). A configuration with such bytes in a
+  string loads; a server name with them is an invalid name for that entry
+  only; editing such a file (`mcp add`, `mcp remove`, the `/mcp` manager)
+  writes the replacement characters back, as Pi does. A UTF-8 BOM is still
+  a JSON error in both.
+- K3: `shell_cli._port_number` became `_js_number`, JavaScript's
+  `Number(text)`: decimal and exponent spellings, `Infinity` with a sign,
+  `0x`/`0o`/`0b` integers in either letter case and without a sign, `0` for
+  blank text, NaN otherwise (no `_` separators, no `inf`/`nan`). It reads
+  `--oauth-callback-port` of `mcp add` (`0x50` writes `callbackPort: 80`)
+  and `--timeout` of `mcp login` (`0b1` is one second).
+- K7: docs/mcp.md "Quick setup" names the real config home chain:
+  `$PIPY_CONFIG_HOME`, else `$XDG_CONFIG_HOME/pipy`, else `~/.pipy` when
+  that directory exists, else `~/.config/pipy` (`resolve_config_home` via
+  `workspace_context.resolve_global_instruction_root`), and that `pipy mcp
+  add` prints the file it wrote. "Configure servers" now says "`~/.pipy`
+  when it exists" too.
+- K4 (refuted by the verification, confirmed here): Pi's
+  `McpCommandOptions.credentials` (`cli.ts` line 82) is a test seam. Pi's
+  only caller is `main.ts` line 618, `runMcpCommand(args.slice(1), { cwd,
+  agentDir })`; `src/index.ts` exports no `runMcpCommand` or
+  `McpCommandOptions` (only config types and `createMcpExtension`, lines
+  220 and 411-412), and `package.json` `exports` has no path to `cli.ts`.
+  No user or SDK caller can pass another store, so pipy's commands always
+  using `mcp-auth.json` of the config home is no gap. Nothing changed; the
+  deviation line in `shell_cli.py` ("there is no option for another
+  store") stays as a description.
+
+Removed deviations (module texts and docs/mcp.md): "A file that is not
+valid UTF-8 is an error" (config); "`--oauth-callback-port` and `--timeout`
+take a decimal number" (`pipy mcp` commands).
+
+Changelog lines (section Unreleased):
+
+- An `mcp.json` with bytes that are not UTF-8 inside a string loads, with
+  replacement characters there, as in Pi; the whole file was rejected
+  before.
+- `pipy mcp add --oauth-callback-port` and `pipy mcp login --timeout` read
+  their number as Pi does with JavaScript's `Number()`, so `0x50`, `0o17`,
+  `0b1` and `1e3` are numbers.
+
+Plan rows and texts:
+
+- CFG-02, CMDL-04, CMDL-13 and DOC-01 stay closed. Remove the deviations
+  about non-UTF-8 files and decimal-only option numbers wherever the plan
+  lists them (line 1409 as judged: "`--oauth-callback-port`, as a decimal
+  number" becomes "as JavaScript's `Number()` reads it").
+- K4: no row; the goal check's verification refuted it, and this item
+  confirms that.

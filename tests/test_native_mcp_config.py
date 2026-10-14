@@ -909,7 +909,6 @@ def test_a_file_of_the_wrong_shape_is_reported_and_the_other_still_loads(
         b'{"mcpServers": {}, "x": NaN}',
         b'{"mcpServers": {}, "x": -Infinity}',
         b'\xef\xbb\xbf{"mcpServers": {}}',
-        b'{"mcpServers": {"caf\xe9": {}}}',
         b"[" * 200_000,
     ],
 )
@@ -924,6 +923,39 @@ def test_invalid_json_is_reported_with_the_path_and_the_other_file_still_loads(
     assert len(error) > len(f"{setup.project_file}: ")
     assert [s.name for s in loaded.servers] == ["u"]
     assert setup.load(trusted=False).errors == []
+
+
+def test_bytes_that_are_not_utf8_are_read_as_replacement_characters(
+    tmp_path: Path,
+) -> None:
+    # Pi reads the file with readFileSync(path, "utf8"), which substitutes
+    # U+FFFD as Python's "replace" does (one per maximal invalid sequence).
+    setup = Setup(tmp_path)
+    setup.user_file.write_bytes(
+        b'{"mcpServers": {"s": {"command": "x", '
+        b'"description": "a\xff\xed\xa0\x80b\xf0\x9f\x98c"}, '
+        b'"caf\xe9": {"command": "y"}}}'
+    )
+    loaded = setup.load(trusted=False)
+    [server] = loaded.servers
+    assert server.config["description"] == "a\ufffd\ufffd\ufffd\ufffdb\ufffdc"
+    assert loaded.errors == [
+        f'{setup.user_file}: invalid server name "caf\ufffd" (use letters, '
+        'digits, "_" and "-")'
+    ]
+
+
+def test_editing_a_file_with_bytes_that_are_not_utf8_writes_replacement_characters(
+    tmp_path: Path,
+) -> None:
+    # Pi's editMcpServers reads the file the same way and writes the
+    # replacement characters back.
+    file = tmp_path / "mcp.json"
+    file.write_bytes(b'{"mcpServers": {"a": {"command": "x\xff"}}}')
+    update_mcp_server_config(file, "a", enabled=False)
+    assert json.loads(file.read_bytes().decode("utf-8")) == {
+        "mcpServers": {"a": {"command": "x\ufffd", "enabled": False}}
+    }
 
 
 def test_an_unreadable_file_is_reported(tmp_path: Path) -> None:
@@ -1391,7 +1423,7 @@ def test_editing_a_file_of_the_wrong_shape_raises_and_keeps_it(
 
 
 @pytest.mark.parametrize(
-    "data", [b'{"mcpServers": ', b'{"x": NaN}', b'{"mcpServers": {"caf\xe9": {}}}']
+    "data", [b'{"mcpServers": ', b'{"x": NaN}', b'\xef\xbb\xbf{"mcpServers": {}}']
 )
 def test_editing_invalid_json_raises_and_keeps_the_file(
     tmp_path: Path, data: bytes
