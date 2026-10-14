@@ -793,36 +793,53 @@ class QueuedCustomMessage:
 
 @dataclass(frozen=True, slots=True)
 class ToolResultEvent:
-    """The finalized, bounded result of a tool, shown to `tool_result` hooks.
+    """The finalized, bounded result of a tool, shown to `tool_result` hooks
+    (Pi `ToolResultEvent`).
 
-    `tool_name` is the tool that ran (built-in or extension); `content`
-    is the current provider-visible result text; `is_error` marks an
-    error observation. `structured_content` is the current machine-readable
-    result (`NO_STRUCTURED_CONTENT` when there is none; `None` is the JSON
-    value null); treat it as read-only and return a `ToolResultTransform` to
-    change it.
+    `tool_name` is the tool that ran (built-in or extension); `content` is
+    the current provider-visible result text; `blocks` is Pi's ordered
+    content array (`TextContent` and `ImageContent`) when the result has an
+    image, else empty; `is_error` marks an error observation.
+    `structured_content` is the current machine-readable result
+    (`NO_STRUCTURED_CONTENT` when there is none; `None` is the JSON value
+    null) and `details` the result's local details; treat both as read-only
+    and return a `ToolResultTransform` to change them. `tool_call_id`,
+    `parent_tool_call_id` and `input` (the arguments the tool ran with) are
+    those of the call, as `ToolCallEvent` has them.
     """
 
     tool_name: str
     content: str
     is_error: bool
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    tool_call_id: str = ""
+    parent_tool_call_id: str | None = None
+    input: Mapping[str, object] = field(default_factory=dict)
+    details: Mapping[str, object] | None = None
+    blocks: tuple[ToolResultBlock, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class ToolResultTransform:
-    """Returned by a `tool_result` hook to replace the observation content.
+    """Returned by a `tool_result` hook to change the result (Pi
+    `ToolResultEventResult`); a field left at its default stays as it is.
 
-    The structured content belongs to the content it was produced with, so a
-    transform decides both (Pi `ToolResultEventResult`): `structured_content`
-    replaces the result's structured content, and a transform without one
-    drops it. A hook that redacts `content` and wants codemode scripts to
-    keep receiving a structured value returns the redacted value here
-    (`None` is the JSON value null); a value that is not JSON is dropped.
+    `content` replaces the whole content with a text, images included, and
+    `blocks`, Pi's content array of `TextContent` and `ImageContent`, replaces
+    it with those blocks (it wins over `content`; an empty tuple leaves no
+    content). The structured content belongs to the content it was produced
+    with: `structured_content` replaces the result's, and replaced content
+    without one drops it. A hook that redacts `content` and wants codemode
+    scripts to keep receiving a structured value returns the redacted value
+    here (`None` is the JSON value null); a value that is not JSON is
+    dropped. `is_error` and `details` (a JSON object) replace the result's.
     """
 
-    content: str
+    content: str | None = None
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    blocks: tuple[ToolResultBlock, ...] | None = None
+    is_error: bool | None = None
+    details: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)

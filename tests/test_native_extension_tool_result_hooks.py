@@ -59,14 +59,16 @@ def _hooks(workspace: Path) -> tuple:
 
 
 def _dispatch(workspace, tool_name, content, is_error=False):
-    return dispatch_tool_result_hooks(
+    result = dispatch_tool_result_hooks(
         _hooks(workspace),
         tool_name=tool_name,
         content=content,
         is_error=is_error,
         cwd=str(workspace),
         has_ui=False,
-    ).content
+    )
+    # ``None``: no hook changed the result.
+    return content if result is None else result.content
 
 
 def test_tool_result_transform(tmp_path: Path) -> None:
@@ -230,7 +232,8 @@ def test_tool_result_hook_transforms_through_session(tmp_path, monkeypatch) -> N
 
 
 def _dispatch_structured(hooks, structured_content):
-    return dispatch_tool_result_hooks(
+    """The result as the hooks leave it, as a transform of every field."""
+    result = dispatch_tool_result_hooks(
         hooks,
         tool_name="stats",
         content="2 files",
@@ -238,6 +241,18 @@ def _dispatch_structured(hooks, structured_content):
         cwd=".",
         has_ui=False,
         structured_content=structured_content,
+    )
+    if result is None:
+        return _final("2 files", structured_content)
+    return result
+
+
+def _final(content, structured_content=NO_STRUCTURED_CONTENT):
+    return ToolResultTransform(
+        content=content,
+        structured_content=structured_content,
+        blocks=(),
+        is_error=False,
     )
 
 
@@ -270,20 +285,16 @@ def test_tool_result_hooks_see_and_decide_the_structured_content() -> None:
 
     # No hook and an observing hook keep the tool's own value.
     assert _dispatch_structured((), original).structured_content is original
-    assert _dispatch_structured((observe,), original) == ToolResultTransform(
-        content="2 files", structured_content=original
+    assert _dispatch_structured((observe,), original) == _final(
+        "2 files", structured_content=original
     )
     # A later hook that returns nothing keeps what an earlier one set.
-    assert _dispatch_structured(
-        (replace_both, observe, crash), original
-    ) == ToolResultTransform(
-        content="0 files", structured_content={"files": 0, "names": []}
+    assert _dispatch_structured((replace_both, observe, crash), original) == _final(
+        "0 files", structured_content={"files": 0, "names": []}
     )
     assert seen == [original, {"files": 0, "names": []}]
     # Replacing the content alone drops structured content that may not match.
-    assert _dispatch_structured((content_only,), original) == ToolResultTransform(
-        content="redacted"
-    )
+    assert _dispatch_structured((content_only,), original) == _final("redacted")
     # Handing the event's value back keeps it, without a copy.
     kept = _dispatch_structured((pass_through,), original)
     assert kept.content == "2 files!" and kept.structured_content is original
@@ -313,7 +324,7 @@ def test_structured_content_from_a_tool_result_hook_is_a_detached_json_copy() ->
             (lambda event, ctx, bad=bad: ToolResultTransform("ok", bad),),
             {"files": 2},
         )
-        assert dropped == ToolResultTransform(content="ok")
+        assert dropped == _final("ok")
 
 
 def test_null_structured_content_is_a_value_hooks_see_and_keep() -> None:
@@ -329,8 +340,8 @@ def test_null_structured_content_is_a_value_hooks_see_and_keep() -> None:
 
     kept = _dispatch_structured((observe,), None)
     assert kept.structured_content is None and seen == [None]
-    assert _dispatch_structured((set_null,), {"files": 2}) == ToolResultTransform(
-        content="none", structured_content=None
+    assert _dispatch_structured((set_null,), {"files": 2}) == _final(
+        "none", structured_content=None
     )
     # Without structured content the event says so, and a transform that
     # leaves it out has none.
@@ -357,4 +368,127 @@ def test_a_structured_value_the_json_round_trip_refuses_is_dropped(
         (lambda event, ctx: ToolResultTransform("ok", {"files": 0}),), {"files": 2}
     )
 
-    assert result == ToolResultTransform(content="ok")
+    assert result == _final("ok")
+
+
+_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+
+def test_a_tool_result_hook_sees_the_call_and_changes_every_field() -> None:
+    # Goal-check findings M8, M13, E8 and T6, Pi ``emitToolResult``: the
+    # event has the call's id, its parent's id, the arguments, the details
+    # and the content blocks, and a handler may replace the content (images
+    # included), ``details`` and ``isError``.
+    from pipy_harness.extensions import ImageContent, TextContent
+
+    image = ImageContent(_PNG, "image/png")
+    seen: list[object] = []
+
+    def observe(event, ctx):
+        seen.append(
+            (
+                event.tool_call_id,
+                event.parent_tool_call_id,
+                dict(event.input),
+                event.details,
+                event.blocks,
+                event.is_error,
+            )
+        )
+
+    def flag(event, ctx):
+        return ToolResultTransform(is_error=True, details={"checked": True})
+
+    def drop_images(event, ctx):
+        return ToolResultTransform(content="")
+
+    result = dispatch_tool_result_hooks(
+        (observe, flag, observe, drop_images, observe),
+        tool_name="shot",
+        content="caption",
+        is_error=False,
+        cwd=".",
+        has_ui=False,
+        structured_content={"ok": True},
+        tool_call_id="p1/2",
+        parent_tool_call_id="p1",
+        tool_input={"path": "a.png"},
+        details={"server": "s"},
+        blocks=(TextContent("caption"), image),
+    )
+
+    assert seen == [
+        (
+            "p1/2",
+            "p1",
+            {"path": "a.png"},
+            {"server": "s"},
+            (TextContent("caption"), image),
+            False,
+        ),
+        (
+            "p1/2",
+            "p1",
+            {"path": "a.png"},
+            {"checked": True},
+            (TextContent("caption"), image),
+            True,
+        ),
+        ("p1/2", "p1", {"path": "a.png"}, {"checked": True}, (), True),
+    ]
+    # Only the content was replaced last, so the flag and details stay; the
+    # structured content goes with the replaced content.
+    assert result == ToolResultTransform(
+        content="", blocks=(), is_error=True, details={"checked": True}
+    )
+
+
+def test_a_tool_result_hook_replaces_the_content_with_blocks() -> None:
+    from pipy_harness.extensions import ImageContent, TextContent
+
+    image = ImageContent(_PNG, "image/png")
+
+    def swap(event, ctx):
+        return ToolResultTransform(blocks=(TextContent("a"), image, TextContent("b")))
+
+    def text_blocks(event, ctx):
+        return ToolResultTransform(blocks=(TextContent("x"), TextContent("y")))
+
+    def invalid(event, ctx):
+        return ToolResultTransform(blocks=("not a block",))  # type: ignore[arg-type]
+
+    def bad_flag(event, ctx):
+        return ToolResultTransform(is_error="yes")  # type: ignore[arg-type]
+
+    swapped = _dispatch_structured((swap,), {"n": 1})
+    assert swapped.content == "a\nb"
+    assert swapped.blocks == (TextContent("a"), image, TextContent("b"))
+    assert swapped.structured_content is NO_STRUCTURED_CONTENT
+    # Blocks without an image are their text.
+    texts = _dispatch_structured((text_blocks,), None)
+    assert (texts.content, texts.blocks) == ("x\ny", ())
+    # A transform with a field of the wrong kind changes nothing.
+    assert _dispatch_structured((invalid, bad_flag), {"n": 1}) == _final(
+        "2 files", {"n": 1}
+    )
+
+
+def test_details_too_deep_to_copy_change_nothing_and_later_hooks_run() -> None:
+    # Deep enough that copying it as JSON raises RecursionError.
+    deep: dict[str, object] = {}
+    node = deep
+    for _ in range(100_000):
+        node["k"] = {}
+        node = node["k"]  # type: ignore[assignment]
+
+    def too_deep(event, ctx):
+        return ToolResultTransform(content="lost", details=deep)
+
+    def not_an_object(event, ctx):
+        return ToolResultTransform(content="lost", details=["a"])  # type: ignore[arg-type]
+
+    def later(event, ctx):
+        return ToolResultTransform(content=event.content + "!", details={"ok": 1})
+
+    result = _dispatch_structured((too_deep, not_an_object, later), None)
+    assert result.content == "2 files!" and result.details == {"ok": 1}

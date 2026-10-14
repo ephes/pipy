@@ -1059,20 +1059,34 @@ the model), and a handler that leaves a value that is not JSON in `input`
 blocks the call with `tool_call hooks left arguments that are not JSON`.
 
 **Result hooks.** A `tool_result` handler receives a `ToolResultEvent` with
-`tool_name`, `content`, `is_error` and `structured_content` (the current
-structured content, `NO_STRUCTURED_CONTENT` when there is none; `None` is the
-value `null`; treat it as read-only). It may return
-`ToolResultTransform(content=..., structured_content=...)`. The structured
-content belongs to the content it was produced with, so a transform decides
-both: the `structured_content` it carries replaces the result's (a value that
-is not JSON is dropped), and a transform without one drops it, because it may
-no longer match the replaced content. A handler that redacts `content` of a
-tool with an output schema therefore returns the redacted structured value as
-well, or scripts receive the redacted text. To change only the structured
-content, return the event's `content` with the new value. A handler that
-returns nothing changes nothing. Pi's `ToolResultEventResult` works the same
-way, except that its `content` is optional; pipy's transform does not replace
-`details`, `is_error` or usage.
+`tool_name`, `content` (the result's text), `blocks` (Pi's content array of
+`TextContent` and `ImageContent` when the result has an image, else empty),
+`is_error`, `structured_content` (`NO_STRUCTURED_CONTENT` when there is none;
+`None` is the value `null`), `details`, `input` (the arguments the tool ran
+with), `tool_call_id` and `parent_tool_call_id` (as for
+[call hooks](#extension-tool-metadata)); treat the values as read-only. It may
+return a `ToolResultTransform`, Pi's `ToolResultEventResult`; a field it
+leaves at its default stays as it is:
+
+- `content` replaces the whole content with a text, images included, so
+  `ToolResultTransform(content="")` removes an image-only result's image.
+  `blocks` replaces it with text and image blocks instead (and wins over
+  `content`); blocks of anything else make the transform change nothing.
+  Replaced text is bounded to 60 KiB like an extension tool's blocks.
+- The structured content belongs to the content it was produced with:
+  `structured_content` replaces the result's (a value that is not JSON is
+  dropped), and replaced content without one drops it, because it may no
+  longer match. A handler that redacts `content` of a tool with an output
+  schema therefore returns the redacted structured value as well, or scripts
+  receive the redacted text.
+- `is_error` replaces the error flag and `details` (a JSON object) the
+  details.
+
+Later handlers see what earlier ones left. A handler that returns nothing,
+raises, or returns a field of the wrong kind changes nothing. A call whose
+arguments failed validation, or that a `tool_call` handler blocked, reaches no
+`tool_result` handler, as in Pi. Pi's transform can also replace usage; pipy
+counts no usage of tools (DEV-13).
 
 **Listing tools.** `ctx.get_all_tools()` returns a `ToolInfo` for every
 registered tool, built-in and extension, active or not (the built-in

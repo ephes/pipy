@@ -107,7 +107,7 @@ class NativeAgentToolPolicy:
             [AgentToolCall, dict[str, Any], str | None], AgentToolPolicyDecision
         ],
         transform_result: Callable[
-            [AgentToolCall, AgentToolResultMessage],
+            [AgentToolCall, AgentToolResultMessage, dict[str, Any], str | None],
             ProductContent | AgentToolResultTransform,
         ],
     ) -> None:
@@ -143,13 +143,19 @@ class NativeAgentToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
         /,
     ) -> ProductContent | AgentToolResultTransform:
         if type(call) is not AgentToolCall:
             raise TypeError("call must be AgentToolCall")
         if type(result) is not AgentToolResultMessage:
             raise TypeError("result must be AgentToolResultMessage")
-        transformed = self._transform_result(call, result)
+        if type(arguments) is not dict:
+            raise TypeError("arguments must be a dict")
+        if parent_call_id is not None and type(parent_call_id) is not str:
+            raise TypeError("parent_call_id must be a string or None")
+        transformed = self._transform_result(call, result, arguments, parent_call_id)
         if type(transformed) is AgentToolResultTransform:
             validate_product_content(
                 transformed.content, "transform_result callback result"

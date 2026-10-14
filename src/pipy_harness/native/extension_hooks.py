@@ -69,7 +69,14 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     TurnStarted,
 )
-from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+    ToolResultBlock,
+    tool_result_images,
+    tool_result_text,
+)
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
@@ -161,7 +168,7 @@ from pipy_harness.native.session_generation import (
     OrderedDeliveryGate,
     OrderedDeliveryToken,
 )
-from pipy_harness.native.tools.base import json_safe_value
+from pipy_harness.native.tools.base import json_safe_details, json_safe_value
 
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.package_resources import PackageRoot
@@ -566,6 +573,56 @@ def dispatch_before_agent_start_hooks(
     return BeforeAgentStartResult(append_system_prompt=combined)
 
 
+def bounded_result_blocks(
+    blocks: object, cap: int, marker: str
+) -> tuple[ToolResultBlock, ...] | None:
+    """A handler's ``blocks`` with their text bounded, or ``None`` when they
+    are not a sequence of text and image blocks.
+
+    The bound is ``cap`` or the ``tool_result`` hooks' bound, whichever is
+    smaller: text the hooks would cut loses the images with it. Text within
+    the bound is kept as it is. Otherwise images are kept whole and in
+    order, the text block that reaches the bound is cut and marked, and
+    later text blocks are left out. ``marker`` ends the cut text.
+    """
+
+    if isinstance(blocks, (str, bytes)) or not isinstance(blocks, Sequence):
+        return None
+    checked: list[ToolResultBlock] = []
+    for block in blocks:
+        if type(block) is ImageContent:
+            checked.append(block)
+        elif type(block) is TextContent and block.signature is None:
+            checked.append(block)
+        else:
+            return None
+    limit = min(cap, TOOL_RESULT_MAX_CHARS)
+    if len(tool_result_text(checked)) <= limit:
+        return tuple(checked)
+    # Room for the marker and its newline is kept, so the text stays within
+    # the bound.
+    budget = limit - len(marker) - 1
+    kept: list[ToolResultBlock] = []
+    used = 0  # length of the kept text blocks joined by newlines
+    texts = 0
+    cut = False
+    for block in checked:
+        if not isinstance(block, TextContent):
+            kept.append(block)
+            continue
+        if cut:
+            continue
+        separator = 1 if texts else 0
+        if used + separator + len(block.text) > budget:
+            room = max(budget - used - separator, 0)
+            block = TextContent(block.text[:room] + marker)
+            cut = True
+        kept.append(block)
+        used += separator + len(block.text)
+        texts += 1
+    return tuple(kept)
+
+
 def dispatch_tool_result_hooks(
     hooks: Sequence[HookHandler],
     *,
@@ -580,60 +637,183 @@ def dispatch_tool_result_hooks(
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
     structured_content: object = NO_STRUCTURED_CONTENT,
-) -> ToolResultTransform:
-    """Run `tool_result` hooks over a finalized tool result; return the result.
+    tool_call_id: str = "",
+    parent_tool_call_id: str | None = None,
+    tool_input: Mapping[str, object] | None = None,
+    details: Mapping[str, object] | None = None,
+    blocks: tuple[ToolResultBlock, ...] = (),
+) -> ToolResultTransform | None:
+    """Run `tool_result` hooks over a finalized tool result (Pi `emitToolResult`).
 
-    Each hook receives a `ToolResultEvent` with the current content and
-    structured content and may return a `ToolResultTransform` to replace
-    them for later hooks / the model / programmatic callers. Hooks run in
-    registration order. A transform replaces the content and decides the
-    structured content with it: the one it carries, or none (Pi
-    `emitToolResult`). A hook that raises or returns a non-string transform
-    is fail-safe (the current content and structured content are kept). The
-    final content is bounded before returning to the model; the structured
-    content is not. `KeyboardInterrupt` / `SystemExit` propagate.
+    Each hook receives a `ToolResultEvent` with the result as the earlier
+    hooks left it and may return a `ToolResultTransform` to change it for
+    later hooks, the model and programmatic callers. Hooks run in
+    registration order. A transform's `blocks` (Pi's content array) or
+    `content` replace the whole content, images included; replaced content
+    drops the structured content unless the transform carries one.
+    `structured_content`, `is_error` and `details` replace their field when
+    given. A hook that raises, or returns a transform with a field of the
+    wrong kind, is fail-safe: the result stays as it was. Replaced text is
+    bounded to `TOOL_RESULT_MAX_CHARS`; images are kept whole.
+    `KeyboardInterrupt` / `SystemExit` propagate.
+
+    Returns the result as the hooks left it, or `None` when no hook changed
+    anything.
     """
 
-    current = content
-    current_structured = structured_content
-    if hooks:
-        ctx = _CommandContext(
-            cwd,
-            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            model_runtime=model_runtime,
-            flags=flags,
-            project_trusted=project_trusted,
+    if not hooks:
+        return None
+    state = _ToolResultState(content, blocks, structured_content, is_error, details)
+    arguments = dict(tool_input or {})
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        model_runtime=model_runtime,
+        flags=flags,
+        project_trusted=project_trusted,
+    )
+    for hook in hooks:
+        try:
+            result = hook(
+                ToolResultEvent(
+                    tool_name=tool_name,
+                    content=state.content,
+                    is_error=state.is_error,
+                    structured_content=state.structured_content,
+                    tool_call_id=tool_call_id,
+                    parent_tool_call_id=parent_tool_call_id,
+                    input=arguments,
+                    details=state.details,
+                    blocks=state.blocks,
+                ),
+                ctx,
+            )
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail-safe: keep the result
+            continue
+        if isinstance(result, ToolResultTransform):
+            state.apply(result)
+    if not state.modified:
+        return None
+    return ToolResultTransform(
+        content=state.content,
+        structured_content=state.structured_content,
+        blocks=state.blocks,
+        is_error=state.is_error,
+        details=state.details,
+    )
+
+
+_TOOL_RESULT_TRUNCATED = "\n[pipy: tool_result transform truncated]"
+
+
+class _ToolResultState:
+    """A result as the `tool_result` hooks have left it so far."""
+
+    __slots__ = (
+        "blocks",
+        "content",
+        "details",
+        "is_error",
+        "modified",
+        "structured_content",
+    )
+
+    def __init__(
+        self,
+        content: str,
+        blocks: tuple[ToolResultBlock, ...],
+        structured_content: object,
+        is_error: bool,
+        details: Mapping[str, object] | None,
+    ) -> None:
+        self.content = content
+        self.blocks = blocks
+        self.structured_content = structured_content
+        self.is_error = is_error
+        self.details = details
+        self.modified = False
+
+    def apply(self, transform: ToolResultTransform) -> None:
+        """Take what ``transform`` changes; nothing when a field it gives has
+        the wrong kind or cannot be copied as JSON (Pi ``emitToolResult``)."""
+
+        try:
+            replaced, structured, details = self._prepared(transform)
+        except (RecursionError, ValueError, TypeError):
+            # A field of the wrong kind, or a value too deep (or otherwise
+            # not JSON) to copy: the transform changes nothing.
+            return
+        if replaced is not None:
+            self.content, self.blocks = replaced
+            # Pi: structured content that is not replaced along with the
+            # content may no longer match it.
+            self.structured_content = NO_STRUCTURED_CONTENT
+        if transform.structured_content is not NO_STRUCTURED_CONTENT:
+            self.structured_content = structured
+        if transform.is_error is not None:
+            self.is_error = transform.is_error
+        if details is not None:
+            self.details = details
+        self.modified = True
+
+    def _prepared(
+        self, transform: ToolResultTransform
+    ) -> tuple[
+        tuple[str, tuple[ToolResultBlock, ...]] | None,
+        object,
+        dict[str, Any] | None,
+    ]:
+        """The checked replacement content, structured content and details.
+        Raises ``TypeError`` for a field of the wrong kind."""
+
+        replaced = _replaced_content(transform)
+        if transform.is_error is not None and type(transform.is_error) is not bool:
+            raise TypeError("is_error must be a bool")
+        details: dict[str, Any] | None = None
+        if transform.details is not None:
+            details = json_safe_details(transform.details)
+            if details is None:
+                raise TypeError("details must be a JSON object")
+        given = transform.structured_content
+        # The event's own value handed back is kept as it is; any other is a
+        # detached JSON copy, and a value that is not JSON is dropped.
+        structured = (
+            given
+            if given is NO_STRUCTURED_CONTENT or given is self.structured_content
+            else json_safe_value(given)
         )
-        for hook in hooks:
-            try:
-                result = hook(
-                    ToolResultEvent(
-                        tool_name=tool_name,
-                        content=current,
-                        is_error=is_error,
-                        structured_content=current_structured,
-                    ),
-                    ctx,
-                )
-                if inspect.isawaitable(result):
-                    result = _drive_awaitable(result)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - fail-safe: keep current content
-                continue
-            if isinstance(result, ToolResultTransform) and isinstance(
-                result.content, str
-            ):
-                current = result.content
-                if result.structured_content is not current_structured:
-                    # A detached JSON copy; a value that is not JSON is dropped.
-                    current_structured = json_safe_value(result.structured_content)
-    if len(current) > TOOL_RESULT_MAX_CHARS:
-        current = (
-            current[:TOOL_RESULT_MAX_CHARS]
-            + "\n[pipy: tool_result transform truncated]"
+        return replaced, structured, details
+
+
+def _replaced_content(
+    transform: ToolResultTransform,
+) -> tuple[str, tuple[ToolResultBlock, ...]] | None:
+    """The text and blocks a transform puts in place of the content, bounded;
+    ``None`` when it leaves the content. Raises ``TypeError`` when its
+    ``blocks`` or ``content`` are of the wrong kind."""
+
+    if transform.blocks is not None:
+        bounded = bounded_result_blocks(
+            transform.blocks, TOOL_RESULT_MAX_CHARS, _TOOL_RESULT_TRUNCATED
         )
-    return ToolResultTransform(content=current, structured_content=current_structured)
+        if bounded is None:
+            raise TypeError("blocks must be text and image blocks")
+        # Blocks without an image say no more than their text.
+        return tool_result_text(bounded), (
+            bounded if tool_result_images(bounded) else ()
+        )
+    if transform.content is None:
+        return None
+    if not isinstance(transform.content, str):
+        raise TypeError("content must be a string")
+    text = transform.content
+    if len(text) > TOOL_RESULT_MAX_CHARS:
+        text = text[:TOOL_RESULT_MAX_CHARS] + _TOOL_RESULT_TRUNCATED
+    return text, ()
 
 
 def dispatch_lifecycle_hooks(

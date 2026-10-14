@@ -200,7 +200,12 @@ class _Policy:
         raise AssertionError("not used")
 
     def transform_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
+        /,
     ) -> Any:
         del call
         return self._transformed(result)
@@ -209,10 +214,10 @@ class _Policy:
 def test_a_hook_that_replaces_the_content_replaces_the_images_too() -> None:
     call = AgentToolCall("call-1", "shot", ProductContent("{}"))
     result = _result()
-    kept = _transform_tool_result(_Policy(lambda r: r.content), call, result)
+    kept = _transform_tool_result(_Policy(lambda r: r.content), call, result, {}, None)
     assert kept is result
     replaced = _transform_tool_result(
-        _Policy(lambda r: ProductContent("redacted")), call, result
+        _Policy(lambda r: ProductContent("redacted")), call, result, {}, None
     )
     assert replaced.content == ProductContent("redacted")
     assert replaced.blocks == ()
@@ -221,6 +226,8 @@ def test_a_hook_that_replaces_the_content_replaces_the_images_too() -> None:
         _Policy(lambda r: AgentToolResultTransform(r.content, {"ok": True})),
         call,
         result,
+        {},
+        None,
     )
     assert structured.blocks == BLOCKS
     assert structured.structured_content == {"ok": True}
@@ -361,3 +368,46 @@ def test_a_result_without_its_call_keeps_its_blocks_when_written_again(
     assert isinstance(entry.message, _UnresolvedToolResultMessage)
     assert entry.message.blocks == BLOCKS
     assert _entry_to_json(entry)["message"]["blocks"] == row["message"]["blocks"]
+
+
+def test_a_policy_transform_replaces_images_the_error_flag_and_details() -> None:
+    # Goal-check findings M13 and T6, Pi ``afterToolCall``: a handler's
+    # content replaces the whole content, ``[]`` included, and ``isError`` and
+    # ``details`` replace the result's.
+    call = AgentToolCall("call-1", "shot", ProductContent("{}"))
+    image_only = _result((ImageContent(PNG, "image/png"),))
+    assert image_only.content == ProductContent("")
+    emptied = _transform_tool_result(
+        _Policy(lambda r: AgentToolResultTransform(ProductContent(""), blocks=())),
+        call,
+        image_only,
+        {},
+        None,
+    )
+    assert emptied.blocks == () and emptied.content == ProductContent("")
+    flagged = _transform_tool_result(
+        _Policy(
+            lambda r: AgentToolResultTransform(
+                r.content, r.structured_content, is_error=True, details={"seen": 1}
+            )
+        ),
+        call,
+        _result(),
+        {},
+        None,
+    )
+    assert flagged.is_error and flagged.details == {"seen": 1}
+    assert flagged.blocks == BLOCKS and flagged.content == _result().content
+    swapped_blocks = (TextContent("new"), ImageContent(PNG, "image/png"))
+    swapped = _transform_tool_result(
+        _Policy(
+            lambda r: AgentToolResultTransform(
+                ProductContent("new"), blocks=swapped_blocks
+            )
+        ),
+        call,
+        _result(),
+        {},
+        None,
+    )
+    assert swapped.blocks == swapped_blocks

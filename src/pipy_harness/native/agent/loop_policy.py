@@ -16,6 +16,7 @@ from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
     NoStructuredContent,
     ProductContent,
+    ToolResultBlock,
 )
 from pipy_harness.native.agent.messages import (
     AgentToolCall,
@@ -130,19 +131,32 @@ def validate_agent_tool_policy_decision(decision: object) -> None:
 
 @dataclass(frozen=True, slots=True)
 class AgentToolResultTransform:
-    """What a tool policy makes of one result: its content and, with it, the
-    structured content programmatic callers receive (``NO_STRUCTURED_CONTENT``
-    for none; ``None`` is the JSON value null).
+    """What a tool policy makes of one result (Pi ``AfterToolCallResult``):
+    its content and, with it, the structured content programmatic callers
+    receive (``NO_STRUCTURED_CONTENT`` for none; ``None`` is the JSON value
+    null). Structured content belongs to the content it was produced with, so
+    whoever replaces the content decides both.
 
-    Pi ``AfterToolCallResult``: structured content belongs to the content it
-    was produced with, so whoever replaces the content decides both.
+    ``blocks`` is the content's ordered text and image blocks when it has an
+    image, ``()`` for a text-only content; ``None`` keeps the result's blocks
+    when ``content`` is its text and drops them otherwise. ``is_error`` and
+    ``details`` replace the result's when they are not ``None``.
     """
 
     content: ProductContent
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    blocks: tuple[ToolResultBlock, ...] | None = None
+    is_error: bool | None = None
+    details: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         validate_product_content(self.content, "AgentToolResultTransform.content")
+        if self.blocks is not None and type(self.blocks) is not tuple:
+            raise TypeError("AgentToolResultTransform.blocks must be a tuple or None")
+        if self.is_error is not None:
+            require_bool(self.is_error, "AgentToolResultTransform.is_error")
+        if self.details is not None and not isinstance(self.details, Mapping):
+            raise TypeError("AgentToolResultTransform.details must be a mapping")
 
 
 @runtime_checkable
@@ -169,12 +183,16 @@ class AgentToolPolicy(Protocol):
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
         /,
     ) -> ProductContent | AgentToolResultTransform:
-        """Return the result's content, or the content with its structured content.
+        """Return the result's content, or what the policy makes of the result.
 
-        A bare ``ProductContent`` that differs from the result's content drops
-        the result's structured content, which may no longer match it.
+        ``arguments`` are those the call ran with and ``parent_call_id`` is as
+        for :meth:`before_execute` (Pi ``afterToolCall``). A bare
+        ``ProductContent`` that differs from the result's content drops the
+        result's structured content and images, which may no longer match it.
         """
         ...
 

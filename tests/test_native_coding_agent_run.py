@@ -359,6 +359,8 @@ class _ToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> ProductContent:  # pragma: no cover - no tool calls in fixtures
         del call

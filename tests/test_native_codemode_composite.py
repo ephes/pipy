@@ -145,7 +145,12 @@ class _Policy(_ToolPolicy):
         return super().before_execute(call, arguments, parent_call_id)
 
     def transform_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage, /
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
+        /,
     ) -> ProductContent:
         assert threading.current_thread() is self.thread
         return ProductContent(
@@ -576,11 +581,16 @@ def test_canonical_hook_failure_propagates_after_guest_cleanup(
 ) -> None:
     class FailingPolicy(_Policy):
         def transform_result(
-            self, call: AgentToolCall, result: AgentToolResultMessage, /
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
         ) -> ProductContent:
             if call.tool_name == "write":
                 raise RuntimeError("canonical transform failure")
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     loop, _, events = _loop(
         tmp_path,
@@ -594,6 +604,7 @@ def test_canonical_hook_failure_propagates_after_guest_cleanup(
     parent = next(e.result for e in events.events if isinstance(e, ToolCallCompleted))
     assert parent.details is not None
     assert parent.details["nestedCalls"]["calls"][0]["status"] == "unfinished"
+    assert parent.details["nestedCalls"]["complete"] is False
     assert parent.details["nestedCalls"]["calls"][0]["arguments"]["path"] == "effect"
     assert pids and all(group_is_gone(pid) for pid in pids)
 

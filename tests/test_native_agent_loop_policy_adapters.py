@@ -74,7 +74,7 @@ def test_adapters_conform_to_canonical_runtime_protocols(tmp_path: Path) -> None
     request_policy = NativeAgentProviderRequestPolicy(lambda _input: snapshot)
     tool_policy = NativeAgentToolPolicy(
         lambda _call, _arguments, _parent: AgentToolPolicyDecision(),
-        lambda _call, result: result.content,
+        lambda _call, result, _arguments, _parent: result.content,
     )
 
     assert isinstance(request_policy, AgentProviderRequestPolicy)
@@ -316,6 +316,8 @@ def test_tool_policy_preserves_callback_arguments_and_call_order() -> None:
     def transform_result(
         value: AgentToolCall,
         observation: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent: str | None,
     ) -> ProductContent:
         trace.append(("transform", value, observation))
         return transformed
@@ -324,7 +326,7 @@ def test_tool_policy_preserves_callback_arguments_and_call_order() -> None:
 
     arguments: dict[str, Any] = {"path": "a"}
     assert policy.before_execute(call, arguments, "parent") is decision
-    assert policy.transform_result(call, result) is transformed
+    assert policy.transform_result(call, result, arguments, "parent") is transformed
     assert trace == [
         ("before", call, (arguments, "parent")),
         ("transform", call, result),
@@ -359,7 +361,7 @@ def test_tool_policy_preserves_callback_arguments_and_call_order() -> None:
                     ],
                     1,
                 ),
-                lambda _call, result: result.content,
+                lambda _call, result, _arguments, _parent: result.content,
             ),
             "before_execute must be callable",
         ),
@@ -367,7 +369,10 @@ def test_tool_policy_preserves_callback_arguments_and_call_order() -> None:
             lambda: NativeAgentToolPolicy(
                 lambda _call, _arguments, _parent: AgentToolPolicyDecision(),
                 cast(
-                    Callable[[AgentToolCall, AgentToolResultMessage], ProductContent],
+                    Callable[
+                        [AgentToolCall, AgentToolResultMessage, Any, Any],
+                        ProductContent,
+                    ],
                     1,
                 ),
             ),
@@ -404,30 +409,33 @@ def test_tool_policy_rejects_bad_callback_returns() -> None:
             ],
             lambda _call, _arguments, _parent: object(),
         ),
-        lambda _call, observation: observation.content,
+        lambda _call, observation, _arguments, _parent: observation.content,
     )
     transform_policy = NativeAgentToolPolicy(
         lambda _call, _arguments, _parent: AgentToolPolicyDecision(),
         cast(
-            Callable[[AgentToolCall, AgentToolResultMessage], ProductContent],
-            lambda _call, _result: "not product content",
+            Callable[
+                [AgentToolCall, AgentToolResultMessage, Any, Any],
+                ProductContent,
+            ],
+            lambda _call, _result, _arguments, _parent: "not product content",
         ),
     )
 
     with pytest.raises(TypeError, match="must return AgentToolPolicyDecision"):
         before_policy.before_execute(call, {}, None)
     with pytest.raises(TypeError, match="must return ProductContent"):
-        transform_policy.transform_result(call, result)
+        transform_policy.transform_result(call, result, {}, None)
 
 
 def test_tool_policy_passes_a_transform_with_structured_content_through() -> None:
     transform = AgentToolResultTransform(ProductContent("0 files"), {"files": 0})
     policy = NativeAgentToolPolicy(
         lambda _call, _arguments, _parent: AgentToolPolicyDecision(),
-        lambda _call, _result: transform,
+        lambda _call, _result, _arguments, _parent: transform,
     )
 
-    assert policy.transform_result(_call(), _result()) is transform
+    assert policy.transform_result(_call(), _result(), {}, None) is transform
     with pytest.raises(TypeError, match=r"AgentToolResultTransform\.content"):
         AgentToolResultTransform(cast(ProductContent, "text"))
 
@@ -439,7 +447,7 @@ def test_tool_policy_revalidates_tampered_decision_recursively() -> None:
     object.__setattr__(decision, "blocked_reason", blocked_reason)
     policy = NativeAgentToolPolicy(
         lambda _call, _arguments, _parent: decision,
-        lambda _call, result: result.content,
+        lambda _call, result, _arguments, _parent: result.content,
     )
 
     with pytest.raises(TypeError, match=r"blocked_reason\.value"):
@@ -454,11 +462,11 @@ def test_tool_policy_revalidates_tampered_transform_content() -> None:
     object.__setattr__(content, "value", StringSubclass("tampered"))
     policy = NativeAgentToolPolicy(
         lambda _call, _arguments, _parent: AgentToolPolicyDecision(),
-        lambda _call, _result: content,
+        lambda _call, _result, _arguments, _parent: content,
     )
 
     with pytest.raises(TypeError, match=r"callback result\.value"):
-        policy.transform_result(_call(), _result())
+        policy.transform_result(_call(), _result(), {}, None)
 
 
 def test_callback_failure_propagates_without_invoking_a_later_callback() -> None:
@@ -471,7 +479,10 @@ def test_callback_failure_propagates_without_invoking_a_later_callback() -> None
         raise RuntimeError("policy callback failed")
 
     def transform(
-        _call: AgentToolCall, result: AgentToolResultMessage
+        _call: AgentToolCall,
+        result: AgentToolResultMessage,
+        _arguments: dict[str, Any],
+        _parent: str | None,
     ) -> ProductContent:
         trace.append("transform")
         return result.content
@@ -500,7 +511,7 @@ def test_adapters_expose_only_callbacks_and_protocol_operations(tmp_path: Path) 
     )
     tool_policy = NativeAgentToolPolicy(
         lambda _call, _arguments, _parent: AgentToolPolicyDecision(),
-        lambda _call, result: result.content,
+        lambda _call, result, _arguments, _parent: result.content,
     )
 
     assert not hasattr(request_policy, "__dict__")

@@ -732,7 +732,7 @@ def test_non_lifecycle_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> N
     assert text == "hello!"
     assert before.append_system_prompt == "extra"
     assert isinstance(block, ToolBlock)
-    assert result == ToolResultTransform(content="out::result")
+    assert result is not None and result.content == "out::result"
     assert ("status", ("input", "hello")) in driver.calls
     assert ("set_editor", "hello!") in driver.calls
     assert ("widget", ("before", "sys", "below_editor")) in driver.calls

@@ -300,6 +300,9 @@ def test_pipeline_exception_records_unfinished_child_before_parent_completion() 
     assert row["arguments"] == {"path": "attempted"}
     assert set(row) == {"id", "name", "status", "arguments", "durationMs", "error"}
     assert parent.result.details["nestedCalls"] == runner.services[0].durable_record()
+    # Pi ``NestedCallRecorder.snapshot``: a record with an unfinished call is
+    # not complete (goal-check finding M14).
+    assert parent.result.details["nestedCalls"]["complete"] is False
 
 
 def test_provider_http_wires_omit_parent_details_and_nested_results() -> None:

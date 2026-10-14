@@ -156,6 +156,8 @@ class _ToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> ProductContent:
         del call, result
@@ -199,9 +201,9 @@ def test_request_and_tool_policy_protocols_are_runtime_checkable(
     assert request_policy.prepare(policy_input).request == policy_input.baseline
     assert isinstance(tool_policy, AgentToolPolicy)
     assert tool_policy.before_execute(_call(), {}, None) == AgentToolPolicyDecision()
-    assert tool_policy.transform_result(_call(), _tool_result()) == ProductContent(
-        "transformed"
-    )
+    assert tool_policy.transform_result(
+        _call(), _tool_result(), {}, None
+    ) == ProductContent("transformed")
     assert not isinstance(object(), AgentProviderRequestPolicy)
     assert not isinstance(object(), AgentToolPolicy)
 
@@ -243,7 +245,7 @@ def test_tool_policy_can_transform_content_but_not_result_identity() -> None:
     call = _call()
     result = _tool_result(is_error=True)
 
-    transformed = policy.transform_result(call, result)
+    transformed = policy.transform_result(call, result, {}, None)
 
     assert transformed == ProductContent("transformed")
     assert result.tool_request_id == "pipy-tool-fixture"

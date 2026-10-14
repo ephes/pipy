@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pipy_harness.native.agent import ProductContent
-from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ToolResultBlock
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolResultTransform,
@@ -240,11 +240,20 @@ class SessionExtensionOperations:
         content: ProductContent,
         is_error: bool,
         structured_content: object = NO_STRUCTURED_CONTENT,
+        tool_call_id: str = "",
+        parent_tool_call_id: str | None = None,
+        tool_input: Mapping[str, object] | None = None,
+        details: Mapping[str, object] | None = None,
+        blocks: tuple[ToolResultBlock, ...] = (),
     ) -> AgentToolResultTransform:
+        """The result as the ``tool_result`` hooks leave it; the result's own
+        content and structured content when no hook changed it."""
+
         projection, ui_driver, generation_id = self._projection()
         hooks = projection.hooks.tool_result
+        unchanged = AgentToolResultTransform(content, structured_content)
         if not hooks:
-            return AgentToolResultTransform(content, structured_content)
+            return unchanged
         transformed = dispatch_tool_result_hooks(
             hooks,
             tool_name=tool_name,
@@ -258,9 +267,21 @@ class SessionExtensionOperations:
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
             structured_content=structured_content,
+            tool_call_id=tool_call_id,
+            parent_tool_call_id=parent_tool_call_id,
+            tool_input=tool_input,
+            details=details,
+            blocks=blocks,
         )
+        if transformed is None:
+            return unchanged
+        assert transformed.content is not None and transformed.blocks is not None
         return AgentToolResultTransform(
-            ProductContent(transformed.content), transformed.structured_content
+            ProductContent(transformed.content),
+            transformed.structured_content,
+            blocks=transformed.blocks,
+            is_error=transformed.is_error,
+            details=transformed.details,
         )
 
     def session_allows(

@@ -368,6 +368,8 @@ class _ToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> ProductContent:
         self._order.append(f"policy:transform:{call.provider_correlation_id}")

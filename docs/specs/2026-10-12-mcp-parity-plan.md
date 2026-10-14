@@ -520,7 +520,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-19 | TLS-11, RES-09 | An image is never drawn in the terminal: the row shows `[Image: [<mime>] <w>x<h>]`, which is what Pi shows without an image protocol. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4) |
 | DEV-20 | CMD-29, CMD-30 | Text and images share Pi's limit of 16 Mi characters (since G5; S39 had a byte cap of 16 MiB for images beside 1 MiB of text), and `image()` also raises `ValueError` once the images alone would pass it. There are no `==> text N/M <==` separators (DEV-04). A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
 | DEV-21 | TLS-11 | How a tool result's images are sent to a provider differs in three points: a text-only result is sent as before (no `(no tool output)` for an empty one); the Mistral adapter sends images as the Chat Completions family does; there is no `requiresAssistantAfterToolResult`. Images are withheld from a model without image input only when the model has a catalog row of its own, so a model without a row and a provider object passed in by an embedder are sent the images. | narrower | Decided in S39 (part 2); `docs/providers.md` |
-| DEV-22 | CMD-25 | A `tool_result` transform always replaces the content and decides the structured content with it. It cannot replace `details`, `isError` or usage, it is not shown a result's images, and an extension tool cannot return an image (`ToolResult.content` is a string). | narrower | Decided in S04, S39 (part 1) |
+| DEV-22 | CMD-25 | A `tool_result` transform cannot replace usage: pipy counts no usage of tools (DEV-13). Since G6 it is shown the whole result (blocks, details, the arguments and the call ids) and replaces the content, images included, the error flag and the details as Pi's does. | narrower | Decided in S04, S39 (part 1), G6 |
 | DEV-23 | CMD-22 | With `codemode.mode: "only"` a direct model call to a tool whose declaration is left out is an unknown tool; Pi would run it. `codemode.mode` and `codemode.inlineBudget` are read at session start and on `/reload`, not before every prompt. | other form | Decided in S08 |
 | DEV-24 | CMD-27 | The codemode system prompt contribution has two guideline lines. The second comes from the codemode adherence slice and predates this plan. | other form | Decided in S08 |
 | DEV-25 | CMD-06, CMD-19, EXT-03 | Only the built-in tools have prompt guidelines; extension tools have none, so nothing is added for them in `ALL_TOOLS` and the catalog. `get_all_tools()` is a method of the handler context (`ctx.get_all_tools()`), not of the activation API, and reports no `promptGuidelines` or `sourceInfo`. | narrower | Decided in S02, S07, S08 |
@@ -3976,6 +3976,31 @@ reach no hook), `test_arguments_that_fail_validation_reach_no_tool_policy`,
 `test_nested_calls_are_validated_and_the_policy_gets_their_parent_id`,
 `test_a_nested_call_runs_with_the_arguments_the_policy_left`,
 `test_given_arguments_are_validated_but_not_prepared_again`.
+Part 2 (findings M8 and E8 for `tool_result`, M13, T6, M14): the policy port
+is `transform_result(call, result, arguments, parent_call_id)`, called with
+the arguments the call ran with (direct, nested, composite parent and a call
+the readiness wait cancelled); `_settle_execution` runs it only when it is
+given `arguments`, so a call that never reached its `tool_call` hooks reaches
+no `tool_result` hook (Pi). `AgentToolResultTransform` gains `blocks` (`None`
+keeps the result's blocks when the text is unchanged, as before), `is_error`
+and `details` (`None` keeps). `ToolResultEvent` gains `tool_call_id`,
+`parent_tool_call_id`, `input`, `details` and `blocks`; `ToolResultTransform`
+gains `blocks`, `is_error` and `details`, and its `content` is optional
+(`None` keeps the content). `dispatch_tool_result_hooks` applies a transform
+as Pi's `emitToolResult` does (replaced content drops structured content
+that is not given with it; a field of the wrong kind voids the transform)
+and returns `None` when nothing changed; the product adapter then returns
+the result's own content. Replaced blocks are bounded with
+`bounded_result_blocks` (moved from the extension tool port to
+`extension_hooks`). M14 was closed in G3 (`durable_record` reports
+`complete: false` for an unfinished call); G6 adds the assertion to
+`test_pipeline_exception_records_unfinished_child_before_parent_completion`
+and `test_canonical_hook_failure_propagates_after_guest_cleanup`.
+Tests: `test_a_tool_result_hook_sees_the_call_and_changes_every_field`,
+`test_a_tool_result_hook_replaces_the_content_with_blocks`,
+`test_a_policy_transform_replaces_images_the_error_flag_and_details`,
+`test_a_tool_result_hook_sees_the_call_and_sets_the_error_flag`,
+`test_a_tool_result_hook_that_empties_the_content_drops_the_image`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

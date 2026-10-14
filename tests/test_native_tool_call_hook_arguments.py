@@ -1,10 +1,13 @@
-"""What a `tool_call` hook is shown and what it changes (goal check M8 to M10).
+"""What the tool hooks are shown and what they change (goal check M8 to M10,
+M13, E8, T6).
 
 Pi ``prepareToolCall`` validates a call's arguments before
 ``beforeToolCall``; the `tool_call` handlers get the validated arguments as
 ``event.input``, change them in place, and the tool runs with what they left.
-The event carries the call's id and, for a call another tool made, the
-calling tool's id.
+The events carry the call's id and, for a call another tool made, the
+calling tool's id. A `tool_result` handler also sees the arguments and the
+details and may replace the content (images included), `is_error` and
+`details` (Pi ``afterToolCall``).
 """
 
 from __future__ import annotations
@@ -140,3 +143,97 @@ def test_arguments_that_fail_validation_reach_no_hook(tmp_path, monkeypatch) -> 
     assert result.is_error
     assert "text" in result.content.value
     assert _log(log) == []
+
+
+_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+_RESULT_HOOKS = (
+    """import json
+from pathlib import Path
+from pipy_harness.extensions import (
+    ExtensionTool, ImageContent, ToolResult, ToolResultTransform,
+)
+
+LOG = Path(__file__).with_name('log.jsonl')
+_TEXT = {'type': 'object', 'properties': {'text': {'type': 'string'}},
+         'required': ['text'], 'additionalProperties': False}
+PNG = '"""
+    + _PNG
+    + """'
+
+
+def activate(api):
+    api.register_tool(ExtensionTool(
+        name='echo', description='Echo text.', input_schema=_TEXT,
+        handler=lambda ctx, params: ToolResult(
+            content='echo: ' + params['text'], details={'from': 'tool'})))
+    api.register_tool(ExtensionTool(
+        name='shot', description='An image.', input_schema=_TEXT,
+        handler=lambda ctx, params: ToolResult(
+            content='', blocks=(ImageContent(PNG, 'image/png'),))))
+    api.register_tool(ExtensionTool(
+        name='relay', description='Echo through echo.', input_schema=_TEXT,
+        handler=lambda ctx, params: ToolResult(
+            content=ctx.execute_tool('echo', dict(params)).result.content)))
+
+    @api.on('tool_result')
+    def judge(event, ctx):
+        with LOG.open('a') as handle:
+            handle.write(json.dumps([event.tool_name, event.tool_call_id,
+                                     event.parent_tool_call_id, dict(event.input),
+                                     event.details, len(event.blocks)]) + '\\n')
+        if event.tool_name == 'echo' and event.input.get('text') == 'bad':
+            return ToolResultTransform(is_error=True, details={'judged': True})
+        if event.tool_name == 'shot':
+            return ToolResultTransform(content='')
+"""
+)
+
+
+def _write_result_hooks(workspace: Path) -> Path:
+    directory = workspace / ".pipy" / "extensions"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "results.py").write_text(_RESULT_HOOKS, encoding="utf-8")
+    return directory / "log.jsonl"
+
+
+def test_a_tool_result_hook_sees_the_call_and_sets_the_error_flag(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    log = _write_result_hooks(tmp_path)
+
+    provider = _run(
+        tmp_path,
+        ProviderToolCall("p1", "echo", '{"text": "bad"}'),
+        ProviderToolCall("p2", "relay", '{"text": "fine"}'),
+    )
+
+    first, second = _tool_results(provider.requests[1])
+    assert first.is_error and first.content.value == "echo: bad"
+    assert first.details == {"judged": True}
+    assert not second.is_error and second.content.value == "echo: fine"
+    rows = _log(log)
+    assert rows[:2] == [
+        ["echo", "p1", None, {"text": "bad"}, {"from": "tool"}, 0],
+        ["echo", "p2/1", "p2", {"text": "fine"}, {"from": "tool"}, 0],
+    ]
+    # The calling tool's hook sees its nested-call record in the details.
+    assert rows[2][:4] == ["relay", "p2", None, {"text": "fine"}]
+    assert [c["id"] for c in rows[2][4]["nestedCalls"]["calls"]] == ["p2/1"]
+    assert len(rows) == 3
+
+
+def test_a_tool_result_hook_that_empties_the_content_drops_the_image(
+    tmp_path, monkeypatch
+) -> None:
+    # Goal-check finding T6: an image-only result whose content a hook
+    # replaces with "" reaches the model without the image.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    log = _write_result_hooks(tmp_path)
+
+    provider = _run(tmp_path, ProviderToolCall("p1", "shot", '{"text": "x"}'))
+
+    (result,) = _tool_results(provider.requests[1])
+    assert result.content.value == "" and result.blocks == ()
+    assert _log(log) == [["shot", "p1", None, {"text": "x"}, None, 1]]

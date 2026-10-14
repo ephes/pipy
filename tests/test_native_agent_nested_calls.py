@@ -121,9 +121,14 @@ class _Policy(_ToolPolicy):
         )
 
     def transform_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage, /
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
+        /,
     ) -> ProductContent:
-        super().transform_result(call, result)
+        super().transform_result(call, result, arguments, parent_call_id)
         return ProductContent(result.content.value + " transformed")
 
 
@@ -453,10 +458,15 @@ def test_nested_waiter_validation_and_callback_threads() -> None:
             return super().before_execute(call, arguments, parent_call_id)
 
         def transform_result(
-            self, call: AgentToolCall, result: AgentToolResultMessage, /
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
         ) -> ProductContent:
             assert threading.current_thread() is session_thread
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     runner = _Runner(run)
     loop, _, _, _ = _setup(
@@ -869,11 +879,16 @@ def test_child_counters_published_before_later_canonical_hook_failure() -> None:
 
     class Policy(_Policy):
         def transform_result(
-            self, call: AgentToolCall, result: AgentToolResultMessage, /
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
         ) -> ProductContent:
             if call.provider_correlation_id == "parent0":
                 raise RuntimeError("later postflight")
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     def run(
         call: AgentToolCall, service: NestedToolCallService
@@ -1056,10 +1071,10 @@ def _secondary_failure_ports(
     fault, canonical_failure, original, secondary, session_thread, release_attempts
 ):
     class Policy(_Policy):
-        def transform_result(self, call, result, /):
+        def transform_result(self, call, result, arguments, parent_call_id, /):
             if canonical_failure and call.provider_correlation_id == "parent0/2":
                 raise original
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     class Tools(_NestedTools):
         def error_result(self, call, message, /):
@@ -1107,7 +1122,7 @@ def test_structured_content_follows_the_result_policy_and_the_output_schema() ->
             )
 
     class Policy(_ToolPolicy):
-        def transform_result(self, call, result, /):
+        def transform_result(self, call, result, arguments, parent_call_id, /):
             if call.tool_name == "redacted":
                 # Content alone: the structured content may no longer match.
                 return ProductContent("0 files")

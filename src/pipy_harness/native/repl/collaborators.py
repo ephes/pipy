@@ -706,13 +706,22 @@ class SessionCollaborators:
         return AgentToolPolicyDecision(ProductContent(tool_block.reason))
 
     def transform_extension_tool_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
     ) -> AgentToolResultTransform:
         return self.extension_operations.transform_tool_result(
             tool_name=call.tool_name,
             content=result.content,
             is_error=result.is_error,
             structured_content=result.structured_content,
+            tool_call_id=call.provider_correlation_id,
+            parent_tool_call_id=parent_call_id,
+            tool_input=arguments,
+            details=result.details,
+            blocks=result.blocks,
         )
 
     def dispatch_resource_effect(

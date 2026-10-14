@@ -36,6 +36,7 @@ _CANONICAL_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.content.NO_STRUCTURED_CONTENT",
         "pipy_harness.native.agent.content.NoStructuredContent",
         "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.content.ToolResultBlock",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
@@ -335,7 +336,13 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
     fields = {
         "AgentProviderRequestPolicyInput": ("baseline", "active_input"),
         "AgentToolPolicyDecision": ("blocked_reason",),
-        "AgentToolResultTransform": ("content", "structured_content"),
+        "AgentToolResultTransform": (
+            "content",
+            "structured_content",
+            "blocks",
+            "is_error",
+            "details",
+        ),
         "AgentToolPolicyState": (
             "tool_budget",
             "malformed_limit",

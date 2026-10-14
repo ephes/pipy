@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -25,6 +25,7 @@ from pipy_harness.native.agent.content import (
     ProductContent,
     TextContent,
     ThinkingContent,
+    ToolResultBlock,
 )
 from pipy_harness.native.agent.events import (
     AgentRunCompleted,
@@ -941,8 +942,10 @@ class AgentLoop:
             call,
             turn_index,
             publish_budget_state,
-            composite_execute=lambda transition, run_call: self._execute_as_parent(
-                state, snapshot, call, run_call, turn_index, transition
+            composite_execute=lambda transition, run_call, arguments: (
+                self._execute_as_parent(
+                    state, snapshot, call, run_call, arguments, turn_index, transition
+                )
             ),
         )
         return self._record_tool_call(state, calls, call_index, settled, results)
@@ -953,6 +956,7 @@ class AgentLoop:
         snapshot: AgentProviderRequestSnapshot,
         asked: AgentToolCall,
         call: AgentToolCall,
+        arguments: dict[str, Any],
         turn_index: int,
         transition: AgentToolPolicyTransition,
     ) -> _SettledToolCall | None:
@@ -975,7 +979,7 @@ class AgentLoop:
         if runner is None:
             return None
         return self._execute_composite(
-            state, snapshot, asked, call, turn_index, transition, runner
+            state, snapshot, asked, call, arguments, turn_index, transition, runner
         )
 
     def _settle_tool_call(
@@ -987,7 +991,8 @@ class AgentLoop:
         publish_budget_state: Callable[[AgentToolPolicyState], None],
         *,
         composite_execute: Callable[
-            [AgentToolPolicyTransition, AgentToolCall], _SettledToolCall | None
+            [AgentToolPolicyTransition, AgentToolCall, dict[str, Any]],
+            _SettledToolCall | None,
         ]
         | None = None,
     ) -> _SettledToolCall:
@@ -1022,7 +1027,8 @@ class AgentLoop:
         admitted_state: AgentToolPolicyState,
         *,
         composite_execute: Callable[
-            [AgentToolPolicyTransition, AgentToolCall], _SettledToolCall | None
+            [AgentToolPolicyTransition, AgentToolCall, dict[str, Any]],
+            _SettledToolCall | None,
         ]
         | None = None,
     ) -> _SettledToolCall:
@@ -1040,7 +1046,7 @@ class AgentLoop:
         # the wait was for.
         interrupted = self._wait_until_ready(call, None)
         if interrupted is None and composite_execute is not None:
-            composite = composite_execute(transition, run_call)
+            composite = composite_execute(transition, run_call, arguments)
             if composite is not None:
                 return composite
         started_at = datetime.now(UTC)
@@ -1055,7 +1061,11 @@ class AgentLoop:
             ),
         )
         settled = self._settle_execution(
-            admitted_state, call, execution, AgentToolInvocationMode.DIRECT
+            admitted_state,
+            call,
+            execution,
+            AgentToolInvocationMode.DIRECT,
+            arguments=arguments,
         )
         self._events.emit(
             ToolCallCompleted(
@@ -1090,9 +1100,7 @@ class AgentLoop:
         """
         arguments = tools.validated_arguments(call)
         if isinstance(arguments, ToolExecutionOutcome):
-            return self._settle_execution(
-                tool_state, call, arguments, mode, run_hooks=False
-            )
+            return self._settle_execution(tool_state, call, arguments, mode)
         if type(arguments) is not dict:
             raise TypeError("validated_arguments must return a dict")
         validated = copy.deepcopy(arguments)
@@ -1136,16 +1144,20 @@ class AgentLoop:
         execution: ToolExecutionOutcome,
         mode: AgentToolInvocationMode,
         *,
-        run_hooks: bool = True,
+        arguments: dict[str, Any] | None = None,
+        parent_call_id: str | None = None,
     ) -> _SettledToolCall:
         """Settle what the tool returned (or the outcome of a call cancelled
-        before it ran) and run the ``tool_result`` hooks, unless the call
-        never reached its ``tool_call`` hooks."""
+        before it ran) and run the ``tool_result`` hooks with the arguments
+        it ran with; without ``arguments`` the call never reached its
+        ``tool_call`` hooks and reaches no ``tool_result`` hook either."""
         settlement = settle_tool_execution(tool_state, execution, mode=mode)
         _validate_tool_result_for_call(execution.result, call)
         result = execution.result
-        if run_hooks:
-            result = _transform_tool_result(self._tool_policy, call, result)
+        if arguments is not None:
+            result = _transform_tool_result(
+                self._tool_policy, call, result, arguments, parent_call_id
+            )
         _validate_tool_result_for_call(result, call)
         return _SettledToolCall(result, settlement, execution.cancelled)
 
@@ -1193,7 +1205,14 @@ class AgentLoop:
             return prepared
         interrupted = self._wait_until_ready(call, waiter)
         if interrupted is not None:
-            return self._settle_execution(state.tool_state, call, interrupted, mode)
+            return self._settle_execution(
+                state.tool_state,
+                call,
+                interrupted,
+                mode,
+                arguments=prepared[2],
+                parent_call_id=_caller_id(call),
+            )
         return prepared[1], prepared[2]
 
     def _execute_composite(
@@ -1202,6 +1221,7 @@ class AgentLoop:
         snapshot: AgentProviderRequestSnapshot,
         asked: AgentToolCall,
         call: AgentToolCall,
+        arguments: dict[str, Any],
         turn_index: int,
         transition: AgentToolPolicyTransition,
         runner: AgentCompositeToolRunner,
@@ -1280,7 +1300,9 @@ class AgentLoop:
                 )
             # The result policy sees the call as it was asked for, as for a
             # direct or a nested call.
-            result = _transform_tool_result(self._tool_policy, asked, execution.result)
+            result = _transform_tool_result(
+                self._tool_policy, asked, execution.result, arguments, None
+            )
             _validate_tool_result_for_call(result, call)
             if recorded:
                 # Hooks own content; canonical metadata is a fresh post-hook
@@ -1597,6 +1619,8 @@ class _NestedPipeline:
                 child,
                 execution,
                 AgentToolInvocationMode.NESTED,
+                arguments=arguments,
+                parent_call_id=_caller_id(child),
             )
             return self._outcome(child, settled, started)
 
@@ -1686,12 +1710,24 @@ def _transform_tool_result(
     policy: AgentToolPolicy,
     call: AgentToolCall,
     result: AgentToolResultMessage,
+    arguments: dict[str, Any],
+    parent_call_id: str | None,
 ) -> AgentToolResultMessage:
-    transformed = policy.transform_result(call, result)
+    """The result as the policy leaves it (Pi ``afterToolCall``)."""
+
+    transformed = policy.transform_result(call, result, arguments, parent_call_id)
+    blocks: tuple[ToolResultBlock, ...] | None = None
+    is_error: bool | None = None
+    details: Mapping[str, Any] | None = None
     if isinstance(transformed, AgentToolResultTransform):
         content = transformed.content
         validate_product_content(content, "AgentToolPolicy.transform_result result")
         structured_content = transformed.structured_content
+        blocks, is_error, details = (
+            transformed.blocks,
+            transformed.is_error,
+            transformed.details,
+        )
     else:
         content = transformed
         validate_product_content(content, "AgentToolPolicy.transform_result result")
@@ -1702,15 +1738,27 @@ def _transform_tool_result(
             if content == result.content
             else NO_STRUCTURED_CONTENT
         )
-    if content == result.content and structured_content is result.structured_content:
+    if blocks is None:
+        # Pi: a handler's ``content`` replaces the whole content, images
+        # included; a policy that leaves the text as it is keeps them.
+        blocks = result.blocks if content == result.content else ()
+    new_is_error = result.is_error if is_error is None else is_error
+    new_details = result.details if details is None else dict(details)
+    if (
+        content == result.content
+        and structured_content is result.structured_content
+        and blocks == result.blocks
+        and new_is_error == result.is_error
+        and new_details is result.details
+    ):
         return result
-    # Pi: a handler's ``content`` replaces the whole content, images included;
-    # one that leaves the text as it is keeps them.
     return replace(
         result,
         content=content,
         structured_content=structured_content,
-        blocks=result.blocks if content == result.content else (),
+        blocks=blocks,
+        is_error=new_is_error,
+        details=new_details,
     )
 
 

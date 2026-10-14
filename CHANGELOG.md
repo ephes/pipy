@@ -490,6 +490,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   (`<parent id>/<n>`) and its calling tool. `dispatch_tool_call_hooks` takes
   `tool_call_id` (and `parent_tool_call_id`). See
   [Call hooks](docs/extension-api.md#extension-tool-metadata).
+- A `tool_result` hook is shown the whole result and may change all of it,
+  as in Pi: `ToolResultEvent` gains `blocks` (the text and image blocks of a
+  result with images), `details`, `input`, `tool_call_id` and
+  `parent_tool_call_id`, and `ToolResultTransform` gains `blocks`,
+  `is_error` and `details`; its `content` is now optional. A transform's
+  `content` replaces the whole content, images included, so `content=""`
+  removes the image of an image-only result (before, images were kept
+  whenever the text stayed the same). `dispatch_tool_result_hooks` takes the
+  new fields and returns `None` when no hook changed the result. See
+  [Result hooks](docs/extension-api.md#extension-tool-metadata).
 - The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
   as Pi's `prompt` handles them. A text that names an extension command runs
   it and starts no run; `/mcp` is such a command and prints the server

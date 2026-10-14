@@ -266,6 +266,8 @@ class _AllowToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> ProductContent:
         del call
