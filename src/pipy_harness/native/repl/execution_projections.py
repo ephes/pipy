@@ -85,12 +85,14 @@ class ExecutionCallableSnapshot:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        nested_tools: NestedToolCalls | None = None,
     ) -> ToolExecutionOutcome:
         return self.tools.execute(
             call,
             output_sink=output_sink,
             wait_for_interrupt=wait_for_interrupt,
             extension_generation_id=self.generation_id,
+            nested_tools=nested_tools,
         )
 
 

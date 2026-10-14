@@ -471,3 +471,38 @@ def test_nested_mcp_calls_are_rows_of_the_codemode_row(tmp_path: Path) -> None:
     plain.render_tool_call(parent)
     plain.render_nested_tool_call(_end(search))
     assert '  ✓ mcp__docs__search {"query":"pi"} 125ms' in stream.getvalue()
+
+
+def test_calls_of_nested_calls_are_rows_of_the_parent_row(tmp_path: Path) -> None:
+    """A tool a script called runs a tool itself (Pi: nested calls at every
+    depth): its call is a row of the same parent row, live and plain."""
+
+    live = _Live(tmp_path)
+    live.width = 100
+    adapter = RenderingAgentEventAdapter(live.renderer)
+    parent = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    outer = AgentToolCall("parent/1", "outer", ProductContent("{}"))
+    inner = AgentToolCall("parent/1/1", "read", ProductContent('{"path":"a"}'))
+    adapter.emit(ToolCallStarted(0, parent))
+    adapter.emit(NestedToolCallStarted(0, "parent", outer))
+    adapter.emit(NestedToolCallStarted(0, "parent/1", inner))
+    adapter.emit(_end(inner))
+    adapter.emit(_end(outer))
+    # Another parent's calls stay out.
+    adapter.emit(NestedToolCallStarted(0, "parentx", _child("parentx")))
+    live.renderer.render_tool_result(output_text="done", is_error=False)
+    assert live.rows() == [
+        [
+            "codemode",
+            "✓ outer {} 125ms",
+            '✓ read {"path":"a"} 125ms',
+            "done",
+        ]
+    ]
+
+    stream = io.StringIO()
+    plain = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+    plain.render_tool_call(parent)
+    plain.render_nested_tool_call(_end(inner))
+    plain.render_nested_tool_call(_end(_child("parentx")))
+    assert stream.getvalue().count("✓ read") == 1

@@ -1107,9 +1107,9 @@ def read_all(ctx, params):
 
 - `ctx.tools` is a tuple of `ToolInfo`, one per tool `execute_tool` can
   call, in registration order: the callable tools of the
-  [tool model](#tool-model), as they were when this tool was called, without
-  the tool itself. A tool that is `model-only` is therefore not in the list
-  and cannot be called this way.
+  [tool model](#tool-model), as they were when the tool the model called
+  started, the tool itself included when it is callable. A tool that is
+  `model-only` is not in the list and cannot be called this way.
 - `ctx.execute_tool(name, arguments)` (also `ctx.executeTool`) runs the tool
   and returns a `ToolCallOutcome`, Pi's `AgentToolCallOutcome`:
   `tool_call` (a `ToolCallInfo` with the call's `id`, `name` and
@@ -1126,12 +1126,18 @@ def read_all(ctx, params):
   gives `Tool <name> not found`; invalid arguments, a call a `tool_call`
   handler blocked, a failed tool and an exhausted tool budget give the same
   error results the model would get. All of them have `is_error=True`.
+- A tool called this way gets `ctx.tools` and `ctx.execute_tool` too, so a
+  nested tool can run tools itself, at any depth, also a tool that calls
+  itself; the tool budget bounds the depth. A tool a codemode script called
+  can run tools the same way.
 - The nested calls do not appear in the transcript: their results only reach
   the calling tool, which reports them in its own result. They have the ids
-  `<calling id>/<n>`, and the session emits a start and an end event for
+  `<calling id>/<n>` (`p1/2/1` is the first call of the second call of
+  `p1`), and the session emits a start and an end event for
   each with the id of the calling call (`parentToolCallId` in
   [JSON mode](json.md) and [RPC mode](rpc.md)). The result of the calling
-  tool keeps a bounded record of them as `nestedCalls` in its `details`
+  tool the model called keeps a bounded record of them, at every depth, as
+  `nestedCalls` in its `details`
   (name, arguments, status, duration and error, never results; at most 256
   calls, arguments up to 8 KiB per call and 32 KiB in all, with
   `complete: false` when something was left out). A tool that called nothing
@@ -1140,29 +1146,31 @@ def read_all(ctx, params):
 - Escape or an abort while a nested call runs cancels that call and the
   calling tool with it.
 
-`execute_tool` may be called from any thread the handler starts. The calls
-run one at a time on the session thread, in the order they were asked for,
-and each blocks its caller until it ended. Once the handler returned, or the
-session stopped waiting for it after an interruption, a call that is still
-waiting or is made later is answered with
-`Nested tool calls are not available in this context`. A session that cannot
-be interrupted (it has no terminal and no abort signal)
-runs the handler on the session thread itself; there only the handler's own
-thread can run tools, and a call from another thread gets that answer at
-once.
+`execute_tool` may be called from any thread the handler starts, and calls
+made from several threads run at the same time, as in Pi; each blocks its
+caller until it ended. The handler runs on a worker thread, and the session
+thread runs the pipeline of each call (validation, handlers, budget) while
+the tools themselves run on threads of their own. When the tool the model
+called returned, the nested calls still running are cancelled with the
+error `tool cancelled by its caller`, and a call that is still waiting or is
+made later is answered with
+`Nested tool calls are not available in this context`; so is a call of a
+nested tool that already returned.
 
 Different from Pi:
 
-- Only a tool the model called can run other tools. A tool that was itself
-  called through `execute_tool` or from a codemode script has an empty
-  `ctx.tools`, and its `execute_tool` returns the error result
-  `Nested tool calls are not available in this context`. In Pi a nested tool
-  can run tools itself. The contexts of commands and hooks answer the same
-  way; Pi does not give them `executeTool`.
-- A tool cannot call itself.
-- `ctx.tools` and what `execute_tool` reaches are fixed when the calling tool
-  starts, after its `tool_call` handlers ran. Pi looks the callable tools up
-  again for every call.
+- The contexts of commands and hooks have an empty `ctx.tools`, and their
+  `execute_tool` returns the error result
+  `Nested tool calls are not available in this context`; Pi does not give
+  them `executeTool`.
+- `ctx.tools` and what `execute_tool` reaches, at every depth, are fixed when
+  the tool the model called starts, after its `tool_call` handlers ran. Pi
+  looks the callable tools up again for every call.
+- Nested calls always run concurrently. Pi runs them one at a time when the
+  agent executes tool calls sequentially or the tool's `executionMode` is
+  `sequential`; pipy has neither setting.
+- Pi lets a nested call still running when its calling tool returned go on;
+  pipy cancels it when the tool the model called returned.
 - `execute_tool` takes no `signal` or `onUpdate` options; a pipy tool
   handler has neither a signal nor partial results. In the outcome,
   `result.content` is the result's text and `result.blocks` its ordered

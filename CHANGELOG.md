@@ -483,6 +483,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `ImageContent` (exported from `pipy_harness.extensions`), so a tool can
   return the screenshot of an MCP tool it called. See
   [running other tools](docs/extension-api.md#running-other-tools).
+- Nested tool calls work as in Pi at every depth: a tool called through
+  `ctx.execute_tool` or from a codemode script can run tools itself, also
+  itself, and its calls are part of the record of the tool the model
+  called, with ids `<calling id>/<n>`. Calls an extension tool makes from
+  several threads run at the same time instead of one after the other; the
+  session thread runs their validation and handlers, and each counts
+  against the tool budget from the moment it is admitted. A handler now
+  runs on a worker thread also in a session that cannot be interrupted, so
+  calls from threads it starts are served there too instead of refused.
+  When the tool the model called returns, its nested calls that still run
+  are cancelled. See
+  [running other tools](docs/extension-api.md#running-other-tools).
 
 ### Fixed
 

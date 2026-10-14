@@ -323,13 +323,15 @@ def decide_tool_admission(
     *,
     mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
     callable_names: frozenset[str] | None = None,
+    pending: int = 0,
 ) -> AgentToolPolicyTransition:
     """Apply the core budget and authorization gates in order.
 
     A direct call is authorized by the request that declared the tool. A
     nested call may pass ``callable_names``, its parent's callable snapshot,
     which then authorizes it instead: a script reaches tools that no request
-    declares.
+    declares. ``pending`` counts the nested calls that were admitted and have
+    not settled yet; each of them will take a place in the budget.
     """
 
     _validate_invocation_state(state, mode)
@@ -340,12 +342,18 @@ def decide_tool_admission(
             raise ValueError("callable_names authorize nested calls only")
         if type(callable_names) is not frozenset:
             raise TypeError("callable_names must be an exact frozenset or None")
+    require_non_negative_int(pending, "pending")
+    if pending and mode is not AgentToolInvocationMode.NESTED:
+        raise ValueError("only nested calls can be pending")
     if type(snapshot) is not AgentProviderRequestSnapshot:
         raise TypeError("snapshot must be AgentProviderRequestSnapshot")
     if type(call) is not AgentToolCall:
         raise TypeError("call must be AgentToolCall")
     validate_agent_tool_call(call)
-    if state.invocations_this_turn + state.reserved_parent_slot >= state.tool_budget:
+    if (
+        state.invocations_this_turn + pending + state.reserved_parent_slot
+        >= state.tool_budget
+    ):
         return AgentToolPolicyTransition(
             AgentToolPolicyAction.BUDGET_EXHAUSTED,
             replace(

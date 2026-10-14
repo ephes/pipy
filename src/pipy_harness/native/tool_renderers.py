@@ -53,6 +53,7 @@ from pipy_harness.native.tool_rows import (
     RowRenderers,
     bounded_nested_text,
     collapsed_tool_args,
+    is_nested_under,
     nested_line_text,
 )
 
@@ -818,7 +819,9 @@ class _ToolLoopRenderer:
         self, event: NestedToolCallStarted | NestedToolCallCompleted
     ) -> None:
         with self._terminal_lock:
-            if getattr(self, "_nested_parent_id", None) != event.parent_correlation_id:
+            if not is_nested_under(
+                getattr(self, "_nested_parent_id", None), event.parent_correlation_id
+            ):
                 return
             status = "unfinished"
             duration = None

@@ -371,7 +371,10 @@ credentials/environment; its only filesystem preopen is the read-only stdlib.
 Callable tools retain exactly their normal direct-call authority: `read` resolves
 any readable host path under the existing tool policy; `bash` may access files,
 network and spawn host processes through its normal pipeline; an extension tool
-runs its handler as it does for a direct call. Every nested call uses the same
+runs its handler as it does for a direct call, and can itself run tools with
+`ctx.execute_tool` (see
+[running other tools](extension-api.md#running-other-tools)); those calls are
+part of the script's `nestedCalls` record. Every nested call uses the same
 validation, policy, extension hooks, budget, result transformation and
 interruption path as a direct call: a `tool_call` hook can block a nested call
 and a `tool_result` hook can change its result. Scripts themselves gain no extra

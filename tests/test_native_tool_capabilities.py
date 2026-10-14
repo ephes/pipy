@@ -322,6 +322,7 @@ def test_agent_protocol_accepts_a_headless_fake_implementation() -> None:
             *,
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
         ) -> ToolExecutionOutcome:
             del call, output_sink, wait_for_interrupt
             raise AssertionError("execution is not required for protocol discovery")

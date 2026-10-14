@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from math import isfinite
+from time import monotonic
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import require_bool
@@ -76,6 +77,7 @@ from pipy_harness.native.agent.nested_calls import (
     NestedToolCallOutcome,
     NestedToolCallService,
     NestedToolEligibility,
+    PendingNestedCall,
 )
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
@@ -126,7 +128,7 @@ from pipy_harness.native.models import (
     ProviderResult,
     ProviderToolCall,
 )
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.base import NestedToolCalls, ToolDefinition
 from pipy_harness.status import HarnessStatus
 
 
@@ -976,24 +978,14 @@ class AgentLoop:
         turn_index: int,
         publish_budget_state: Callable[[AgentToolPolicyState], None],
         *,
-        mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
-        emit_events: bool = True,
-        nested_waiter: ToolInterruptWaiter | None = None,
-        nested_tools: NestedCallableTools | None = None,
-        nested_names: frozenset[str] | None = None,
         composite_execute: Callable[
             [AgentToolPolicyTransition], _SettledToolCall | None
         ]
         | None = None,
     ) -> _SettledToolCall:
-        """Settle without history/results; only budget publishes state early.
-
-        A nested call names its parent's callable snapshot: ``nested_names``
-        authorize it and ``nested_tools`` execute it.
-        """
-        admission = decide_tool_admission(
-            tool_state, snapshot, call, mode=mode, callable_names=nested_names
-        )
+        """Settle a call the model made, without history/results; only the
+        budget publishes state early."""
+        admission = decide_tool_admission(tool_state, snapshot, call)
         if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
             publish_budget_state(admission.state)
             result = self._tools.error_result(
@@ -1001,23 +993,17 @@ class AgentLoop:
                 f"tool budget exhausted (limit {admission.state.tool_budget})",
             )
             _validate_tool_result_for_call(result, call)
-            if emit_events:
-                self._emit_policy_result(call, result, turn_index)
+            self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
         if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
             result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
             _validate_tool_result_for_call(result, call)
-            if emit_events:
-                self._emit_policy_result(call, result, turn_index)
+            self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
         return self._execute_admitted_tool(
             call,
             turn_index,
             admission.state,
-            mode=mode,
-            emit_events=emit_events,
-            nested_waiter=nested_waiter,
-            nested_tools=nested_tools,
             composite_execute=composite_execute,
         )
 
@@ -1027,19 +1013,14 @@ class AgentLoop:
         turn_index: int,
         admitted_state: AgentToolPolicyState,
         *,
-        mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
-        emit_events: bool = True,
-        nested_waiter: ToolInterruptWaiter | None = None,
-        nested_tools: NestedCallableTools | None = None,
         composite_execute: Callable[
             [AgentToolPolicyTransition], _SettledToolCall | None
         ]
         | None = None,
     ) -> _SettledToolCall:
-        if emit_events:
-            self._events.emit(ToolCallStarted(turn_index, call))
+        self._events.emit(ToolCallStarted(turn_index, call))
         decision = self._tool_policy.before_execute(call)
-        transition = apply_tool_policy_decision(admitted_state, decision, mode=mode)
+        transition = apply_tool_policy_decision(admitted_state, decision)
         if transition.action is AgentToolPolicyAction.BLOCKED:
             assert decision.blocked_reason is not None
             result = self._tools.error_result(
@@ -1047,28 +1028,34 @@ class AgentLoop:
                 f"blocked by extension: {decision.blocked_reason.value}",
             )
             _validate_tool_result_for_call(result, call)
-            if emit_events:
-                self._emit_tool_completed(call, result, turn_index)
+            self._emit_tool_completed(call, result, turn_index)
             return _SettledToolCall(result, transition)
         # The product's wait for what the call needs (MCP servers that are
         # still connecting) comes after the hooks and before a composite
         # parent takes its callable snapshot, so that snapshot has the tools
         # the wait was for.
-        interrupted = self._wait_until_ready(call, nested_waiter)
+        interrupted = self._wait_until_ready(call, None)
         if interrupted is None and composite_execute is not None:
             composite = composite_execute(transition)
             if composite is not None:
                 return composite
-        return self._execute_tool(
+        started_at = datetime.now(UTC)
+        execution = interrupted or self._tools.execute(
             call,
-            turn_index,
-            admitted_state,
-            mode=mode,
-            emit_events=emit_events,
-            nested_waiter=nested_waiter,
-            nested_tools=nested_tools,
-            interrupted=interrupted,
+            output_sink=self._tool_output_sink(turn_index, call),
+            wait_for_interrupt=self._tool_waiter,
         )
+        settled = self._settle_execution(
+            admitted_state, call, execution, AgentToolInvocationMode.DIRECT
+        )
+        self._events.emit(
+            ToolCallCompleted(
+                turn_index,
+                settled.result,
+                duration_seconds=(datetime.now(UTC) - started_at).total_seconds(),
+            )
+        )
+        return settled
 
     def _wait_until_ready(
         self, call: AgentToolCall, nested_waiter: ToolInterruptWaiter | None
@@ -1083,42 +1070,69 @@ class AgentLoop:
             return None
         return cancelled_tool_outcome(self._tools.error_result, call, interruption)
 
-    def _execute_tool(
+    def _settle_execution(
         self,
-        call: AgentToolCall,
-        turn_index: int,
         tool_state: AgentToolPolicyState,
-        *,
-        mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
-        emit_events: bool = True,
-        nested_waiter: ToolInterruptWaiter | None = None,
-        nested_tools: NestedCallableTools | None = None,
-        interrupted: ToolExecutionOutcome | None = None,
+        call: AgentToolCall,
+        execution: ToolExecutionOutcome,
+        mode: AgentToolInvocationMode,
     ) -> _SettledToolCall:
-        """Run the call and settle it. ``interrupted`` is the outcome of a call
-        that was cancelled before it ran; it is settled like one cancelled
-        while running."""
-        started_at = datetime.now(UTC)
-        # A nested call runs on the executor its parent's snapshot is bound to.
-        execution = interrupted or (
-            self._tools if nested_tools is None else nested_tools
-        ).execute(
-            call,
-            output_sink=self._tool_output_sink(turn_index, call)
-            if emit_events
-            else None,
-            wait_for_interrupt=nested_waiter or self._tool_waiter,
-        )
+        """Settle what the tool returned (or the outcome of a call cancelled
+        before it ran) and run the ``tool_result`` hooks."""
         settlement = settle_tool_execution(tool_state, execution, mode=mode)
         _validate_tool_result_for_call(execution.result, call)
         result = _transform_tool_result(self._tool_policy, call, execution.result)
         _validate_tool_result_for_call(result, call)
-        duration = (datetime.now(UTC) - started_at).total_seconds()
-        if emit_events:
-            self._events.emit(
-                ToolCallCompleted(turn_index, result, duration_seconds=duration)
-            )
         return _SettledToolCall(result, settlement, execution.cancelled)
+
+    def _admit_nested(
+        self,
+        state: _RunState,
+        snapshot: AgentProviderRequestSnapshot,
+        call: AgentToolCall,
+        eligible: frozenset[str],
+        pending: int,
+        waiter: ToolInterruptWaiter | None,
+        publish: Callable[[AgentToolPolicyState], None],
+    ) -> _SettledToolCall | None:
+        """Session thread: a nested call's admission, ``tool_call`` hooks
+        and readiness wait, on the current state. ``None`` when it may run;
+        otherwise how it settled without running."""
+        mode = AgentToolInvocationMode.NESTED
+        admission = decide_tool_admission(
+            state.tool_state,
+            snapshot,
+            call,
+            mode=mode,
+            callable_names=eligible,
+            pending=pending,
+        )
+        if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
+            publish(admission.state)
+            result = self._tools.error_result(
+                call,
+                f"tool budget exhausted (limit {admission.state.tool_budget})",
+            )
+            _validate_tool_result_for_call(result, call)
+            return _SettledToolCall(result, admission)
+        if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
+            result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
+            _validate_tool_result_for_call(result, call)
+            return _SettledToolCall(result, admission)
+        decision = self._tool_policy.before_execute(call)
+        transition = apply_tool_policy_decision(state.tool_state, decision, mode=mode)
+        if transition.action is AgentToolPolicyAction.BLOCKED:
+            assert decision.blocked_reason is not None
+            result = self._tools.error_result(
+                call,
+                f"blocked by extension: {decision.blocked_reason.value}",
+            )
+            _validate_tool_result_for_call(result, call)
+            return _SettledToolCall(result, transition)
+        interrupted = self._wait_until_ready(call, waiter)
+        if interrupted is not None:
+            return self._settle_execution(state.tool_state, call, interrupted, mode)
+        return None
 
     def _execute_composite(
         self,
@@ -1148,71 +1162,29 @@ class AgentLoop:
             if callable_tools is not None
             else frozenset()
         )
+        # Pi's codemode never calls itself; a tool that runs other tools
+        # through ``ctx.execute_tool`` may (``reaches_itself``).
+        if not getattr(runner, "reaches_itself", False):
+            eligible -= {call.tool_name}
 
         def publish(value: AgentToolPolicyState) -> None:
             _revalidate_tool_policy_state(value)
             state.tool_state = value
             self._status.tool_policy_state_changed(value)
 
-        def settle(
-            child: AgentToolCall, waiter: ToolInterruptWaiter | None = None
-        ) -> NestedToolCallOutcome:
-            from time import monotonic
-
-            started = monotonic()
-            self._events.emit(
-                NestedToolCallStarted(turn_index, call.provider_correlation_id, child)
-            )
-            settled = self._settle_tool_call(
-                state.tool_state,
-                snapshot,
-                child,
-                turn_index,
-                publish,
-                mode=AgentToolInvocationMode.NESTED,
-                emit_events=False,
-                nested_waiter=waiter,
-                nested_tools=callable_tools,
-                nested_names=eligible,
-            )
-            action = settled.transition.action
-            if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
-                publish(settled.transition.state)
-            status = NestedCallStatus(
-                "malformed"
-                if action is AgentToolPolicyAction.NESTED_MALFORMED
-                else action.value
-            )
-            if settled.cancelled and status is NestedCallStatus.SETTLED:
-                status = NestedCallStatus.CANCELLED
-            outcome = NestedToolCallOutcome(
-                child,
-                settled.result,
-                status,
-                settled.transition.interruption,
-                duration_seconds=monotonic() - started,
-            )
-            self._events.emit(
-                NestedToolCallCompleted(
-                    turn_index,
-                    call.provider_correlation_id,
-                    child,
-                    outcome.result,
-                    outcome.status,
-                    outcome.duration_seconds,
-                )
-            )
-            return outcome
-
+        pipeline = _NestedPipeline(
+            self, state, snapshot, turn_index, callable_tools, eligible, publish
+        )
         service = NestedToolCallService(
             call,
             eligible,
-            settle,
+            pipeline.settle,
             self._tools.error_result,
-            settle_with_waiter=settle,
+            settle_with_waiter=pipeline.settle,
             callable_tools=(
                 callable_tools.callable_tools() if callable_tools is not None else ()
             ),
+            session_waiter=self._tool_waiter,
         )
         started_at = datetime.now(UTC)
         terminal_emit_attempted = False
@@ -1471,6 +1443,124 @@ def _failed_blocks(
         return tuple(streamed)
     text = result.final_text or ""
     return (TextContent(text),) if text else ()
+
+
+class _NestedPipeline:
+    """The pipeline of the nested calls under one composite parent.
+
+    Every method runs on the session thread except a pending call's
+    ``execute``. ``pending`` counts the calls admitted to run that have not
+    settled: each takes a place in the budget, since calls asked for on
+    several threads run at the same time.
+    """
+
+    def __init__(
+        self,
+        loop: AgentLoop,
+        state: _RunState,
+        snapshot: AgentProviderRequestSnapshot,
+        turn_index: int,
+        callable_tools: NestedCallableTools | None,
+        eligible: frozenset[str],
+        publish: Callable[[AgentToolPolicyState], None],
+    ) -> None:
+        self._loop = loop
+        self._state = state
+        self._snapshot = snapshot
+        self._turn_index = turn_index
+        self._callable_tools = callable_tools
+        self._eligible = eligible
+        self._publish = publish
+        self._pending = 0
+
+    def settle(
+        self, child: AgentToolCall, waiter: ToolInterruptWaiter | None = None
+    ) -> NestedToolCallOutcome | PendingNestedCall:
+        """The pipeline up to the tool; a call that runs is settled by its
+        ``finish``."""
+        loop = self._loop
+        started = monotonic()
+        loop._events.emit(
+            NestedToolCallStarted(self._turn_index, _caller_id(child), child)
+        )
+        before = loop._admit_nested(
+            self._state,
+            self._snapshot,
+            child,
+            self._eligible,
+            self._pending,
+            waiter,
+            self._publish,
+        )
+        if before is not None:
+            return self._outcome(child, before, started)
+        tools = self._callable_tools
+        assert tools is not None  # nothing is eligible without it
+        self._pending += 1
+        finished = False
+
+        def execute(
+            *,
+            wait_for_interrupt: ToolInterruptWaiter | None,
+            nested_tools: NestedToolCalls | None,
+        ) -> ToolExecutionOutcome:
+            return tools.execute(
+                child, wait_for_interrupt=wait_for_interrupt, nested_tools=nested_tools
+            )
+
+        def finish(execution: ToolExecutionOutcome) -> NestedToolCallOutcome:
+            nonlocal finished
+            if finished:
+                raise RuntimeError("nested call settled twice")
+            finished = True
+            self._pending -= 1
+            settled = loop._settle_execution(
+                self._state.tool_state,
+                child,
+                execution,
+                AgentToolInvocationMode.NESTED,
+            )
+            return self._outcome(child, settled, started)
+
+        return PendingNestedCall(child, execute, finish)
+
+    def _outcome(
+        self, child: AgentToolCall, settled: _SettledToolCall, started: float
+    ) -> NestedToolCallOutcome:
+        action = settled.transition.action
+        if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
+            self._publish(settled.transition.state)
+        status = NestedCallStatus(
+            "malformed"
+            if action is AgentToolPolicyAction.NESTED_MALFORMED
+            else action.value
+        )
+        if settled.cancelled and status is NestedCallStatus.SETTLED:
+            status = NestedCallStatus.CANCELLED
+        outcome = NestedToolCallOutcome(
+            child,
+            settled.result,
+            status,
+            settled.transition.interruption,
+            duration_seconds=monotonic() - started,
+        )
+        self._loop._events.emit(
+            NestedToolCallCompleted(
+                self._turn_index,
+                _caller_id(child),
+                child,
+                outcome.result,
+                outcome.status,
+                outcome.duration_seconds,
+            )
+        )
+        return outcome
+
+
+def _caller_id(call: AgentToolCall) -> str:
+    """The id of the call that made the nested call ``call``
+    (``<caller id>/<n>``)."""
+    return call.provider_correlation_id.rpartition("/")[0]
 
 
 def _transform_tool_result(

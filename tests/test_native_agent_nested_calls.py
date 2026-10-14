@@ -95,6 +95,7 @@ class _NestedTools(_Tools):
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        nested_tools: object = None,
     ) -> ToolExecutionOutcome:
         if call.arguments_json.value == "malformed":
             self.executed.append(call)
@@ -434,6 +435,7 @@ def test_nested_waiter_validation_and_callback_threads() -> None:
             *,
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
         ) -> ToolExecutionOutcome:
             return pinned.execute(
                 call, output_sink=output_sink, wait_for_interrupt=wait_for_interrupt
@@ -471,6 +473,7 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
             *,
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
         ) -> ToolExecutionOutcome:
             result = super().execute(
                 call, output_sink=output_sink, wait_for_interrupt=wait_for_interrupt
@@ -677,6 +680,7 @@ def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
             *,
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
         ) -> ToolExecutionOutcome:
             self.order.append(f"snapshot:execute:{call.provider_correlation_id}")
             return ToolExecutionOutcome(_tool_result(call, "from snapshot"))
@@ -1070,7 +1074,9 @@ def test_structured_content_follows_the_result_policy_and_the_output_schema() ->
         callable = frozenset({"stats", "plain", "redacted", "replaced", "kept"})
         structured = frozenset({"stats", "redacted", "replaced", "kept", "codemode"})
 
-        def execute(self, call, *, output_sink=None, wait_for_interrupt=None):
+        def execute(
+            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+        ):
             del output_sink, wait_for_interrupt
             self.executed.append(call)
             return ToolExecutionOutcome(
@@ -1136,7 +1142,9 @@ def test_a_failed_call_without_error_text_is_recorded_as_failed() -> None:
     """Pi ``toScriptValue``: ``Tool "<name>" failed`` when a failure has no text."""
 
     class Tools(_NestedTools):
-        def execute(self, call, *, output_sink=None, wait_for_interrupt=None):
+        def execute(
+            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+        ):
             del output_sink, wait_for_interrupt
             return ToolExecutionOutcome(_tool_result(call, "", is_error=True))
 
@@ -1156,3 +1164,109 @@ def test_a_failed_call_without_error_text_is_recorded_as_failed() -> None:
     assert (
         json.dumps(records[0]["calls"]).count('"error": "Tool \\"read\\" failed"') == 1
     )
+
+
+def _parent_execution(handler):
+    """``execute_parent`` of a ``ToolParentRunner``: ``handler(nested_tools)``
+    runs on a thread of its own while the session thread waits."""
+
+    def execute_parent(call, /, *, wait_for_interrupt, nested_tools):
+        done = threading.Event()
+        text: list[str] = []
+
+        def run() -> None:
+            try:
+                text.append(handler(nested_tools))
+            finally:
+                done.set()
+
+        threading.Thread(target=run).start()
+        wait_for_interrupt(done, threading.Event())
+        return ToolExecutionOutcome(_tool_result(call, text[0] if text else "none"))
+
+    return execute_parent
+
+
+def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
+    # Two calls run while a third is asked for: the budget counts the two
+    # that have not settled yet, so the third is refused rather than
+    # settling past the budget.
+    from pipy_harness.native.coding.tool_parent_runner import ToolParentRunner
+
+    release = threading.Event()
+
+    class Blocking(_NestedTools):
+        def execute(
+            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+        ):
+            release.wait(5)
+            return super().execute(call)
+
+    def handler(nested_tools) -> str:
+        results: list[str] = []
+
+        def call() -> None:
+            results.append(nested_tools.execute("read", {}).content)
+            release.set()
+
+        threads = [threading.Thread(target=call) for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        return " | ".join(sorted(results))
+
+    loop, tools, _, _ = _setup(
+        ToolParentRunner(_parent_execution(handler)),  # type: ignore[arg-type]
+        tools=Blocking([]),
+    )
+    outcome = loop.run(_run_input(tool_budget=3))
+
+    parent = next(
+        m for m in outcome.final_history if isinstance(m, AgentToolResultMessage)
+    )
+    assert parent.content.value.count("tool budget exhausted (limit 3)") == 1
+    assert len(tools.executed) == 2
+    assert outcome.final_tool_state.invocations_this_turn == 3
+
+
+def test_a_script_child_serves_the_calls_of_its_own_threads() -> None:
+    # A tool a script called runs tools too (Pi: nested calls at every
+    # depth), also from a thread it starts while the script's call waits.
+    class Nesting(_NestedTools):
+        def execute(
+            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+        ):
+            if call.tool_name != "read" or nested_tools is None:
+                return super().execute(call)
+            done = threading.Event()
+            box: list[str] = []
+
+            def worker() -> None:
+                box.append(nested_tools.execute("bash", {}).content)
+                done.set()
+
+            threading.Thread(target=worker).start()
+            assert wait_for_interrupt is not None
+            wait_for_interrupt(done, threading.Event())
+            return ToolExecutionOutcome(_tool_result(call, "read saw " + box[0]))
+
+    def wait(done_event, cancel_event):
+        done_event.wait()
+        return ToolExecutionInterruption.SETTLED
+
+    outcomes = []
+    ids: list[list[str]] = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        outcomes.append(service.call("read", "{}", waiter=wait))
+        ids.append([r.nested_call.provider_correlation_id for r in service.records()])
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, _, _, _ = _setup(_Runner(run), tools=Nesting([]))
+    loop.run(_run_input())
+
+    assert outcomes[0].result.content.value.startswith("read saw ")
+    assert ids == [["parent0/1/1", "parent0/1"]]

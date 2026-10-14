@@ -65,6 +65,7 @@ from pipy_harness.native.tool_rows import (
     bounded_nested_text,
     encode_rows,
     is_builtin_edit,
+    is_nested_under,
     is_running_builtin_bash,
     nested_lines_from_details,
     render_box_row,
@@ -531,7 +532,9 @@ class TranscriptComponent:
             if (
                 state is None
                 or state.tool_name != "codemode"
-                or state.correlation_id != event.parent_correlation_id
+                or not is_nested_under(
+                    state.correlation_id, event.parent_correlation_id
+                )
             ):
                 return
             index = next(

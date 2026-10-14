@@ -34,6 +34,7 @@ from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMes
 from pipy_harness.native.agent.nested_calls import (
     NestedToolCallOutcome,
     NestedToolCallService,
+    PendingNestedCall,
 )
 from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.agent.tools import (
@@ -42,10 +43,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutor,
 )
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.coding.tool_parent_runner import (
-    NestedToolBridge,
-    ToolParentRunner,
-)
+from pipy_harness.native.coding.tool_parent_runner import ToolParentRunner
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.tools import (
     ToolContext,
@@ -164,8 +162,6 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
         ]
     )
 
-    # A session that can be interrupted runs handlers on a worker thread,
-    # and their nested calls are carried to the session thread.
     result, sink = _session(
         tmp_path, provider, abort_event=threading.Event() if interruptible else None
     )
@@ -176,7 +172,9 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
     assert parent.content.value == "helped | echo: hi | Tool run_tools not found"
     rows = _log(log)
     thread = next(row[1] for row in rows if row[0] == "thread")
-    assert (thread == "pipy-tool-call") is interruptible
+    # The handler runs on a worker thread also in a session that cannot be
+    # interrupted, so the session thread can serve the calls it asks for.
+    assert thread == "pipy-tool-call"
     # ctx.tools: the active direct tools and the codemode tools, without the
     # model-only parent itself.
     tools = next(row[1] for row in rows if row[0] == "tools")
@@ -245,7 +243,9 @@ def test_a_result_without_nested_calls_has_no_record(tmp_path, monkeypatch) -> N
     assert "run_tools" in _tool_names(provider.requests[0])
 
 
-def test_a_nested_tool_cannot_run_tools_itself(tmp_path, monkeypatch) -> None:
+def test_a_nested_tool_runs_tools_itself(tmp_path, monkeypatch) -> None:
+    # Pi: a nested tool gets `executeTool` too, and its calls are recorded
+    # on the model's call with the ids `<parent>/<n>/<m>`.
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     log = _write(tmp_path)
     provider = _StubProvider(
@@ -255,12 +255,77 @@ def test_a_nested_tool_cannot_run_tools_itself(tmp_path, monkeypatch) -> None:
         ]
     )
 
-    result, _ = _session(tmp_path, provider)
+    result, sink = _session(tmp_path, provider)
 
     assert result.status is HarnessStatus.SUCCEEDED
     (parent,) = _tool_results(provider.requests[1])
-    assert parent.content.value == NESTED_CALLS_UNAVAILABLE
-    assert ["nested tools", []] in _log(log)
+    assert parent.content.value == "echo: x"
+    nested_tools = next(row[1] for row in _log(log) if row[0] == "nested tools")
+    assert {"echo", "inner", "outer"} <= set(nested_tools)
+    completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
+    assert completed.details is not None
+    record = completed.details["nestedCalls"]
+    assert [(c["id"], c["name"], c["status"]) for c in record["calls"]] == [
+        ("p1/1/1", "echo", "ok"),
+        ("p1/1", "inner", "ok"),
+    ]
+    started = [e for e in sink.events if isinstance(e, NestedToolCallStarted)]
+    assert [
+        (e.parent_correlation_id, e.call.provider_correlation_id) for e in started
+    ] == [
+        ("p1", "p1/1"),
+        ("p1/1", "p1/1/1"),
+    ]
+
+
+_SELF = """from pipy_harness.extensions import ExtensionTool, ToolResult
+
+_DEPTH = {'type': 'object', 'properties': {'depth': {'type': 'integer'}},
+          'required': ['depth'], 'additionalProperties': False}
+
+
+def activate(api):
+    def countdown(ctx, params):
+        depth = params['depth']
+        if depth == 0:
+            return ToolResult(content='bottom')
+        outcome = ctx.execute_tool('countdown', {'depth': depth - 1})
+        return ToolResult(content=f'{depth} > {outcome.result.content}')
+
+    api.register_tool(ExtensionTool(
+        name='countdown', description='Calls itself.', input_schema=_DEPTH,
+        handler=countdown))
+"""
+
+
+@pytest.mark.parametrize("interruptible", [False, True])
+def test_a_tool_calls_itself(tmp_path, monkeypatch, interruptible) -> None:
+    # Pi's callable tools do not leave the calling tool out.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True)
+    (directory / "countdown.py").write_text(_SELF, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(tool_calls=(ProviderToolCall("p1", "countdown", '{"depth":3}'),)),
+            _result(final_text="done"),
+        ]
+    )
+
+    result, sink = _session(
+        tmp_path, provider, abort_event=threading.Event() if interruptible else None
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    (parent,) = _tool_results(provider.requests[1])
+    assert parent.content.value == "3 > 2 > 1 > bottom"
+    completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
+    assert completed.details is not None
+    assert [c["id"] for c in completed.details["nestedCalls"]["calls"]] == [
+        "p1/1/1/1",
+        "p1/1/1",
+        "p1/1",
+    ]
 
 
 _ASYNC_TOOLS = """import asyncio
@@ -594,17 +659,32 @@ def test_a_failing_pipeline_releases_the_handler_and_is_raised() -> None:
         service.raise_pipeline_failure()
 
 
-def test_calls_from_several_threads_run_one_at_a_time() -> None:
-    running = 0
-    most = 0
+def _running_settle(execute):
+    """A pipeline whose calls run: ``execute(call)`` is the tool, on the
+    thread the service gives it; the outcome is settled on the session
+    thread."""
+    session = threading.current_thread()
 
     def settle(call):
-        nonlocal running, most
-        running += 1
-        most = max(most, running)
-        threading.Event().wait(0.01)
-        running -= 1
-        return NestedToolCallOutcome(call, _message(call, "ok"), _STATUS)
+        def run(*, wait_for_interrupt, nested_tools):
+            return ToolExecutionOutcome(_message(call, execute(call, nested_tools)))
+
+        def finish(execution):
+            assert threading.current_thread() is session
+            return NestedToolCallOutcome(call, execution.result, _STATUS)
+
+        return PendingNestedCall(call, run, finish)
+
+    return settle
+
+
+def test_calls_from_several_threads_run_at_the_same_time() -> None:
+    # Pi runs nested calls concurrently unless they must be sequential.
+    together = threading.Barrier(4, timeout=5)
+
+    def execute(call, nested_tools):
+        together.wait()
+        return "ok"
 
     def handler(context):
         results: list[str] = []
@@ -614,45 +694,83 @@ def test_calls_from_several_threads_run_one_at_a_time() -> None:
                     context.nested_tools.execute("child", {}).content
                 )
             )
-            for _ in range(8)
+            for _ in range(4)
         ]
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(5)
+            thread.join(10)
         return ",".join(results)
+
+    service = _service(_running_settle(execute))
+    outcome = _run_parent(handler, service, _wait)
+
+    assert outcome.result.content.value == ",".join(["ok"] * 4)
+    assert sorted(r.nested_call.provider_correlation_id for r in service.records()) == [
+        "p/1",
+        "p/2",
+        "p/3",
+        "p/4",
+    ]
+
+
+def test_a_running_nested_call_is_cancelled_when_its_parent_ends() -> None:
+    entered = threading.Event()
+    cancelled: list[bool] = []
+
+    def settle(call):
+        def run(*, wait_for_interrupt, nested_tools):
+            done = threading.Event()
+            cancel = threading.Event()
+
+            def tool() -> None:
+                entered.set()
+                cancelled.append(cancel.wait(5))
+                done.set()
+
+            threading.Thread(target=tool).start()
+            reason = wait_for_interrupt(done, cancel)
+            cancel.set()
+            done.wait(5)
+            return ToolExecutionOutcome(
+                _message(call, f"stopped: {reason.value}", error=True),
+                cancelled=True,
+            )
+
+        def finish(execution):
+            return NestedToolCallOutcome(
+                call, execution.result, NestedCallStatus.CANCELLED
+            )
+
+        return PendingNestedCall(call, run, finish)
+
+    late: list[str] = []
+
+    def handler(context):
+        def call() -> None:
+            late.append(context.nested_tools.execute("child", {}).content)
+
+        threading.Thread(target=call).start()
+        entered.wait(5)
+        return "returned"
 
     service = _service(settle)
     outcome = _run_parent(handler, service, _wait)
 
-    assert outcome.result.content.value == ",".join(["ok"] * 8)
-    assert most == 1
-    assert len(service.records()) == 8
+    assert outcome.result.content.value == "returned"
+    assert cancelled == [True]
+    (record,) = service.records()
+    assert record.status is NestedCallStatus.CANCELLED
+    for _ in range(100):
+        if late:
+            break
+        threading.Event().wait(0.02)
+    assert late == ["stopped: caller_stop"]
 
 
-def test_a_handler_on_the_session_thread_reaches_the_service_directly() -> None:
-    def settle(call):
-        return NestedToolCallOutcome(call, _message(call, "ok"), _STATUS)
-
-    service = _service(settle)
-    outcome = _run_parent(
-        lambda context: context.nested_tools.execute("child", {}).content,
-        service,
-        None,
-    )
-
-    assert outcome.result.content.value == "ok"
-    bridge = NestedToolBridge(service, serves=False)
-    bridge.close()
-    assert bridge.execute("child", {}).content == NESTED_CALLS_UNAVAILABLE
-
-
-def test_without_a_waiter_another_thread_is_refused_at_once() -> None:
-    # The handler has the session thread, so nothing could serve the call;
-    # it must not block the thread the handler then waits for.
-    def settle(call):
-        return NestedToolCallOutcome(call, _message(call, "ok"), _STATUS)
-
+def test_without_a_waiter_the_handler_runs_on_a_worker_and_is_served() -> None:
+    # A session that cannot be interrupted still serves calls from the
+    # threads a handler starts.
     def handler(context):
         results: list[str] = []
         thread = threading.Thread(
@@ -662,15 +780,180 @@ def test_without_a_waiter_another_thread_is_refused_at_once() -> None:
         )
         thread.start()
         thread.join(5)
-        assert not thread.is_alive()
         own = context.nested_tools.execute("child", {}).content
-        return f"{results[0]} / {own}"
+        return f"{threading.current_thread().name}: {results[0]} / {own}"
 
-    service = _service(settle)
+    service = _service(_running_settle(lambda call, nested_tools: "ok"))
     outcome = _run_parent(handler, service, None)
 
-    assert outcome.result.content.value == f"{NESTED_CALLS_UNAVAILABLE} / ok"
-    assert len(service.records()) == 1
+    assert outcome.result.content.value == "pipy-tool-call: ok / ok"
+    assert len(service.records()) == 2
+
+
+def test_a_nested_call_runs_tools_through_the_same_service() -> None:
+    def execute(call, nested_tools):
+        if call.tool_name == "child":
+            return "child > " + nested_tools.execute("leaf", {}).content
+        return "leaf"
+
+    service = _service(_running_settle(execute), names=("child", "leaf"))
+    outcome = _run_parent(
+        lambda context: context.nested_tools.execute("child", {}).content,
+        service,
+        _wait,
+    )
+
+    assert outcome.result.content.value == "child > leaf"
+    assert [r.nested_call.provider_correlation_id for r in service.records()] == [
+        "p/1/1",
+        "p/1",
+    ]
+
+
+def test_a_call_waiting_for_readiness_ends_with_its_parent() -> None:
+    # The readiness wait (MCP servers still connecting) of a requested call
+    # ends when the tool the session waits for ended; the call does not run.
+    waiting = threading.Event()
+    ran: list[str] = []
+
+    def settle(call, waiter=None):
+        assert waiter is not None
+        waiting.set()
+        never = threading.Event()
+        reason = waiter(never, threading.Event())
+
+        def run(*, wait_for_interrupt, nested_tools):
+            ran.append(call.provider_correlation_id)
+            return ToolExecutionOutcome(_message(call, "ran"))
+
+        def finish(execution):
+            status = NestedCallStatus.CANCELLED if execution.cancelled else _STATUS
+            return NestedToolCallOutcome(call, execution.result, status)
+
+        if reason is not ToolExecutionInterruption.SETTLED:
+            return finish(
+                ToolExecutionOutcome(
+                    _message(call, f"not ready: {reason.value}", error=True),
+                    cancelled=True,
+                )
+            )
+        return PendingNestedCall(call, run, finish)
+
+    late: list[str] = []
+
+    def handler(context):
+        threading.Thread(
+            target=lambda: late.append(
+                context.nested_tools.execute("child", {}).content
+            )
+        ).start()
+        waiting.wait(5)
+        return "returned"
+
+    parent = AgentToolCall("p", "parent", ProductContent("{}"))
+    service = NestedToolCallService(
+        parent,
+        frozenset({"child"}),
+        lambda call: settle(call),
+        lambda call, text: _message(call, text, error=True),
+        settle_with_waiter=settle,
+        callable_tools=(
+            ToolDefinition(
+                name="child", description="c", input_schema={"type": "object"}
+            ),
+        ),
+    )
+    outcome = _run_parent(handler, service, _wait)
+
+    assert outcome.result.content.value == "returned"
+    assert ran == []
+    (record,) = service.records()
+    assert record.status is NestedCallStatus.CANCELLED
+    # The helper thread records its answer after the parent returned.
+    for _ in range(100):
+        if late:
+            break
+        threading.Event().wait(0.02)
+    assert late == ["not ready: caller_stop"]
+
+
+def test_a_call_waiting_for_readiness_ends_with_its_own_caller() -> None:
+    # p -> p/1 -> p/1/1: the nested caller p/1 returns while its call waits
+    # for readiness; the wait ends, p/1/1 does not run, and p gets p/1's
+    # result.
+    waiting = threading.Event()
+    ran: list[str] = []
+    late: list[str] = []
+
+    def settle(call, waiter=None):
+        assert waiter is not None
+
+        def finish(execution):
+            status = NestedCallStatus.CANCELLED if execution.cancelled else _STATUS
+            return NestedToolCallOutcome(call, execution.result, status)
+
+        if call.tool_name == "leaf":
+            waiting.set()
+            reason = waiter(threading.Event(), threading.Event())
+            if reason is not ToolExecutionInterruption.SETTLED:
+                return finish(
+                    ToolExecutionOutcome(
+                        _message(call, f"not ready: {reason.value}", error=True),
+                        cancelled=True,
+                    )
+                )
+
+        def run(*, wait_for_interrupt, nested_tools):
+            ran.append(call.provider_correlation_id)
+            if call.tool_name == "child":
+                threading.Thread(
+                    target=lambda: late.append(nested_tools.execute("leaf", {}).content)
+                ).start()
+                waiting.wait(5)
+            return ToolExecutionOutcome(_message(call, f"{call.tool_name} done"))
+
+        return PendingNestedCall(call, run, finish)
+
+    parent = AgentToolCall("p", "parent", ProductContent("{}"))
+    service = NestedToolCallService(
+        parent,
+        frozenset({"child", "leaf"}),
+        lambda call: settle(call),
+        lambda call, text: _message(call, text, error=True),
+        settle_with_waiter=settle,
+        callable_tools=tuple(
+            ToolDefinition(name=name, description=name, input_schema={"type": "object"})
+            for name in ("child", "leaf")
+        ),
+    )
+    outcome = _run_parent(
+        lambda context: context.nested_tools.execute("child", {}).content,
+        service,
+        _wait,
+    )
+
+    assert outcome.result.content.value == "child done"
+    assert ran == ["p/1"]
+    statuses = {
+        r.nested_call.provider_correlation_id: r.status for r in service.records()
+    }
+    assert statuses == {"p/1/1": NestedCallStatus.CANCELLED, "p/1": _STATUS}
+    for _ in range(100):
+        if late:
+            break
+        threading.Event().wait(0.02)
+    assert late == ["not ready: caller_stop"]
+
+
+def test_calls_of_an_ended_caller_are_refused() -> None:
+    service = _service(lambda call: None)
+    tools = service.nested_tools("p")
+    service.end_caller("p")
+
+    result = tools.execute("child", {})
+
+    assert (result.content, result.tool_call_id) == (NESTED_CALLS_UNAVAILABLE, "p/0")
+    assert service.records() == ()
 
 
 def test_a_refused_unknown_name_is_recorded_only_when_asked() -> None:

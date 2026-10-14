@@ -27,15 +27,17 @@ from pipy_harness.native.tools.foreign_schema import validate_foreign_arguments
 class ToolExecutionInterruption(StrEnum):
     """Closed reasons why a caller stopped waiting for a tool invocation.
 
-    SCRIPT_STOP is waiter-only: the executor consumes it as an ordinary error
-    observation with typed cancelled evidence, never an operator interruption
-    in canonical policy state.
+    SCRIPT_STOP and CALLER_STOP are waiter-only: the executor consumes them as
+    an ordinary error observation with typed cancelled evidence, never an
+    operator interruption in canonical policy state. CALLER_STOP ends a call
+    another tool made: its ``signal``, or the end of the calling tool.
     """
 
     SETTLED = "settled"
     OPERATOR_ABORT = "operator_abort"
     LOCAL_COMMAND = "local_command"
     SCRIPT_STOP = "script_stop"
+    CALLER_STOP = "caller_stop"
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +131,11 @@ def cancelled_tool_outcome(
     if interruption is ToolExecutionInterruption.SCRIPT_STOP:
         return ToolExecutionOutcome(
             error_result(call, "tool stopped by script backend"),
+            cancelled=True,
+        )
+    if interruption is ToolExecutionInterruption.CALLER_STOP:
+        return ToolExecutionOutcome(
+            error_result(call, "tool cancelled by its caller"),
             cancelled=True,
         )
     label = (
@@ -315,7 +322,11 @@ class ToolExecutor:
                 malformed_arguments=outcome.malformed_arguments,
                 interruption=(
                     ToolExecutionInterruption.SETTLED
-                    if interruption is ToolExecutionInterruption.SCRIPT_STOP
+                    if interruption
+                    in {
+                        ToolExecutionInterruption.SCRIPT_STOP,
+                        ToolExecutionInterruption.CALLER_STOP,
+                    }
                     else interruption
                 ),
             )

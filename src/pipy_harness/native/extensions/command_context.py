@@ -172,9 +172,10 @@ class ExtensionToolContext(CommandContext, Protocol):
     not callable, invalid arguments, a blocked call and a failed tool come
     back as a result with ``is_error``.
 
-    Only a tool the model called can run other tools. In the context of a
-    tool that another tool called, and of commands and hooks, ``tools`` is
-    empty and ``execute_tool`` answers with an error result.
+    A tool another tool called can run tools too, at any depth, and calls
+    from several threads run at the same time. In the context of commands
+    and hooks ``tools`` is empty and ``execute_tool`` answers with an error
+    result.
     """
 
     @property

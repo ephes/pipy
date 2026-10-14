@@ -150,6 +150,15 @@ class NestedToolLine:
     error: str = ""
 
 
+def is_nested_under(parent_id: str | None, caller_id: str) -> bool:
+    """Whether a nested call made by ``caller_id`` belongs to the row of the
+    call ``parent_id``: it made the call, or one of its nested calls did
+    (``<parent>/<n>/...``)."""
+    return parent_id is not None and (
+        caller_id == parent_id or caller_id.startswith(parent_id + "/")
+    )
+
+
 def nested_lines_from_details(details: object) -> tuple[NestedToolLine, ...]:
     """Replay bounded data through the same retained row state as live children."""
     lines = []

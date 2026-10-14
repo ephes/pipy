@@ -599,8 +599,9 @@ class ToolContext:
     Built-in and standalone tool calls leave it as `None`.
 
     `nested_tools` is set for a tool that may call other tools while it runs:
-    an extension tool the model called. It is `None` for every other call,
-    also for a call another tool made.
+    a call to an extension tool the model made, and every call another tool
+    made, so nested tools can call tools at any depth. It is `None` for the
+    other calls the model made.
     """
 
     workspace_root: Path

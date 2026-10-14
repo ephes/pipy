@@ -546,7 +546,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-45 | EXT-15 | A resolver's `next()` gives a marker for pipy's own rows and `None` for an extension tool without renderers, so a resolver cannot call and wrap pipy's rows as it can wrap Pi's renderers. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
-| DEV-48 | EXT-11 | One level of nesting: a tool that was itself called through `execute_tool` or from a script cannot run tools. A tool cannot call itself. The callable tools are fixed when the calling tool starts. `execute_tool` takes no `signal` or `onUpdate`; its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image (G2). No event is emitted for a name that is not callable. In a session that cannot be interrupted, `execute_tool` from another thread is refused. Usage is DEV-13. | narrower | Decided in S37 |
+| DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls always run concurrently (no sequential mode, no `executionMode`), and those still running when the tool the model called returns are cancelled (G2). `execute_tool` takes no `signal` or `onUpdate`; its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image (G2). No event is emitted for a name that is not callable. Usage is DEV-13. | narrower | Decided in S37 |
 | DEV-49 | EXT-12 | The loadout has no `getExposure`, `getNamespace` or `getPromptGuidelines`. The function is called at every read of the declarations and must be pure; Pi calls it when the active tools change. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session runs no slash command (`submit()` sends its text to the model), so `open_url` and `update_config` reach the command and the manager and nothing in a product session uses them. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38; `docs/sdk.md` |
@@ -3664,6 +3664,41 @@ time of the whole nested pipeline (hooks included), `None` only for a name
 that is not callable; Pi measures `execute()` alone and has none for a call
 that did not run. Tests: `test_a_nested_result_keeps_its_images`, the
 `calls` rows of `test_a_tool_runs_other_tools_through_the_extension_api`.
+Depth and concurrency (M2, E2, E3): `NestedToolCallService` now serves the
+nested calls of one parent at every depth. Every nested call gets
+`nested_tools` for its own id (`<caller>/<n>` with a counter per caller), and
+the record is shared, as Pi's recorder is. A tool may call itself, except
+`codemode` (runner attribute `reaches_itself`). The pipeline is split: the
+loop's `_NestedPipeline.settle` runs admission, `tool_call` hooks and the
+readiness wait on the session thread and returns a `PendingNestedCall`,
+whose `execute` runs the tool on any thread and whose `finish` settles it on
+the session thread from the then current policy state. A request from another
+thread waits in the service's queue; `serve`, the waiter of whatever the
+session thread waits for (the parent's executor, or the executor of a call a
+script made), takes it, begins it and runs its tool on a thread of its own,
+so calls run concurrently. `decide_tool_admission(pending=)` counts the
+calls admitted and not yet settled, so concurrent calls cannot settle past
+the budget. A call the pipeline is running (from a hook) is still refused.
+When `serve` returns, the calls it started have ended: an interruption ends
+them as interrupted, the end of the waited-for tool cancels them with the
+new `ToolExecutionInterruption.CALLER_STOP` (`tool cancelled by its
+caller`, an ordinary cancelled error like `SCRIPT_STOP`). A requested call's
+readiness wait ends like `serve`'s own wait and also when the waited-for
+tool or the call's own caller ended; a call admitted after its caller ended
+is settled as cancelled without running. A session without
+a waiter runs the parent on a worker too and waits for it alone; Ctrl-C
+there is raised again after the parent was cancelled. Tests:
+`test_a_nested_tool_runs_tools_itself`, `test_a_tool_calls_itself`,
+`test_calls_from_several_threads_run_at_the_same_time`,
+`test_a_running_nested_call_is_cancelled_when_its_parent_ends`,
+`test_without_a_waiter_the_handler_runs_on_a_worker_and_is_served`,
+`test_a_nested_call_runs_tools_through_the_same_service`,
+`test_concurrent_nested_calls_take_their_place_in_the_budget`,
+`test_a_script_child_serves_the_calls_of_its_own_threads`,
+`test_a_call_waiting_for_readiness_ends_with_its_parent`,
+`test_a_call_waiting_for_readiness_ends_with_its_own_caller`,
+`test_calls_of_nested_calls_are_rows_of_the_parent_row` (live rows of every
+depth, `tool_rows.is_nested_under`).
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using
