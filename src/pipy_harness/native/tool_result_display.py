@@ -3,16 +3,20 @@
 Pi ``core/tools/render-utils.ts`` ``getTextOutput``: a terminal that cannot
 draw images, or a row drawn with ``showImages: false`` as the HTML export
 draws it, shows one line per image after the result's text,
-``[Image: [image/png] 640x480]`` (pi-tui ``imageFallback``). pipy's frames
-carry no inline images, so its rows always show that line. The size is read
-from the image's header (pi-tui ``getImageDimensions``) and left out when
-the data is not an image of the type it claims.
+``[Image: [image/png] 640x480]`` (pi-tui ``imageFallback``). The size is
+read from the image's header (pi-tui ``getImageDimensions``) and left out
+when the data is not an image of the type it claims.
+
+A terminal row that draws the images inline (``ResultImages``) shows the
+result's text without those lines, as Pi's ``getTextOutput`` does when the
+terminal can draw images and ``showImages`` is on.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
+from dataclasses import dataclass
 
 from pipy_harness.native.agent.content import ImageContent, tool_result_images
 from pipy_harness.native.agent.messages import AgentToolResultMessage
@@ -20,6 +24,23 @@ from pipy_harness.native.agent.messages import AgentToolResultMessage
 # The headers of PNG, GIF and WebP are at the start; a JPEG's size follows
 # its metadata segments, so all of it is decoded.
 _HEADER_CHARS = 64
+
+
+@dataclass(frozen=True, slots=True)
+class ResultImages:
+    """A result's images, and its text as a row that draws them shows it."""
+
+    text: str
+    images: tuple[ImageContent, ...]
+
+
+def result_images(result: AgentToolResultMessage) -> ResultImages | None:
+    """The images of ``result``, or ``None`` when it has none."""
+
+    images = tool_result_images(result.blocks)
+    if not images:
+        return None
+    return ResultImages(result.content.value, images)
 
 
 def tool_result_display_text(result: AgentToolResultMessage) -> str:

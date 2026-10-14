@@ -281,7 +281,9 @@ as `retry.provider` are replaced wholesale):
   maxRetryDelayMs?: number=60000 } }`
 - `terminal?: { showImages?: boolean=true; imageWidthCells?: number=60;
   clearOnShrink?: boolean (env `PIPY_CLEAR_ON_SHRINK`=1); showTerminalProgress?:
-  boolean=false }`
+  boolean=false }`; `showImages` and `imageWidthCells` decide whether and how
+  wide tool-result images are drawn, see
+  [images in tool results](tui-workflow.md#images-in-tool-results)
 - `images?: { autoResize?: boolean=true; blockImages?: boolean=false }`
 - `thinkingBudgets?: { minimal?; low?; medium?; high? }`
 - `markdown?: { codeBlockIndent?: string="  " }`

@@ -17,9 +17,10 @@ the lines Pi draws outside a box) and whether the frame renderer wraps them
 
 Deviations, documented in ``docs/tui-workflow.md``: no syntax highlighting
 (Pi's ``highlightCode`` uses highlight.js; lines Pi would highlight keep the
-terminal's default colour), no OSC 8 file links and no image blocks. A
-running ``bash`` row ticks ``Elapsed`` every second (the transcript owns
-the timer).
+terminal's default colour) and no OSC 8 file links. A result's images are
+drawn after the row by the frame (``RowRenderInputs.inline_images``), or
+named in its text. A running ``bash`` row ticks ``Elapsed`` every second
+(the transcript owns the timer).
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import json
 import posixpath
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -41,6 +42,7 @@ from pipy_harness.native.ansi_wrap import (
 )
 from pipy_harness.native.frame_renderer import encode_tool_box_line
 from pipy_harness.native.tool_headers import INVALID_ARG, shorten_path
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tools.bash_executor import (
     sanitize_binary_output,
     strip_ansi,
@@ -132,6 +134,9 @@ class ToolRowResult:
     content: str
     details: Mapping[str, Any] | None
     is_error: bool
+    # The result's images; a row that draws them shows `images.text`, the
+    # content without its image lines (Pi `getTextOutput` with images).
+    images: ResultImages | None = None
 
 
 @dataclass(slots=True)
@@ -224,6 +229,9 @@ class ToolRowState:
     ended_at: float | None = None
     correlation_id: str | None = None
     nested_lines: tuple[NestedToolLine, ...] = ()
+    # The Kitty ids of the result's images, kept so that a redraw replaces
+    # the images it drew before (pi-tui `Image` keeps its `imageId`).
+    image_ids: list[int] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -1265,6 +1273,8 @@ class RowRenderInputs:
     extension_theme: object = None
     # The monotonic clock reading a running `bash` row's `Elapsed` uses.
     now: float = 0.0
+    # The terminal draws the result's images after the row.
+    inline_images: bool = False
 
 
 def _render_extension(
@@ -1316,6 +1326,8 @@ def render_tool_row(
 
     partial = state.result is None
     result = state.result
+    if result is not None and result.images is not None and inputs.inline_images:
+        result = replace(result, content=result.images.text)
     if result is None and (state.partial_output or _bash_started(state)):
         # Pi's bash tool sends an empty update as it starts, so its row shows
         # the result part (`Elapsed`) before any output.

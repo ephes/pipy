@@ -175,6 +175,9 @@ fails, the line is `[Image (<type>, <size>) could not be saved: <reason>]`
 and the image is still attached. Images are not cut by the output budget:
 when the text is over it, the text becomes one shortened block and the
 images follow it.
+In the terminal the images are drawn after the codemode row when the
+terminal can draw them, see
+[images in tool results](tui-workflow.md#images-in-tool-results).
 
 A tool's own images do not reach the model through a script: a tool without
 an output schema returns its text, and an MCP tool returns its result with

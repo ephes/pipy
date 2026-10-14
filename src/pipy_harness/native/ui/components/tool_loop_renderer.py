@@ -53,6 +53,7 @@ from pipy_harness.native.tool_renderer_lookup import (
     as_tool_renderer_lookup,
 )
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
     RowRenderers,
@@ -471,6 +472,7 @@ class TuiToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
         details: Mapping[str, Any] | None = None,
+        images: ResultImages | None = None,
     ) -> None:
         # Give a running edit preview a short, bounded moment to land first:
         # the preview normally resolves before the edit finishes (in Pi too),
@@ -479,7 +481,7 @@ class TuiToolLoopRenderer:
         if thread is not None:
             thread.join(timeout=_PREVIEW_JOIN_SECONDS)
         self._transcript.finish_tool(
-            ToolRowResult(output_text, details, is_error),
+            ToolRowResult(output_text, details, is_error, images),
             duration_seconds=duration_seconds,
         )
 

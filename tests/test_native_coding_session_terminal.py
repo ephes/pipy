@@ -154,6 +154,7 @@ class _ExitOnlyUi:
     def __init__(self) -> None:
         self.closed = False
         self.started = False
+        self.terminal_stream = io.StringIO()
         # Real owners over one throwaway editor: session startup publishes the
         # command surface and reads queue/clipboard wiring through owner handles.
         editor = EditorState()

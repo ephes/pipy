@@ -47,6 +47,7 @@ from pipy_harness.native.tool_renderer_lookup import (
     ToolRendererLookup,
     as_tool_renderer_lookup,
 )
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
     NestedToolLine,
@@ -863,7 +864,10 @@ class _ToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
         details: Mapping[str, Any] | None = None,
+        images: ResultImages | None = None,
     ) -> None:
+        # A line-oriented stream draws no images: `output_text` names them.
+        del images
         with self._terminal_lock:
             self._nested_parent_id = None
         pending = self._pending_render

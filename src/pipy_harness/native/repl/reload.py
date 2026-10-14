@@ -75,6 +75,7 @@ from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import ReloadPreparationRefused
 from pipy_harness.native.session_state_lock import SessionStateLock
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.terminal_image import terminal_image_protocol
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
@@ -83,6 +84,18 @@ from pipy_harness.native.tui import (
     _LiveExtensionUiDriver,
 )
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
+
+
+def apply_image_settings(terminal_ui: TerminalUi, settings: SettingsManager) -> None:
+    """Hand the terminal's image protocol and the image settings to the
+    transcript (Pi passes ``showImages``/``imageWidthCells`` to every tool
+    row and updates them when the settings change)."""
+
+    terminal_ui.components.transcript.set_image_options(
+        terminal_image_protocol(terminal_ui.terminal_stream),
+        show=settings.get_show_images(),
+        width_cells=settings.get_image_width_cells(),
+    )
 
 
 @dataclass(slots=True)
@@ -391,6 +404,7 @@ class ReloadCommandEffects:
             self.terminal_ui.components.autocomplete.set_max_visible(
                 self.settings.get_autocomplete_max_visible()
             )
+            apply_image_settings(self.terminal_ui, self.settings)
             self.terminal_ui.components.autocomplete.replace_command_surface(
                 published_command_surface(
                     self.ctl.workspace_resources, commands, self.session_commands

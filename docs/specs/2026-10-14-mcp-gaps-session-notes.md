@@ -533,3 +533,90 @@ in, one section per item.
   `::test_malformed_calls_are_left_out_and_the_page_goes_on`,
   `::test_a_drawn_result_before_its_call_is_shown_on_its_own` (the page script run
   under Node with a stand-in DOM; skipped where `node` is missing).
+
+## N4: inline terminal images (goal-check M21)
+
+Three commits: N4-a (`terminal_image.py`, settings getters), N4-b (frame
+renderer path), N4-c (tool rows, wiring, docs).
+
+### Changelog (Unreleased, Added)
+
+- TUI: images in tool results (MCP screenshots, codemode `image()`,
+  extension tools) are drawn inline after the tool row in terminals that
+  speak the Kitty graphics protocol (kitty, Ghostty, WezTerm, Warp, Herdr)
+  or iTerm2 inline images, as Pi's `ToolExecutionComponent` draws a pi-tui
+  `Image`. `terminal.showImages` (default on) and `terminal.imageWidthCells`
+  (default 60) are honoured; `PIPY_IMAGE_PROTOCOL=kitty|iterm2|none`
+  overrides the detection. Under tmux or screen, in other terminals and in
+  non-terminal output the row keeps the `[Image: [<mime>] <w>x<h>]` line.
+
+### Plan updates
+
+- "Decided in S39" (images, part 3): replace "pipy's frames carry no inline
+  images ..., so a row shows what Pi shows in a terminal without an image
+  protocol" with: a row whose transcript draws images inline
+  (`RowRenderInputs.inline_images`) shows `ResultImages.text`, the result's
+  text without the image lines (Pi `getTextOutput` with `caps.images &&
+  showImages`); otherwise it shows `tool_result_display_text` as before.
+  Remove "Not built: inline images in the terminal (Pi's `Image` component
+  with the Kitty and iTerm2 protocols, `terminal.showImages`,
+  `imageWidthCells`)."
+- New "Decided in N4" paragraph (module layout 4.1 and rendering):
+  - `terminal_image.py` ports pi-tui `detectCapabilities` (image part,
+    without Windows), `calculateImageCellSize`, `encodeKitty`,
+    `encodeITerm2`, `deleteKittyImage` and `Image.render`
+    (`image_rows`). `terminal_image_protocol(stream)` gives a protocol only
+    for a TTY. `clean_base64` admits only plain base64 into an escape.
+  - `SettingsManager.get_show_images()`/`get_image_width_cells()` (Pi
+    `getShowImages`/`getImageWidthCells`).
+  - `RenderToolResult.images`/`ToolRowResult.images` (`ResultImages`)
+    carry the images from the event and from a resumed session;
+    `TranscriptComponent.set_image_options(protocol, show, width_cells)`
+    (wired at startup and on `/reload` by `repl.reload.apply_image_settings`)
+    builds a `TerminalImage` per image for the row's
+    `HistoryBlockTuple.images`; the scratch transcript of a resume copies
+    the options; `ToolRowState.image_ids` keeps the Kitty ids across
+    redraws.
+  - `FrameBlock.images`; `block_lines(..., image_height=...)` draws them
+    after the box, before its closing spacer, only for committed rows
+    (`build_paint_plan`); full frames and the live region show the text
+    line. An image is `rows - 1` empty rows and an `ImageFrameLine` that
+    moves up, draws and (Kitty, `C=1`) moves down, so a frame row stays one
+    terminal row; rows are capped to the terminal height.
+    `PaintPlan.kitty_image_ids` and `ScreenState.kitty_image_ids` let
+    `force_full_redraw` and the resize repaint delete the Kitty images by
+    id before they clear (pi-tui main-screen `fullRender`).
+- Section 3.1: DEV-19 narrower: "An image is drawn in the terminal when it
+  speaks the Kitty or iTerm2 protocol and `terminal.showImages` is on;
+  otherwise the row shows `[Image: [<mime>] <w>x<h>]`." Add a difference
+  (proposal, kind "narrower"): no `CSI 16 t` cell-size query (9x18 pixel
+  cells assumed); Kitty gets PNG only (no transcoder; other types show the
+  line, below the box); data that is not plain base64 shows the line; an
+  iTerm2 image gets `height=<reserved rows>` instead of `auto`; an image is
+  at most as tall as the terminal; no "Show images"/"Image width" rows in
+  `/settings`, changes apply on `/reload`; no `showImages` in an
+  extension's render context (see M24).
+
+### Backlog
+
+- No new item. The `/settings` rows for the two image settings and the
+  cell-size query are possible follow-ups if the owner wants them.
+
+### Acceptance note / audit test
+
+- "Known limits" list: replace "**Images are never drawn in the terminal**
+  (DEV-19; TLS-11), and `read` still returns an error for an image file
+  (DEV-04)." with "`read` still returns an error for an image file
+  (DEV-04)."; TLS-11 and RES-09 notes: replace "The terminal shows a line
+  that names the image and never draws it." with "The terminal draws the
+  image where it can (Kitty, iTerm2), else shows a line that names it."
+- Tests: `tests/test_native_terminal_image.py` (detection, base64 check,
+  cell sizes, Kitty/iTerm2 bytes, rows),
+  `tests/test_native_frame_images.py` (committed rows only, sanitised text
+  cannot become an image, Kitty deletion before redraw/resize, rebuilt rows
+  keep their images), `tests/test_native_tool_row_inline_images.py`
+  (text without image lines, settings off, unsized and bad data, settings
+  change redraws, live result), `tests/test_native_inline_images_pty.py`
+  (a real PTY: an MCP screenshot placed with the Kitty protocol and placed
+  again after Ctrl+O with its deletion first; `PIPY_IMAGE_PROTOCOL=none`
+  keeps the line), `tests/test_native_settings.py::test_image_getters_are_pis`.

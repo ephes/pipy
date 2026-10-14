@@ -197,21 +197,24 @@ def test_live_rows_never_draw_images(tmp_path: Path) -> None:
 
 
 def test_rebuilt_tool_rows_keep_their_images(tmp_path: Path) -> None:
+    from pipy_harness.native.agent.content import ImageContent
+    from pipy_harness.native.tool_result_display import ResultImages
     from pipy_harness.native.tool_rows import ToolRowResult, ToolRowState
 
     ui, terminal = _ui(tmp_path)
     ui.start()
     transcript = ui.components.transcript
+    transcript.set_image_options("kitty", show=True, width_cells=10)
     state = ToolRowState("shot", {"path": "a.png"}, tmp_path)
     # Twelve lines: collapsed and expanded rows differ.
     output = "\n".join(f"line {n}" for n in range(12))
-    state.result = ToolRowResult(output, None, False)
-    lines = transcript._tool_row_lines(state)
-    transcript.history_blocks.append(
-        HistoryBlockTuple("tool_box", lines, state, (_image(),))
-    )
+    images = ResultImages(output, (ImageContent(_PNG, "image/png"),))
+    state.result = ToolRowResult(output, None, False, images)
+    block = transcript._tool_block("tool_box", state)
+    transcript.history_blocks.append(block)
+    image_id = block.images[0].image_id
     ui.components.screen.paint()
-    delete = "\x1b_Ga=d,d=I,i=77,q=2\x1b\\"
+    delete = f"\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\"
     # Resize redraws every tool row.
     terminal.truncate(0)
     terminal.seek(0)
@@ -223,9 +226,9 @@ def test_rebuilt_tool_rows_keep_their_images(tmp_path: Path) -> None:
     terminal.truncate(0)
     terminal.seek(0)
     transcript.set_tools_expanded(True)
-    assert transcript.history_blocks[-1][1] != lines
+    assert transcript.history_blocks[-1][1] != block[1]
     expanded = terminal.getvalue()
     assert "line 11" in expanded
     assert expanded.index(delete) < expanded.index("\x1b_Ga=T,")
-    assert expanded.count("\x1b_Ga=T,") == 1
-    assert ui.components.screen.state.kitty_image_ids == {77}
+    assert expanded.count(f",i={image_id};") == 1
+    assert ui.components.screen.state.kitty_image_ids == {image_id}

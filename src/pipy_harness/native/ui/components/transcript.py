@@ -52,7 +52,14 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
 )
 from pipy_harness.native.session_tree_commands import sanitize_label_text
-from pipy_harness.native.terminal_image import TerminalImage
+from pipy_harness.native.terminal_image import (
+    DEFAULT_IMAGE_SIZE,
+    ImageProtocol,
+    TerminalImage,
+    allocate_image_id,
+    clean_base64,
+)
+from pipy_harness.native.tool_result_display import image_dimensions
 from pipy_harness.native.tool_rows import (
     BoxRow,
     EditPreview,
@@ -204,6 +211,11 @@ class TranscriptComponent:
         # drawn in the live region until its result commits the whole row.
         self.pending_tool: ToolRowState | None = None
         self.pending_tool_lines: tuple[str, ...] = ()
+        # Pi `getCapabilities().images`, `terminal.showImages` and
+        # `terminal.imageWidthCells`: whether tool rows draw their images.
+        self._image_protocol: ImageProtocol | None = None
+        self._show_images = True
+        self._image_width_cells = 60
 
     # -- seeding -------------------------------------------------------------
 
@@ -647,9 +659,7 @@ class TranscriptComponent:
                     apply_edit_result(state)
                 self.pending_tool = None
                 self.pending_tool_lines = ()
-                self.history_blocks.append(
-                    HistoryBlockTuple("tool_box", self._tool_row_lines(state), state)
-                )
+                self.history_blocks.append(self._tool_block("tool_box", state))
         if cancel is not None:
             cancel()
         if state is not None:
@@ -665,9 +675,7 @@ class TranscriptComponent:
 
         with self._paint_lock:
             self.history_blocks = [
-                HistoryBlockTuple(
-                    block[0], self._tool_row_lines(state), state, _images(block)
-                )
+                self._tool_block(block[0], state, block)
                 if isinstance(
                     state := getattr(block, "state", None),
                     ToolRowState | SummaryBox | SkillInvocationBox,
@@ -719,6 +727,88 @@ class TranscriptComponent:
         self.pending_tool_lines = ()
         return True
 
+    def set_image_options(
+        self, protocol: ImageProtocol | None, *, show: bool, width_cells: int
+    ) -> None:
+        """Whether tool rows draw their images, and how wide (Pi
+        ``setShowImages``/``setImageWidthCells`` on every tool row)."""
+
+        with self._paint_lock:
+            options = (protocol, show, width_cells)
+            if options == (
+                self._image_protocol,
+                self._show_images,
+                self._image_width_cells,
+            ):
+                return
+            self._image_protocol, self._show_images, self._image_width_cells = options
+            affected = any(
+                isinstance(state := getattr(block, "state", None), ToolRowState)
+                and state.result is not None
+                and state.result.images is not None
+                for block in self.history_blocks
+            )
+        if affected:
+            self.refresh_tool_rows()
+            self._reset_scrollback()
+
+    @property
+    def image_options(self) -> tuple[ImageProtocol | None, bool, int]:
+        """``(protocol, show, width_cells)`` as ``set_image_options`` took them."""
+
+        with self._paint_lock:
+            return self._image_protocol, self._show_images, self._image_width_cells
+
+    @property
+    def _inline_images(self) -> bool:
+        return self._image_protocol is not None and self._show_images
+
+    def _tool_block(
+        self, kind: str, state: ToolRowState | BoxRow, block: HistoryBlock | None = None
+    ) -> HistoryBlockTuple:
+        """A tool row's block: its lines and the images it draws after them."""
+
+        images = (
+            self._row_images(state)
+            if isinstance(state, ToolRowState)
+            else _images(block)
+            if block is not None
+            else ()
+        )
+        return HistoryBlockTuple(kind, self._tool_row_lines(state), state, images)
+
+    def _row_images(self, state: ToolRowState) -> tuple[TerminalImage, ...]:
+        """Pi ``updateDisplay``: an ``Image`` per result image, when the
+        terminal draws images and ``showImages`` is on."""
+
+        protocol = self._image_protocol
+        result = state.result
+        if protocol is None or not self._show_images or result is None:
+            return ()
+        if result.images is None:
+            return ()
+        images = result.images.images
+        while len(state.image_ids) < len(images):
+            state.image_ids.append(allocate_image_id())
+        theme = row_theme(chrome_style_for(self._render_inputs.stream))
+        drawn: list[TerminalImage] = []
+        for image, image_id in zip(images, state.image_ids, strict=False):
+            size = image_dimensions(image.data, image.mime_type) or DEFAULT_IMAGE_SIZE
+            # pi-tui `Image` names the size it assumed for an unreadable one.
+            fallback = f"[Image: [{image.mime_type}] {size[0]}x{size[1]}]"
+            drawn.append(
+                TerminalImage(
+                    data=clean_base64(image.data),
+                    mime_type=image.mime_type,
+                    protocol=protocol,
+                    max_width_cells=self._image_width_cells,
+                    image_id=image_id,
+                    size=size,
+                    fallback=theme.fg("toolOutput", fallback),
+                )
+            )
+        return tuple(drawn)
+
     def _tool_row_lines(self, state: ToolRowState | BoxRow) -> tuple[str, ...]:
         style = chrome_style_for(self._render_inputs.stream)
         if isinstance(state, SummaryBox | SkillInvocationBox):
@@ -731,6 +821,7 @@ class TranscriptComponent:
             theme=row_theme(style),
             extension_theme=self._render_inputs.theme(),
             now=self._clock(),
+            inline_images=self._inline_images,
         )
         return encode_rows(render_tool_row(state, inputs))
 
@@ -1036,11 +1127,9 @@ class TranscriptComponent:
                 continue
             if isinstance(state, ToolRowState | SummaryBox | SkillInvocationBox):
                 # Pi `setExpanded` on every ToolExecutionComponent and summary.
-                next_lines = self._tool_row_lines(state)
-                changed = changed or next_lines != lines
-                rebuilt.append(
-                    HistoryBlockTuple(kind, next_lines, state, _images(block))
-                )
+                next_block = self._tool_block(kind, state, block)
+                changed = changed or next_block[1] != lines
+                rebuilt.append(next_block)
                 continue
             if state is None:
                 rebuilt.append(HistoryBlockTuple(kind, lines, state, _images(block)))

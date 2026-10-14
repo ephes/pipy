@@ -169,6 +169,7 @@ from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
+    apply_image_settings,
 )
 from pipy_harness.native.repl.selector_actions import slash_argument_completer
 from pipy_harness.native.repl.session_command_port import (
@@ -1185,6 +1186,7 @@ def _prepare_startup_extension_consumers(
     terminal_ui.components.autocomplete.set_max_visible(
         settings.get_autocomplete_max_visible()
     )
+    apply_image_settings(terminal_ui, settings)
     terminal_ui.components.autocomplete.replace_command_surface(
         published_command_surface(
             workspace_resources, startup_commands, session_commands

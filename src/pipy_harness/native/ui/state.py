@@ -33,7 +33,11 @@ from pipy_harness.native.agent.events import (
 )
 from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentToolCall
 from pipy_harness.native.agent.results import AgentCancellationReason
-from pipy_harness.native.tool_result_display import tool_result_display_text
+from pipy_harness.native.tool_result_display import (
+    ResultImages,
+    result_images,
+    tool_result_display_text,
+)
 from pipy_harness.native.ui.stopped_turn import (
     stopped_assistant_marker,
     stopped_tool_call_text,
@@ -168,6 +172,8 @@ class RenderToolResult:
     duration_seconds: float | None
     # Pi ``ToolResultMessage.details`` for the tool's result renderer.
     details: Mapping[str, Any] | None = field(default=None, compare=False)
+    # The result's images, for a terminal row that draws them inline.
+    images: ResultImages | None = field(default=None, compare=False)
 
 
 RenderDecision = (
@@ -347,6 +353,7 @@ def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
                     is_error=event.result.is_error,
                     duration_seconds=event.duration_seconds,
                     details=event.result.details,
+                    images=result_images(event.result),
                 ),
             ),
         )

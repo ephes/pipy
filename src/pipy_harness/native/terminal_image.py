@@ -66,6 +66,17 @@ def detect_image_protocol(
     return _protocol_from_environment(env)
 
 
+def terminal_image_protocol(stream: object) -> ImageProtocol | None:
+    """The protocol to draw with on ``stream``: none unless it is a terminal."""
+
+    isatty = getattr(stream, "isatty", None)
+    try:
+        tty = bool(isatty()) if callable(isatty) else False
+    except (OSError, ValueError):
+        return None
+    return detect_image_protocol() if tty else None
+
+
 def _protocol_from_environment(env: Mapping[str, str]) -> ImageProtocol | None:
     term_program = env.get("TERM_PROGRAM", "").lower()
     term = env.get("TERM", "").lower()

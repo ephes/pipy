@@ -1883,8 +1883,9 @@ limit of the text and follow the shortened text when it is cut.
 How a provider is sent the image, and what a model without image input gets
 instead, is described under
 [providers](providers.md#thinking-images-and-current-limits). In the
-transcript the row shows a line `[Image: [image/png] 640x480]` after the
-text. The session file stores the image, so a resumed session sends it
+transcript the image is drawn after the row when the terminal can draw
+images, and otherwise named in a line `[Image: [image/png] 640x480]` after
+the text, see [images in tool results](tui-workflow.md#images-in-tool-results). The session file stores the image, so a resumed session sends it
 again, and the file grows by the size of every image.
 
 A script that calls the tool gets the image block in `content` (or the
@@ -1960,9 +1961,6 @@ six either.
   systems and is tested on macOS and Linux only.
 - A built-in Client ID Metadata Document. `clientRegistration: "cimd"`
   works with documents you host, see [OAuth settings](#oauth-settings).
-- Images drawn in the terminal. An image in a result reaches the model; the
-  transcript shows a line that names it, see
-  [images in results](#images-in-results).
 - Tool calls of one script at the same time. A codemode script's calls run
   one after another, see [codemode](codemode.md).
 - A clickable link for the authorization URL in the sign-in screen, see
