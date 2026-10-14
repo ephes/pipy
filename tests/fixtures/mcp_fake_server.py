@@ -27,6 +27,8 @@ The scenario file is one JSON object. Every key is optional:
   server keeps running when the steps do not exit, so ``[]`` ignores it.
 - ``onSigterm``: steps run on SIGTERM; ``[]`` ignores the signal. Without the
   key the signal ends the process as usual.
+- ``orphanGraceSeconds``: how long the server lives on after its parent
+  process ended or its stdin ended. Default 300. See "Orphans" below.
 
 A step is an object with one of these keys:
 
@@ -44,11 +46,31 @@ A step is an object with one of these keys:
 - ``{"record": name}``: an event line in the record file.
 - ``{"spawn": {"ignoreSigterm": bool, "inheritStdio": bool}}``: start a child
   process that sleeps for ever and print ``child <pid>`` on stderr once it
-  is set up. Without ``inheritStdio`` the child's stdio is ``/dev/null``.
+  is set up. Without ``inheritStdio`` the child's stdio is ``/dev/null``. The
+  child is this file run with ``--sleeper``, so its command line names the
+  fixture and the scenario file too.
 - ``{"exit": code}``: end the process at once.
 
 The built-in method ``fixture/process`` answers with the server's ``pid``,
 ``pgid``, ``sid``, ``cwd`` and ``env``.
+
+Orphans. A scenario can make the server ignore the end of stdin and SIGTERM,
+and a step can sleep for minutes. When the process that started such a server
+is killed, nothing ends the server. So the server ends itself
+``orphanGraceSeconds`` after the first of these, with the event ``orphaned``
+in the record:
+
+- its parent process changed, which is how the end of the parent shows;
+- its parent process was already pid 1 when it started (the parent ended
+  before the server looked);
+- its stdin ended. A client that closes stdin and is still there ends the
+  server with signals long before the time is over. This also covers a parent
+  that ended before the server looked where orphans do not go to pid 1; a
+  step that sleeps delays it, since stdin is not read meanwhile.
+
+A ``spawn`` child ends itself by the first two rules. The time is long, so a
+test still sees whether the client ended the server; it only keeps a failed
+or interrupted run from leaving processes behind for good.
 """
 
 from __future__ import annotations
@@ -59,19 +81,59 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
-_CHILD_CODE = """
-import os, signal, sys, time
-if sys.argv[1] == "1":
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-ready = int(sys.argv[2])
-os.write(ready, b"1")
-os.close(ready)
-while True:
-    time.sleep(1)
-"""
+_DEFAULT_ORPHAN_GRACE_SECONDS = 300.0
+
+
+class OrphanWatch:
+    """Ends this process ``grace`` seconds after it was left alone.
+
+    A thread watches the parent process; ``left_alone()`` is for what the
+    process notices itself. The time runs from the first of them.
+    """
+
+    def __init__(self, grace: float, on_orphaned: Callable[[], None]) -> None:
+        self._grace = grace
+        self._on_orphaned = on_orphaned
+        self._lock = threading.Lock()
+        self._counting = False
+        parent = os.getppid()
+
+        def watch() -> None:
+            # Pid 1 as the parent: the parent ended before this started.
+            while parent != 1 and os.getppid() == parent:
+                time.sleep(0.2)
+            self.left_alone()
+
+        threading.Thread(target=watch, name="orphan-watch", daemon=True).start()
+
+    def left_alone(self) -> None:
+        with self._lock:
+            if self._counting:
+                return
+            self._counting = True
+        threading.Thread(target=self._end, name="orphan-end", daemon=True).start()
+
+    def _end(self) -> None:
+        time.sleep(self._grace)
+        self._on_orphaned()
+        os._exit(0)
+
+
+def sleep_for_ever(ignore_sigterm: bool, ready: int, grace: float) -> None:
+    """The child of a ``spawn`` step."""
+
+    if ignore_sigterm:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    OrphanWatch(grace, lambda: None)
+    os.write(ready, b"1")
+    os.close(ready)
+    while True:
+        time.sleep(1)
 
 
 class StdioChannel:
@@ -111,9 +173,14 @@ class Recorder:
 
 class ScenarioEngine:
     def __init__(
-        self, scenario: dict[str, Any], channel: StdioChannel, recorder: Recorder
+        self,
+        scenario: dict[str, Any],
+        channel: StdioChannel,
+        recorder: Recorder,
+        scenario_path: str | None = None,
     ) -> None:
         self.scenario = scenario
+        self.scenario_path = scenario_path
         self.channel = channel
         self.recorder = recorder
         self._steps = {
@@ -212,8 +279,10 @@ class ScenarioEngine:
             [
                 sys.executable,
                 "-I",
-                "-c",
-                _CHILD_CODE,
+                os.path.abspath(__file__),
+                "--scenario",
+                self.scenario_path or os.devnull,
+                "--sleeper",
                 "1" if options.get("ignoreSigterm") else "0",
                 str(ready_write),
             ],
@@ -299,9 +368,16 @@ class ScenarioEngine:
         }
 
 
-def serve_stdio(scenario: dict[str, Any]) -> None:
+def _orphan_grace(scenario: dict[str, Any]) -> float:
+    return float(scenario.get("orphanGraceSeconds", _DEFAULT_ORPHAN_GRACE_SECONDS))
+
+
+def serve_stdio(scenario: dict[str, Any], scenario_path: str | None = None) -> None:
     recorder = Recorder(scenario.get("record"))
-    engine = ScenarioEngine(scenario, StdioChannel(), recorder)
+    engine = ScenarioEngine(scenario, StdioChannel(), recorder, scenario_path)
+    orphan_watch = OrphanWatch(
+        _orphan_grace(scenario), lambda: recorder.write(event="orphaned")
+    )
     if "onSigterm" in scenario:
         steps = scenario["onSigterm"]
 
@@ -326,6 +402,7 @@ def serve_stdio(scenario: dict[str, Any]) -> None:
         if isinstance(message, dict):
             engine.receive(message)
     recorder.write(event="stdin-closed")
+    orphan_watch.left_alone()
     engine.run(scenario.get("onStdinClose", [{"exit": 0}]))
     while True:
         time.sleep(1)
@@ -334,10 +411,22 @@ def serve_stdio(scenario: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--scenario", required=True)
+    parser.add_argument(
+        "--sleeper",
+        nargs=2,
+        metavar=("IGNORE_SIGTERM", "READY_FD"),
+        help="Run as the child of a spawn step instead of as a server.",
+    )
     arguments = parser.parse_args()
-    with open(arguments.scenario, encoding="utf-8") as scenario_file:
-        scenario = json.load(scenario_file)
-    serve_stdio(scenario)
+    scenario: dict[str, Any] = {}
+    if arguments.scenario != os.devnull:
+        with open(arguments.scenario, encoding="utf-8") as scenario_file:
+            scenario = json.load(scenario_file)
+    if arguments.sleeper:
+        ignore_sigterm, ready = arguments.sleeper
+        sleep_for_ever(ignore_sigterm == "1", int(ready), _orphan_grace(scenario))
+    else:
+        serve_stdio(scenario, arguments.scenario)
 
 
 if __name__ == "__main__":

@@ -17,6 +17,9 @@ import os
 
 import pytest
 
+# Fails a module whose tests leave a fake MCP server process running.
+pytest_plugins = ["mcp_fake_server_guard"]
+
 
 @pytest.fixture(autouse=True)
 def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyped-def]

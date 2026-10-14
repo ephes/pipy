@@ -13,6 +13,7 @@ import threading
 import time
 from pathlib import Path
 
+from mcp_fake_server_guard import end_fake_servers
 from pty_sync import wait_for_input_ready_after, wait_for_output
 
 from pipy_harness.native.mcp.readiness import STILL_CONNECTING_NOTICE
@@ -70,6 +71,9 @@ def _finish(process, master, chunks, stop, reader) -> None:
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
+            # A killed session cannot end its servers, and the one of the
+            # waiting phases ignores the end of its stdin.
+            end_fake_servers(Path(process.args[process.args.index("--workspace") + 1]))
         stop.set()
         reader.join(2)
         os.close(master)

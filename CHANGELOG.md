@@ -534,6 +534,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   during manual `/compact` and `Auto-compacting...` during automatic
   compaction; previously nothing was shown while the summary ran.
 
+- The test suite no longer leaves fake MCP server processes behind. A test
+  that failed, or a run that was killed, could leave a scripted server that
+  ignores the end of its stdin running for good. The fake server now ends
+  itself five minutes after its parent process ended, the PTY tests end the
+  servers of a session they had to kill, and a module whose tests leave a
+  fake server running fails with the command line of the process.
+
 ### Documentation
 
 - The [MCP page](docs/mcp.md) is in the order a user needs it: quick setup,

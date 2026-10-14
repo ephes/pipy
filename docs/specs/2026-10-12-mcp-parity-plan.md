@@ -3593,6 +3593,29 @@ tests, as in Pi.
 Tests that start processes use the fake server only; nothing in the default
 suite needs Node, `npx`, `uvx` or the network.
 
+No fake server outlives a test run (added in X2, after orphaned servers of
+failed and interrupted runs were found alive hours later):
+
+- A scenario can make the server ignore the end of its stdin and SIGTERM, and
+  a step can sleep for minutes. Nothing ends such a server when the process
+  that started it is killed. So the stdio server, and a `spawn` child, ends
+  itself `orphanGraceSeconds` (default 300) after its parent process ended and
+  records the event `orphaned`; the server also counts from the end of its
+  stdin, which shows the end of a parent it did not see. The time is far
+  longer than any test waits for a server to end, so it does not hide a
+  client that fails to end one.
+- `tests/mcp_fake_server_guard.py` is a pytest plugin loaded by
+  `tests/conftest.py`. After the last test of each module it looks, with
+  `ps`, for fake server processes (a `spawn` child is the fixture run with
+  `--sleeper`, so it is found too) whose scenario file is below the base
+  temporary directory of this run. A process that is still there after 2 s is
+  killed and the module fails with the command lines; the directory in a
+  command line is named after the test. Another test run on the same machine
+  is never touched. The check is per module, not per test, because a `ps`
+  per test would add minutes to the suite.
+- The helper that ends a killed TUI session in the PTY tests
+  (`test_native_mcp_readiness_pty._finish`) ends that session's servers.
+
 ### 6.2 Layers
 
 | Layer | What it proves | Where |
