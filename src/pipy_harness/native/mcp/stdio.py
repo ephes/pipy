@@ -14,18 +14,28 @@ Limits of what is promised:
 
 - ``close()`` sends its signals to the process group only while the server
   has not been reaped, so they cannot reach an unrelated group that reused
-  the id. The one signal sent after the server exited (to end children that
-  outlived it) is sent while the server is still a zombie where the platform
-  can wait without reaping (``os.waitid``); elsewhere it follows the reaping
-  immediately.
+  the id. Where the platform can wait without reaping (``os.waitid``), an
+  exited server stays unreaped until its stdout and stderr closed. So, as
+  with Pi, ``close()`` keeps signalling the group (SIGTERM, then SIGKILL)
+  while a child that outlived the server holds them, also when the server
+  had exited before ``close()`` was called. The one signal sent after the
+  pipes closed (to end children that do not hold them) is sent before the
+  reaping. Without ``os.waitid`` the watcher polls for the exit and reaps
+  the server in the same locked step that untracks it; from then on neither
+  ``close()`` nor the exit hook signals the group, so children that outlive
+  the server are not ended there, and ``close()`` does not wait for them.
 - A descendant that left the process group is not signalled. When such a
   descendant keeps the server's stdout open after the server exited, the
   transport stays open until ``close()`` is called; ``close()`` then returns
-  without waiting for that descendant.
-- During ``close()`` the readers are stopped without being waited for. A
-  message that is already being delivered, and the error for a partial
-  message read before the stop, may reach their listeners after the close
-  listeners ran.
+  after its SIGKILL without waiting for that descendant. Pi's ``close()``
+  waits for it without end.
+- ``close()`` called from a message, error or stderr listener does not wait
+  for the pipe of the reader it runs on, which cannot be read meanwhile.
+- After ``close()`` the readers go on delivering until the pipes close, or
+  until they are stopped: after the SIGKILL, or at once without
+  ``os.waitid``. A message that is already being delivered, and the error
+  for a partial message read before the stop, may reach their listeners
+  after the close listeners ran.
 - A ``send`` that is blocked because the server does not read its stdin ends
   when the server exits or is killed by ``close()``.
 - Servers that still run when the interpreter exits are ended by an
@@ -76,6 +86,9 @@ _exiting = False
 # How long the exit hook waits for a server it killed to be reaped.
 _EXIT_REAP_SECONDS: Final = 1.0
 _EXIT_POLL_SECONDS: Final = 0.01
+# How often a watcher looks for the server's exit where ``os.waitid`` is
+# missing.
+_REAP_POLL_SECONDS: Final = 0.05
 
 
 def _signal_group(pid: int, signum: signal.Signals) -> None:
@@ -144,18 +157,6 @@ def _untrack_process_group(pid: int) -> None:
         _live_process_groups.pop(pid, None)
         if _exiting:
             _signal_group(pid, signal.SIGKILL)
-
-
-def _wait_for_exit(process: subprocess.Popen[bytes]) -> None:
-    """Block until ``process`` exited, leaving it unreaped where possible."""
-
-    if not hasattr(os, "waitid"):
-        process.wait()
-        return
-    try:
-        os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
-    except ChildProcessError:
-        pass  # Already reaped, for example because SIGCHLD is ignored.
 
 
 def _reject_constant(name: str) -> NoReturn:
@@ -242,7 +243,15 @@ class StdioTransport(TransportEvents):
         self._started = False
         self._closed = False  # close() was called
         self._reaped = False  # the server's pid is no longer ours to signal
-        self._open_streams = 2  # stdout and stderr readers that have not finished
+        # The stdout and stderr readers, and those of them that have not
+        # finished. A reader finishes when its pipe closes, or when it is
+        # stopped after the close was decided.
+        self._readers: tuple[threading.Thread, ...] = ()
+        self._open_readers: set[threading.Thread] = set()
+        # The reader thread close() was called on, from a listener. Its pipe
+        # is not read while it waits, so its closing is not waited for.
+        self._closing_reader: threading.Thread | None = None
+        self._killed = False  # close() sent SIGKILL; the pipes are not waited for
         self._ended = False  # the close is being, or was, reported
         self._finished = threading.Event()  # the close listeners returned
         self._watcher: threading.Thread | None = None
@@ -324,6 +333,8 @@ class StdioTransport(TransportEvents):
             )
             self._process = process
             self._watcher = watcher
+            self._readers = tuple(readers)
+            self._open_readers = set(readers)
             _track_process_group(
                 process.pid, max(0.0, self.options.close_timeout_ms / 1000)
             )
@@ -367,8 +378,11 @@ class StdioTransport(TransportEvents):
 
         Closes the server's stdin and lets it exit; sends SIGTERM to its
         process group after ``STDIN_CLOSE_GRACE_MS`` and SIGKILL after a
-        further ``close_timeout_ms``. Returns when the close listeners ran. A
-        second call, from any thread, returns at once.
+        further ``close_timeout_ms``. The close is done when the server
+        exited and its stdout and stderr closed, so the signals also reach a
+        child in the group that holds them after the server exited, as with
+        Pi. Returns when the close listeners ran. A second call, from any
+        thread, returns at once.
         """
 
         with self._changed:
@@ -377,6 +391,8 @@ class StdioTransport(TransportEvents):
             self._closed = True
             process = self._process
             ended = self._ended
+            if threading.current_thread() in self._readers:
+                self._closing_reader = threading.current_thread()
             self._changed.notify_all()
         if process is None:
             self.emit_close()
@@ -395,7 +411,13 @@ class StdioTransport(TransportEvents):
         self._signal_server(process, signal.SIGTERM)
         if self._finished.wait(close_timeout):
             return
-        self._signal_server(process, signal.SIGKILL)
+        with self._changed:
+            if not self._reaped:
+                _signal_group(process.pid, signal.SIGKILL)
+            # SIGKILL ends the group; anything else that holds the pipes left
+            # the group and is not waited for.
+            self._killed = True
+            self._changed.notify_all()
         self._finished.wait()
 
     def _signal_server(
@@ -434,20 +456,22 @@ class StdioTransport(TransportEvents):
     ) -> None:
         """Wait for the server to exit, then report the close and clean up."""
 
-        _wait_for_exit(process)
-        with self._lock:
-            if self._closed:
-                # Children of the server that ignored stdin closing would
-                # otherwise outlive it.
-                _signal_group(process.pid, signal.SIGTERM)
-            _untrack_process_group(process.pid)
-            process.wait()
-            self._reaped = True
+        unreaped = self._wait_for_exit(process)
         with self._changed:
-            # Everything the server wrote is delivered before the close is
-            # reported, unless close() was called.
-            while self._open_streams and not self._closed:
+            # Wait for stdout and stderr to close: everything the server wrote
+            # is delivered before the close is reported. While a child in the
+            # server's group holds them, the server stays unreaped, so the
+            # signals of close() reach the group. Not waited for: the pipe of
+            # a listener that called close(), the pipes after close() sent
+            # SIGKILL, and the pipes after close() once the server was reaped.
+            while (
+                self._open_readers - {self._closing_reader}
+                and not self._killed
+                and not (self._closed and self._reaped)
+            ):
                 self._changed.wait()
+            if unreaped:
+                self._release_server_locked(process)
             self._ended = True
         os.write(wake_write, b"\0")
         self._close_stdin(process)
@@ -462,6 +486,46 @@ class StdioTransport(TransportEvents):
                 reader.join()
         os.close(wake_read)
         os.close(wake_write)
+
+    def _wait_for_exit(self, process: subprocess.Popen[bytes]) -> bool:
+        """Block until the server exited. Returns whether it is still unreaped.
+
+        With ``os.waitid`` the server is left unreaped, so its id stays
+        reserved. Without it the server is polled for, and reaped while
+        ``_lock`` and the tracking lock are held and its group is untracked
+        in the same step, so no signal of ``close()`` or of the exit hook
+        follows the reaping. A server the system reaped by itself (SIGCHLD
+        ignored) is only untracked; the group is not signalled after that.
+        """
+
+        if hasattr(os, "waitid"):
+            try:
+                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
+            except ChildProcessError:
+                pass  # Already reaped by the system.
+            else:
+                return True
+        while True:
+            with self._lock, _live_groups_lock:
+                if process.poll() is not None:
+                    _live_process_groups.pop(process.pid, None)
+                    self._reaped = True
+                    return False
+            time.sleep(_REAP_POLL_SECONDS)
+
+    def _release_server_locked(self, process: subprocess.Popen[bytes]) -> None:
+        """Stop tracking the exited, unreaped server and reap it. The caller
+        holds ``_lock``.
+
+        After ``close()`` its group is sent SIGTERM first: children of the
+        server that ignored stdin closing would otherwise outlive it.
+        """
+
+        if self._closed:
+            _signal_group(process.pid, signal.SIGTERM)
+        _untrack_process_group(process.pid)
+        process.wait()
+        self._reaped = True
 
     def _pump(
         self, stream: IO[bytes], wake_read: int, handle: Callable[[bytes], None]
@@ -553,7 +617,7 @@ class StdioTransport(TransportEvents):
 
     def _stream_finished(self) -> None:
         with self._changed:
-            self._open_streams -= 1
+            self._open_readers.discard(threading.current_thread())
             self._changed.notify_all()
 
     def _report(self, error: Exception) -> None:

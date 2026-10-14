@@ -44,9 +44,11 @@ A step is an object with one of these keys:
 - ``{"default": true}``: the built-in answer to the current request.
 - ``{"sleep": seconds}``.
 - ``{"record": name}``: an event line in the record file.
-- ``{"spawn": {"ignoreSigterm": bool, "inheritStdio": bool}}``: start a child
-  process that sleeps for ever and print ``child <pid>`` on stderr once it
-  is set up. Without ``inheritStdio`` the child's stdio is ``/dev/null``. The
+- ``{"spawn": {"ignoreSigterm": bool, "inheritStdio": bool, "newSession":
+  bool}}``: start a child process that sleeps for ever and print ``child
+  <pid>`` on stderr once it is set up. Without ``inheritStdio`` the child's
+  stdio is ``/dev/null``. With ``newSession`` the child leaves the server's
+  process group (a session of its own), so group signals miss it. The
   child is this file run with ``--sleeper``, so its command line names the
   fixture and the scenario file too.
 - ``{"exit": code}``: end the process at once.
@@ -290,6 +292,7 @@ class ScenarioEngine:
             stdout=stdio,
             stderr=stdio,
             pass_fds=(ready_write,),
+            start_new_session=bool(options.get("newSession")),
         )
         os.close(ready_write)
         os.read(ready_read, 1)

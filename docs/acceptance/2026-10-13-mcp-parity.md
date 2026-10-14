@@ -242,7 +242,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | STD-02 | S13 | closed | `test_native_mcp_stdio.py`: `test_sends_newline_delimited_json`, `test_strips_carriage_returns_and_skips_blank_lines`, `test_invalid_lines_are_reported_without_closing` |  |
 | STD-03 | S13 | closed | `test_native_mcp_stdio.py`: `test_a_message_over_16_mib_is_dropped_with_an_error`, `test_oversize_messages_are_dropped_and_the_stream_continues` |  |
 | STD-04 | S13 | closed | `test_native_mcp_stdio.py`: `test_keeps_the_last_64_kib_of_stderr_readable_after_the_server_failed` |  |
-| STD-05 | S13 | closed, with limits | `test_native_mcp_stdio.py`: `test_close_sends_sigterm_after_the_grace_period`, `test_close_kills_a_server_that_ignores_shutdown_including_its_children`, `test_close_terminates_children_that_outlive_a_server_that_exited` | DEV-09: POSIX only. |
+| STD-05 | S13 | closed, with limits | `test_native_mcp_stdio.py`: `test_close_sends_sigterm_after_the_grace_period`, `test_close_kills_a_server_that_ignores_shutdown_including_its_children`, `test_close_terminates_children_that_outlive_a_server_that_exited`, `test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm` (added in G1) | DEV-09: POSIX only. G1: `close()` stops waiting after its SIGKILL for a holder of the pipes that left the group, where Pi waits. |
 | STD-06 | S13 | closed | `test_native_mcp_stdio.py`: `test_servers_still_alive_at_interpreter_exit_are_sent_sigterm` |  |
 | STD-07 | S13 | closed | `test_native_mcp_stdio.py`: `test_server_exit_closes_the_transport_and_reports_a_partial_message`, `test_start_is_allowed_once_and_not_after_close` |  |
 

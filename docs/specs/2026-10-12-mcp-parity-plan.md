@@ -3296,6 +3296,7 @@ Slices outside these two lists are serial.
 | X1 | Prompts of print, JSON and RPC mode run extension commands and `/mcp`; RPC UI requests for `/mcp` | SLH-02 (remainder), SLH-07 to SLH-13 | M | S38 | no |
 | S40 | Conformance recipe, user docs pass, changelog, parity audit against section 2 | DOC-01 to DOC-05 | M | all | no |
 | X2 | Leaked stdio server processes: the fake server and the suite guard; SIGTERM and SIGHUP end pipy like an exit | none (STD-05 and STD-06 on a signalled pipy) | S, two commits | S40 | no |
+| G1 | Stdio close keeps signalling the group while a child holds the server's pipes (goal-check finding C1) | STD-05 | S | X2 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3615,6 +3616,32 @@ after its parent ended; a module that leaves one behind fails; the real
 command with a server that ignores its stdin, sent SIGTERM and SIGHUP in RPC
 mode, SIGTERM in print mode, in the terminal UI and in `pipy mcp list`, ends
 the server and exits with 143 or 129. See "Decided in X2".
+
+**G1 Stdio close and a child that holds the pipes.** Added after the goal
+check (finding C1): `StdioTransport` reported the close as soon as the
+server exited, so `close()` sent no SIGKILL to a child in the server's group
+that kept stdout or stderr open and ignored SIGTERM. Pi's `close()` resolves
+on the child's `close` event (exit and pipes closed) and its SIGTERM and
+SIGKILL timers for the group run until then. Now the watcher leaves an
+exited server unreaped (`os.waitid` with `WNOWAIT`) until its pipes closed,
+so `close()` can go on signalling the group without reaching a reused id;
+it also does so when the server had exited before `close()` (Pi's `close()`
+then returns at once without signals). Limits: after its SIGKILL `close()`
+no longer waits for a holder that left the group (Pi waits without end);
+`close()` from a reader's listener does not wait for that reader's pipe.
+Without `os.waitid` (and when the system reaps the server itself because
+SIGCHLD is ignored) the server is reaped in the same locked step that
+untracks it, and its group is not signalled after that, also not with the
+one SIGTERM after the exit that the earlier code sent; children that outlive
+the server are then not ended. Tests in `test_native_mcp_stdio.py`:
+`test_a_reaped_server_is_untracked_and_its_group_not_signalled`,
+`test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm`,
+`test_close_after_the_server_exited_kills_a_child_that_holds_its_output`,
+`test_close_does_not_wait_for_a_child_that_left_the_process_group`,
+`test_close_without_waitid_does_not_wait_for_a_child_that_holds_the_output`,
+`test_without_waitid_a_reaped_server_is_not_tracked_while_a_child_holds_its_output`,
+`test_close_from_a_message_listener_does_not_wait_for_its_own_stream`,
+`test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

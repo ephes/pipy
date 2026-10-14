@@ -551,6 +551,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   itself five minutes after its parent process ended, the PTY tests end the
   servers of a session they had to kill, and a module whose tests leave a
   fake server running fails with the command line of the process.
+- Closing a stdio MCP server now also ends a child in the server's process
+  group that keeps the server's stdout or stderr open and ignores SIGTERM.
+  The close used to end as soon as the server exited, so such a child was
+  sent one SIGTERM and kept running; now the group gets SIGTERM and then
+  SIGKILL until the pipes close, as with Pi. See
+  [when pipy ends](docs/mcp.md#when-pipy-ends).
 
 ### Documentation
 

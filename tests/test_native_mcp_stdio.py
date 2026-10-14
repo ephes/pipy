@@ -62,6 +62,23 @@ def _is_alive(pid: int) -> bool:
     return True
 
 
+def _exited(pid: int) -> bool:
+    """Whether ``pid`` is gone or a zombie."""
+
+    state = subprocess.run(  # noqa: S603
+        ["ps", "-o", "stat=", "-p", str(pid)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    return not state or state.startswith("Z")
+
+
+# Keeping an exited server unreaped while a child holds its pipes needs
+# os.waitid; without it close() cannot signal the group after the exit.
+_needs_waitid = pytest.mark.skipif(not hasattr(os, "waitid"), reason="needs os.waitid")
+
+
 class _Server:
     """One fake server process behind a ``StdioTransport``."""
 
@@ -733,15 +750,10 @@ def test_close_kills_a_server_that_ignores_shutdown_including_its_children(
     assert server.events() == ["stdin-closed", "sigterm"]
 
 
-@pytest.mark.parametrize("wait_without_reaping", [True, False])
+@_needs_waitid
 def test_close_terminates_children_that_outlive_a_server_that_exited(
     start_server: StartServer,
-    monkeypatch: pytest.MonkeyPatch,
-    wait_without_reaping: bool,
 ) -> None:
-    if not wait_without_reaping:
-        # Platforms without os.waitid reap the server before the signal.
-        monkeypatch.delattr(os, "waitid", raising=False)
     server = start_server({"startup": [{"spawn": {}}]})
     assert server.request(1, "ping")["id"] == 1
     child = server.child_pid()
@@ -753,11 +765,153 @@ def test_close_terminates_children_that_outlive_a_server_that_exited(
     _wait_until(lambda: not _is_alive(child))
 
 
-def test_close_does_not_wait_for_a_child_that_holds_the_server_output(
+def _record_group_signals(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Record every group signal the transport sends, and still send it."""
+
+    sent: list[int] = []
+    signal_group = stdio._signal_group
+
+    def record(pid: int, signum: signal.Signals) -> None:
+        sent.append(pid)
+        signal_group(pid, signum)
+
+    monkeypatch.setattr(stdio, "_signal_group", record)
+    return sent
+
+
+@pytest.mark.parametrize(
+    "reaped_by", ["polling", pytest.param("system", marks=_needs_waitid)]
+)
+def test_a_reaped_server_is_untracked_and_its_group_not_signalled(
+    start_server: StartServer,
+    monkeypatch: pytest.MonkeyPatch,
+    reaped_by: str,
+) -> None:
+    # Once the server is reaped its id may be reused: no signal of close() or
+    # of the exit hook may follow. A child that outlived it is left alone.
+    if reaped_by == "polling":
+        # Platforms without os.waitid.
+        monkeypatch.delattr(os, "waitid", raising=False)
+    else:
+        # SIGCHLD ignored: the system reaps, and waitid finds no child.
+        waitid = os.waitid
+
+        def reaped_by_the_system(*args: Any) -> None:
+            waitid(*args)
+            raise ChildProcessError
+
+        monkeypatch.setattr(os, "waitid", reaped_by_the_system)
+    sent = _record_group_signals(monkeypatch)
+    server = start_server({"startup": [{"spawn": {}}]})
+    assert server.request(1, "ping")["id"] == 1
+    child = server.child_pid()
+    pid = server.transport.pid
+    assert pid is not None
+
+    server.transport.close()
+
+    assert server.events() == ["stdin-closed"]
+    assert pid not in stdio._live_process_groups
+    assert pid not in sent
+    assert _is_alive(child)
+
+
+@_needs_waitid
+def test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm(
+    start_server: StartServer,
+) -> None:
+    # Pi's close() waits for the server's pipes to close and keeps its SIGTERM
+    # and SIGKILL timers for the group running until then.
+    server = start_server(
+        {"startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}]},
+        close_timeout_ms=300,
+    )
+    assert server.request(1, "ping")["id"] == 1
+    child = server.child_pid()
+    pid = server.transport.pid
+    assert pid is not None
+
+    started_at = time.monotonic()
+    server.transport.close()
+
+    # The server exits when its stdin closes; its child is killed after
+    # SIGTERM and the close timeout.
+    assert time.monotonic() - started_at >= 0.3
+    assert server.closed.is_set()
+    assert server.events() == ["stdin-closed"]
+    assert not _is_alive(pid)
+    _wait_until(lambda: not _is_alive(child))
+    assert pid not in stdio._live_process_groups
+
+
+@_needs_waitid
+def test_close_after_the_server_exited_kills_a_child_that_holds_its_output(
     start_server: StartServer,
 ) -> None:
     server = start_server(
-        {"startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}]}
+        {
+            "startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}],
+            "methods": {"ping": [{"default": True}, {"exit": 0}]},
+        },
+        close_timeout_ms=300,
+    )
+    assert server.request(1, "ping")["id"] == 1
+    child = server.child_pid()
+    pid = server.transport.pid
+    assert pid is not None
+    # The exited server is not reaped while its child holds the output, so
+    # its group can still be signalled.
+    _wait_until(lambda: _exited(pid))
+
+    # The transport stays open meanwhile.
+    assert not server.closed.wait(0.3)
+    assert pid in stdio._live_process_groups
+    server.transport.close()
+
+    assert server.closed.is_set()
+    _wait_until(lambda: not _is_alive(child))
+    assert not _is_alive(pid)
+
+
+def test_close_does_not_wait_for_a_child_that_left_the_process_group(
+    start_server: StartServer,
+) -> None:
+    server = start_server(
+        {
+            "startup": [
+                {
+                    "spawn": {
+                        "ignoreSigterm": True,
+                        "inheritStdio": True,
+                        "newSession": True,
+                    }
+                }
+            ]
+        },
+        close_timeout_ms=300,
+    )
+    assert server.request(1, "ping")["id"] == 1
+    child = server.child_pid()
+
+    started_at = time.monotonic()
+    server.transport.close()
+
+    # Grace period, SIGTERM, close timeout, SIGKILL, and no longer.
+    assert time.monotonic() - started_at < 5
+    assert server.closed.is_set()
+    assert _is_alive(child)
+
+
+def test_close_without_waitid_does_not_wait_for_a_child_that_holds_the_output(
+    start_server: StartServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Without os.waitid the server is reaped when it exits; its group is not
+    # signalled after that, so close() cannot end such a child.
+    monkeypatch.delattr(os, "waitid", raising=False)
+    server = start_server(
+        {"startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}]},
+        close_timeout_ms=60_000,
     )
     assert server.request(1, "ping")["id"] == 1
     child = server.child_pid()
@@ -770,9 +924,13 @@ def test_close_does_not_wait_for_a_child_that_holds_the_server_output(
     assert _is_alive(child)
 
 
-def test_transport_stays_open_while_a_child_holds_the_output_of_an_exited_server(
+def test_without_waitid_a_reaped_server_is_not_tracked_while_a_child_holds_its_output(
     start_server: StartServer,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # A reaped server's id may be reused, so the exit hook must not signal it,
+    # although the transport stays open while the child holds the output.
+    monkeypatch.delattr(os, "waitid", raising=False)
     server = start_server(
         {
             "startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}],
@@ -783,11 +941,27 @@ def test_transport_stays_open_while_a_child_holds_the_output_of_an_exited_server
     server.child_pid()
     pid = server.transport.pid
     assert pid is not None
-    _wait_until(lambda: not _is_alive(pid))
 
-    assert not server.closed.wait(0.3)
-    server.transport.close()
-    assert server.closed.is_set()
+    _wait_until(lambda: pid not in stdio._live_process_groups)
+    assert not server.closed.is_set()
+
+
+def test_close_from_a_message_listener_does_not_wait_for_its_own_stream(
+    start_server: StartServer,
+) -> None:
+    # The listener's thread reads stdout, so stdout cannot be seen to close
+    # while it waits; close() does not escalate for that.
+    server = start_server(start=False, close_timeout_ms=60_000)
+    returned = threading.Event()
+    server.transport.on_message(lambda message: server.transport.close())
+    server.transport.on_close(returned.set)
+    server.transport.start()
+    started_at = time.monotonic()
+    server.transport.send({"jsonrpc": "2.0", "id": 1, "method": "ping"})
+
+    assert returned.wait(_WAIT_SECONDS)
+    assert time.monotonic() - started_at < _WAIT_SECONDS
+    assert server.events() == ["stdin-closed"]
 
 
 def test_close_ends_a_send_blocked_on_a_server_that_does_not_read(
@@ -831,6 +1005,35 @@ def test_running_servers_are_tracked_until_they_exit(start_server: StartServer) 
 
     assert server.closed.wait(_WAIT_SECONDS)
     assert server.events() == ["sigterm"]
+    assert pid not in stdio._live_process_groups
+
+
+@_needs_waitid
+def test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server(
+    start_server: StartServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stdio, "_exiting", False)
+    server = start_server(
+        {
+            "startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}],
+            "methods": {"ping": [{"default": True}, {"exit": 0}]},
+        },
+        close_timeout_ms=300,
+    )
+    assert server.request(1, "ping")["id"] == 1
+    child = server.child_pid()
+    pid = server.transport.pid
+    assert pid is not None
+    _wait_until(lambda: _exited(pid))
+    # Still tracked: the exited server is not reaped while its child holds
+    # the output.
+    assert pid in stdio._live_process_groups
+
+    stdio._terminate_live_process_groups()
+
+    assert server.closed.wait(_WAIT_SECONDS)
+    _wait_until(lambda: not _is_alive(child))
     assert pid not in stdio._live_process_groups
 
 

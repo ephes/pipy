@@ -1541,7 +1541,12 @@ A session closes its connections when it ends: `/exit`, Ctrl+D, the end of a
 print or JSON run, the end of input in RPC mode. A server process gets the
 close sequence of the [stdio transport](#what-exists-as-a-library): its stdin
 is closed, its process group is sent SIGTERM after 500 ms and SIGKILL after a
-further 2 seconds. `pipy mcp list` does the same with the servers it started.
+further 2 seconds. The close is over when the server exited and its stdout
+and stderr closed, so a child in the server's process group that keeps them
+open and ignores SIGTERM is killed too, as with Pi. A child that started a
+process group of its own is not signalled; pipy stops waiting for it after
+the SIGKILL, where Pi waits until it ends. `pipy mcp list` does the same with
+the servers it started.
 
 SIGTERM and SIGHUP end pipy the same way, in every mode and for the `pipy
 mcp` commands: the command is unwound as for any other exit, so the terminal
@@ -1557,6 +1562,14 @@ ends the servers that are left: their process groups are sent SIGTERM, and
 SIGKILL when a server's close time (2 seconds) is over, and pipy exits when
 they are gone. What is left of a server's group after the server exited,
 such as a child that ignores SIGTERM, is sent SIGKILL.
+
+Both the close and the exit hook reach a server's group after the server
+exited only while pipy can keep the exited server unreaped, which needs
+`os.waitid` (Linux and macOS have it). On a platform without it, or when
+SIGCHLD is ignored so the system reaps the server itself, the group is not
+signalled once the server is gone, so a child that outlives the server is
+not ended by pipy: its process id could already belong to an unrelated
+process.
 
 Nothing can be done when pipy is killed with SIGKILL. A server then ends
 when it notices that its stdin closed, as a server should; one that does
@@ -1956,7 +1969,7 @@ below.
 | --- | --- |
 | `protocol`, `transport` | JSON-RPC message checks, error types, the protocol versions pipy accepts (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), conversion of MCP content blocks to text and images, and an in-memory transport pair for tests. |
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
-| `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group. POSIX only. |
+| `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group until the server exited and its stdout and stderr closed. POSIX only. |
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). |
 | `config` | Validation, loading and editing of `mcp.json`, as described under [configure servers](#configure-servers). |
 | `config_values` | `${NAME}` and `!command` in config values. |
