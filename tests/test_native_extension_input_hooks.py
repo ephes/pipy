@@ -96,6 +96,65 @@ def test_input_hook_transforms_text(tmp_path: Path) -> None:
     assert result == "HELLO"
 
 
+def test_a_handled_input_ends_the_chain(tmp_path: Path) -> None:
+    # Pi `emitInput`: "handled" short-circuits; later handlers do not run.
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "a_handle",
+        "from pipy_harness.extensions import InputHandled\n"
+        "def activate(api):\n"
+        "    @api.on('input')\n"
+        "    def handle(event, ctx):\n"
+        "        if event.text == 'stop':\n"
+        "            return InputHandled()\n",
+    )
+    _write(
+        workspace,
+        "b_seen",
+        "from pathlib import Path\n"
+        "def activate(api):\n"
+        "    @api.on('input')\n"
+        "    def seen(event, ctx):\n"
+        "        with open(Path(__file__).with_name('seen.txt'), 'a') as f:\n"
+        "            f.write(event.text + '\\n')\n",
+    )
+    hooks = extension_event_hooks(_activate(workspace), "input")
+
+    assert dispatch_input_hooks(hooks, "stop", cwd=str(workspace), has_ui=False) is None
+    assert dispatch_input_hooks(hooks, "go", cwd=str(workspace), has_ui=False) == "go"
+    seen = workspace / ".pipy" / "extensions" / "seen.txt"
+    assert seen.read_text() == "go\n"
+
+
+def test_a_typed_line_an_input_hook_handled_starts_no_run(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "eat.py").write_text(
+        "from pipy_harness.extensions import InputHandled\n"
+        "def activate(api):\n"
+        "    @api.on('input')\n"
+        "    def t(event, ctx):\n"
+        "        if event.text == 'eat me':\n"
+        "            return InputHandled()\n",
+        encoding="utf-8",
+    )
+    provider = _RecordingProvider()
+    session = CodingSession(provider=provider, tool_registry={})
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("eat me\nhello\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert [request.user_prompt for request in provider.requests] == ["hello"]
+
+
 def test_input_hook_observe_only_leaves_text(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write(

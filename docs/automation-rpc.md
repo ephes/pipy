@@ -1055,16 +1055,20 @@ not lines typed into a session.
    runs that command, with the text after the first space as its arguments.
    [`/mcp`](mcp.md#the-mcp-command) is such a command while MCP is on. No run
    starts and the model is not asked.
-2. Otherwise `/skill:<name> [args]` becomes the skill block and `/<name>
-   [args]` the expanded prompt template or custom command of that name.
-3. Every other text is the prompt as it stands. That includes the built-in
+2. Otherwise the extensions' `input` hooks see the text. One may change it,
+   or handle it (`InputHandled`): then no run starts, as for a command.
+3. In the text the hooks left, `/skill:<name> [args]` becomes the skill
+   block and `/<name> [args]` the expanded prompt template or custom
+   command of that name, also a template named like a built-in command of
+   the interactive session (`/model`, `/tree`, ...).
+4. Every other text is the prompt as it stands. That includes the built-in
    commands of the interactive session (`/model`, `/compact`, `/exit` and
    the rest), an unknown `/name` and a line that starts with `!`: the model
    receives them as text.
 
 The text is not trimmed: ` /mcp` with a leading space is a prompt.
 
-What a handled prompt (case 1) looks like:
+What a handled prompt (case 1, or a hook that handled it) looks like:
 
 | Mode | Result |
 | --- | --- |
@@ -1095,10 +1099,9 @@ Different from Pi:
   Pi refuses `steer` and `follow_up` for an extension command (`Extension
   command "/<name>" cannot be queued. ...`), runs such a `prompt` at once,
   and expands skills and templates when it queues a message.
-- A prompt template named like a built-in command is not expanded, and a
-  skill or template turn skips the `input` hooks (Pi runs them first). A
-  skill that is unknown or cannot be read, and a template that expands to
+- A skill that is unknown or cannot be read, and a template that expands to
   nothing, say so on stderr; the text then goes to the model unchanged.
+  Custom commands (`.pipy/commands`) expand like templates.
 - `get_commands` answers an empty list; Pi lists the extension commands,
   prompt templates and skills.
 

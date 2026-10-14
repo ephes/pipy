@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -599,9 +600,13 @@ class _FakeCommandEffects:
         *,
         resource: ResourceDispatchResolution | None = None,
         extension: ExtensionDispatchResolution | None = None,
+        input_hooks: Callable[[str], str | None] = lambda text: text,
     ) -> None:
         self._resource = resource
         self._extension = extension
+        self._input_hooks = input_hooks
+        self.input_hook_texts: list[str] = []
+        self.resource_prompt_flags: list[bool] = []
         self.diagnostics: list[str] = []
         self.footer_calls = 0
         self.resource_invocations = 0
@@ -622,9 +627,16 @@ class _FakeCommandEffects:
     def record_resource_invocation(self) -> None:
         self.resource_invocations += 1
 
-    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
         self.resource_dispatches.append(command_text)
+        self.resource_prompt_flags.append(prompt)
         return self._resource
+
+    def run_input_hooks(self, text: str) -> str | None:
+        self.input_hook_texts.append(text)
+        return self._input_hooks(text)
 
     def dispatch_extension(
         self, command_text: str
@@ -907,7 +919,9 @@ def test_dispatch_command_rejects_non_effects_port() -> None:
 
 def test_dispatch_command_rejects_wrong_resource_result_type() -> None:
     class _BadResource(_FakeCommandEffects):
-        def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution:
+        def dispatch_resource(
+            self, command_text: str, *, prompt: bool = False
+        ) -> ResourceDispatchResolution:
             return object()  # type: ignore[return-value]
 
     controller, _ = _controller(CodingInputQueue())
@@ -977,6 +991,48 @@ def test_prompt_reports_a_failed_extension_command_and_starts_no_run() -> None:
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
     assert effects.extension_errors == [("command:note", "command", "boom")]
     assert effects.diagnostics == []
+
+
+def test_prompt_input_hooks_see_the_unexpanded_text() -> None:
+    # Pi `prompt`: extension commands, then the `input` handlers on the
+    # text as sent, then skill and template expansion of what they left.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        input_hooks=lambda text: "/review " + text[len("/rv ") :],
+    )
+
+    resolution = _dispatch_prompt("/rv the diff", effects)
+
+    assert effects.extension_dispatches == ["/rv the diff"]
+    assert effects.input_hook_texts == ["/rv the diff"]
+    assert effects.resource_dispatches == ["/review the diff"]
+    assert effects.resource_prompt_flags == [True]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/review the diff"
+    assert resolution.resource_provider_text == "expanded"
+
+
+def test_prompt_handled_by_an_input_hook_starts_no_run() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        input_hooks=lambda text: None,
+    )
+
+    resolution = _dispatch_prompt("/skill:lint now", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.resource_dispatches == []
+
+
+def test_prompt_with_changed_text_carries_new_content() -> None:
+    selected = ProductContent("hello")
+    effects = _FakeCommandEffects(input_hooks=lambda text: text.upper())
+
+    resolution = _dispatch_prompt("hello", effects, selected)
+
+    assert resolution.user_input == "HELLO"
+    assert resolution.selected_provider_content == ProductContent("HELLO")
+    assert effects.extension_dispatches == []
 
 
 def test_prompt_never_interprets_a_builtin_or_reports_an_unknown_name() -> None:

@@ -510,6 +510,8 @@ def _dispatch_template_or_command(
 def dispatch_resource_command(
     line: str,
     resources: WorkspaceResources,
+    *,
+    prompt: bool = False,
 ) -> ResourceDispatch | None:
     """Resolve a typed line against the workspace resources.
 
@@ -520,6 +522,10 @@ def dispatch_resource_command(
 
     This function must be consulted **after** the built-in command
     handlers so a custom command can never shadow a built-in.
+
+    ``prompt`` is a prompt of an automation mode (Pi ``prompt``), where no
+    built-in command applies: a template named like one is expanded there,
+    as Pi's ``expandPromptTemplate`` knows no built-in names.
     """
 
     stripped = line.strip()
@@ -536,6 +542,6 @@ def dispatch_resource_command(
     # the line when the name resolves to a discovered, non-reserved resource;
     # otherwise return None so the caller's unknown-command handling fails
     # closed.
-    if name_token in RESERVED_COMMAND_NAMES or not name_token:
+    if not name_token or (name_token in RESERVED_COMMAND_NAMES and not prompt):
         return None
     return _dispatch_template_or_command(name_token, arguments, resources)

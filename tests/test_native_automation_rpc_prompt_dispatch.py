@@ -221,6 +221,46 @@ def test_a_failing_command_is_handled_too(tmp_path: Path, connect) -> None:
     assert "broken" not in client.errors.getvalue()
 
 
+def test_a_prompt_an_input_hook_handled_is_answered_handled(
+    tmp_path: Path, connect
+) -> None:
+    # SLH-10: Pi answers `handled` when an `input` handler consumed it.
+    from test_native_automation_prompt_dispatch import _HOOKS
+
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _HOOKS)
+    provider = _Provider([])
+    client = connect(provider)
+
+    client.send(id="h", type="prompt", message="skip")
+
+    assert client.response("h")["data"] == {"disposition": "handled"}
+    assert client.close() == []
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize("kind", ["steer", "follow_up"])
+def test_an_idle_queued_message_a_hook_handled_frees_the_session(
+    tmp_path: Path, connect, kind: str
+) -> None:
+    # Sent while idle, the message runs at once; when an `input` hook
+    # handles it there is no run, and the session must be idle afterwards.
+    from test_native_automation_prompt_dispatch import _HOOKS
+
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _HOOKS)
+    provider = _Provider([_result(final_text="answer")])
+    client = connect(provider)
+
+    client.send(id="q", type=kind, message="skip")
+    client.response("q")
+    client.send(id="p", type="prompt", message="go on")
+    # Without the settlement the prompt would stay queued for ever.
+    client.until(lambda record: record.get("type") == "agent_settled")
+
+    assert [request.user_prompt for request in provider.requests] == ["go on"]
+
+
 @pytest.mark.parametrize("prompt", ["/model stub/other", "/nosuch thing", "!echo x"])
 def test_other_slash_texts_start_a_run(connect, prompt: str) -> None:
     # SLH-08.

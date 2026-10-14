@@ -84,6 +84,7 @@ from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     InputEvent,
+    InputHandled,
     InputTransform,
     LifecycleEvent,
     McpServersChangeEvent,
@@ -452,14 +453,16 @@ def dispatch_input_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
-) -> str:
+) -> str | None:
     """Run `input` hooks over a submitted prompt; return the final text.
 
     Hooks run in registration order, each receiving an `InputEvent` with
     the current text. A hook returning an `InputTransform` replaces the
-    text for subsequent hooks; any other return value observes only. A
-    hook that raises is fail-safe: the current text is kept unchanged so
-    a buggy hook never breaks submission. `KeyboardInterrupt` /
+    text for subsequent hooks; one returning `InputHandled` consumed the
+    prompt: the result is `None`, later hooks do not run and nothing is
+    sent (Pi `emitInput`). Any other return value observes only. A hook
+    that raises is fail-safe: the current text is kept unchanged so a
+    buggy hook never breaks submission. `KeyboardInterrupt` /
     `SystemExit` propagate.
     """
 
@@ -482,6 +485,8 @@ def dispatch_input_hooks(
             raise
         except BaseException:  # noqa: BLE001 - fail-safe: keep current text
             continue
+        if isinstance(result, InputHandled):
+            return None
         if isinstance(result, InputTransform) and isinstance(result.text, str):
             # Ignore a non-string transform (fail-safe): never propagate a
             # non-string into @file resolution / the provider request.

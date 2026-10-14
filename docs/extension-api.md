@@ -582,7 +582,7 @@ target vocabulary includes:
 | `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
 | `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
-| `input` | Observe or transform submitted user input before a provider turn. | None or `InputTransform` |
+| `input` | Observe or transform submitted user input before a provider turn, or handle it so that no turn starts (`InputHandled`, Pi's `{action: "handled"}`; later hooks then do not run). A prompt of print, JSON or RPC mode reaches the hooks before skill and template expansion, as in Pi; a line typed into a session reaches them only when it is not a skill or template. | None, `InputTransform` or `InputHandled` |
 | `user_bash` | Observe or gate a user-run bash command entered via Pi's `!`/`!!` prefix, including whether it is excluded from model context. | None or `UserBashDecision` |
 | `before_agent_start` | Inject bounded context, alter system-prompt options, or add safe custom messages before a turn. | None or `BeforeAgentStartResult` |
 | `agent_start` | Observe a low-level agent run starting, including each admitted retry continuation. | None |

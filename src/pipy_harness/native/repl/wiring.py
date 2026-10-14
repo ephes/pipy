@@ -2078,6 +2078,7 @@ def _compose_commands(
         resolve_resource=collaborators.dispatch_resource_effect,
         resolve_extension=collaborators.dispatch_extension_effect,
         report_extension_error=extension.extension_error,
+        run_input_hooks=collaborators_phase.extension_operations.dispatch_input,
     )
     return _CommandPhase(command_effects=command_effects)
 

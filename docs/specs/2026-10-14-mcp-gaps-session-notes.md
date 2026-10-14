@@ -147,3 +147,59 @@ in, one section per item.
   `tests/test_native_extension_mcp_servers.py::test_an_unconnected_server_is_an_extension_error_of_print_mode`,
   `tests/test_native_extension_dispatch.py::test_an_exception_whose_text_raises_is_still_bounded`,
   `tests/test_native_coding_session_controller.py::test_prompt_reports_a_failed_extension_command_and_starts_no_run`.
+
+## N2-b: input hooks and templates in a prompt (goal-check E14, E15, E16)
+
+### Changelog (Unreleased)
+
+- Added: an `input` hook can return `InputHandled` (Pi's
+  `{action: "handled"}`): later hooks do not run and no run starts. A
+  handled prompt of `--print` prints nothing, `--mode json` writes only the
+  header, an RPC `prompt` is answered with disposition `handled`; a typed
+  line starts no run.
+- Changed: the prompt of `--print`, `--mode json` and an RPC `prompt` reaches
+  the `input` hooks before skill and template expansion, as in Pi, so a hook
+  sees `/review x` and may turn text into a template invocation; the session
+  then stores the text the hooks left (Pi stores it too). A prompt template
+  named like a built-in command of the interactive session (`/model`,
+  `/tree`, ...) is expanded in such a prompt.
+
+### Plan updates
+
+- "Decided in X1 (prompts of the automation modes)": `dispatch_prompt` now
+  runs the extension command, then `CodingCommandEffects.run_input_hooks`
+  (`None` = handled, which settles the claim like a command), then
+  `dispatch_resource(text, prompt=True)` on the hooks' text; the resolution
+  carries that text and the loop step passes an unchanged transform to
+  `CodingAcceptedInputPreparer`, so the hooks run once. `prepare` returns
+  `None` when the typed line's hooks handled it (loop continues).
+  `dispatch_resource_command(..., prompt=True)` skips the reserved-name rule.
+  `dispatch_input_hooks` returns `str | None`. New public type
+  `InputHandled` (`pipy_harness.extensions`, 111 public names).
+- "Different from Pi" of that block: remove "a template named like a
+  built-in command is not expanded" and "a resource turn skips the `input`
+  hooks" for prompts. Still different: a line typed into a session runs the
+  hooks only when it is not a skill or template (pipy's typed order,
+  DEV-38), and a typed line a hook handled stays in the transcript because
+  the terminal drew it before the hooks ran.
+- DEV-40 (SLH-09): shrink to "custom commands expand like templates; an
+  unknown or unreadable skill is reported on stderr; for a typed line a
+  resource turn skips the `input` hooks".
+- Rows SLH-09 and SLH-10 (handled by a hook) are closed for the automation
+  modes.
+
+### Acceptance note / audit test
+
+- SLH-09, SLH-10: tests
+  `tests/test_native_automation_prompt_dispatch.py::test_input_hooks_run_before_expansion`,
+  `::test_a_prompt_an_input_hook_handled_starts_no_run`,
+  `::test_a_template_named_like_a_builtin_command_is_expanded`,
+  `tests/test_native_automation_rpc_prompt_dispatch.py::test_a_prompt_an_input_hook_handled_is_answered_handled`,
+  `tests/test_native_extension_input_hooks.py::test_a_handled_input_ends_the_chain`,
+  `::test_a_typed_line_an_input_hook_handled_starts_no_run`,
+  `tests/test_native_coding_session_controller.py::test_prompt_input_hooks_see_the_unexpanded_text`
+  and the two tests after it,
+  `tests/test_native_coding_accepted_input.py::test_a_handled_prompt_is_no_turn_and_records_nothing`.
+  An idle RPC `steer`/`follow_up` that a hook handles settles its claim
+  (`CodingSessionController.settle_handled_prompt`), pinned by
+  `tests/test_native_automation_rpc_prompt_dispatch.py::test_an_idle_queued_message_a_hook_handled_frees_the_session`.

@@ -157,7 +157,7 @@ class SessionExtensionOperations:
             project_trusted=self.project_trusted,
         )
 
-    def dispatch_input(self, text: str) -> str:
+    def dispatch_input(self, text: str) -> str | None:
         projection, ui_driver, generation_id = self._projection()
         return dispatch_input_hooks(
             projection.hooks.input,

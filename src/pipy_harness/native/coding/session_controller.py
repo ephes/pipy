@@ -659,8 +659,10 @@ class CodingCommandEffects(Protocol):
     def record_resource_invocation(self) -> None: ...
 
     def dispatch_resource(
-        self, command_text: str
+        self, command_text: str, *, prompt: bool = False
     ) -> ResourceDispatchResolution | None: ...
+
+    def run_input_hooks(self, text: str) -> str | None: ...
 
     def dispatch_extension(
         self, command_text: str
@@ -689,6 +691,7 @@ class _CallableCodingCommandEffects:
         "_report_extension_error",
         "_resolve_extension",
         "_resolve_resource",
+        "_run_input_hooks",
     )
 
     def __init__(
@@ -698,9 +701,10 @@ class _CallableCodingCommandEffects:
         footer: Callable[[], None],
         interpret: Callable[[CodingCommandOutcome], None],
         record_resource: Callable[[], None],
-        resolve_resource: Callable[[str], ResourceDispatchResolution | None],
+        resolve_resource: Callable[..., ResourceDispatchResolution | None],
         resolve_extension: Callable[[str], ExtensionDispatchResolution | None],
         report_extension_error: Callable[[str, str, str], None],
+        run_input_hooks: Callable[[str], str | None],
     ) -> None:
         self._emit = emit
         self._footer = footer
@@ -709,6 +713,7 @@ class _CallableCodingCommandEffects:
         self._resolve_resource = resolve_resource
         self._resolve_extension = resolve_extension
         self._report_extension_error = report_extension_error
+        self._run_input_hooks = run_input_hooks
 
     def emit_diagnostic(self, message: str) -> None:
         self._emit(message)
@@ -722,8 +727,15 @@ class _CallableCodingCommandEffects:
     def record_resource_invocation(self) -> None:
         self._record_resource()
 
-    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
+        if prompt:
+            return self._resolve_resource(command_text, prompt=True)
         return self._resolve_resource(command_text)
+
+    def run_input_hooks(self, text: str) -> str | None:
+        return self._run_input_hooks(text)
 
     def dispatch_extension(
         self, command_text: str
@@ -1351,26 +1363,44 @@ class CodingSessionController:
         client is not a typed line: no built-in command, shell shortcut or
         hotkey applies to it. A text that starts with ``/`` and names an
         extension command (``/mcp`` is one) runs that command and there is no
-        run; the transport's claim for the prompt is settled here. Otherwise
-        a skill command or a prompt template is expanded, and every other
-        text, an unknown ``/name`` included, is the prompt as it stands.
+        run. Then the ``input`` hooks see the text; one may change it or
+        handle it, and a handled prompt starts no run either. In both cases
+        the transport's claim for the prompt is settled here. Otherwise a
+        skill command or a prompt template in the hooks' text is expanded,
+        and every other text, an unknown ``/name`` included, is the prompt
+        as it stands. The resolution carries the hooks' text, so the
+        accepted turn does not run them again.
         """
 
         if not isinstance(effects, CodingCommandEffects):
             raise TypeError("effects must implement CodingCommandEffects")
-        provider_text: str | None = None
         if user_input.startswith("/"):
             extension = _dispatch_extension_command(user_input, effects, prompt=True)
             if extension is not None:
-                if self._control_bridge is not None:
-                    self._control_bridge.settle_handled_prompt()
+                self.settle_handled_prompt()
                 return extension
-            provider_text = _expand_prompt_resource(user_input, effects)
+        text = effects.run_input_hooks(user_input)
+        if text is None:
+            self.settle_handled_prompt()
+            return CommandDispatchResolution.continue_loop()
+        provider_text: str | None = None
+        if text.startswith("/"):
+            provider_text = _expand_prompt_resource(text, effects)
+        if text != user_input and selected_provider_content is not None:
+            selected_provider_content = ProductContent(text)
         return CommandDispatchResolution.proceed_to_run(
-            user_input=user_input,
+            user_input=text,
             resource_provider_text=provider_text,
             selected_provider_content=selected_provider_content,
         )
+
+    def settle_handled_prompt(self) -> None:
+        """Settle the transport's claim of a selected input that started no
+        run (a command or an ``input`` hook handled it); without a claim
+        there is nothing to settle."""
+
+        if self._control_bridge is not None:
+            self._control_bridge.settle_handled_prompt()
 
     def _step_from_wake(
         self,
@@ -1665,7 +1695,7 @@ def _expand_prompt_resource(
     and leaves the text to go to the model unchanged, as Pi leaves it.
     """
 
-    resource = effects.dispatch_resource(text)
+    resource = effects.dispatch_resource(text, prompt=True)
     if resource is None:
         return None
     if type(resource) is not ResourceDispatchResolution:

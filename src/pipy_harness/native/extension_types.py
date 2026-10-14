@@ -717,6 +717,12 @@ class InputTransform:
 
 
 @dataclass(frozen=True, slots=True)
+class InputHandled:
+    """Returned by an `input` hook that consumed the prompt (Pi's
+    `{action: "handled"}`): later hooks do not run and no run starts."""
+
+
+@dataclass(frozen=True, slots=True)
 class SystemPromptOptions:
     """What the coming run's system prompt is built from, for a
     `before_agent_start` hook to change (Pi `systemPromptOptions`).

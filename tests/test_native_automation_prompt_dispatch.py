@@ -247,6 +247,76 @@ def test_a_prompt_template_and_a_skill_are_expanded(tmp_path: Path) -> None:
     assert sent.endswith("now")
 
 
+_HOOKS = """from pathlib import Path
+from pipy_harness.extensions import InputHandled, InputTransform
+
+
+def activate(api):
+    @api.on('input')
+    def hook(event, ctx):
+        with open(Path(__file__).with_name('seen.txt'), 'a') as f:
+            f.write(event.text + '\\n')
+        if event.text == 'skip':
+            return InputHandled()
+        if event.text == 'go':
+            return InputTransform(text='/review the diff')
+"""
+
+
+def test_input_hooks_run_before_expansion(tmp_path: Path) -> None:
+    # SLH-09: the `input` hooks see the template invocation as sent, and a
+    # template their text names is expanded.
+    workspace = tmp_path / "work"
+    directory = _extension(workspace, "hooks", _HOOKS)
+    _resource(
+        workspace / ".pipy" / "templates", "review", "Please review $ARGUMENTS.\n"
+    )
+
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+    code, stdout, errors = _print(workspace, provider, "/review this")
+    assert (code, stdout) == (0, "one\n"), errors
+    code, stdout, errors = _print(workspace, provider, "go")
+    assert (code, stdout) == (0, "two\n"), errors
+
+    assert [request.user_prompt.strip() for request in provider.requests] == [
+        "Please review this.",
+        "Please review the diff.",
+    ]
+    assert (directory / "seen.txt").read_text() == "/review this\ngo\n"
+
+
+@pytest.mark.parametrize("mode", ["print", "json"])
+def test_a_prompt_an_input_hook_handled_starts_no_run(
+    tmp_path: Path, mode: str
+) -> None:
+    # SLH-10 for Pi's `handled` input result: as a handled command.
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _HOOKS)
+    provider = _Provider([])
+
+    if mode == "print":
+        code, stdout, errors = _print(workspace, provider, "skip")
+        assert stdout == ""
+    else:
+        code, records, errors = _json(workspace, provider, "skip")
+        assert [record["type"] for record in records] == ["session"]
+
+    assert (code, provider.requests) == (0, []), errors
+
+
+def test_a_template_named_like_a_builtin_command_is_expanded(tmp_path: Path) -> None:
+    # SLH-09: a prompt knows no built-in commands, so nothing hides the
+    # template (Pi `expandPromptTemplate`).
+    workspace = tmp_path / "work"
+    _resource(workspace / ".pipy" / "templates", "model", "Describe $ARGUMENTS.\n")
+    provider = _Provider([_result(final_text="described")])
+
+    code, stdout, errors = _print(workspace, provider, "/model the diff")
+
+    assert (code, stdout) == (0, "described\n"), errors
+    assert provider.requests[0].user_prompt.strip() == "Describe the diff."
+
+
 def test_an_extension_command_comes_before_a_template_of_its_name(
     tmp_path: Path,
 ) -> None:

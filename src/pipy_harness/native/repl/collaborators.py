@@ -711,10 +711,10 @@ class SessionCollaborators:
         )
 
     def dispatch_resource_effect(
-        self, command_text: str
+        self, command_text: str, *, prompt: bool = False
     ) -> ResourceDispatchResolution | None:
         resource_dispatch = dispatch_resource_command(
-            command_text, self.ctl.workspace_resources
+            command_text, self.ctl.workspace_resources, prompt=prompt
         )
         if resource_dispatch is None:
             return None
