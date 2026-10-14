@@ -1586,6 +1586,11 @@ provider, see [a provider's token](#a-providers-token).
   answer and move to the new session the same way. A request that finds the
   new session expired as well fails with `MCP session expired`.
 - No request is made more than twice.
+- A redirect is followed, also to another host. The token and a configured
+  `Authorization`, `Proxy-Authorization`, `Cookie` or `Host` header are not
+  sent to the other host; every other configured header is. A redirect that
+  cannot be followed (to an address that is not `http` or `https`, or more
+  than 20 in a row) counts as a failure to reach the server.
 - Closing a server, or ending the session, ends the wait before another
   attempt and, when the server gave the session an id, tells it that the
   session is over (a `DELETE`, given one second).
@@ -1599,8 +1604,6 @@ Different from Pi:
   closes that session's connection. Pi leaves it open.
 - The wait before a resource request is made again ends when the call is
   cancelled or the server is closed. Pi waits the 250 ms out.
-- pipy sends configured headers and tokens only to the server's own origin,
-  so a redirect to another host is a failed request.
 
 ### States
 
@@ -1636,6 +1639,8 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
   shows in the next request.
 - Closing a server stops a connect in progress and returns when the server
   process is gone, or the HTTP session ended. Calls then fail with `MCP server "<name>" is shut down`.
+  An HTTP request that is still connecting to the server, or in its TLS
+  handshake, is ended at once; so is one that was cancelled or timed out.
   From the moment a server is closed no token refresh starts for it, and
   closing waits for one that is running, so that its new tokens are saved.
   The same holds for asking for [a provider's token](#a-providers-token).
@@ -2092,10 +2097,15 @@ an OAuth server is given. It never opens a browser:
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
 
-- The HTTP transport's default fetch follows a redirect only within the
-  configured server's origin, so configured headers and tokens go to no
-  other host. It has no proxy support and does not decompress responses. A
-  transport that needs one of these is given a `fetch`, as in Pi.
+- The HTTP transport's default fetch has no proxy support and does not
+  decompress responses. A transport that needs one of these is given a
+  `fetch`, as in Pi. Redirects are followed by the rules of Node's `fetch`:
+  to any origin, at most 20, with `Authorization`, `Proxy-Authorization`,
+  `Cookie` and `Host` dropped for good at the first change of origin. A
+  `Location` that Python's URL functions read differently from a browser
+  may lead elsewhere or fail.
+- A name lookup cannot be interrupted. Closing a transport does not wait
+  for it, and the request opens no connection when the lookup ends.
 - A fetch is not JavaScript's: it takes one request object and returns an
   object with `status`, `header(name)`, `read(limit)`, `chunks()` and
   `close()`, and it is handed a cancel token instead of an abort signal.

@@ -741,21 +741,120 @@ def test_follows_a_redirect_within_the_origin_with_method_and_body(
     assert followed[-1].headers["mcp-session-id"] == "session-1"
 
 
-def test_does_not_follow_a_redirect_to_another_origin(fake: _Fixture) -> None:
+class _OneToken:
+    def token(self) -> str | None:
+        return "t1"
+
+
+_CREDENTIALS = {
+    "X-Api-Key": "k1",
+    "Authorization": "Basic configured",
+    "Proxy-Authorization": "Basic proxy",
+    "Cookie": "sid=1",
+}
+
+
+def test_follows_a_redirect_to_another_origin_as_fetch_does(fake: _Fixture) -> None:
+    # Pi sends with the platform fetch, whose redirect mode is "follow":
+    # the method and the body go on, and `Authorization`,
+    # `Proxy-Authorization`, `Cookie` and `Host` stay behind.
     other = fake.server()
-    # Same server, other host name: another origin.
-    location = other.url.replace("127.0.0.1", "localhost")
     server = fake.server(
         path="/old",
-        paths={"/old": [{"status": 308, "headers": {"Location": location}}]},
+        paths={"/old": [{"status": 308, "headers": {"Location": other.url}}]},
+    )
+    client = fake.connect(server, headers=_CREDENTIALS, auth_provider=_OneToken())
+
+    assert client.list_tools() == [_ECHO]
+
+    first = server.messages("initialize")[0].headers
+    assert first["authorization"] == "Bearer t1"
+    assert first["cookie"] == "sid=1"
+    assert [r.message["method"] for r in other.requests if r.message] == [
+        "initialize",
+        "notifications/initialized",
+        "tools/list",
+    ]
+    for request in other.requests:
+        assert request.method == "POST"
+        assert request.path == "/mcp"
+        assert request.headers["x-api-key"] == "k1"
+        assert request.headers["content-type"] == "application/json"
+        assert request.headers["host"] == other.origin.removeprefix("http://")
+        for name in ("authorization", "proxy-authorization", "cookie"):
+            assert name not in request.headers
+    # The session id is no credential for fetch: it follows the redirect.
+    assert other.requests[-1].headers["mcp-session-id"] == "session-1"
+
+
+def test_a_redirect_within_the_origin_keeps_the_credentials(fake: _Fixture) -> None:
+    server = fake.server(
+        path="/old",
+        paths={"/old": [{"status": 307, "headers": {"Location": "/mcp"}}]},
+    )
+    client = fake.connect(server, headers=_CREDENTIALS, auth_provider=_OneToken())
+
+    assert client.list_tools() == [_ECHO]
+
+    followed = [r for r in server.requests if r.path == "/mcp"]
+    assert len(followed) == 3
+    for request in followed:
+        assert request.headers["authorization"] == "Bearer t1"
+        assert request.headers["proxy-authorization"] == "Basic proxy"
+        assert request.headers["cookie"] == "sid=1"
+
+
+def test_credentials_dropped_at_another_origin_do_not_come_back(
+    fake: _Fixture,
+) -> None:
+    # fetch removes the headers from the request, so a redirect that leads
+    # back to the first origin arrives without them.
+    server = fake.server(path="/old")
+    other = fake.server(
+        paths={"/mcp": [{"status": 307, "headers": {"Location": server.origin + "/"}}]}
+    )
+    server.scenario["paths"] = {
+        "/old": [{"status": 307, "headers": {"Location": other.url}}]
+    }
+    client = fake.connect(server, headers=_CREDENTIALS, auth_provider=_OneToken())
+
+    assert client.list_tools() == [_ECHO]
+
+    back = [r for r in server.requests if r.path == "/"]
+    assert len(back) == 3
+    for request in back:
+        assert request.headers["x-api-key"] == "k1"
+        for name in ("authorization", "proxy-authorization", "cookie"):
+            assert name not in request.headers
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["ftp://example.com/mcp", "http://user:secret@127.0.0.1:9/mcp", "http://[/mcp"],
+)
+def test_a_redirect_to_a_place_no_request_can_go_is_a_network_failure(
+    fake: _Fixture, location: str
+) -> None:
+    # fetch answers these with a network error (a `TypeError` in Pi).
+    server = fake.server(
+        path="/old",
+        paths={"/old": [{"status": 307, "headers": {"Location": location}}]},
     )
 
-    with pytest.raises(McpHttpError) as failure:
-        fake.connect(server, headers={"X-Api-Key": "k1"})
+    with pytest.raises(http.client.InvalidURL, match="Cannot follow the redirect"):
+        fake.connect(server)
 
-    assert failure.value.status == 308
-    assert str(failure.value) == "MCP HTTP request failed with status 308"
-    assert other.requests == []
+    assert len(server.requests) == 1
+
+
+def test_a_redirect_status_without_a_location_is_the_answer(fake: _Fixture) -> None:
+    server = fake.server(path="/old", paths={"/old": [{"status": 307}]})
+
+    with pytest.raises(McpHttpError) as failure:
+        fake.connect(server)
+
+    assert failure.value.status == 307
+    assert len(server.requests) == 1
 
 
 def test_a_301_turns_a_post_into_a_get_as_fetch_does(fake: _Fixture) -> None:
@@ -765,13 +864,15 @@ def test_a_301_turns_a_post_into_a_get_as_fetch_does(fake: _Fixture) -> None:
     )
 
     with pytest.raises(McpHttpError) as failure:
-        fake.connect(server)
+        fake.connect(server, headers={"Content-Language": "en", "X-Api-Key": "k1"})
 
     # The fake server answers a GET with 405.
     assert failure.value.status == 405
     get = server.requests[-1]
     assert (get.method, get.path) == ("GET", "/mcp")
     assert "content-type" not in get.headers
+    assert "content-language" not in get.headers
+    assert get.headers["x-api-key"] == "k1"
 
 
 def test_gives_up_on_a_redirect_loop(fake: _Fixture) -> None:
@@ -780,10 +881,10 @@ def test_gives_up_on_a_redirect_loop(fake: _Fixture) -> None:
         paths={"/loop": [{"status": 307, "headers": {"Location": "/loop"}}]},
     )
 
-    with pytest.raises(McpHttpError) as failure:
+    # fetch: the twenty-first redirect is a network error.
+    with pytest.raises(http.client.HTTPException, match="Too many redirects"):
         fake.connect(server)
 
-    assert failure.value.status == 307
     assert len(server.requests) == http_fetch.MAX_REDIRECTS + 1
 
 

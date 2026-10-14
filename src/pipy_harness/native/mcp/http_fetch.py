@@ -28,30 +28,66 @@ What a fetch has to do:
   the request with anything else that is raised.
 
 The default fetch opens one connection per request with ``http.client``. It
-follows a redirect only to the origin of the request's URL, at most
-``MAX_REDIRECTS`` times, has no proxy support and does not decompress
-responses. A connection attempt cannot be interrupted: it ends after at most
-``connect_timeout_ms``.
+has no proxy support and does not decompress responses.
+
+Connecting. The TCP connect and the TLS handshake wait for the socket
+together with the request's cancellation, so giving the request up, or
+closing the transport, ends the attempt at once and closes its socket. Each
+of the two steps is given ``connect_timeout_ms``, the connect once per
+address the host name has. Only the name lookup before them cannot be
+interrupted: its thread ends when the resolver answers, and opens no socket
+then.
+
+Redirects are followed as the ``fetch`` of Node does, which Pi uses (the
+fetch standard's HTTP-redirect fetch, and undici's addition to it):
+
+- A 301, 302, 303, 307 or 308 answer with a ``Location`` header is followed,
+  to any origin, at most ``MAX_REDIRECTS`` times. Without the header the
+  answer is the response.
+- A 303 turns every method but GET and HEAD into a GET, and a 301 or 302
+  turns a POST into one; the body and the headers ``Content-Encoding``,
+  ``Content-Language``, ``Content-Location`` and ``Content-Type`` are
+  dropped then. Otherwise the method and the body are sent again.
+- A redirect to another origin (scheme, host or port) drops the headers
+  ``Authorization``, ``Proxy-Authorization``, ``Cookie`` and ``Host`` for
+  the rest of the request, also when a later redirect leads back. Every
+  other header is sent on, configured ones and the session id included.
+- A ``Location`` that is no ``http`` or ``https`` URL, or that has user
+  info, and a twenty-first redirect are network failures
+  (``http.client.InvalidURL``, ``http.client.HTTPException``).
 """
 
 from __future__ import annotations
 
+import errno
 import http.client
 import math
+import os
+import selectors
 import socket
 import ssl
 import threading
+import time
 import urllib.parse
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Final, Protocol
 
-from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 
 MAX_REDIRECTS: Final = 20
 _READ_BYTES: Final = 64 * 1024
 _REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
 _URL_PATH_SAFE: Final = "/%:@!$&'()*+,;=-._~"
+# The fetch standard's request-body-header names.
+_BODY_HEADERS: Final = frozenset(
+    {"content-encoding", "content-language", "content-location", "content-type"}
+)
+# What a redirect to another origin drops: `Authorization` by the fetch
+# standard, the other three by undici.
+_ORIGIN_BOUND_HEADERS: Final = frozenset(
+    {"authorization", "proxy-authorization", "cookie", "host"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,31 +249,191 @@ class _HttpResponse:
                 on_close()
 
 
+class _ConnectWake:
+    """Ends the wait of a connection attempt from another thread.
+
+    ``reader`` becomes readable when ``close()`` was called, which is what a
+    cancelled token does with what is registered on it.
+    """
+
+    def __init__(self) -> None:
+        self.reader, self._writer = socket.socketpair()
+        # Guards the two sockets against a wake while they are closed.
+        self._lock = threading.Lock()
+        self._freed = False
+
+    def close(self) -> None:
+        with self._lock:
+            if not self._freed:
+                try:
+                    self._writer.send(b"\0")
+                except OSError:
+                    pass  # Woken before; one byte is enough.
+
+    def free(self) -> None:
+        """Close the two sockets; a wake after it does nothing."""
+
+        with self._lock:
+            self._freed = True
+            self.reader.close()
+            self._writer.close()
+
+
+def _cancelled() -> ProviderCancelledError:
+    return ProviderCancelledError("MCP HTTP request cancelled while connecting")
+
+
+def _await_socket(
+    sock: socket.socket, events: int, wake: _ConnectWake, deadline: float | None
+) -> None:
+    """Wait until ``sock`` is ready for ``events``. Raises ``TimeoutError``
+    at ``deadline`` and ``ProviderCancelledError`` when ``wake`` was woken."""
+
+    with selectors.DefaultSelector() as selector:
+        selector.register(sock, events)
+        selector.register(wake.reader, selectors.EVENT_READ)
+        while True:
+            left = None if deadline is None else max(deadline - time.monotonic(), 0)
+            ready = selector.select(left)
+            if any(key.fileobj is wake.reader for key, _events in ready):
+                raise _cancelled()
+            if ready:
+                return
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError("timed out")
+
+
+def _deadline(timeout: float | None) -> float | None:
+    return None if timeout is None else time.monotonic() + timeout
+
+
+def _tcp_connect(
+    sock: socket.socket,
+    address: tuple[object, ...],
+    wake: _ConnectWake,
+    timeout: float | None,
+) -> None:
+    """Connect a non-blocking socket, waiting as ``_await_socket`` does."""
+
+    code = sock.connect_ex(address)
+    if code in (errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EINTR):
+        _await_socket(sock, selectors.EVENT_WRITE, wake, _deadline(timeout))
+        code = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+    if code:
+        raise OSError(code, os.strerror(code))
+
+
+def _tls_handshake(
+    sock: ssl.SSLSocket, wake: _ConnectWake, timeout: float | None
+) -> None:
+    """The TLS handshake of a non-blocking socket, waiting likewise."""
+
+    deadline = _deadline(timeout)
+    while True:
+        try:
+            sock.do_handshake()
+            return
+        except ssl.SSLWantReadError:
+            _await_socket(sock, selectors.EVENT_READ, wake, deadline)
+        except ssl.SSLWantWriteError:
+            _await_socket(sock, selectors.EVENT_WRITE, wake, deadline)
+
+
+def _open_socket(
+    target: HttpTarget, token: CancelToken, wake: _ConnectWake, timeout: float | None
+) -> socket.socket:
+    """A non-blocking TCP connection to the first address of the host that
+    takes one. Raises the error of the last address."""
+
+    infos = socket.getaddrinfo(target.host, target.port, 0, socket.SOCK_STREAM)
+    # The lookup cannot be interrupted; nothing is opened after it for a
+    # request that was given up meanwhile.
+    token.raise_if_cancelled()
+    failure: OSError | None = None
+    for family, kind, protocol, _name, address in infos:
+        try:
+            # A family this machine has no sockets for is one more address
+            # that failed.
+            sock = socket.socket(family, kind, protocol)
+        except OSError as error:
+            failure = error
+            continue
+        try:
+            sock.setblocking(False)
+            _tcp_connect(sock, address, wake, timeout)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            return sock
+        except OSError as error:
+            sock.close()
+            failure = error
+        except BaseException:
+            sock.close()
+            raise
+    if failure is None:
+        raise OSError("getaddrinfo returns an empty list")
+    raise failure
+
+
+def _open_stream(
+    target: HttpTarget,
+    token: CancelToken,
+    wake: _ConnectWake,
+    timeout: float | None,
+    tls: Callable[[], ssl.SSLContext],
+) -> socket.socket:
+    """A connection to ``target``, with TLS for ``https``, that blocks
+    without a timeout from here on."""
+
+    sock = _open_socket(target, token, wake, timeout)
+    try:
+        if target.secure:
+            sock = tls().wrap_socket(
+                sock, server_hostname=target.host, do_handshake_on_connect=False
+            )
+            _tls_handshake(sock, wake, timeout)
+        sock.settimeout(None)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
 def _connect(
     target: HttpTarget,
     token: CancelToken,
     timeout: float | None,
     tls: Callable[[], ssl.SSLContext],
 ) -> tuple[http.client.HTTPConnection, _SocketShutdown]:
+    """Connect to ``target``; ``token`` ends the attempt, and afterwards a
+    blocked read or write on the connection."""
+
+    # Made first: it refuses a host that no request line can name, before
+    # anything is opened.
     connection: http.client.HTTPConnection
     if target.secure:
+        # For the `Host` header of the default port; the context is not used.
         connection = http.client.HTTPSConnection(
-            target.host, target.port, timeout=timeout, context=tls()
+            target.host, target.port, context=tls()
         )
     else:
-        connection = http.client.HTTPConnection(
-            target.host, target.port, timeout=timeout
-        )
+        connection = http.client.HTTPConnection(target.host, target.port)
+    wake = _ConnectWake()
     try:
-        connection.connect()
-        # The timeout was for the connection attempt. From here on the
-        # token ends a blocked read or write.
-        connection.sock.settimeout(None)
-        shutdown = _SocketShutdown(connection.sock)
+        token.register(wake)
+        try:
+            sock = _open_stream(target, token, wake, timeout, tls)
+        finally:
+            token.unregister(wake)
+    finally:
+        wake.free()
+    shutdown = _SocketShutdown(sock)
+    try:
         token.register(shutdown)
     except BaseException:
-        connection.close()
+        sock.close()
         raise
+    # A connection that has a socket does not connect by itself.
+    connection.sock = sock
     return connection, shutdown
 
 
@@ -269,19 +465,27 @@ def _send(
         raise
 
 
-def _redirect_target(
-    response: _HttpResponse, target: HttpTarget, origin: HttpTarget
-) -> HttpTarget | None:
+def _redirect_target(response: _HttpResponse, target: HttpTarget) -> HttpTarget | None:
     """Where ``response`` sends the request to ``target`` next; ``None``
-    when it is the answer."""
+    when it is the answer. Raises ``http.client.InvalidURL`` for a place no
+    request can go to."""
 
     location = response.header("location")
     if response.status not in _REDIRECT_STATUSES or location is None:
         return None
-    redirected = parse_http_target(urllib.parse.urljoin(target.url, location))
-    if redirected is None or redirected.origin != origin.origin:
-        return None
+    try:
+        redirected = parse_http_target(urllib.parse.urljoin(target.url, location))
+    except ValueError:
+        redirected = None
+    if redirected is None:
+        raise http.client.InvalidURL(
+            f"Cannot follow the redirect of {target.url} to {location}"
+        )
     return redirected
+
+
+def _without(headers: Mapping[str, str], names: frozenset[str]) -> dict[str, str]:
+    return {name: value for name, value in headers.items() if name.lower() not in names}
 
 
 def create_default_fetch() -> McpFetch:
@@ -301,38 +505,36 @@ def create_default_fetch() -> McpFetch:
             return contexts[0]
 
     def fetch(request: McpHttpRequest) -> McpHttpResponse:
-        """Send one HTTP request, following redirects within its origin."""
+        """Send one HTTP request, following redirects as Node's fetch does."""
 
-        origin = parse_http_target(request.url)
-        if origin is None:
+        target = parse_http_target(request.url)
+        if target is None:
             raise http.client.InvalidURL(f"Cannot request {request.url}")
-        target = origin
         method = request.method
         body = request.body
         headers = dict(request.headers)
         timeout = timeout_seconds(request.connect_timeout_ms)
-        followed = 0
-        while True:
+        for _hop in range(MAX_REDIRECTS + 1):
             response = _send(
                 target, method, headers, body, request.cancel, timeout, tls
             )
-            redirected = _redirect_target(response, target, origin)
-            if redirected is None or followed == MAX_REDIRECTS:
+            try:
+                redirected = _redirect_target(response, target)
+            except BaseException:
+                response.close()
+                raise
+            if redirected is None:
                 return response
             response.close()
-            followed += 1
-            target = redirected
-            # As a browser's fetch: 303 turns everything but GET and HEAD
-            # into a GET, and so do 301 and 302 for a POST.
             if (response.status == 303 and method not in ("GET", "HEAD")) or (
                 response.status in (301, 302) and method == "POST"
             ):
                 method = "GET"
                 body = None
-                headers = {
-                    name: value
-                    for name, value in headers.items()
-                    if name.lower() != "content-type"
-                }
+                headers = _without(headers, _BODY_HEADERS)
+            if redirected.origin != target.origin:
+                headers = _without(headers, _ORIGIN_BOUND_HEADERS)
+            target = redirected
+        raise http.client.HTTPException(f"Too many redirects requesting {request.url}")
 
     return fetch

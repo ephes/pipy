@@ -21,7 +21,8 @@ network read happens on a thread that waits for a result.
   the POST (status and headers received and checked) and raises when it
   failed. It waits at most ``send_timeout_ms``.
 - ``send`` of ``notifications/cancelled`` ends the I/O thread of the request
-  it names by shutting its socket down, starts the POST of the notice and
+  it names by cancelling its token, which shuts its socket down or ends its
+  connection attempt, starts the POST of the notice and
   returns. The notice is given one second, and its failure is reported to the
   error listeners. The client sends it when a request times out or is
   cancelled, so neither leaves a thread or a socket behind. ``close()`` ends
@@ -58,12 +59,15 @@ business.
 
 Limits of what is promised:
 
-- The default fetch has no proxy support and follows a redirect only to the
-  server's own origin, so configured headers and tokens are sent nowhere
-  else.
-- With the default fetch a connection attempt cannot be interrupted. An I/O
-  thread that is still connecting when its request is given up ends when the
-  attempt does, after at most ``send_timeout_ms`` (one second for a
+- The default fetch has no proxy support. It follows redirects as the
+  platform ``fetch`` that Pi uses does, to another origin too: the bearer
+  token and a configured ``Authorization``, ``Proxy-Authorization``,
+  ``Cookie`` or ``Host`` header stay behind then, every other configured
+  header and the session id go along.
+- Giving a request up, and ``close()``, end a connection attempt of the
+  default fetch at once, in the TCP connect and in the TLS handshake. Only a
+  name lookup runs to its end; its I/O thread opens no socket afterwards.
+  Without that, an attempt is given ``send_timeout_ms`` (one second for a
   cancellation notice and for the DELETE of a session).
 - A JSON answer is read as a whole, whatever its size (Pi
   ``response.json()``); ``max_message_bytes`` limits one event of an event

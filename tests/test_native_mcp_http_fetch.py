@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+import errno
+import http.client
 import json
+import socket
 import sys
 import threading
 import time
@@ -13,7 +16,8 @@ from typing import Any
 
 import pytest
 
-from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.mcp import http_fetch
 from pipy_harness.native.mcp.client import McpClient, McpClientOptions
 from pipy_harness.native.mcp.http import (
     McpHttpError,
@@ -29,6 +33,7 @@ from pipy_harness.native.mcp.http_fetch import (
 from pipy_harness.native.mcp.protocol import (
     LATEST_PROTOCOL_VERSION,
     McpConnectionClosedError,
+    McpTimeoutError,
 )
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
@@ -293,11 +298,244 @@ def test_closing_cancels_the_token_a_fetch_was_handed() -> None:
 
 
 def test_the_default_fetch_refuses_a_url_it_cannot_request() -> None:
-    import http.client
-
     fetch: McpFetch = create_default_fetch()
 
     with pytest.raises(http.client.InvalidURL, match="ftp://example.com/mcp"):
         fetch(
             McpHttpRequest("GET", "ftp://example.com/mcp", {}, None, CancelToken(), 0)
         )
+
+
+# -- the default fetch: a connection attempt ends when the request does -------
+
+
+class _SilentListener:
+    """Accepts TCP connections and never answers on them."""
+
+    def __init__(self) -> None:
+        self._socket = socket.socket()
+        self._socket.bind(("127.0.0.1", 0))
+        self._socket.listen()
+        self.port: int = self._socket.getsockname()[1]
+        self.accepted: list[socket.socket] = []
+        self._thread = threading.Thread(target=self._accept, daemon=True)
+        self._thread.start()
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                connection, _address = self._socket.accept()
+            except OSError:
+                return
+            self.accepted.append(connection)
+
+    def peer_closed(self) -> bool:
+        """Whether the one accepted connection was closed by the client."""
+
+        (connection,) = self.accepted
+        connection.setblocking(False)
+        try:
+            while connection.recv(65536):
+                pass  # The client's hello.
+        except BlockingIOError:
+            return False
+        except OSError:
+            return True
+        return True
+
+    def close(self) -> None:
+        self._socket.close()
+        self._thread.join(_WAIT_SECONDS)
+        for connection in self.accepted:
+            connection.close()
+
+
+@pytest.fixture
+def silent() -> Iterator[_SilentListener]:
+    listener = _SilentListener()
+    try:
+        yield listener
+    finally:
+        listener.close()
+    _wait_until(lambda: not _io_threads())
+
+
+def _connect_in_thread(
+    client: McpClient, transport: StreamableHttpTransport
+) -> tuple[threading.Thread, list[BaseException]]:
+    raised: list[BaseException] = []
+
+    def connect() -> None:
+        try:
+            client.connect(transport)
+        except Exception as error:  # noqa: BLE001 - cross-thread capture for the assertion
+            raised.append(error)
+
+    thread = threading.Thread(target=connect, daemon=True)
+    thread.start()
+    return thread, raised
+
+
+def test_closing_ends_a_tls_handshake_in_progress(silent: _SilentListener) -> None:
+    # Pi: `close()` aborts the controller whose signal every fetch carries,
+    # also a fetch that is still connecting.
+    transport = StreamableHttpTransport(
+        StreamableHttpTransportOptions(url=f"https://127.0.0.1:{silent.port}/mcp")
+    )
+    client = _client()
+    thread, raised = _connect_in_thread(client, transport)
+    _wait_until(lambda: len(silent.accepted) == 1)
+    assert _io_threads() == ["mcp-http-request"]
+
+    started = time.monotonic()
+    client.close()
+    thread.join(_WAIT_SECONDS)
+    _wait_until(lambda: not _io_threads())
+    _wait_until(silent.peer_closed)
+
+    # Far below the 30 seconds a connection attempt is given.
+    assert time.monotonic() - started < 5
+    assert [type(error) for error in raised] == [McpConnectionClosedError]
+
+
+def test_a_request_timeout_ends_a_tls_handshake_in_progress(
+    silent: _SilentListener,
+) -> None:
+    transport = StreamableHttpTransport(
+        StreamableHttpTransportOptions(url=f"https://127.0.0.1:{silent.port}/mcp")
+    )
+    client = McpClient(
+        McpClientOptions(name="http-test", version="1.0.0", request_timeout_ms=100)
+    )
+
+    started = time.monotonic()
+    with pytest.raises(McpTimeoutError):
+        client.connect(transport)
+    _wait_until(lambda: not _io_threads())
+    _wait_until(silent.peer_closed)
+
+    assert time.monotonic() - started < 5
+
+
+def test_a_tls_handshake_is_given_the_connect_timeout(silent: _SilentListener) -> None:
+    fetch = create_default_fetch()
+    url = f"https://127.0.0.1:{silent.port}/mcp"
+
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        fetch(McpHttpRequest("GET", url, {}, None, CancelToken(), 100))
+
+    assert 0.1 <= time.monotonic() - started < 5
+    _wait_until(silent.peer_closed)
+
+
+def test_a_cancelled_request_opens_no_connection(silent: _SilentListener) -> None:
+    fetch = create_default_fetch()
+    token = CancelToken()
+    token.cancel()
+    url = f"http://127.0.0.1:{silent.port}/mcp"
+
+    with pytest.raises(ProviderCancelledError):
+        fetch(McpHttpRequest("GET", url, {}, None, token, 0))
+
+    time.sleep(0.05)
+    assert silent.accepted == []
+
+
+class _NeverConnected(socket.socket):
+    """A socket whose connect never completes: it listens instead, and a
+    listening socket is never ready for writing."""
+
+    def connect_ex(self, address: Any) -> int:
+        self.bind(("127.0.0.1", 0))
+        self.listen()
+        return errno.EINPROGRESS
+
+
+def test_a_tcp_connect_in_progress_ends_when_it_is_woken_or_times_out() -> None:
+    wake = http_fetch._ConnectWake()
+    token = CancelToken()
+    token.register(wake)
+    address = ("127.0.0.1", 9)
+    try:
+        with _NeverConnected() as stalled:
+            stalled.setblocking(False)
+            started = time.monotonic()
+            with pytest.raises(TimeoutError):
+                http_fetch._tcp_connect(stalled, address, wake, 0.1)
+            assert 0.1 <= time.monotonic() - started < 5
+
+        with _NeverConnected() as stalled:
+            stalled.setblocking(False)
+            timer = threading.Timer(0.05, token.cancel)
+            timer.start()
+            started = time.monotonic()
+            with pytest.raises(ProviderCancelledError):
+                http_fetch._tcp_connect(stalled, address, wake, None)
+            assert time.monotonic() - started < 5
+            timer.join()
+    finally:
+        wake.free()
+    # A wake after that is harmless.
+    wake.close()
+
+
+def test_a_refused_tcp_connect_raises_the_error_of_the_socket() -> None:
+    with socket.socket() as placeholder:
+        placeholder.bind(("127.0.0.1", 0))
+        address = placeholder.getsockname()
+    wake = http_fetch._ConnectWake()
+    try:
+        with socket.socket() as sock:
+            sock.setblocking(False)
+            with pytest.raises(ConnectionRefusedError):
+                http_fetch._tcp_connect(sock, address, wake, 5)
+    finally:
+        wake.free()
+
+
+def test_an_address_family_without_sockets_is_one_more_address_that_failed(
+    server: FakeMcpHttpServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As `socket.create_connection`: the next address is tried.
+    port = int(server.origin.rsplit(":", 1)[1])
+    real_socket = socket.socket
+
+    def addresses(*args: object, **kwargs: object) -> list[tuple[Any, ...]]:
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", port, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+        ]
+
+    def create(family: int = -1, *args: Any, **kwargs: Any) -> socket.socket:
+        if family == socket.AF_INET6:
+            raise OSError(errno.EAFNOSUPPORT, "Address family not supported")
+        return real_socket(family, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", addresses)
+    monkeypatch.setattr(socket, "socket", create)
+    fetch = create_default_fetch()
+
+    response = fetch(McpHttpRequest("GET", server.url, {}, None, CancelToken(), 5_000))
+    monkeypatch.undo()
+
+    assert response.status == 405
+    response.close()
+
+
+def test_a_host_no_request_can_name_opens_no_socket(
+    server: FakeMcpHttpServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened: list[object] = []
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda *args, **kwargs: opened.append(args)
+    )
+    fetch = create_default_fetch()
+    token = CancelToken()
+    url = server.origin.replace("127.0.0.1", "127.0.0.1\x00") + "/mcp"
+
+    with pytest.raises(http.client.InvalidURL):
+        fetch(McpHttpRequest("GET", url, {}, None, token, 5_000))
+
+    assert opened == []
+    assert token._closeables == []
