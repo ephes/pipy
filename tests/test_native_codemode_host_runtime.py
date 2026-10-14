@@ -284,11 +284,11 @@ def test_a_print_flood_hits_the_output_cap(
     paths: CodemodePaths, pids: list[int]
 ) -> None:
     outcome = _run(
-        paths, "while True:\n    print('flood ' * 20)\n", output_bytes=200_000
+        paths, "while True:\n    print('flood ' * 20)\n", output_chars=200_000
     )
     assert outcome.error is not None
     assert outcome.error.kind is ErrorKind.SCRIPT
-    assert "output exceeded 200000 bytes" in outcome.error.message
+    assert "output exceeded the limit of 200000 characters" in outcome.error.message
     assert outcome.output and outcome.texts[0].startswith("flood")
 
 
@@ -422,3 +422,25 @@ def test_effects_before_a_failure_are_reported_as_not_undone(
         "RuntimeError: after the write\n\n"
         "Tool calls made before the failure (they are not undone): read (ok)"
     )
+
+
+def test_long_text_reaches_the_host_whole(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal-check finding M18: a text far over the 1 MiB line limit, of
+    # characters that each take 12 bytes escaped, is one output item; Pi's
+    # 16 Mi characters are the limit, not the line.
+    outcome = _run(paths, "text('🙂' * 200_000 + 'é' * 1_000_000)\nprint('done')\n")
+
+    assert outcome.ok, outcome
+    assert outcome.output == ("🙂" * 200_000 + "é" * 1_000_000, "done\n")
+
+
+def test_a_surrogate_pair_across_a_piece_boundary_stays_one_character(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    # A pair as two code points, as Python can hold it, joined by JSON.
+    outcome = _run(paths, "text('x' * 65535 + '\\ud83d\\ude42')\n")
+
+    assert outcome.ok, outcome
+    assert outcome.output == ("x" * 65535 + "🙂",)

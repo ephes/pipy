@@ -518,7 +518,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-17 | SES-05, SES-10, SLH-02, SLH-03, CON-11 | pipy's waits can be interrupted where Pi's cannot: the first prompt's wait (Escape or an abort ends the wait and the prompt goes on), the waits of `/mcp` and its subcommands, the reconnects at a turn's start, and the 250 ms before a resource request is made again. | other form | Decided in S18, S21, S26, S31 |
 | DEV-18 | TLS-10, RND-02 | Progress of a running call is appended to the call's live output line by line, and the row shows the last line. Pi replaces the preliminary result, which also carries `{server, tool}` details. | other form | Decided in S16, S35 |
 | DEV-19 | TLS-11, RES-09 | An image is never drawn in the terminal: the row shows `[Image: [<mime>] <w>x<h>]`, which is what Pi shows without an image protocol. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4) |
-| DEV-20 | CMD-29, CMD-30 | The images of one script have a byte cap of their own (16 MiB of base64) beside the 1 MiB of text; in Pi text and images share one limit. There are no `==> text N/M <==` separators (DEV-04). A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
+| DEV-20 | CMD-29, CMD-30 | Text and images share Pi's limit of 16 Mi characters (since G5; S39 had a byte cap of 16 MiB for images beside 1 MiB of text), and `image()` also raises `ValueError` once the images alone would pass it. There are no `==> text N/M <==` separators (DEV-04). A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
 | DEV-21 | TLS-11 | How a tool result's images are sent to a provider differs in three points: a text-only result is sent as before (no `(no tool output)` for an empty one); the Mistral adapter sends images as the Chat Completions family does; there is no `requiresAssistantAfterToolResult`. Images are withheld from a model without image input only when the model has a catalog row of its own, so a model without a row and a provider object passed in by an embedder are sent the images. | narrower | Decided in S39 (part 2); `docs/providers.md` |
 | DEV-22 | CMD-25 | A `tool_result` transform always replaces the content and decides the structured content with it. It cannot replace `details`, `isError` or usage, it is not shown a result's images, and an extension tool cannot return an image (`ToolResult.content` is a string). | narrower | Decided in S04, S39 (part 1) |
 | DEV-23 | CMD-22 | With `codemode.mode: "only"` a direct model call to a tool whose declaration is left out is an unknown tool; Pi would run it. `codemode.mode` and `codemode.inlineBudget` are read at session start and on `/reload`, not before every prompt. | other form | Decided in S08 |
@@ -3913,6 +3913,32 @@ Tests: `test_native_codemode_source.py`,
 `test_a_script_has_no_deadline_unless_it_sets_one`,
 `test_the_budget_leaves_room_for_the_images_path_lines`,
 `test_a_call_made_just_before_done_always_starts` (also without a deadline).
+Part 5 (finding M18): Pi's output limits. `ScriptLimits.output_chars`
+(16 Mi characters, Pi `MAX_OUTPUT_CHARS`) replaces `output_bytes` (1 MiB
+of text) and `image_bytes` and counts text and base64 image data together;
+`output_messages` stays 100,000 (Pi `MAX_OUTPUT_ITEMS`) and counts calls,
+not pieces. The line limit stays 1 MiB: the prelude sends a text value in
+pieces of `TEXT_PIECE_CHARS` (64 Ki characters, at most 12 bytes each
+escaped; a surrogate pair is never split, so JSON still joins it), each
+but the last with `"more": true`, one after another; the host holds the
+pieces apart and adds them as one item with the last, so an item that
+passes the cap leaves nothing of itself (Pi checks a call's output whole);
+a continued piece shorter than half a piece, and any other message while a
+text is open, is a violation, so the pieces held stay few. Past a limit the script fails with Pi's message (`script
+output exceeded the limit of ... characters or ... text(), image() and
+print calls. Print a summary instead, or write large data to a file with a
+tool.`). The prelude's own `image()` check (`MAX_IMAGE_CHARS`) stays. So a
+script emitting 1,100,000 characters completes, and its output is cut to
+the budget and spilled whole. Tests: `test_text_in_pieces_is_one_item`,
+`test_text_in_pieces_must_be_continued`,
+`test_a_text_message_with_a_bad_continuation_flag_is_a_violation`,
+`test_text_in_pieces_over_the_cap_leaves_nothing_of_itself`,
+`test_a_short_text_piece_is_a_violation`,
+`test_wire_text_sends_long_text_in_pieces_keeping_surrogate_pairs`,
+`test_a_surrogate_pair_across_a_piece_boundary_stays_one_character`,
+`test_long_text_reaches_the_host_whole` (real guest),
+`test_images_and_text_share_the_output_cap_and_the_message_cap`,
+`test_output_over_the_line_limit_is_truncated_and_spilled` (real guest).
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

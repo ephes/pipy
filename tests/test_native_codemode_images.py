@@ -139,7 +139,7 @@ def test_image_rejects_everything_else_with_pis_messages(
 
 
 def test_the_guests_image_cap_is_the_hosts() -> None:
-    assert prelude.MAX_IMAGE_CHARS == ScriptLimits().image_bytes == 16 * 1024 * 1024
+    assert prelude.MAX_IMAGE_CHARS == ScriptLimits().output_chars == 16 * 1024 * 1024
 
 
 def test_the_image_that_passes_the_cap_raises_and_is_not_emitted() -> None:
@@ -207,7 +207,7 @@ def test_an_image_message_the_prelude_would_not_send_is_a_violation(
     assert outcome.output == ()
 
 
-def test_images_count_against_their_own_byte_cap_and_the_message_cap(
+def test_images_and_text_share_the_output_cap_and_the_message_cap(
     monkeypatch,
     spawned,  # noqa: F811
 ) -> None:
@@ -215,28 +215,35 @@ def test_images_count_against_their_own_byte_cap_and_the_message_cap(
     by_bytes = run_fake(
         monkeypatch,
         flood,
-        limits=ScriptLimits(wall_seconds=5.0, image_bytes=3 * len(PNG)),
+        limits=ScriptLimits(wall_seconds=5.0, output_chars=3 * len(PNG)),
     )
     assert by_bytes.error is not None and by_bytes.error.kind is ErrorKind.SCRIPT
-    assert f"exceeded {3 * len(PNG)} bytes of images" in by_bytes.error.message
+    assert f"the limit of {3 * len(PNG)} characters" in by_bytes.error.message
     assert by_bytes.output == (ScriptImage(PNG, "image/png"),) * 3
 
     by_count = run_fake(
         monkeypatch, flood, limits=ScriptLimits(wall_seconds=5.0, output_messages=5)
     )
     assert by_count.error is not None
-    assert "exceeded 5 messages" in by_count.error.message
+    assert "or 5 text(), image() and print calls" in by_count.error.message
     assert len(by_count.output) == 5
-    # Text does not use up the image cap, nor images the text cap.
-    mixed = run_fake(
-        monkeypatch,
+    # Goal-check finding M18, Pi ``MAX_OUTPUT_CHARS``: text and image data
+    # share one cap of characters.
+    mixed = (
         "start()\n"
         "send({'type': 'text', 'value': 'x' * 900})\n"
         f"raw({_image_line()!r})\n"
-        "done()\nexit_status()\n",
-        limits=ScriptLimits(wall_seconds=5.0, output_bytes=1000, image_bytes=len(PNG)),
+        "done()\nexit_status()\n"
     )
-    assert mixed.ok, mixed
+    fits = ScriptLimits(wall_seconds=5.0, output_chars=900 + len(PNG))
+    assert run_fake(monkeypatch, mixed, limits=fits).ok
+    over = run_fake(
+        monkeypatch,
+        mixed,
+        limits=ScriptLimits(wall_seconds=5.0, output_chars=900 + len(PNG) - 1),
+    )
+    assert over.error is not None and over.error.kind is ErrorKind.SCRIPT
+    assert over.output == ("x" * 900,)
 
 
 def test_only_an_image_line_may_be_longer_than_the_line_limit(
@@ -253,7 +260,7 @@ def test_only_an_image_line_may_be_longer_than_the_line_limit(
 
     # A long line that only starts like an image is still measured, by the
     # image cap, and is refused when it turns out not to be one.
-    tight = ScriptLimits(wall_seconds=5.0, line_bytes=64 * 1024, image_bytes=80_000)
+    tight = ScriptLimits(wall_seconds=5.0, line_bytes=64 * 1024, output_chars=80_000)
     too_long = run_fake(monkeypatch, scenario, limits=tight)
     _sandbox_error(too_long, "a guest line exceeded 65536 bytes")
     # A second ``type`` key wins in JSON: such a line is another message and

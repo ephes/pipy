@@ -207,7 +207,7 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 | guest → host | `{"type":"call","id":int,"name":str,"args":object}` (`name` is the tool's own name; since MCP parity plan G3 the guest may send further messages before the reply, with at most 16 requests unanswered) |
 | guest → host | `{"type":"discover","id":int,"name":"search_tools"\|"describe_tool"\|"describe_namespace","args":object}` (ids continue the sequence of the calls; answered with a `result` that carries `value` or `error`; runs no tool and is no call record; MCP parity plan S07) |
 | host → guest | `{"type":"result","id":int,"ok":true,"text":str}`, `{"type":"result","id":int,"ok":true,"value":<JSON>}` (the structured content of a tool that declares an output schema; MCP parity plan S04) or `{"type":"result","id":int,"ok":false,"error":str}` |
-| guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
+| guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order); a value over 64 Ki characters goes in pieces, each but the last with `"more":true`, which the host joins (MCP parity plan G5) |
 | guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}`. Since MCP parity plan G4 a successful script that changed the store adds `"writes":[[key,json],[key],...]` (a value set as JSON text, or a deleted key); the host checks them against the store's limits, and such a line may be longer than the line cap by 20 bytes per character of the store's limit and of the snapshot |
 | worker → host (status fd) | `{"type":"ready","backend":"wasi","wasmtime":str,"runtime_sha256":str}`, then `{"type":"exit","reason":"ok"\|"trap-interrupt"\|"trap-stack"\|"error","code"?:int,"detail"?:str}`; a setup failure sends `exit` without `ready` |
 
@@ -432,7 +432,7 @@ inspected end-to-end/tmux evidence.
 | Code size | 256 KiB | Host check before spawn |
 | Protocol line | 1 MiB | Each line the guest sends, checked while buffering |
 | Tool reply | 16 MiB | Each reply line the host sends, checked when it is encoded; a larger result becomes a `ToolError` for that call (MCP parity plan S04) |
-| Total output | 1 MiB or 100 000 `text` messages | Host kills the worker and returns a script error with guidance to write large data through a tool |
+| Total output | 16 Mi characters of text and image data, or 100 000 `text()`, `image()` and print calls (Pi's limits; 1 MiB of text before MCP parity plan G5) | Host kills the worker and returns a script error with Pi's guidance to print a summary or write large data to a file with a tool |
 | Model-visible output | 10 000 tokens (chars/4); a script's `max_output_tokens` option sets it, at most what fits the 64 KiB result text | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
 | Diagnostic stderr | 64 KiB | Captured, never parsed |
 | Nested calls | Turn tool budget | §4.4 |

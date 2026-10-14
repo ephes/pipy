@@ -516,9 +516,9 @@ waiter preserves standalone polling behavior.
 | `wall_seconds` | none (`None`); a script's `timeout_ms` option sets it, nested tool time included | `timeout` |
 | `memory_bytes` | 256 MiB guest memory (max 4 GiB) | `MemoryError` in the script (catchable; uncaught it is a `script` error) |
 | `code_bytes` | 256 KiB of script source | `script`, before a worker starts |
-| `line_bytes` | 1 MiB per line the guest sends | `sandbox` |
+| `line_bytes` | 1 MiB per line the guest sends (text goes in pieces of 64 Ki characters; an image line may be as long as `output_chars`) | `sandbox` |
 | `reply_bytes` | 16 MiB per tool reply line the host sends | `ToolError` in the script for that call |
-| `output_bytes` / `output_messages` | 1 MiB / 100,000 | `script`, with guidance to filter output |
+| `output_chars` / `output_messages` | 16 Mi characters of text and image data / 100,000 (Pi's limits; MCP parity plan G5) | `script`, with Pi's guidance to print a summary |
 | `stderr_bytes` | 64 KiB kept for diagnostics | truncated |
 | `cpu_margin_seconds` | 5 s | guest CPU backstop at `wall_seconds` + margin, or `CPU_SECONDS_MAX` (25 days) without a deadline |
 
@@ -552,7 +552,7 @@ honest character/UTF-8 byte truncation metadata and `nestedCalls`. These host
 files remain for later reading; the guest gains no filesystem authority.
 Open/write/close failures publish no full-output path, add a bounded diagnostic,
 and preserve script success/error, interruption and nested records. The existing
-1 MiB host output cap remains unchanged. Internal real-WASI acceptance C covers
+host output cap (1 MiB then, 16 Mi characters since MCP parity plan G5) is unchanged by the spill. Internal real-WASI acceptance C covers
 write-then-raise with retained effects and records; public C is exercised by T8b
 and retained in runtime-required CI. T9 automated PTY evidence is implemented;
 selected-frame tmux inspection is recorded in the acceptance note.

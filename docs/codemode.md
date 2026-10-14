@@ -172,8 +172,8 @@ the hook returned none.
 A structured value is not cut to the 64 KiB a tool's text is limited to. One
 tool reply may be up to 16 MiB as JSON; a larger one raises `ToolError` in the
 script, after the tool has run. A script still has 256 MiB of memory for the
-values it keeps and can emit 1 MiB of output, so reduce a large value before
-emitting it.
+values it keeps and can emit 16,777,216 characters of output, so reduce a
+large value before emitting it.
 
 `text(value)` emits strings unchanged and other values as JSON (falling back to
 `repr` for values JSON cannot encode). `print()` and stdout/stderr writes are
@@ -291,9 +291,10 @@ image(tools.read(path="screenshot.png"))
 ```
 
 Different from Pi: Pi's scripts are JavaScript, where a string is a URL and
-an object a block; here a `dict` is the object. One script's images may hold
-16 MiB of base64 data together, apart from the 1 MiB of text; in Pi text and
-images share one limit of 16,777,216 characters.
+an object a block; here a `dict` is the object. Text and the images' base64
+data share Pi's limit of 16,777,216 characters; past it the script fails, as
+in Pi. `image()` itself raises `ValueError` once the images alone would pass
+it.
 
 The tool description includes a runnable small-file read/filter example.
 Use returned strings directly: `tools.read()` is not a result object, and text
@@ -503,10 +504,10 @@ Scripts are not automatically retried after effects.
 | Wall deadline | none; `timeout_ms` in the [options line](#writing-a-script) sets one, including startup and time inside tools |
 | Guest memory | 256 MiB; exhaustion raises catchable `MemoryError` |
 | Source | 256 KiB UTF-8, checked before spawning |
-| Protocol line | 1 MiB per line the script sends (a tool call with its arguments, a text message); violation fails the sandbox. An image message may be as long as the image limit allows |
+| Protocol line | 1 MiB per line the script sends (a tool call with its arguments); violation fails the sandbox. Longer text is sent in pieces, and an image message may be as long as the output limit allows |
 | Tool reply | 16 MiB as JSON per call; a larger result raises `ToolError` |
-| Emitted output | 1 MiB of text or 100,000 messages (text and images); excess fails the script |
-| Emitted images | 16 MiB of base64 data in all; `image()` raises `ValueError` beyond it |
+| Emitted output | 16,777,216 characters of text and base64 image data together, or 100,000 `text()`, `image()` and print calls; excess fails the script (Pi's limits) |
+| Emitted images | within the output limit; `image()` raises `ValueError` once the images' base64 data would pass 16 MiB |
 | Result display | 10,000 estimated tokens (characters / 4), head and tail; `max_output_tokens` sets it, up to 16,000 |
 | Worker diagnostics | 64 KiB stderr retained |
 | CPU backstop | wall deadline + 5 seconds; 25 days without a deadline |
@@ -525,7 +526,7 @@ Display truncation spills exactly the untruncated output/error body to an
 owner-only host temporary `pipy-codemode-*.log` file. The result names its path
 and supplies `details.fullOutputPath` and character/UTF-8 byte metadata. Files
 remain readable later through normal tools. Spilling cannot restore output beyond
-the 1 MiB emission cap. Open/write/close failures report that full output could
+the 16,777,216-character emission cap. Open/write/close failures report that full output could
 not be saved, publish no path and preserve the primary outcome and nested records.
 
 ## Nested evidence and availability

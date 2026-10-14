@@ -51,9 +51,12 @@ class ScriptLimits:
     structured result can reach the script. A larger reply becomes a
     ``ToolError`` in the script.
 
-    ``output_bytes`` bounds the text a script emits and ``image_bytes`` the
-    base64 data of the images it shows with ``image()``; ``output_messages``
-    counts both. An image line may be as long as ``image_bytes`` allows.
+    ``output_chars`` bounds what a script emits, its text and the base64
+    data of the images it shows with ``image()`` together, in characters
+    (Pi ``MAX_OUTPUT_CHARS``); ``output_messages`` counts its ``text()``,
+    ``print()`` and ``image()`` calls (Pi ``MAX_OUTPUT_ITEMS``). Past either
+    the script fails. An image line may be as long as ``output_chars``
+    allows; longer text is sent in pieces that fit ``line_bytes``.
 
     ``wall_seconds`` covers the whole run, nested tool time included; as in
     Pi there is none by default (``None``), and a script sets one with its
@@ -68,9 +71,8 @@ class ScriptLimits:
     code_bytes: int = 256 * KIB
     line_bytes: int = 1 * MIB
     reply_bytes: int = 16 * MIB
-    output_bytes: int = 1 * MIB
+    output_chars: int = 16 * MIB
     output_messages: int = 100_000
-    image_bytes: int = 16 * MIB
     stderr_bytes: int = 64 * KIB
     cpu_margin_seconds: float = 5.0
 

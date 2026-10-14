@@ -283,6 +283,35 @@ def test_wire_call_raises_tool_error_for_an_error_reply() -> None:
             os.close(fd)
 
 
+def test_wire_text_sends_long_text_in_pieces_keeping_surrogate_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Goal-check finding M18: text over TEXT_PIECE_CHARS goes in pieces; a
+    # surrogate pair is never split, so JSON still joins it into one
+    # character.
+    monkeypatch.setattr(prelude, "TEXT_PIECE_CHARS", 4)
+    read_fd, write_fd = os.pipe()
+    out_read, out_write = os.pipe()
+    try:
+        wire = prelude.Wire(read_fd, out_write)
+        wire.text("abc\ud83d\ude42xyz")
+        wire.text("")
+        wire.text("1234")
+        lines = os.read(out_read, 4096).decode().splitlines()
+    finally:
+        for fd in (read_fd, write_fd, out_read, out_write):
+            os.close(fd)
+
+    messages = [json.loads(line) for line in lines]
+    assert messages == [
+        {"type": "text", "value": "abc", "more": True},
+        {"type": "text", "value": "\U0001f642xy", "more": True},
+        {"type": "text", "value": "z"},
+        {"type": "text", "value": ""},
+        {"type": "text", "value": "1234"},
+    ]
+
+
 # --- real runtime -------------------------------------------------------------------
 
 real_runtime = pytest.mark.skipif(

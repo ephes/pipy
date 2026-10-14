@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from pipy_harness.native.codemode import host, worker
+from pipy_harness.native.codemode import host, prelude, worker
 from pipy_harness.native.codemode import outcome as outcome_module
 from pipy_harness.native.codemode.outcome import (
     CallResult,
@@ -788,8 +788,8 @@ def test_an_oversized_line_is_caught_while_buffering(
 @pytest.mark.parametrize(
     ("limits", "fragment"),
     [
-        (ScriptLimits(wall_seconds=5.0, output_bytes=10_000), "10000 bytes"),
-        (ScriptLimits(wall_seconds=5.0, output_messages=50), "50 messages"),
+        (ScriptLimits(wall_seconds=5.0, output_chars=10_000), "of 10000 characters"),
+        (ScriptLimits(wall_seconds=5.0, output_messages=50), "or 50 text()"),
     ],
 )
 def test_a_print_flood_hits_the_output_cap(
@@ -803,8 +803,9 @@ def test_a_print_flood_hits_the_output_cap(
     assert outcome.error is not None
     assert outcome.error.kind is ErrorKind.SCRIPT
     assert fragment in outcome.error.message
-    assert "write large data through a tool" in outcome.error.message
-    assert sum(len(item) for item in outcome.texts) <= limits.output_bytes
+    assert outcome.error.message.startswith("script output exceeded the limit of ")
+    assert "write large data to a file with a tool" in outcome.error.message
+    assert sum(len(item) for item in outcome.texts) <= limits.output_chars
     assert len(outcome.output) <= limits.output_messages
 
 
@@ -1479,3 +1480,98 @@ def test_standalone_polling_keyboard_interrupt_aborts_and_reaps(
     assert outcome.error is not None
     assert outcome.error.kind is ErrorKind.ABORTED
     assert spawned and all(_group_is_gone(pid) for pid in spawned)
+
+
+_PIECE = "p" * prelude.TEXT_PIECE_CHARS
+
+
+def test_text_in_pieces_is_one_item(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # Goal-check finding M18: the prelude sends long text in pieces that fit
+    # the line limit; the host joins them, and they count as one call.
+    scenario = (
+        "start()\n"
+        f"send({{'type': 'text', 'value': {_PIECE!r}, 'more': True}})\n"
+        f"send({{'type': 'text', 'value': {_PIECE[1:]!r}, 'more': True}})\n"
+        "send({'type': 'text', 'value': 'e'})\n"
+        "send({'type': 'text', 'value': 'next', 'more': False})\n"
+        "done()\nexit_status()\n"
+    )
+
+    outcome = _run(
+        monkeypatch, scenario, limits=ScriptLimits(wall_seconds=5.0, output_messages=2)
+    )
+
+    assert outcome.ok, outcome
+    assert outcome.output == (_PIECE + _PIECE[1:] + "e", "next")
+
+
+@pytest.mark.parametrize("piece", ["", "ab", "p" * (prelude.TEXT_PIECE_CHARS // 2 - 1)])
+def test_a_short_text_piece_is_a_violation(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], piece: str
+) -> None:
+    # Review finding: pieces are held until the last one, so a guest that
+    # sent many short ones could grow the host without counting output.
+    scenario = (
+        "start()\n"
+        "while True:\n"
+        f"    send({{'type': 'text', 'value': {piece!r}, 'more': True}})\n"
+    )
+
+    _sandbox_error(_run(monkeypatch, scenario), "a text piece was shorter than a piece")
+
+
+@pytest.mark.parametrize(
+    "follow",
+    [
+        "done()\n",
+        "send({'type': 'image', 'data': 'x', 'mimeType': 'image/png'})\n",
+        "send({'type': 'call', 'id': 1, 'name': 'read', 'args': {}})\n",
+    ],
+)
+def test_text_in_pieces_must_be_continued(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int], follow: str
+) -> None:
+    scenario = (
+        f"start()\nsend({{'type': 'text', 'value': {_PIECE!r}, 'more': True}})\n"
+        + follow
+        + "hang()\n"
+    )
+
+    outcome = _run(monkeypatch, scenario)
+
+    _sandbox_error(outcome, "a text message in pieces was not continued")
+
+
+def test_text_in_pieces_over_the_cap_leaves_nothing_of_itself(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # Pi checks a call's output whole: the pieces of an item that passes the
+    # cap are not kept, the items before it are.
+    scenario = (
+        "start()\n"
+        "send({'type': 'text', 'value': 'ok'})\n"
+        f"send({{'type': 'text', 'value': {_PIECE!r}, 'more': True}})\n"
+        "send({'type': 'text', 'value': 'def'})\n"
+        "hang()\n"
+    )
+    limit = 2 + len(_PIECE) + 2
+
+    outcome = _run(
+        monkeypatch, scenario, limits=ScriptLimits(wall_seconds=5.0, output_chars=limit)
+    )
+
+    assert outcome.error is not None and outcome.error.kind is ErrorKind.SCRIPT
+    assert f"exceeded the limit of {limit} characters" in outcome.error.message
+    assert outcome.output == ("ok",)
+
+
+def test_a_text_message_with_a_bad_continuation_flag_is_a_violation(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    scenario = (
+        f"start()\nsend({{'type': 'text', 'value': {_PIECE!r}, 'more': 1}})\nhang()\n"
+    )
+
+    _sandbox_error(_run(monkeypatch, scenario), "a text message had no string value")

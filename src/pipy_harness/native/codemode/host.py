@@ -65,6 +65,7 @@ from pipy_harness.native.codemode.prelude import (
     MAX_PENDING_REQUESTS,
     MAX_STORE_TOTAL_CHARS,
     MAX_STORE_VALUE_CHARS,
+    TEXT_PIECE_CHARS,
     image_type,
     is_base64,
     store_json,
@@ -121,9 +122,11 @@ _DONE_LINE = b'{"type":"done",'
 _STORE_BYTES_PER_CHAR = 20
 
 ABORTED_MESSAGE = "Execution aborted"
-OUTPUT_GUIDANCE = (
-    "the script's output exceeded {limit}; print a summary and write large "
-    "data through a tool instead"
+# Pi's prelude text, with pipy's calls that add output.
+OUTPUT_LIMIT_MESSAGE = (
+    "script output exceeded the limit of {chars} characters or {messages} "
+    "text(), image() and print calls. Print a summary instead, or write large "
+    "data to a file with a tool."
 )
 
 
@@ -859,8 +862,13 @@ class _Channel:
         self._status_buf = bytearray()
         self._stderr_tail = bytearray()
         self._output: list[str | ScriptImage] = []
-        self._output_bytes = 0
-        self._image_bytes = 0
+        self._output_chars = 0
+        # A text item sent in pieces: the pieces so far, held apart from
+        # the output until the last one came, so an item over the cap leaves
+        # nothing of itself (Pi checks a call's output whole).
+        self._pieces: list[str] = []
+        self._piece_chars = 0
+        self._text_open = False
         # A request stays outstanding until its reply has been written in
         # full: the ids awaiting a reply, and the replies not written yet.
         # Their sum is capped, so the reply buffer stays bounded however
@@ -1169,7 +1177,7 @@ class _Channel:
         """How long a guest line of this ``type`` may be."""
 
         if kind == "image":
-            return self._limits.image_bytes + _IMAGE_FRAME
+            return self._limits.output_chars + _IMAGE_FRAME
         if kind == "done":
             return self._done_line_bytes
         return self._limits.line_bytes
@@ -1187,6 +1195,8 @@ class _Channel:
             # only started like one (a second ``type`` key wins in JSON) gets
             # the limit its own type has.
             raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
+        if self._text_open and kind != "text":
+            raise _violation("a text message in pieces was not continued")
         if kind == "text":
             self._on_text(message)
         elif kind == "image":
@@ -1202,15 +1212,30 @@ class _Channel:
 
     def _on_text(self, message: dict[str, Any]) -> None:
         value = message.get("value")
-        if not isinstance(value, str):
+        more = message.get("more", False)
+        if not isinstance(value, str) or not isinstance(more, bool):
             raise _violation("a text message had no string value")
-        size = len(value.encode("utf-8"))
-        if self._output_bytes + size > self._limits.output_bytes:
-            raise self._output_capped(f"{self._limits.output_bytes} bytes")
+        size = self._piece_chars + len(value)
+        if self._output_chars + size > self._limits.output_chars:
+            raise self._output_capped()
+        if more:
+            # The prelude sends long text in pieces; they are one item. A
+            # piece holds TEXT_PIECE_CHARS code points (one fewer to keep a
+            # surrogate pair whole), at least half as many characters once
+            # pairs are joined, so the pieces held stay few.
+            if len(value) < TEXT_PIECE_CHARS // 2:
+                raise _violation("a text piece was shorter than a piece")
+            self._pieces.append(value)
+            self._piece_chars = size
+            self._text_open = True
+            return
         if len(self._output) >= self._limits.output_messages:
-            raise self._output_capped(f"{self._limits.output_messages} messages")
-        self._output.append(value)
-        self._output_bytes += size
+            raise self._output_capped()
+        self._output.append("".join([*self._pieces, value]))
+        self._output_chars += size
+        self._pieces = []
+        self._piece_chars = 0
+        self._text_open = False
 
     def _on_image(self, message: dict[str, Any]) -> None:
         data = message.get("data")
@@ -1224,16 +1249,23 @@ class _Channel:
             or image_type(data) != mime_type
         ):
             raise _violation("the guest sent an image message that is not an image")
-        if self._image_bytes + len(data) > self._limits.image_bytes:
-            raise self._output_capped(f"{self._limits.image_bytes} bytes of images")
+        if self._output_chars + len(data) > self._limits.output_chars:
+            raise self._output_capped()
         if len(self._output) >= self._limits.output_messages:
-            raise self._output_capped(f"{self._limits.output_messages} messages")
+            raise self._output_capped()
         self._output.append(ScriptImage(data, mime_type))
-        self._image_bytes += len(data)
+        self._output_chars += len(data)
 
-    @staticmethod
-    def _output_capped(limit: str) -> _Stop:
-        return _Stop(ScriptError(ErrorKind.SCRIPT, OUTPUT_GUIDANCE.format(limit=limit)))
+    def _output_capped(self) -> _Stop:
+        return _Stop(
+            ScriptError(
+                ErrorKind.SCRIPT,
+                OUTPUT_LIMIT_MESSAGE.format(
+                    chars=self._limits.output_chars,
+                    messages=self._limits.output_messages,
+                ),
+            )
+        )
 
     def _on_call(self, message: dict[str, Any]) -> None:
         call_id, name, args = self._request(message, "tool")

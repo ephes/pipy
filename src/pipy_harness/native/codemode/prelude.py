@@ -31,7 +31,9 @@ stdin and stdout carry it:
   false, "error": str}`` (the helper raises ``ValueError``)
 - guest -> host: ``{"type": "text", "value": str}``, one per ``text()`` call,
   ``print()`` call or direct write to ``sys.stdout``/``sys.stderr``, in order
-  and never buffered
+  and never buffered. A value longer than ``TEXT_PIECE_CHARS`` goes in pieces
+  of that many characters, each but the last with ``"more": true``, sent one
+  after another; the host joins them into one item
 - guest -> host: ``{"type": "image", "data": str, "mimeType": str}``, one per
   ``image()`` call, in order with the text messages: base64 data of a PNG,
   JPEG, GIF or WebP image and the type its first bytes show
@@ -86,9 +88,14 @@ STORE_HINT = (
     "image(), keep large data in variables, or write it to a file with a tool."
 )
 
-# Pi's output cap for one script: characters of base64 image data. The host
-# enforces its own (``ScriptLimits.image_bytes``); a test pins that they match.
+# Pi's output cap for one script, here for the base64 data of its images
+# alone: past it ``image()`` raises. The host caps text and images together
+# (``ScriptLimits.output_chars``); a test pins that they match.
 MAX_IMAGE_CHARS = 16 * 1024 * 1024
+# The characters of one text message. A character takes at most 12 bytes of
+# the line (an escaped astral character), so a piece stays well within the
+# host's 1 MiB line limit.
+TEXT_PIECE_CHARS = 64 * 1024
 IMAGE_HELPER_EXPECTS = (
     "image expects a non-empty image URL string, an object with image_url, or "
     'an image block {"type": "image", "data", "mimeType"}'
@@ -717,6 +724,16 @@ def encode(message: dict[str, Any]) -> bytes:
     return (json.dumps(message, separators=(",", ":"), allow_nan=False) + "\n").encode()
 
 
+def _splits_a_pair(value: str, index: int) -> bool:
+    """Whether ``value`` has a high and a low surrogate either side of
+    ``index``."""
+
+    return (
+        "\ud800" <= value[index - 1] <= "\udbff"
+        and "\udc00" <= value[index] <= "\udfff"
+    )
+
+
 class Wire:
     """The prelude's end of the protocol: raw fds, unbuffered writes."""
 
@@ -750,7 +767,18 @@ class Wire:
         return message
 
     def text(self, value: str) -> None:
-        self.send({"type": "text", "value": value})
+        start = 0
+        while True:
+            end = start + TEXT_PIECE_CHARS
+            if end < len(value) and _splits_a_pair(value, end):
+                # JSON joins an escaped surrogate pair into one character
+                # only when both halves are in the same line.
+                end -= 1
+            if end >= len(value):
+                self.send({"type": "text", "value": value[start:]})
+                return
+            self.send({"type": "text", "value": value[start:end], "more": True})
+            start = end
 
     def image(self, data: str, mime_type: str) -> None:
         # ``type`` first: the host tells an image line by how it starts.

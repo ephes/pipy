@@ -134,7 +134,9 @@ name. "In scope" leaves out the cases the plan excludes: the JavaScript-only
 case of `streamable-http.test.ts`, the two legacy-key cases of
 `mcp-oauth-store.test.ts` (DEV-08), the codemode cases that are not about
 reaching tools (DEV-04, DEV-13; the five store cases count since slice G4
-ported `store()`/`load()`), and the three declaration cases
+ported `store()`/`load()`; the cases of what G5 ported, the options line,
+structured `bash`, images from `read` and the output limits, are not yet
+recounted), and the three declaration cases
 outside the two groups the plan names. The counts are taken from the files.
 `agent-session-mcp.test.ts` has 48 cases there (44 plain and four
 parametrized ones); the plan said 44 and is corrected.
@@ -384,7 +386,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | --- | --- | --- | --- | --- |
 | CMD-01 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_reaches_neither_itself_nor_inactive_or_model_only_tools`; `test_native_agent_nested_calls.py`: `test_composite_never_reaches_itself`, `test_uncallable_and_request_withheld_tools_are_refused`; `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model` |  |
 | CMD-02 | S07 | closed, with limits | `test_native_codemode_discovery.py`: `test_tools_are_reached_by_identifier_and_by_raw_name`, `test_tool_table_maps_identifiers_and_raw_names_first_tool_wins`, `test_a_keyword_gets_a_trailing_underscore_as_its_identifier` | DEV-01: Python identifiers. DEV-27. |
-| CMD-03 | S04 | closed, with limits | `test_native_codemode_result_shapes.py`: `test_script_receives_structured_content_text_or_a_tool_error`; `test_native_agent_nested_calls.py`: `test_structured_content_follows_the_result_policy_and_the_output_schema` | DEV-59. |
+| CMD-03 | S04, G5 | closed, with limits | `test_native_codemode_result_shapes.py`: `test_script_receives_structured_content_text_or_a_tool_error` (a null result since G5), `test_a_script_gets_bashs_structured_result_also_for_a_failed_command`, `test_a_script_reads_an_image_and_shows_it` (G5); `test_native_agent_nested_calls.py`: `test_structured_content_follows_the_result_policy_and_the_output_schema` | DEV-59. A result without structured content carries `NO_STRUCTURED_CONTENT`; `None` is `null` (G5). |
 | CMD-04 | S04 | closed, with limits | `test_native_codemode_result_shapes.py`: `test_script_receives_structured_content_text_or_a_tool_error`; `test_native_agent_nested_calls.py`: `test_a_failed_call_without_error_text_is_recorded_as_failed` | DEV-59. |
 | CMD-05 | S16 | closed | `test_native_mcp_tools.py`: `test_an_error_result_is_an_error_that_keeps_the_result_for_scripts`, `test_converts_results_passing_the_call_tool_result_to_scripts`; `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model` |  |
 | CMD-06 | S07 | closed, with limits | `test_native_codemode_discovery.py`: `test_script_tools_carry_the_description_and_the_declaration`, `test_script_lists_identifiers_namespaces_and_argument_errors`; `test_native_codemode_description.py`: `test_discovery_descriptions_carry_the_prompt_guidelines` | DEV-25, DEV-27. |

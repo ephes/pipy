@@ -552,6 +552,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A codemode script may emit Pi's 16,777,216 characters of output, text and
+  image data together, or 100,000 `text()`, `image()` and print calls; longer
+  output is cut to the result's budget and saved whole to the full-output
+  file. Before, a script whose text passed 1 MiB, or one line of output
+  passed 1 MiB, failed. Past the limits the script fails with Pi's message.
+
 - A tool whose structured result is `null` now gives a codemode script
   `None`, also for a failed result, as Pi does; before, the script received
   the tool's text or a `ToolError`. A result without structured content is

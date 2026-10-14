@@ -1403,3 +1403,26 @@ def test_the_budget_leaves_room_for_the_images_path_lines(
     assert len(list(tmp_path.glob("pipy-codemode-*.png"))) == 1
     assert parent.details is not None
     assert parent.details["truncation"]["maxTokens"] < 16_000
+
+
+def test_output_over_the_line_limit_is_truncated_and_spilled(
+    tmp_path: Path,
+    paths: CodemodePaths,
+    pids: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Goal-check finding M18: 1,100,000 characters used to fail the
+    # sandbox; like Pi the script completes, and its output is cut to the
+    # budget with the whole of it in the spill file.
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    loop, _, _ = _loop(tmp_path, "text('x' * 1_100_000)", paths=paths)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert not parent.is_error, parent.content.value[:300]
+    assert parent.content.value.startswith("Script completed\n")
+    assert "Warning: truncated output (original token count: 275000)" in (
+        parent.content.value
+    )
+    assert parent.details is not None
+    assert Path(parent.details["fullOutputPath"]).read_text() == "x" * 1_100_000
