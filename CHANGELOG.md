@@ -507,6 +507,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `"true"` to `true`, a number to a string, `null` to `0`, `false` or `""`).
   Before, such arguments were refused. See
   [MCP tools](docs/mcp.md).
+- The arguments of such tools are now checked for the JSON Schema keywords
+  and formats Pi checks: `multipleOf`, `uniqueItems`, `contains`,
+  `minContains`, `maxContains`, `additionalItems`, `minProperties`,
+  `maxProperties`, `propertyNames`, `patternProperties`, `dependentRequired`,
+  `dependentSchemas`, `dependencies`, `not`, `if`/`then`/`else`, `oneOf` as
+  exactly one match, and `format` (dates, times, e-mail addresses, IP
+  addresses, URIs, UUIDs and more, as Pi's TypeBox checks them). Before,
+  these were left to the server.
 - The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
   as Pi's `prompt` handles them. A text that names an extension command runs
   it and starts no run; `/mcp` is such a command and prints the server

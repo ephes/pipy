@@ -362,7 +362,13 @@ def test_the_executor_validates_a_foreign_tool_with_the_foreign_validator(
     tool = _Tool(_foreign())
     executor = ToolExecutor({"mcp__docs__search": tool})
     context = ToolContext(workspace_root=tmp_path)
-    arguments = {"query": None, "ratio": 0.75, "point": {"x": 1, "y": 2.5}, "u": "v"}
+    # `u` is undeclared, so `additionalProperties` asks for a URI.
+    arguments = {
+        "query": None,
+        "ratio": 0.75,
+        "point": {"x": 1, "y": 2.5},
+        "u": "https://example.com/v",
+    }
 
     accepted = executor.execute(_call("mcp__docs__search", arguments), context)
     rejected = executor.execute(
@@ -375,6 +381,12 @@ def test_the_executor_validates_a_foreign_tool_with_the_foreign_validator(
     assert rejected.result.is_error and rejected.malformed_arguments
     assert rejected.result.content.value == (
         "mcp__docs__search.point: missing required argument(s): y"
+    )
+    not_a_uri = executor.execute(
+        _call("mcp__docs__search", {"query": "q", "u": "v"}), context
+    )
+    assert not_a_uri.result.content.value == (
+        "mcp__docs__search.u: string is not a valid uri"
     )
 
 

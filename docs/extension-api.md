@@ -926,15 +926,16 @@ and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy
 did not write, such as an MCP server's: the schema only has to be a JSON
 object with `type: "object"`, the description has no cap, and the schema
 reaches the provider unchanged. Arguments of a foreign tool are checked by a
-standard-library validator (`native/tools/foreign_schema.py`) for these
-keywords: `type` (also a list of types, with `number` and `null`),
-`properties`, `required`, `additionalProperties`, `items`, `prefixItems`,
-`enum`, `const`, `anyOf`, `oneOf`, `allOf`, `$ref` within the same schema,
-`minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `minLength`,
-`maxLength`, `minItems`, `maxItems` and `pattern`. Other keywords are not
-enforced by pipy; the tool's owner stays the authority on what it accepts.
-The validator never rejects arguments because of a keyword it does not
-enforce, which is why `oneOf` only requires that at least one branch matches.
+standard-library validator (`native/tools/foreign_schema.py`) that enforces
+what Pi's TypeBox validator does, except `unevaluatedProperties`,
+`unevaluatedItems`, `$dynamicRef`, `$recursiveRef`, a `$ref` outside the
+schema or under a nested `$id`, and the formats `hostname`, `idn-hostname`, `idn-email`, `iri`,
+`iri-reference`, `url` and `regex`; patterns are Python regular expressions
+and string lengths count code points. For those the tool's owner stays the
+authority on what it accepts. The validator never rejects arguments because
+of a keyword it does not enforce: a `oneOf` refuses a value two branches
+match only when it enforces both in full, and `not`, `if` and `maxContains`
+decide likewise only for schemas it enforces in full.
 Before validating, pipy prepares the arguments as Pi's
 `validateToolArguments` does for such a schema: an optional property sent as
 `null` is dropped when its schema does not allow `null`, and primitives are

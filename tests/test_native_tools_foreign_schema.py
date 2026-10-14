@@ -155,6 +155,115 @@ _VALUE_CASES: list[tuple[str, Any, Any, Any, str]] = [
         "abc",
         "t.v: string does not match pattern",
     ),
+    # Since G6 (goal-check finding M11): the rest of what Pi's validator
+    # checks, short of the keywords listed in the module docstring.
+    ("multipleOf", {"multipleOf": 3}, 9, 10, "t.v: number not a multiple of 3"),
+    ("multipleOf", {"multipleOf": 0.1}, 0.3, 0.35, "t.v: number not a multiple"),
+    ("uniqueItems", {"uniqueItems": True}, [1, "1"], [1, 1.0], "t.v: array items"),
+    (
+        "contains",
+        {"contains": {"type": "string"}},
+        [1, "a"],
+        [1, 2],
+        "t.v: array contains fewer than 1 matching item(s)",
+    ),
+    (
+        "minContains",
+        {"contains": {"const": 1}, "minContains": 2},
+        [1, 1],
+        [1, 2],
+        "t.v: array contains fewer than 2 matching item(s)",
+    ),
+    (
+        "maxContains",
+        {"contains": {"const": 1}, "maxContains": 1},
+        [1, 2],
+        [1, 1],
+        "t.v: array contains more than 1 matching item(s)",
+    ),
+    (
+        "additionalItems",
+        {"items": [{"type": "string"}], "additionalItems": {"type": "integer"}},
+        ["a", 1],
+        ["a", [1]],
+        "t.v.[1]: expected integer",
+    ),
+    ("minProperties", {"minProperties": 1}, {"a": 1}, {}, "t.v: object has fewer"),
+    ("maxProperties", {"maxProperties": 1}, {"a": 1}, {"a": 1, "b": 2}, "has more"),
+    (
+        "propertyNames",
+        {"propertyNames": {"pattern": "^[a-z]+$"}},
+        {"ab": 1},
+        {"Ab": 1},
+        "t.v.Ab: string does not match pattern",
+    ),
+    (
+        "patternProperties",
+        {"patternProperties": {"^x-": {"type": "integer"}}},
+        {"x-a": 1, "y": "s"},
+        {"x-a": [1]},
+        "t.v.x-a: expected integer",
+    ),
+    (
+        "dependentRequired",
+        {"dependentRequired": {"a": ["b"]}},
+        {"a": 1, "b": 2},
+        {"a": 1},
+        "t.v: missing required argument(s): b",
+    ),
+    (
+        "dependentSchemas",
+        {"dependentSchemas": {"a": {"required": ["c"]}}},
+        {"b": 1},
+        {"a": 1},
+        "t.v: missing required argument(s): c",
+    ),
+    (
+        "dependencies",
+        {"dependencies": {"a": ["b"], "c": {"maxProperties": 1}}},
+        {"c": 1},
+        {"c": 1, "d": 2},
+        "t.v: object has more than 1 properties",
+    ),
+    ("not", {"not": {"type": "string"}}, [1], "a", "t.v: matches a schema it must"),
+    (
+        "if",
+        {"if": {"type": "string"}, "then": {"minLength": 2}, "else": {"type": "array"}},
+        "ab",
+        "a",
+        "t.v: string shorter than minLength 2",
+    ),
+    (
+        "then",
+        {"if": {"const": "a"}, "then": {"const": "a"}, "else": {"maxLength": 1}},
+        "b",
+        "bc",
+        "t.v: string longer than maxLength 1",
+    ),
+    (
+        "else",
+        {"if": {"type": "array"}, "else": {"type": "object"}},
+        {},
+        "s",
+        "t.v: expected object",
+    ),
+    ("format", {"format": "date"}, "2024-02-29", "2023-02-29", "not a valid date"),
+    ("format", {"format": "email"}, "a@b.de", "a@", "t.v: string is not a valid email"),
+    (
+        "format",
+        {"format": "uuid"},
+        "0" * 8 + "-0000-0000-0000-" + "0" * 12,
+        "x",
+        "uuid",
+    ),
+    (
+        "format",
+        {"format": "date-time"},
+        "2020-12-12T20:20:40Z",
+        "2020-12-12",
+        "date-time",
+    ),
+    ("format", {"format": "ipv4"}, "10.0.0.1", "10.0.0.256", "not a valid ipv4"),
 ]
 
 
@@ -271,20 +380,17 @@ def test_unknown_keywords_are_ignored() -> None:
     schema = _object(
         {
             "type": "string",
-            "format": "email",
-            "not": {"type": "string"},
-            "if": {"const": "a"},
-            "then": False,
+            "format": "hostname",
             "contentEncoding": "base64",
             "x-vendor": {"anything": [1, 2]},
-            "multipleOf": 3,
         },
         title="T",
         unevaluatedProperties=False,
-        dependentRequired={"v": ["w"]},
     )
 
-    assert _check(schema, {"v": "not an email"}) == {"v": "not an email"}
+    assert _check(schema, {"v": "not a host!"}) == {"v": "not a host!"}
+    # A format TypeBox does not know passes, as in Pi.
+    assert _check(_object({"format": "x-mine"}), {"v": "s"}) == {"v": "s"}
 
 
 @pytest.mark.parametrize(
@@ -323,15 +429,44 @@ def test_a_keyword_with_a_value_of_the_wrong_shape_is_ignored(
         assert _check(schema, {"v": value}) == {"v": value}
 
 
-def test_one_of_does_not_reject_a_second_apparent_match() -> None:
-    # `multipleOf` is not enforced, so the second branch only seems to match 1.
-    # A full validator accepts 1; rejecting it here would be wrong.
-    narrowed = _object({"oneOf": [{"const": 1}, {"type": "number", "multipleOf": 2}]})
+def test_one_of_needs_exactly_one_match_where_pipy_can_tell() -> None:
+    # Goal-check finding M11: two branches pipy enforces in full that both
+    # match are one too many, as for a full validator.
     plain = _object({"oneOf": [{"type": "integer"}, {"type": "number"}]})
-
-    assert _check(narrowed, {"v": 1}) == {"v": 1}
-    assert _check(plain, {"v": 3}) == {"v": 3}
+    assert _error(plain, {"v": 3}) == "t.v: matches more than one schema of oneOf"
+    assert _check(plain, {"v": 3.5}) == {"v": 3.5}
     assert _error(plain, {"v": [3]}) == "t.v: does not match any allowed schema"
+    # A branch with a keyword pipy does not enforce may only seem to match,
+    # so a second apparent match is no proof; a full validator may accept.
+    unsure = _object(
+        {"oneOf": [{"const": "a.b"}, {"type": "string", "format": "hostname"}]}
+    )
+    assert _check(unsure, {"v": "a.b"}) == {"v": "a.b"}
+
+
+def test_not_and_if_decide_only_where_pipy_can_tell() -> None:
+    unsure_not = _object({"not": {"format": "hostname"}})
+    assert _check(unsure_not, {"v": "x"}) == {"v": "x"}
+    unsure_if = _object(
+        {"if": {"format": "url"}, "then": {"maxLength": 1}, "else": {"minLength": 3}}
+    )
+    # Either branch might apply: only what both refuse is refused.
+    assert _check(unsure_if, {"v": "a"}) == {"v": "a"}
+    assert _check(unsure_if, {"v": "abc"}) == {"v": "abc"}
+    assert "neither the then nor the else" in _error(unsure_if, {"v": "ab"})
+    unsure_contains = _object({"contains": {"format": "iri"}, "maxContains": 1})
+    assert _check(unsure_contains, {"v": ["a", "b"]}) == {"v": ["a", "b"]}
+
+
+def test_a_ref_cycle_counts_as_enforced_and_terminates() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"v": {"oneOf": [{"$ref": "#/$defs/node"}, {"type": "object"}]}},
+        "$defs": {
+            "node": {"type": "object", "properties": {"next": {"$ref": "#/$defs/node"}}}
+        },
+    }
+    assert "more than one" in _error(schema, {"v": {"next": {}}})
 
 
 @pytest.mark.parametrize(
@@ -361,8 +496,10 @@ def test_pattern_properties_are_not_additional_properties() -> None:
     }
     unreadable = {**schema, "patternProperties": {"(unclosed": {}}}
 
-    # Names a pattern covers are allowed; their values are not checked.
-    assert _check(schema, {"name": "n", "x-a": "kept"}) == {"name": "n", "x-a": "kept"}
+    # Names a pattern covers are allowed, and the pattern's schema checks
+    # their values (since G6).
+    assert _check(schema, {"name": "n", "x-a": 2}) == {"name": "n", "x-a": 2}
+    assert _error(schema, {"x-a": [2]}) == "t.x-a: expected integer"
     assert _error(schema, {"y": 1}) == "t: unsupported argument(s): y"
     assert _check(unreadable, {"y": 1}) == {"y": 1}
 
@@ -576,3 +713,116 @@ def test_coercion_leaves_the_callers_arguments_unchanged() -> None:
 
     assert _check(schema, arguments) == {"value": [1]}
     assert arguments == {"value": ["1"], "offset": None}
+
+
+def test_a_ref_cycle_with_a_skipped_keyword_is_uncertain_on_every_path() -> None:
+    # A references B before a format pipy does not check, and B references
+    # A: neither is enforced in full, whichever is asked about first.
+    defs = {
+        "a": {"allOf": [{"$ref": "#/$defs/b"}, {"format": "hostname"}]},
+        "b": {"anyOf": [{"$ref": "#/$defs/a"}, {"type": "string"}]},
+    }
+    schema = {
+        "type": "object",
+        "properties": {
+            "probe": {"if": {"$ref": "#/$defs/a"}, "then": True},
+            "v": {"not": {"$ref": "#/$defs/b"}},
+        },
+        "$defs": defs,
+    }
+
+    assert _check(schema, {"probe": 1, "v": "not a host!"}) == {
+        "probe": 1,
+        "v": "not a host!",
+    }
+
+
+def test_a_nested_id_makes_its_refs_uncertain() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "v": {
+                "$id": "https://example.com/inner",
+                "$defs": {"target": False},
+                "not": {"$ref": "#/$defs/target"},
+            }
+        },
+        "$defs": {"target": {}},
+    }
+
+    assert _check(schema, {"v": 1}) == {"v": 1}
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    [
+        {"oneOf": []},
+        {"maxLength": 1.5},
+        {"type": "date"},
+        {"required": [1]},
+        {"pattern": "(?<word>.*)"},
+        {"dependentRequired": {"a": False}},
+    ],
+)
+def test_a_keyword_the_checks_skip_makes_not_refuse_nothing(forbidden: Any) -> None:
+    assert _check(_object({"not": forbidden}), {"v": {"a": 1}}) == {"v": {"a": 1}}
+
+
+def test_additional_items_follow_an_empty_list_of_items() -> None:
+    schema = _object({"items": [], "additionalItems": False})
+
+    assert _check(schema, {"v": []}) == {"v": []}
+    assert _error(schema, {"v": [1]}) == "t.v.[0]: no value is allowed here"
+    assert _check(_object({"not": {"items": [], "additionalItems": False}}), {"v": [1]})
+
+
+def test_dependency_keywords_take_only_their_own_shape() -> None:
+    malformed = _object(
+        {"dependentRequired": {"a": False}, "dependentSchemas": {"a": ["b"]}}
+    )
+
+    assert _check(malformed, {"v": {"a": 1}}) == {"v": {"a": 1}}
+
+
+def test_a_pattern_re_cannot_read_still_leaves_the_format_checked() -> None:
+    schema = _object({"pattern": "(?<word>.*)", "format": "date"})
+
+    assert "not a valid date" in _error(schema, {"v": "not a date"})
+
+
+def test_draft_7_ignores_the_siblings_of_a_ref_pipy_does_not_follow() -> None:
+    schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "v": {
+                "$id": "https://example.com/inner",
+                "properties": {
+                    "x": {"$ref": "#/definitions/target", "maxProperties": 0}
+                },
+            }
+        },
+        "definitions": {"target": {}},
+    }
+
+    assert _check(schema, {"v": {"x": {"a": 1}}}) == {"v": {"x": {"a": 1}}}
+
+
+@pytest.mark.parametrize("scoped_first", [False, True])
+def test_a_shared_schema_reached_under_a_nested_id_is_scoped(
+    scoped_first: bool,
+) -> None:
+    shared = {"not": {"$ref": "#/$defs/target"}}
+    plain = ("plain", shared)
+    scoped = (
+        "scoped",
+        {
+            "$id": "https://example.com/inner",
+            "$defs": {"target": False},
+            "properties": {"w": shared},
+        },
+    )
+    properties = dict([scoped, plain] if scoped_first else [plain, scoped])
+    schema = {"type": "object", "properties": properties, "$defs": {"target": {}}}
+
+    assert _check(schema, {"scoped": {"w": 1}}) == {"scoped": {"w": 1}}

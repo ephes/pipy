@@ -1890,9 +1890,13 @@ Differences from Pi in tools:
   declared by pipy. Pi registers it as it is.
 - Arguments are converted and checked as Pi's `validateToolArguments` does
   for a server's schema (an optional `null` is dropped, `"3"` becomes `3`
-  where the schema asks for a number), but by pipy's own validator, which
-  enforces a named set of JSON Schema keywords; the server remains the
-  authority for the rest.
+  where the schema asks for a number), but by pipy's own validator. It
+  checks what Pi's validator checks except `unevaluatedProperties`,
+  `unevaluatedItems`, dynamic and remote references, references under a
+  nested `$id` and the formats
+  `hostname`, `idn-hostname`, `idn-email`, `iri`, `iri-reference`, `url` and
+  `regex`, and its patterns are Python regular expressions; the server
+  remains the authority for those.
 - Progress is added to the call's live output line by line; Pi replaces the
   call's preliminary result. The call's row shows the last line, so a
   progress message of several lines shows only its last one.

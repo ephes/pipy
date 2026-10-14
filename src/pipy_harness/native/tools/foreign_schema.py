@@ -8,28 +8,39 @@ library:
 
 - `type` (one name or a list of names; `object`, `array`, `string`, `number`,
   `integer`, `boolean`, `null`)
-- `properties`, `required`, `additionalProperties` (a boolean or a schema)
-- `items` (a schema, or a list of schemas checked by position), `prefixItems`
+- `properties`, `required`, `additionalProperties` (a boolean or a schema),
+  `patternProperties`, `propertyNames`, `minProperties`, `maxProperties`,
+  `dependentRequired`, `dependentSchemas` and the older `dependencies`
+- `items` (a schema, or a list of schemas checked by position, then
+  `additionalItems`), `prefixItems`, `minItems`, `maxItems`, `uniqueItems`,
+  `contains` with `minContains` and `maxContains`
 - `enum`, `const`
-- `anyOf`, `allOf`, and `oneOf` as "at least one branch matches": a branch
-  may hold keywords pipy does not enforce, so a second apparent match is no
-  proof that the arguments are wrong
+- `allOf`, `anyOf`, `oneOf`, `not`, and `if` with `then` and `else`
 - `$ref` to a location in the same schema (`#` or `#/json/pointer`); in a
   schema whose `$schema` names draft 7 or older, the keywords next to a `$ref`
   are ignored, as those drafts define
-- `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`
-- `minLength`, `maxLength`, `minItems`, `maxItems`
-- `pattern`
+- `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`
+  (TypeBox's rule: exact for integers, within 1e-10 otherwise)
+- `minLength`, `maxLength`, `pattern`, and `format` with TypeBox's checks
+  (`tools/json_formats.py`; a format TypeBox does not know passes)
 
-Every other keyword is ignored, and so is a keyword of the set whose value
-does not have the shape the keyword needs (a `required` that is not a list of
-strings, a `pattern` Python's `re` cannot compile, a `$ref` that leaves the
-schema or does not resolve). Ignoring a keyword must never reject arguments a
-full validator accepts, so property names that match a `patternProperties`
-key do not count as additional properties (their values are not checked). Patterns are matched
-with Python's `re`, not an ECMAScript engine. The tool's owner remains the
-authority on what it accepts; this check exists to give the model a precise
-error before the call.
+Not enforced: `unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`,
+`$recursiveRef`, a `$ref` that leaves the schema, does not resolve or lies
+under a nested `$id`, a `pattern` Python's `re` cannot compile, and the
+formats `hostname`,
+`idn-hostname`, `idn-email`, `iri`, `iri-reference`, `url` and `regex`. A
+keyword of the set whose value does not have the shape the keyword needs (a
+`required` that is not a list of strings) is ignored, as is every keyword
+outside the set. Ignoring a keyword must never reject arguments a full
+validator accepts: a schema with a keyword pipy does not enforce may seem
+to match where it does not, so a second matching `oneOf` branch, a
+matching `not`, too many `contains` matches and an `if` decide only for a
+schema pipy enforces in full (`_Validator.enforced`); otherwise `oneOf`
+needs one match, `not` and `maxContains` refuse nothing, and an `if` refuses
+only a value both `then` and `else` refuse. Patterns are matched with
+Python's `re`, not an ECMAScript engine, and string lengths count code
+points. The tool's owner remains the authority on what it accepts; this
+check exists to give the model a precise error before the call.
 
 Before validation the arguments are prepared as Pi's `validateToolArguments`
 prepares them for a schema it did not build: an optional property sent as
@@ -56,6 +67,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from pipy_harness.native.tools.base import ToolArgumentError
+from pipy_harness.native.tools.json_formats import UNCHECKED_FORMATS, format_matches
 
 FOREIGN_SCHEMA_KEYWORDS = frozenset(
     {
@@ -63,23 +75,41 @@ FOREIGN_SCHEMA_KEYWORDS = frozenset(
         "properties",
         "required",
         "additionalProperties",
+        "patternProperties",
+        "propertyNames",
+        "minProperties",
+        "maxProperties",
+        "dependentRequired",
+        "dependentSchemas",
+        "dependencies",
         "items",
         "prefixItems",
+        "additionalItems",
+        "uniqueItems",
+        "contains",
+        "minContains",
+        "maxContains",
         "enum",
         "const",
         "anyOf",
         "oneOf",
         "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
         "$ref",
         "minimum",
         "maximum",
         "exclusiveMinimum",
         "exclusiveMaximum",
+        "multipleOf",
         "minLength",
         "maxLength",
         "minItems",
         "maxItems",
         "pattern",
+        "format",
     }
 )
 
@@ -141,7 +171,14 @@ def _is_json_data(value: object) -> bool:
 class _Validator:
     """One validation run: the root schema for `$ref` and the cycle guard."""
 
-    __slots__ = ("_active", "_ref_only", "_root", "_tool_name")
+    __slots__ = (
+        "_active",
+        "_enforced_cache",
+        "_ref_only",
+        "_root",
+        "_scoped",
+        "_tool_name",
+    )
 
     def __init__(self, tool_name: str, root: Mapping[str, Any]) -> None:
         self._tool_name = tool_name
@@ -152,6 +189,11 @@ class _Validator:
         # (schema, value) pairs under evaluation. A pair that comes up again
         # before the value was descended into is a `$ref` cycle.
         self._active: set[tuple[int, int]] = set()
+        # id(schema) -> whether pipy enforces every keyword under it.
+        self._enforced_cache: dict[int, bool] = {}
+        # Schemas under a nested `$id`, where a `$ref` means something other
+        # than a pointer into the root; pipy does not follow those.
+        self._scoped = _under_nested_ids(root)
 
     def _fail(self, message: str, path: tuple[str, ...]) -> ToolArgumentError:
         return ToolArgumentError(self._tool_name, message, field_path=path)
@@ -184,14 +226,18 @@ class _Validator:
     def _check_keywords(
         self, schema: Mapping[str, Any], value: object, path: tuple[str, ...]
     ) -> None:
-        target = self._resolve_ref(schema.get("$ref"))
+        target = self._ref_target(schema)
         if target is not _MISSING:
             self.check(target, value, path)
-            if self._ref_only:
-                return
+        if self._ref_only and isinstance(schema.get("$ref"), str):
+            # Draft 7 and older ignore a `$ref`'s siblings, also where pipy
+            # does not follow the `$ref` itself.
+            return
         self._check_type(schema.get("type"), value, path)
         self._check_enum(schema, value, path)
         self._check_combinators(schema, value, path)
+        self._check_not(schema, value, path)
+        self._check_conditional(schema, value, path)
         number = _number(value)
         if number is not None:
             self._check_number(schema, number, path)
@@ -201,6 +247,14 @@ class _Validator:
             self._check_array(schema, value, path)
         elif isinstance(value, dict):
             self._check_object(schema, value, path)
+
+    def _ref_target(self, schema: Mapping[str, Any]) -> object:
+        """What the `$ref` of ``schema`` points at, or `_MISSING` when it has
+        none, pipy cannot resolve it, or it lies under a nested `$id`."""
+
+        if "$ref" not in schema or id(schema) in self._scoped:
+            return _MISSING
+        return self._resolve_ref(schema["$ref"])
 
     def _resolve_ref(self, ref: object) -> object:
         if not isinstance(ref, str) or not ref.startswith("#"):
@@ -256,13 +310,51 @@ class _Validator:
         if isinstance(all_of, (list, tuple)):
             for branch in all_of:
                 self.check(branch, value, path)
-        # More than one apparent `oneOf` match is not rejected: a branch may be
-        # narrowed by a keyword this validator ignores.
-        for key in ("anyOf", "oneOf"):
-            branches = schema.get(key)
-            if isinstance(branches, (list, tuple)) and branches:
-                if not any(self._matches(branch, value, path) for branch in branches):
-                    raise self._fail("does not match any allowed schema", path)
+        branches = schema.get("anyOf")
+        if isinstance(branches, (list, tuple)) and branches:
+            if not any(self._matches(branch, value, path) for branch in branches):
+                raise self._fail("does not match any allowed schema", path)
+        branches = schema.get("oneOf")
+        if isinstance(branches, (list, tuple)) and branches:
+            matched = [b for b in branches if self._matches(b, value, path)]
+            if not matched:
+                raise self._fail("does not match any allowed schema", path)
+            # An apparent match of a branch with a keyword pipy does not
+            # enforce may be none; two branches pipy enforces in full both
+            # match for certain.
+            if sum(1 for branch in matched if self.enforced(branch)) > 1:
+                raise self._fail("matches more than one schema of oneOf", path)
+
+    def _check_not(
+        self, schema: Mapping[str, Any], value: object, path: tuple[str, ...]
+    ) -> None:
+        forbidden = schema.get("not", _MISSING)
+        if forbidden is _MISSING or not self.enforced(forbidden):
+            return
+        if self._matches(forbidden, value, path):
+            raise self._fail("matches a schema it must not match", path)
+
+    def _check_conditional(
+        self, schema: Mapping[str, Any], value: object, path: tuple[str, ...]
+    ) -> None:
+        condition = schema.get("if", _MISSING)
+        if condition is _MISSING:
+            return
+        then = schema.get("then", _MISSING)
+        otherwise = schema.get("else", _MISSING)
+        if self.enforced(condition):
+            branch = then if self._matches(condition, value, path) else otherwise
+            if branch is not _MISSING:
+                self.check(branch, value, path)
+            return
+        # Which branch applies is not certain: refuse only what both refuse.
+        if (
+            then is not _MISSING
+            and otherwise is not _MISSING
+            and not self._matches(then, value, path)
+            and not self._matches(otherwise, value, path)
+        ):
+            raise self._fail("matches neither the then nor the else schema", path)
 
     def _check_number(
         self, schema: Mapping[str, Any], value: float, path: tuple[str, ...]
@@ -279,6 +371,9 @@ class _Validator:
         upper = _number(schema.get("exclusiveMaximum"))
         if upper is not None and value >= upper:
             raise self._fail(f"number not below exclusiveMaximum {upper}", path)
+        divisor = _number(schema.get("multipleOf"))
+        if divisor is not None and divisor > 0 and not _is_multiple(value, divisor):
+            raise self._fail(f"number not a multiple of {divisor}", path)
 
     def _check_string(
         self, schema: Mapping[str, Any], value: str, path: tuple[str, ...]
@@ -292,11 +387,14 @@ class _Validator:
         pattern = schema.get("pattern")
         if isinstance(pattern, str):
             try:
-                found = re.search(pattern, value)
+                found: object = re.search(pattern, value)
             except (re.error, RecursionError, OverflowError):
-                return
+                found = True  # a pattern `re` cannot read is not enforced
             if found is None:
                 raise self._fail(f"string does not match pattern {pattern!r}", path)
+        name = schema.get("format")
+        if isinstance(name, str) and not format_matches(name, value):
+            raise self._fail(f"string is not a valid {name}", path)
 
     def _check_array(
         self, schema: Mapping[str, Any], value: list[Any], path: tuple[str, ...]
@@ -309,36 +407,138 @@ class _Validator:
             raise self._fail(f"array longer than maxItems {max_items}", path)
         prefix = schema.get("prefixItems")
         items = schema.get("items", _MISSING)
+        positional = isinstance(items, (list, tuple))
         if not isinstance(prefix, (list, tuple)):
             # A list-valued `items` is the positional form older drafts use.
-            prefix = items if isinstance(items, (list, tuple)) else ()
-        if isinstance(items, (list, tuple)):
-            items = _MISSING
+            prefix = items if positional else ()
+        if positional:
+            # Drafts before 2020-12: `additionalItems` follows a list `items`.
+            items = (
+                _MISSING
+                if "prefixItems" in schema
+                else schema.get("additionalItems", _MISSING)
+            )
         for index, item in enumerate(value):
             item_path = path + (f"[{index}]",)
             if index < len(prefix):
                 self.check(prefix[index], item, item_path)
             elif items is not _MISSING:
                 self.check(items, item, item_path)
+        if schema.get("uniqueItems") is True and not _all_unique(value):
+            raise self._fail("array items are not unique", path)
+        self._check_contains(schema, value, path)
+
+    def _check_contains(
+        self, schema: Mapping[str, Any], value: list[Any], path: tuple[str, ...]
+    ) -> None:
+        wanted = schema.get("contains", _MISSING)
+        if wanted is _MISSING:
+            return
+        least = _count(schema.get("minContains"))
+        least = 1 if least is None else least
+        most = _count(schema.get("maxContains"))
+        found = sum(1 for item in value if self._matches(wanted, item, path))
+        # An apparent match may be none, so only a short count is certain;
+        # a long one only for a schema pipy enforces in full.
+        if found < least:
+            raise self._fail(
+                f"array contains fewer than {least} matching item(s)", path
+            )
+        if most is not None and found > most and self.enforced(wanted):
+            raise self._fail(f"array contains more than {most} matching item(s)", path)
+
+    def _check_property_count(
+        self, schema: Mapping[str, Any], value: dict[str, Any], path: tuple[str, ...]
+    ) -> None:
+        least = _count(schema.get("minProperties"))
+        if least is not None and len(value) < least:
+            raise self._fail(f"object has fewer than {least} properties", path)
+        most = _count(schema.get("maxProperties"))
+        if most is not None and len(value) > most:
+            raise self._fail(f"object has more than {most} properties", path)
+
+    def _check_dependencies(
+        self, schema: Mapping[str, Any], value: dict[str, Any], path: tuple[str, ...]
+    ) -> None:
+        """`dependentRequired`, `dependentSchemas` and the older
+        `dependencies`, which holds either form."""
+
+        for key in ("dependentRequired", "dependentSchemas", "dependencies"):
+            declared = schema.get(key)
+            if not isinstance(declared, Mapping):
+                continue
+            for name, rule in declared.items():
+                if name not in value or not _dependency_shape_ok(key, rule):
+                    continue
+                if isinstance(rule, (list, tuple)):
+                    missing = [item for item in rule if item not in value]
+                    if missing:
+                        raise self._fail(
+                            f"missing required argument(s): {', '.join(missing)}",
+                            path,
+                        )
+                else:
+                    self.check(rule, value, path)
+
+    def enforced(self, schema: object) -> bool:
+        """Whether pipy enforces every keyword that applies under ``schema``
+        as a full validator would, so that its answer for a value is
+        certain: no schema reachable from it, through its subschemas and
+        `$ref`s, has a keyword pipy skips (`_skips_a_keyword`)."""
+
+        if not isinstance(schema, Mapping):
+            return True
+        key = id(schema)
+        known = self._enforced_cache.get(key)
+        if known is not None:
+            return known
+        seen: set[int] = set()
+        pending: list[object] = [schema]
+        result = True
+        while pending and result:
+            node = pending.pop()
+            if not isinstance(node, Mapping) or id(node) in seen:
+                continue
+            seen.add(id(node))
+            if self._skips_a_keyword(node):
+                result = False
+                break
+            target = self._ref_target(node)
+            if target is not _MISSING:
+                pending.append(target)
+            pending.extend(_subschemas(node))
+        self._enforced_cache[key] = result
+        return result
+
+    def _skips_a_keyword(self, schema: Mapping[str, Any]) -> bool:
+        """Whether pipy skips a keyword of ``schema`` itself that a full
+        validator applies: one it does not implement, a format it does not
+        check, a `$ref` it cannot resolve, a nested `$id` (which changes what
+        a `$ref` under it means), or a keyword of the set whose value has a
+        shape the checks ignore."""
+
+        if any(keyword in schema for keyword in _UNENFORCED_KEYWORDS):
+            return True
+        if schema is not self._root and isinstance(schema.get("$id"), str):
+            return True
+        if "$ref" in schema and self._ref_target(schema) is _MISSING:
+            return True
+        name = schema.get("format")
+        if isinstance(name, str) and name in UNCHECKED_FORMATS:
+            return True
+        return not all(
+            _shape_ok(keyword, schema[keyword])
+            for keyword in FOREIGN_SCHEMA_KEYWORDS
+            if keyword in schema
+        )
 
     def _check_object(
         self, schema: Mapping[str, Any], value: dict[str, Any], path: tuple[str, ...]
     ) -> None:
-        required = schema.get("required")
-        if isinstance(required, (list, tuple)) and all(
-            isinstance(name, str) for name in required
-        ):
-            missing = [name for name in required if name not in value]
-            if missing:
-                raise self._fail(
-                    f"missing required argument(s): {', '.join(missing)}", path
-                )
-        properties = schema.get("properties")
-        if not isinstance(properties, Mapping):
-            properties = {}
-        for name, sub_schema in properties.items():
-            if name in value:
-                self.check(sub_schema, value[name], path + (str(name),))
+        self._check_required(schema, value, path)
+        self._check_property_count(schema, value, path)
+        self._check_dependencies(schema, value, path)
+        properties = self._check_property_values(schema, value, path)
         additional = schema.get("additionalProperties", _MISSING)
         if additional is _MISSING or additional is True:
             return
@@ -354,6 +554,271 @@ class _Validator:
             return
         for name in extra:
             self.check(additional, value[name], path + (str(name),))
+
+    def _check_required(
+        self, schema: Mapping[str, Any], value: dict[str, Any], path: tuple[str, ...]
+    ) -> None:
+        required = schema.get("required")
+        if isinstance(required, (list, tuple)) and all(
+            isinstance(name, str) for name in required
+        ):
+            missing = [name for name in required if name not in value]
+            if missing:
+                raise self._fail(
+                    f"missing required argument(s): {', '.join(missing)}", path
+                )
+
+    def _check_property_values(
+        self, schema: Mapping[str, Any], value: dict[str, Any], path: tuple[str, ...]
+    ) -> Mapping[str, Any]:
+        """`propertyNames`, `properties` and `patternProperties`; returns the
+        declared properties."""
+
+        names = schema.get("propertyNames", _MISSING)
+        if names is not _MISSING:
+            for name in value:
+                self.check(names, name, path + (name,))
+        properties = schema.get("properties")
+        if not isinstance(properties, Mapping):
+            properties = {}
+        for name, sub_schema in properties.items():
+            if name in value:
+                self.check(sub_schema, value[name], path + (str(name),))
+        for name, sub_schema in _pattern_property_schemas(
+            schema.get("patternProperties"), value
+        ):
+            self.check(sub_schema, value[name], path + (name,))
+        return properties
+
+
+# Keywords a full validator applies that pipy does not.
+_UNENFORCED_KEYWORDS = frozenset(
+    {"unevaluatedProperties", "unevaluatedItems", "$dynamicRef", "$recursiveRef"}
+)
+_SCHEMA_KEYWORDS = (
+    "additionalProperties",
+    "additionalItems",
+    "items",
+    "contains",
+    "propertyNames",
+    "not",
+    "if",
+    "then",
+    "else",
+)
+_SCHEMA_MAP_KEYWORDS = ("properties", "patternProperties", "dependentSchemas")
+_SCHEMA_LIST_KEYWORDS = ("allOf", "anyOf", "oneOf", "prefixItems", "items")
+
+
+def _subschemas(schema: Mapping[str, Any]) -> list[object]:
+    """The schemas directly under ``schema`` that apply to a value or a part
+    of it (not `$defs`, which apply only through a `$ref`)."""
+
+    found: list[object] = [
+        schema[key]
+        for key in _SCHEMA_KEYWORDS
+        if key in schema and not isinstance(schema[key], (list, tuple))
+    ]
+    for key in _SCHEMA_MAP_KEYWORDS:
+        if isinstance(schema.get(key), Mapping):
+            found.extend(schema[key].values())
+    for key in _SCHEMA_LIST_KEYWORDS:
+        if isinstance(schema.get(key), (list, tuple)):
+            found.extend(schema[key])
+    dependencies = schema.get("dependencies")
+    if isinstance(dependencies, Mapping):
+        found.extend(
+            rule
+            for rule in dependencies.values()
+            if not isinstance(rule, (list, tuple))
+        )
+    return found
+
+
+def _under_nested_ids(root: Mapping[str, Any]) -> set[int]:
+    """The ids of the objects that lie under a nested `$id` (the object
+    with the `$id` included), wherever else they are also reached."""
+
+    scoped: set[int] = set()
+    # An object may be shared: one reached inside a scope anywhere counts as
+    # scoped, so it is visited again when reached inside one.
+    seen: set[tuple[int, bool]] = set()
+    pending: list[tuple[object, bool]] = [(root, False)]
+    while pending:
+        node, inside = pending.pop()
+        if (id(node), inside) in seen:
+            continue
+        seen.add((id(node), inside))
+        if isinstance(node, Mapping):
+            inside = inside or (node is not root and isinstance(node.get("$id"), str))
+            if inside:
+                scoped.add(id(node))
+            pending.extend((child, inside) for child in node.values())
+        elif isinstance(node, (list, tuple)):
+            pending.extend((child, inside) for child in node)
+    return scoped
+
+
+def _is_schema(value: object) -> bool:
+    return isinstance(value, Mapping) or type(value) is bool
+
+
+def _is_schema_list(value: object) -> bool:
+    return isinstance(value, (list, tuple)) and all(_is_schema(v) for v in value)
+
+
+def _is_name_list(value: object) -> bool:
+    return isinstance(value, (list, tuple)) and all(isinstance(v, str) for v in value)
+
+
+def _is_schema_map(value: object) -> bool:
+    return isinstance(value, Mapping) and all(_is_schema(v) for v in value.values())
+
+
+def _compiles(pattern: object) -> bool:
+    if not isinstance(pattern, str):
+        return False
+    try:
+        re.compile(pattern)
+    except (re.error, RecursionError, OverflowError):
+        return False
+    return True
+
+
+def _is_type(value: object) -> bool:
+    names = value if isinstance(value, (list, tuple)) else [value]
+    return bool(names) and all(
+        isinstance(name, str) and name in _TYPE_CHECKS for name in names
+    )
+
+
+def _is_pattern_map(value: object) -> bool:
+    if not isinstance(value, Mapping) or not _is_schema_map(value):
+        return False
+    return all(_compiles(key) for key in value)
+
+
+def _dependency_shape_ok(keyword: str, rule: object) -> bool:
+    """`dependentRequired` takes names, `dependentSchemas` a schema and the
+    older `dependencies` either."""
+
+    if keyword == "dependentRequired":
+        return _is_name_list(rule)
+    if keyword == "dependentSchemas":
+        return _is_schema(rule)
+    return _is_name_list(rule) or _is_schema(rule)
+
+
+# The shape each keyword of the set needs; a value of another shape is
+# skipped by the checks, so a schema holding one is not enforced in full.
+_SHAPES: dict[str, Callable[[object], bool]] = {
+    "type": _is_type,
+    "properties": _is_schema_map,
+    "patternProperties": _is_pattern_map,
+    "dependentSchemas": _is_schema_map,
+    "required": _is_name_list,
+    "dependentRequired": lambda value: (
+        isinstance(value, Mapping)
+        and all(_is_name_list(rule) for rule in value.values())
+    ),
+    "dependencies": lambda value: (
+        isinstance(value, Mapping)
+        and all(_dependency_shape_ok("dependencies", rule) for rule in value.values())
+    ),
+    "items": lambda value: _is_schema(value) or _is_schema_list(value),
+    "prefixItems": _is_schema_list,
+    "allOf": _is_schema_list,
+    "anyOf": lambda value: _is_schema_list(value) and bool(value),
+    "oneOf": lambda value: _is_schema_list(value) and bool(value),
+    "enum": lambda value: isinstance(value, (list, tuple)),
+    "pattern": _compiles,
+    "format": lambda value: isinstance(value, str),
+    "uniqueItems": lambda value: type(value) is bool,
+    "multipleOf": lambda value: (_number(value) or 0) > 0,
+    "minimum": lambda value: _number(value) is not None,
+    "maximum": lambda value: _number(value) is not None,
+    "exclusiveMinimum": lambda value: _number(value) is not None,
+    "exclusiveMaximum": lambda value: _number(value) is not None,
+    "$ref": lambda value: isinstance(value, str),
+    **{
+        keyword: (lambda value: _count(value) is not None)
+        for keyword in (
+            "minLength",
+            "maxLength",
+            "minItems",
+            "maxItems",
+            "minProperties",
+            "maxProperties",
+            "minContains",
+            "maxContains",
+        )
+    },
+    **{
+        keyword: _is_schema
+        for keyword in (
+            "additionalProperties",
+            "additionalItems",
+            "contains",
+            "propertyNames",
+            "not",
+            "if",
+            "then",
+            "else",
+        )
+    },
+}
+
+
+def _shape_ok(keyword: str, value: object) -> bool:
+    check = _SHAPES.get(keyword)
+    return True if check is None else check(value)
+
+
+def _is_multiple(value: float, divisor: float) -> bool:
+    """TypeBox ``IsMultipleOf``: exact for integers, within 1e-10 otherwise."""
+
+    if type(value) is int and type(divisor) is int:
+        return value % divisor == 0
+    try:
+        if float(value).is_integer() and (1 / divisor) % 1 == 0:
+            return True
+        remainder = math.fmod(value, divisor)
+    except OverflowError:
+        return True  # beyond JavaScript's numbers; not decided here
+    return (
+        min(abs(remainder), abs(remainder - divisor), abs(remainder + divisor))
+        < _MULTIPLE_TOLERANCE
+    )
+
+
+_MULTIPLE_TOLERANCE = 1e-10
+
+
+def _all_unique(items: list[Any]) -> bool:
+    return not any(
+        _json_equal(items[i], items[j])
+        for i in range(len(items))
+        for j in range(i + 1, len(items))
+    )
+
+
+def _pattern_property_schemas(
+    patterns: object, value: dict[str, Any]
+) -> list[tuple[str, object]]:
+    """Each name of ``value`` with the schema of each ``patternProperties``
+    key that matches it; a pattern pipy cannot evaluate checks nothing."""
+
+    if not isinstance(patterns, Mapping):
+        return []
+    pairs: list[tuple[str, object]] = []
+    for pattern, sub_schema in patterns.items():
+        try:
+            pairs.extend(
+                (name, sub_schema) for name in value if re.search(str(pattern), name)
+            )
+        except (re.error, RecursionError, OverflowError):
+            continue
+    return pairs
 
 
 def _pattern_property_names(patterns: object, value: dict[str, Any]) -> set[str]:

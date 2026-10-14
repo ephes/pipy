@@ -279,6 +279,8 @@ _CODING_STATE_ALLOWED_RUNTIME_PREFIXES = (
     # The standard-library argument validator for foreign-schema tools; the
     # canonical tool executor selects it per definition.
     "pipy_harness.native.tools.foreign_schema",
+    # Its string formats, a standard-library leaf.
+    "pipy_harness.native.tools.json_formats",
 )
 
 _CODING_STATE_ALLOWED_RUNTIME_EXACT = frozenset(

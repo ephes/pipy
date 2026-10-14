@@ -486,7 +486,7 @@ owner has decided.
 | DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
 | DEV-08 | Credentials stored by older Pi versions under the URL alone are taken over by the first server that loads them. | Not ported. | No pipy version ever wrote that key; the no-shim rule applies. |
 | DEV-09 | Windows process handling (`taskkill`, `~\` paths, `.cmd` shims). | POSIX behaviour is ported and tested; Windows is not verified. | pipy's platform evidence is macOS and Linux (see `docs/codemode.md`). |
-| DEV-10 | Tool arguments are validated against the full JSON Schema of the tool before the call. | MCP and other foreign-schema tools are prepared as Pi's `validateToolArguments` prepares a plain JSON Schema: an optional `null` the property's schema refuses is dropped and primitives are coerced (`coerceWithJsonSchema`, with JavaScript's number reading and writing; since G6). TypeBox's `Value.Convert` pass before that is not ported; Pi's tests of plain schemas pass without it. They are then validated with a standard-library validator for a named keyword set (S01); keywords outside it are not enforced by pipy and the server remains the authority, and the messages are pipy's. Native and extension tools keep pipy's strict subset, without coercion. | No JSON Schema dependency in the runtime (`pyproject.toml` keeps two dependencies). The named set is pinned by tests. |
+| DEV-10 | Tool arguments are validated against the full JSON Schema of the tool before the call. | MCP and other foreign-schema tools are prepared as Pi's `validateToolArguments` prepares a plain JSON Schema: an optional `null` the property's schema refuses is dropped and primitives are coerced (`coerceWithJsonSchema`, with JavaScript's number reading and writing; since G6). TypeBox's `Value.Convert` pass before that is not ported; Pi's tests of plain schemas pass without it. They are then validated with a standard-library validator (S01) that enforces the keywords and formats Pi's TypeBox validator checks (since G6), except `unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`, `$recursiveRef`, a `$ref` outside the schema or under a nested `$id` and the formats `hostname`, `idn-hostname`, `idn-email`, `iri`, `iri-reference`, `url` and `regex`; patterns are Python's `re` and lengths count code points. For those the server remains the authority, and `oneOf`, `not`, `if` and `maxContains` refuse only where every keyword involved is enforced. The messages are pipy's. Native and extension tools keep pipy's strict subset, without coercion. | No JSON Schema dependency in the runtime (`pyproject.toml` keeps two dependencies). The named set is pinned by tests. |
 | DEV-11 | MCP, codemode and tool search are built-in extensions built only on the public extension API. | They are native modules. The public extension API still gains every hook Pi documents for them (section 2.18). | pipy's codemode is a native composite tool with a WASI host; rebuilding it on the extension API is an architecture change the backlog rules out. |
 | DEV-12 | The official MCP conformance suite runs in CI through `npx`. | A manual `just` recipe runs the same suite against pipy's client with a committed baseline (S40); CI runs pipy's own mirrored cases (section 6). | The suite needs Node and network access; pipy's CI has neither as a requirement. |
 | DEV-13 | The token usage and cost of nested results, at every depth, is added to the calling tool's result usage and counts toward the session cost. | Not ported in this campaign. pipy tool results carry no usage field. | Nothing in scope produces tool usage: MCP tools and pipy's built-in and extension tools report none, and the only Pi producers are `models.classify()` and `models.generateImages()` (DEV-04). The field and its propagation belong to the slice that adds a usage-producing tool. |
@@ -2637,7 +2637,9 @@ time by a separate standard-library validator (DEV-10) for this keyword set:
 `type` (including arrays of types and `number`, `null`), `properties`,
 `required`, `additionalProperties`, `items`, `prefixItems`, `enum`, `const`,
 `anyOf`, `oneOf`, `allOf`, local `$ref`, numeric and length bounds and
-`pattern`. Unknown keywords are ignored. Provider encoders already copy
+`pattern`. Unknown keywords are ignored. (G6 extended the set to what Pi's
+TypeBox validator checks, short of the keywords DEV-10 names, and added
+Pi's coercion.) Provider encoders already copy
 schemas through `materialize_tool_input_schema`, which accepts any JSON value;
 S01 adds a test per adapter family that a foreign schema reaches the request
 unchanged.
@@ -4024,6 +4026,33 @@ is not taken. `tool_search` (a foreign schema) therefore takes `"3"` as its
 (mirroring `packages/ai/test/validation.test.ts`),
 `test_coercion_leaves_the_callers_arguments_unchanged`,
 `test_a_limit_sent_as_a_string_is_converted`.
+Part 4 (finding M11, keywords): the foreign validator also enforces
+`multipleOf` (TypeBox's rule), `uniqueItems`, `contains` with
+`minContains`/`maxContains`, `additionalItems`, `minProperties`,
+`maxProperties`, `propertyNames`, the values of `patternProperties`,
+`dependentRequired`, `dependentSchemas`, `dependencies`, `not`,
+`if`/`then`/`else`, `oneOf` as exactly one, and `format` with TypeBox's
+checks (`tools/json_formats.py`: date, time and date-time with TypeBox's
+leap-year and leap-second rules, and TypeBox's patterns for the others,
+matched whole with ASCII classes; unknown formats pass, as in TypeBox).
+`_Validator.enforced(schema)` says whether every keyword that applies
+under a schema is enforced: it walks every schema reachable through
+subschemas and `$ref`s, and one with a keyword pipy skips (also a keyword
+whose value has a shape the checks ignore, a format it does not check, and
+a `$ref` it cannot follow; a `$ref` under a nested `$id` is not followed at
+all) makes the answer no; a second `oneOf`
+match, a `not` match, an `if` and a `maxContains` count decide only for
+such schemas, so a keyword pipy skips never makes it refuse what a full
+validator accepts. Tests: the new cases of
+`test_each_keyword_accepts_and_rejects`,
+`test_one_of_needs_exactly_one_match_where_pipy_can_tell`,
+`test_not_and_if_decide_only_where_pipy_can_tell`,
+`test_a_ref_cycle_counts_as_enforced_and_terminates`,
+`test_a_ref_cycle_with_a_skipped_keyword_is_uncertain_on_every_path`,
+`test_a_nested_id_makes_its_refs_uncertain`,
+`test_a_keyword_the_checks_skip_makes_not_refuse_nothing`,
+`test_native_tools_json_formats.py` (its cases checked against TypeBox's
+`Format.Test`).
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using
