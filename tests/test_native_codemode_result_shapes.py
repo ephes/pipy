@@ -11,6 +11,7 @@ script intact.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -19,6 +20,8 @@ from test_native_codemode_delivery import (
     runtime,  # noqa: F401 - the real-runtime fixture
 )
 from test_native_codemode_extension_tools import _output, _run_script
+
+from pipy_harness.native.agent.content import ImageContent
 
 _TOOLS = """from pipy_harness.extensions import (
     ExtensionTool, ToolBlock, ToolResult, ToolResultTransform,
@@ -239,3 +242,31 @@ text({'ok': ok, 'failed': failed, 'type': type(failed).__name__})
         ("bash", "ok"),
         ("bash", "error"),
     ]
+
+
+def test_a_script_reads_an_image_and_shows_it(
+    tmp_path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # Goal-check finding M16, Pi docs/codemode.md: `read` resolves to an
+    # image block { type, data, mimeType, note } that `image()` shows.
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    (tmp_path / "dot.png").write_bytes(png)
+    code = """block = tools.read(path='dot.png')
+text({'keys': sorted(block), 'note': block['note'], 'type': block['mimeType']})
+image(block)
+"""
+
+    parent, _, _ = _run_script(tmp_path, code, monkeypatch)
+
+    assert not parent.is_error, parent.content.value
+    assert json.loads(_output(parent).split("\n", 1)[0]) == {
+        "keys": ["data", "mimeType", "note", "type"],
+        "note": "Read image file [image/png]",
+        "type": "image/png",
+    }
+    images = [block for block in parent.blocks if isinstance(block, ImageContent)]
+    assert images == [ImageContent(base64.b64encode(png).decode(), "image/png")]

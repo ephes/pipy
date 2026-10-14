@@ -480,7 +480,7 @@ owner has decided.
 | DEV-01 (decided) | JavaScript script API: `searchTools`, `describeTool`, `describeNamespace`; TypeScript declarations. | Python names `search_tools`, `describe_tool`, `describe_namespace`; declarations rendered as Python-style types with `#` comment lines. Same information (CMD-11 to CMD-15). | Codemode is Python by decision. |
 | DEV-02 (decided) | Config and state under `~/.pi/agent/`, project `.pi/`. | `<config home>/mcp.json`, `mcp-auth.json`, `mcp.log`; project `.pipy/mcp.json`. | Decision. |
 | DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Ported in G3, in a Python form: `tools.<name>.submit(args)` starts a call and returns at once, its `.result()` waits for it; a plain `tools.<name>(args)` waits for its call. At most 16 requests of one script wait for their reply at once; a script that submits more first waits for one. Until G3 nested calls were sequential, as CM1 specified. | The guest has no promises or event loop; the bound keeps the host's buffer of unread replies finite, where Pi has no bound. |
-| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4) and structured `bash` results (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
+| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4), structured `bash` results and image results from `read` (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
 | DEV-05 | The client identifies as `pi` in `initialize` and in dynamic client registration. | `pipy` and pipy's version. `oauth.clientName` covers servers that accept only known client names, as in Pi. | Product name. |
 | DEV-06 | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. If the owner later names a default (section 7, Q1), the field becomes optional. | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
 | DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
@@ -3857,6 +3857,39 @@ content (Pi throws). The wall time is Pi's tenths of a second. Tests in
 `test_a_nonzero_exit_is_an_error_that_keeps_its_structured_result`,
 `test_structured_output_over_one_mebibyte_keeps_head_and_tail`, ...) and
 `test_a_script_gets_bashs_structured_result_also_for_a_failed_command`.
+Part 3 (finding M16, the rest of READ-IMG): `read` attaches an image as Pi's
+image branch does: `Read image file [<type>]` and the image as `blocks`,
+with Pi's description. It declares Pi's `readOutputSchema`
+(`READ_OUTPUT_SCHEMA`): the structured content is the text, or for an
+attached image `{type: "image", data, mimeType, note}`, which `image()`
+accepts. Pi's `processImage` needs Photon; pipy has no image codec, so
+`tools/read_image.py` keeps what Pi does without changing pixels: an image
+within 2000 x 2000 pixels and under 4.5 MB of base64 is sent as it is. As
+nothing is decoded, the file's structure stands in for Photon's decode
+(PNG chunks with their CRCs up to `IEND` with image data, JPEG segments up
+to the scan with entropy data and an end of image, GIF blocks up to the
+trailer with image data of a valid code size, the WebP RIFF chunks with a
+frame, also inside `ANMF`) before the size is read, and a PNG within the
+limits is inflated: its header must be valid and its data exactly the
+rows (Adam7 passes too) it declares, each with a valid filter type. The
+pixels of a JPEG, GIF or WebP are not decoded, so a file whose structure
+is complete but whose coded data is corrupt is still attached, as MCP
+images and `image()` images are. A larger image, one that is cut short or
+malformed, and a BMP get Pi's `[Image omitted: could not be resized ...]` /
+`[... could not be converted ...]` text as a result that is not an error.
+EXIF orientation is not applied (it cannot change the outcome with equal
+limits), and the non-vision note is not added (the tool does not know the
+model; the provider request leaves the image out). An `@file` reference
+reads with `ReadTool(attach_images=False)`: its excerpt is text, so an
+image is refused there with a pointer to `@image:` as before. Tests:
+`test_read_tool_returns_an_image_as_an_attachment`,
+`test_a_text_only_reader_refuses_an_image`,
+`test_resolve_image_reference_fails_closed_with_the_image_hint`,
+`test_read_tool_omits_an_image_it_would_have_to_resize`,
+`test_read_tool_omits_a_bmp_it_would_have_to_convert`,
+`test_read_tool_structured_result_of_a_text_file_is_its_text` and
+`test_a_script_reads_an_image_and_shows_it` (real guest, Pi docs "tools.read()
+returns an image file as an image block").
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

@@ -117,7 +117,7 @@ What a call returns depends on the tool:
   structured `null`), not as text. It
   returns it for a failure too, when the failed result carries structured
   content, so check the value instead of relying on `ToolError`. Of the
-  built-in tools, `bash` declares one; an
+  built-in tools, `bash` and `read` declare one; an
   [extension tool](extension-api.md#tool-model) can.
 - `bash` returns `{"output": ..., "truncated": ..., "full_output_path": ...,
   "exit_code": ..., "wall_time_seconds": ...}`, also for a non-zero exit code,
@@ -128,6 +128,13 @@ What a call returns depends on the tool:
   full output in the file `full_output_path` names (present only then). A
   command that timed out or was aborted has no such value and raises
   `ToolError`.
+- `read` returns the file's text, or for an image it attaches an image block
+  `{"type": "image", "data": ..., "mimeType": ..., "note": ...}` that
+  `image()` shows; `data` is the base64 image the model would see and `note`
+  its text (`Read image file [image/png]`). An image over 2000 x 2000 pixels
+  or 4.5 MB of base64, a BMP, or a file that is cut short is not attached, because pipy does not
+  resize or convert images as Pi does: `read` returns its text with the
+  reason (`[Image omitted: ...]`) instead.
 - Every other call returns the tool's text as one `str`. That includes a tool
   that declares an output schema when a result carries no structured content.
 - A call that fails without structured content raises `ToolError` with the
@@ -253,9 +260,13 @@ when the text is over it, the text becomes one shortened block and the
 images follow it.
 
 A tool's own images do not reach the model through a script: a tool without
-an output schema returns its text, and an MCP tool returns its result with
-the image blocks in `content`. Only what the script passes to `image()` is
-attached.
+an output schema returns its text, an MCP tool returns its result with the
+image blocks in `content`, and `read` returns an image block. Only what the
+script passes to `image()` is attached:
+
+```python
+image(tools.read(path="screenshot.png"))
+```
 
 Different from Pi: Pi's scripts are JavaScript, where a string is a URL and
 an object a block; here a `dict` is the object. One script's images may hold
@@ -530,6 +541,6 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-Image results from `read`, `models.*` and
+`models.*` and
 options lines are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

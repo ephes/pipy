@@ -966,7 +966,10 @@ text({
     assert output["underscore"] == "lives:c"
     assert output["contains"] == [True, False, False]
     assert output["modelOnly"] is None
-    # A built-in returns its text: the declaration says `-> str`.
-    assert output["read"] == "}) -> str"
+    # `read` declares Pi's output schema (goal-check finding M16): its text,
+    # or an image block.
+    assert output["read"] == (
+        '}) -> str | {"data": str, "mimeType": str, "note": str, "type": "image"}'
+    )
     # Server instructions reach a script only through describe_namespace.
     assert "Always search" not in json.dumps(output["ids"])

@@ -8,6 +8,7 @@ the existing bounded ``ReadTool`` read/read-root policy; it adds no new reader.
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from pipy_harness.native.file_references import (
     parse_file_references,
     resolve_file_references,
 )
+from pipy_harness.native.tools.read import ReadTool
 
 
 def test_parse_extracts_single_reference() -> None:
@@ -91,6 +93,29 @@ def test_resolve_missing_file_fails_closed(tmp_path: Path) -> None:
     assert resolution.augmented_prompt("read @nope.txt") == "read @nope.txt"
     # A safe local diagnostic is produced (no file content).
     assert any("nope.txt" in line for line in resolution.diagnostics())
+
+
+def test_resolve_image_reference_fails_closed_with_the_image_hint(
+    tmp_path: Path,
+) -> None:
+    # `read` attaches images, but an @file excerpt is text: the image would
+    # be lost, so the reference is refused and points to @image:.
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    (tmp_path / "dot.png").write_bytes(png)
+
+    resolution = resolve_file_references(
+        "look at @dot.png", workspace_root=tmp_path, read_tool=ReadTool()
+    )
+
+    assert (resolution.loaded_count, resolution.failed_count) == (0, 1)
+    assert resolution.augmented_prompt("look at @dot.png") == "look at @dot.png"
+    assert any(
+        "image files cannot be read as text (image/png). "
+        "Attach it with @image:<path>." in line
+        for line in resolution.diagnostics()
+    )
 
 
 def test_resolve_out_of_workspace_git_and_ignored_paths_like_pi_read(

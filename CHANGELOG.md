@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `read` attaches JPEG, PNG, GIF and WebP files as images, after a `Read
+  image file [<type>]` line, as Pi's `read` does; before, it returned an
+  error for images. pipy does not resize or convert images: one over
+  2000 x 2000 pixels or 4.5 MB of base64, and a BMP, is left out with Pi's
+  `[Image omitted: ...]` text, as is a file that is cut short or malformed.
+  An `@file` reference still refuses an image and points to `@image:`.
+  A codemode script gets an image as the block
+  `{"type": "image", "data", "mimeType", "note"}`, which `image()` shows,
+  and a text file as its text. See [Writing a script](docs/codemode.md#writing-a-script).
+
 - A codemode script that calls `bash` gets Pi's structured result,
   `{"output", "truncated", "full_output_path", "exit_code",
   "wall_time_seconds"}`, also when the command exits with a non-zero code,

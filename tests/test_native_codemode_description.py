@@ -636,7 +636,15 @@ def test_session_request_with_mode_on(tmp_path: Path, monkeypatch) -> None:
     assert tools["echo"] == (
         "Echo a key.\n\nCodemode: `tools.echo(args)` resolves to a string."
     )
-    assert tools["read"].endswith("Codemode: `tools.read(args)` resolves to a string.")
+    # `read` and `bash` declare Pi's output schemas (goal-check M15, M16).
+    assert tools["read"].endswith(
+        "Codemode: `tools.read(args)` resolves to "
+        '`str | {"data": str, "mimeType": str, "note": str, "type": "image"}`.'
+    )
+    assert tools["bash"].endswith(
+        "Codemode: `tools.bash(args)` resolves to "
+        "`{ output, truncated, full_output_path?, exit_code, wall_time_seconds }`."
+    )
     assert tools["codemode"].startswith(CODEMODE_DESCRIPTION + "\n\nNested tools:\n\n")
     assert (
         "## records\nRecord store\n\n### `lookup`\nLook a record up."

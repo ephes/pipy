@@ -272,12 +272,12 @@ Open deviations collected from the done slices, not yet queued. Take one when
 a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
-- **READ-IMG, images from `read`:** Pi's `read` returns jpg/png/gif/webp/bmp
-  files as image attachments (resized). pipy's `read` returns an error for
-  images. The shared part is done (MCP parity plan S39): a tool result can
-  hold images, and the provider adapters, the session file, the rows and
-  the export handle them. What is left is `read` itself: detecting the
-  image, resizing it as Pi does and returning it as `blocks`.
+- **READ-IMG, images from `read`:** `read` attaches JPEG, PNG, GIF and
+  WebP files (MCP parity plan S39 and G5). What is left is Pi's image codec
+  (Photon): pipy does not resize an image over 2000 x 2000 pixels or 4.5 MB
+  of base64, convert a BMP to PNG or apply EXIF orientation; such an image
+  is omitted with Pi's text. The `Current model does not support images`
+  note is not added.
 - **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
   - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
     OSC 8 file links (DF1-F7 added the ticking `Elapsed`);

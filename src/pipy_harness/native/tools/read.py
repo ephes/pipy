@@ -13,10 +13,22 @@ The path resolves like Pi's ``resolveReadPath`` (READ2, see
 directory, ``~`` expanded, a leading ``@`` stripped, the macOS screenshot
 name variants tried, and no deny list, so any readable file can be read.
 
+A supported image (JPEG, PNG, GIF, WebP; BMP is detected) is returned as an
+image attachment after a ``Read image file [<type>]`` line, like Pi's
+``processImage`` (:mod:`pipy_harness.native.tools.read_image`). Every result
+also carries Pi's structured content for programmatic callers such as
+codemode scripts (``READ_OUTPUT_SCHEMA``): the text, or for an attached image
+``{"type": "image", "data", "mimeType", "note"}``.
+
 Deviations from Pi, each tracked in ``docs/backlog.md``:
 
-- Tool results are text-only, so a supported image returns an error instead
-  of an image attachment (READ-IMG).
+- pipy has no image codec: an image over 2000 x 2000 pixels or 4.5 MB of
+  base64, or a BMP, is not resized or converted but omitted with Pi's text
+  for an image it could not process, and EXIF orientation is not applied.
+  The file's structure is checked instead of decoding it, so a cut or
+  malformed file is omitted the same way.
+  The ``Current model does not support images`` note is not added (the tool
+  does not know the model; the provider request leaves the image out).
 - ``offset``/``limit`` are ``integer`` in pipy's schema subset, which has no
   ``number`` type.
 
@@ -30,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from pipy_harness.native.agent.content import ImageContent, TextContent
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -41,6 +54,7 @@ from pipy_harness.native.tools.image_mime import (
     detect_supported_image_mime_type_from_file,
 )
 from pipy_harness.native.tools.path_utils import resolve_read_path
+from pipy_harness.native.tools.read_image import process_image
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
@@ -48,16 +62,38 @@ from pipy_harness.native.tools.truncate import (
     truncate_head,
 )
 
-# Pi's description, except the image sentence: pipy's tool results are
-# text-only (READ-IMG), so it says what pipy does with images.
 READ_TOOL_DESCRIPTION = (
-    "Read the contents of a file. Supports text files; images (jpg, png, gif, "
-    "webp, bmp) are not supported yet and return an error. For text files, "
+    "Read the contents of a file. Supports text files and images (jpg, png, "
+    "gif, webp, bmp). Images are sent as attachments. For text files, "
     f"output is truncated to {DEFAULT_MAX_LINES} lines or "
     f"{DEFAULT_MAX_BYTES // 1024}KB (whichever is hit first). Use offset/limit "
     "for large files. When you need the full file, continue with offset until "
     "complete."
 )
+
+# Pi ``readOutputSchema``: the text, or an image block that codemode's
+# ``image()`` accepts, with the text that goes with it as ``note``.
+READ_OUTPUT_SCHEMA: dict[str, object] = {
+    "anyOf": [
+        {"type": "string"},
+        {
+            "type": "object",
+            "properties": {
+                "type": {"const": "image", "type": "string"},
+                "data": {"type": "string"},
+                "mimeType": {"type": "string"},
+                "note": {"type": "string"},
+            },
+            "required": ["type", "data", "mimeType", "note"],
+        },
+    ]
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _ReadFailure:
+    message: str
+
 
 # Image types the `@image:` prompt reference accepts (see image_attachment).
 _ATTACHABLE_IMAGE_TYPES = frozenset(
@@ -66,13 +102,15 @@ _ATTACHABLE_IMAGE_TYPES = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
-class _ReadFailure:
-    message: str
-
-
-@dataclass(frozen=True, slots=True)
 class ReadTool:
-    """Read a file, truncated like Pi's `read`, with offset/limit paging."""
+    """Read a file, truncated like Pi's `read`, with offset/limit paging.
+
+    ``attach_images=False`` is for a reader whose result is used as text
+    only (``@file`` references): an image is then an error that points to
+    ``@image:`` instead of a result whose image would be lost.
+    """
+
+    attach_images: bool = True
 
     @property
     def definition(self) -> ToolDefinition:
@@ -98,6 +136,7 @@ class ReadTool:
                 "required": ["path"],
                 "additionalProperties": False,
             },
+            output_schema=READ_OUTPUT_SCHEMA,
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -122,13 +161,14 @@ class ReadTool:
             mime_type = detect_supported_image_mime_type_from_file(resolved)
         except OSError as exc:
             return self._error(request, f"failed to read file: {exc}")
-        if mime_type is not None:
-            return self._error(request, _image_message(mime_type))
-
         try:
             raw = resolved.read_bytes()
         except OSError as exc:
             return self._error(request, f"failed to read file: {exc}")
+        if mime_type is not None:
+            if not self.attach_images:
+                return self._error(request, _not_text_message(mime_type))
+            return self._image(request, raw, mime_type)
 
         output = _format_text(
             raw.decode("utf-8", errors="replace"),
@@ -144,6 +184,38 @@ class ReadTool:
             output_text=text,
             provider_correlation_id=request.provider_correlation_id,
             details=details,
+            structured_content=text,
+        )
+
+    @staticmethod
+    def _image(request: ToolRequest, raw: bytes, mime_type: str) -> ToolExecutionResult:
+        """Pi's image branch: a ``Read image file`` line and the image, or
+        the line and the reason it could not be attached."""
+
+        processed = process_image(raw, mime_type)
+        if isinstance(processed, str):
+            note = f"Read image file [{mime_type}]\n{processed}"
+            return ToolExecutionResult(
+                tool_request_id=request.tool_request_id,
+                output_text=note,
+                provider_correlation_id=request.provider_correlation_id,
+                structured_content=note,
+            )
+        note = f"Read image file [{processed.mime_type}]"
+        return ToolExecutionResult(
+            tool_request_id=request.tool_request_id,
+            output_text=note,
+            provider_correlation_id=request.provider_correlation_id,
+            structured_content={
+                "type": "image",
+                "data": processed.data,
+                "mimeType": processed.mime_type,
+                "note": note,
+            },
+            blocks=(
+                TextContent(note),
+                ImageContent(processed.data, processed.mime_type),
+            ),
         )
 
     @staticmethod
@@ -175,10 +247,10 @@ def _optional_int(value: object, field: str) -> int | None:
     return value
 
 
-def _image_message(mime_type: str) -> str:
-    message = f"image files are not supported by read yet ({mime_type})."
+def _not_text_message(mime_type: str) -> str:
+    message = f"image files cannot be read as text ({mime_type})."
     if mime_type in _ATTACHABLE_IMAGE_TYPES:
-        message += " Ask the user to attach it with @image:<path>."
+        message += " Attach it with @image:<path>."
     return message
 
 
