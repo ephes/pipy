@@ -1171,6 +1171,33 @@ def test_disabling_closes_the_connection_and_takes_the_tools_away(
     assert session.mcp_names() == ("mcp__other__fetch",)
 
 
+def test_a_loaded_tool_is_not_declared_again_when_its_server_is_enabled_again(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # Pi ``hideTools`` re-registers a disabled server's tools hidden, and
+    # applying the loadout drops them from the active tools: after the server
+    # is enabled again, `tool_search` has to load the tool again.
+    session = _Session(
+        tmp_path,
+        {"docs": _Server(tools=[_tool("search")])},
+        [_entry("docs", exposure="deferred")],
+    )
+    sessions.append(session)
+    session.start()
+    assert session.tools.load_tools(("mcp__docs__search",)) == ("mcp__docs__search",)
+    assert session.declared() == ("read", "mcp__docs__search")
+
+    assert session.manager.set_enabled("docs", False) is None
+    session.servers["docs"] = _Server(tools=[_tool("search")])
+    assert session.manager.set_enabled("docs", True) is None
+
+    assert session.mcp_names() == ("mcp__docs__search",)
+    assert session.declared() == ("read",)
+    assert [tool.name for tool in session.tools.loadable_tools()] == [
+        "mcp__docs__search"
+    ]
+
+
 def test_disabling_closes_a_server_that_is_still_connecting(
     tmp_path: Path, sessions: list[_Session]
 ) -> None:

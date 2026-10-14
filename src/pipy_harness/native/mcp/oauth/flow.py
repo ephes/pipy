@@ -15,6 +15,11 @@ It returns ``"AUTHORIZED"`` when the provider now holds usable tokens and
 authorization response and calls ``authorize_mcp`` again with its code, and
 with the same scope and URLs as before.
 
+``adapt_oauth_provider`` makes the auth provider of an HTTP transport from
+any provider (Pi ``adaptOAuthProvider``): with a ``McpOAuthProvider`` and a
+``MemoryOAuthStateStore`` or a store of the application's own, a program
+connects to a server that wants OAuth (see ``OAuthTransportAuth``).
+
 A provider is any object with the members of ``OAuthClientProvider``. Further
 methods are used when the provider has them:
 
@@ -45,13 +50,15 @@ Where this differs from Pi:
   writes ``*`` as ``%2A``; the rest of the endpoint is kept as written.
 - Whether the scope includes ``offline_access`` is decided with
   ``str.split``, whose white space is not exactly JavaScript's ``\\s``.
-- The default fetch does not follow the redirect answer to a POST, so a
-  registration or token request that is redirected fails with that status.
 - A request that was cancelled always ends the flow, whether or not the
   cancel event is still set when its ``McpAbortError`` is seen.
 - A registration answer that is not JSON is an ``OAuthFlowError``; client
   information without a usable ``client_id`` is one too.
 - Pi's plain ``Error`` is ``OAuthFlowError``.
+- The auth provider ``adapt_oauth_provider`` makes sends the requests of the
+  flow with its own fetch, the library's default unless it is given one; Pi
+  uses the fetch of the transport whose request was rejected, which the
+  transport does not hand an auth provider here.
 """
 
 from __future__ import annotations
@@ -68,12 +75,15 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol
 
 from pipy_harness.native.mcp.config import LOOPBACK_HOSTS, parse_http_url
+from pipy_harness.native.mcp.http import UnauthorizedContext
 from pipy_harness.native.mcp.oauth.discovery import (
     discover_authorization_server_metadata,
     discover_oauth_server_info,
+    parse_www_authenticate,
     select_resource,
 )
 from pipy_harness.native.mcp.oauth.errors import (
+    McpOAuthAuthorizationRequiredError,
     OAuthError,
     OAuthFlowError,
     OAuthInsecureEndpointError,
@@ -83,6 +93,7 @@ from pipy_harness.native.mcp.oauth.errors import (
 from pipy_harness.native.mcp.oauth.fetch import OAuthFetch, oauth_fetch
 from pipy_harness.native.mcp.oauth.types import (
     AuthorizationServerMetadata,
+    OAuthChallenge,
     OAuthClientInformation,
     OAuthClientMetadata,
     OAuthServerInfo,
@@ -519,6 +530,20 @@ def refresh_authorization(
     return {"refresh_token": refresh_token, **tokens}
 
 
+def step_up_scope(granted: str | None, challenged: str | None) -> str | None:
+    """The scope of an authorization after an ``insufficient_scope``
+    challenge: the scopes granted so far and the challenged ones, each once
+    (SEP-2350), since a challenge may list only the missing scopes.
+
+    Without challenged scopes it is ``None``, which lets the flow choose.
+    """
+
+    if not challenged:
+        return None
+    scopes = (name for scope in (granted, challenged) for name in (scope or "").split())
+    return " ".join(dict.fromkeys(scopes))
+
+
 def _with_scope(tokens: OAuthTokens, scope: str | None) -> OAuthTokens:
     return {**tokens, "scope": scope} if "scope" not in tokens and scope else tokens
 
@@ -765,3 +790,116 @@ def authorize_mcp(
     if invalidate is not None:
         invalidate(kind)
     return _run_flow(provider, options)
+
+
+class _Authorization:
+    """One run of the flow, which every rejected request that arrives
+    meanwhile waits for."""
+
+    __slots__ = ("done", "error")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.error: Exception | None = None
+
+
+def _access_token(tokens: OAuthTokens | None) -> str | None:
+    token = (tokens or {}).get("access_token")
+    return token if isinstance(token, str) else None
+
+
+class OAuthTransportAuth:
+    """The auth provider of a ``StreamableHttpTransport`` for an
+    ``OAuthClientProvider``; ``adapt_oauth_provider`` makes it.
+
+    ``token`` gives the provider's access token. ``on_unauthorized`` runs the
+    flow after the server rejected a request: it refreshes the tokens, or
+    raises ``McpOAuthAuthorizationRequiredError`` when the user has to
+    authorize (again); the provider has been handed the authorization URL
+    then. A challenge that reports ``insufficient_scope`` goes to the
+    authorization at once, for the granted scopes and the challenged ones.
+
+    Rejected requests share one run of the flow: one that arrives while it
+    runs waits for it and gets its outcome. A request whose token was
+    replaced already is just sent again, since with rotating refresh tokens
+    a second refresh with the old one would fail and lose the new grant. The
+    flow runs on the thread of the request that started it, an I/O thread of
+    the transport; it has no time limit unless ``fetch`` sets one.
+    """
+
+    def __init__(
+        self, provider: OAuthClientProvider, *, fetch: OAuthFetch | None = None
+    ) -> None:
+        self._provider = provider
+        self._fetch = fetch
+        # Guards `_running`. Never held while the flow runs.
+        self._lock = threading.Lock()
+        self._running: _Authorization | None = None
+
+    def token(self) -> str | None:
+        return _access_token(self._provider.tokens())
+
+    def on_unauthorized(self, context: UnauthorizedContext) -> None:
+        challenge = parse_www_authenticate(context.www_authenticate)
+        insufficient_scope = challenge.error == "insufficient_scope"
+        with self._lock:
+            running = self._running
+            started = running is None
+            if running is None:
+                running = self._running = _Authorization()
+        if not started:
+            running.done.wait()
+            if running.error is not None:
+                raise running.error
+            return
+        try:
+            # Pi looks at the token before it starts a run; here it is done
+            # in the run, so no run can end between the look and the start.
+            if insufficient_scope or not self._replaced(context.token):
+                self._authorize(context, challenge, insufficient_scope)
+        except Exception as error:
+            running.error = error
+            raise
+        finally:
+            with self._lock:
+                self._running = None
+            running.done.set()
+
+    def _replaced(self, rejected: str | None) -> bool:
+        """Whether the provider holds another token than ``rejected`` now:
+        another request renewed it, and the request is just sent again."""
+
+        if rejected is None:
+            return False
+        current = self.token()
+        return current is not None and current != rejected
+
+    def _authorize(
+        self, context: UnauthorizedContext, challenge: OAuthChallenge, step_up: bool
+    ) -> None:
+        scope = challenge.scope
+        if step_up:
+            granted = self._provider.tokens()
+            scope = step_up_scope((granted or {}).get("scope"), challenge.scope)
+        result = authorize_mcp(
+            self._provider,
+            OAuthFlowOptions(
+                server_url=context.server_url,
+                resource_metadata_url=challenge.resource_metadata_url,
+                scope=scope,
+                fetch=self._fetch,
+                skip_refresh=step_up,
+            ),
+        )
+        if result == "REDIRECT":
+            raise McpOAuthAuthorizationRequiredError()
+
+
+def adapt_oauth_provider(
+    provider: OAuthClientProvider, *, fetch: OAuthFetch | None = None
+) -> OAuthTransportAuth:
+    """The auth provider of an HTTP transport for ``provider`` (Pi
+    ``adaptOAuthProvider``); see ``OAuthTransportAuth``. ``fetch`` sends the
+    requests of the flow; the library's default when it is ``None``."""
+
+    return OAuthTransportAuth(provider, fetch=fetch)

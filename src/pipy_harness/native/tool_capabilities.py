@@ -92,6 +92,14 @@ class ToolFilterOptions:
 
     ``allow`` and ``exclude`` entries are exact tool names or patterns in
     which ``*`` matches any characters; ``modifiers`` take exact names only.
+
+    ``no_tools`` is Pi's empty allowlist (``--tools ''``, or ``--no-tools``
+    without ``--tools``): no tool is registered. ``no_builtin_tools`` is Pi's
+    ``noTools: "builtin"``: the default selection starts empty, so built-in
+    tools stay registered but only those the ``modifiers`` add are active,
+    and the ``defaultTools`` setting is not read. A plain allowlist replaces
+    the default selection, so neither flag goes with ``allow``; the command
+    line folds them in (``--no-tools --tools tool_search`` is an allowlist).
     """
 
     allow: tuple[str, ...] = ()
@@ -122,6 +130,12 @@ class ToolFilterOptions:
             raise TypeError("ToolFilterOptions.no_tools must be a bool")
         if not isinstance(self.no_builtin_tools, bool):
             raise TypeError("ToolFilterOptions.no_builtin_tools must be a bool")
+        if self.no_tools and (self.allow or self.modifiers or self.no_builtin_tools):
+            raise ValueError("no_tools is the empty allowlist and takes no tool names")
+        if self.no_builtin_tools and self.allow:
+            raise ValueError(
+                "an allowlist replaces the default selection no_builtin_tools empties"
+            )
 
     @classmethod
     def empty(cls) -> ToolFilterOptions:
@@ -144,7 +158,8 @@ class ToolFilterOptions:
         Pi ``_allowlistFiltersMcp``: an allowlist of plain names selects the
         tools declared to the model and leaves MCP tools registered. Once an
         entry starts with ``mcp__`` it filters MCP tools like other tools.
-        (Pi's empty allowlist is ``no_tools`` here.)
+        (Pi's empty allowlist is ``no_tools`` here, which filters MCP tools
+        as well.)
         """
 
         return any(entry.startswith(MCP_TOOL_NAME_PREFIX) for entry in self.allow)
@@ -152,7 +167,6 @@ class ToolFilterOptions:
     def provider_visible_names(
         self,
         *,
-        builtin_names: Collection[str],
         registered_names: Collection[str],
     ) -> frozenset[str]:
         """Return the names the filters keep registered (Pi ``_isAllowedTool``).
@@ -165,8 +179,6 @@ class ToolFilterOptions:
         if self.no_tools:
             return frozenset()
         names = set(registered_names)
-        if self.no_builtin_tools:
-            names.difference_update(builtin_names)
         if self.allow:
             keeps_mcp = not self.allowlist_filters_mcp
             names = {
@@ -223,6 +235,11 @@ class ToolCapabilityState:
     # are not registered now (Pi ``_pendingToolNames``). A name becomes
     # active when its tool registers and is dropped when the next run starts.
     pending_tool_names: frozenset[str] = frozenset()
+    # The optional built-in tools (``codemode``, ``tool_search``) this value
+    # may register: the session offers them and their built-in extensions
+    # (``builtin:codemode``, ``builtin:tool-search``) are loaded. Decided
+    # when the value is prepared, so a reload reads the settings again.
+    offered_builtins: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -244,7 +261,14 @@ class ToolCapabilityState:
 
     @property
     def filter_configured(self) -> bool:
-        return replace(self.filter_options, modifiers=()) != ToolFilterOptions.empty()
+        """Whether ``--tools``, ``--exclude-tools`` or ``--no-tools`` decide
+        which tools stay registered. Modifiers and ``no_builtin_tools`` only
+        change the default selection."""
+
+        return (
+            replace(self.filter_options, modifiers=(), no_builtin_tools=False)
+            != ToolFilterOptions.empty()
+        )
 
     @classmethod
     def build(
@@ -277,10 +301,7 @@ class ToolCapabilityState:
             # allowlist activates the tools it names or matches, also one
             # that is inactive by default; an MCP tool it keeps without
             # naming it stays inactive.
-            kept = filter_options.provider_visible_names(
-                builtin_names=builtin,
-                registered_names=registry,
-            )
+            kept = filter_options.provider_visible_names(registered_names=registry)
             if filter_options.allow:
                 active = frozenset(
                     name
@@ -289,6 +310,11 @@ class ToolCapabilityState:
                 )
             else:
                 active = kept & activated_on_registration(registry)
+                if filter_options.no_builtin_tools:
+                    # Pi ``noTools: "builtin"``: the built-in tools stay
+                    # registered, and only those the modifiers add are active.
+                    added = apply_tool_modifiers((), filter_options.modifiers)
+                    active = (active - builtin.keys()) | (kept & frozenset(added))
         executor = ToolExecutor(
             registry,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
@@ -319,9 +345,12 @@ class ToolCapabilityState:
         declarable MCP tool it names or matches is active; otherwise a tool
         becomes active when registration activates it and it was not
         registered that way before. A selection of ``None`` already means
-        "as registration left it". A name whose tool is gone stays in the
-        selection, so the tool is active again when its server offers it
-        again. A pending name whose tool is offered now becomes active.
+        "as registration left it". An MCP tool that is gone leaves the
+        selection (Pi re-registers it hidden, and applying the loadout drops
+        it): when its server offers it again it is a new tool, so a
+        ``direct`` one is activated by registering and one ``tool_search``
+        had loaded has to be loaded again. A pending name whose tool is
+        offered now becomes active.
         """
 
         mcp = dict(mcp_registry)
@@ -342,7 +371,10 @@ class ToolCapabilityState:
                     offered & activated_on_registration(registry)
                 ) - activated_on_registration(self.registry)
             arrived = pending & offered
-            active = active | activated | arrived
+            withdrawn = frozenset(
+                _accepted_mcp_tools(self.registry, self.mcp_registry)
+            ).difference(registry)
+            active = (active - withdrawn) | activated | arrived
             pending = pending - arrived
         return replace(
             self,
@@ -408,7 +440,6 @@ def _filters_keep_codemode(options: ToolFilterOptions) -> bool:
 
     return not (
         options.no_tools
-        or options.no_builtin_tools
         or options.excludes("codemode")
         or (bool(options.allow) and not options.allows("codemode"))
     )
@@ -650,11 +681,18 @@ class NativeToolCapabilities:
         diagnostic: Callable[[str], None] | None = None,
         codemode_loadout: Callable[[], PrepareToolLoadout] | None = None,
         optional_builtins: Collection[str] | None = None,
+        builtin_extension_enabled: Callable[[str], bool] | None = None,
     ) -> None:
         """``optional_builtins`` names the optional built-in tools
         (``codemode``, ``tool_search``) this session may register, whatever
         its registry is. Without it a session of the production registry may
-        register both and another session neither."""
+        register both and another session neither.
+
+        ``builtin_extension_enabled`` says whether a built-in extension
+        (``codemode``, ``tool-search``) is loaded now, as the ``extensions``
+        settings and the resource flags say (Pi loads both tools as built-in
+        extensions). It is asked whenever a capability value is prepared;
+        without it both are loaded."""
 
         self._context = ToolContext(workspace_root=workspace_root)
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
@@ -672,6 +710,7 @@ class NativeToolCapabilities:
             if optional_builtins is None
             else "tool_search" in optional_builtins
         )
+        self._builtin_extension_enabled = builtin_extension_enabled
         self._base_registry = dict(builtin_registry)
         self._default_tools = default_tools
         self._diagnostic = diagnostic
@@ -688,13 +727,27 @@ class NativeToolCapabilities:
         # names; guarded by _state_lock. A new value replaces them.
         self._loadout_value: ToolCapabilityState | None = None
         self._loadout_kept: dict[tuple[str, ...], ToolLoadoutChanges | None] = {}
-        self._state = ToolCapabilityState.build(
-            builtin_registry,
-            extension_registry,
-            filter_options=filter_options,
-            cancel_join_timeout_seconds=cancel_join_timeout_seconds,
-            codemode_loadout=codemode_loadout() if codemode_loadout else None,
+        self._state = replace(
+            ToolCapabilityState.build(
+                builtin_registry,
+                extension_registry,
+                filter_options=filter_options,
+                cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+                codemode_loadout=codemode_loadout() if codemode_loadout else None,
+            ),
+            offered_builtins=self._offered_builtins(),
         )
+
+    def _offered_builtins(self) -> frozenset[str]:
+        """The optional built-in tools a value prepared now may register."""
+
+        enabled = self._builtin_extension_enabled or (lambda _name: True)
+        names: set[str] = set()
+        if self._offers_codemode and enabled("codemode"):
+            names.add("codemode")
+        if self._offers_tool_search and enabled("tool-search"):
+            names.add("tool_search")
+        return frozenset(names)
 
     @property
     def state(self) -> ToolCapabilityState:
@@ -932,7 +985,9 @@ class NativeToolCapabilities:
         state = self.state
         if "codemode" in state.registry:
             return "codemode" in _kept_names(state)
-        return self._offers_codemode and _filters_keep_codemode(state.filter_options)
+        return "codemode" in state.offered_builtins and _filters_keep_codemode(
+            state.filter_options
+        )
 
     def register_codemode(self) -> bool:
         """Register the optional built-in ``codemode`` for this run.
@@ -949,7 +1004,10 @@ class NativeToolCapabilities:
         state = self.state
         if "codemode" in state.registry:
             return True
-        if not (self._offers_codemode and _filters_keep_codemode(state.filter_options)):
+        if not (
+            "codemode" in state.offered_builtins
+            and _filters_keep_codemode(state.filter_options)
+        ):
             return False
         if not self._probe_codemode():
             return False
@@ -959,6 +1017,13 @@ class NativeToolCapabilities:
             state = self._state
             if "codemode" in state.registry:
                 return True
+            # A reload published during the probe may have turned the
+            # built-in extension off: decide on the live value.
+            if not (
+                "codemode" in state.offered_builtins
+                and _filters_keep_codemode(state.filter_options)
+            ):
+                return False
             builtin = {**state.builtin_registry, "codemode": CodemodeTool()}
             registry = _merged_registry(
                 builtin, state.extension_registry, state.mcp_registry
@@ -1090,25 +1155,40 @@ class NativeToolCapabilities:
         with self._state_lock:
             state = self._state
             options = state.filter_options
+            # Pi reads the ``defaultTools`` setting only when no ``noTools``
+            # mode empties the default selection.
             configured = (
                 self._default_tools()
-                if self._production_defaults and self._default_tools
+                if self._production_defaults
+                and self._default_tools
+                and not options.no_tools
+                and not options.no_builtin_tools
                 else None
             )
             codemode_loadout = (
                 self._codemode_loadout() if self._codemode_loadout else None
             )
-        selected = (
-            tuple(configured) if configured is not None else tuple(self._base_registry)
-        )
+            offered = self._offered_builtins()
+        selected: tuple[str, ...]
+        if options.no_builtin_tools:
+            selected = ()
+        elif configured is not None:
+            selected = tuple(configured)
+        else:
+            selected = tuple(self._base_registry)
         selected = apply_tool_modifiers(selected, options.modifiers)
-        explicit = configured is not None or bool(options.modifiers)
+        explicit = (
+            configured is not None
+            or bool(options.modifiers)
+            or options.no_builtin_tools
+        )
         builtin = dict(self._base_registry)
         # Registered optional ports persist for this lifetime, like Pi's
         # registry; removing a default does not deactivate an active tool.
-        if self._offers_codemode and "codemode" in state.builtin_registry:
+        # A built-in extension turned off on reload takes its tool away.
+        if "codemode" in offered and "codemode" in state.builtin_registry:
             builtin["codemode"] = state.builtin_registry["codemode"]
-        if self._offers_tool_search:
+        if "tool_search" in offered:
             from pipy_harness.native.tool_search import (
                 TOOL_SEARCH_TOOL_NAME,
                 ToolSearchTool,
@@ -1123,12 +1203,9 @@ class NativeToolCapabilities:
             options.allows("codemode") if options.allow else "codemode" in selected
         )
         wants_codemode = (
-            wants_codemode
-            and not options.no_tools
-            and not options.no_builtin_tools
-            and not options.excludes("codemode")
+            wants_codemode and not options.no_tools and not options.excludes("codemode")
         )
-        if self._offers_codemode and wants_codemode and "codemode" not in mapping:
+        if "codemode" in offered and wants_codemode and "codemode" not in mapping:
             if self._probe_codemode():
                 from pipy_harness.native.tools.codemode import CodemodeTool
 
@@ -1155,7 +1232,7 @@ class NativeToolCapabilities:
                 )
             )
             active &= options.provider_visible_names(
-                builtin_names=builtin, registered_names=candidate.registry
+                registered_names=candidate.registry
             )
         return replace(
             candidate,
@@ -1170,6 +1247,7 @@ class NativeToolCapabilities:
             else frozenset(),
             selection_initialized=True,
             active_selection_customized=state.active_selection_customized,
+            offered_builtins=offered,
         )
 
     def publish(self, state: ToolCapabilityState) -> None:
@@ -1407,9 +1485,7 @@ def _unregistered_mcp_names(
     )
     if not missing or not state.filter_configured:
         return missing
-    return state.filter_options.provider_visible_names(
-        builtin_names=(), registered_names=missing
-    )
+    return state.filter_options.provider_visible_names(registered_names=missing)
 
 
 def _active_names(state: ToolCapabilityState) -> frozenset[str]:
@@ -1455,10 +1531,7 @@ def _kept_names(state: ToolCapabilityState) -> Collection[str]:
 
     if not state.filter_configured:
         return state.registry
-    return state.filter_options.provider_visible_names(
-        builtin_names=state.builtin_registry,
-        registered_names=state.registry,
-    )
+    return state.filter_options.provider_visible_names(registered_names=state.registry)
 
 
 def _is_activatable(

@@ -12,7 +12,9 @@ Patterns match a resource name exactly or as an fnmatch glob (e.g. ``draft-*``).
 
 Built-in extensions are parts of pipy that can be turned off like an
 extension (Pi's built-in extensions). One is named ``builtin:<name>`` in the
-``extensions`` array and on the command line. Only ``mcp`` exists.
+``extensions`` array and on the command line: ``mcp``, ``codemode`` (the
+``codemode`` tool) and ``tool-search`` (the ``tool_search`` tool). Pi's
+``llama.cpp`` has no counterpart.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import Final
 
 BUILTIN_EXTENSION_PREFIX: Final = "builtin:"
 # The parts of pipy that ``-builtin:<name>`` in ``extensions`` turns off.
-BUILTIN_EXTENSIONS: Final = ("mcp",)
+BUILTIN_EXTENSIONS: Final = ("codemode", "tool-search", "mcp")
 
 
 def _matches(name: str, pattern: str) -> bool:

@@ -21,10 +21,14 @@ pipy-session = "pipy_session.cli:main"
 codemode = [
     "wasmtime>=49,<50",
 ]
+images = [
+    "pillow>=12,<13",
+]
 
 [dependency-groups]
 dev = [
     "mypy>=1.18",
+    "pillow>=12,<13",
     "pytest>=8.0",
     "ruff>=0.14",
     "wasmtime>=49,<50",

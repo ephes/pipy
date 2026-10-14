@@ -1855,8 +1855,12 @@ def test_a_model_takes_images_unless_its_catalog_row_says_text_only(
     tmp_path: Path,
 ) -> None:
     from pipy_harness.native.coding.state import CodingProviderBinding
+    from pipy_harness.native.settings import SettingsManager
 
-    effects, state, *_ = _provider_mutation_fixture(tmp_path)
+    effects, state, *_ = _provider_mutation_fixture(
+        tmp_path,
+        settings=SettingsManager(global_path=tmp_path / "settings.json", env={}),
+    )
     provider = state.current_provider()
 
     def takes(provider_name: str, model_id: str) -> bool:

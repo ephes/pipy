@@ -51,10 +51,11 @@ header, here read from the environment variable `DOCS_TOKEN` at each connect:
 pipy mcp add docs --url https://example.com/mcp --bearer-token-env-var DOCS_TOKEN
 ```
 
-See [the `pipy mcp` commands](#the-pipy-mcp-commands). Or write the servers
-yourself into `mcp.json` in the config home (`~/.pipy/mcp.json`
-unless `PIPY_CONFIG_HOME` or `XDG_CONFIG_HOME` say otherwise), or into
-`.pipy/mcp.json` of a trusted project:
+See [the `pipy mcp` commands](#the-pipy-mcp-commands); `pipy mcp add` prints
+the file it wrote. Or write the servers yourself into `mcp.json` in the
+config home, or into `.pipy/mcp.json` of a trusted project. The config home
+is `$PIPY_CONFIG_HOME` when that is set, else `$XDG_CONFIG_HOME/pipy`, else
+`~/.pipy` when that directory exists, else `~/.config/pipy`:
 
 ```json
 {
@@ -87,7 +88,8 @@ disables a server.
 ## Configure servers
 
 User-level servers are in `mcp.json` in the config home (`PIPY_CONFIG_HOME`,
-then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy`, then `~/.config/pipy`), project
+then `${XDG_CONFIG_HOME}/pipy`, then `~/.pipy` when it exists, then
+`~/.config/pipy`), project
 servers in `.pipy/mcp.json`. The project file is loaded only for a
 [trusted project](settings-config.md#project-trust-complete-runtime-track-shipped).
 A missing file is not an error. A project entry replaces a user-level entry
@@ -195,15 +197,16 @@ and `exposure`.
 
 Differences from Pi in the configuration:
 
-- pipy checks URLs with a small strict parser and does not repair them. A URL
-  without `//`, with a backslash, or with a shortened IPv4 address such as
-  `127.1` is a configuration error here, where Pi's URL parser accepts it.
+- pipy reads URLs as Pi's URL parser does (`http:example.com`, backslashes,
+  percent-escapes in the host, and IPv4 addresses such as `127.1` or
+  `0x7f.0.0.1`, which are `127.0.0.1`), but without IDNA: a host with
+  non-ASCII letters is taken as written, where Pi converts it to punycode or
+  rejects it.
 - `oauth.clientMetadataBaseUrl` exists only in pipy. Pi serves its Client ID
   Metadata Documents from its own site; pipy has no such document, so `cimd`
   needs the address where you host one, see
   [OAuth settings](#oauth-settings).
-- A file that is not valid UTF-8 is an error, and JSON error messages are
-  Python's.
+- JSON error messages are Python's.
 - A whole-number `oauth.callbackPort` written as `8080.0` is accepted.
 
 ## Migrate configuration from another client
@@ -552,10 +555,19 @@ Different from Pi:
 in a running session; the flags hold for the whole run.
 
 With MCP off, pipy does not turn on `codemode` or `tool_search` and reports
-nothing about `mcp.json`. `mcp` is the only built-in entry; Pi also has
-`builtin:codemode`, `builtin:tool-search` and `builtin:llama.cpp`, which in
-pipy are selected as tools (`--tools`, `defaultTools`) or do not exist. An
-unknown `builtin:` name after `--extension` is an error at startup.
+nothing about `mcp.json`.
+
+`codemode` and `tool_search` are built-in extensions too, named
+`builtin:codemode` and `builtin:tool-search`, and the same entries and flags
+apply to them: `"extensions": ["-builtin:tool-search"]` or
+`pipy config disable builtin tool-search` removes the `tool_search` tool, so
+MCP cannot turn it on for `deferred` servers (pipy then warns that their
+tools cannot be called), and `--no-extensions` removes both tools unless
+`--extension builtin:codemode` or `--extension builtin:tool-search` loads
+them again. `--no-mcp` concerns MCP alone. `/reload` reads these entries
+again as well. Pi's `builtin:llama.cpp` has no counterpart in pipy; an
+unknown `builtin:` name after `--extension` is an error at startup, where Pi
+reports a load error.
 
 ### Diagnose connection problems
 
@@ -784,8 +796,6 @@ server again, see [sign-in with OAuth](#sign-in-with-oauth).
 
 ### Differences from Pi
 
-- `--oauth-callback-port` and `--timeout` take a decimal number. Pi also
-  reads JavaScript's other spellings of a number, such as `0x50`.
 - `logout` reports a credentials file it cannot read as `Could not update
   <path>: <reason>` with status 1.
 - When the question for the redirect URL ends without an answer, pipy ends
@@ -1014,17 +1024,38 @@ For such a server, name the provider in the user-level `mcp.json`:
   the token the provider has at that moment. pipy asks for it before each
   request and keeps no copy, so a login, a logout or a refreshed token
   applies to the next request. Nothing is written to `mcp-auth.json`.
-- The token is what is stored for the provider in
-  [the auth store](providers.md#credentials-and-auth-sources), `auth.json`,
-  where `/login <provider>` puts a login: an API key entry (the name of a set
-  environment variable is that variable's value, `!command` is the output
-  of the command, which then runs for every request), or the access token
-  of a stored OAuth login. A `github-copilot` or `openai` login is
-  refreshed first when it expires within five minutes, as before a model
-  request (not when an extension registered a provider of that name). When nothing is stored for the provider, its API-key environment
-  variable is used. A provider without any of these has no token, and the
-  request carries none. The same holds when `auth.json` exists and cannot
-  be read: the environment variable is not used in its place.
+- The token is the key a model request to the provider would carry, from
+  the same sources in the same order
+  ([credentials and auth sources](providers.md#credentials-and-auth-sources)):
+    - For `openai-codex`, the Codex login of `/login openai-codex` or
+      `pipy auth openai-codex login`, which is kept in its own file. It is
+      refreshed first when it is about to expire, as before a model
+      request. Without a login the sources below are asked, as for a
+      `models.json` model of that provider with another `api`; a login
+      that cannot be read or refreshed is no token. Where such a model
+      uses a stored key while there is a Codex login, the server is still
+      sent the login: the token is the provider's, not a model's.
+    - The key given with `--api-key`. As for a model request, it is the key
+      of every provider.
+    - What is stored for the provider in the auth store, `auth.json`, where
+      `/login <provider>` puts a login: an API key entry (the name of a set
+      environment variable is that variable's value, `!command` is the
+      output of the command, which then runs for every request), or the
+      access token of a stored OAuth login. A `github-copilot` or `openai`
+      login is refreshed first when it expires within five minutes, as
+      before a model request. A stored entry that has no token, such as an
+      OAuth login without an access token, is no token: the sources below
+      are not asked.
+    - The provider's API-key environment variable.
+    - The `apiKey` that `models.json` configures for the provider, resolved
+      like a stored key.
+
+    A provider that an extension registered is answered from `auth.json`
+    (a login is sent as stored) and its API-key environment variable only,
+    since model requests leave its credentials to the extension. A
+    provider without any of these has no token, and the request carries
+    none. The same holds when `auth.json` exists and cannot be read: no
+    later source is used in its place.
 - The server never signs in with OAuth: `/mcp login` and `pipy mcp login`
   answer that it does not use OAuth, and a 401 is not answered with a
   refresh.
@@ -1039,11 +1070,10 @@ For such a server, name the provider in the user-level `mcp.json`:
 
 Differences from Pi:
 
-- Pi answers with whatever its model registry resolves for the provider.
-  pipy reads `auth.json` and the environment only: a key that `models.json`
-  configures for the provider, `--api-key`, the `openai-codex` login (kept
-  in its own file) and ambient cloud credentials are no token for an MCP
-  server.
+- Pi gives the `--api-key` key only to the provider of the model the
+  session starts with; pipy, as for its model requests, to every provider.
+- Ambient cloud credentials (an AWS profile, Google application default
+  credentials) are no token for an MCP server.
 - An OAuth login that pipy does not refresh before its own model requests
   (a provider an extension registered, for example) is sent as stored.
 - `pipy mcp list` knows no provider logins, as `pi mcp list` does not: it
@@ -1292,8 +1322,11 @@ Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch: `/tree` to an entry before the load drops the
 tool, and `/tree` to a later entry declares it again. After a `/reload` a
 loaded MCP tool is declared again once its server has connected, see
-[Reloading](#reloading). A session that is resumed in a new pipy process
-starts from the configured tools, as in Pi's CLI.
+[Reloading](#reloading). A tool whose server is disabled, or that its server
+stops offering, is no longer declared; when it comes back, a `direct` tool is
+declared again, and a tool `tool_search` had loaded has to be loaded again,
+as in Pi. A session that is resumed in a new pipy process starts from the
+configured tools, as in Pi's CLI.
 
 `tool_search` never loads `direct`, `model-only` or `hidden` tools, and it
 does not load a tool that `--tools` or `--exclude-tools` filters out. With
@@ -1495,9 +1528,9 @@ Different from Pi:
 - The notice names the extension by its name, where Pi shows its path, and
   points to `pipy config list`.
 - pipy shows no notice when an extension replaces `codemode` or
-  `tool_search`. In Pi both are built-in extensions that are loaded unless
-  they are replaced; in pipy the built-in `codemode` is registered only when
-  something asks for it.
+  `tool_search`. In both, they are built-in extensions that are loaded
+  unless they are replaced or turned off; in pipy the built-in `codemode` is
+  registered only when something asks for it.
 - A `/reload` reads `mcp.json` once before it knows the extensions it will
   load. When the reload brings an extension with `/mcp`, what was read is
   dropped: nothing connects and nothing is reported.
@@ -1635,6 +1668,11 @@ provider, see [a provider's token](#a-providers-token).
   answer and move to the new session the same way. A request that finds the
   new session expired as well fails with `MCP session expired`.
 - No request is made more than twice.
+- A redirect is followed, also to another host. The token and a configured
+  `Authorization`, `Proxy-Authorization`, `Cookie` or `Host` header are not
+  sent to the other host; every other configured header is. A redirect that
+  cannot be followed (to an address that is not `http` or `https`, or more
+  than 20 in a row) counts as a failure to reach the server.
 - Closing a server, or ending the session, ends the wait before another
   attempt and, when the server gave the session an id, tells it that the
   session is over (a `DELETE`, given one second).
@@ -1648,8 +1686,6 @@ Different from Pi:
   closes that session's connection. Pi leaves it open.
 - The wait before a resource request is made again ends when the call is
   cancelled or the server is closed. Pi waits the 250 ms out.
-- pipy sends configured headers and tokens only to the server's own origin,
-  so a redirect to another host is a failed request.
 
 ### States
 
@@ -1667,7 +1703,9 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
   the earlier tools stay.
 - The resources and URI templates are listed, next to the tools, only when
   the server declares the `resources` capability, and again when it sends
-  `notifications/resources/list_changed`. They are only counted: by
+  `notifications/resources/list_changed`. A change of the tools and a change
+  of the resources are read independently, so a slow listing of one does
+  not hold up the other. The resources are only counted: by
   `pipy mcp list`, and in the state of a connected server that the
   `/mcp reconnect` completion shows (`connected · 2 tools · 3 resources`). A
   listing that fails counts as empty and is no error of the server. What is
@@ -1685,6 +1723,8 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
   shows in the next request.
 - Closing a server stops a connect in progress and returns when the server
   process is gone, or the HTTP session ended. Calls then fail with `MCP server "<name>" is shut down`.
+  An HTTP request that is still connecting to the server, or in its TLS
+  handshake, is ended at once; so is one that was cancelled or timed out.
   From the moment a server is closed no token refresh starts for it, and
   closing waits for one that is running, so that its new tokens are saved.
   The same holds for asking for [a provider's token](#a-providers-token).
@@ -1863,8 +1903,10 @@ call that fails before there is a result raises `ToolError`.
 An image block of a result (`{"type": "image", "data", "mimeType"}`) and an
 embedded resource whose `blob` has an `image/` type reach the model as
 images, between the text blocks where the server put them. The same holds
-for an image resource read with `read_mcp_resource`. pipy passes the data
-and the type on as the server sent them and does not look into the image; a
+for an image resource read with `read_mcp_resource`. As in Pi, an image
+that is too large is scaled down, one of another type is converted to PNG,
+and `images.blockImages` keeps all of them from the model; see
+[providers](providers.md#size-of-tool-result-images-and-images-settings). A
 block without data or without a type is named in a text line,
 `[image <mime> without data omitted]`. Images do not count toward the 20 KB
 limit of the text and follow the shortened text when it is cut.
@@ -1879,10 +1921,10 @@ again, and the file grows by the size of every image.
 A script that calls the tool gets the image block in `content` (or the
 `blob` of a resource); what the model sees of it is up to the script.
 
-Different from Pi: a provider that rejects an image (a type it does not
-take, data that is not an image) rejects the request, and because the result
-is stored, every later request of the session. Pi behaves the same; neither
-checks a server's image.
+A provider that rejects an image that could not be processed (data that is
+not an image, or Pillow is not installed) rejects the request, and because
+the result is stored, every later request of the session. Pi behaves the
+same.
 
 Differences from Pi in tools:
 
@@ -1978,7 +2020,8 @@ below.
 | `protocol`, `transport` | JSON-RPC message checks, error types, the protocol versions pipy accepts (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), conversion of MCP content blocks to text and images, and an in-memory transport pair for tests. |
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
 | `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group until the server exited and its stdout and stderr closed. POSIX only. |
-| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). |
+| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). A JSON answer is read whatever its size; the message limit (`max_message_bytes`, 16 MiB) is for one event of a stream. |
+| `http_fetch` | How the HTTP transport sends a request. `StreamableHttpTransportOptions(fetch=...)` takes a function that is called with every request of the transport (`McpHttpRequest`: method, URL, headers, body, the request's cancel token and the time limit for connecting) and returns the answer (`McpHttpResponse`) before its body is read. Pass one for a proxy, another TLS setup or a network of your own; it follows redirects itself. The module text says what such a function has to do. Without the option the transport uses `create_default_fetch()`. |
 | `config` | Validation, loading and editing of `mcp.json`, as described under [configure servers](#configure-servers). |
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), its `provider_token` function for a server with [`auth`](#a-providers-token), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
@@ -2010,7 +2053,7 @@ describes what the modules do for those who read or build on the code.
 | `types`, `errors` | The OAuth documents (server metadata, client information, tokens) with their checks, and the error types. |
 | `fetch` | The HTTP client of the library, with a 1 MiB limit on a response body. The fetch the other modules use by default has no time limit; `create_oauth_fetch(timeout_ms=...)` makes one that has. |
 | `discovery` | Parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
-| `flow` | `authorize_mcp`: one pass of the authorization code flow for a provider. Also the single steps: `register_client`, `start_authorization`, `exchange_authorization_code`, `refresh_authorization`. |
+| `flow` | `authorize_mcp`: one pass of the authorization code flow for a provider. Also the single steps: `register_client`, `start_authorization`, `exchange_authorization_code`, `refresh_authorization`, and `step_up_scope`. `adapt_oauth_provider`: the auth provider of an HTTP transport for any provider. |
 | `provider` | `McpOAuthProvider`: the provider the flow is run with. It keeps one server's client registration, tokens, PKCE verifier, `state` value and discovery result as one document in a store its caller supplies. |
 | `callback` | `OAuthCallbackServer`: the local HTTP server the browser is redirected to at the end of a sign-in. |
 | `page` | The HTML pages that server shows. |
@@ -2053,6 +2096,31 @@ the authorization response.
 - A token answer without `scope` is stored with the requested scope. A
   refresh answer without `scope` or without a refresh token keeps the old
   one.
+
+`adapt_oauth_provider(provider)` connects a provider to the HTTP transport
+(`StreamableHttpTransportOptions(auth_provider=...)`), as Pi's
+`adaptOAuthProvider` does. A program that builds on the library uses it
+with a `McpOAuthProvider` and a `MemoryOAuthStateStore` or a store of its
+own:
+
+- The transport sends the provider's access token.
+- After a 401 the flow runs and refreshes the tokens. When the user has to
+  authorize, the request fails with `McpOAuthAuthorizationRequiredError`
+  and the provider has been handed the authorization URL; the program
+  waits for the authorization response, calls `authorize_mcp` with its
+  code and connects again.
+- A 403 whose challenge reports `insufficient_scope` goes to the
+  authorization at once, for the scopes granted so far and the challenged
+  ones; the stored tokens stay until then.
+- Rejected requests share one run of the flow, and a request whose token
+  another request already replaced is sent again without a refresh, so a
+  rotating refresh token is used once.
+- The flow's requests go through the library's fetch, or the one passed as
+  `adapt_oauth_provider(provider, fetch=...)`; they have no time limit
+  unless that fetch sets one.
+
+pipy's own connections do not use it: they use the
+[credentials file](#the-credentials-file) and its refresh lock.
 
 The provider (`McpOAuthProvider`) binds its document to one server URL: a
 document stored for another URL counts as empty and is replaced by the first
@@ -2102,6 +2170,12 @@ is the namespace of the server's tools and its URL,
   `mcp.json` has one entry;
 - names that differ only in `-` and `_` are the same server.
 
+An entry whose key is the URL alone was written by an older Pi. The first
+server with that URL whose store loads it takes it over under its own key;
+other servers with the URL sign in again. `tokens` reads such an entry
+without moving it, and `remove` deletes it when the server has no entry of
+its own.
+
 `for_server(name, url)` gives the store of one server, which a provider is
 created with; `tokens(name, url)` reads a server's tokens and
 `remove(name, url)` deletes its entry and says whether there was one. It
@@ -2145,13 +2219,24 @@ an OAuth server is given. It never opens a browser:
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
 
-- The HTTP transport follows a redirect only within the configured server's
-  origin, so configured headers and tokens go to no other host. It has no
-  proxy support and does not decompress responses.
-- The OAuth fetch follows redirects only for requests without a body, drops
-  `Authorization`, `Proxy-Authorization` and `Cookie` on a redirect to
-  another origin, and limits a response body to 1 MiB. So a registration or
-  token request that the server redirects fails with the redirect's status.
+- The HTTP transport's default fetch has no proxy support and does not
+  decompress responses. A transport that needs one of these is given a
+  `fetch`, as in Pi. Redirects are followed by the rules of Node's `fetch`:
+  to any origin, at most 20, with `Authorization`, `Proxy-Authorization`,
+  `Cookie` and `Host` dropped for good at the first change of origin. A
+  `Location` that Python's URL functions read differently from a browser
+  may lead elsewhere or fail.
+- A name lookup cannot be interrupted. Closing a transport does not wait
+  for it, and the request opens no connection when the lookup ends.
+- A fetch is not JavaScript's: it takes one request object and returns an
+  object with `status`, `header(name)`, `read(limit)`, `chunks()` and
+  `close()`, and it is handed a cancel token instead of an abort signal.
+- The OAuth fetch follows redirects by the same rules of Node's `fetch`,
+  also with a body: a registration or token request that the server answers
+  with 307 or 308 is sent again where it moved. It asks for `gzip` and
+  `deflate` and decodes an answer in those codings. It limits a response
+  body to 1 MiB, compressed and decoded. It does not ask for `br` and
+  `zstd` and does not decode them, and it has no proxy support.
 - The OAuth flow reads URLs with the strict parser of the
   [configuration](#configuration-rules). A token endpoint that parser does
   not accept is refused like an insecure one. A registration answer that is
@@ -2160,14 +2245,14 @@ build on it:
   a refresh.
 - The OAuth provider compares server URLs without their fragment, and
   refuses a server URL with user info.
-- An auth provider sends the requests of a refresh itself; Pi sends them
-  with the fetch of the transport whose request was rejected. A request
+- An auth provider, also the one of `adapt_oauth_provider`, sends the
+  requests of a refresh itself; Pi sends them with the fetch of the
+  transport whose request was rejected. A request
   that was given up while the provider worked is not sent again.
 - The refresh lock of the credentials file is a `flock`. The lock of a
   process that died is free at once; Pi takes such a lock over after 20
   seconds. Deleting a server's credentials holds that lock too; in Pi a
-  refresh that ends after a sign-out stores the tokens again. Pi also reads credentials an older version stored under the URL
-  alone, which no pipy version wrote.
+  refresh that ends after a sign-out stores the tokens again.
 - The callback server does not wait for open browser connections when it is
   closed: it gives a page that is being sent two seconds and then drops the
   connections. Registering a wait on a closed server fails at once. A

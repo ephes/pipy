@@ -24,8 +24,6 @@ already saved; the commands never ask.
 
 Where this differs from Pi:
 
-- ``--oauth-callback-port`` and ``--timeout`` are read as decimal numbers;
-  JavaScript's other number spellings (``0x50``) are not numbers here.
 - The credentials are always the file ``mcp-auth.json`` of the config home;
   there is no option for another store.
 - ``logout`` reports a credentials file or a server URL it cannot use as an
@@ -178,7 +176,15 @@ _OAUTH_TEXT_OPTIONS: Final = (
     ("oauth-client-secret", "clientSecret"),
 )
 
-_DECIMAL: Final = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+# The spellings JavaScript's ``Number(text)`` reads, after trimming.
+_DECIMAL: Final = re.compile(
+    r"[+-]?(?:Infinity|(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+)
+_RADIX_PREFIXES: Final[Mapping[str, tuple[int, str]]] = {
+    "x": (16, "0123456789abcdefABCDEF"),
+    "o": (8, "01234567"),
+    "b": (2, "01"),
+}
 _SURROGATE: Final = re.compile("[\ud800-\udfff]")
 
 
@@ -297,14 +303,28 @@ def _parse_pairs(
     return record
 
 
-def _port_number(text: str) -> int | float:
-    """The number an option names, or NaN, which no check of a port or a
-    timeout accepts."""
+def _js_number(text: str) -> int | float:
+    """What JavaScript's ``Number(text)`` gives, as Pi reads
+    ``--oauth-callback-port`` and ``--timeout``: decimal and exponent
+    spellings, ``Infinity``, ``0x``/``0o``/``0b`` integers, ``0`` for blank
+    text, and NaN for anything else. A whole finite number is an ``int``."""
 
     trimmed = js_trim(text)
-    if not _DECIMAL.fullmatch(trimmed):
+    if not trimmed:
+        return 0
+    radix = _RADIX_PREFIXES.get(trimmed[1:2].lower()) if trimmed[0] == "0" else None
+    if radix is not None:
+        base, digits = radix
+        if len(trimmed) == 2 or any(char not in digits for char in trimmed[2:]):
+            return float("nan")
+        try:
+            number = float(int(trimmed[2:], base))
+        except OverflowError:
+            number = math.inf
+    elif _DECIMAL.fullmatch(trimmed):
+        number = float(trimmed.replace("Infinity", "inf"))
+    else:
         return float("nan")
-    number = float(trimmed)
     return int(number) if number.is_integer() else number
 
 
@@ -358,7 +378,7 @@ def _http_config(
             oauth[key] = value
     port = parsed.text("oauth-callback-port")
     if port is not None:
-        oauth["callbackPort"] = _port_number(port)
+        oauth["callbackPort"] = _js_number(port)
     client_name = parsed.text("oauth-client-name")
     if client_name is not None:
         oauth["clientName"] = client_name
@@ -736,9 +756,7 @@ def _login_or_logout(
         )
         return 0
     seconds = parsed.text("timeout")
-    timeout = (
-        DEFAULT_LOGIN_TIMEOUT_SECONDS if seconds is None else _port_number(seconds)
-    )
+    timeout = DEFAULT_LOGIN_TIMEOUT_SECONDS if seconds is None else _js_number(seconds)
     if not math.isfinite(timeout) or timeout <= 0:
         error("--timeout must be a positive number of seconds.")
         return 1

@@ -187,10 +187,13 @@ def test_deactivating_without_a_selection_changes_nothing(tmp_path: Path) -> Non
     assert before.active_tool_names is None
 
 
-def test_a_withdrawn_tool_is_gone_and_active_again_when_it_comes_back(
+def test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back(
     tmp_path: Path,
 ) -> None:
     # SES-03, for a tool that `tool_search` or an extension had activated.
+    # Pi re-registers a withdrawn tool hidden, and applying the loadout drops
+    # it from the active tools; offered again, it is a new tool: a `direct`
+    # one is activated by registering, a loaded `deferred` one is not.
     tools = _session(tmp_path)
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
     assert tools.load_tools(["mcp__docs__find"]) == ("mcp__docs__find",)
@@ -203,9 +206,13 @@ def test_a_withdrawn_tool_is_gone_and_active_again_when_it_comes_back(
     assert "mcp__docs__find" not in _callable(tools)
     assert _run(tools, "mcp__docs__find") == "unknown tool: mcp__docs__find"
 
+    tools.publish_mcp_tools({})
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
 
-    assert _declared(tools) == ("read", "bash", "mcp__docs__search", "mcp__docs__find")
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search")
+    assert [definition.name for definition in tools.loadable_tools()] == [
+        "mcp__docs__find"
+    ]
 
 
 def test_a_tool_whose_exposure_becomes_direct_is_activated(tmp_path: Path) -> None:
@@ -329,6 +336,59 @@ def test_no_tools_removes_mcp_tools_too(tmp_path: Path) -> None:
     assert _declared(tools) == ()
     assert _registered(tools) == ()
     assert _callable(tools) == frozenset()
+
+
+def test_an_allowlist_after_no_tools_declares_tool_search(tmp_path: Path) -> None:
+    # Pi ``createAgentSession``: ``--no-tools --tools tool_search`` and
+    # ``--no-builtin-tools --tools tool_search`` are the allowlist
+    # ``tool_search`` (the command line folds the flags in), which keeps the
+    # MCP tools registered for it.
+    tools = _session(
+        tmp_path, ToolFilterOptions(allow=("tool_search",)), production=True
+    )
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+
+    assert _declared(tools) == ("tool_search",)
+    assert [definition.name for definition in tools.loadable_tools()] == [
+        "mcp__docs__find"
+    ]
+
+
+def test_no_builtin_tools_keeps_builtins_registered_and_inactive(
+    tmp_path: Path,
+) -> None:
+    # Pi ``noTools: "builtin"`` empties the default selection only: the
+    # built-in tools stay registered (an extension may select one), extension
+    # and MCP tools are activated by registering, and ``tool_search``, an
+    # extension tool in Pi, stays available for MCP to activate.
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(no_builtin_tools=True),
+        extensions={"lookup": _Tool("lookup")},
+        production=True,
+    )
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+
+    assert _declared(tools) == ("lookup", "mcp__docs__search")
+    assert "read" in _registered(tools)
+    tools.activate_tools(("tool_search",))
+    assert _declared(tools) == ("tool_search", "lookup", "mcp__docs__search")
+    assert tools.set_active_tools(("read", "lookup"))
+    assert _declared(tools) == ("read", "lookup")
+
+
+def test_modifiers_after_no_builtin_tools_start_from_nothing(tmp_path: Path) -> None:
+    # Pi: ``--no-builtin-tools --tools +read`` activates read and keeps the
+    # extension tools; the defaultTools setting is not read.
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(no_builtin_tools=True, modifiers=("+read",)),
+        extensions={"lookup": _Tool("lookup")},
+    )
+
+    assert _declared(tools) == ("read", "lookup")
+    tools.publish(tools.prepare_extensions({"lookup": _Tool("lookup")}))
+    assert _declared(tools) == ("read", "lookup")
 
 
 @pytest.mark.parametrize(
@@ -767,3 +827,57 @@ def test_dropping_a_tool_the_filters_hide_keeps_the_pending_tools(
     assert tools.state.pending_tool_names == {"mcp__docs__find"}
     tools.publish_mcp_tools(_mcp(find="deferred"))
     assert _declared(tools) == ("read", "lookup", "mcp__docs__find")
+
+
+def test_builtin_extensions_decide_on_codemode_and_tool_search_per_value(
+    tmp_path: Path,
+) -> None:
+    # Pi loads both tools as built-in extensions (`builtin:codemode`,
+    # `builtin:tool-search`); a reload reads their settings again.
+    loaded = {"codemode": True, "tool-search": False}
+    tools = NativeToolCapabilities(
+        ProductionToolRegistry({"read": _Tool("read")}),
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        builtin_extension_enabled=lambda name: loaded[name],
+    )
+    tools.publish(tools.prepare_extensions({}))
+
+    assert "tool_search" not in tools.registered_names
+    assert tools.state.offered_builtins == {"codemode"}
+    assert tools.codemode_selectable()
+
+    loaded.update({"codemode": False, "tool-search": True})
+    tools.publish(tools.prepare_extensions({}))
+
+    assert "tool_search" in tools.registered_names
+    assert not tools.codemode_selectable()
+    assert not tools.register_codemode()
+    assert "codemode" not in tools.registered_names
+
+
+def test_register_codemode_follows_a_reload_published_during_the_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loaded = {"codemode": True, "tool-search": True}
+    tools = NativeToolCapabilities(
+        ProductionToolRegistry({"read": _Tool("read")}),
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        builtin_extension_enabled=lambda name: loaded[name],
+    )
+    tools.publish(tools.prepare_extensions({}))
+
+    def probe_while_reloading() -> bool:
+        loaded["codemode"] = False
+        tools.publish(tools.prepare_extensions({}))
+        return True
+
+    monkeypatch.setattr(tools, "_probe_codemode", probe_while_reloading)
+
+    assert not tools.register_codemode()
+    assert "codemode" not in tools.registered_names

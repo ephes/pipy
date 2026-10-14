@@ -502,6 +502,53 @@ def _without_images(message: AgentToolResultMessage) -> AgentToolResultMessage:
     return replace(message, content=ProductContent(text), blocks=())
 
 
+BLOCKED_IMAGE_PLACEHOLDER = "Image reading is disabled."
+"""Pi ``sdk.ts`` ``convertToLlmWithBlockImages``: what replaces an image."""
+
+
+def without_blocked_images(
+    messages: Sequence[AgentMessage],
+) -> tuple[AgentMessage, ...]:
+    """History with ``images.blockImages`` set (Pi ``convertToLlmWithBlockImages``).
+
+    In every tool result each image becomes the text
+    :data:`BLOCKED_IMAGE_PLACEHOLDER`, and of consecutive text blocks with
+    that text only the first is kept (also a text the tool wrote). The
+    stored history is not changed.
+    """
+
+    blocked = tuple(
+        _with_images_blocked(message)
+        if isinstance(message, AgentToolResultMessage) and message.blocks
+        else message
+        for message in messages
+    )
+    if isinstance(messages, tuple) and all(
+        new is old for new, old in zip(blocked, messages, strict=True)
+    ):
+        return messages
+    return blocked
+
+
+def _with_images_blocked(message: AgentToolResultMessage) -> AgentToolResultMessage:
+    mapped = [
+        block.text if isinstance(block, TextContent) else BLOCKED_IMAGE_PLACEHOLDER
+        for block in message.blocks
+    ]
+    texts = [
+        text
+        for index, text in enumerate(mapped)
+        if not (
+            text == BLOCKED_IMAGE_PLACEHOLDER
+            and index > 0
+            and mapped[index - 1] == BLOCKED_IMAGE_PLACEHOLDER
+        )
+    ]
+    # A placeholder may take the text past the cap a result's text has.
+    text = "\n".join(texts)[: message.CONTENT_MAX_LENGTH]
+    return replace(message, content=ProductContent(text), blocks=())
+
+
 _AGENT_MESSAGE_TYPES = (
     AgentUserMessage,
     AgentAssistantMessage,

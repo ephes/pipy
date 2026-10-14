@@ -326,8 +326,19 @@ trust before saved/default/UI fallback; project extensions remain gated.
 | --- | --- |
 | `--tools <list>`, `-t <list>` | Allowlist built-in, extension, and custom tools by name or pattern, or apply exact `+name`/`-name` modifiers to `defaultTools`. MCP tools are kept unless an entry starts with `mcp__` (see [MCP tools](#mcp-tools)) |
 | `--exclude-tools <list>`, `-xt <list>` | Disable tool names or patterns after all other selection options, MCP tools included |
-| `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
-| `--no-tools`, `-nt` | Disable all tools |
+| `--no-builtin-tools`, `-nbt` | Start with the built-in tools disabled but keep extension/custom tools enabled |
+| `--no-tools`, `-nt` | Start with all built-in, extension, custom and MCP tools disabled |
+
+`--no-tools` and `--no-builtin-tools` empty the default selection, as in Pi;
+they do not veto what `--tools` selects. A plain `--tools` list replaces the
+selection whatever they say, so `pipy --no-tools --tools tool_search` and
+`pipy --no-builtin-tools --tools tool_search` declare `tool_search`. `+name`
+entries start from the empty selection: `pipy -nbt --tools +read` activates
+`read` and keeps the extension tools, and with `--no-tools` the tools they add
+are the only ones. An empty list, `--tools ''`, disables every tool, MCP tools
+included, like `--no-tools`. Under `--no-builtin-tools` the built-in tools stay
+registered without being active, so an extension can still select one, and the
+`defaultTools` setting is not read.
 
 Built-in tools are `read`, `ls`, `grep`, `find`, `write`, `edit`, and `bash`,
 in that order. Read excerpts, shell output, and provider-visible tool results
@@ -349,6 +360,11 @@ registered tools that are not declared to the model (exposure `codemode` or
 `deferred`) for a query and declares the matches from the next model request
 on. Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch. See [tool search](mcp.md#tool-search).
+
+`codemode` and `tool_search` come from the built-in extensions
+`builtin:codemode` and `builtin:tool-search`. `--no-extensions` or a
+`-builtin:<name>` entry in the `extensions` setting removes them; see
+[turning MCP off](mcp.md#turning-mcp-off).
 
 Entries of `--tools` and `--exclude-tools` are tool names or patterns in which
 `*` matches any characters: `--exclude-tools 'ext_*'` disables every tool
@@ -388,8 +404,8 @@ turns MCP off altogether.
 
 | Option | Description |
 | --- | --- |
-| `--extension PATH`, `-e PATH` | Load an extension file or directory for this run, or the built-in MCP support with `builtin:mcp` |
-| `--no-extensions`, `-ne` | Disable default extension discovery and the built-in MCP support; explicit `--extension` still loads, so `pipy -ne -e builtin:mcp` keeps MCP |
+| `--extension PATH`, `-e PATH` | Load an extension file or directory for this run, or a built-in extension: `builtin:mcp`, `builtin:codemode` or `builtin:tool-search` |
+| `--no-extensions`, `-ne` | Disable default extension discovery and the built-in extensions (MCP, `codemode`, `tool_search`); explicit `--extension` still loads, so `pipy -ne -e builtin:mcp` keeps MCP |
 | `--no-mcp` | Disable the built-in MCP support for this run: no `mcp.json` is read, no server connects and there are no MCP tools. See [turning MCP off](mcp.md#turning-mcp-off) |
 | `--skill PATH` | Load a skill Markdown file or directory for this run |
 | `--no-skills`, `-ns` | Disable default skill discovery; explicit `--skill` still loads |

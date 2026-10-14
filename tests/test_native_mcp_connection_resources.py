@@ -94,6 +94,14 @@ class _ResourceServer(_Server):
         }
 
 
+def _refresh_threads() -> list[str]:
+    return sorted(
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name.startswith("mcp-refresh")
+    )
+
+
 def _uris(view: ConnectionView) -> list[str]:
     return [str(resource["uri"]) for resource in view.resources]
 
@@ -296,6 +304,118 @@ def test_a_tool_change_and_a_resource_change_are_both_read() -> None:
 
     _wait_until(lambda: len(connection.view().tools) == 2)
     _wait_until(lambda: connection.view().resources == ())
+    connection.close()
+
+
+def test_a_slow_resource_listing_does_not_delay_a_tool_refresh() -> None:
+    # Pi `connectOnce`: each notification starts `refreshTools` or
+    # `refreshResources` on its own.
+    stalled = False
+
+    def list_resources(message: JsonRpcMessage) -> object:
+        return _NO_ANSWER if stalled else {"resources": [_INTRO]}
+
+    server = _ResourceServer(
+        tools=[_tool("one")], handlers={"resources/list": list_resources}
+    )
+    harness = _Harness([lambda: server.client_end])
+    connection = harness.connection
+    connection.get_client()
+
+    stalled = True
+    server.notify("notifications/resources/list_changed")
+    _wait_until(lambda: server.methods.count("resources/list") == 2)
+    server.tools = [_tool("one"), _tool("two")]
+    server.notify("notifications/tools/list_changed")
+
+    # The resource listing is still unanswered.
+    _wait_until(lambda: len(connection.view().tools) == 2)
+    assert connection.view().resources == (_INTRO,)
+    # The thread that listed the other kind ends on its own.
+    _wait_until(lambda: _refresh_threads() == ["mcp-refresh-resources"])
+    connection.close()
+    _wait_until(lambda: not _refresh_threads())
+
+
+def test_a_slow_tool_listing_does_not_delay_a_resource_refresh() -> None:
+    stalled = False
+
+    def list_tools(message: JsonRpcMessage) -> object:
+        return _NO_ANSWER if stalled else {"tools": [_tool("one")]}
+
+    server = _ResourceServer(handlers={"tools/list": list_tools})
+    harness = _Harness([lambda: server.client_end])
+    connection = harness.connection
+    connection.get_client()
+
+    stalled = True
+    server.notify("notifications/tools/list_changed")
+    _wait_until(lambda: server.methods.count("tools/list") == 2)
+    server.resources = []
+    server.notify("notifications/resources/list_changed")
+
+    _wait_until(lambda: connection.view().resources == ())
+    assert len(connection.view().tools) == 1
+    # The thread that listed the other kind ends on its own.
+    _wait_until(lambda: _refresh_threads() == ["mcp-refresh"])
+    connection.close()
+    _wait_until(lambda: not _refresh_threads())
+
+
+def test_a_resource_change_during_a_resource_listing_is_listed_once_more() -> None:
+    # One listing of a kind at a time; a change that arrives meanwhile is
+    # read by one more.
+    listings = 0
+
+    def list_resources(message: JsonRpcMessage) -> object:
+        nonlocal listings
+        listings += 1
+        if listings == 2:
+            # The list changes after this answer was put together.
+            server.notify("notifications/resources/list_changed")
+        return {"resources": [_INTRO] * listings}
+
+    server = _ResourceServer(handlers={"resources/list": list_resources})
+    harness = _Harness([lambda: server.client_end])
+    connection = harness.connection
+    connection.get_client()
+
+    server.notify("notifications/resources/list_changed")
+
+    _wait_until(lambda: len(connection.view().resources) == 3)
+    _wait_until(lambda: not _refresh_threads())
+    assert listings == 3
+    connection.close()
+
+
+def test_changes_of_both_kinds_announced_while_connecting_are_both_read() -> None:
+    listed = {"tools/list": 0, "resources/list": 0}
+
+    def list_tools(message: JsonRpcMessage) -> object:
+        listed["tools/list"] += 1
+        if listed["tools/list"] == 1:
+            server.notify("notifications/tools/list_changed")
+            return {"tools": [_tool("old")]}
+        return {"tools": [_tool("new")]}
+
+    def list_resources(message: JsonRpcMessage) -> object:
+        listed["resources/list"] += 1
+        if listed["resources/list"] == 1:
+            server.notify("notifications/resources/list_changed")
+            return {"resources": []}
+        return {"resources": [_INTRO]}
+
+    server = _ResourceServer(
+        handlers={"tools/list": list_tools, "resources/list": list_resources}
+    )
+    harness = _Harness([lambda: server.client_end])
+    connection = harness.connection
+    connection.get_client()
+
+    _wait_until(lambda: connection.view().resources == (_INTRO,))
+    _wait_until(lambda: [tool["name"] for tool in connection.view().tools] == ["new"])
+    _wait_until(lambda: not _refresh_threads())
+    assert listed == {"tools/list": 2, "resources/list": 2}
     connection.close()
 
 

@@ -78,7 +78,11 @@ from pipy_harness.native.mcp.oauth.callback import (
 )
 from pipy_harness.native.mcp.oauth.errors import OAuthFlowError
 from pipy_harness.native.mcp.oauth.fetch import OAuthFetch, create_oauth_fetch
-from pipy_harness.native.mcp.oauth.flow import OAuthFlowOptions, authorize_mcp
+from pipy_harness.native.mcp.oauth.flow import (
+    OAuthFlowOptions,
+    authorize_mcp,
+    step_up_scope,
+)
 from pipy_harness.native.mcp.oauth.page import render_sign_in_page
 from pipy_harness.native.mcp.oauth.provider import McpOAuthState, McpOAuthStateStore
 from pipy_harness.native.mcp.oauth.types import OAuthChallenge, can_parse_url
@@ -177,18 +181,6 @@ def merge_scopes(*scopes: str | None) -> str | None:
 
     merged = dict.fromkeys(name for scope in scopes for name in (scope or "").split())
     return " ".join(merged) or None
-
-
-def step_up_scope(granted: str | None, challenged: str | None) -> str | None:
-    """The scope of a sign-in after an ``insufficient_scope`` challenge: the
-    scopes granted so far and the challenged ones (Pi ``stepUpScope``).
-
-    Without challenged scopes it is ``None``, which lets the flow choose.
-    """
-
-    if not challenged:
-        return None
-    return merge_scopes(granted, challenged) or ""
 
 
 @dataclass(frozen=True, slots=True)

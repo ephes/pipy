@@ -133,6 +133,7 @@ from pipy_harness.native.system_prompt_sections import (
     split_custom_sections,
     with_custom_sections,
 )
+from pipy_harness.native.tool_result_images import tool_result_normalizer
 from pipy_harness.native.tools import ToolDefinition
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
@@ -842,6 +843,7 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         nested_eligibility=scope.execution_projections,
         tool_readiness=scope.mcp_waits.before_tool_call,
         before_turn=scope.before_turn,
+        normalize_result=tool_result_normalizer(scope.settings),
     )
 
 

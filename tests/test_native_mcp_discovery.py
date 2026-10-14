@@ -492,6 +492,30 @@ def test_settings_read_the_builtin_entry_per_scope(tmp_path: Path) -> None:
     [
         (RuntimeResourceOptions(), True, True),
         (RuntimeResourceOptions(), False, False),
+        (RuntimeResourceOptions(no_mcp=True), True, True),
+        (RuntimeResourceOptions(no_extensions=True), True, False),
+        (RuntimeResourceOptions(builtin_extensions=("codemode",)), False, True),
+        (
+            RuntimeResourceOptions(no_extensions=True, builtin_extensions=("mcp",)),
+            True,
+            False,
+        ),
+    ],
+)
+def test_run_options_decide_whether_codemode_is_loaded(
+    options: RuntimeResourceOptions, configured: bool, enabled: bool
+) -> None:
+    # `--no-mcp` concerns MCP alone; the other flags apply to every built-in.
+    assert options.builtin_extension_enabled("codemode", configured=configured) is (
+        enabled
+    )
+
+
+@pytest.mark.parametrize(
+    ("options", "configured", "enabled"),
+    [
+        (RuntimeResourceOptions(), True, True),
+        (RuntimeResourceOptions(), False, False),
         (RuntimeResourceOptions(no_mcp=True), True, False),
         (RuntimeResourceOptions(no_extensions=True), True, False),
         (RuntimeResourceOptions(builtin_extensions=("mcp",)), False, True),
@@ -514,12 +538,13 @@ def test_cli_flags_parse_to_run_options(tmp_path: Path) -> None:
 
     args = parser.parse_args(
         ["repl", "--cwd", str(tmp_path), "--no-mcp", "-ne", "-e", "ext.py"]
-        + ["-e", "builtin:mcp", "-e", "builtin:mcp"]
+        + ["-e", "builtin:mcp", "-e", "builtin:mcp", "-e", "builtin:tool-search"]
+        + ["-e", "builtin:codemode"]
     )
     options = _resource_options_from_args(args)
 
     assert options.no_mcp and options.no_extensions
-    assert options.builtin_extensions == ("mcp",)
+    assert options.builtin_extensions == ("mcp", "tool-search", "codemode")
     assert options.extension_paths == (tmp_path.resolve() / "ext.py",)
     plain = _resource_options_from_args(
         parser.parse_args(["repl", "--cwd", str(tmp_path)])
@@ -545,6 +570,14 @@ def _builtin_report(capfd: pytest.CaptureFixture[str], workspace: Path) -> objec
     return json.loads(capfd.readouterr().out)["builtin"]
 
 
+def _builtins(*, mcp: bool) -> list[dict[str, object]]:
+    return [
+        {"name": "builtin:codemode", "enabled": True},
+        {"name": "builtin:tool-search", "enabled": True},
+        {"name": "builtin:mcp", "enabled": mcp},
+    ]
+
+
 def test_config_command_lists_and_toggles_the_builtin_mcp_entry(
     tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -557,9 +590,7 @@ def test_config_command_lists_and_toggles_the_builtin_mcp_entry(
     user_file.write_text('{"extensions": ["-other", "ext.py"]}')
     cwd = ["--cwd", str(workspace)]
 
-    assert _builtin_report(capfd, workspace) == [
-        {"name": "builtin:mcp", "enabled": True}
-    ]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=True)
 
     assert main(["config", "disable", "builtin", "mcp", *cwd]) == 0
     assert json.loads(user_file.read_text())["extensions"] == [
@@ -567,9 +598,7 @@ def test_config_command_lists_and_toggles_the_builtin_mcp_entry(
         "ext.py",
         "-builtin:mcp",
     ]
-    assert _builtin_report(capfd, workspace) == [
-        {"name": "builtin:mcp", "enabled": False}
-    ]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=False)
 
     # A project entry decides over the user-level one, and is written to the
     # project file alone.
@@ -579,13 +608,14 @@ def test_config_command_lists_and_toggles_the_builtin_mcp_entry(
     )
     project = json.loads((workspace / ".pipy" / "settings.json").read_text())
     assert project["extensions"] == ["+builtin:mcp"]
-    assert _builtin_report(capfd, workspace) == [
-        {"name": "builtin:mcp", "enabled": True}
-    ]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=True)
 
     assert main(["config", "list", "--approve", *cwd]) == 0
     listing = capfd.readouterr().out
-    assert "  built-in:\n    builtin:mcp [enabled]\n" in listing
+    assert (
+        "  built-in:\n    builtin:codemode [enabled]\n"
+        "    builtin:tool-search [enabled]\n    builtin:mcp [enabled]\n"
+    ) in listing
 
 
 def test_config_command_refuses_an_unknown_builtin(
@@ -597,5 +627,8 @@ def test_config_command_refuses_an_unknown_builtin(
 
     assert main(["config", "disable", "builtin", "nope", "--cwd", str(tmp_path)]) == 2
 
-    assert "unknown built-in 'nope'; known: mcp." in capfd.readouterr().err
+    assert (
+        "unknown built-in 'nope'; known: codemode, tool-search, mcp."
+        in capfd.readouterr().err
+    )
     assert not (config_home / "settings.json").exists()

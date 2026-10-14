@@ -9,6 +9,7 @@ adapter calls it.
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import json
 import sys
@@ -921,22 +922,25 @@ def test_a_refresh_takes_a_new_refresh_token() -> None:
     assert tokens["expires_in"] == 60
 
 
-def test_a_redirected_token_request_is_not_followed(
+def test_a_redirected_token_request_is_sent_again_where_it_moved(
     server: FakeAuthorizationServer,
 ) -> None:
-    server.token_replies.append(
-        Reply(307, {"Location": f"{server.origin}/elsewhere"}, b"moved")
+    server.clients["client"] = {"client_id": "client"}
+    server.refresh_tokens["r1"] = "client"
+    server.route("/v1/token", Reply(307, {"Location": "/token"}, b"moved"))
+    tokens = refresh_authorization(
+        server.origin,
+        TokenRequestOptions(
+            client_information={"client_id": "client"},
+            metadata={**server.metadata, "token_endpoint": f"{server.origin}/v1/token"},
+        ),
+        refresh_token="r1",
     )
-    with pytest.raises(OAuthError) as raised:
-        refresh_authorization(
-            server.origin,
-            TokenRequestOptions(
-                client_information={"client_id": "client"}, metadata=server.metadata
-            ),
-            refresh_token="r1",
-        )
-    assert (raised.value.code, str(raised.value)) == ("server_error", "HTTP 307: moved")
-    assert server.paths == ["/token"]
+    assert tokens["access_token"].startswith("access-")
+    assert server.paths == ["/v1/token", "/token"]
+    first, second = server.requests
+    assert first.body == second.body
+    assert form(second)["refresh_token"] == "r1"
 
 
 # -- the flow -----------------------------------------------------------------------
@@ -1062,6 +1066,43 @@ def test_discovers_registers_authorizes_with_pkce_and_refreshes(
     }
     assert provider.authorization_url is None
     assert len(server.requests_to("/register")) == 1
+
+
+def test_the_flow_follows_moved_endpoints_and_reads_compressed_answers(
+    server: FakeAuthorizationServer,
+) -> None:
+    # As with Pi's fetch: a registration and a token request follow a 307 or
+    # 308 with their body, and a gzip answer is decoded.
+    document = {
+        **server.metadata,
+        "registration_endpoint": f"{server.origin}/v1/register",
+        "token_endpoint": f"{server.origin}/v1/token",
+    }
+    server.route(
+        _AS,
+        Reply(
+            200,
+            {"Content-Type": "application/json", "Content-Encoding": "gzip"},
+            gzip.compress(json.dumps(document).encode("utf-8")),
+        ),
+    )
+    server.route("/v1/register", Reply(307, {"Location": "/register"}))
+    server.route("/v1/token", Reply(308, {"Location": f"{server.origin}/token"}))
+    provider = _Provider()
+    assert authorize_mcp(provider, _options(server)) == "REDIRECT"
+    assert provider.client is not None
+    assert provider.authorization_url is not None
+    response = authorization_response(provider.authorization_url)
+    with_code = _options(server, authorization_code=response["code"])
+    assert authorize_mcp(provider, with_code) == "AUTHORIZED"
+    assert provider.token_set is not None
+    assert provider.token_set["access_token"].startswith("access-")
+    assert [path for path in server.paths if "register" in path or "token" in path] == [
+        "/v1/register",
+        "/register",
+        "/v1/token",
+        "/token",
+    ]
 
 
 def test_the_code_of_the_fake_server_is_exchanged_with_the_stored_verifier(

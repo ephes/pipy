@@ -282,7 +282,9 @@ as `retry.provider` are replaced wholesale):
 - `terminal?: { showImages?: boolean=true; imageWidthCells?: number=60;
   clearOnShrink?: boolean (env `PIPY_CLEAR_ON_SHRINK`=1); showTerminalProgress?:
   boolean=false }`
-- `images?: { autoResize?: boolean=true; blockImages?: boolean=false }`
+- `images?: { autoResize?: boolean=true; blockImages?: boolean=false }` (both
+  apply to tool result images, see
+  [providers](providers.md#size-of-tool-result-images-and-images-settings))
 - `thinkingBudgets?: { minimal?; low?; medium?; high? }`
 - `markdown?: { codeBlockIndent?: string="  " }`
 - `warnings?: { anthropicExtraUsage?: boolean=true }`
@@ -1179,8 +1181,10 @@ Caller-injected plain registries keep their ownership and are not replaced or
 widened by product defaults. CLI `--tools +codemode,-read` applies exact modifiers
 on the resolved setting/default selection. A plain CLI allowlist overrides the
 setting and retains existing builtin/extension filtering. Mixing plain names and
-modifiers, or using wildcard modifiers, is an error. `--no-tools`,
-`--no-builtin-tools` and `--exclude-tools` retain their existing precedence.
+modifiers, or using wildcard modifiers, is an error. `--no-tools` and
+`--no-builtin-tools` empty the default selection, so the setting is not read
+with them and `+name` entries start from nothing; `--exclude-tools` applies
+last (see [tool options](usage.md#tool-options)).
 Allowlist and exclusion entries may be patterns in which `*` matches any
 characters, and an allowlist of plain names keeps MCP tools registered; see
 [tool options](usage.md#tool-options).

@@ -8,6 +8,7 @@ stdio server, and the ``pi mcp login`` case of
 from __future__ import annotations
 
 import json
+import math
 import os
 import select
 import subprocess
@@ -31,6 +32,7 @@ from pipy_harness.native.mcp.shell_cli import (
     HELP_HINT,
     REDIRECT_URL_PROMPT,
     McpCommandOptions,
+    _js_number,
     read_redirect_url,
     run_mcp_command,
 )
@@ -648,7 +650,9 @@ def test_rejects_options_login_and_logout_do_not_have(home: _Home) -> None:
     assert home.errors == [f"Unknown option --json.\n{HELP_HINT}"]
 
 
-@pytest.mark.parametrize("timeout", ["0", "-1", "soon", "", "Infinity", "0x10"])
+@pytest.mark.parametrize(
+    "timeout", ["0", "-1", "soon", "", "Infinity", "-0x10", "0x", "1_000", "-0"]
+)
 def test_the_login_timeout_must_be_a_positive_number(home: _Home, timeout: str) -> None:
     # CMDL-13. Checked before anything is connected.
     with FakeOAuthMcpServer() as server:
@@ -658,6 +662,78 @@ def test_the_login_timeout_must_be_a_positive_number(home: _Home, timeout: str) 
 
         assert home.errors == ["--timeout must be a positive number of seconds."]
         assert server.requests == []
+
+
+# What Node's `Number(text)` gives (node 26), as Pi reads --timeout and
+# --oauth-callback-port.
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("0x50", 80),
+        (" 0X1f ", 31),
+        ("0o17", 15),
+        ("0b101", 5),
+        ("0B1", 1),
+        ("1e3", 1000),
+        ("+1e3", 1000),
+        ("-1.5", -1.5),
+        (".5", 0.5),
+        ("5.", 5),
+        ("1.5e-1", 0.15),
+        ("0e5", 0),
+        ("0.0", 0),
+        ("\u00a080\u2028", 80),
+        ("Infinity", math.inf),
+        ("-Infinity", -math.inf),
+        ("+Infinity", math.inf),
+        ("1e400", math.inf),
+        ("0x" + "f" * 300, math.inf),
+        ("", 0),
+        ("  ", 0),
+        ("\t\n", 0),
+    ],
+)
+def test_option_numbers_are_read_as_javascript_number_reads_them(
+    text: str, expected: float
+) -> None:
+    number = _js_number(text)
+    assert number == expected
+    if isinstance(expected, int):
+        assert type(number) is int
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "infinity",
+        "inf",
+        "nan",
+        "0x",
+        "-0x10",
+        "+0x10",
+        "0x1g",
+        "1_000",
+        "00x1",
+        "12abc",
+    ],
+)
+def test_other_option_text_is_not_a_number(text: str) -> None:
+    assert math.isnan(_js_number(text))
+
+
+def test_a_login_timeout_can_be_written_as_javascript_writes_a_number(
+    home: _Home,
+) -> None:
+    # Pi reads --timeout with Number(): 0b1 is one second.
+    home.open_url = lambda url: None
+    with FakeOAuthMcpServer() as server:
+        home.write({"issues": {"url": server.url}})
+
+        assert home.run("login", "issues", "--timeout", "0b1") == 1
+        assert home.errors == [
+            'Sign-in to MCP server "issues" was cancelled or not completed '
+            "within 1 seconds."
+        ]
 
 
 def _browser(url: str) -> None:
@@ -1125,6 +1201,28 @@ def test_adds_http_servers_and_keeps_other_content_of_the_file(home: _Home) -> N
             ("add", "x", "--url", "https://example.com", "--oauth-callback-port", "0"),
             'server "x": oauth.callbackPort must be a port number',
         ),
+        (
+            (
+                "add",
+                "x",
+                "--url",
+                "https://example.com",
+                "--oauth-callback-port",
+                "-0x50",
+            ),
+            'server "x": oauth.callbackPort must be a port number',
+        ),
+        (
+            (
+                "add",
+                "x",
+                "--url",
+                "https://example.com",
+                "--oauth-callback-port",
+                "8e4",
+            ),
+            'server "x": oauth.callbackPort must be a port number',
+        ),
         (("add", "x", "--frobnicate", "--", "cmd"), None),
         (("add", "x", "--env"), "--env needs a value."),
         (("add", "x", "--url"), "--url needs a value."),
@@ -1140,6 +1238,22 @@ def test_rejects_invalid_add_invocations_without_writing(
     assert home.output == []
     assert not home.global_config.exists()
     assert not home.project_config.exists()
+
+
+@pytest.mark.parametrize(
+    ("port", "written"), [("0x50", 80), ("0o17", 15), ("1e3", 1000), (" 8080 ", 8080)]
+)
+def test_the_callback_port_is_read_as_javascript_number_reads_it(
+    home: _Home, port: str, written: int
+) -> None:
+    # Pi writes `callbackPort: Number(port)`.
+    url = "https://example.com/mcp"
+    assert home.run("add", "x", "--url", url, "--oauth-callback-port", port) == 0
+    callback_port = home.read()["mcpServers"]["x"]["oauth"]["callbackPort"]
+    assert (callback_port, type(callback_port)) == (written, int)
+    assert f'"callbackPort": {written}' in home.global_config.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_adds_and_removes_project_servers(home: _Home) -> None:

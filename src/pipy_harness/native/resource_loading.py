@@ -43,16 +43,26 @@ class RuntimeResourceOptions:
     def empty(cls) -> "RuntimeResourceOptions":
         return cls()
 
+    def builtin_extension_enabled(self, name: str, *, configured: bool) -> bool:
+        """Whether this run loads the built-in extension ``name`` (Pi
+        ``DefaultResourceLoader``).
+
+        ``configured`` is what the ``extensions`` settings say.
+        ``--extension builtin:<name>`` turns it on, also with
+        ``--no-extensions``, which turns it off like the settings can.
+        """
+
+        if name in self.builtin_extensions:
+            return True
+        return configured and not self.no_extensions
+
     def mcp_enabled(self, *, configured: bool) -> bool:
         """Whether this run has MCP (the built-in extension ``mcp``).
 
-        ``configured`` is what the ``extensions`` settings say. ``--no-mcp``
-        turns it off; otherwise ``--extension builtin:mcp`` turns it on, also
-        with ``--no-extensions``, which turns it off like the settings can.
+        ``--no-mcp`` turns it off; otherwise :meth:`builtin_extension_enabled`
+        decides.
         """
 
         if self.no_mcp:
             return False
-        if "mcp" in self.builtin_extensions:
-            return True
-        return configured and not self.no_extensions
+        return self.builtin_extension_enabled("mcp", configured=configured)

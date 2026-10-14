@@ -68,7 +68,10 @@ from pipy_harness.native.themes import (
     resolve_active_theme_name,
 )
 from pipy_harness.native.thinking import DEFAULT_THINKING_LEVEL
-from pipy_harness.native.tool_capabilities import ToolFilterOptions
+from pipy_harness.native.tool_capabilities import (
+    ToolFilterOptions,
+    apply_tool_modifiers,
+)
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.version_check import (
@@ -377,8 +380,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Disable default workspace/global/package extension discovery and "
-            "the built-in MCP support for this run. Explicit --extension "
-            "paths still load, and --extension builtin:mcp keeps MCP."
+            "the built-in extensions (mcp, codemode, tool-search) for this run. "
+            "Explicit --extension paths still load, and --extension "
+            "builtin:<name> keeps a built-in extension."
         ),
     )
     repl_parser.add_argument(
@@ -830,12 +834,24 @@ def _tool_filter_options_from_args(args: Any) -> ToolFilterOptions:
         raise ValueError(
             f"+name and -name entries take exact tool names, not patterns: {pattern}"
         )
+    exclude = _parse_tool_name_list(getattr(args, "exclude_tools", None))
+    no_tools = bool(getattr(args, "no_tools", False))
+    no_builtin_tools = bool(getattr(args, "no_builtin_tools", False)) and not no_tools
+    # Pi ``createAgentSession``: the no-tools flags only empty the default
+    # selection. Modifiers then start from nothing, and with ``--no-tools``
+    # what they select is the allowlist. A plain list, also an empty one,
+    # replaces the selection and is the allowlist whatever the flags say.
+    if modifiers:
+        if no_tools:
+            allow = apply_tool_modifiers((), modifiers)
+            return ToolFilterOptions(allow=allow, exclude=exclude, no_tools=not allow)
+        return ToolFilterOptions(
+            modifiers=modifiers, exclude=exclude, no_builtin_tools=no_builtin_tools
+        )
+    if getattr(args, "tools", None) is not None:
+        return ToolFilterOptions(allow=entries, exclude=exclude, no_tools=not entries)
     return ToolFilterOptions(
-        allow=() if modifiers else entries,
-        modifiers=modifiers,
-        exclude=_parse_tool_name_list(getattr(args, "exclude_tools", None)),
-        no_tools=bool(getattr(args, "no_tools", False)),
-        no_builtin_tools=bool(getattr(args, "no_builtin_tools", False)),
+        exclude=exclude, no_tools=no_tools, no_builtin_tools=no_builtin_tools
     )
 
 

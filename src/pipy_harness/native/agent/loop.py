@@ -417,11 +417,16 @@ class AgentLoop:
         before_turn: TurnStartHook | None = None,
         parent_runner: Callable[[AgentToolCall], AgentCompositeToolRunner | None]
         | None = None,
+        normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
+        | None = None,
     ) -> None:
         """``composite_runner`` runs the built-in ``codemode``.
         ``parent_runner`` is asked for every other admitted call the model
         made: the runner it returns runs that call as a composite parent,
-        which may then call other tools; ``None`` runs it as a plain call."""
+        which may then call other tools; ``None`` runs it as a plain call.
+        ``normalize_result`` sees every result after the ``tool_result``
+        hooks, nested ones included, before it is shown or stored (Pi
+        ``_afterToolCall`` normalizes the images there)."""
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
         _require_protocol(tool_capabilities, AgentToolCapabilities, "tool_capabilities")
@@ -442,7 +447,10 @@ class AgentLoop:
             raise TypeError("before_turn must be callable or None")
         if parent_runner is not None and not callable(parent_runner):
             raise TypeError("parent_runner must be callable or None")
+        if normalize_result is not None and not callable(normalize_result):
+            raise TypeError("normalize_result must be callable or None")
         self._parent_runner = parent_runner
+        self._normalize_result = normalize_result
         self._request_source = request_source
         self._provider_turn = provider_turn
         self._tools = tool_capabilities
@@ -1155,8 +1163,8 @@ class AgentLoop:
         _validate_tool_result_for_call(execution.result, call)
         result = execution.result
         if arguments is not None:
-            result = _transform_tool_result(
-                self._tool_policy, call, result, arguments, parent_call_id
+            result = self._after_tool_call(
+                call, call, result, arguments, parent_call_id
             )
         _validate_tool_result_for_call(result, call)
         return _SettledToolCall(result, settlement, execution.cancelled)
@@ -1300,10 +1308,9 @@ class AgentLoop:
                 )
             # The result policy sees the call as it was asked for, as for a
             # direct or a nested call.
-            result = _transform_tool_result(
-                self._tool_policy, asked, execution.result, arguments, None
+            result = self._after_tool_call(
+                asked, call, execution.result, arguments, None
             )
-            _validate_tool_result_for_call(result, call)
             if recorded:
                 # Hooks own content; canonical metadata is a fresh post-hook
                 # snapshot.
@@ -1327,6 +1334,29 @@ class AgentLoop:
         finally:
             service.close()
             self._release_composite_reservation(state, unwinding=unwinding)
+
+    def _after_tool_call(
+        self,
+        asked: AgentToolCall,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+    ) -> AgentToolResultMessage:
+        """The ``tool_result`` hooks, which see the call as it was ``asked``
+        for, then the normalizer (Pi ``_afterToolCall``). Only a call that
+        reached its ``tool_call`` hooks gets here, as in Pi."""
+
+        result = _transform_tool_result(
+            self._tool_policy, asked, result, arguments, parent_call_id
+        )
+        _validate_tool_result_for_call(result, call)
+        if self._normalize_result is None:
+            return result
+        normalized = self._normalize_result(result)
+        if normalized is not result:
+            _validate_tool_result_for_call(normalized, call)
+        return normalized
 
     def _release_composite_reservation(
         self, state: _RunState, *, unwinding: bool

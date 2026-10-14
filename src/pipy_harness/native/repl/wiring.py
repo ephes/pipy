@@ -856,6 +856,14 @@ def _prepare_startup(
     )
 
 
+def _builtin_extension_enabled(
+    resource_options: RuntimeResourceOptions, settings: SettingsManager, name: str
+) -> bool:
+    return resource_options.builtin_extension_enabled(
+        name, configured=settings.builtin_extension_enabled(name)
+    )
+
+
 def _compose_extension_phase(
     inputs: SessionWiringInput,
     startup: _StartupPhase,
@@ -926,6 +934,11 @@ def _compose_extension_phase(
         diagnostic=partial(_local_notify, "warning"),
         codemode_loadout=partial(codemode_loadout, settings, builtins),
         optional_builtins=None if builtins is None else builtins.tool_names,
+        # The ``pipy`` command loads ``codemode`` and ``tool_search`` as
+        # built-in extensions; an embedded session has what it was given.
+        builtin_extension_enabled=None
+        if builtins is not None
+        else partial(_builtin_extension_enabled, startup.resource_options, settings),
     )
 
     mcp = McpSession(

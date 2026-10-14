@@ -21,17 +21,46 @@ cancel event or the time limit ends the wait at once, also while the thread is
 still connecting; the thread then ends when its connection attempt does, after
 at most ``CONNECT_TIMEOUT_MS``.
 
-Where the default fetch differs from JavaScript's ``fetch``, which Pi uses:
+Redirects are followed as the ``fetch`` of Node does, which Pi uses (the
+fetch standard's HTTP-redirect fetch, and undici's addition to it):
 
-- A redirect is followed for a request without a body only, at most 20 times.
-  The redirect answer to a request with a body is returned as the response,
-  so a token request and its credentials never follow a server elsewhere.
-  As with ``fetch``, a redirect to another origin drops the ``Authorization``,
-  ``Proxy-Authorization`` and ``Cookie`` headers.
+- A 301, 302, 303, 307 or 308 answer with a ``Location`` header is followed,
+  to any origin, at most ``MAX_REDIRECTS`` times. Without the header the
+  answer is the response.
+- A 307 and a 308 send the method and the body again, so a registration or
+  a token request follows the server to where it moved. A 303 turns every
+  method but GET and HEAD into a GET, and a 301 or 302 turns a POST into
+  one; the body and the headers ``Content-Encoding``, ``Content-Language``,
+  ``Content-Location`` and ``Content-Type`` are dropped then.
+- A redirect to another origin (scheme, host or port) drops the headers
+  ``Authorization``, ``Proxy-Authorization``, ``Cookie`` and ``Host`` for
+  the rest of the request, also when a later redirect leads back. Every
+  other header and the body are sent on: the form fields of a token request
+  (a code, a refresh token, a ``client_secret``) reach the other origin, as
+  with ``fetch``.
+
+A compressed answer is decoded as ``fetch`` decodes it. A request asks for
+``Accept-Encoding: gzip, deflate`` unless the caller set that header. The
+codings of the answer's ``Content-Encoding`` are undone, the last one
+first: ``gzip`` and ``x-gzip``, and ``deflate`` with or without the zlib
+wrapper. A compressed body that ends early gives what it held up to there; after a
+gzip member comes another one or zero bytes, after a deflate stream
+anything.
+A list with another coding leaves the body as it arrived. The answer of a
+HEAD request, of the statuses 101, 204, 205 and 304 and of a redirect that
+is followed is not decoded. Data that is not what the coding says, and more
+than five codings, are network failures.
+
+Where the default fetch differs from JavaScript's ``fetch``:
+
 - A response body is read as a whole and limited to
-  ``MAX_OAUTH_RESPONSE_BYTES``.
-- There is no proxy support and no transparent decompression.
-- A URL with user info is refused.
+  ``MAX_OAUTH_RESPONSE_BYTES``, as it arrived and after each decoding.
+- There is no proxy support.
+- ``br`` and ``zstd`` are not asked for and not decoded (Node asks for them
+  over ``https``); a body in one of them is left as it arrived.
+- A URL with user info is refused, also as the target of a redirect.
+- A ``Location`` is resolved with ``urllib.parse.urljoin`` and the config
+  parser, not with a WHATWG URL parser.
 """
 
 from __future__ import annotations
@@ -43,6 +72,7 @@ import ssl
 import threading
 import time
 import urllib.parse
+import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, NoReturn, Protocol
@@ -61,10 +91,24 @@ CONNECT_TIMEOUT_MS: Final = 30_000
 _POLL_SECONDS: Final = 0.05
 _REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
 _URL_PATH_SAFE: Final = "/%:@!$&'()*+,;=-._~"
-# Request headers that stay with the origin they were meant for.
-_ORIGIN_BOUND_HEADERS: Final = frozenset(
-    {"authorization", "proxy-authorization", "cookie"}
+# The fetch standard's request-body-header names.
+_BODY_HEADERS: Final = frozenset(
+    {"content-encoding", "content-language", "content-location", "content-type"}
 )
+# What a redirect to another origin drops: `Authorization` by the fetch
+# standard, the other three by undici.
+_ORIGIN_BOUND_HEADERS: Final = frozenset(
+    {"authorization", "proxy-authorization", "cookie", "host"}
+)
+ACCEPT_ENCODING: Final = "gzip, deflate"
+MAX_CONTENT_ENCODINGS: Final = 5
+# Statuses whose answer has no body to decode (the fetch standard's null
+# body statuses).
+_NULL_BODY_STATUSES: Final = frozenset({101, 204, 205, 304})
+# `wbits` of zlib: a gzip member, a zlib stream, a raw deflate stream.
+_GZIP_WBITS: Final = 16 + zlib.MAX_WBITS
+_ZLIB_WBITS: Final = zlib.MAX_WBITS
+_RAW_WBITS: Final = -zlib.MAX_WBITS
 
 
 def _reject_constant(name: str) -> NoReturn:
@@ -167,6 +211,66 @@ class _SocketShutdown:
             pass  # Not connected any more.
 
 
+def _too_large(limit: int) -> McpProtocolError:
+    return McpProtocolError(f"OAuth response exceeds {limit} bytes")
+
+
+def _inflate(data: bytes, wbits: int, limit: int) -> bytes:
+    """``data`` decompressed. A stream that ends early gives what it held."""
+
+    out = b""
+    while True:
+        decoder = zlib.decompressobj(wbits)
+        out += decoder.decompress(data, limit + 1 - len(out))
+        if len(out) > limit:
+            raise _too_large(limit)
+        # A gzip body may be several members, one after the other. As in
+        # Node's zlib, data after a member is the next member unless it
+        # starts with a zero byte, which ends the body as padding. Deflate
+        # ignores data after its stream.
+        data = decoder.unused_data
+        if wbits != _GZIP_WBITS or not data or data[0] == 0:
+            return out
+
+
+def _decode(coding: str, data: bytes, limit: int) -> bytes:
+    if coding == "deflate":
+        # As undici tells the two forms apart: by the first byte.
+        zlib_wrapped = bool(data) and data[0] & 0x0F == 0x08
+        return _inflate(data, _ZLIB_WBITS if zlib_wrapped else _RAW_WBITS, limit)
+    return _inflate(data, _GZIP_WBITS, limit)
+
+
+def _decoded(
+    response: OAuthResponse, method: str, url: str, limit: int
+) -> OAuthResponse:
+    """``response`` with the codings of its ``Content-Encoding`` undone."""
+
+    encoding = response.header("content-encoding")
+    if (
+        not encoding
+        or method.upper() in ("HEAD", "CONNECT")
+        or response.status in _NULL_BODY_STATUSES
+    ):
+        return response
+    codings = [coding.strip() for coding in encoding.lower().split(",")]
+    if len(codings) > MAX_CONTENT_ENCODINGS:
+        raise http.client.HTTPException(
+            f"Too many content encodings in the response of {url}: {len(codings)}"
+        )
+    if any(coding not in ("gzip", "x-gzip", "deflate") for coding in codings):
+        return response
+    body = response.body
+    try:
+        for coding in reversed(codings):
+            body = _decode(coding, body, limit)
+    except zlib.error as error:
+        raise http.client.HTTPException(
+            f"Cannot decode the {encoding} response of {url}: {error}"
+        ) from error
+    return OAuthResponse(response.status, response.headers, body)
+
+
 def _read_response(connection: http.client.HTTPConnection, limit: int) -> OAuthResponse:
 
     response = connection.getresponse()
@@ -177,7 +281,7 @@ def _read_response(connection: http.client.HTTPConnection, limit: int) -> OAuthR
     announced = response.length
     body = response.read(limit + 1)
     if len(body) > limit:
-        raise McpProtocolError(f"OAuth response exceeds {limit} bytes")
+        raise _too_large(limit)
     if announced is not None and len(body) < announced:
         raise http.client.IncompleteRead(body, announced - len(body))
     return OAuthResponse(response.status, headers, body)
@@ -191,8 +295,11 @@ def _send(
     token: CancelToken,
     limit: int,
 ) -> OAuthResponse:
-    """One request on a connection of its own."""
+    """One request on a connection of its own. The body of the answer is as
+    it arrived."""
 
+    if not any(name.lower() == "accept-encoding" for name in headers):
+        headers = {**headers, "Accept-Encoding": ACCEPT_ENCODING}
     timeout = CONNECT_TIMEOUT_MS / 1000
     connection: http.client.HTTPConnection
     if target.secure:
@@ -225,6 +332,10 @@ def _send(
         connection.close()
 
 
+def _without(headers: Mapping[str, str], names: frozenset[str]) -> dict[str, str]:
+    return {name: value for name, value in headers.items() if name.lower() not in names}
+
+
 def _exchange(
     url: str,
     method: str,
@@ -233,28 +344,26 @@ def _exchange(
     token: CancelToken,
     limit: int,
 ) -> OAuthResponse:
-    """One request, following redirects when it has no body."""
+    """One request, following redirects as Node's fetch does."""
 
     target = _parse_target(url)
     for _ in range(MAX_REDIRECTS + 1):
         response = _send(target, method, headers, body, token, limit)
         location = response.header("location")
-        if (
-            response.status not in _REDIRECT_STATUSES
-            or location is None
-            or body is not None
-        ):
-            return response
+        if response.status not in _REDIRECT_STATUSES or location is None:
+            return _decoded(response, method, target.url, limit)
         try:
             redirected = _parse_target(urllib.parse.urljoin(target.url, location))
         except ValueError as error:
             raise _cannot_request(location) from error
+        if (response.status == 303 and method not in ("GET", "HEAD")) or (
+            response.status in (301, 302) and method == "POST"
+        ):
+            method = "GET"
+            body = None
+            headers = _without(headers, _BODY_HEADERS)
         if redirected.origin != target.origin:
-            headers = {
-                name: value
-                for name, value in headers.items()
-                if name.lower() not in _ORIGIN_BOUND_HEADERS
-            }
+            headers = _without(headers, _ORIGIN_BOUND_HEADERS)
         target = redirected
     raise http.client.HTTPException(f"Too many redirects requesting {url}")
 
