@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from pipy_harness.native.mcp import http as http_module
+from pipy_harness.native.mcp import http_fetch
 from pipy_harness.native.mcp.client import (
     McpClient,
     McpClientOptions,
@@ -539,11 +539,6 @@ def test_the_content_type_of_an_answer_may_carry_parameters(fake: _Fixture) -> N
         ("not json", json.JSONDecodeError, "Expecting value"),
         ('{"jsonrpc":"2.0","id":2,"result":NaN}', ValueError, "Invalid JSON constant"),
         ('{"id":2,"result":{}}', McpError, "Invalid JSON-RPC message"),
-        (
-            '{"jsonrpc":"2.0","id":2,"result":"' + "x" * 600 + '"}',
-            McpProtocolError,
-            "MCP HTTP message exceeds 512 bytes",
-        ),
     ],
 )
 def test_a_json_body_that_is_no_message_fails_the_request(
@@ -558,6 +553,26 @@ def test_a_json_body_that_is_no_message_fails_the_request(
     with pytest.raises(error, match=message):
         client.call_tool("echo")
     assert client.list_tools() == [_ECHO]
+
+
+def test_a_json_answer_is_not_held_to_the_message_limit(fake: _Fixture) -> None:
+    # Pi reads a JSON answer with `response.json()`; `maxMessageBytes` is
+    # for the events of a stream only.
+    big = {"content": [{"type": "text", "text": "x" * 4096}]}
+    listing = [
+        {"jsonrpc": "2.0", "method": "notifications/x", "params": {"n": n}}
+        for n in range(40)
+    ]
+    server = fake.server(
+        tools=[_ECHO, {**_ECHO, "name": "many"}],
+        toolResults={"echo": big, "many": _HELLO},
+        toolSteps={"many": [*({"send": item} for item in listing), {"default": True}]},
+    )
+    client = fake.connect(server, max_message_bytes=512)
+
+    assert client.call_tool("echo") == big
+    # An array of small messages that is longer than the limit as a whole.
+    assert client.call_tool("many") == _HELLO
 
 
 def test_a_json_body_shorter_than_announced_fails_the_request(fake: _Fixture) -> None:
@@ -769,7 +784,7 @@ def test_gives_up_on_a_redirect_loop(fake: _Fixture) -> None:
         fake.connect(server)
 
     assert failure.value.status == 307
-    assert len(server.requests) == http_module.MAX_REDIRECTS + 1
+    assert len(server.requests) == http_fetch.MAX_REDIRECTS + 1
 
 
 # -- timeout, cancel and close ----------------------------------------------

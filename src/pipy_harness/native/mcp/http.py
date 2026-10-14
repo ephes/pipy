@@ -51,14 +51,23 @@ whose stream was being resumed.
 One lock guards the transport's state. It is never held during network I/O or
 while a listener runs.
 
+HTTP. Every request goes through the transport's fetch: the ``fetch`` option
+(Pi ``options.fetch``), or the default one of ``http_fetch.py``, whose module
+text says what a fetch has to do. Redirects, proxies and TLS are the fetch's
+business.
+
 Limits of what is promised:
 
-- There is no proxy support, and a redirect is followed only to the server's
-  own origin, so configured headers and tokens are sent nowhere else.
-- A connection attempt cannot be interrupted. An I/O thread that is still
-  connecting when its request is given up ends when the attempt does, after
-  at most ``send_timeout_ms`` (one second for a cancellation notice and for
-  the DELETE of a session).
+- The default fetch has no proxy support and follows a redirect only to the
+  server's own origin, so configured headers and tokens are sent nowhere
+  else.
+- With the default fetch a connection attempt cannot be interrupted. An I/O
+  thread that is still connecting when its request is given up ends when the
+  attempt does, after at most ``send_timeout_ms`` (one second for a
+  cancellation notice and for the DELETE of a session).
+- A JSON answer is read as a whole, whatever its size (Pi
+  ``response.json()``); ``max_message_bytes`` limits one event of an event
+  stream.
 - A delay the server asks for with ``retry`` is waited as it is, however
   long; a request's own timeout, its cancellation and ``close()`` end the
   wait.
@@ -68,18 +77,22 @@ from __future__ import annotations
 
 import http.client
 import json
-import math
 import re
-import socket
-import ssl
 import threading
 import time
-import urllib.parse
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Final, NoReturn, Protocol
 
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.mcp.http_fetch import (
+    McpFetch,
+    McpHttpRequest,
+    McpHttpResponse,
+    create_default_fetch,
+    parse_http_target,
+    timeout_seconds,
+)
 from pipy_harness.native.mcp.protocol import (
     INTERNAL_ERROR,
     JsonRpcId,
@@ -103,19 +116,15 @@ DEFAULT_SEND_TIMEOUT_MS: Final = 30_000
 # holds neither the caller that gave a request up nor ``close()``.
 CANCEL_NOTICE_TIMEOUT_MS: Final = 1_000
 CLOSE_TIMEOUT_MS: Final = 1_000
-MAX_REDIRECTS: Final = 20
 DEFAULT_RECONNECT_INITIAL_DELAY_MS: Final = 1_000
 DEFAULT_RECONNECT_MAX_DELAY_MS: Final = 30_000
 DEFAULT_RECONNECT_MAX_RETRIES: Final = 5
 # No backoff delay doubles more often than this, whatever `max_retries` is.
 _MAX_BACKOFF_DOUBLINGS: Final = 32
-_READ_BYTES: Final = 64 * 1024
 # A bearer challenge that asks for more scope (step-up authorization).
 _INSUFFICIENT_SCOPE: Final = re.compile(
     r'(?:^|[\s,])error="?insufficient_scope"?', re.IGNORECASE
 )
-_REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
-_URL_PATH_SAFE: Final = "/%:@!$&'()*+,;=-._~"
 
 
 class McpHttpError(Exception):
@@ -176,7 +185,14 @@ class McpAuthProvider(Protocol):
         ...
 
 
-def _needs_authorization(response: _HttpResponse) -> bool:
+def _content_type(response: McpHttpResponse) -> str | None:
+    """The media type of an answer, lower case and without parameters."""
+
+    value = response.header("content-type")
+    return None if value is None else value.split(";", 1)[0].strip().lower()
+
+
+def _needs_authorization(response: McpHttpResponse) -> bool:
     """Status 401, or 403 with a bearer challenge for more scope."""
 
     if response.status == 401:
@@ -208,9 +224,13 @@ class StreamableHttpTransportOptions:
     ``send_timeout_ms`` bounds a connection attempt and the wait for the
     server to accept a notification or a response; a value that is not a
     positive finite number removes the bound. Requests are bounded by the
-    client's request timeout instead. ``open_get_stream`` set to ``False``
-    leaves the server-to-client stream unopened. ``reconnect`` applies to that
-    stream and to response streams whose events carry ids.
+    client's request timeout instead. ``max_message_bytes`` limits one event
+    of an event stream; a JSON answer has no limit. ``open_get_stream`` set to
+    ``False`` leaves the server-to-client stream unopened. ``reconnect``
+    applies to that stream and to response streams whose events carry ids.
+    ``fetch`` sends the transport's HTTP requests, for a proxy or a network
+    of the caller's own (Pi ``options.fetch``); ``http_fetch.py`` says what
+    it has to do. Without it the transport uses ``create_default_fetch()``.
     """
 
     url: str
@@ -222,53 +242,7 @@ class StreamableHttpTransportOptions:
     reconnect: StreamableHttpReconnectOptions = field(
         default_factory=StreamableHttpReconnectOptions
     )
-
-
-@dataclass(frozen=True, slots=True)
-class _Target:
-    """One URL, split into what a connection and a request line need."""
-
-    url: str
-    secure: bool
-    host: str
-    port: int
-    path: str
-
-    @property
-    def origin(self) -> tuple[bool, str, int]:
-        return (self.secure, self.host, self.port)
-
-
-def _parse_target(url: str) -> _Target | None:
-    """Split an ``http`` or ``https`` URL; ``None`` when it is not one."""
-
-    try:
-        parts = urllib.parse.urlsplit(url)
-        port = parts.port
-    except ValueError:
-        return None
-    host = parts.hostname
-    if parts.scheme not in ("http", "https") or not host:
-        return None
-    if parts.username is not None or parts.password is not None:
-        return None
-    secure = parts.scheme == "https"
-    path = urllib.parse.quote(parts.path or "/", safe=_URL_PATH_SAFE)
-    if parts.query:
-        path += "?" + urllib.parse.quote(parts.query, safe=_URL_PATH_SAFE + "?")
-    if port is None:
-        port = 443 if secure else 80
-    elif port == 0:
-        return None
-    return _Target(url, secure, host, port, path)
-
-
-def _seconds(timeout_ms: float) -> float | None:
-    """A timeout in seconds, ``None`` when ``timeout_ms`` sets no bound."""
-
-    if math.isfinite(timeout_ms) and timeout_ms > 0:
-        return timeout_ms / 1000
-    return None
+    fetch: McpFetch | None = None
 
 
 def _reject_constant(name: str) -> NoReturn:
@@ -306,90 +280,6 @@ def _describe_http_failure(status: int, body: str) -> str:
     )
 
 
-class _SocketShutdown:
-    """Ends a blocked read or write on a connection from another thread.
-
-    ``shutdown`` rather than ``close``: a blocked ``recv`` returns at once on
-    shutdown, while ``close`` is deferred as long as the response's reader
-    holds the socket. The thread that owns the connection closes it.
-    """
-
-    __slots__ = ("_socket",)
-
-    def __init__(self, sock: socket.socket) -> None:
-        self._socket = sock
-
-    def close(self) -> None:
-        try:
-            self._socket.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass  # Not connected any more.
-
-
-class _HttpResponse:
-    """A response whose body has not been read, and its connection.
-
-    ``on_close`` runs once, when the response is closed.
-    """
-
-    def __init__(
-        self,
-        connection: http.client.HTTPConnection,
-        response: http.client.HTTPResponse,
-        on_close: Callable[[], None],
-    ) -> None:
-        self._connection = connection
-        self._response = response
-        self._on_close: Callable[[], None] | None = on_close
-        self.status = response.status
-
-    def header(self, name: str) -> str | None:
-        return self._response.getheader(name)
-
-    @property
-    def content_type(self) -> str | None:
-        value = self.header("content-type")
-        return None if value is None else value.split(";", 1)[0].strip().lower()
-
-    def read(self, limit: int) -> bytes:
-        """The start of the body, up to ``limit`` bytes."""
-
-        return self._response.read(limit)
-
-    def read_body(self, limit: int) -> bytes | None:
-        """The whole body, or ``None`` when it is longer than ``limit`` bytes.
-
-        Raises ``http.client.IncompleteRead`` when the connection ends before
-        the length the server announced.
-        """
-
-        announced = self._response.length
-        data = self._response.read(limit + 1)
-        if len(data) > limit:
-            return None
-        if announced is not None and len(data) < announced:
-            raise http.client.IncompleteRead(data, announced - len(data))
-        return data
-
-    def chunks(self) -> Iterator[bytes]:
-        """The body as it arrives."""
-
-        while chunk := self._response.read1(_READ_BYTES):
-            yield chunk
-
-    def close(self) -> None:
-        on_close, self._on_close = self._on_close, None
-        if on_close is None:
-            return
-        try:
-            self._response.close()
-        finally:
-            try:
-                self._connection.close()
-            finally:
-                on_close()
-
-
 class _Exchange:
     """One I/O thread's work: what ends it, and how it went for a waiting sender.
 
@@ -420,13 +310,14 @@ class StreamableHttpTransport(TransportEvents):
 
     def __init__(self, options: StreamableHttpTransportOptions) -> None:
         super().__init__()
-        target = _parse_target(options.url)
-        if target is None:
+        if parse_http_target(options.url) is None:
             raise ValueError(f"Invalid MCP server URL: {options.url}")
         self.options = options
-        self._target = target
+        self._url = options.url
         self._headers = dict(options.headers or {})
-        self._tls = ssl.create_default_context() if target.secure else None
+        self._fetch: McpFetch = (
+            create_default_fetch() if options.fetch is None else options.fetch
+        )
         self._lock = threading.Lock()
         self._started = False
         self._closed = False
@@ -476,7 +367,7 @@ class StreamableHttpTransport(TransportEvents):
         timeout_ms: float = self.options.send_timeout_ms
         exchange = self._begin(None)
         self._start_thread(exchange, "mcp-http-send", self._run_send, body, exchange)
-        if not exchange.done.wait(_seconds(timeout_ms)):
+        if not exchange.done.wait(timeout_seconds(timeout_ms)):
             exchange.token.cancel()
             raise McpTimeoutError(timeout_ms)
         if exchange.error is not None:
@@ -617,7 +508,7 @@ class StreamableHttpTransport(TransportEvents):
         self,
         message: JsonRpcMessage,
         request_id: JsonRpcId,
-        response: _HttpResponse,
+        response: McpHttpResponse,
         exchange: _Exchange,
     ) -> None:
         if response.status in (202, 204):
@@ -625,13 +516,11 @@ class StreamableHttpTransport(TransportEvents):
                 response.status,
                 f"MCP server accepted request {message['method']} without a response",
             )
-        content_type = response.content_type
+        content_type = _content_type(response)
         if content_type == "application/json":
-            limit = self.options.max_message_bytes
-            data = response.read_body(limit)
-            if data is None:
-                raise McpProtocolError(f"MCP HTTP message exceeds {limit} bytes")
-            value = json.loads(data, parse_constant=_reject_constant)
+            # The whole body, as Pi's `response.json()`: the message limit
+            # is for the events of a stream.
+            value = json.loads(response.read(), parse_constant=_reject_constant)
             for item in value if isinstance(value, list) else [value]:
                 self._emit(exchange, parse_json_rpc_message(item))
         elif content_type == "text/event-stream":
@@ -643,7 +532,7 @@ class StreamableHttpTransport(TransportEvents):
             )
 
     def _consume_response_stream(
-        self, response: _HttpResponse, request_id: JsonRpcId, exchange: _Exchange
+        self, response: McpHttpResponse, request_id: JsonRpcId, exchange: _Exchange
     ) -> None:
         """Read the event stream answering one request to its end.
 
@@ -723,7 +612,7 @@ class StreamableHttpTransport(TransportEvents):
 
     def _read_response_stream(
         self,
-        stream: _HttpResponse,
+        stream: McpHttpResponse,
         cursor: _StreamCursor,
         emit: Callable[[JsonRpcMessage], None],
     ) -> Exception | None:
@@ -739,7 +628,7 @@ class StreamableHttpTransport(TransportEvents):
 
     def _consume_sse(
         self,
-        response: _HttpResponse,
+        response: McpHttpResponse,
         cursor: _StreamCursor,
         emit: Callable[[JsonRpcMessage], None],
     ) -> None:
@@ -839,7 +728,7 @@ class StreamableHttpTransport(TransportEvents):
 
     def _open_sse_stream(
         self, last_event_id: str | None, token: CancelToken
-    ) -> _HttpResponse | None:
+    ) -> McpHttpResponse | None:
         """GET an event stream; ``None`` when the server answers 405 (it has none)."""
 
         extra = {"Accept": "text/event-stream"}
@@ -854,7 +743,7 @@ class StreamableHttpTransport(TransportEvents):
                 return None
             self._check_response(response)
             self._capture_session(response)
-            content_type = response.content_type
+            content_type = _content_type(response)
             if content_type != "text/event-stream":
                 shown = "missing" if content_type is None else content_type
                 raise McpHttpError(
@@ -891,7 +780,7 @@ class StreamableHttpTransport(TransportEvents):
 
     def _post(
         self, body: bytes, token: CancelToken, connect_timeout_ms: float
-    ) -> _HttpResponse:
+    ) -> McpHttpResponse:
         """POST one message; return the response once its status was accepted."""
 
         extra = {
@@ -916,7 +805,7 @@ class StreamableHttpTransport(TransportEvents):
         body: bytes | None,
         token: CancelToken,
         connect_timeout_ms: float,
-    ) -> _HttpResponse:
+    ) -> McpHttpResponse:
         """Send a POST or a GET with the auth provider's token.
 
         An answer that asks for authorization is handed to the provider
@@ -939,7 +828,7 @@ class StreamableHttpTransport(TransportEvents):
                 UnauthorizedContext(
                     status=response.status,
                     www_authenticate=response.header("www-authenticate"),
-                    server_url=self._target.url,
+                    server_url=self._url,
                     token=bearer or None,
                 )
             )
@@ -961,19 +850,21 @@ class StreamableHttpTransport(TransportEvents):
         token: CancelToken,
         connect_timeout_ms: float,
         bearer: str | None,
-    ) -> _HttpResponse:
+    ) -> McpHttpResponse:
         with self._lock:
             self._last_token = bearer
         headers = self._build_headers(extra, bearer)
-        return self._fetch(method, headers, body, token, connect_timeout_ms)
+        return self._fetch(
+            McpHttpRequest(method, self._url, headers, body, token, connect_timeout_ms)
+        )
 
-    def _capture_session(self, response: _HttpResponse) -> None:
+    def _capture_session(self, response: McpHttpResponse) -> None:
         session_id = response.header("mcp-session-id")
         if session_id:
             with self._lock:
                 self._session_id = session_id
 
-    def _check_response(self, response: _HttpResponse) -> None:
+    def _check_response(self, response: McpHttpResponse) -> None:
         if 200 <= response.status < 300:
             return
         try:
@@ -1018,7 +909,11 @@ class StreamableHttpTransport(TransportEvents):
 
         def run() -> None:
             try:
-                self._fetch("DELETE", headers, None, token, CLOSE_TIMEOUT_MS).close()
+                self._fetch(
+                    McpHttpRequest(
+                        "DELETE", self._url, headers, None, token, CLOSE_TIMEOUT_MS
+                    )
+                ).close()
             except Exception:  # noqa: BLE001 - best effort: closing ignores a failed DELETE
                 pass
             finally:
@@ -1030,87 +925,6 @@ class StreamableHttpTransport(TransportEvents):
             return  # No thread can be started any more.
         if not done.wait(CLOSE_TIMEOUT_MS / 1000):
             token.cancel()
-
-    # -- HTTP ---------------------------------------------------------------
-
-    def _fetch(
-        self,
-        method: str,
-        headers: Mapping[str, str],
-        body: bytes | None,
-        token: CancelToken,
-        connect_timeout_ms: float,
-    ) -> _HttpResponse:
-        """Send one HTTP request, following redirects within the server's origin."""
-
-        target = self._target
-        headers = dict(headers)
-        connect_timeout = _seconds(connect_timeout_ms)
-        followed = 0
-        while True:
-            connection, shutdown = self._connect(target, token, connect_timeout)
-
-            def release(shutdown: _SocketShutdown = shutdown) -> None:
-                # A token outlives its connections when a stream is opened
-                # again and again, so it must not keep them.
-                token.unregister(shutdown)
-
-            try:
-                connection.request(method, target.path, body=body, headers=headers)
-                response = _HttpResponse(connection, connection.getresponse(), release)
-            except BaseException:
-                connection.close()
-                release()
-                raise
-            location = response.header("location")
-            if (
-                response.status not in _REDIRECT_STATUSES
-                or location is None
-                or followed == MAX_REDIRECTS
-            ):
-                return response
-            redirected = _parse_target(urllib.parse.urljoin(target.url, location))
-            if redirected is None or redirected.origin != self._target.origin:
-                return response
-            response.close()
-            followed += 1
-            target = redirected
-            # As a browser's fetch: 303 turns everything but GET and HEAD
-            # into a GET, and so do 301 and 302 for a POST.
-            if (response.status == 303 and method not in ("GET", "HEAD")) or (
-                response.status in (301, 302) and method == "POST"
-            ):
-                method = "GET"
-                body = None
-                headers = {
-                    name: value
-                    for name, value in headers.items()
-                    if name.lower() != "content-type"
-                }
-
-    def _connect(
-        self, target: _Target, token: CancelToken, timeout: float | None
-    ) -> tuple[http.client.HTTPConnection, _SocketShutdown]:
-        connection: http.client.HTTPConnection
-        if target.secure:
-            connection = http.client.HTTPSConnection(
-                target.host, target.port, timeout=timeout, context=self._tls
-            )
-        else:
-            connection = http.client.HTTPConnection(
-                target.host, target.port, timeout=timeout
-            )
-        try:
-            connection.connect()
-            # The timeout was for the connection attempt. From here on the
-            # token ends a blocked read or write.
-            connection.sock.settimeout(None)
-            shutdown = _SocketShutdown(connection.sock)
-            token.register(shutdown)
-        except BaseException:
-            connection.close()
-            raise
-        return connection, shutdown
 
     # -- reporting ----------------------------------------------------------
 

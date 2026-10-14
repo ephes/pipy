@@ -1924,7 +1924,8 @@ below.
 | `protocol`, `transport` | JSON-RPC message checks, error types, the protocol versions pipy accepts (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), conversion of MCP content blocks to text and images, and an in-memory transport pair for tests. |
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
 | `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group. POSIX only. |
-| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). |
+| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). A JSON answer is read whatever its size; the message limit (`max_message_bytes`, 16 MiB) is for one event of a stream. |
+| `http_fetch` | How the HTTP transport sends a request. `StreamableHttpTransportOptions(fetch=...)` takes a function that is called with every request of the transport (`McpHttpRequest`: method, URL, headers, body, the request's cancel token and the time limit for connecting) and returns the answer (`McpHttpResponse`) before its body is read. Pass one for a proxy, another TLS setup or a network of your own; it follows redirects itself. The module text says what such a function has to do. Without the option the transport uses `create_default_fetch()`. |
 | `config` | Validation, loading and editing of `mcp.json`, as described under [configure servers](#configure-servers). |
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), its `provider_token` function for a server with [`auth`](#a-providers-token), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
@@ -2091,9 +2092,13 @@ an OAuth server is given. It never opens a browser:
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
 
-- The HTTP transport follows a redirect only within the configured server's
-  origin, so configured headers and tokens go to no other host. It has no
-  proxy support and does not decompress responses.
+- The HTTP transport's default fetch follows a redirect only within the
+  configured server's origin, so configured headers and tokens go to no
+  other host. It has no proxy support and does not decompress responses. A
+  transport that needs one of these is given a `fetch`, as in Pi.
+- A fetch is not JavaScript's: it takes one request object and returns an
+  object with `status`, `header(name)`, `read(limit)`, `chunks()` and
+  `close()`, and it is handed a cancel token instead of an abort signal.
 - The OAuth fetch follows redirects only for requests without a body, drops
   `Authorization`, `Proxy-Authorization` and `Cookie` on a redirect to
   another origin, and limits a response body to 1 MiB. So a registration or
