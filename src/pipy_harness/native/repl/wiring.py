@@ -1318,6 +1318,7 @@ def _compose_product_session(
         renderer = _ToolLoopRenderer(
             output_stream=output_stream,
             error_stream=_display_stream(inputs),
+            cwd=startup.cwd,
         )
     # `session_start` fires once the session is set up (reason "startup");
     # `session_shutdown` fires when the run ends.

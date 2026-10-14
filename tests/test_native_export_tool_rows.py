@@ -527,3 +527,30 @@ def test_the_export_command_asks_the_loaded_extensions(
     rendered = _decode_html_payload(cwd / "out.html")["renderedTools"]
     assert _text(rendered["c1"]["callHtml"]) == ["GHOST CALL ghost"]
     assert _text(rendered["c2"]["callHtml"]) == ["docs/search"]
+
+
+def test_export_renderers_are_told_each_calls_id(tmp_path: Path) -> None:
+    # Pi `ToolRenderContext.toolCallId`; the export draws each call once.
+    seen: list[ToolRenderContext] = []
+
+    def draw(ctx: ToolRenderContext) -> object:
+        seen.append(ctx)
+        return lines_component([ctx.tool_call_id])
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(_call("c1", "jira", "{}"), _call("c2", "jira", "{}")),
+        ),
+        _result("c1", "jira", "one"),
+        _result("c2", "jira", "two"),
+    )
+    lookup = ToolRendererLookup(
+        resolvers=(lambda name, _next: ToolRenderers(draw, draw),)
+    )
+
+    _rendered(tree, lookup)
+
+    assert {ctx.tool_call_id for ctx in seen} == {"c1", "c2"}
+    assert all(ctx.execution_started is False for ctx in seen)

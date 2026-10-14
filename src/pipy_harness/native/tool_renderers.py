@@ -7,6 +7,7 @@ import math
 import os
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
+from pathlib import Path
 from typing import Any, ClassVar, TextIO, TypedDict, cast
 
 from pipy_harness.native.agent import (
@@ -113,29 +114,42 @@ def build_tool_render_theme(style: ChromeStyle) -> ToolRenderTheme:
 def render_tool_phase(
     renderer: Callable[[ToolRenderContext], object],
     ctx: ToolRenderContext,
+    *,
+    keep: Callable[[object | None], None] | None = None,
 ) -> list[str] | None:
     """Run one extension tool renderer fail-soft.
 
     Returns the rendered lines, or None to signal the caller should fall back
     to pipy's default rendering. A renderer that raises, returns a non-
     component, whose render() raises, or returns an uncoercible value all
-    yield None. KeyboardInterrupt/SystemExit propagate."""
+    yield None. KeyboardInterrupt/SystemExit propagate.
+
+    ``keep`` receives the component the renderer returned, or None when it
+    raised or returned none, for the next render's ``last_component``
+    (Pi keeps ``callRendererComponent``/``resultRendererComponent``)."""
 
     try:
         component = renderer(ctx)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - a bad renderer falls back
+        if keep is not None:
+            keep(None)
         return None
     if not isinstance(component, ToolRenderComponent):
+        if keep is not None:
+            keep(None)
         return None
     try:
         produced = component.render(ctx.width)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - a bad render() falls back
-        return None
-    coerced = coerce_tool_render_lines(produced)
+        produced = None
+    coerced = None if produced is None else coerce_tool_render_lines(produced)
+    if keep is not None:
+        # Only a component that drew is kept, as Pi keeps one it could add.
+        keep(None if coerced is None else component)
     if coerced is None:
         return None
     return list(coerced)
@@ -265,8 +279,13 @@ class _ToolLoopRenderer:
         output_stream: TextIO,
         error_stream: TextIO,
         tool_renderers: "Mapping[str, ExtensionTool] | ToolRendererLookup | None" = None,
+        cwd: Path | None = None,
     ) -> None:
         self._output_stream = output_stream
+        # The session's directory, for a renderer's `ctx.cwd`.
+        self._cwd = str(cwd if cwd is not None else Path.cwd())
+        # Whether the current call runs in this session (not a replayed one).
+        self._execution_started = False
         self._error_stream = error_stream
         self._terminal_lock = threading.Lock()
         self._cursor_control_enabled = self._compute_cursor_control_enabled(
@@ -750,7 +769,9 @@ class _ToolLoopRenderer:
     def render_tool_call(
         self, call: AgentToolCall, *, display_only: bool = False
     ) -> None:
-        del display_only  # Plain rows never start a preview or execution timer.
+        # Plain rows never start a preview or execution timer; a displayed
+        # call (a replayed one) did not start running here.
+        self._execution_started = not display_only
         with self._terminal_lock:
             self._nested_parent_id = (
                 call.provider_correlation_id if call.tool_name == "codemode" else None
@@ -795,6 +816,7 @@ class _ToolLoopRenderer:
                     content=None,
                     details=None,
                     is_error=False,
+                    tool_call_id=call.provider_correlation_id,
                 )
                 if lines is not None:
                     self._error_stream.write(self._tool_panel_blank_line())
@@ -874,7 +896,7 @@ class _ToolLoopRenderer:
         self._pending_render = None
         self._pending_tool = None
         lines = self._extension_result_lines(
-            pending, tool, output_text, is_error, details
+            pending, tool, output_text, is_error, details, duration_seconds
         )
         if lines is not None:
             self._write_extension_result(lines, duration_seconds)
@@ -920,6 +942,7 @@ class _ToolLoopRenderer:
         output_text: str,
         is_error: bool,
         details: Mapping[str, Any] | None,
+        duration_seconds: float | None = None,
     ) -> list[str] | None:
         if pending is None or tool is None or tool.render_result is None:
             return None
@@ -931,6 +954,8 @@ class _ToolLoopRenderer:
             content=output_text,
             details=details,
             is_error=is_error,
+            tool_call_id=pending["corr"],
+            duration_ms=None if duration_seconds is None else duration_seconds * 1000,
         )
 
     def _write_extension_result(
@@ -994,7 +1019,13 @@ class _ToolLoopRenderer:
         content: str | None,
         details: Mapping[str, Any] | None,
         is_error: bool,
+        tool_call_id: str,
+        duration_ms: float | None = None,
     ) -> list[str] | None:
+        """Draw one phase once. These rows are written as they come, so
+        ``invalidate`` cannot draw them again and ``last_component`` is
+        always None."""
+
         style = chrome_style_for(self._error_stream)
         ctx = ToolRenderContext(
             tool_name=self._last_tool_name,
@@ -1007,6 +1038,11 @@ class _ToolLoopRenderer:
             width=80,
             theme=build_tool_render_theme(style),
             state=state,
+            tool_call_id=tool_call_id,
+            cwd=self._cwd,
+            execution_started=self._execution_started,
+            is_partial=not is_result,
+            duration_ms=duration_ms,
         )
         return render_tool_phase(renderer, ctx)
 

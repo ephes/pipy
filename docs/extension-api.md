@@ -1348,6 +1348,30 @@ calls (slice 17 below). `api.register_tool_renderer(resolver)` chooses the
 renderers of the calls to any tool, also of a tool that is not registered:
 one that an extension of an earlier session had, or one the model made up.
 
+Besides `tool_name`, `args`, `is_result`, `is_error`, `content`, `details`,
+`expanded`, `width`, `theme` and `state`, a renderer's `ToolRenderContext`
+has Pi's fields:
+
+- `tool_call_id`: the call's id, the same for its call and result renders.
+- `cwd`: the session's directory.
+- `execution_started`: the call started running in this session; False for
+  a call drawn from the session file.
+- `args_complete`: always True, since pipy draws a call once its arguments
+  are complete.
+- `is_partial`: the call has no final result yet. `is_result` is True also
+  for a partial result (streamed output), so a renderer that draws progress
+  checks both.
+- `show_images`: False, since pipy's terminal draws no images.
+- `duration_ms`: how long the call ran, with the final result; None while it
+  runs and when it is not known.
+- `invalidate()`: draws the call's row again, from any thread; for example
+  after something the renderer loads in the background arrived in `state`.
+  A row that is already in the scrollback is redrawn with it when it looks
+  different. Captured output and the HTML export are written once, so there
+  it does nothing; a call made while the row is being drawn is skipped.
+- `last_component`: what this renderer returned for the row the time
+  before, None the first time and in captured output.
+
 ```python
 from pipy_harness.extensions import ToolRenderers, lines_component
 
@@ -1397,7 +1421,8 @@ Different from Pi:
   renderers, and the built-in tools' and the MCP extension's real renderers,
   which a resolver can call and wrap. pipy returns `None` for an extension
   tool without renderers and a marker for its own rows.
-- Pi's `renderShell` is not part of `ToolRenderers`.
+- Pi's `renderShell` is not part of `ToolRenderers`, and the render
+  context has no `outputPad`.
 
 `/export` to HTML draws the calls with the same renderers and stores the
 rows in the file (see `docs/export-distribution.md` "Artifact shape"): an
@@ -2372,8 +2397,9 @@ and the live `scripts/tmux_answer_verify.sh`.
     the box's content width (the terminal width less two columns). The whole
     path is **fail-soft**: a renderer (or its `render()`) that raises, returns a
     non-component, or returns an uncoercible value falls back to Pi's generic
-    rows (`name key=value …` and the first 10 result lines). Deferred: live
-    invalidation/partial updates and `renderShell:"self"` self-framing.
+    rows (`name key=value …` and the first 10 result lines). `ctx.invalidate()`
+    draws a row again and the context has Pi's call fields (see "Tool
+    rendering"). Deferred: `renderShell:"self"` self-framing.
     A built-in tool's rows can be replaced with `api.register_tool_renderer`
     (see "Tool rendering").
     The extension tool-renderer map now refreshes on `/reload`: renderers added,

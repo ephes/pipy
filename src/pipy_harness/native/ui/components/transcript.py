@@ -38,6 +38,7 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import Self, cast
 
 from pipy_harness.native.agent import NestedToolCallCompleted, NestedToolCallStarted
@@ -191,6 +192,8 @@ class TranscriptComponent:
         # drawn in the live region until its result commits the whole row.
         self.pending_tool: ToolRowState | None = None
         self.pending_tool_lines: tuple[str, ...] = ()
+        # The tool rows being drawn now; guarded by the paint lock.
+        self._drawing_rows: list[ToolRowState] = []
 
     # -- seeding -------------------------------------------------------------
 
@@ -221,6 +224,17 @@ class TranscriptComponent:
 
         replacement = list(blocks)
         with self._paint_lock:
+            for index, block in enumerate(replacement):
+                state = getattr(block, "state", None)
+                if isinstance(state, ToolRowState):
+                    # Rows replayed into a scratch transcript are drawn here
+                    # now. Bound and drawn again under the paint lock, so a
+                    # redraw an extension asked for in between is not lost.
+                    state.invalidate = partial(self.invalidate_tool, state)
+                    if state.extension is not None:
+                        replacement[index] = HistoryBlockTuple(
+                            block[0], self._tool_row_lines(state), state
+                        )
             boundary = min(self.startup_block_count, len(self.history_blocks))
             replaced_rows = len(self.history_blocks) > boundary
             self.assistant_text = ""
@@ -509,6 +523,7 @@ class TranscriptComponent:
         commits it once.
         """
 
+        state.invalidate = partial(self.invalidate_tool, state)
         with self._paint_lock:
             self._settle_reasoning_locked()
             self.working_text = ""
@@ -665,6 +680,40 @@ class TranscriptComponent:
             if self.pending_tool is not None:
                 self.pending_tool_lines = self._tool_row_lines(self.pending_tool)
 
+    def invalidate_tool(self, state: ToolRowState) -> None:
+        """Draw one tool row again (Pi ``ctx.invalidate``: the component
+        renders again and the TUI repaints).
+
+        An extension renderer may call it from any thread, also while its
+        row is being drawn: that call is skipped, since the drawing under
+        way already uses what changed. A committed row that now looks
+        different is redrawn with the scrollback, as a Ctrl+O change is.
+        """
+
+        committed_changed = False
+        with self._paint_lock:
+            if any(row is state for row in self._drawing_rows):
+                return
+            if state is self.pending_tool:
+                self.pending_tool_lines = self._tool_row_lines(state)
+            else:
+                for index, block in enumerate(self.history_blocks):
+                    if getattr(block, "state", None) is state:
+                        lines = self._tool_row_lines(state)
+                        if lines == block[1]:
+                            return
+                        self.history_blocks[index] = HistoryBlockTuple(
+                            block[0], lines, state
+                        )
+                        committed_changed = True
+                        break
+                else:
+                    return
+        if committed_changed:
+            self._reset_scrollback()
+        else:
+            self._repaint()
+
     def apply_tool_preview(self, state: ToolRowState, preview: EditPreview) -> None:
         """Pi's asynchronous edit preview arriving for a still-running call.
 
@@ -719,7 +768,12 @@ class TranscriptComponent:
             extension_theme=self._render_inputs.theme(),
             now=self._clock(),
         )
-        return encode_rows(render_tool_row(state, inputs))
+        # Callers hold the paint lock, so only this thread sees the mark.
+        self._drawing_rows.append(state)
+        try:
+            return encode_rows(render_tool_row(state, inputs))
+        finally:
+            self._drawing_rows.pop()
 
     def append_tool_output(self, chunk: str) -> None:
         """Stream incremental tool output into the live region as produced.

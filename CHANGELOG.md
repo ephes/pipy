@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- A tool renderer's `ToolRenderContext` has Pi's call fields:
+  `tool_call_id`, `cwd`, `execution_started`, `args_complete`,
+  `is_partial`, `show_images`, `duration_ms`, `last_component` and
+  `invalidate()`, which draws the call's row again from any thread. See
+  [Tool rendering](docs/extension-api.md#tool-rendering).
+
 - An extension tool can give `prompt_snippet` and `prompt_guidelines`, as
   Pi's `promptSnippet` and `promptGuidelines`: the default system prompt
   lists the tool with its snippet and adds its guidelines to the rules

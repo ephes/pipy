@@ -4093,6 +4093,23 @@ callable definitions (Pi `getToolGuidelines`), `CodemodeLoadout` reads
 gains Pi's `get_exposure`, `get_namespace` and `get_prompt_guidelines`, and
 `ToolInfo` gains `prompt_guidelines`. Tests:
 `test_native_extension_tool_prompts.py`.
+Part 4 (finding M24): `ToolRenderContext` gains Pi's `tool_call_id`, `cwd`,
+`execution_started`, `args_complete` (always true: pipy draws a call with
+complete arguments), `is_partial`, `show_images` (false: no terminal
+images), `duration_ms`, `invalidate` and `last_component`, keyword fields
+with defaults. The terminal rows (`tool_rows._render_extension`) fill them
+from `ToolRowState`, which keeps the last component per phase and an
+`invalidate` the transcript sets in `start_tool`:
+`TranscriptComponent.invalidate_tool` draws a pending row again and repaints,
+or a committed row and redraws the scrollback when it changed, and skips a
+call made while that row is being drawn. A context's `invalidate` looks up
+the row's redraw when it is called, and `replace_conversation` points the
+rows replayed into a scratch transcript at the transcript that shows them,
+so a resumed row is drawn where it is shown. Captured rows
+(`_ToolLoopRenderer`, which now takes `cwd`) and the HTML export draw once,
+so their `invalidate` does nothing; `render_tool_phase` reports the returned
+component through `keep`. `outputPad` is not ported (no `renderShell`).
+Tests: `test_native_tool_render_context.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

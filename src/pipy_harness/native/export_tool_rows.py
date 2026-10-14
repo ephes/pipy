@@ -110,6 +110,7 @@ def render_export_tools(
                     call.tool_name,
                     redact(parse_arguments(call.arguments_json.value)),
                     cwd,
+                    call.provider_correlation_id,
                 )
                 states.pop(call.provider_correlation_id, None)
                 rendered.pop(call.provider_correlation_id, None)
@@ -171,7 +172,11 @@ def _result_html(state: ToolRowState, style: ChromeStyle) -> tuple[str, str]:
 
 
 def _row_state(
-    lookup: ToolRendererLookup, name: str, args: dict[str, Any], cwd: Path
+    lookup: ToolRendererLookup,
+    name: str,
+    args: dict[str, Any],
+    cwd: Path,
+    call_id: str,
 ) -> ToolRowState | None:
     """The row of a call that renderers draw; None for one left to the page."""
 
@@ -182,12 +187,18 @@ def _row_state(
         return None
     if isinstance(resolved, McpToolRows):
         return ToolRowState(
-            tool_name=name, args=args, cwd=cwd, mcp_label=resolved.label
+            tool_name=name,
+            args=args,
+            cwd=cwd,
+            mcp_label=resolved.label,
+            correlation_id=call_id,
         )
     extension = cast(RowRenderers, resolved)
     if extension.render_call is None and extension.render_result is None:
         return None
-    return ToolRowState(tool_name=name, args=args, cwd=cwd, extension=extension)
+    return ToolRowState(
+        tool_name=name, args=args, cwd=cwd, extension=extension, correlation_id=call_id
+    )
 
 
 def _parts(

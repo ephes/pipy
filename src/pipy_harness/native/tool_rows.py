@@ -228,6 +228,11 @@ class ToolRowState:
     ended_at: float | None = None
     correlation_id: str | None = None
     nested_lines: tuple[NestedToolLine, ...] = ()
+    # What an extension's renderers returned the last time, by phase
+    # (`call`, `result`): the next render's `last_component`.
+    last_components: dict[str, object | None] = field(default_factory=dict)
+    # Draws this row again (Pi `ctx.invalidate`); set where rows are live.
+    invalidate: Callable[[], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1229,6 +1234,8 @@ def _render_extension(
     renderer = tool.render_result if result is not None else tool.render_call
     if renderer is None:
         return None
+    phase = "result" if result is not None else "call"
+    unsettled = state.result is None
     ctx = ToolRenderContext(
         tool_name=state.tool_name,
         args=state.args,
@@ -1241,8 +1248,33 @@ def _render_extension(
         width=max(1, inputs.width - 2),
         theme=inputs.extension_theme,
         state=state.renderer_state,
+        tool_call_id=state.correlation_id or "",
+        cwd=str(state.cwd),
+        execution_started=state.started_at is not None,
+        is_partial=unsettled,
+        duration_ms=(
+            None
+            if unsettled or state.duration_seconds is None
+            else state.duration_seconds * 1000
+        ),
+        invalidate=lambda: _redraw(state),
+        last_component=state.last_components.get(phase),
     )
-    return render_tool_phase(renderer, ctx)
+
+    def keep(component: object | None) -> None:
+        state.last_components[phase] = component
+
+    return render_tool_phase(renderer, ctx, keep=keep)
+
+
+def _redraw(state: ToolRowState) -> None:
+    """A context's ``invalidate``: the row's redraw at the time of the call,
+    since a replayed row moves to the transcript that shows it. A row that
+    is not drawn live (the HTML export) has none."""
+
+    redraw = state.invalidate
+    if redraw is not None:
+        redraw()
 
 
 def render_tool_row(

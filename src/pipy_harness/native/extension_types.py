@@ -309,13 +309,29 @@ CustomComponentDriver = Callable[
 ]
 
 
+def _no_invalidate() -> None:
+    """A render context's ``invalidate`` where nothing is redrawn."""
+
+
 @dataclass(frozen=True, slots=True)
 class ToolRenderContext:
-    """Read-only context passed to an extension tool renderer.
+    """Read-only context passed to an extension tool renderer (Pi
+    ``ToolRenderContext``).
 
     `state` is a single mutable mapping shared across render_call ->
     render_result for one tool execution. `details` is the extension's
-    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme."""
+    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme.
+    `is_result` says that there is a result to draw, a partial one too;
+    `is_partial` that the call has no final result yet.
+
+    The keyword fields are Pi's: `tool_call_id` (the call's id, the same for
+    its call and result renders), `cwd`, `execution_started` (the call
+    started running in this session; False for a call drawn from the
+    session file), `args_complete`, `show_images` (False: pipy's terminal
+    draws no images), `duration_ms` (of the final result, None while it
+    runs or when unknown), `invalidate()` (draw this call's row again) and
+    `last_component` (what this renderer returned the previous time for
+    this row, None the first time)."""
 
     tool_name: str
     args: Mapping[str, object]
@@ -327,6 +343,19 @@ class ToolRenderContext:
     width: int
     theme: object  # ToolRenderTheme | None (None only in unit tests)
     state: MutableMapping[str, object]
+    tool_call_id: str = field(default="", kw_only=True)
+    cwd: str = field(default="", kw_only=True)
+    execution_started: bool = field(default=False, kw_only=True)
+    args_complete: bool = field(default=True, kw_only=True)
+    is_partial: bool = field(default=False, kw_only=True)
+    show_images: bool = field(default=False, kw_only=True)
+    duration_ms: float | None = field(default=None, kw_only=True)
+    invalidate: Callable[[], None] = field(
+        default=_no_invalidate, kw_only=True, repr=False, compare=False
+    )
+    last_component: object | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
 
 
 @dataclass(frozen=True, slots=True)
