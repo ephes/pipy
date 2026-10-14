@@ -79,6 +79,7 @@ def _run(
     wall_seconds: float = 30.0,
     cancel: threading.Event | None = None,
     tool_stop: threading.Event | None = None,
+    store: dict[str, object] | None = None,
     **limits: int,
 ) -> ScriptOutcome:
     return host.run_script(
@@ -89,6 +90,7 @@ def _run(
         cancel=cancel,
         tool_stop=tool_stop,
         paths=paths,
+        store=store,
     )
 
 

@@ -49,6 +49,7 @@ from pipy_harness.native.coding.codemode_description import (
     codemode_tool_guidelines,
 )
 from pipy_harness.native.coding.codemode_discovery import CodemodeDiscovery
+from pipy_harness.native.coding.codemode_store import CodemodeStore
 from pipy_harness.native.tools.base import (
     NestedToolResult,
     make_tool_request_id,
@@ -239,10 +240,16 @@ class _RunControl:
 
 @dataclass(frozen=True, slots=True)
 class CodemodeCompositeRunner:
-    """Optional product runner, using the canonical admitted-child service."""
+    """Optional product runner, using the canonical admitted-child service.
+
+    ``store`` is the session's: scripts ``load()`` from it, and a script
+    that succeeds keeps its ``store()`` writes there. Without it (Pi without
+    a session) the store starts empty and writes last for the one script.
+    """
 
     limits: ScriptLimits = ScriptLimits()
     paths: CodemodePaths | None = None
+    store: CodemodeStore | None = None
 
     def execute(
         self,
@@ -339,9 +346,13 @@ class CodemodeCompositeRunner:
                 cancel=control.cancel,
                 tool_stop=control.stop,
                 activity_waiter=activity,
+                store=self.store.values() if self.store is not None else None,
             )
             # Pi: the calls still running when the script ended are cancelled.
             batch.end(ToolExecutionInterruption.SCRIPT_STOP)
+            # Pi: only a script that succeeded keeps what it stored.
+            if outcome.ok and outcome.store_writes and self.store is not None:
+                self.store.append(outcome.store_writes)
             formatted = format_result(outcome)
             text, details = _spill_result(formatted)
             text, blocks = result_content(

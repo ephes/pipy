@@ -84,6 +84,7 @@ def _run(
     tool_stop: threading.Event | None = None,
     code: str = "pass",
     activity_waiter: host.ActivityWaiter | None = None,
+    store: dict[str, Any] | None = None,
 ) -> ScriptOutcome:
     def fake_argv(python: str, status_fd: int, request: str) -> list[str]:
         json.loads(request)  # the real request is still well-formed JSON
@@ -102,6 +103,7 @@ def _run(
         paths=CodemodePaths(Path("/nonexistent-codemode-root")),
         pin=PIN,
         activity_waiter=activity_waiter,
+        store=store,
     )
 
 

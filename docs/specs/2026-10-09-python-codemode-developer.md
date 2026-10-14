@@ -320,6 +320,8 @@ structured content of a tool that declares an output schema (also for a failed
 result that carries one). `tools.<name>.submit(args)` starts a call without
 waiting; its `.result()` returns the same, so submitted calls run at the same
 time (at most 16 unanswered requests).
+`store(key, value)` and `load(key)` keep JSON values between scripts on
+one session branch (MCP parity plan G4).
 
 ## Installing
 
@@ -488,7 +490,12 @@ thread for `search_tools`, `describe_tool` and `describe_namespace`; it gets
 the helper's name and the script's arguments unchecked, and its calls are not
 part of the outcome's calls. In a session the product builds both from the
 parent's callable tools (`coding/codemode_discovery.py`). `call_tool` must
-honour `cancel` and `tool_stop` itself. Checking
+honour `cancel` and `tool_stop` itself. `store` (JSON values by key) is
+what `load()` reads; a successful run reports what the script changed as the
+outcome's `store_writes`, checked by the host against the store's limits, and
+the product keeps them as a `codemode-store` custom entry through
+the `CodemodeStore` port of `coding/codemode_store.py`
+(`repl/codemode_session_store.py` in a session). Checking
 availability first is the caller's job, but the runner fails closed regardless.
 The optional `activity_waiter(activity_event, cancel_event)` runs on that same
 thread while waiting for a queued call or completion. It returns when activity

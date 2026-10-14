@@ -40,7 +40,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,14 +55,18 @@ from pipy_harness.native.codemode.outcome import (
     ScriptLimits,
     ScriptOutcome,
     ScriptTool,
+    StoreWrites,
     ToolCallRecord,
 )
 from pipy_harness.native.codemode.prelude import (
     DISCOVERY_NAMES,
     EXIT_PROTOCOL,
     MAX_PENDING_REQUESTS,
+    MAX_STORE_TOTAL_CHARS,
+    MAX_STORE_VALUE_CHARS,
     image_type,
     is_base64,
+    store_json,
     tool_table,
     unknown_tool_message,
 )
@@ -107,6 +111,13 @@ _SURROGATE = re.compile("[\ud800-\udfff]")
 # How the prelude's image line starts, and the room for the rest of its frame.
 _IMAGE_LINE = b'{"type":"image",'
 _IMAGE_FRAME = 1024
+# How the prelude's done line starts. With store writes it may be longer than
+# other lines: each character of a key or of a value's JSON text takes at
+# most 12 bytes on the wire (an escaped astral character), and each entry at
+# most 8 more. The values set are at most ``MAX_STORE_TOTAL_CHARS``; the keys
+# deleted are keys of the snapshot.
+_DONE_LINE = b'{"type":"done",'
+_STORE_BYTES_PER_CHAR = 20
 
 ABORTED_MESSAGE = "Execution aborted"
 OUTPUT_GUIDANCE = (
@@ -129,6 +140,7 @@ def run_script(
     pin: RuntimePin = RUNTIME_PIN,
     python: str = sys.executable,
     activity_waiter: ActivityWaiter | None = None,
+    store: Mapping[str, Any] | None = None,
 ) -> ScriptOutcome:
     """Run ``code`` in a fresh worker and return its outcome; never raises.
 
@@ -164,6 +176,12 @@ def run_script(
     retains standalone polling. KeyboardInterrupt during either wait sets
     cancel and returns an aborted outcome; parent-turn state belongs to callers.
 
+    ``store`` is what the script's ``load()`` reads, by key (JSON values; a
+    value that is not JSON is left out). A script that succeeds reports what
+    it changed with ``store()`` as the outcome's ``store_writes``; the host
+    checks them against the store's limits, and keeping them is the caller's
+    job.
+
     Availability (:func:`.selftest.availability`) is the caller's job; the
     runner still fails closed: the worker re-checks ``python.wasm`` against the
     manifest and must report the expected backend and pinned runtime hash.
@@ -194,6 +212,7 @@ def run_script(
             pin,
             python,
             activity_waiter,
+            _store_snapshot(store or {}),
         )
     finally:
         if tool_stop is not None:
@@ -241,6 +260,7 @@ def _run_script(
     pin: RuntimePin,
     python: str,
     activity_waiter: ActivityWaiter | None,
+    snapshot: dict[str, str],
 ) -> ScriptOutcome:
     cancel = cancel or threading.Event()
     started = time.monotonic()
@@ -248,7 +268,9 @@ def _run_script(
     if early is not None:
         return ScriptOutcome(early, wall_seconds=time.monotonic() - started)
     records = _tool_records(tools)
-    run_line = _encode({"type": "run", "code": code, "tools": records})
+    run_line = _encode(
+        {"type": "run", "code": code, "tools": records, "store": snapshot}
+    )
     calls: list[ToolCallRecord] = []
     finished = _launch(
         _Launch(
@@ -262,6 +284,7 @@ def _run_script(
             deadline=started + limits.wall_seconds,
             cancel=cancel,
             tool_stop=tool_stop,
+            snapshot=snapshot,
         ),
         _Callbacks(start_tool, discover),
         calls,
@@ -273,7 +296,24 @@ def _run_script(
         calls=tuple(calls),
         wall_seconds=time.monotonic() - started,
         diagnostics=finished.diagnostics,
+        store_writes=finished.store_writes if finished.error is None else StoreWrites(),
     )
+
+
+def _store_snapshot(store: Mapping[str, Any]) -> dict[str, str]:
+    """The run request's store: each value as the JSON text ``store()``
+    writes. A key that is not a string or a value that is not JSON is left
+    out (Pi ``serializeStore`` leaves out what does not serialize)."""
+
+    snapshot: dict[str, str] = {}
+    for key, value in store.items():
+        if not isinstance(key, str):
+            continue
+        try:
+            snapshot[key] = store_json(value)
+        except (TypeError, ValueError, RecursionError):
+            continue
+    return snapshot
 
 
 def _tool_records(tools: Iterable[ScriptTool]) -> list[dict[str, str]]:
@@ -445,6 +485,17 @@ class _Launch:
     deadline: float
     cancel: threading.Event
     tool_stop: threading.Event | None
+    # What ``load()`` reads: each key's value as JSON text.
+    snapshot: dict[str, str]
+
+    @property
+    def done_line_bytes(self) -> int:
+        """How long a ``done`` line, with its store writes, may be."""
+
+        chars = sum(len(key) + len(text) for key, text in self.snapshot.items())
+        return self.limits.line_bytes + _STORE_BYTES_PER_CHAR * (
+            MAX_STORE_TOTAL_CHARS + chars
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,6 +517,7 @@ class _Finished:
     error: ScriptError | None
     output: tuple[str | ScriptImage, ...] = ()
     diagnostics: str = ""
+    store_writes: StoreWrites = StoreWrites()
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,7 +620,8 @@ def _serve(
         if isinstance(event, _Finished):
             if event.error is None and channel.stopped_with is not None:
                 # Stopped on this thread after the I/O thread saw the done,
-                # while the calls made before it were started.
+                # while the calls made before it were started. A failed run
+                # keeps no store writes.
                 return _Finished(channel.stopped_with, event.output, event.diagnostics)
             return event
         if cancel.is_set() or (channel.finished.is_set() and not channel.done):
@@ -816,6 +869,9 @@ class _Channel:
         self._ready = False
         self._exit: dict[str, Any] | None = None
         self._open = {"out": True, "status": True}
+        self._done_line_bytes = launch.done_line_bytes
+        # The writes of a successful ``done``.
+        self._store_writes = StoreWrites()
 
     # --- the calling thread's side -------------------------------------------
 
@@ -938,7 +994,14 @@ class _Channel:
                 # No diagnostics, process signals or overridable publication
                 # helper here. Use the consumer's acknowledgement lock.
                 with self._activity_lock:
-                    self.inbox.put(_Finished(error, tuple(self._output), diagnostics))
+                    self.inbox.put(
+                        _Finished(
+                            error,
+                            tuple(self._output),
+                            diagnostics,
+                            self._store_writes if error is None else StoreWrites(),
+                        )
+                    )
                     self.activity.set()
 
     def _loop(self) -> ScriptError | None:
@@ -1074,15 +1137,32 @@ class _Channel:
     def _append_line(self, piece: memoryview) -> None:
         size = len(self._line) + len(piece)
         if size > self._limits.line_bytes:
-            # Only an image line may be longer: as long as the image cap
-            # allows. Whether it is an image is decided when it is parsed.
+            # Only an image line and a done line may be longer: as long as
+            # the image cap or the store's limits allow. What the line is
+            # is decided when it is parsed.
             head = bytes(self._line[: len(_IMAGE_LINE)])
             head += bytes(piece[: len(_IMAGE_LINE) - len(head)])
-            if head != _IMAGE_LINE or size > self._limits.image_bytes + _IMAGE_FRAME:
+            kind = (
+                "image"
+                if head == _IMAGE_LINE
+                else "done"
+                if head.startswith(_DONE_LINE)
+                else None
+            )
+            if size > self._line_limit(kind):
                 raise _violation(
                     f"a guest line exceeded {self._limits.line_bytes} bytes"
                 )
         self._line += piece
+
+    def _line_limit(self, kind: object) -> int:
+        """How long a guest line of this ``type`` may be."""
+
+        if kind == "image":
+            return self._limits.image_bytes + _IMAGE_FRAME
+        if kind == "done":
+            return self._done_line_bytes
+        return self._limits.line_bytes
 
     def _handle_line(self, line: bytes) -> None:
         try:
@@ -1092,10 +1172,10 @@ class _Channel:
         if not isinstance(message, dict):
             raise _violation("the guest sent a line that is not a JSON object")
         kind = message.get("type")
-        if len(line) > self._limits.line_bytes and kind != "image":
-            # The longer allowance is an image's alone: a line that only
-            # started like one (a second ``type`` key wins in JSON) gets
-            # the limit every other message has.
+        if len(line) > max(self._limits.line_bytes, self._line_limit(kind)):
+            # The longer allowances are an image's and a done's: a line that
+            # only started like one (a second ``type`` key wins in JSON) gets
+            # the limit its own type has.
             raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
         if kind == "text":
             self._on_text(message)
@@ -1201,6 +1281,10 @@ class _Channel:
             raise _violation("the script finished before the worker was ready")
         ok = message.get("ok")
         if ok is True:
+            if "writes" in message:
+                self._store_writes = _store_writes(
+                    message["writes"], self._launch.snapshot
+                )
             self.done = True
             raise _Stop(None)
         error = message.get("error")
@@ -1306,6 +1390,59 @@ def _exit_report_error(
     return ScriptError(ErrorKind.SANDBOX, f"the guest stopped unexpectedly: {detail}")
 
 
+def _store_writes(writes: object, snapshot: Mapping[str, str]) -> StoreWrites:
+    """The ``writes`` of a ``done``, checked as the prelude's ``store()``
+    checks them: every value set is JSON of at most
+    ``MAX_STORE_VALUE_CHARS``, and a script that set a value leaves at most
+    ``MAX_STORE_TOTAL_CHARS`` in the store. Anything else is a violation.
+    A deletion of a key the snapshot lacks is dropped, as the prelude never
+    reports one."""
+
+    if not isinstance(writes, list):
+        raise _violation("the guest sent malformed store writes")
+    # key -> (value, JSON text) of a set, or None for a deletion; last wins.
+    changes = dict(_store_change(entry) for entry in writes)
+    stored = dict(snapshot)
+    values: dict[str, Any] = {}
+    removed: list[str] = []
+    for key, change in changes.items():
+        if change is None:
+            # As in the prelude, deleting a key the snapshot lacks is no
+            # write: the deleted keys stay bounded by the snapshot.
+            if key in snapshot:
+                stored.pop(key, None)
+                removed.append(key)
+        else:
+            values[key], stored[key] = change
+    if values and sum(len(k) + len(t) for k, t in stored.items()) > (
+        MAX_STORE_TOTAL_CHARS
+    ):
+        raise _violation("the guest's store writes exceed the store's limit")
+    return StoreWrites(values, tuple(removed))
+
+
+def _store_change(entry: object) -> tuple[str, tuple[Any, str] | None]:
+    """One entry of a ``done``'s writes: the key and its new value with the
+    value's JSON text, or ``None`` for a deletion."""
+
+    if (
+        not isinstance(entry, list)
+        or len(entry) not in (1, 2)
+        or not all(isinstance(part, str) for part in entry)
+    ):
+        raise _violation("the guest sent malformed store writes")
+    if len(entry) == 1:
+        return entry[0], None
+    try:
+        value = _parse_guest_json(entry[1])
+        text = store_json(value)
+    except (ValueError, RecursionError):
+        raise _violation("the guest stored a value that is not JSON") from None
+    if len(text) > MAX_STORE_VALUE_CHARS:
+        raise _violation("the guest stored a value over the store's limit")
+    return entry[0], (value, text)
+
+
 def _parse_guest_line(line: bytes) -> Any:
     """Parse one guest line as UTF-8 JSON; lone surrogates become U+FFFD.
 
@@ -1316,7 +1453,12 @@ def _parse_guest_line(line: bytes) -> Any:
     UTF-8 downstream.
     """
 
-    text = line.decode("utf-8", "surrogatepass")
+    return _parse_guest_json(line.decode("utf-8", "surrogatepass"))
+
+
+def _parse_guest_json(text: str) -> Any:
+    """Parse JSON text from the guest; lone surrogates become U+FFFD."""
+
     message = json.loads(
         text, parse_constant=_reject_constant, parse_float=_finite_float
     )

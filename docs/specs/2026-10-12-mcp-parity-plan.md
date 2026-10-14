@@ -480,7 +480,7 @@ owner has decided.
 | DEV-01 (decided) | JavaScript script API: `searchTools`, `describeTool`, `describeNamespace`; TypeScript declarations. | Python names `search_tools`, `describe_tool`, `describe_namespace`; declarations rendered as Python-style types with `#` comment lines. Same information (CMD-11 to CMD-15). | Codemode is Python by decision. |
 | DEV-02 (decided) | Config and state under `~/.pi/agent/`, project `.pi/`. | `<config home>/mcp.json`, `mcp-auth.json`, `mcp.log`; project `.pipy/mcp.json`. | Decision. |
 | DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Ported in G3, in a Python form: `tools.<name>.submit(args)` starts a call and returns at once, its `.result()` waits for it; a plain `tools.<name>(args)` waits for its call. At most 16 requests of one script wait for their reply at once; a script that submits more first waits for one. Until G3 nested calls were sequential, as CM1 specified. | The guest has no promises or event loop; the bound keeps the host's buffer of unread replies finite, where Pi has no bound. |
-| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign. They remain CM1 follow-ons in the backlog. | They do not change whether or how MCP and extension tools are reached. `image()` is the exception and is in slice S39. |
+| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39) and `store()`/`load()` (G4). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
 | DEV-05 | The client identifies as `pi` in `initialize` and in dynamic client registration. | `pipy` and pipy's version. `oauth.clientName` covers servers that accept only known client names, as in Pi. | Product name. |
 | DEV-06 | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. If the owner later names a default (section 7, Q1), the field becomes optional. | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
 | DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
@@ -3299,6 +3299,7 @@ Slices outside these two lists are serial.
 | G1 | Stdio close keeps signalling the group while a child holds the server's pipes (goal-check finding C1) | STD-05 | S | X2 | no |
 | G2 | Nested tool calls: async handlers, every depth, concurrent calls, `signal` and `on_update`, update events, the full outcome (goal-check findings M1, M2, M12, E2 to E5) | EXT-11, CMD-24, CMD-26 | M, several commits | G1 | no |
 | G3 | A codemode script's calls at the same time (goal-check finding M3, DEV-03) | CMD-24, CMD-26 | M | G2 | no |
+| G4 | Codemode `store()`/`load()` per session branch (goal-check finding M4, DEV-04) | none (DEV-04) | M | G3 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3772,6 +3773,56 @@ The codemode guideline names `submit()` where Pi names
 `test_native_codemode_host_runtime.py`; the prelude units
 `test_submitted_calls_are_sent_at_once_and_take_their_own_replies` and
 `test_a_script_past_the_pending_limit_waits_for_a_reply`.
+
+**G4 A script's store.** Added after the goal check (finding M4; the
+`store()`/`load()` part of DEV-04 is now ported). Prelude: `store(key,
+value)` and `load(key)` are synchronous globals over a snapshot of JSON
+text (`ScriptStore`); `store` keeps the compact JSON text
+(`store_json`: no ASCII escaping, `NaN` refused), `load` parses a fresh
+copy, `store(key, None)` or `store(key)` deletes. Pi's limits and texts:
+`MAX_STORE_VALUE_CHARS` (256 Ki) per value and `MAX_STORE_TOTAL_CHARS`
+(1 Mi) for keys and values together, counted in Python characters; a key
+that is not a `str` or a value that is not JSON raises `TypeError`, a
+limit `ValueError` (Pi `RangeError`) with Pi's hint. A store over the
+limit (from the branch) can only shrink. A delete of a key the snapshot
+lacks is no write, so the writes are bounded by the snapshot and the limit.
+Protocol: the run line carries `"store": {key: json}`; a successful `done`
+that changed something carries `"writes": [[key, json], [key]]`. The host
+parses each value strictly (surrogates scrubbed as on every guest line),
+checks the per-value limit and, when the script set a value, the total of
+the resulting store, so a forged `done` cannot pass the limits; a `done`
+line may exceed the line cap by 20 bytes per character of the limit and
+of the snapshot (`_Launch.done_line_bytes`), the most the prelude's
+escaping can need. `run_script(store=)` takes JSON values and leaves out
+what does not serialize (Pi `serializeStore`); `ScriptOutcome.store_writes`
+(`StoreWrites(values, deleted)`) is empty unless the run succeeded,
+including a success that a stop on the calling thread turned into an
+error. Session: `native/coding/codemode_store.py` has the
+`CodemodeStore` port, `CODEMODE_STORE_ENTRY_TYPE` (`codemode-store`) and
+`read_codemode_store` (Pi's fold from the root, skipping malformed data);
+`native/repl/codemode_session_store.py` has `SessionCodemodeStore` (the
+headless coding package may not import the session tree), which reads
+`get_branch()` and appends with
+`append_custom` under the session's tree lock, on whatever tree is live
+then. `CodemodeCompositeRunner(store=)` reads it before the script and
+appends `{"set", "delete"}` after a successful script with writes, before
+the result is recorded; without a store a script starts empty and its
+writes are dropped (Pi without a session). The entry is not the extension
+`append_entry` path, which truncates data over 64 KiB. Description: the
+`Globals:` list gains Pi's `store`/`load` line. Not ported: Pi's
+`entry_appended` event (pipy has none). Tests in
+`test_native_codemode_store.py`: the prelude units (Pi "reads the snapshot
+and reports writes", "returns copies", "rejects invalid keys, values, and
+oversized writes", "explains oversized writes"); host checks against a
+scripted guest (writes reported, failure drops them, malformed and
+over-limit writes are violations, the done line allowance); a real guest
+(store and load, an early exit keeps writes, Pi "ends the script
+successfully on exit(), keeping output and store writes", failures drop
+them, no store starts empty); the fold (Pi "folds store entries from the
+root, ignoring malformed data"); sessions (Pi "persists store() writes as
+custom entries for later calls", "appends nothing for failed scripts or
+scripts without writes", "loads the values written on the current
+branch", extended to resume, `/tree select` and `/fork`).
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

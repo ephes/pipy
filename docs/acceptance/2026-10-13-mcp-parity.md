@@ -133,7 +133,8 @@ pipy test that carries the case's name in a `Pi:` comment or as its own
 name. "In scope" leaves out the cases the plan excludes: the JavaScript-only
 case of `streamable-http.test.ts`, the two legacy-key cases of
 `mcp-oauth-store.test.ts` (DEV-08), the codemode cases that are not about
-reaching tools (DEV-04, DEV-13), and the three declaration cases
+reaching tools (DEV-04, DEV-13; the five store cases count since slice G4
+ported `store()`/`load()`), and the three declaration cases
 outside the two groups the plan names. The counts are taken from the files.
 `agent-session-mcp.test.ts` has 48 cases there (44 plain and four
 parametrized ones); the plan said 44 and is corrected.
@@ -154,9 +155,9 @@ parametrized ones); the plan said 44 and is corrected.
 | `coding-agent/test/suite/agent-session-mcp.test.ts` | 48 | 48 | 48 | none |
 | `coding-agent/test/suite/agent-session-mcp-oauth.test.ts` | 9 | 9 | 9 | none |
 | `coding-agent/test/suite/agent-session-tool-orchestration.test.ts` | 3 | 3 | 3 | none |
-| `coding-agent/test/suite/agent-session-codemode.test.ts` | 24 | 6 | 6 | none |
+| `coding-agent/test/suite/agent-session-codemode.test.ts` | 24 | 11 | 11 | none |
 | `codemode/test/declarations.test.ts` | 17 | 14 | 14 | none |
-| Total | 203 | 179 | 179 | |
+| Total | 203 | 184 | 184 | |
 
 The counts are of test names, not of assertions. A mirror may run at another
 level than Pi's case: Pi's session cases use its faux provider and an

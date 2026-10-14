@@ -441,6 +441,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [MCP conformance](docs/mcp.md#conformance).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
+- Codemode scripts can keep small JSON values between calls, as Pi's
+  scripts do: `store(key, value)` keeps a value, `load(key)` reads it back
+  (or `None`), and `store(key, None)` deletes it. A script that succeeds,
+  also one that ends early with `sys.exit()`, appends its writes to the
+  session as a `codemode-store` custom entry; a failed script keeps none.
+  `load()` reads the entries on the current branch, so values follow
+  resume, `/tree` and `/fork`. A value may have 256 Ki characters of JSON
+  and the store 1 Mi characters in all. The codemode tool description names
+  the two globals. See
+  [keeping values between scripts](docs/codemode.md#keeping-values-between-scripts).
 
 ### Changed
 

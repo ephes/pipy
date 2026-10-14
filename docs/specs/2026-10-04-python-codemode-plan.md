@@ -127,7 +127,8 @@ No startup optimization follows automatically from that measurement.
 ## Deferred
 
 Parallel execution and shared-state contracts; MCP/discovery/tool exposure;
-extension-tool generalization; branch-aware `store()`/`load()`; image output
+extension-tool generalization; branch-aware `store()`/`load()` (since landed
+as MCP parity plan G4); image output
 and generation; classifiers; JavaScript compatibility; codemode-only tool
 loadouts. These require separately selected slices.
 

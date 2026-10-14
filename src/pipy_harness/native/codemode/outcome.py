@@ -7,7 +7,8 @@ calls it. They carry no behaviour that touches a process, a pipe or a thread.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, fields
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import Any
 
@@ -70,15 +71,15 @@ class ScriptLimits:
     cpu_margin_seconds: float = 5.0
 
     def __post_init__(self) -> None:
-        for field in fields(self):
-            value = getattr(self, field.name)
+        for limit in fields(self):
+            value = getattr(self, limit.name)
             if (
                 isinstance(value, bool)
                 or not isinstance(value, int | float)
                 or not math.isfinite(value)
                 or value <= 0
             ):
-                raise ValueError(f"{field.name} must be a positive finite number")
+                raise ValueError(f"{limit.name} must be a positive finite number")
         if not isinstance(self.memory_bytes, int):
             raise ValueError("memory_bytes must be an int")
         if self.memory_bytes > MEMORY_BYTES_MAX:
@@ -159,6 +160,19 @@ class ToolCallRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class StoreWrites:
+    """What a successful script changed with ``store()`` (Pi
+    ``CodemodeStoreWrites``): the new value of each key it set, as a JSON
+    value, and the keys it deleted."""
+
+    values: Mapping[str, Any] = field(default_factory=dict)
+    deleted: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.values or self.deleted)
+
+
+@dataclass(frozen=True, slots=True)
 class ScriptError:
     """A failed run. For ``SCRIPT`` errors raised by the script, ``message`` is
     the trimmed traceback (or ``Type: message`` when there is none)."""
@@ -175,6 +189,8 @@ class ScriptOutcome:
     ``image()`` images in order (at most the output caps). ``calls`` lists every tool call the callback ran,
     in order. ``diagnostics`` is the worker's capped stderr and exit report,
     for humans only; it is never parsed and never shown to the model.
+    ``store_writes`` is what the script changed with ``store()``; only a run
+    without an error has any (Pi drops a failed script's writes).
     """
 
     error: ScriptError | None
@@ -182,6 +198,7 @@ class ScriptOutcome:
     calls: tuple[ToolCallRecord, ...] = ()
     wall_seconds: float = 0.0
     diagnostics: str = ""
+    store_writes: StoreWrites = field(default_factory=StoreWrites)
 
     @property
     def ok(self) -> bool:

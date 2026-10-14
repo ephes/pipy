@@ -551,8 +551,18 @@ def test_a_malformed_host_reply_ends_the_guest_without_an_outcome(
 
 
 @real_runtime
-def test_a_malformed_run_request_ends_the_guest(cache_dir: Path) -> None:
-    run = _run("", cache_dir, first_line=b'{"type": "run", "code": 1}\n')
+@pytest.mark.parametrize(
+    "first_line",
+    [
+        b'{"type": "run", "code": 1}\n',
+        b'{"type": "run", "code": "", "tools": [], "store": []}\n',
+        b'{"type": "run", "code": "", "tools": [], "store": {"k": 1}}\n',
+    ],
+)
+def test_a_malformed_run_request_ends_the_guest(
+    cache_dir: Path, first_line: bytes
+) -> None:
+    run = _run("", cache_dir, first_line=first_line)
 
     assert run.messages == []
     assert run.exit == {

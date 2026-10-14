@@ -96,6 +96,7 @@ from pipy_harness.native.image_attachment import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderSystemMessage
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.codemode_session_store import SessionCodemodeStore
 from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.repl.loop_scope import (
     AgentTurnStatusPresentationAdapter,
@@ -831,7 +832,9 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         coding_state=scope.coding_state,
         retain_next_input=scope.coding_input_queue.retain_agent_input,
         tool_waiter=tool_waiter,
-        composite_runner=CodemodeCompositeRunner(),
+        composite_runner=CodemodeCompositeRunner(
+            store=SessionCodemodeStore(scope.ctl.session_tree_section)
+        ),
         parent_runner=parent_runner_for(
             scope.execution_projections.runs_as_parent,
             scope.execution_projections.execute_parent,

@@ -203,12 +203,12 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 
 | Direction | Message |
 |---|---|
-| host → guest | `{"type":"run","code":str,"tools":[{"name":str,"id":str,"description":str}]}` (first line; `tools` lists the callable tools in registration order, each with its own name, the identifier scripts write and its `ALL_TOOLS` description; MCP parity plan S07) |
+| host → guest | `{"type":"run","code":str,"tools":[{"name":str,"id":str,"description":str}]}` (first line; `tools` lists the callable tools in registration order, each with its own name, the identifier scripts write and its `ALL_TOOLS` description; MCP parity plan S07). Since MCP parity plan G4 also `"store":{str:str}`, what `load()` reads: each key's value as JSON text |
 | guest → host | `{"type":"call","id":int,"name":str,"args":object}` (`name` is the tool's own name; since MCP parity plan G3 the guest may send further messages before the reply, with at most 16 requests unanswered) |
 | guest → host | `{"type":"discover","id":int,"name":"search_tools"\|"describe_tool"\|"describe_namespace","args":object}` (ids continue the sequence of the calls; answered with a `result` that carries `value` or `error`; runs no tool and is no call record; MCP parity plan S07) |
 | host → guest | `{"type":"result","id":int,"ok":true,"text":str}`, `{"type":"result","id":int,"ok":true,"value":<JSON>}` (the structured content of a tool that declares an output schema; MCP parity plan S04) or `{"type":"result","id":int,"ok":false,"error":str}` |
 | guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
-| guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}` |
+| guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}`. Since MCP parity plan G4 a successful script that changed the store adds `"writes":[[key,json],[key],...]` (a value set as JSON text, or a deleted key); the host checks them against the store's limits, and such a line may be longer than the line cap by 20 bytes per character of the store's limit and of the snapshot |
 | worker → host (status fd) | `{"type":"ready","backend":"wasi","wasmtime":str,"runtime_sha256":str}`, then `{"type":"exit","reason":"ok"\|"trap-interrupt"\|"trap-stack"\|"error","code"?:int,"detail"?:str}`; a setup failure sends `exit` without `ready` |
 
 Host rules. Each one closes a red-team finding:
@@ -580,9 +580,9 @@ directly instead of adding format-probe calls." No tool adds to them.
   call waits for its result. Before G3 calls were sequential.
 - A JSON `code` string instead of raw-source grammar.
 - No `return`, `console.*` or `exit()`; print is equivalent to text.
-- Deferred: `store()`/`load()`, `image()`, `models.*`, `searchTools()` and
+- Deferred: `image()`, `models.*`, `searchTools()` and
   related helpers, MCP exposure tiers, structured tool results and the
-  options line.
+  options line. `store()`/`load()` landed with MCP parity plan G4.
 
 ## 5. First-slice task list
 
@@ -1018,5 +1018,6 @@ Each task is small and lands with its own tests. The plan's acceptance items
     decision.
 13. **Deferred Pi surface.** Options line or timeout override, structured
     `bash` results, exposure tiers (direct, model-only, codemode, deferred),
-    `store()`/`load()`, `image()`, `models.*`. Parallel calls landed with MCP
-    parity plan G3, without Pi's exclusive queue (plan DEV-48).
+    `image()`, `models.*`. Parallel calls landed with MCP
+    parity plan G3, without Pi's exclusive queue (plan DEV-48);
+    `store()`/`load()` with G4.

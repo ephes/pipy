@@ -9,9 +9,10 @@ Wire protocol (JSON, one object per line; spike result §4.1). The guest's
 stdin and stdout carry it:
 
 - host -> guest, first line: ``{"type": "run", "code": str, "tools": [{"name":
-  str, "id": str, "description": str}]}``: the callable tools in order, each
-  with its own name, the identifier scripts write and its ``ALL_TOOLS``
-  description
+  str, "id": str, "description": str}], "store": {str: str}}``: the callable
+  tools in order, each with its own name, the identifier scripts write and
+  its ``ALL_TOOLS`` description; and what ``load()`` reads, each key's value
+  as JSON text (``store`` may be left out: an empty store)
 - guest -> host: ``{"type": "call", "id": int, "name": str, "args": object}``;
   ids count up from 1. The guest may send further messages before the
   reply, with at most :data:`MAX_PENDING_REQUESTS` requests whose reply it
@@ -35,7 +36,11 @@ stdin and stdout carry it:
   ``image()`` call, in order with the text messages: base64 data of a PNG,
   JPEG, GIF or WebP image and the type its first bytes show
 - guest -> host, last: ``{"type": "done", "ok": true}`` or ``{"type": "done",
-  "ok": false, "error": {"type": str, "message": str, "traceback": str}}``
+  "ok": false, "error": {"type": str, "message": str, "traceback": str}}``. A
+  successful script that changed the store adds ``"writes": [[key, json],
+  [key], ...]``: a key's new value as JSON text, or the key alone for one it
+  deleted. A ``done`` line with writes may be longer than other lines (the
+  host allows for the store's limits)
 
 The traceback keeps only frames from the script (``<codemode>``). A malformed
 host message ends the guest with :data:`EXIT_PROTOCOL` before anything else
@@ -70,6 +75,16 @@ DEFAULT_SEARCH_LIMIT = 8
 # counts a request until its reply is written in full and treats one more as
 # a protocol violation; a script that submits more waits for a reply first.
 MAX_PENDING_REQUESTS = 16
+
+# Pi's limits of ``store()``: characters of one value's JSON, and of every
+# key and value together. They count Python characters of the JSON text
+# ``store_json`` writes (Pi: UTF-16 units of ``JSON.stringify``).
+MAX_STORE_VALUE_CHARS = 256 * 1024
+MAX_STORE_TOTAL_CHARS = 1024 * 1024
+STORE_HINT = (
+    "store() is for small state such as IDs or summaries. Show images with "
+    "image(), keep large data in variables, or write it to a file with a tool."
+)
 
 # Pi's output cap for one script: characters of base64 image data. The host
 # enforces its own (``ScriptLimits.image_bytes``); a test pins that they match.
@@ -490,6 +505,95 @@ def image_helper(
     return image
 
 
+def store_json(value: object) -> str:
+    """The JSON text ``store()`` keeps for ``value``: compact, non-ASCII as
+    is, ``NaN`` and ``Infinity`` refused. Raises ``TypeError``,
+    ``ValueError`` or ``RecursionError`` for a value that is not JSON."""
+
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+
+
+class ScriptStore:
+    """``store(key, value)`` and ``load(key)`` (Pi's prelude).
+
+    Both are synchronous and work on a snapshot of JSON text: what the host
+    read from the session branch when the script started. ``writes()``
+    reports what the script changed, for the host to keep when the script
+    succeeds. ``store(key, None)`` (or ``store(key)``) deletes a key, which
+    is Pi's ``store(key, undefined)``; so ``None`` is never stored at the
+    top level, and ``load`` returns ``None`` for a key that is not there.
+    Deleting a key the snapshot does not have is no write.
+    """
+
+    __slots__ = ("_chars", "_initial", "_stored", "_writes")
+
+    def __init__(self, snapshot: dict[str, str]) -> None:
+        self._stored = dict(snapshot)
+        self._initial = frozenset(snapshot)
+        # key -> new JSON text, or None for a deleted key; in write order.
+        self._writes: dict[str, str | None] = {}
+        self._chars = sum(len(key) + len(text) for key, text in snapshot.items())
+
+    def store(self, key: object, value: object = None, /) -> None:
+        """Keep ``value`` (any JSON value) under ``key`` for later scripts on
+        this branch; ``None`` deletes the key."""
+
+        key = _store_key("store", key)
+        previous = len(key) + len(self._stored[key]) if key in self._stored else 0
+        if value is None:
+            if self._stored.pop(key, None) is not None:
+                self._chars -= previous
+            if key in self._initial:
+                self._writes[key] = None
+            else:
+                self._writes.pop(key, None)
+            return
+        try:
+            text = store_json(value)
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise TypeError(
+                f"store({_quoted(key)}) value is not JSON-serializable: {exc}"
+            ) from None
+        if len(text) > MAX_STORE_VALUE_CHARS:
+            raise ValueError(
+                f"store({_quoted(key)}) value has {len(text)} characters of JSON, "
+                f"more than the limit of {MAX_STORE_VALUE_CHARS}. {STORE_HINT}"
+            )
+        chars = self._chars - previous + len(key) + len(text)
+        if chars > MAX_STORE_TOTAL_CHARS:
+            raise ValueError(
+                "store is full: stored values would exceed "
+                f"{MAX_STORE_TOTAL_CHARS} characters of JSON. Delete keys with "
+                f"store(key, None). {STORE_HINT}"
+            )
+        self._stored[key] = text
+        self._chars = chars
+        self._writes[key] = text
+
+    def load(self, key: object, /) -> Any:
+        """The value stored under ``key`` (a fresh copy), or ``None``."""
+
+        text = self._stored.get(_store_key("load", key))
+        return None if text is None else json.loads(text)
+
+    def writes(self) -> list[list[str]]:
+        """The ``writes`` of a ``done`` message: ``[key, json]`` or ``[key]``."""
+
+        return [
+            [key] if text is None else [key, text] for key, text in self._writes.items()
+        ]
+
+
+def _store_key(name: str, key: object) -> str:
+    if not isinstance(key, str):
+        raise TypeError(f"{name}() key must be a string")
+    return key
+
+
+def _quoted(key: str) -> str:
+    return json.dumps(key, ensure_ascii=False)
+
+
 class TextStream(io.TextIOBase):
     """A ``sys.stdout`` whose every write becomes one ``text`` message."""
 
@@ -736,9 +840,12 @@ def protocol_failure(reason: str) -> NoReturn:
     os._exit(EXIT_PROTOCOL)
 
 
-def _run_request(message: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+def _run_request(
+    message: dict[str, Any],
+) -> tuple[str, list[dict[str, Any]], dict[str, str]]:
     code = message.get("code")
     records = message.get("tools")
+    snapshot = message.get("store", {})
     if (
         message.get("type") != "run"
         or not isinstance(code, str)
@@ -751,14 +858,16 @@ def _run_request(message: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
             )
             for record in records
         )
+        or not isinstance(snapshot, dict)
+        or not all(isinstance(text, str) for text in snapshot.values())
     ):
         protocol_failure("the first host message is not a run request")
-    return code, records
+    return code, records, snapshot
 
 
 def main() -> None:
     wire = Wire()
-    code, records = _run_request(wire.receive())
+    code, records, snapshot = _run_request(wire.receive())
     keys, all_tools = tool_table(records)
     stream = TextStream(wire.text)
     empty = io.StringIO()
@@ -780,6 +889,7 @@ def main() -> None:
 
         wire.text(text_value(value))
 
+    script_store = ScriptStore(snapshot)
     namespace: dict[str, Any] = {
         "__name__": "__main__",
         "__builtins__": builtins,
@@ -790,9 +900,16 @@ def main() -> None:
         "text": text,
         "image": image_helper(wire.image),
         "ToolError": ToolError,
+        "store": script_store.store,
+        "load": script_store.load,
         **discovery_helpers(wire.discover),
     }
-    wire.send(run_script(code, namespace))
+    done = run_script(code, namespace)
+    # Pi: only a script that succeeded (an early ``sys.exit()`` included)
+    # reports its writes; a failed one's are discarded.
+    if done["ok"] and (writes := script_store.writes()):
+        done["writes"] = writes
+    wire.send(done)
 
 
 if __name__ == "__main__":

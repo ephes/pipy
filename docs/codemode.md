@@ -169,6 +169,44 @@ before the script ends has still started. At most 16 calls and discovery
 requests can wait for their result at once; a script that submits more waits
 for one of them first. Pi has no such limit.
 
+### Keeping values between scripts
+
+`store(key, value)` keeps a JSON value under a string key, and `load(key)`
+returns it in a later script, or `None` for a key that is not there.
+`store(key, None)` (or `store(key)`) deletes the key. Both work at once, with
+no tool call:
+
+```python
+cursor = load("issues_cursor")
+page = tools.mcp__tracker__list_issues(cursor=cursor) if cursor else tools.mcp__tracker__list_issues()
+store("issues_cursor", page["next"])
+text([issue["title"] for issue in page["issues"]])
+```
+
+- `store()` keeps a copy: changing the value afterwards, or the value
+  `load()` returned, changes nothing stored. Tuples come back as lists and
+  non-string dict keys as strings.
+- What a script stores is kept only when it succeeds; an early `sys.exit()`
+  (or `sys.exit(0)`) counts as success. A script that fails, also with
+  `sys.exit(1)`, keeps nothing it stored, and `load()` in it still returned
+  its own writes.
+- A script that changed the store appends one `codemode-store` custom entry,
+  `{"set": {...}, "delete": [...]}`, to the session. `load()` reads the
+  entries on the current branch, so each branch sees the values written on
+  its own path: after `/tree` to an earlier point, the values written after
+  it are gone; resume and `/fork` keep what is on the path they continue.
+- A value may have 262,144 characters of JSON (counted as written compactly,
+  without escaping non-ASCII characters) and all keys and values together
+  1,048,576. A value over the limit, or a write that would fill the store
+  over it, raises `ValueError`; a key that is not a `str` and a value that is
+  not JSON (`NaN` included) raise `TypeError`. The store is for small state
+  such as ids and cursors, not for data.
+
+Different from Pi: `None` deletes a key, where Pi deletes with `undefined`
+and can store `null`; deleting a key the session's store does not have
+writes no entry; sizes count Python characters, not UTF-16 units; and `NaN`
+is refused, where Pi stores `null`.
+
 ### Images
 
 `image(value)` adds an image to the result, where the model sees it as an
@@ -269,6 +307,7 @@ With no match it lists the tools when there are at most 20.
 | `tools.<identifier>.submit(args)` | Start the call and return at once; `.result()` waits for it. See [calls at the same time](#calls-at-the-same-time). |
 | `text(value)` | Emit a string unchanged, another value as JSON. |
 | `image(value)` | Add an image to the output; see [images](#images). |
+| `store(key, value)`, `load(key)` | Keep a JSON value for later scripts on this branch, and read it back; see [keeping values between scripts](#keeping-values-between-scripts). |
 | `ToolError` | Raised by a tool call that failed. |
 | `ALL_TOOLS` | A list with one `{"name": ..., "description": ...}` for every callable tool, in registration order. `name` is the identifier (a key that calls the tool: `tools[entry["name"]]`); `description` is the tool's description, its prompt guidelines as `- ` lines when it has some, and its declaration. |
 | `search_tools(query, limit=8, namespace=None)` | Rank the callable tools by relevance to `query` and return up to `limit` entries shaped like those of `ALL_TOOLS`, best first. `namespace` restricts the search to the tools of one namespace. |
@@ -482,5 +521,5 @@ See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
 Image results from `read`, `models.*`,
-`store()`/`load()`, options lines and structured bash results are deferred. A resident engine requires
+options lines and structured bash results are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.
