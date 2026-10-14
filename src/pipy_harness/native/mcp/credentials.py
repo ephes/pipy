@@ -11,6 +11,12 @@ where the namespace is the one of the server's tools (``mcp__<name>`` with
 separate accounts, and a server with the same name and URL in two
 ``mcp.json`` files has one.
 
+Older Pi versions stored a server's state under its URL alone. Such an entry
+is the state of the first server with that URL whose store loads it: the
+load moves it to that server's key, and other servers with the URL sign in
+again. ``tokens`` reads it without moving it, and ``remove`` deletes it when
+the server has no entry of its own (Pi ``storeKeys``).
+
 ``for_server`` gives the store of one server, which is what an
 ``McpOAuthProvider`` is created with. ``remove`` deletes a server's entry
 while it holds that server's refresh lock (below). A write takes the file's lock
@@ -70,8 +76,10 @@ Where this differs from Pi:
 - The server URL in a key is the one ``config.parse_http_url`` reads: without
   its fragment, where Pi keeps the fragment. A URL that parser does not
   accept, or one with user info, is refused with ``ValueError``.
-- Credentials an older Pi stored under the URL alone are not looked for; no
-  pipy version wrote that key.
+- The URL alone, the key of an older Pi, is the URL as
+  ``config.parse_http_url`` writes it, with its fragment when it has one;
+  Pi's is the WHATWG ``href``, which percent-encodes some characters the
+  parser keeps, and ends in ``#`` for an empty fragment.
 - The file is replaced as a whole (written next to it and renamed), where Pi
   writes into it, locks it for a read too and creates it empty at the first
   read.
@@ -169,13 +177,15 @@ def mcp_auth_path(config_home: Path | str) -> Path:
     return Path(config_home) / MCP_AUTH_FILE_NAME
 
 
-def _store_key(name: str, server_url: str) -> str:
-    """The key of a server's state: its namespace and its URL."""
+def _store_keys(name: str, server_url: str) -> tuple[str, str]:
+    """The keys of a server's state: its namespace and its URL, and the
+    URL alone, under which older Pi versions stored it."""
 
     url = parse_http_url(server_url)
     if url is None or url.has_user_info:
         raise ValueError(f"Invalid MCP server URL: {server_url}")
-    return f"{mcp_namespace(name)}|{url.href}"
+    legacy_key = f"{url.href}#{url.fragment}" if url.fragment else url.href
+    return f"{mcp_namespace(name)}|{url.href}", legacy_key
 
 
 def _reject_constant(name: str) -> NoReturn:
@@ -190,6 +200,17 @@ def _parse_states(content: str | None) -> _States:
         return {}
     parsed = json.loads(content, parse_constant=_reject_constant)
     return parsed if is_object(parsed) else {}
+
+
+def _is_truthy(value: object) -> bool:
+    """Whether JavaScript counts the JSON value ``value`` as true."""
+
+    if value is None or isinstance(value, str):
+        return bool(value)
+    if isinstance(value, (int, float)):
+        # NaN cannot be in the file; JSON has no such value.
+        return value != 0
+    return True
 
 
 def _state(states: _States, key: str) -> McpOAuthState | None:
@@ -252,12 +273,34 @@ class McpOAuthServerStore:
     It is the ``McpOAuthStateStore`` of the server's ``McpOAuthProvider``.
     """
 
-    def __init__(self, credentials: McpOAuthCredentialStore, key: str) -> None:
+    def __init__(
+        self, credentials: McpOAuthCredentialStore, key: str, legacy_key: str
+    ) -> None:
         self._credentials = credentials
         self._key = key
+        self._legacy_key = legacy_key
 
     def load(self) -> McpOAuthState | None:
-        return self._credentials._read(lambda states: _state(states, self._key))
+        """The server's state. State stored under the URL alone, when the
+        server has none of its own, is moved to the server's key first."""
+
+        key, legacy_key = self._key, self._legacy_key
+
+        # As Pi decides it: an entry of the server's own that is `null` (or
+        # another false value of JavaScript) does not keep legacy state out.
+        def stays(states: _States) -> bool:
+            return _is_truthy(states.get(key)) or not _is_truthy(states.get(legacy_key))
+
+        if not self._credentials._read(stays):
+            # Under the file's lock: another store may have taken it over.
+            def take_over(states: _States) -> bool:
+                if stays(states):
+                    return False
+                states[key] = states.pop(legacy_key)
+                return True
+
+            self._credentials._write(take_over)
+        return self._credentials._read(lambda states: _state(states, key))
 
     def save(self, state: McpOAuthState) -> None:
         def change(states: _States) -> None:
@@ -301,19 +344,25 @@ class McpOAuthCredentialStore:
     def for_server(self, name: str, server_url: str) -> McpOAuthServerStore:
         """The store of the server ``name`` at ``server_url``."""
 
-        return McpOAuthServerStore(self, _store_key(name, server_url))
+        return McpOAuthServerStore(self, *_store_keys(name, server_url))
 
     def tokens(self, name: str, server_url: str) -> OAuthTokens | None:
         """The stored tokens of a server, for noticing a sign-in another
-        process did."""
+        process did. State stored under the URL alone counts and is not
+        moved."""
 
-        key = _store_key(name, server_url)
-        state = self._read(lambda states: _state(states, key))
+        key, legacy_key = _store_keys(name, server_url)
+        state = self._read(
+            lambda states: _state(
+                states, key if states.get(key) is not None else legacy_key
+            )
+        )
         tokens: OAuthTokens | None = None if state is None else state.get("tokens")
         return tokens
 
     def remove(self, name: str, server_url: str) -> bool:
-        """Delete a server's credentials. Returns whether there were any.
+        """Delete a server's credentials, or else the ones stored under its
+        URL alone, which it would take over. Returns whether there were any.
 
         The server's refresh lock is held meanwhile. A token refresh that is
         running, in this process or another, has therefore saved its tokens
@@ -323,15 +372,16 @@ class McpOAuthCredentialStore:
         whole wait.
         """
 
-        key = _store_key(name, server_url)
+        key, legacy_key = _store_keys(name, server_url)
 
         def change(states: _States) -> bool:
-            if key not in states:
+            stored = key if key in states else legacy_key
+            if stored not in states:
                 return False
-            del states[key]
+            del states[stored]
             return True
 
-        with McpOAuthServerStore(self, key).refresh_lock():
+        with McpOAuthServerStore(self, key, legacy_key).refresh_lock():
             return self._write(change)
 
     def _read(self, read: Callable[[_States], _T]) -> _T:

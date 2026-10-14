@@ -107,6 +107,110 @@ def test_a_server_with_the_same_name_and_url_has_one_entry_in_every_store(
     assert store.for_server("work", _SERVER_URL).load() is None
 
 
+def _write_states(store: McpOAuthCredentialStore, states: dict[str, Any]) -> None:
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps(states), encoding="utf-8")
+
+
+def _stored_keys(store: McpOAuthCredentialStore) -> list[str]:
+    return list(json.loads(store.path.read_text(encoding="utf-8")))
+
+
+def test_moves_credentials_stored_by_the_url_to_the_first_server_that_loads_them(
+    store: McpOAuthCredentialStore,
+) -> None:
+    # Pi: moves credentials stored by SERVER_URL to the first server that loads them
+    _write_states(store, {_SERVER_URL: _state("legacy-token")})
+
+    # Reading tokens does not take the legacy state over.
+    tokens = store.tokens("work", _SERVER_URL)
+    assert tokens is not None and tokens["access_token"] == "legacy-token"
+    assert _stored_keys(store) == [_SERVER_URL]
+
+    assert (
+        _access_token(store.for_server("my_work", _SERVER_URL).load()) == "legacy-token"
+    )
+    # Names differing only in `-` and `_` are the same server.
+    tokens = store.tokens("my-work", _SERVER_URL)
+    assert tokens is not None and tokens["access_token"] == "legacy-token"
+    assert store.for_server("personal", _SERVER_URL).load() is None
+    assert _stored_keys(store) == [f"mcp__my_work|{_SERVER_URL}"]
+
+
+def test_signs_out_of_credentials_stored_by_the_url(
+    store: McpOAuthCredentialStore,
+) -> None:
+    # Pi: signs out of credentials stored by SERVER_URL
+    _write_states(store, {_SERVER_URL: _state("legacy-token")})
+
+    assert store.remove("work", _SERVER_URL) is True
+    assert _stored_keys(store) == []
+    assert store.remove("work", _SERVER_URL) is False
+
+
+def test_a_server_s_own_entry_comes_before_the_one_stored_by_the_url(
+    store: McpOAuthCredentialStore,
+) -> None:
+    key = f"mcp__work|{_SERVER_URL}"
+    _write_states(
+        store, {_SERVER_URL: _state("legacy-token"), key: _state("own-token")}
+    )
+    assert _access_token(store.for_server("work", _SERVER_URL).load()) == "own-token"
+    tokens = store.tokens("work", _SERVER_URL)
+    assert tokens is not None and tokens["access_token"] == "own-token"
+    assert sorted(_stored_keys(store)) == sorted([_SERVER_URL, key])
+    # Signing out deletes the server's own entry first.
+    assert store.remove("work", _SERVER_URL) is True
+    assert _stored_keys(store) == [_SERVER_URL]
+
+
+def test_an_own_entry_that_is_null_does_not_keep_the_legacy_one_out(
+    store: McpOAuthCredentialStore,
+) -> None:
+    key = f"mcp__work|{_SERVER_URL}"
+    _write_states(store, {key: None, _SERVER_URL: _state("legacy-token")})
+    tokens = store.tokens("work", _SERVER_URL)
+    assert tokens is not None and tokens["access_token"] == "legacy-token"
+    assert _access_token(store.for_server("work", _SERVER_URL).load()) == "legacy-token"
+    assert _stored_keys(store) == [key]
+
+
+@pytest.mark.parametrize("legacy", [None, "", 0, False])
+def test_a_legacy_entry_that_javascript_counts_as_false_is_not_taken_over(
+    store: McpOAuthCredentialStore, legacy: object
+) -> None:
+    _write_states(store, {_SERVER_URL: legacy})
+    assert store.for_server("work", _SERVER_URL).load() is None
+    assert _stored_keys(store) == [_SERVER_URL]
+
+
+def test_the_url_alone_keeps_its_fragment(store: McpOAuthCredentialStore) -> None:
+    url = f"{_SERVER_URL}#part"
+    _write_states(store, {_SERVER_URL: _state("other"), url: _state("legacy-token")})
+    assert _access_token(store.for_server("work", url).load()) == "legacy-token"
+    assert sorted(_stored_keys(store)) == sorted(
+        [_SERVER_URL, f"mcp__work|{_SERVER_URL}"]
+    )
+
+
+def test_a_provider_uses_the_credentials_stored_by_the_url(
+    store: McpOAuthCredentialStore,
+) -> None:
+    _write_states(store, {_SERVER_URL: _state("legacy-token")})
+    provider = McpOAuthProvider(
+        McpOAuthProviderOptions(
+            server_url=_SERVER_URL,
+            redirect_url="http://127.0.0.1/callback",
+            client_metadata={"client_name": "test"},
+            store=store.for_server("work", _SERVER_URL),
+            on_redirect=lambda url: None,
+        )
+    )
+    tokens = provider.tokens()
+    assert tokens is not None and tokens["access_token"] == "legacy-token"
+    assert _stored_keys(store) == [f"mcp__work|{_SERVER_URL}"]
+
+
 @pytest.mark.parametrize(
     "url", ["", "ftp://mcp.example.com/mcp", "https://user:secret@mcp.example.com/"]
 )

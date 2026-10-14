@@ -282,3 +282,47 @@ Plan rows and texts:
   `xn--bcher-kva.de` do not match, where Pi's `URL` writes both in punycode.
   Store keys and the CIMD callback id are computed over the URL as
   `parse_http_url` writes it, as recorded since S30 and S32.
+
+## L2, commit 3: O7 (credentials keyed by the URL alone)
+
+Pi source read again:
+`packages/coding-agent/src/extensions/mcp/oauth.ts`, `storeKeys` (line 130,
+`legacyKey = String(new URL(serverUrl))`), `forServer().load` (line 155:
+when `states[key]` is falsy and `states[legacyKey]` truthy, the legacy entry
+is moved to `key` under the file lock), `tokens` (line 199, `states[key] ??
+states[legacyKey]`, nothing moved) and `remove` (line 206, deletes `key`, or
+else `legacyKey`), with `test/mcp-oauth-store.test.ts` ("moves credentials
+stored by SERVER_URL to the first server that loads them", "signs out of
+credentials stored by SERVER_URL"). The finding holds: pipy looked only at
+`<namespace>|<url>`, so an `mcp-auth.json` carried over from an older Pi had
+a grant that could be neither used nor signed out of.
+
+What changed, in `src/pipy_harness/native/mcp/credentials.py`:
+`McpOAuthServerStore.load` takes a legacy entry over as Pi does (checked
+without the lock, moved under the file's lock after checking again),
+`McpOAuthCredentialStore.tokens` falls back to it, and `remove` deletes it
+when the server has no entry of its own. Pi's JavaScript truthiness is kept
+for the takeover check (an own entry that is `null` does not keep a legacy
+one out; a legacy entry that is `null`, `""`, `0` or `false` is not taken).
+The legacy key is the URL as `parse_http_url` writes it plus `#<fragment>`
+when there is one.
+
+Changelog line (section Unreleased):
+
+- OAuth credentials that an older Pi stored in `mcp-auth.json` under the
+  server URL alone are used: the first server with that URL takes them
+  over, and `/mcp logout` deletes them. Before, they were ignored.
+
+Plan rows and texts:
+
+- OAU-18 stays closed; add to its text: an entry keyed by the URL alone
+  (older Pi) is taken over by the first server that loads it, read by
+  `tokens` and deleted by a sign-out (Pi `storeKeys`).
+- DEV-08 is removed (closed): legacy keys are ported.
+- The test inventory note in the plan (line 3473 as judged: "legacy-key
+  cases fall under DEV-08") changes: the two legacy cases of
+  `mcp-oauth-store.test.ts` are mirrored in
+  `tests/test_native_mcp_credentials.py`.
+- A difference that stays: the legacy key is not Pi's WHATWG `href` where
+  the two differ (percent-encoding of the path, a URL that ends in an empty
+  fragment `#`), so such an entry is not found.

@@ -2056,6 +2056,12 @@ is the namespace of the server's tools and its URL,
   `mcp.json` has one entry;
 - names that differ only in `-` and `_` are the same server.
 
+An entry whose key is the URL alone was written by an older Pi. The first
+server with that URL whose store loads it takes it over under its own key;
+other servers with the URL sign in again. `tokens` reads such an entry
+without moving it, and `remove` deletes it when the server has no entry of
+its own.
+
 `for_server(name, url)` gives the store of one server, which a provider is
 created with; `tokens(name, url)` reads a server's tokens and
 `remove(name, url)` deletes its entry and says whether there was one. It
@@ -2131,8 +2137,7 @@ build on it:
 - The refresh lock of the credentials file is a `flock`. The lock of a
   process that died is free at once; Pi takes such a lock over after 20
   seconds. Deleting a server's credentials holds that lock too; in Pi a
-  refresh that ends after a sign-out stores the tokens again. Pi also reads credentials an older version stored under the URL
-  alone, which no pipy version wrote.
+  refresh that ends after a sign-out stores the tokens again.
 - The callback server does not wait for open browser connections when it is
   closed: it gives a page that is being sent two seconds and then drops the
   connections. Registering a wait on a closed server fails at once. A
