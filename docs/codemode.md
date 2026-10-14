@@ -116,9 +116,18 @@ What a call returns depends on the tool:
   Python value (`dict`, `list`, `str`, number, `bool`, or `None` for a
   structured `null`), not as text. It
   returns it for a failure too, when the failed result carries structured
-  content, so check the value instead of relying on `ToolError`. None of the
-  built-in tools declares an output schema; an
+  content, so check the value instead of relying on `ToolError`. Of the
+  built-in tools, `bash` declares one; an
   [extension tool](extension-api.md#tool-model) can.
+- `bash` returns `{"output": ..., "truncated": ..., "full_output_path": ...,
+  "exit_code": ..., "wall_time_seconds": ...}`, also for a non-zero exit code,
+  which raises no `ToolError`: check `exit_code`. `output` is stdout and
+  stderr together, not cut to the 2000 lines or 50 KB the model sees: it
+  holds up to 1 MiB, and longer output keeps its first and last 512 KiB
+  around an `[... N bytes omitted ...]` line, with `truncated` set and the
+  full output in the file `full_output_path` names (present only then). A
+  command that timed out or was aborted has no such value and raises
+  `ToolError`.
 - Every other call returns the tool's text as one `str`. That includes a tool
   that declares an output schema when a result carries no structured content.
 - A call that fails without structured content raises `ToolError` with the
@@ -521,6 +530,6 @@ quality distribution.
 See the [developer reference](specs/2026-10-09-python-codemode-developer.md) for
 runtime provenance, API and reproduction commands, and the
 [spike contract/open decisions](specs/2026-10-06-python-codemode-spike.md).
-Image results from `read`, `models.*`,
-options lines and structured bash results are deferred. A resident engine requires
+Image results from `read`, `models.*` and
+options lines are deferred. A resident engine requires
 an owner decision after T10; fresh workers remain the runtime model.

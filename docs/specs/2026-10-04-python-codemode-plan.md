@@ -143,5 +143,5 @@ Implemented decisions: WASI-only backend, sequential builtin snapshot, normal
 nested policy/hooks/budget, fresh worker, parent-only durable evidence and bounded
 output. Remaining owner decisions: runtime provenance/mirroring/platform gaps,
 resident engine after T10, crash durability via per-call CustomEntry, and the
-separately selected deferred surfaces above (including models/options lines and
-structured bash results). See spike §6 for historical findings and current status.
+separately selected deferred surfaces above (including models/options lines;
+structured bash results landed in MCP1 G5). See spike §6 for historical findings and current status.

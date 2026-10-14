@@ -480,7 +480,7 @@ owner has decided.
 | DEV-01 (decided) | JavaScript script API: `searchTools`, `describeTool`, `describeNamespace`; TypeScript declarations. | Python names `search_tools`, `describe_tool`, `describe_namespace`; declarations rendered as Python-style types with `#` comment lines. Same information (CMD-11 to CMD-15). | Codemode is Python by decision. |
 | DEV-02 (decided) | Config and state under `~/.pi/agent/`, project `.pi/`. | `<config home>/mcp.json`, `mcp-auth.json`, `mcp.log`; project `.pipy/mcp.json`. | Decision. |
 | DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Ported in G3, in a Python form: `tools.<name>.submit(args)` starts a call and returns at once, its `.result()` waits for it; a plain `tools.<name>(args)` waits for its call. At most 16 requests of one script wait for their reply at once; a script that submits more first waits for one. Until G3 nested calls were sequential, as CM1 specified. | The guest has no promises or event loop; the bound keeps the host's buffer of unread replies finite, where Pi has no bound. |
-| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39) and `store()`/`load()` (G4). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
+| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4) and structured `bash` results (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
 | DEV-05 | The client identifies as `pi` in `initialize` and in dynamic client registration. | `pipy` and pipy's version. `oauth.clientName` covers servers that accept only known client names, as in Pi. | Product name. |
 | DEV-06 | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. If the owner later names a default (section 7, Q1), the field becomes optional. | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
 | DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
@@ -3842,6 +3842,21 @@ runner maps one to the other, so a tool with an output schema that returns
 `test_script_receives_structured_content_text_or_a_tool_error` (real guest),
 `test_null_structured_content_is_a_value_hooks_see_and_keep`,
 `test_structured_content_is_any_json_value` (`None` added).
+Part 2 (finding M15): `bash` declares Pi's `bashOutputSchema`
+(`BASH_OUTPUT_SCHEMA`) and every command that ran to its exit carries
+`{output, truncated, full_output_path?, exit_code, wall_time_seconds}` as
+structured content, also with a non-zero exit (an error result for the
+model, a value for a script, which does not raise). `output` is
+`OutputAccumulator.read_full_output(1 MiB)` (Pi `readFullOutput`): the raw
+output decoded with replacement characters, or past 1 MiB its first and last
+512 KiB at character boundaries around `[... N bytes omitted ...]`;
+`full_output_path` only then. If the temp file could not be kept, the tail
+the model sees is the output. A timeout or an abort has no structured
+content (Pi throws). The wall time is Pi's tenths of a second. Tests in
+`test_bash_tool.py` (`test_the_output_schema_is_pis`,
+`test_a_nonzero_exit_is_an_error_that_keeps_its_structured_result`,
+`test_structured_output_over_one_mebibyte_keeps_head_and_tail`, ...) and
+`test_a_script_gets_bashs_structured_result_also_for_a_failed_command`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

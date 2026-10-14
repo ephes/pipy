@@ -154,8 +154,8 @@ coordinator campaign report. This product index does not assert a review verdict
 
 Extension-tool generalization and MCP/discovery/exposure are now MCP1 above.
 Other follow-ons require separately selected slices: shared state (parallel
-calls are MCP1 slice G3; `store()`/`load()` is MCP1 slice G4), images (the tool-result part is MCP1 slice S39), `models.*`, options lines and structured bash
-results. Compact-script
+calls are MCP1 slice G3; `store()`/`load()` is MCP1 slice G4), images (the tool-result part is MCP1 slice S39), `models.*` and options lines
+(structured bash results are MCP1 slice G5). Compact-script
 model adherence needs further evidence; the T10 repeat is retained as a limitation.
 **CM1-A1 — adherence guidance (review closed).** The owner-selected follow-on adds
 direct string-processing guidance,

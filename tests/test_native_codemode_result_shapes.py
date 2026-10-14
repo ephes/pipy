@@ -207,3 +207,35 @@ text({'bytes': len(canonical.encode()), 'rows': len(value['rows']),
     assert parent.details["nestedCalls"]["calls"][0]["status"] == "ok"
     # Nothing of the nested result is kept on the parent.
     assert len(json.dumps(parent.details)) < 2000
+
+
+def test_a_script_gets_bashs_structured_result_also_for_a_failed_command(
+    tmp_path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # Goal-check finding M15, Pi docs/codemode.md "Call tools": `bash`
+    # resolves to { output, truncated, full_output_path?, exit_code,
+    # wall_time_seconds }, also for non-zero exit codes.
+    code = """ok = tools.bash(command='echo hello')
+failed = tools.bash(command='echo oops; exit 4')
+text({'ok': ok, 'failed': failed, 'type': type(failed).__name__})
+"""
+
+    parent, _, _ = _run_script(tmp_path, code, monkeypatch)
+
+    assert not parent.is_error, parent.content.value
+    output = json.loads(_output(parent))
+    assert output["type"] == "dict"
+    for name, text, code_ in (("ok", "hello\n", 0), ("failed", "oops\n", 4)):
+        value = output[name]
+        assert value["output"] == text
+        assert value["truncated"] is False
+        assert value["exit_code"] == code_
+        assert isinstance(value["wall_time_seconds"], float)
+    # The record follows the tool's outcome: the failed command is an error.
+    record = parent.details["nestedCalls"]
+    assert [(call["name"], call["status"]) for call in record["calls"]] == [
+        ("bash", "ok"),
+        ("bash", "error"),
+    ]

@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- A codemode script that calls `bash` gets Pi's structured result,
+  `{"output", "truncated", "full_output_path", "exit_code",
+  "wall_time_seconds"}`, also when the command exits with a non-zero code,
+  which no longer raises `ToolError` in the script. `output` is not cut to
+  the 2000 lines or 50 KB the model sees: it holds up to 1 MiB, and longer
+  output keeps its first and last 512 KiB, with the full output in
+  `full_output_path`. See [Writing a script](docs/codemode.md#writing-a-script).
+
 - Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with
   `pipy codemode install`, check it with `pipy codemode status`, and opt in via
   `defaultTools: ["+codemode"]` or `--tools +codemode`. Sequential calls to

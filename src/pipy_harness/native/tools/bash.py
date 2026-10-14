@@ -26,6 +26,14 @@ otherwise an error result with Pi's status after a blank line —
 without the ``(no output)`` placeholder). The loop treats these as tool
 execution errors, not malformed provider tool calls.
 
+Every result of a command that ran to its exit also carries Pi's structured
+content (``BASH_OUTPUT_SCHEMA``) for programmatic callers such as codemode
+scripts: the output, not cut like the model's text but up to 1 MiB
+(``STRUCTURED_OUTPUT_MAX_BYTES``, the first and last half around an omission
+marker beyond that), whether it was cut, the full-output file then, the exit
+code and the wall time. A non-zero exit is an error result for the model, but
+a script still receives this value.
+
 The ``!``/``!!`` editor shortcut runs through :func:`run_local_command`, which
 keeps its output like Pi's ``bash-executor.ts``
 (:mod:`pipy_harness.native.tools.bash_executor`).
@@ -38,6 +46,7 @@ archived.
 from __future__ import annotations
 
 import codecs
+import math
 import os
 import selectors
 import shutil
@@ -50,6 +59,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    NoStructuredContent,
+)
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
@@ -71,6 +84,28 @@ from pipy_harness.native.tools.truncate import (
 _MAX_TIMEOUT_SECONDS = 2_147_483
 _STREAM_THROTTLE_SECONDS = 0.1
 _READ_CHUNK_BYTES = 64 * 1024
+# Pi: the output limit of ``structuredContent.output``, which programmatic
+# callers such as codemode scripts receive.
+STRUCTURED_OUTPUT_MAX_BYTES = 1024 * 1024
+
+# Pi ``bashOutputSchema``.
+BASH_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "output": {
+            "type": "string",
+            "description": "Combined stdout and stderr, possibly truncated",
+        },
+        "truncated": {"type": "boolean"},
+        "full_output_path": {
+            "type": "string",
+            "description": "Full output, when truncated",
+        },
+        "exit_code": {"type": "number"},
+        "wall_time_seconds": {"type": "number"},
+    },
+    "required": ["output", "truncated", "exit_code", "wall_time_seconds"],
+}
 
 
 BASH_TOOL_DESCRIPTION = (
@@ -123,6 +158,7 @@ class BashTool:
                 "required": ["command"],
                 "additionalProperties": False,
             },
+            output_schema=BASH_OUTPUT_SCHEMA,
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -142,6 +178,7 @@ class BashTool:
                 "Cannot execute bash commands.",
                 is_error=True,
             )
+        started = time.monotonic()
         try:
             proc = subprocess.Popen(  # noqa: S603 - intentional real shell, Pi parity
                 [shell, "-c", command],
@@ -189,14 +226,34 @@ class BashTool:
             if snapshot.full_output_path is not None:
                 details["fullOutputPath"] = snapshot.full_output_path
         exit_code = shell_exit_code(proc.returncode)
+        # Pi ``Math.round(ms / 100) / 10``: tenths of a second, halves up.
+        wall_time_seconds = math.floor((time.monotonic() - started) * 10 + 0.5) / 10
+        full_output, full_truncated = accumulator.read_full_output(
+            STRUCTURED_OUTPUT_MAX_BYTES
+        )
+        structured: dict[str, object] = {
+            "output": full_output,
+            "truncated": full_truncated,
+        }
+        if full_truncated and snapshot.full_output_path is not None:
+            structured["full_output_path"] = snapshot.full_output_path
+        structured["exit_code"] = exit_code
+        structured["wall_time_seconds"] = wall_time_seconds
         if exit_code != 0:
             return self._result(
                 request,
                 _append_status(text, f"Command exited with code {exit_code}"),
                 is_error=True,
                 details=details,
+                structured_content=structured,
             )
-        return self._result(request, text, is_error=False, details=details)
+        return self._result(
+            request,
+            text,
+            is_error=False,
+            details=details,
+            structured_content=structured,
+        )
 
     def _resolve_shell(self) -> str | None:
         if self.shell_path is not None:
@@ -212,6 +269,9 @@ class BashTool:
         *,
         is_error: bool,
         details: dict[str, object] | None = None,
+        structured_content: dict[str, object] | NoStructuredContent = (
+            NO_STRUCTURED_CONTENT
+        ),
     ) -> ToolExecutionResult:
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
@@ -219,6 +279,7 @@ class BashTool:
             is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
             details=details,
+            structured_content=structured_content,
         )
 
 

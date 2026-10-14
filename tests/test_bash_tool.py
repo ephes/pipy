@@ -20,6 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolPort,
@@ -453,3 +454,125 @@ def test_accumulator_drops_a_temp_file_it_could_not_write() -> None:
     assert snapshot.full_output_path is None
     assert not Path(path).exists()
     assert snapshot.content == "3\n4"
+    assert accumulator.read_full_output(1024) == ("3\n4", True)
+
+
+# Goal-check finding M15: Pi's structured bash result for programmatic
+# callers (bash.ts ``bashOutputSchema`` and ``structuredContent``).
+
+
+def test_the_output_schema_is_pis() -> None:
+    assert BashTool().definition.output_schema == {
+        "type": "object",
+        "properties": {
+            "output": {
+                "type": "string",
+                "description": "Combined stdout and stderr, possibly truncated",
+            },
+            "truncated": {"type": "boolean"},
+            "full_output_path": {
+                "type": "string",
+                "description": "Full output, when truncated",
+            },
+            "exit_code": {"type": "number"},
+            "wall_time_seconds": {"type": "number"},
+        },
+        "required": ["output", "truncated", "exit_code", "wall_time_seconds"],
+    }
+
+
+def test_a_command_carries_a_structured_result(tmp_path: Path) -> None:
+    result = BashTool().invoke(_request({"command": "echo hi"}), _ctx(tmp_path))
+
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert list(structured) == ["output", "truncated", "exit_code", "wall_time_seconds"]
+    assert structured["output"] == "hi\n"
+    assert structured["truncated"] is False
+    assert structured["exit_code"] == 0
+    wall = structured["wall_time_seconds"]
+    assert isinstance(wall, float) and 0 <= wall < 30 and wall == round(wall, 1)
+
+
+def test_a_nonzero_exit_is_an_error_that_keeps_its_structured_result(
+    tmp_path: Path,
+) -> None:
+    result = BashTool().invoke(
+        _request({"command": "echo bad; exit 3"}), _ctx(tmp_path)
+    )
+
+    assert result.is_error is True
+    assert result.output_text == "bad\n\n\nCommand exited with code 3"
+    assert result.structured_content["output"] == "bad\n"
+    assert result.structured_content["exit_code"] == 3
+    # No output stays empty here; ``(no output)`` is the model's text.
+    empty = BashTool().invoke(_request({"command": "exit 1"}), _ctx(tmp_path))
+    assert empty.structured_content["output"] == ""
+
+
+def test_structured_output_is_not_cut_like_the_models_text(tmp_path: Path) -> None:
+    # 3000 lines: the model sees the last 2000, the script all of them, and
+    # under 1 MiB nothing is cut, so no file is named.
+    result = BashTool().invoke(_request({"command": "seq 1 3000"}), _ctx(tmp_path))
+
+    structured = result.structured_content
+    assert structured["output"] == "".join(f"{n}\n" for n in range(1, 3001))
+    assert structured["truncated"] is False
+    assert "full_output_path" not in structured
+    assert result.details is not None and "fullOutputPath" in result.details
+
+
+def test_structured_output_over_one_mebibyte_keeps_head_and_tail(
+    tmp_path: Path,
+) -> None:
+    # 1.5 MiB of one line, starting with "<" and ending with ">".
+    command = f"{sys.executable} -c \"import sys; sys.stdout.write('<' + 'x' * (3 * 512 * 1024 - 2) + '>')\""
+    result = BashTool().invoke(_request({"command": command}), _ctx(tmp_path))
+
+    structured = result.structured_content
+    assert structured["truncated"] is True
+    output = structured["output"]
+    marker = f"\n\n[... {3 * 512 * 1024 - 1024 * 1024} bytes omitted ...]\n\n"
+    head, _, tail = output.partition(marker)
+    assert head == "<" + "x" * (512 * 1024 - 1)
+    assert tail == "x" * (512 * 1024 - 1) + ">"
+    path = structured["full_output_path"]
+    assert result.details is not None
+    assert path == result.details["fullOutputPath"]
+    assert Path(path).stat().st_size == 3 * 512 * 1024
+    assert list(structured) == [
+        "output",
+        "truncated",
+        "full_output_path",
+        "exit_code",
+        "wall_time_seconds",
+    ]
+
+
+def test_an_interrupted_command_has_no_structured_result(tmp_path: Path) -> None:
+    # Pi throws for a timeout or an abort, so no structured content exists.
+    result = BashTool().invoke(
+        _request({"command": "sleep 30", "timeout": 1}), _ctx(tmp_path)
+    )
+
+    assert result.is_error is True
+    assert result.structured_content is NO_STRUCTURED_CONTENT
+
+
+def test_full_output_cuts_at_character_boundaries(tmp_path: Path) -> None:
+    accumulator = OutputAccumulator(max_lines=10, max_bytes=8)
+    # Twelve bytes of three-byte characters; the cut at 5 + 5 bytes falls
+    # inside characters on both sides.
+    accumulator.append("€€€€".encode())
+    accumulator.finish()
+    accumulator.snapshot(persist_if_truncated=True)
+    accumulator.close_temp_file()
+
+    output, truncated = accumulator.read_full_output(10)
+
+    assert truncated is True
+    assert output == "€\n\n[... 2 bytes omitted ...]\n\n€"
+    small = OutputAccumulator()
+    small.append(b"ok\xff")
+    small.finish()
+    assert small.read_full_output(10) == ("ok�", False)
