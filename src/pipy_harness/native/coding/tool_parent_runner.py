@@ -33,11 +33,12 @@ import json
 import threading
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final, Protocol
 
 from pipy_harness.native.agent.messages import AgentToolCall
 from pipy_harness.native.agent.nested_calls import NestedToolCallService
+from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -56,20 +57,27 @@ from pipy_harness.native.tools.base import (
 _WATCH_SECONDS: Final = 0.05
 
 
-def unavailable_result() -> NestedToolResult:
-    """What a call gets where no nested call can run (Pi's text)."""
+def unavailable_result(caller_id: str = "") -> NestedToolResult:
+    """What a call gets where no nested call can run (Pi's text and its id
+    ``<calling id>/0``)."""
 
-    return NestedToolResult(NESTED_CALLS_UNAVAILABLE, is_error=True)
+    return NestedToolResult(
+        NESTED_CALLS_UNAVAILABLE,
+        is_error=True,
+        tool_call_id=f"{caller_id}/0" if caller_id else "",
+    )
 
 
 class _Request:
     __slots__ = ("arguments_json", "ready", "result", "tool_name")
 
-    def __init__(self, tool_name: str, arguments_json: str) -> None:
+    def __init__(
+        self, tool_name: str, arguments_json: str, result: NestedToolResult
+    ) -> None:
         self.tool_name = tool_name
         self.arguments_json = arguments_json
         self.ready = threading.Event()
-        self.result = unavailable_result()
+        self.result = result
 
 
 class NestedToolBridge:
@@ -80,10 +88,14 @@ class NestedToolBridge:
     and ``_closed``; the service is used by the session thread only.
     """
 
-    def __init__(self, service: NestedToolCallService, *, serves: bool) -> None:
+    def __init__(
+        self, service: NestedToolCallService, *, serves: bool, caller_id: str = ""
+    ) -> None:
         """``serves`` says whether ``serve`` will run: only then can a call
-        from another thread be carried to the session thread."""
+        from another thread be carried to the session thread. ``caller_id``
+        is the id of the calling tool call."""
         self._service = service
+        self._caller_id = caller_id
         self._serves = serves
         self._thread = threading.current_thread()
         self._definitions = service.callable_tools()
@@ -100,24 +112,20 @@ class NestedToolBridge:
         if arguments is None:
             arguments = {}
         if not isinstance(arguments, Mapping):
-            return NestedToolResult(
-                f"Tool {name} arguments must be an object", is_error=True
-            )
+            return self._refused(f"Tool {name} arguments must be an object")
         try:
             arguments_json = json.dumps(dict(arguments))
         except (TypeError, ValueError) as error:
-            return NestedToolResult(
-                f"Tool {name} arguments must be JSON: {error}", is_error=True
-            )
+            return self._refused(f"Tool {name} arguments must be JSON: {error}")
         if threading.current_thread() is self._thread:
             with self._lock:
                 if self._closed:
-                    return unavailable_result()
+                    return unavailable_result(self._caller_id)
             return self._run(name, arguments_json)[0]
-        request = _Request(name, arguments_json)
+        request = _Request(name, arguments_json, unavailable_result(self._caller_id))
         with self._lock:
             if self._closed or not self._serves:
-                return unavailable_result()
+                return unavailable_result(self._caller_id)
             self._requests.append(request)
             self._wake.set()
         request.ready.wait()
@@ -134,15 +142,26 @@ class NestedToolBridge:
             unknown_tool_error=f"Tool {tool_name} not found",
         )
         result = outcome.result
+        call = outcome.nested_call
         return (
             NestedToolResult(
                 result.content.value,
                 is_error=result.is_error,
                 details=result.details,
                 structured_content=result.structured_content,
+                blocks=result.blocks,
+                tool_call_id=call.provider_correlation_id,
+                arguments=_arguments(call.arguments_json.value),
+                duration_ms=None
+                if outcome.status is NestedCallStatus.REFUSED
+                else outcome.duration_seconds * 1000,
             ),
             outcome.interruption,
         )
+
+    def _refused(self, text: str) -> NestedToolResult:
+        """A call refused before it got an id of its own (Pi ``<id>/0``)."""
+        return replace(unavailable_result(self._caller_id), content=text)
 
     def serve(
         self,
@@ -204,6 +223,15 @@ class NestedToolBridge:
             request.ready.set()
 
 
+def _arguments(arguments_json: str) -> dict[str, object]:
+    """The arguments of a call as a fresh object; ``{}`` when they are not one."""
+    try:
+        value = json.loads(arguments_json)
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 class ParentToolExecution(Protocol):
     """Runs the parent itself, with what it calls other tools through."""
 
@@ -235,7 +263,11 @@ class ToolParentRunner:
         tool_waiter: ToolInterruptWaiter | None,
         /,
     ) -> ToolExecutionOutcome:
-        bridge = NestedToolBridge(service, serves=tool_waiter is not None)
+        bridge = NestedToolBridge(
+            service,
+            serves=tool_waiter is not None,
+            caller_id=call.provider_correlation_id,
+        )
         waiter: ToolInterruptWaiter | None = None
         if tool_waiter is not None:
             session_waiter = tool_waiter

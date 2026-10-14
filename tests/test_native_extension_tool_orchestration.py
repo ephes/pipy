@@ -82,13 +82,16 @@ def activate(api):
         blocked = ctx.execute_tool('echo', {'text': 'forbidden'})
         invalid = ctx.execute_tool('echo', {'text': 3})
         _log('flags', [r.is_error for r in (helper, echo, own, blocked, invalid)])
-        _log('errors', blocked.content, invalid.content)
+        _log('errors', blocked.result.content, invalid.result.content)
+        _log('calls', [[r.tool_call.id, r.tool_call.name, r.tool_call.arguments,
+                        r.duration_ms is not None]
+                       for r in (helper, echo, own, blocked, invalid)])
         return ToolResult(content=' | '.join(
-            r.content for r in (helper, echo, own)))
+            r.result.content for r in (helper, echo, own)))
 
     def nested(ctx, params):
         _log('nested tools', [tool.name for tool in ctx.tools])
-        return ToolResult(content=ctx.execute_tool('echo', {'text': 'x'}).content)
+        return ToolResult(content=ctx.execute_tool('echo', {'text': 'x'}).result.content)
 
     api.register_tool(ExtensionTool(
         name='echo', description='Echo text.', input_schema=_TEXT,
@@ -104,7 +107,7 @@ def activate(api):
     api.register_tool(ExtensionTool(
         name='outer', description='Runs inner.', input_schema=_NONE,
         handler=lambda ctx, params: ToolResult(
-            content=ctx.execute_tool('inner').content)))
+            content=ctx.execute_tool('inner').result.content)))
     api.register_tool(ExtensionTool(
         name='run_tools', description='Runs tools.', input_schema=_NONE,
         handler=run_tools, exposure='model-only'))
@@ -180,6 +183,16 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
     assert {"echo", "helper", "inner", "outer", "read"} <= set(tools)
     assert "run_tools" not in tools
     assert ["flags", [False, False, True, True, True]] in rows
+    # The outcome names the call: its id, name, arguments and duration;
+    # a call to a name that is not callable was refused before it started.
+    calls = next(row[1] for row in rows if row[0] == "calls")
+    assert calls == [
+        ["p1/1", "helper", {}, True],
+        ["p1/2", "echo", {"text": "hi"}, True],
+        ["p1/3", "run_tools", {}, False],
+        ["p1/4", "echo", {"text": "forbidden"}, True],
+        ["p1/5", "echo", {"text": 3}, True],
+    ]
     errors = next(row for row in rows if row[0] == "errors")
     assert "forbidden text" in errors[1]
     assert "text" in errors[2]
@@ -268,7 +281,7 @@ def activate(api):
     def calls_slow(ctx, params):
         nested = ctx.execute_tool('slow')
         failed = ctx.execute_tool('broken')
-        return ToolResult(content=f'{nested.content} / {failed.content}')
+        return ToolResult(content=f'{nested.result.content} / {failed.result.content}')
 
     api.register_tool(ExtensionTool(
         name='slow', description='Async.', input_schema=_NONE, handler=slow))
@@ -308,6 +321,104 @@ def test_an_async_tool_handler_is_awaited(tmp_path, monkeypatch, interruptible) 
     direct, parent = _tool_results(provider.requests[1])
     assert (direct.content.value, direct.is_error) == ("awaited", False)
     assert parent.content.value == ("awaited / extension tool error: RuntimeError")
+
+
+_IMAGES = """from pipy_harness.extensions import (
+    ExtensionTool, ImageContent, TextContent, ToolResult)
+
+_NONE = {'type': 'object', 'properties': {}, 'additionalProperties': False}
+
+
+def activate(api):
+    def shot(ctx, params):
+        return ToolResult(content='ignored', blocks=(
+            TextContent('before'), ImageContent('aGk=', 'image/png'),
+            TextContent('after')))
+
+    def wrap(ctx, params):
+        outcome = ctx.execute_tool('shot')
+        return ToolResult(content='', blocks=outcome.result.blocks)
+
+    def too_long(ctx, params):
+        return ToolResult(content='', blocks=(
+            TextContent('x' * 70000), ImageContent('aGk=', 'image/png'),
+            TextContent('dropped')))
+
+    def fits(ctx, params):
+        return ToolResult(content='', blocks=(
+            TextContent('y' * (60 * 1024 - 2)), ImageContent('aGk=', 'image/png'),
+            TextContent('z')))
+
+    def bad(ctx, params):
+        return ToolResult(content='', blocks=({'type': 'text', 'text': 'x'},))
+
+    # A tool_result handler that changes nothing: the hooks' own bound must
+    # not cost a result its images.
+    api.on('tool_result', lambda event, ctx: None)
+
+    api.register_tool(ExtensionTool(
+        name='shot', description='Image.', input_schema=_NONE,
+        handler=shot, exposure='codemode'))
+    api.register_tool(ExtensionTool(
+        name='wrap', description='Wraps shot.', input_schema=_NONE, handler=wrap))
+    api.register_tool(ExtensionTool(
+        name='too_long', description='Long.', input_schema=_NONE,
+        handler=too_long))
+    api.register_tool(ExtensionTool(
+        name='fits', description='Fits.', input_schema=_NONE, handler=fits))
+    api.register_tool(ExtensionTool(
+        name='bad', description='Bad blocks.', input_schema=_NONE, handler=bad))
+"""
+
+
+def test_a_nested_result_keeps_its_images(tmp_path, monkeypatch) -> None:
+    # Pi: `executeTool` returns the result with its content blocks, and a
+    # tool can return them as its own result.
+    from pipy_harness.native.agent.content import ImageContent, TextContent
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True)
+    (directory / "images.py").write_text(_IMAGES, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("p1", "wrap", "{}"),
+                    ProviderToolCall("p2", "too_long", "{}"),
+                    ProviderToolCall("p3", "bad", "{}"),
+                    ProviderToolCall("p4", "fits", "{}"),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    result, _ = _session(tmp_path, provider)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    wrapped, long, bad, fits = _tool_results(provider.requests[1])
+    assert wrapped.blocks == (
+        TextContent("before"),
+        ImageContent("aGk=", "image/png"),
+        TextContent("after"),
+    )
+    assert wrapped.content.value == "before\nafter"
+    # The text is bounded; the image is kept whole and in order.
+    assert [type(block) for block in long.blocks] == [TextContent, ImageContent]
+    assert long.content.value.endswith("[pipy: extension tool output truncated]")
+    assert len(long.content.value) <= 60 * 1024
+    # Text within the bound is not touched.
+    assert [type(block) for block in fits.blocks] == [
+        TextContent,
+        ImageContent,
+        TextContent,
+    ]
+    assert fits.content.value == "y" * (60 * 1024 - 2) + "\nz"
+    assert (bad.content.value, bad.is_error) == (
+        "extension tool error: invalid result blocks",
+        True,
+    )
 
 
 # -- the bridge between a handler's thread and the session thread -----------

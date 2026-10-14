@@ -6,6 +6,13 @@ import inspect
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    ToolResultBlock,
+    tool_result_text,
+)
+from pipy_harness.native.extension_hooks import TOOL_RESULT_MAX_CHARS
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_types import (
     ControlGetAllToolsFn,
@@ -27,6 +34,7 @@ if TYPE_CHECKING:
 
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
+_TRUNCATED = "\n[pipy: extension tool output truncated]"
 
 
 class _ExtensionToolPort:
@@ -121,15 +129,27 @@ class _ExtensionToolPort:
                 is_error=True,
                 provider_correlation_id=request.provider_correlation_id,
             )
-        if isinstance(result, ToolResult) and isinstance(result.content, str):
+        cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+        blocks: tuple[ToolResultBlock, ...] = ()
+        if isinstance(result, ToolResult) and result.blocks:
+            bounded = _bounded_blocks(result.blocks, cap)
+            if bounded is None:
+                return ToolExecutionResult(
+                    tool_request_id=request.tool_request_id,
+                    output_text="extension tool error: invalid result blocks",
+                    is_error=True,
+                    provider_correlation_id=request.provider_correlation_id,
+                )
+            blocks = bounded
+            content = tool_result_text(blocks)
+        elif isinstance(result, ToolResult) and isinstance(result.content, str):
             content = result.content
         elif isinstance(result, ToolResult):
             content = str(result.content)
         else:
             content = str(result)
-        cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
         if len(content) > cap:
-            content = content[: cap - 64] + "\n[pipy: extension tool output truncated]"
+            content = content[: cap - 64] + _TRUNCATED
         # Pi stores `details` on the tool result and hands it to the result
         # renderer; the JSON copy is what the session file keeps, so live and
         # restored rows render from the same value.
@@ -147,4 +167,53 @@ class _ExtensionToolPort:
             provider_correlation_id=request.provider_correlation_id,
             details=json_safe_details(details),
             structured_content=json_safe_value(structured_content),
+            blocks=blocks,
         )
+
+
+def _bounded_blocks(blocks: object, cap: int) -> tuple[ToolResultBlock, ...] | None:
+    """A handler's ``blocks`` with their text bounded, or ``None`` when they
+    are not a sequence of text and image blocks.
+
+    The bound is ``cap`` or the ``tool_result`` hooks' bound, whichever is
+    smaller: text the hooks would cut loses the images with it. Text within
+    the bound is kept as it is. Otherwise images are kept whole and in
+    order, the text block that reaches the bound is cut and marked, and
+    later text blocks are left out.
+    """
+
+    if isinstance(blocks, (str, bytes)) or not isinstance(blocks, Sequence):
+        return None
+    checked: list[ToolResultBlock] = []
+    for block in blocks:
+        if type(block) is ImageContent:
+            checked.append(block)
+        elif type(block) is TextContent and block.signature is None:
+            checked.append(block)
+        else:
+            return None
+    limit = min(cap, TOOL_RESULT_MAX_CHARS)
+    if len(tool_result_text(checked)) <= limit:
+        return tuple(checked)
+    # Room for the marker and its newline is kept, so the text stays within
+    # the bound.
+    budget = limit - len(_TRUNCATED) - 1
+    kept: list[ToolResultBlock] = []
+    used = 0  # length of the kept text blocks joined by newlines
+    texts = 0
+    cut = False
+    for block in checked:
+        if not isinstance(block, TextContent):
+            kept.append(block)
+            continue
+        if cut:
+            continue
+        separator = 1 if texts else 0
+        if used + separator + len(block.text) > budget:
+            room = max(budget - used - separator, 0)
+            block = TextContent(block.text[:room] + _TRUNCATED)
+            cut = True
+        kept.append(block)
+        used += separator + len(block.text)
+        texts += 1
+    return tuple(kept)

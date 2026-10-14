@@ -543,12 +543,23 @@ class NestedToolResult:
     The result as the session's hooks left it. A failure of any kind, also a
     tool that is not callable, a blocked call or invalid arguments, is a
     result with ``is_error``.
+
+    ``blocks`` are the ordered text and image blocks of a result that has an
+    image (Pi ``result.content``); ``content`` is then their text. The call
+    itself (Pi ``AgentToolCallOutcome.toolCall`` and ``durationMs``):
+    ``tool_call_id`` is ``<calling id>/<n>``, ``arguments`` the arguments
+    the call was made with, and ``duration_ms`` how long the call took, or
+    ``None`` when it was refused before it started.
     """
 
     content: str
     is_error: bool = False
     details: Mapping[str, Any] | None = None
     structured_content: Any = None
+    blocks: tuple[ToolResultBlock, ...] = ()
+    tool_call_id: str = ""
+    arguments: Mapping[str, Any] = field(default_factory=dict)
+    duration_ms: float | None = None
 
 
 class NestedToolCalls(Protocol):

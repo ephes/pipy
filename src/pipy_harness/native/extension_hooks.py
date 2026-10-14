@@ -47,7 +47,7 @@ operations plus `EVENT_*` constants from `extensions.activation`. The dependency
 remains one-way and cycle-free: activation never imports back from this module.
 
 The `before_agent_start` and `tool_result` injections are each bounded by
-`_BEFORE_AGENT_START_MAX_CHARS` / `_TOOL_RESULT_MAX_CHARS` so a buggy or
+`_BEFORE_AGENT_START_MAX_CHARS` / `TOOL_RESULT_MAX_CHARS` so a buggy or
 malicious extension cannot create unbounded provider input.
 """
 
@@ -168,7 +168,7 @@ if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.session_tree import NativeSessionTree
 
 # Bound a transformed tool-result observation before it reaches the model.
-_TOOL_RESULT_MAX_CHARS: int = 60 * 1024
+TOOL_RESULT_MAX_CHARS: int = 60 * 1024
 # Cap the total `before_agent_start` system-prompt injection so a buggy or
 # malicious extension cannot create unbounded provider input.
 _BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
@@ -627,9 +627,9 @@ def dispatch_tool_result_hooks(
                 if result.structured_content is not current_structured:
                     # A detached JSON copy; a value that is not JSON is dropped.
                     current_structured = json_safe_value(result.structured_content)
-    if len(current) > _TOOL_RESULT_MAX_CHARS:
+    if len(current) > TOOL_RESULT_MAX_CHARS:
         current = (
-            current[:_TOOL_RESULT_MAX_CHARS]
+            current[:TOOL_RESULT_MAX_CHARS]
             + "\n[pipy: tool_result transform truncated]"
         )
     return ToolResultTransform(content=current, structured_content=current_structured)

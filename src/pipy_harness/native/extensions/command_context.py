@@ -25,6 +25,8 @@ from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUi,
     ExtensionUiDriver,
+    ToolCallInfo,
+    ToolCallOutcome,
     ToolResult,
     is_valid_custom_entry_type,
 )
@@ -36,7 +38,7 @@ from pipy_harness.native.extensions.session_views import (
     _ConversationView,
     _ReadOnlySessionManagerView,
 )
-from pipy_harness.native.tools.base import NESTED_CALLS_UNAVAILABLE
+from pipy_harness.native.tools.base import NESTED_CALLS_UNAVAILABLE, NestedToolResult
 
 if TYPE_CHECKING:
     from pipy_harness.native.tools.base import ToolInfo
@@ -165,7 +167,8 @@ class ExtensionToolContext(CommandContext, Protocol):
     as they were when this tool was called. ``execute_tool(name, arguments)``
     runs one of them through the same argument validation, ``tool_call`` and
     ``tool_result`` hooks and tool budget as a call the model made, and
-    returns its result. It never raises for a tool failure: a tool that is
+    returns its ``ToolCallOutcome``: the call, the result with its image
+    blocks, ``is_error`` and the duration. It never raises for a tool failure: a tool that is
     not callable, invalid arguments, a blocked call and a failed tool come
     back as a result with ``is_error``.
 
@@ -179,11 +182,11 @@ class ExtensionToolContext(CommandContext, Protocol):
 
     def execute_tool(
         self, name: str, arguments: Mapping[str, object] | None = None
-    ) -> ToolResult: ...
+    ) -> ToolCallOutcome: ...
 
     def executeTool(  # noqa: N802 - Pi-shaped alias
         self, name: str, arguments: Mapping[str, object] | None = None
-    ) -> ToolResult: ...
+    ) -> ToolCallOutcome: ...
 
 
 class _CommandContext:
@@ -250,21 +253,29 @@ class _CommandContext:
 
     def execute_tool(
         self, name: str, arguments: Mapping[str, object] | None = None
-    ) -> ToolResult:
+    ) -> ToolCallOutcome:
         nested = self._model_runtime.nested_tools
+        name = str(name)
         if nested is None:
-            return ToolResult(content=NESTED_CALLS_UNAVAILABLE, is_error=True)
-        result = nested.execute(str(name), arguments)
-        return ToolResult(
-            content=result.content,
-            details=result.details,
-            structured_content=result.structured_content,
+            result = NestedToolResult(NESTED_CALLS_UNAVAILABLE, is_error=True)
+        else:
+            result = nested.execute(name, arguments)
+        return ToolCallOutcome(
+            tool_call=ToolCallInfo(result.tool_call_id, name, result.arguments),
+            result=ToolResult(
+                content=result.content,
+                details=result.details,
+                structured_content=result.structured_content,
+                is_error=result.is_error,
+                blocks=result.blocks,
+            ),
             is_error=result.is_error,
+            duration_ms=result.duration_ms,
         )
 
     def executeTool(  # noqa: N802 - Pi-shaped alias
         self, name: str, arguments: Mapping[str, object] | None = None
-    ) -> ToolResult:
+    ) -> ToolCallOutcome:
         return self.execute_tool(name, arguments)
 
     def set_model(self, reference: str) -> bool:

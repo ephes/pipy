@@ -476,6 +476,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   example, explains direct string processing and recommends filtering before
   emitting a compact answer. This guides model behavior without enforcing a
   one-script limit or changing tool authority, retries or output budgets.
+- `ctx.execute_tool` returns a `ToolCallOutcome`, Pi's outcome object: the
+  call (`tool_call.id`, `name`, `arguments`), the `result`, `is_error` and
+  `duration_ms`. It returned the result alone, without its images. A
+  `ToolResult` can now hold images as `blocks` of `TextContent` and
+  `ImageContent` (exported from `pipy_harness.extensions`), so a tool can
+  return the screenshot of an MCP tool it called. See
+  [running other tools](docs/extension-api.md#running-other-tools).
 
 ### Fixed
 

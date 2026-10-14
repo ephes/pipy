@@ -69,7 +69,7 @@ def present(loadout):
 
 def activate(api):
     def run_tools(ctx, params):
-        return ToolResult(content=ctx.execute_tool('echo', {'text': 'hi'}).content)
+        return ToolResult(content=ctx.execute_tool('echo', {'text': 'hi'}).result.content)
 
     def wake(ctx, params):
         assert ctx.set_active_tools(['run_tools', 'echo', 'quiet'])

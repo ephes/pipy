@@ -546,7 +546,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-45 | EXT-15 | A resolver's `next()` gives a marker for pipy's own rows and `None` for an extension tool without renderers, so a resolver cannot call and wrap pipy's rows as it can wrap Pi's renderers. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
-| DEV-48 | EXT-11 | One level of nesting: a tool that was itself called through `execute_tool` or from a script cannot run tools. A tool cannot call itself. The callable tools are fixed when the calling tool starts. `execute_tool` returns pipy's `ToolResult` and takes no `signal` or `onUpdate`. No event is emitted for a name that is not callable. In a session that cannot be interrupted, `execute_tool` from another thread is refused. Usage is DEV-13. | narrower | Decided in S37 |
+| DEV-48 | EXT-11 | One level of nesting: a tool that was itself called through `execute_tool` or from a script cannot run tools. A tool cannot call itself. The callable tools are fixed when the calling tool starts. `execute_tool` takes no `signal` or `onUpdate`; its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image (G2). No event is emitted for a name that is not callable. In a session that cannot be interrupted, `execute_tool` from another thread is refused. Usage is DEV-13. | narrower | Decided in S37 |
 | DEV-49 | EXT-12 | The loadout has no `getExposure`, `getNamespace` or `getPromptGuidelines`. The function is called at every read of the declarations and must be pure; Pi calls it when the active tools change. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session runs no slash command (`submit()` sends its text to the model), so `open_url` and `update_config` reach the command and the manager and nothing in a product session uses them. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38; `docs/sdk.md` |
@@ -3655,6 +3655,15 @@ coroutine as its successful result. Renderers, `prepare_loadout` and
 `test_an_async_tool_handler_is_awaited`,
 `test_dispatch_awaits_an_async_command_handler`,
 `test_dispatch_awaits_an_async_shortcut_handler`.
+The outcome (E5): `ctx.execute_tool` returns `ToolCallOutcome` (`tool_call`
+with id, name and arguments, `result`, `is_error`, `duration_ms`), and
+`ToolResult` gained `blocks`, so a nested result keeps its images and a tool
+can return them. `NestedToolResult` carries the blocks, the call id, the
+arguments and the duration from the service's outcome. `duration_ms` is the
+time of the whole nested pipeline (hooks included), `None` only for a name
+that is not callable; Pi measures `execute()` alone and has none for a call
+that did not run. Tests: `test_a_nested_result_keeps_its_images`, the
+`calls` rows of `test_a_tool_runs_other_tools_through_the_extension_api`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

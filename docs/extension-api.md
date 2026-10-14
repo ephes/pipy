@@ -454,6 +454,9 @@ class ToolResult:
     details: Mapping[str, Any] | None = None
     structured_content: Any = None
     is_error: bool = False
+    # Pi's content array for a result with images: TextContent and
+    # ImageContent values; their text is then the result's text.
+    blocks: tuple["TextContent | ImageContent", ...] = ()
     terminate: bool = False
 
 
@@ -1024,6 +1027,18 @@ Python value instead of the text, also from a result with `is_error=True`; a
 tool without an `output_schema` gives scripts its text, and its failures raise
 `ToolError` there. See [codemode](codemode.md#writing-a-script).
 
+**Images.** A result with images is Pi's content array: return
+`ToolResult(content="", blocks=(TextContent("..."), ImageContent(data,
+"image/png")))` with `TextContent` and `ImageContent` from
+`pipy_harness.extensions` (`data` is base64). The model receives the blocks
+in their order, and the text of the text blocks, joined by newlines, is the
+result's text; `content` is then not used. Their text is bounded to 60 KiB,
+the bound of `tool_result` handlers, so the bound never costs the result its
+images: past it, the text block that reaches it is cut and marked, later
+text blocks are left out, and images are kept whole. Anything else in
+`blocks` makes the result the error `extension tool error: invalid result
+blocks`.
+
 **Result hooks.** A `tool_result` handler receives a `ToolResultEvent` with
 `tool_name`, `content`, `is_error` and `structured_content` (the current
 structured content, or `None`; treat it as read-only). It may return
@@ -1081,10 +1096,12 @@ extension context plus `tools` and `execute_tool`.
 def read_all(ctx, params):
     parts = []
     for path in params["paths"]:
-        result = ctx.execute_tool("read", {"path": path})
-        if result.is_error:
-            return ToolResult(content=f"{path}: {result.content}", is_error=True)
-        parts.append(result.content)
+        outcome = ctx.execute_tool("read", {"path": path})
+        if outcome.is_error:
+            return ToolResult(
+                content=f"{path}: {outcome.result.content}", is_error=True
+            )
+        parts.append(outcome.result.content)
     return ToolResult(content="\n".join(parts))
 ```
 
@@ -1094,8 +1111,14 @@ def read_all(ctx, params):
   the tool itself. A tool that is `model-only` is therefore not in the list
   and cannot be called this way.
 - `ctx.execute_tool(name, arguments)` (also `ctx.executeTool`) runs the tool
-  and returns a `ToolResult` with its `content`, `details`,
-  `structured_content` and `is_error`. `arguments` is a mapping, or nothing
+  and returns a `ToolCallOutcome`, Pi's `AgentToolCallOutcome`:
+  `tool_call` (a `ToolCallInfo` with the call's `id`, `name` and
+  `arguments`), `result` (a `ToolResult` with `content`, `details`,
+  `structured_content`, `is_error` and, for a result with images, its
+  `blocks`), `is_error`, and `duration_ms`, how long the call took (`None`
+  for a name that is not callable). A tool can return the `blocks` of a
+  nested result as its own, so an MCP screenshot reaches the model as an
+  image. `arguments` is a mapping, or nothing
   for a tool without arguments. The call passes argument validation and the
   `tool_call` and `tool_result` handlers like a call the model made, and it
   counts against the tool budget of the turn.
@@ -1140,10 +1163,11 @@ Different from Pi:
 - `ctx.tools` and what `execute_tool` reaches are fixed when the calling tool
   starts, after its `tool_call` handlers ran. Pi looks the callable tools up
   again for every call.
-- `execute_tool` returns pipy's `ToolResult`. Pi returns an outcome object
-  with the tool call, the result and `isError`, and takes `signal` and
-  `onUpdate` options; a pipy tool handler has neither a signal nor partial
-  results.
+- `execute_tool` takes no `signal` or `onUpdate` options; a pipy tool
+  handler has neither a signal nor partial results. In the outcome,
+  `result.content` is the result's text and `result.blocks` its ordered
+  text and image blocks when it has an image; Pi's `result.content` is
+  always the block list.
 - Pi adds the usage that nested results report to the calling tool's
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record

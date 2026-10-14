@@ -16,6 +16,7 @@ import ast
 from pathlib import Path
 
 import pipy_harness.extensions as public_extensions
+import pipy_harness.native.agent.content as agent_content
 import pipy_harness.native.extension_hooks as extension_hooks
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
@@ -81,6 +82,10 @@ _PUBLIC_EXTENSION_NAMES = (
     "RegisteredProvider",
     "RegisteredFlag",
     "ToolResult",
+    "ToolCallInfo",
+    "ToolCallOutcome",
+    "TextContent",
+    "ImageContent",
     "RegisteredTool",
     "ToolResultEvent",
     "ToolResultTransform",
@@ -147,6 +152,7 @@ _PUBLIC_EXTENSION_NAMES = (
 )
 
 _OWNER_GROUPS = (
+    (agent_content, ("ImageContent", "TextContent")),
     (
         tools_base,
         ("ToolAnnotations", "ToolExposure", "ToolInfo", "ToolNamespace"),
@@ -240,6 +246,8 @@ _OWNER_GROUPS = (
             "ThemeColor",
             "ToolBlock",
             "ToolCallEvent",
+            "ToolCallInfo",
+            "ToolCallOutcome",
             "ToolRenderComponent",
             "ToolRenderContext",
             "ToolRendererResolver",
@@ -430,10 +438,10 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
-    assert len(_PUBLIC_EXTENSION_NAMES) == 110
+    assert len(_PUBLIC_EXTENSION_NAMES) == 114
 
     owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
-    assert len(owned_names) == len(set(owned_names)) == 110
+    assert len(owned_names) == len(set(owned_names)) == 114
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
         for name in names:
@@ -454,7 +462,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
         if (alias.asname or alias.name) in expected_owners
     ]
 
-    assert len(direct_imports) == len(dict(direct_imports)) == 110
+    assert len(direct_imports) == len(dict(direct_imports)) == 114
     assert dict(direct_imports) == expected_owners
 
 

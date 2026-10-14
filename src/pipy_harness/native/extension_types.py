@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
     # here only to resolve those annotations: a type-checking-only edge with no
     # runtime import, so ``extension_types`` remains a runtime leaf with no
     # import cycle.
+    from pipy_harness.native.agent.content import ToolResultBlock
     from pipy_harness.native.mcp.registry import RegisteredMcpServer
     from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.themes import ChromePalette
@@ -820,8 +821,14 @@ class ToolResult:
     reaches the model). `details` is structured local state/metadata for
     rendering or later hooks; it is not sent to the provider. Like Pi, the
     session file stores it (a JSON object; a value that does not survive a
-    JSON round trip is dropped). (Pi-shaped `content`/`details`; the richer
-    block-content + `terminate` shape arrives in a later slice.)
+    JSON round trip is dropped). (Pi-shaped `content`/`details`; `terminate`
+    arrives in a later slice.)
+
+    `blocks` is Pi's ordered `content` array for a result with images: a
+    tuple of `TextContent` and `ImageContent` values. A result whose blocks
+    hold an image reaches the model as those blocks, and its text is the
+    text of its text blocks; `content` is then not used. Blocks without an
+    image say no more than their text, which is then the result's text.
 
     `structured_content` is the machine-readable result of a tool that
     declares an `output_schema`, for programmatic callers; any JSON value (a
@@ -835,6 +842,32 @@ class ToolResult:
     details: Mapping[str, object] | None = None
     structured_content: object | None = None
     is_error: bool = False
+    blocks: "tuple[ToolResultBlock, ...]" = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallInfo:
+    """The call a tool made through `ctx.execute_tool` (Pi `AgentToolCall`):
+    its id `<calling id>/<n>`, the tool's name and the arguments."""
+
+    id: str
+    name: str
+    arguments: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallOutcome:
+    """What `ctx.execute_tool` returns (Pi `AgentToolCallOutcome`).
+
+    `result` is the result as the session's hooks left it, with its
+    `blocks` when it has images. `duration_ms` is how long the call took,
+    `None` for a call refused before it started.
+    """
+
+    tool_call: ToolCallInfo
+    result: ToolResult
+    is_error: bool
+    duration_ms: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
