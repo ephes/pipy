@@ -666,6 +666,10 @@ class CodingCommandEffects(Protocol):
         self, command_text: str
     ) -> ExtensionDispatchResolution | None: ...
 
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None: ...
+
 
 class _CallableCodingCommandEffects:
     """Composition-root :class:`CodingCommandEffects` port over run() closures.
@@ -682,6 +686,7 @@ class _CallableCodingCommandEffects:
         "_footer",
         "_interpret",
         "_record_resource",
+        "_report_extension_error",
         "_resolve_extension",
         "_resolve_resource",
     )
@@ -695,6 +700,7 @@ class _CallableCodingCommandEffects:
         record_resource: Callable[[], None],
         resolve_resource: Callable[[str], ResourceDispatchResolution | None],
         resolve_extension: Callable[[str], ExtensionDispatchResolution | None],
+        report_extension_error: Callable[[str, str, str], None],
     ) -> None:
         self._emit = emit
         self._footer = footer
@@ -702,6 +708,7 @@ class _CallableCodingCommandEffects:
         self._record_resource = record_resource
         self._resolve_resource = resolve_resource
         self._resolve_extension = resolve_extension
+        self._report_extension_error = report_extension_error
 
     def emit_diagnostic(self, message: str) -> None:
         self._emit(message)
@@ -722,6 +729,11 @@ class _CallableCodingCommandEffects:
         self, command_text: str
     ) -> ExtensionDispatchResolution | None:
         return self._resolve_extension(command_text)
+
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None:
+        self._report_extension_error(extension_path, event, error)
 
 
 class CodingLoopStepKind(Enum):
@@ -1348,7 +1360,7 @@ class CodingSessionController:
             raise TypeError("effects must implement CodingCommandEffects")
         provider_text: str | None = None
         if user_input.startswith("/"):
-            extension = _dispatch_extension_command(user_input, effects)
+            extension = _dispatch_extension_command(user_input, effects, prompt=True)
             if extension is not None:
                 if self._control_bridge is not None:
                     self._control_bridge.settle_handled_prompt()
@@ -1669,15 +1681,30 @@ def _expand_prompt_resource(
 def _dispatch_extension_command(
     command_text: str,
     effects: CodingCommandEffects,
+    *,
+    prompt: bool = False,
 ) -> CommandDispatchResolution | None:
-    """Consume a handled or failed extension command after resources."""
+    """Consume a handled or failed extension command after resources.
+
+    A command a prompt ran that fails is Pi's extension error
+    (``command:<name>``, event ``command``, the exception's text), which
+    each mode reports in its own way; a typed command keeps pipy's line.
+    """
 
     extension = effects.dispatch_extension(command_text)
     if extension is None:
         return None
     if type(extension) is not ExtensionDispatchResolution:
         raise TypeError("dispatch_extension must return an ExtensionDispatchResolution")
-    if not extension.ran and extension.error:
+    if prompt and not extension.ran:
+        effects.report_extension_error(
+            f"command:{extension.name}",
+            "command",
+            extension.message
+            if extension.message is not None
+            else extension.error or "",
+        )
+    elif not extension.ran and extension.error:
         effects.emit_diagnostic(
             f"pipy: extension command /{extension.name} failed ({extension.error})"
         )

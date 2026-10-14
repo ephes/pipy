@@ -193,15 +193,32 @@ def test_a_prompt_after_a_handled_command_runs(tmp_path: Path, connect) -> None:
 
 
 def test_a_failing_command_is_handled_too(tmp_path: Path, connect) -> None:
+    # SLH-07: Pi's `onError` of RPC mode writes an `extension_error` object
+    # with the exception's text before the prompt is answered as handled.
     workspace = tmp_path / "work"
     _extension(workspace, "commands", _COMMANDS)
     client = connect(_Provider([]))
 
     client.send(id="c", type="prompt", message="/broken")
 
-    assert client.response("c")["data"] == {"disposition": "handled"}
+    records = client.until(lambda record: record.get("id") == "c")
+    assert records == [
+        {
+            "type": "extension_error",
+            "extensionPath": "command:broken",
+            "event": "command",
+            "error": "no luck",
+        },
+        {
+            "id": "c",
+            "type": "response",
+            "command": "prompt",
+            "success": True,
+            "data": {"disposition": "handled"},
+        },
+    ]
     assert client.close() == []
-    assert "extension command /broken failed" in client.errors.getvalue()
+    assert "broken" not in client.errors.getvalue()
 
 
 @pytest.mark.parametrize("prompt", ["/model stub/other", "/nosuch thing", "!echo x"])

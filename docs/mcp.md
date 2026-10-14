@@ -332,8 +332,8 @@ Different from Pi:
   RPC client's `prompt`, and starts no run there (see
   [Commands in a prompt](automation-rpc.md#commands-in-a-prompt)). An RPC
   client gets the status and every other message of the command as `notify`
-  requests, as in Pi. In print and JSON mode pipy prints them to stderr; Pi
-  shows nothing there, also not that a login needs interactive mode.
+  requests, as in Pi. Print and JSON mode show nothing, as in Pi, also not
+  that a login needs interactive mode.
 - For a line typed into a session, a prompt template or custom command
   named `mcp` takes the place of the command, as does an extension command
   of that name. In Pi only an extension command does, and that is also
@@ -484,9 +484,9 @@ The report and the other warnings on this page are shown while the session
 waits for input: in the terminal while the editor waits for your next
 message, and in [RPC mode](automation-rpc.md) as a `notify` request while no
 command runs. One that arises while a prompt runs is shown when the run has
-ended. A one-shot run writes them to stderr at the end, and a product
-session of the [SDK](sdk.md) hands them on when the next prompt is
-submitted. Pi shows them at once, also during a run.
+ended. A one-shot run (`--print`, `--mode json`) has no UI and drops them,
+as Pi does, and a product session of the [SDK](sdk.md) hands them on when
+the next prompt is submitted. Pi shows them at once, also during a run.
 
 Two more cases are reported, each once:
 

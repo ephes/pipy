@@ -20,7 +20,8 @@ or naming the current session without driving the terminal UI.
 - stdout may also contain asynchronous session events that are not direct
   responses to a request.
 - stdout also carries `extension_ui_request` objects: notices, and questions
-  the client has to answer.
+  the client has to answer; and `extension_error` objects, which report an
+  extension command that failed.
 - stderr is for diagnostics that are not protocol messages; startup chrome and
   the footer are not written there.
 

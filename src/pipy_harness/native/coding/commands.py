@@ -182,6 +182,8 @@ class ExtensionDispatchResolution:
     name: str
     ran: bool
     error: str | None = None
+    # The text of what the handler raised, for Pi's extension error report.
+    message: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.name) is not str:
@@ -190,6 +192,8 @@ class ExtensionDispatchResolution:
             raise TypeError("ran must be an exact bool")
         if self.error is not None and type(self.error) is not str:
             raise TypeError("error must be an exact str or None")
+        if self.message is not None and type(self.message) is not str:
+            raise TypeError("message must be an exact str or None")
 
 
 class CommandDispatchResolutionKind(StrEnum):

@@ -1398,6 +1398,12 @@ def changed(event, ctx):
   Extension ".pipy/extensions/jira.py" error: MCP server "jira" is registered, but no loaded extension connects MCP servers; another extension may have replaced the built-in MCP support
   ```
 
+  That is the form of a session in a terminal. It is an extension error, as
+  in Pi (event `register_mcp_server`): print and JSON mode write
+  `Extension error (.pipy/extensions/jira.py): MCP server "jira" is registered, ...`
+  to stderr, and RPC mode sends an
+  [`extension_error` object](automation-rpc.md#extension-errors).
+
 `register_mcp_server` raises `McpServerRegistrationError` (a `ValueError`):
 
 | Case | Message |

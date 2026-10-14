@@ -90,8 +90,9 @@ def _resource(directory: Path, name: str, body: str) -> None:
 
 
 def test_print_mode_runs_mcp_and_starts_no_run(tmp_path: Path) -> None:
-    # SLH-02, SLH-07: the command waits for the server and reports it; the
-    # model is not asked and nothing is printed as the answer.
+    # SLH-02, SLH-07, SLH-11: the command runs, the model is not asked, and
+    # nothing is printed: print mode has no UI, so the status notice is
+    # dropped (Pi's `noOpUIContext`).
     workspace = tmp_path / "work"
     entry, _record = _server(tmp_path / "servers")
     _mcp_json(workspace, {"docs": {**entry, "exposure": "direct"}})
@@ -102,7 +103,7 @@ def test_print_mode_runs_mcp_and_starts_no_run(tmp_path: Path) -> None:
     assert code == 0, errors
     assert stdout == ""
     assert provider.requests == []
-    assert "docs: connected, 2 tools (direct)\n" in errors
+    assert "docs:" not in errors
 
 
 def test_json_mode_runs_mcp_and_emits_only_the_header(tmp_path: Path) -> None:
@@ -117,11 +118,12 @@ def test_json_mode_runs_mcp_and_emits_only_the_header(tmp_path: Path) -> None:
     assert code == 0, errors
     assert [record["type"] for record in records] == ["session"]
     assert provider.requests == []
-    assert "docs: connected, 2 tools (codemode)\n" in errors
+    assert "docs:" not in errors
 
 
 def test_mcp_subcommand_runs_from_a_prompt(tmp_path: Path) -> None:
-    # SLH-06 through the same port: the usage text, and no run.
+    # SLH-06 through the same port: no run, and the usage notice is dropped
+    # like every notice of print mode.
     workspace = tmp_path / "work"
     workspace.mkdir()
     provider = _Provider([])
@@ -129,10 +131,7 @@ def test_mcp_subcommand_runs_from_a_prompt(tmp_path: Path) -> None:
     code, stdout, errors = _print(workspace, provider, "/mcp frobnicate")
 
     assert (code, stdout, provider.requests) == (0, "", [])
-    assert (
-        "Usage: /mcp, /mcp login [server], /mcp logout [server], "
-        "/mcp reconnect [server]"
-    ) in errors
+    assert "Usage" not in errors
 
 
 @pytest.mark.parametrize("mode", ["print", "json"])
@@ -154,19 +153,28 @@ def test_an_extension_command_runs_with_its_arguments(
     assert code == 0, errors
     assert provider.requests == []
     assert (directory / "note.txt").read_text() == repr("two words")
-    assert "noted two words" in errors
+    # SLH-11: `ctx.ui.notify` does nothing without a UI.
+    assert "noted" not in errors
 
 
-def test_a_failing_extension_command_is_still_handled(tmp_path: Path) -> None:
-    # SLH-07: the error is reported and there is no run.
+@pytest.mark.parametrize("mode", ["print", "json"])
+def test_a_failing_extension_command_is_still_handled(
+    tmp_path: Path, mode: str
+) -> None:
+    # SLH-07: Pi's `onError` of print and JSON mode, and there is no run.
     workspace = tmp_path / "work"
     _extension(workspace, "commands", _COMMANDS)
     provider = _Provider([])
 
-    code, stdout, errors = _print(workspace, provider, "/broken")
+    if mode == "print":
+        code, stdout, errors = _print(workspace, provider, "/broken")
+        assert stdout == ""
+    else:
+        code, records, errors = _json(workspace, provider, "/broken")
+        assert [record["type"] for record in records] == ["session"]
 
-    assert (code, stdout, provider.requests) == (0, "", [])
-    assert "extension command /broken failed" in errors
+    assert (code, provider.requests) == (0, [])
+    assert errors == "Extension error (command:broken): no luck\n"
 
 
 @pytest.mark.parametrize(

@@ -62,6 +62,8 @@ class AutomationUi(Protocol):
         cancel_event: threading.Event | None = None,
     ) -> str | None: ...
 
+    def extension_error(self, extension_path: str, event: str, error: str) -> None: ...
+
 
 def automation_ui(observer: object) -> AutomationUi | None:
     """The UI of the transport behind ``observer``: its ``ui``, if it has one."""

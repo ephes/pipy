@@ -179,12 +179,13 @@ class McpServersChangeEvents(Protocol):
 
 
 def unhandled_mcp_server_error(server: RegisteredMcpServer) -> str:
-    """The error of an extension whose registered server nothing connects."""
+    """The error of an extension whose registered server nothing connects
+    (Pi ``reportUnhandledMcpServers``, event ``register_mcp_server``)."""
 
     return (
-        f'Extension "{server.extension_path}" error: MCP server "{server.name}" is '
-        "registered, but no loaded extension connects MCP servers; another "
-        "extension may have replaced the built-in MCP support"
+        f'MCP server "{server.name}" is registered, but no loaded extension '
+        "connects MCP servers; another extension may have replaced the built-in "
+        "MCP support"
     )
 
 
@@ -217,6 +218,7 @@ class McpSession:
         *,
         tools: RestartableMcpTools,
         notify: Callable[[str, str], None],
+        report_error: Callable[[str, str, str], None] | None = None,
         extensions: LoadedExtensions | None = None,
     ) -> None:
         """``load`` reads the configuration as it is now and returns a
@@ -224,11 +226,14 @@ class McpSession:
         reload, with the function that returns what the extensions have
         registered, for the manager, and with the extension that replaced
         MCP. ``extensions`` are those loaded at the start of the session;
-        ``follow_extensions`` says where they are found afterwards."""
+        ``follow_extensions`` says where they are found afterwards.
+        ``report_error`` reports an extension error (path, event, text) as
+        Pi's ``emitError``; without it the error is an ``error`` notice."""
 
         self._load = load
         self._tools = tools
         self._notify = notify
+        self._report_error = report_error
         self._lock = threading.Lock()
         # Where the registry of the loaded extensions is found, and the one
         # that is followed since the last start. Guarded by the lock.
@@ -361,7 +366,14 @@ class McpSession:
             for server in registered:
                 if server.name not in self._reported_unhandled:
                     self._reported_unhandled.add(server.name)
-                    self._notify("error", unhandled_mcp_server_error(server))
+                    self._extension_error(server)
+
+    def _extension_error(self, server: RegisteredMcpServer) -> None:
+        error = unhandled_mcp_server_error(server)
+        if self._report_error is not None:
+            self._report_error(server.extension_path, "register_mcp_server", error)
+        else:
+            self._notify("error", f'Extension "{server.extension_path}" error: {error}')
 
     def start(self) -> None:
         """Start connecting the servers in the background, also those the

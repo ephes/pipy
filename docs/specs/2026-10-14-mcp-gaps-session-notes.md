@@ -95,3 +95,55 @@ in, one section per item.
   `tests/test_native_mcp_idle_notices.py` (PTY editor, RPC client without a
   command, bridge and wake channel units, `deliver_idle_notices`) and the
   updated `tests/test_native_automation_rpc_ui.py::test_mcp_login_takes_the_pasted_redirect_url`.
+
+## N2-a: extension errors and notices of the automation modes (goal-check E11, E12)
+
+### Changelog (Unreleased, Changed)
+
+- In the existing entry "The prompt of `--print` and `--mode json` and an
+  RPC `prompt` are handled as Pi's `prompt` handles them", replace "`/mcp`
+  is such a command and prints the server status" with "`/mcp` is such a
+  command".
+- New entry: print and JSON mode have no UI, as in Pi: the notices of
+  extensions and of MCP (`ctx.ui.notify`, the status and messages of `/mcp`,
+  the MCP startup report) are dropped there instead of written to stderr.
+  An extension command that a prompt ran and that raised is Pi's extension
+  error with the exception's text: `Extension error (command:<name>):
+  <message>` on stderr in print and JSON mode, an `extension_error` object
+  (`extensionPath`, `event`, `error`) on stdout in RPC mode; before it was
+  `pipy: extension command /<name> failed (<error type>)` on stderr in all
+  three. The report of an extension-registered MCP server that nothing
+  connects is such an error too (event `register_mcp_server`). See
+  `docs/automation-rpc.md`, "Extension errors".
+
+### Plan updates
+
+- "Decided in X1 (prompts of the automation modes)", "Different from Pi":
+  remove the first two bullets (notices on stderr in print/JSON mode; the
+  failed command on stderr, no `extension_error`). Add to "Decided": the
+  session's notice and error sinks are `repl/extension_reports.py`
+  `ExtensionReports` (RPC transport, prompt mode, local);
+  `CodingCommandEffects.report_extension_error(path, event, error)` is used
+  by `dispatch_prompt`; `ExtensionCommandDispatch.message` and
+  `ExtensionDispatchResolution.message` carry the exception's text
+  (`str(err)`, the type name if that raises); `RpcUi.extension_error`;
+  `McpSession(report_error=)` reports unconnected registered servers through
+  it. A typed line keeps `pipy: extension command /<name> failed (<type>)`.
+- "Decided in X1 (RPC UI requests)", "Notices": print and JSON mode drop
+  them (the sink checks the input stream's `is_prompt`).
+- Section 3.1: DEV-39 (SLH-07) is closed and can be removed; DEV-41 loses its
+  first sentence (print/JSON notices on stderr). If the audit test counts DEV
+  rows, removing DEV-39 changes the count; the rows can instead be marked
+  closed.
+- Rows SLH-07 and SLH-11 (print/JSON part) are closed.
+
+### Acceptance note / audit test
+
+- SLH-07 and SLH-11: drop the DEV-39 and the print/JSON part of DEV-41 from
+  their notes. Tests:
+  `tests/test_native_automation_prompt_dispatch.py::test_a_failing_extension_command_is_still_handled`
+  (print and JSON), the four print/JSON tests there that now assert nothing
+  is shown, `tests/test_native_automation_rpc_prompt_dispatch.py::test_a_failing_command_is_handled_too`,
+  `tests/test_native_extension_mcp_servers.py::test_an_unconnected_server_is_an_extension_error_of_print_mode`,
+  `tests/test_native_extension_dispatch.py::test_an_exception_whose_text_raises_is_still_bounded`,
+  `tests/test_native_coding_session_controller.py::test_prompt_reports_a_failed_extension_command_and_starts_no_run`.

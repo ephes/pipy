@@ -1014,7 +1014,22 @@ Not built, different from Pi:
   their defaults, as in print mode. In Pi `ctx.hasUI` is true there.
 - `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle` and
   `set_editor_text` requests, and the `timeout` option of a dialog.
-- The `extension_error` object: an extension error is a line on stderr.
+
+### Extension errors
+
+Pi reports what an extension did wrong through one listener per mode
+(`onError`). In RPC mode that is an object on stdout, not a response:
+
+```json
+{"type": "extension_error", "extensionPath": "command:deploy", "event": "command", "error": "no target"}
+```
+
+pipy sends it for an extension command that a `prompt` ran and that raised
+(`extensionPath` `command:<name>`, event `command`, `error` the exception's
+text), and for a server an extension registered that nothing connects
+because MCP is off (`extensionPath` the extension's path, event
+`register_mcp_server`; see [MCP](mcp.md)). Other extension failures (a hook
+that raises, a tool that fails) are reported as before, on stderr.
 
 ### Lifecycle and shutdown
 
@@ -1061,19 +1076,19 @@ The other dispositions of an RPC `prompt`: `"started"` is written just
 before the run's `agent_start`, `"queued"` at once for a prompt that went
 behind the run in flight.
 
-A command's notices (`ctx.ui.notify`, the status `/mcp` prints) go to stderr
-in print and JSON mode. In RPC mode they are
+Print and JSON mode have no UI, as in Pi: a notice (`ctx.ui.notify`, the
+status `/mcp` prints, the notices of MCP servers) is dropped, so
+`pipy -p /mcp` shows nothing. In RPC mode notices are
 [`notify` requests](#extension-ui-requestresponse-channel) to the client,
-written before the response. A command that raises is reported on stderr as
-`pipy: extension command /<name> failed (<error type>)` in all three modes,
-and its prompt is handled all the same.
+written before the response. A command that raises is an extension error,
+and its prompt is handled all the same: in print and JSON mode the line
+`Extension error (command:<name>): <message>` on stderr, in RPC mode an
+[`extension_error` object](#extension-errors) written before the response.
+A line typed into a session keeps pipy's report
+`pipy: extension command /<name> failed (<error type>)`.
 
 Different from Pi:
 
-- In print and JSON mode Pi's commands have no UI and a notice is dropped,
-  so `pi -p /mcp` shows nothing. pipy writes notices to stderr there.
-- In RPC mode Pi reports a failed command as an `extension_error` object.
-  pipy writes it to stderr.
 - `steer`, `follow_up` and a `prompt` sent while a run is in flight are
   queued as they are. A queued text that names an extension command reaches
   the model as text, and a queued skill or template name is not expanded.

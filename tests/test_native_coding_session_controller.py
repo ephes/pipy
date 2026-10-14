@@ -608,6 +608,7 @@ class _FakeCommandEffects:
         self.resource_dispatches: list[str] = []
         self.extension_dispatches: list[str] = []
         self.interpretations: list[CodingCommandOutcome] = []
+        self.extension_errors: list[tuple[str, str, str]] = []
 
     def emit_diagnostic(self, message: str) -> None:
         self.diagnostics.append(message)
@@ -630,6 +631,11 @@ class _FakeCommandEffects:
     ) -> ExtensionDispatchResolution | None:
         self.extension_dispatches.append(command_text)
         return self._extension
+
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None:
+        self.extension_errors.append((extension_path, event, error))
 
 
 def _dispatch(
@@ -958,14 +964,19 @@ def test_prompt_runs_an_extension_command_before_any_resource() -> None:
 
 
 def test_prompt_reports_a_failed_extension_command_and_starts_no_run() -> None:
+    # Pi `_tryExecuteExtensionCommand`: an extension error with the
+    # exception's text, and the prompt counts as handled.
     effects = _FakeCommandEffects(
-        extension=ExtensionDispatchResolution(name="note", ran=False, error="boom")
+        extension=ExtensionDispatchResolution(
+            name="note", ran=False, error="ValueError", message="boom"
+        )
     )
 
     resolution = _dispatch_prompt("/note", effects)
 
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
-    assert effects.diagnostics == ["pipy: extension command /note failed (boom)"]
+    assert effects.extension_errors == [("command:note", "command", "boom")]
+    assert effects.diagnostics == []
 
 
 def test_prompt_never_interprets_a_builtin_or_reports_an_unknown_name() -> None:

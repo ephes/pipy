@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.coding.session import CodingSession
@@ -812,6 +814,34 @@ def test_handler_exception_is_bounded(tmp_path: Path) -> None:
     # Bounded, no raw message leak.
     assert "/Users/x" not in dispatch.error
     assert "leak-tok-123" not in dispatch.error
+    # The exception's own text is kept apart, for Pi's extension error
+    # report of a command a prompt ran.
+    assert dispatch.message == "/Users/x/leak-tok-123"
+
+
+@pytest.mark.parametrize("raised", ["RuntimeError", "GeneratorExit"])
+def test_an_exception_whose_text_raises_is_still_bounded(
+    tmp_path: Path, raised: str
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "badtext",
+        "class Odd(Exception):\n"
+        "    def __str__(self):\n"
+        f"        raise {raised}('no text')\n"
+        "def activate(api):\n"
+        "    def boom(ctx, args):\n"
+        "        raise Odd()\n"
+        "    api.register_command('boom', 'b', boom)\n",
+    )
+
+    dispatch = dispatch_extension_command(
+        "/boom", _command_map(workspace), cwd=str(workspace), has_ui=False
+    )
+
+    assert dispatch is not None
+    assert (dispatch.ran, dispatch.error, dispatch.message) == (False, "Odd", "Odd")
 
 
 def test_extension_custom_entry_runs_through_the_session(tmp_path, monkeypatch) -> None:

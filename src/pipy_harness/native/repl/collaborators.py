@@ -748,4 +748,5 @@ class SessionCollaborators:
             name=extension_dispatch.name,
             ran=extension_dispatch.ran,
             error=extension_dispatch.error,
+            message=extension_dispatch.message,
         )

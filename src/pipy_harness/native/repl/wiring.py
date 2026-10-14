@@ -151,6 +151,7 @@ from pipy_harness.native.repl.extension_attach import (
 from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
 )
+from pipy_harness.native.repl.extension_reports import ExtensionReports
 from pipy_harness.native.repl.loop_scope import (
     ReplLoopScope,
     RunControlState,
@@ -422,6 +423,12 @@ def _control_bridge(inputs: SessionWiringInput) -> _NativeSessionControlBridge |
     )
 
 
+def _prompt_mode(inputs: SessionWiringInput) -> bool:
+    """Whether the session reads prompts (print and JSON mode)."""
+
+    return getattr(inputs.input_stream, "is_prompt", False) is True
+
+
 def _runtime_abort_event(
     inputs: SessionWiringInput,
     control: CodingSessionController | None = None,
@@ -593,6 +600,7 @@ class _StartupPhase:
 class _ExtensionPhase:
     terminal_ui: TerminalUi | None
     extension_notify: Callable[[str, str], None]
+    extension_error: Callable[[str, str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
     tool_capabilities: NativeToolCapabilities
     # The MCP servers; ``/reload`` replaces what it holds.
@@ -881,15 +889,13 @@ def _compose_extension_phase(
             safe_message,
         )
 
-    transport_ui = automation_ui(inputs.automation_observer)
-
-    def _extension_notify(kind: str, message: str) -> None:
-        # What Pi sends through `ctx.ui.notify`: in RPC mode a request to
-        # the client.
-        if transport_ui is not None:
-            transport_ui.notify(str(message), kind)
-        else:
-            _local_notify(kind, message)
+    reports = ExtensionReports(
+        transport_ui=automation_ui(inputs.automation_observer),
+        local_notify=_local_notify,
+        error_stream=error_stream,
+        prompt_mode=_prompt_mode(inputs),
+    )
+    _extension_notify = reports.notify
 
     extension_ui_driver = (
         _LiveExtensionUiDriver(
@@ -929,6 +935,7 @@ def _compose_extension_phase(
         ),
         tools=tool_capabilities,
         notify=_extension_notify,
+        report_error=reports.error,
         extensions=extension_bundle,
     )
 
@@ -1000,6 +1007,7 @@ def _compose_extension_phase(
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
+        extension_error=reports.error,
         extension_ui_driver=extension_ui_driver,
         tool_capabilities=tool_capabilities,
         mcp=mcp,
@@ -2069,6 +2077,7 @@ def _compose_commands(
         record_resource=coding_state.record_resource_invocation,
         resolve_resource=collaborators.dispatch_resource_effect,
         resolve_extension=collaborators.dispatch_extension_effect,
+        report_extension_error=extension.extension_error,
     )
     return _CommandPhase(command_effects=command_effects)
 
@@ -2252,7 +2261,7 @@ def _assemble_session_wiring(
         session_prompt_sections=extension.mcp.prompt_sections,
         run_prepared=extension.tool_capabilities.drop_pending_tools,
         compaction_event=_compaction_event,
-        prompt_mode=getattr(inputs.input_stream, "is_prompt", False) is True,
+        prompt_mode=_prompt_mode(inputs),
     )
     extension.mcp.announce_through(emitter)
     delegation = _LoopDelegation(

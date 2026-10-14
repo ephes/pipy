@@ -55,6 +55,18 @@ class RpcUi:
             }
         )
 
+    def extension_error(self, extension_path: str, event: str, error: str) -> None:
+        """Pi's ``onError`` of RPC mode: an ``extension_error`` object."""
+
+        self._writer.write_line(
+            {
+                "type": "extension_error",
+                "extensionPath": extension_path,
+                "event": event,
+                "error": error,
+            }
+        )
+
     def select(
         self,
         title: str,

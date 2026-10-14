@@ -12,6 +12,7 @@ registry and the manager's side are tested in
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import threading
@@ -992,6 +993,47 @@ def test_registered_servers_are_reported_when_nothing_connects_them(
     assert errors.count(_unconnected("orphan")) == 1, errors
     assert errors.count(_unconnected("late")) == 1, errors
     assert errors.index(_unconnected("orphan")) < errors.index(_unconnected("late"))
+    assert not record.exists()
+
+
+def test_an_unconnected_server_is_an_extension_error_of_print_mode(
+    tmp_path: Path,
+) -> None:
+    # EXT-10 with SLH-11: Pi reports it through `emitError`, which print mode
+    # writes as `Extension error (<path>): <message>` (its notices it drops).
+    from pipy_harness.adapters.native import CodingSessionAdapter
+    from pipy_harness.native.automation.run_modes import run_print_mode
+    from pipy_harness.native.tools.registry import production_tool_registry
+
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "orphan")
+    _plugin(workspace, servers={"orphan": entry})
+    provider = _Provider([_result(final_text="done")])
+    stdout, errors = io.StringIO(), io.StringIO()
+
+    code = run_print_mode(
+        adapter=CodingSessionAdapter(
+            provider=provider,
+            tool_registry=production_tool_registry(),
+            settings_manager=_settings(workspace),
+            resource_options=RuntimeResourceOptions(no_mcp=True),
+        ),
+        prompt="go",
+        cwd=workspace,
+        stdout=stdout,
+        error_stream=errors,
+    )
+
+    assert (code, stdout.getvalue()) == (0, "done\n"), errors.getvalue()
+    assert (
+        errors.getvalue().count(
+            f'Extension error ({_PLUGIN}): MCP server "orphan" is registered, but no '
+            "loaded extension connects MCP servers; another extension may have "
+            "replaced the built-in MCP support\n"
+        )
+        == 1
+    ), errors.getvalue()
     assert not record.exists()
 
 
