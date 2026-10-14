@@ -314,10 +314,13 @@ class StreamableHttpTransport(TransportEvents):
 
     def __init__(self, options: StreamableHttpTransportOptions) -> None:
         super().__init__()
-        if parse_http_target(options.url) is None:
+        target = parse_http_target(options.url)
+        if target is None:
             raise ValueError(f"Invalid MCP server URL: {options.url}")
         self.options = options
-        self._url = options.url
+        # The URL as Pi's ``new URL(options.url)`` writes it, which the
+        # fetch and the auth provider are given.
+        self._url = target.url
         self._headers = dict(options.headers or {})
         self._fetch: McpFetch = (
             create_default_fetch() if options.fetch is None else options.fetch

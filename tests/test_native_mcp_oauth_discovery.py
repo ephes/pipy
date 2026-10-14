@@ -566,7 +566,7 @@ def test_a_metadata_url_that_cannot_be_requested_fails_discovery(
         discover_oauth_server_info(f"{server.origin}/mcp")
 
 
-@pytest.mark.parametrize("user_info", ["user:secret@", "user@", "@"])
+@pytest.mark.parametrize("user_info", ["user:secret@", "user@", ":secret@"])
 def test_a_given_metadata_url_with_user_info_fails_discovery(
     server: FakeOAuthServer, user_info: str
 ) -> None:
@@ -781,6 +781,8 @@ def test_no_resource_without_metadata() -> None:
         ("http://127.0.0.1:8080/mcp", "http://127.0.0.1:8080/mcp?tenant=1"),
         ("https://mcp.example/a/x/../mcp", "https://mcp.example/a/mcp"),
         ("https://mcp.example/a/mcp", "https://mcp.example/a/x/.."),
+        ("https://mcp.example/mcp", "https:mcp.example/mcp"),
+        ("http://127.1:8080/mcp", "http://0x7f.0.0.1:8080/"),
         # Paths are compared as a WHATWG URL parser writes them: characters
         # of the path percent-encode set and non-ASCII ones are encoded.
         ("https://mcp.example/café/mcp", "https://mcp.example/caf%C3%A9"),
@@ -814,7 +816,6 @@ def test_a_resource_at_or_above_the_server_url_is_selected(
         ("https://mcp.example/a/../mcp", "https://mcp.example/a"),
         ("https://mcp.example/a/%2e%2E/mcp", "https://mcp.example/a"),
         ("https://mcp.example/mcp", "urn:example:mcp"),
-        ("https://mcp.example/mcp", "https:mcp.example/mcp"),
         # An escape is kept as written, and `|` is not encoded (as by Node).
         ("https://mcp.example/café/mcp", "https://mcp.example/caf%c3%a9"),
         ("https://mcp.example/%41/mcp", "https://mcp.example/A"),

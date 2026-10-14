@@ -26,12 +26,13 @@ happens when a server connects.
 
 Where this differs from Pi:
 
-- URLs are checked by a small parser, not a WHATWG URL parser. It requires
-  ``http://`` or ``https://`` followed by a host and does not repair a URL
-  (missing slashes, backslashes, a shortened IPv4 address such as ``127.1``,
-  dot segments in the path), so some URLs Pi accepts are config errors here.
-  A host with non-ASCII characters is accepted as written, without IDNA
-  processing, and is never a loopback host.
+- URLs are read by ``parse_http_url``, which follows the WHATWG URL
+  parser for ``http`` and ``https`` URLs (slashes and backslashes after the
+  scheme, percent-decoded hosts, IPv4 addresses such as ``127.1`` or
+  ``0x7f.0.0.1``) but has no IDNA processing: a host with non-ASCII
+  characters is accepted as written, lower-cased, where Pi writes it in
+  punycode or rejects it, and is never a loopback host. ``HttpUrl.path``
+  keeps characters a WHATWG parser percent-encodes.
 - ``oauth.clientMetadataBaseUrl`` exists only in pipy and is required with
   ``oauth.clientRegistration: "cimd"``.
 - A file that is not valid UTF-8 is an error instead of being read with
@@ -50,6 +51,7 @@ import copy
 import ipaddress
 import json
 import re
+import urllib.parse
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -227,14 +229,95 @@ class HttpUrl:
 
 
 # re.ASCII keeps the case-insensitive match to ASCII letters.
-_URL: Final = re.compile(
-    r"(https?)://([^/?#]*)([^?#]*)(?:\?([^#]*))?(?:#(.*))?",
-    re.IGNORECASE | re.ASCII | re.DOTALL,
-)
+_SCHEME: Final = re.compile(r"(https?):", re.IGNORECASE | re.ASCII)
+# What ends the authority of an http or https URL.
+_AUTHORITY_END: Final = re.compile(r"[/\\?#]")
 _PORT: Final = re.compile(r"0*([0-9]{0,5})")
 _FORBIDDEN_IN_HOST: Final = re.compile(r"[\x00-\x20\x7f#%/:<>?@\[\\\]^|]")
-_NUMBER_LABEL: Final = re.compile(r"[0-9]+|0[xX][0-9A-Fa-f]*")
+_IPV4_DIGITS: Final[Mapping[int, str]] = {
+    8: "01234567",
+    10: "0123456789",
+    16: "0123456789abcdefABCDEF",
+}
 _DEFAULT_PORTS: Final[Mapping[str, int]] = {"http": 80, "https": 443}
+
+
+def _parse_ipv4_number(text: str) -> int | None:
+    """One part of an IPv4 host: decimal, ``0x`` hex or ``0`` octal."""
+
+    if not text:
+        return None
+    radix = 10
+    if text[:2] in ("0x", "0X"):
+        text, radix = text[2:], 16
+    elif len(text) > 1 and text.startswith("0"):
+        text, radix = text[1:], 8
+    if any(char not in _IPV4_DIGITS[radix] for char in text):
+        return None
+    digits = text.lstrip("0")
+    # Too large for any part; also keeps int() away from very long input.
+    if len(digits) > 12:
+        return 2**64
+    return int(digits or "0", radix)
+
+
+def _ends_in_a_number(host: str) -> bool:
+    labels = host.split(".")
+    if labels[-1] == "":
+        if len(labels) == 1:
+            return False
+        labels.pop()
+    last = labels[-1]
+    if last.isascii() and last.isdigit():
+        return True
+    return _parse_ipv4_number(last) is not None
+
+
+def _parse_ipv4(host: str) -> str | None:
+    """A host that ends in a number, as the IPv4 address it spells.
+
+    The WHATWG URL parser's rules: one to four parts, each decimal, hex or
+    octal, the last one filling the remaining bytes, so ``127.1`` and
+    ``2130706433`` are both ``127.0.0.1``.
+    """
+
+    parts = host.split(".")
+    if parts[-1] == "" and len(parts) > 1:
+        parts.pop()
+    if len(parts) > 4:
+        return None
+    numbers = [_parse_ipv4_number(part) for part in parts]
+    if None in numbers:
+        return None
+    *leading, last = [number for number in numbers if number is not None]
+    if any(number > 255 for number in leading) or last >= 256 ** (4 - len(leading)):
+        return None
+    address = last + sum(
+        number * 256 ** (3 - index) for index, number in enumerate(leading)
+    )
+    return str(ipaddress.IPv4Address(address))
+
+
+def _serialize_ipv6(address: ipaddress.IPv6Address) -> str:
+    """An IPv6 address as a URL writes it: hex pieces, the first longest run
+    of two or more zero pieces as ``::``, never a dotted IPv4 tail."""
+
+    value = int(address)
+    pieces = [(value >> (16 * (7 - index))) & 0xFFFF for index in range(8)]
+    start, length = -1, 1
+    index = 0
+    while index < 8:
+        end = index
+        while end < 8 and pieces[end] == 0:
+            end += 1
+        if end - index > length:
+            start, length = index, end - index
+        index = max(end, index + 1)
+    if start < 0:
+        return ":".join(f"{piece:x}" for piece in pieces)
+    head = ":".join(f"{piece:x}" for piece in pieces[:start])
+    tail = ":".join(f"{piece:x}" for piece in pieces[start + length :])
+    return f"{head}::{tail}"
 
 
 def _parse_host(text: str) -> str | None:
@@ -243,56 +326,73 @@ def _parse_host(text: str) -> str | None:
         if not text.endswith("]") or "%" in text:
             return None
         try:
-            return f"[{ipaddress.IPv6Address(text[1:-1]).compressed}]"
+            return f"[{_serialize_ipv6(ipaddress.IPv6Address(text[1:-1]))}]"
         except ValueError:
             return None
-    if not text or _FORBIDDEN_IN_HOST.search(text):
+    if not text:
         return None
-    host = text.lower()
-    labels = host.removesuffix(".").split(".")
-    if _NUMBER_LABEL.fullmatch(labels[-1]):
-        # A host that ends in a number is an IPv4 address.
-        try:
-            return str(ipaddress.IPv4Address(host))
-        except ValueError:
-            return None
+    host = urllib.parse.unquote_to_bytes(text).decode("utf-8", "replace").lower()
+    # A replacement character (for bytes that are no UTF-8, or for a lone
+    # surrogate) is not allowed in a domain.
+    if not host or _FORBIDDEN_IN_HOST.search(host) or "\ufffd" in host:
+        return None
+    if _ends_in_a_number(host):
+        return _parse_ipv4(host)
     return host
 
 
 def parse_http_url(value: object) -> HttpUrl | None:
-    """The parts of an ``http`` or ``https`` URL, or None for anything else."""
+    """The parts of an ``http`` or ``https`` URL, or None for anything else.
+
+    Read as a WHATWG URL parser reads a URL with a special scheme: any
+    number of ``/`` and ``\\`` may follow the scheme, ``\\`` ends the
+    authority and is a ``/`` in the path, the host is percent-decoded and
+    a host that ends in a number is an IPv4 address in any of its spellings.
+    """
 
     if not isinstance(value, str):
         return None
-    text = re.sub(r"[\t\n\r]", "", value.strip("".join(map(chr, range(0x21)))))
-    # A WHATWG parser reads "\\" as "/", which moves the end of the host.
-    match = None if "\\" in text else _URL.fullmatch(text)
+    # The parser reads a USVString: a lone surrogate is U+FFFD.
+    text = value.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+    text = re.sub(r"[\t\n\r]", "", text.strip("".join(map(chr, range(0x21)))))
+    match = _SCHEME.match(text)
     if match is None:
         return None
     scheme = match[1].lower()
-    host_port = match[2].rpartition("@")[2]
+    rest = text[match.end() :].lstrip("/\\")
+    end = _AUTHORITY_END.search(rest)
+    authority, rest = (rest[: end.start()], rest[end.start() :]) if end else (rest, "")
+    user_info, at_sign, host_port = authority.rpartition("@")
+    # The port follows the first ":" outside brackets.
+    split, inside_brackets = len(host_port), False
+    for index, char in enumerate(host_port):
+        if char == ":" and not inside_brackets:
+            split = index
+            break
+        if char in "[]":
+            inside_brackets = char == "["
+    host, port_text = host_port[:split], host_port[split + 1 :]
     port: int | None = None
-    port_match = re.search(r":([^:\]]*)\Z", host_port)
-    if port_match is not None:
-        host_port = host_port[: port_match.start()]
-        if port_match[1]:
-            digits = _PORT.fullmatch(port_match[1])
-            port = int(digits[1] or "0") if digits else None
-            if port is None or port > 65535:
-                return None
-    hostname = _parse_host(host_port)
+    if port_text:
+        digits = _PORT.fullmatch(port_text)
+        port = int(digits[1] or "0") if digits else None
+        if port is None or port > 65535:
+            return None
+    hostname = _parse_host(host)
     if hostname is None:
         return None
     if port == _DEFAULT_PORTS[scheme]:
         port = None
+    rest, _, fragment = rest.partition("#")
+    path, _, query = rest.partition("?")
     return HttpUrl(
         scheme,
         hostname,
         port,
-        match[3] or "/",
-        match[4] or "",
-        match[5] or "",
-        "@" in match[2],
+        path.replace("\\", "/") or "/",
+        query,
+        fragment,
+        bool(at_sign) and user_info not in ("", ":"),
     )
 
 

@@ -1200,7 +1200,6 @@ def test_a_message_that_is_not_json_is_refused_by_send(fake: _Fixture) -> None:
     [
         "ftp://example.com/mcp",
         "example.com/mcp",
-        "http:///mcp",
         "http://user:secret@example.com/mcp",
         "http://example.com:port/mcp",
         # Port 0 is no port a server listens on, and not the default port.

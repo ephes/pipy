@@ -195,9 +195,11 @@ and `exposure`.
 
 Differences from Pi in the configuration:
 
-- pipy checks URLs with a small strict parser and does not repair them. A URL
-  without `//`, with a backslash, or with a shortened IPv4 address such as
-  `127.1` is a configuration error here, where Pi's URL parser accepts it.
+- pipy reads URLs as Pi's URL parser does (`http:example.com`, backslashes,
+  percent-escapes in the host, and IPv4 addresses such as `127.1` or
+  `0x7f.0.0.1`, which are `127.0.0.1`), but without IDNA: a host with
+  non-ASCII letters is taken as written, where Pi converts it to punycode or
+  rejects it.
 - `oauth.clientMetadataBaseUrl` exists only in pipy. Pi serves its Client ID
   Metadata Documents from its own site; pipy has no such document, so `cimd`
   needs the address where you host one, see

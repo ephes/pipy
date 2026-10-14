@@ -297,6 +297,66 @@ def test_closing_cancels_the_token_a_fetch_was_handed() -> None:
     assert [type(error) for error in raised] == [McpConnectionClosedError]
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # Pi's transport reads its URL with `new URL`, a WHATWG parser.
+        ("http://127.1:8080/mcp", ("http://127.0.0.1:8080/mcp", "127.0.0.1", 8080)),
+        ("http://0x7f.0.0.1/a/../mcp", ("http://127.0.0.1/mcp", "127.0.0.1", 80)),
+        ("https://2130706433/mcp?x#f", ("https://127.0.0.1/mcp?x#f", "127.0.0.1", 443)),
+        ("http:\\\\Mcp.Example\\mcp", ("http://mcp.example/mcp", "mcp.example", 80)),
+        ("http://@[0::1]:81/", ("http://[::1]:81/", "::1", 81)),
+        # A lone surrogate is U+FFFD, as in a USVString.
+        ("http://h/\ud800", ("http://h/\ufffd", "h", 80)),
+    ],
+)
+def test_a_url_is_requested_as_a_whatwg_parser_reads_it(
+    url: str, expected: tuple[str, str, int]
+) -> None:
+    target = http_fetch.parse_http_target(url)
+    assert target is not None
+    assert (target.url, target.host, target.port) == expected
+
+
+def test_a_lone_surrogate_in_the_path_is_sent_as_a_replacement_character() -> None:
+    target = http_fetch.parse_http_target("http://h/a\ud800?q=\udc00")
+    assert target is not None
+    assert target.path == "/a%EF%BF%BD?q=%EF%BF%BD"
+
+
+@pytest.mark.parametrize(
+    "url", ["http://user@h/", "http://:secret@h/", "http://h:0/", "http://256.1/"]
+)
+def test_a_url_no_request_can_go_to_is_no_target(url: str) -> None:
+    assert http_fetch.parse_http_target(url) is None
+
+
+def test_a_shortened_ipv4_url_reaches_its_server(server: FakeMcpHttpServer) -> None:
+    port = server.origin.rpartition(":")[2]
+    seen: list[str] = []
+    default = create_default_fetch()
+
+    def recording(request: McpHttpRequest) -> McpHttpResponse:
+        seen.append(request.url)
+        return default(request)
+
+    transport = StreamableHttpTransport(
+        StreamableHttpTransportOptions(
+            url=f"http://127.1:{port}/x/../mcp",
+            open_get_stream=False,
+            fetch=recording,
+        )
+    )
+    client = _client()
+    client.connect(transport)
+
+    assert client.list_tools() == [_ECHO]
+    client.close()
+    # The fetch is handed the URL as `new URL` writes it.
+    assert set(seen) == {f"http://127.0.0.1:{port}/mcp"}
+    assert server.requests[0].headers["host"] == f"127.0.0.1:{port}"
+
+
 def test_the_default_fetch_refuses_a_url_it_cannot_request() -> None:
     fetch: McpFetch = create_default_fetch()
 

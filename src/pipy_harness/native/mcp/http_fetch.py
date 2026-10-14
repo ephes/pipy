@@ -74,6 +74,7 @@ from dataclasses import dataclass
 from typing import Final, Protocol
 
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.mcp.config import parse_http_url
 
 MAX_REDIRECTS: Final = 20
 _READ_BYTES: Final = 64 * 1024
@@ -157,27 +158,26 @@ class HttpTarget:
 
 
 def parse_http_target(url: str) -> HttpTarget | None:
-    """Split an ``http`` or ``https`` URL; ``None`` when it is not one."""
+    """Split an ``http`` or ``https`` URL; ``None`` when it is not one.
 
-    try:
-        parts = urllib.parse.urlsplit(url)
-        port = parts.port
-    except ValueError:
+    The URL is read as ``config.parse_http_url`` reads it, as Pi's transport
+    reads its URL with ``new URL``: ``http://127.1/mcp`` connects to
+    ``127.0.0.1``, and dot segments are removed from the path. ``url`` of
+    the result is the URL written that way.
+    """
+
+    parsed = parse_http_url(url)
+    if parsed is None or parsed.has_user_info or parsed.port == 0:
         return None
-    host = parts.hostname
-    if parts.scheme not in ("http", "https") or not host:
-        return None
-    if parts.username is not None or parts.password is not None:
-        return None
-    secure = parts.scheme == "https"
-    path = urllib.parse.quote(parts.path or "/", safe=_URL_PATH_SAFE)
-    if parts.query:
-        path += "?" + urllib.parse.quote(parts.query, safe=_URL_PATH_SAFE + "?")
-    if port is None:
-        port = 443 if secure else 80
-    elif port == 0:
-        return None
-    return HttpTarget(url, secure, host, port, path)
+    secure = parsed.scheme == "https"
+    path = urllib.parse.quote(parsed.pathname, safe=_URL_PATH_SAFE)
+    if parsed.query:
+        path += "?" + urllib.parse.quote(parsed.query, safe=_URL_PATH_SAFE + "?")
+    port = parsed.port if parsed.port is not None else (443 if secure else 80)
+    fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+    return HttpTarget(
+        parsed.href + fragment, secure, parsed.hostname.strip("[]"), port, path
+    )
 
 
 def timeout_seconds(timeout_ms: float) -> float | None:

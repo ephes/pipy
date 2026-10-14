@@ -390,3 +390,61 @@ Plan rows and texts:
   (L2).
 - S31 block (line 1385 as judged): `step_up_scope` now lives in
   `mcp/oauth/flow.py`, as in Pi; `merge_scopes` stays in `sign_in.py`.
+
+## L3, commit 1: K1 (URLs are read as Pi's `new URL` reads them)
+
+Findings of the goal check of 2026-10-13, area "config and CLI", numbered
+K1 to K7 there. Pi source read again: `core/mcp-servers.ts` lines 128-134
+(`isLoopbackRedirectUri`: `URL.canParse`, `new URL(value).hostname`), 182,
+196, 203, 273 and 285 (`new URL`), and `packages/mcp/src/transports/
+streamable-http.ts` line 204 (`this.url = new URL(options.url)`, the URL every
+request is sent to). Node 26 was used as the oracle for every URL in the new
+tests. The finding holds: `http://127.1:8080/mcp`, `http://0x7f.0.0.1/` and
+`http://2130706433/` were config errors in pipy and are `127.0.0.1` in Pi.
+
+What changed:
+
+- `config.parse_http_url` follows the WHATWG URL parser for `http` and
+  `https`: any number of `/` and `\` after the scheme (`http:example.com`,
+  `http:\\h\a`), `\` ends the authority and is `/` in the path, the host is
+  percent-decoded (`%6cocalhost` is `localhost`; invalid UTF-8 there is an
+  error), a host that ends in a number is parsed with the WHATWG IPv4 rules
+  (one to four parts, decimal, `0x` hex or `0` octal, the last one filling
+  the remaining bytes), the port follows the first `:` outside brackets, and
+  an IPv6 host is written with hex pieces only (`[::ffff:102:304]`).
+  `HttpUrl.has_user_info` is true only for a non-empty user or password, as
+  undici's check (`http://@h/` is no user info).
+- `is_loopback_redirect_uri` follows: `http://127.1/cb`,
+  `http://2130706433/cb`, `http://%6cocalhost/cb` and `http://[0:0::1]/cb`
+  are loopback URIs, as in Pi. The same holds for the loopback checks of
+  `auth`, `oauth.authServerMetadataUrl` and the OAuth endpoints.
+- `http_fetch.parse_http_target` reads the URL with `parse_http_url` instead
+  of `urllib.parse.urlsplit`, so the transport connects to `127.0.0.1` for
+  `http://127.1/mcp` (Host header `127.0.0.1:<port>`) and removes dot
+  segments from the path, as Pi's `new URL` does. `HttpTarget.url` and the
+  URL the transport hands its fetch and its auth provider are the URL as
+  `parse_http_url` writes it (href plus fragment), Pi's `this.url`.
+
+Remaining differences (in `config.py`'s module text and docs/mcp.md): no
+IDNA processing (a non-ASCII host is kept as written, lower-cased, where
+Pi writes punycode or rejects it), and `HttpUrl.path` keeps characters a
+WHATWG parser percent-encodes (consumers encode them where it matters).
+
+Changelog line (section Unreleased):
+
+- MCP server URLs and OAuth URLs are read as Pi reads them: shortened and
+  hex or decimal IPv4 hosts (`http://127.1:8080/mcp`), percent-escapes in
+  the host, and missing or extra slashes and backslashes after the scheme
+  are accepted, where they were configuration errors before. `127.1` and
+  the other spellings of `127.0.0.1` count as loopback hosts.
+
+Plan rows and texts:
+
+- CFG-13, CFG-18, CFG-20, CFG-21 stay closed; the deviation "pipy checks
+  URLs with a small strict parser and does not repair them" is removed,
+  replaced by "no IDNA processing".
+- Section 4.1 (line 621 as judged): "`config.py` owns the URL parser
+  (`parse_http_url`, `HttpUrl`) that config validation and OAuth discovery
+  share. It is strict and repairs nothing." becomes: "... that config
+  validation, OAuth and the HTTP transport's default fetch share. It
+  follows the WHATWG URL parser for `http` and `https`, without IDNA."

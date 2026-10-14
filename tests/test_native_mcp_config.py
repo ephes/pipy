@@ -23,6 +23,7 @@ from pipy_harness.native.mcp.config import (
     is_loopback_redirect_uri,
     load_mcp_config,
     mcp_namespace,
+    parse_http_url,
     project_mcp_config_path,
     remove_mcp_server_config,
     update_mcp_server_config,
@@ -131,8 +132,6 @@ ENTRY_ERRORS: list[tuple[object, str]] = [
     ),
     ({"url": "https://[::1/mcp"}, 'server "s": url must be an http or https URL'),
     ({"url": "https://[::1%en0]/"}, 'server "s": url must be an http or https URL'),
-    ({"url": "https://a.example\\x"}, 'server "s": url must be an http or https URL'),
-    ({"url": "https://127.1/mcp"}, 'server "s": url must be an http or https URL'),
     (
         {"url": HTTP, "headers": {"A": 1}},
         'server "s": headers must map names to strings',
@@ -380,14 +379,18 @@ def test_a_whole_number_callback_port_becomes_an_int() -> None:
         ("https://localhost/cb", False),
         ("http://localhost./cb", False),
         ("http://127.0.0.2/cb", False),
-        ("http://127.1/cb", False),
+        # Every spelling of 127.0.0.1 is that host, as with a WHATWG parser.
+        ("http://127.1/cb", True),
         # A WHATWG parser would see the host evil.example here.
         ("http://evil.example\\@localhost/cb", False),
         ("http://localhost@evil.example/cb", False),
         ("http://evil.example:80@localhost/cb", True),
-        ("http://127.0.0.01/cb", False),
-        ("http://2130706433/cb", False),
-        ("http://%6cocalhost/cb", False),
+        ("http://127.0.0.01/cb", True),
+        ("http://2130706433/cb", True),
+        ("http://0x7f.0.0.1/cb", True),
+        ("http://%6cocalhost/cb", True),
+        ("http://[0:0::1]/cb", True),
+        ("http://127.0.0.256/cb", False),
         ("http://[::2]/cb", False),
         ("http://localhost/cb?a", False),
         ("http://localhost/cb#a", False),
@@ -400,6 +403,106 @@ def test_a_whole_number_callback_port_becomes_an_int() -> None:
 )
 def test_is_loopback_redirect_uri(value: object, expected: bool) -> None:
     assert is_loopback_redirect_uri(value) is expected
+
+
+# What Node's `new URL(url)` gives for hostname, port and pathname
+# (node 26); None where `URL.canParse` is false.
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # A host that ends in a number is an IPv4 address in any spelling.
+        ("http://127.1:8080/mcp", ("127.0.0.1", 8080, "/mcp")),
+        ("http://0x7f.0.0.1/", ("127.0.0.1", None, "/")),
+        ("http://2130706433/", ("127.0.0.1", None, "/")),
+        ("http://0177.0.0.1/", ("127.0.0.1", None, "/")),
+        ("http://127.0.0.01/", ("127.0.0.1", None, "/")),
+        ("http://127.0.0.1./", ("127.0.0.1", None, "/")),
+        ("http://1.2.65535/", ("1.2.255.255", None, "/")),
+        ("http://0x/", ("0.0.0.0", None, "/")),
+        ("http://4294967295/", ("255.255.255.255", None, "/")),
+        ("http://0x00000000000000001/", ("0.0.0.1", None, "/")),
+        ("http://%31%32%37.1/", ("127.0.0.1", None, "/")),
+        ("http://1.2.3.0x/", ("1.2.3.0", None, "/")),
+        ("http://1.2.3.4.5/", None),
+        ("http://256.1/", None),
+        ("http://1.256.1.1/", None),
+        ("http://1.2.65536/", None),
+        ("http://4294967296/", None),
+        ("http://99999999999999999999999/", None),
+        ("http://" + "9" * 5000 + "/", None),
+        ("http://09.1/", None),
+        ("http://1.2.3.08/", None),
+        ("http://1..2/", None),
+        ("http://a.1/", None),
+        # Not numbers: these are domains.
+        ("http://a.0x1g/", ("a.0x1g", None, "/")),
+        ("http://1.a/", ("1.a", None, "/")),
+        # Slashes after the scheme, and backslashes.
+        ("http:example.com/mcp", ("example.com", None, "/mcp")),
+        ("http:///example.com", ("example.com", None, "/")),
+        ("http:\\\\example.com\\a\\b", ("example.com", None, "/a/b")),
+        ("https://a.example\\x", ("a.example", None, "/x")),
+        # The host is percent-decoded.
+        ("http://exa%6Dple.com/", ("example.com", None, "/")),
+        ("http://%ff.com/", None),
+        ("http://\ud800.com/", None),
+        ("http://%ed%a0%80.com/", None),
+        ("http://%EF%BF%BD.com/", None),
+        ("http://h/\ud800", ("h", None, "/\ufffd")),
+        ("http://a%20b/", None),
+        ("http://a%2Fb/", None),
+        # IPv6 hosts are written with hex pieces only.
+        ("http://[::ffff:1.2.3.4]/", ("[::ffff:102:304]", None, "/")),
+        ("http://[0:0:1:0:0:1:0:0]/", ("[::1:0:0:1:0:0]", None, "/")),
+        ("http://[1:2:3:4:5:6:7::]/", ("[1:2:3:4:5:6:7:0]", None, "/")),
+        ("http://[::1]x/", None),
+        ("http://[::1/", None),
+        ("http://a:1:2/", None),
+        ("http://a:/", ("a", None, "/")),
+        ("http://user@/", None),
+    ],
+)
+def test_urls_are_read_as_a_whatwg_parser_reads_them(
+    url: str, expected: tuple[str, int | None, str] | None
+) -> None:
+    parsed = parse_http_url(url)
+    got = None if parsed is None else (parsed.hostname, parsed.port, parsed.pathname)
+    assert got == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "named"),
+    [
+        ("http://@h/", False),
+        ("http://:@h/", False),
+        ("http://a:@h/", True),
+        ("http://:b@h/", True),
+        ("http://a@b@h/", True),
+        ("http://h/@x", False),
+    ],
+)
+def test_only_a_user_or_password_counts_as_user_info(url: str, named: bool) -> None:
+    parsed = parse_http_url(url)
+    assert parsed is not None
+    assert (parsed.hostname, parsed.has_user_info) == ("h", named)
+
+
+def test_a_url_with_a_lone_surrogate_in_its_host_is_an_entry_error(
+    tmp_path: Path,
+) -> None:
+    # JSON can spell a lone surrogate; the file itself is valid UTF-8.
+    loaded = load_user(
+        tmp_path, {"bad": {"url": "http://\ud800/mcp"}, "good": {"url": HTTP}}
+    )
+    assert [entry.name for entry in loaded.servers] == ["good"]
+    assert len(loaded.errors) == 1
+    assert loaded.errors[0].endswith('server "bad": url must be an http or https URL')
+
+
+def test_a_shortened_ipv4_server_url_is_valid() -> None:
+    entry = {"url": "http://127.1:8080/mcp", "auth": {"provider": "p"}}
+    # 127.1 is the loopback host, where auth may use http.
+    assert validate_mcp_server_config("s", entry) == entry
 
 
 def test_tool_exposure_defaults_to_codemode() -> None:
