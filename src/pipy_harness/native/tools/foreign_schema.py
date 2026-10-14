@@ -31,9 +31,18 @@ with Python's `re`, not an ECMAScript engine. The tool's owner remains the
 authority on what it accepts; this check exists to give the model a precise
 error before the call.
 
-Unlike the strict validator, arguments are not rewritten: no coercion, and
-properties the schema does not declare are kept unless `additionalProperties`
-forbids them, which is JSON Schema's default.
+Before validation the arguments are prepared as Pi's `validateToolArguments`
+prepares them for a schema it did not build: an optional property sent as
+`null` that its schema refuses is dropped (`normalizeOptionalNulls`), and
+primitive values are converted towards the types the schema names
+(`coerceWithJsonSchema`: `"5"` to `5`, `"true"` to `true`, a number to its
+JavaScript string, `null` to `0`, `false` or `""`; through `allOf`, `anyOf`,
+`oneOf`, properties, `additionalProperties` and items, not `$ref`). Numbers
+are read and written as JavaScript's `Number()` and `String()` do. Pi's
+TypeBox `Value.Convert` pass, which runs before that and converts some more
+spellings (`"TRUE"` or `"1"` to `true`, for one), is not ported. Properties
+the schema does not declare are kept unless `additionalProperties` forbids
+them, which is JSON Schema's default.
 """
 
 from __future__ import annotations
@@ -41,7 +50,8 @@ from __future__ import annotations
 import copy
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from decimal import Decimal
 from typing import Any
 from urllib.parse import unquote
 
@@ -82,10 +92,12 @@ def validate_foreign_arguments(
     schema: Mapping[str, Any],
     arguments: Any,
 ) -> dict[str, Any]:
-    """Validate `arguments` against a foreign JSON Schema.
+    """Validate `arguments` against a foreign JSON Schema, as Pi's
+    `validateToolArguments` does for a plain JSON Schema.
 
-    Returns a detached copy of the arguments, unchanged in content. Raises
-    `ToolArgumentError` naming the first argument that does not fit.
+    Returns a detached copy of the arguments with optional `null`s dropped
+    and primitives coerced. Raises `ToolArgumentError` naming the first
+    argument that does not fit.
     """
 
     if not isinstance(tool_name, str) or not tool_name:
@@ -97,8 +109,15 @@ def validate_foreign_arguments(
     try:
         if not _is_json_data(arguments):
             raise ToolArgumentError(tool_name, "arguments must be JSON values")
-        _Validator(tool_name, schema).check(schema, arguments, ())
-        return copy.deepcopy(arguments)
+        validator = _Validator(tool_name, schema)
+        prepared = copy.deepcopy(arguments)
+        _normalize_optional_nulls(prepared, schema, validator)
+        coerced = _Coercer(validator).coerce(prepared, schema)
+        # Pi keeps the arguments an object; a schema that would turn them
+        # into something else leaves them as they were.
+        result = coerced if isinstance(coerced, dict) else prepared
+        validator.check(schema, result, ())
+        return result
     except RecursionError:
         raise ToolArgumentError(tool_name, "arguments are nested too deeply") from None
 
@@ -136,6 +155,10 @@ class _Validator:
 
     def _fail(self, message: str, path: tuple[str, ...]) -> ToolArgumentError:
         return ToolArgumentError(self._tool_name, message, field_path=path)
+
+    def accepts(self, schema: object, value: object) -> bool:
+        """Whether ``value`` fits ``schema``, a part of the root schema."""
+        return self._matches(schema, value, ())
 
     def _matches(self, schema: object, value: object, path: tuple[str, ...]) -> bool:
         try:
@@ -401,3 +424,272 @@ def _json_equal(left: object, right: object) -> bool:
             _json_equal(a, b) for a, b in zip(left, right, strict=True)
         )
     return type(left) is type(right) and left == right
+
+
+# -- Pi ``validateToolArguments``: optional nulls and coercion ---------------
+
+
+def _normalize_optional_nulls(
+    value: object, schema: object, validator: _Validator
+) -> None:
+    """Pi ``normalizeOptionalNulls``: drop a ``null`` an optional property's
+    schema refuses, so a model's habit of sending ``null`` for "not given"
+    passes. In place, through arrays and nested objects."""
+
+    if not isinstance(schema, Mapping):
+        return
+    if isinstance(value, list):
+        items = schema.get("items")
+        item_schemas = (
+            items if isinstance(items, (list, tuple)) else [items] * len(value)
+        )
+        for item, item_schema in zip(value, item_schemas, strict=False):
+            _normalize_optional_nulls(item, item_schema, validator)
+        return
+    properties = schema.get("properties")
+    if not isinstance(value, dict) or not isinstance(properties, Mapping):
+        return
+    required = _required_names(schema)
+    for key, property_schema in properties.items():
+        if key not in value:
+            continue
+        if (
+            value[key] is None
+            and key not in required
+            and not _has_ref(property_schema)
+            and not validator.accepts(property_schema, None)
+        ):
+            del value[key]
+        else:
+            _normalize_optional_nulls(value[key], property_schema, validator)
+
+
+def _required_names(schema: Mapping[str, Any]) -> set[str]:
+    required = schema.get("required")
+    if not isinstance(required, (list, tuple)):
+        return set()
+    return {name for name in required if isinstance(name, str)}
+
+
+def _has_ref(schema: object) -> bool:
+    return isinstance(schema, Mapping) and isinstance(schema.get("$ref"), str)
+
+
+class _Coercer:
+    """Pi ``coerceWithJsonSchema``: convert primitive values towards the
+    types a schema names, through ``allOf``, ``anyOf``, ``oneOf``,
+    properties, ``additionalProperties`` and items. Objects and arrays are
+    changed in place; ``$ref`` is not followed (Pi does not either)."""
+
+    __slots__ = ("_validator",)
+
+    def __init__(self, validator: _Validator) -> None:
+        self._validator = validator
+
+    def coerce(self, value: object, schema: object) -> object:
+        if not isinstance(schema, Mapping):
+            return value
+        result = self._coerce_combinators(value, schema)
+        types = _schema_types(schema)
+        matches_member = len(types) > 1 and any(
+            _matches_json_type(result, name) for name in types
+        )
+        if types and not matches_member:
+            for name in types:
+                candidate = _coerce_primitive(result, name)
+                if candidate is not result:
+                    result = candidate
+                    break
+        if "object" in types and isinstance(result, dict):
+            self._coerce_object(result, schema)
+        if "array" in types and isinstance(result, list):
+            self._coerce_array(result, schema)
+        return result
+
+    def _coerce_combinators(self, value: object, schema: Mapping[str, Any]) -> object:
+        result = value
+        all_of = schema.get("allOf")
+        if isinstance(all_of, (list, tuple)):
+            for branch in all_of:
+                result = self.coerce(result, branch)
+        for key in ("anyOf", "oneOf"):
+            branches = schema.get(key)
+            if isinstance(branches, (list, tuple)):
+                result = self._coerce_union(result, branches)
+        return result
+
+    def _coerce_union(self, value: object, branches: Sequence[object]) -> object:
+        for branch in branches:
+            if self._validator.accepts(branch, value):
+                return value
+        for branch in branches:
+            coerced = self.coerce(copy.deepcopy(value), branch)
+            if self._validator.accepts(branch, coerced):
+                return coerced
+        return value
+
+    def _coerce_object(self, value: dict[str, Any], schema: Mapping[str, Any]) -> None:
+        properties = schema.get("properties")
+        defined: set[str] = set()
+        if isinstance(properties, Mapping):
+            defined = set(properties)
+            for key, property_schema in properties.items():
+                if key in value:
+                    value[key] = self.coerce(value[key], property_schema)
+        additional = schema.get("additionalProperties")
+        if isinstance(additional, Mapping):
+            for key in list(value):
+                if key not in defined:
+                    value[key] = self.coerce(value[key], additional)
+
+    def _coerce_array(self, value: list[Any], schema: Mapping[str, Any]) -> None:
+        items = schema.get("items")
+        if isinstance(items, (list, tuple)):
+            for index in range(min(len(value), len(items))):
+                value[index] = self.coerce(value[index], items[index])
+        elif isinstance(items, Mapping):
+            for index, item in enumerate(value):
+                value[index] = self.coerce(item, items)
+
+
+def _schema_types(schema: Mapping[str, Any]) -> list[str]:
+    declared = schema.get("type")
+    if isinstance(declared, str):
+        return [declared]
+    if isinstance(declared, (list, tuple)):
+        return [name for name in declared if isinstance(name, str)]
+    return []
+
+
+def _matches_json_type(value: object, name: str) -> bool:
+    """Pi ``matchesJsonType``; an unknown name matches nothing."""
+
+    check = _TYPE_CHECKS.get(name)
+    return check is not None and check(value)
+
+
+def _coerce_primitive(value: object, name: str) -> object:
+    """Pi ``coercePrimitiveByType``: ``value`` itself when nothing applies."""
+
+    convert = _PRIMITIVE_COERCIONS.get(name)
+    return value if convert is None else convert(value)
+
+
+def _to_number(value: object, *, integer: bool) -> object:
+    if value is None:
+        return 0
+    if type(value) is bool:
+        return 1 if value else 0
+    if isinstance(value, str) and _js_trim(value):
+        parsed = _js_number(value)
+        if parsed is not None and (not integer or _is_integer(parsed)):
+            return parsed
+    return value
+
+
+def _to_boolean(value: object) -> object:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return {"true": True, "false": False}.get(value, value)
+    number = _number(value) if type(value) is not bool else None
+    if number == 1:
+        return True
+    if number == 0:
+        return False
+    return value
+
+
+def _to_string(value: object) -> object:
+    if value is None:
+        return ""
+    if type(value) is bool:
+        return "true" if value else "false"
+    number = _number(value)
+    return value if number is None else _js_number_string(number)
+
+
+def _to_null(value: object) -> object:
+    if value == "" and isinstance(value, str):
+        return None
+    if value is False or (type(value) in (int, float) and value == 0):
+        return None
+    return value
+
+
+_PRIMITIVE_COERCIONS: dict[str, Callable[[object], object]] = {
+    "number": lambda value: _to_number(value, integer=False),
+    "integer": lambda value: _to_number(value, integer=True),
+    "boolean": _to_boolean,
+    "string": _to_string,
+    "null": _to_null,
+}
+
+
+# JavaScript's whitespace for ``String.prototype.trim`` and ``Number()``.
+_JS_SPACE = "\t\n\v\f\r                  　﻿"
+_JS_DECIMAL = re.compile(
+    r"[+-]?(?:Infinity|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+)
+_JS_RADIX = re.compile(r"0(?:([xX])[0-9a-fA-F]+|([oO])[0-7]+|([bB])[01]+)")
+# Integers up to 2^53 are exact in JavaScript; a float beyond stays a float.
+_SAFE_INTEGER = 2**53
+
+
+def _js_trim(text: str) -> str:
+    return text.strip(_JS_SPACE)
+
+
+def _js_number(text: str) -> int | float | None:
+    """JavaScript's ``Number(text)`` when it is finite, as a JSON number (an
+    ``int`` for a whole value within 2^53); ``None`` for ``NaN`` and the
+    infinities."""
+
+    literal = _js_trim(text)
+    radix = _JS_RADIX.fullmatch(literal)
+    if radix is not None:
+        base = 16 if radix.group(1) else 8 if radix.group(2) else 2
+        whole = int(literal[2:], base)
+        if whole <= _SAFE_INTEGER:
+            return whole
+        try:
+            return float(whole)
+        except OverflowError:
+            return None  # JavaScript reads it as Infinity
+    if _JS_DECIMAL.fullmatch(literal) is None:
+        return None
+    number = float(literal.replace("Infinity", "inf"))
+    if not math.isfinite(number):
+        return None
+    if number.is_integer() and abs(number) <= _SAFE_INTEGER:
+        return int(number)
+    return number
+
+
+def _js_number_string(value: int | float) -> str:
+    """JavaScript's ``String(value)`` of the number JavaScript reads for
+    ``value``: a double, so a large integer is rounded first and one beyond
+    the double range is ``Infinity``."""
+
+    try:
+        number = float(value)
+    except OverflowError:
+        return "Infinity" if value > 0 else "-Infinity"
+    if number == 0:
+        return "0"
+    _sign, digit_tuple, exponent = Decimal(repr(abs(number))).as_tuple()
+    digits = "".join(map(str, digit_tuple)).rstrip("0") or "0"
+    assert isinstance(exponent, int)
+    # ``point``: where the decimal point falls after the digits' first one.
+    point = exponent + len("".join(map(str, digit_tuple)))
+    count = len(digits)
+    prefix = "-" if number < 0 else ""
+    if count <= point <= 21:
+        return prefix + digits + "0" * (point - count)
+    if 0 < point <= 21:
+        return prefix + digits[:point] + "." + digits[point:]
+    if -6 < point <= 0:
+        return prefix + "0." + "0" * -point + digits
+    power = point - 1
+    mantissa = digits[0] + ("." + digits[1:] if count > 1 else "")
+    return f"{prefix}{mantissa}e{'+' if power >= 0 else '-'}{abs(power)}"

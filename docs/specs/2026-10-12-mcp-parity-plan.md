@@ -486,7 +486,7 @@ owner has decided.
 | DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
 | DEV-08 | Credentials stored by older Pi versions under the URL alone are taken over by the first server that loads them. | Not ported. | No pipy version ever wrote that key; the no-shim rule applies. |
 | DEV-09 | Windows process handling (`taskkill`, `~\` paths, `.cmd` shims). | POSIX behaviour is ported and tested; Windows is not verified. | pipy's platform evidence is macOS and Linux (see `docs/codemode.md`). |
-| DEV-10 | Tool arguments are validated against the full JSON Schema of the tool before the call. | MCP and other foreign-schema tools are validated with a standard-library validator for a named keyword set (S01); keywords outside it are not enforced by pipy and the server remains the authority. Native and extension tools keep pipy's strict subset. | No JSON Schema dependency in the runtime (`pyproject.toml` keeps two dependencies). The named set is pinned by tests. |
+| DEV-10 | Tool arguments are validated against the full JSON Schema of the tool before the call. | MCP and other foreign-schema tools are prepared as Pi's `validateToolArguments` prepares a plain JSON Schema: an optional `null` the property's schema refuses is dropped and primitives are coerced (`coerceWithJsonSchema`, with JavaScript's number reading and writing; since G6). TypeBox's `Value.Convert` pass before that is not ported; Pi's tests of plain schemas pass without it. They are then validated with a standard-library validator for a named keyword set (S01); keywords outside it are not enforced by pipy and the server remains the authority, and the messages are pipy's. Native and extension tools keep pipy's strict subset, without coercion. | No JSON Schema dependency in the runtime (`pyproject.toml` keeps two dependencies). The named set is pinned by tests. |
 | DEV-11 | MCP, codemode and tool search are built-in extensions built only on the public extension API. | They are native modules. The public extension API still gains every hook Pi documents for them (section 2.18). | pipy's codemode is a native composite tool with a WASI host; rebuilding it on the extension API is an architecture change the backlog rules out. |
 | DEV-12 | The official MCP conformance suite runs in CI through `npx`. | A manual `just` recipe runs the same suite against pipy's client with a committed baseline (S40); CI runs pipy's own mirrored cases (section 6). | The suite needs Node and network access; pipy's CI has neither as a requirement. |
 | DEV-13 | The token usage and cost of nested results, at every depth, is added to the calling tool's result usage and counts toward the session cost. | Not ported in this campaign. pipy tool results carry no usage field. | Nothing in scope produces tool usage: MCP tools and pipy's built-in and extension tools report none, and the only Pi producers are `models.classify()` and `models.generateImages()` (DEV-04). The field and its propagation belong to the slice that adds a usage-producing tool. |
@@ -527,7 +527,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-26 | EXT-04 | Tools are registered while an extension loads and not afterwards. A tool whose last registration is `hidden` is registered and never declared; a session sees a withdrawal after the next `/reload`. A tool name another extension registered disables the second extension, where Pi lets the first one win silently. | other form | Decided in S02 |
 | DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. `limit` must be an `int` (`8.0` is refused). When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
-| DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. A string or boolean `limit` is refused, where Pi converts it (DEV-10). Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
+| DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi's CLI does the same (it always passes the initial tool names); Pi's SDK resume, which the mirrored Pi test uses, restores. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22 |
 | DEV-31 | none | An unknown name in `--tools`, `--exclude-tools` or `defaultTools` is refused at startup; Pi accepts it. An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. | stricter | Decided in S10 |
 | DEV-32 | EXP-12 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin mcp`. The `builtin:mcp` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). | other form | Decided in S19 |
@@ -677,8 +677,9 @@ Decided in S09 (the `tool_search` tool, `native/tool_search.py`):
   turn that called it. A load is not marked as a selection an extension
   customized, so a later `/reload` still activates new extension tools.
 - The schema is Pi's, with `limit` as a JSON number, so the definition is a
-  foreign schema. `1.0` is an integer as in JavaScript; a string or boolean
-  is refused by argument validation (DEV-10: Pi would convert `"3"`).
+  foreign schema. `1.0` is an integer as in JavaScript; `"3"` is converted
+  to `3` as Pi converts it (since G6), and a value no conversion fits is
+  refused by argument validation.
 - A listing longer than one tool result (64 KiB) ends with `(and <n> more)`;
   all matches are loaded and named in `details.loaded`. Pi has no cap.
 - TSR-09: a load is recorded by the system message of the next request
@@ -2657,7 +2658,9 @@ none.
 Also decided in S01: the foreign validator does not convert argument types.
 Pi's `validateToolArguments` coerces (`"3"` to `3`, optional `null` dropped)
 before it validates; pipy passes foreign arguments through unchanged and
-reports a mismatch to the model, under DEV-10.
+reports a mismatch to the model, under DEV-10. Revised in G6 (goal-check
+findings M11 and T8): pipy now ports Pi's `normalizeOptionalNulls` and
+`coerceWithJsonSchema` for foreign schemas.
 
 Decided in S02:
 
@@ -4001,6 +4004,26 @@ Tests: `test_a_tool_result_hook_sees_the_call_and_changes_every_field`,
 `test_a_policy_transform_replaces_images_the_error_flag_and_details`,
 `test_a_tool_result_hook_sees_the_call_and_sets_the_error_flag`,
 `test_a_tool_result_hook_that_empties_the_content_drops_the_image`.
+Part 3 (findings M11 and T8, coercion): `validate_foreign_arguments` copies
+the arguments, drops an optional property's `null` that its schema refuses
+(Pi `normalizeOptionalNulls`; a property schema that is a `$ref` keeps its
+`null`), coerces primitives towards the declared types (Pi
+`coerceWithJsonSchema` and `coercePrimitiveByType`: through `allOf`,
+`anyOf` and `oneOf` with a union first kept when it already matches, a type
+list kept when a member matches, properties, `additionalProperties`, items;
+no `$ref`), reads numbers as JavaScript's `Number()` (trimmed, hex, octal
+and binary literals, no `Infinity`; a whole value within 2^53 becomes an
+`int`) and writes them as `String()`, and then validates the result. A
+coercion that would turn the arguments into something other than an object
+is not taken. `tool_search` (a foreign schema) therefore takes `"3"` as its
+`limit`. TypeBox's `Value.Convert` is not ported (DEV-10). Tests:
+`test_primitives_are_coerced_as_pi_coerces_them`,
+`test_values_no_coercion_fits_are_still_refused`,
+`test_an_optional_null_the_schema_refuses_is_dropped`,
+`test_an_optional_null_whose_referenced_schema_is_nullable_is_kept`
+(mirroring `packages/ai/test/validation.test.ts`),
+`test_coercion_leaves_the_callers_arguments_unchanged`,
+`test_a_limit_sent_as_a_string_is_converted`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

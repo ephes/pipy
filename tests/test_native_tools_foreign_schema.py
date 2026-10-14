@@ -31,20 +31,21 @@ def _error(schema: dict[str, Any], arguments: Any) -> str:
 
 # keyword, schema of property `v`, accepted value, rejected value, error text
 _VALUE_CASES: list[tuple[str, Any, Any, Any, str]] = [
-    ("type", {"type": "string"}, "a", 1, "t.v: expected string"),
-    ("type", {"type": "number"}, 1.5, "1.5", "t.v: expected number"),
-    ("type", {"type": "number"}, 2, True, "t.v: expected number"),
+    # Rejected values are ones no coercion turns into the declared type.
+    ("type", {"type": "string"}, "a", [1], "t.v: expected string"),
+    ("type", {"type": "number"}, 1.5, "1.5x", "t.v: expected number"),
+    ("type", {"type": "number"}, 2, [2], "t.v: expected number"),
     ("type", {"type": "integer"}, 2.0, 2.5, "t.v: expected integer"),
-    ("type", {"type": "boolean"}, False, 0, "t.v: expected boolean"),
-    ("type", {"type": "null"}, None, "", "t.v: expected null"),
+    ("type", {"type": "boolean"}, False, "yes", "t.v: expected boolean"),
+    ("type", {"type": "null"}, None, "x", "t.v: expected null"),
     ("type", {"type": "array"}, [], {}, "t.v: expected array"),
     ("type", {"type": "object"}, {}, [], "t.v: expected object"),
-    ("type", {"type": ["string", "null"]}, None, 1, "t.v: expected string or null"),
+    ("type", {"type": ["string", "null"]}, None, [1], "t.v: expected string or null"),
     (
         "properties",
         {"type": "object", "properties": {"n": {"type": "integer"}}},
         {"n": 1, "other": "kept"},
-        {"n": "1"},
+        {"n": "one"},
         "t.v.n: expected integer",
     ),
     (
@@ -72,7 +73,7 @@ _VALUE_CASES: list[tuple[str, Any, Any, Any, str]] = [
         "items",
         {"type": "array", "items": {"type": "string"}},
         ["a", "b"],
-        ["a", 2],
+        ["a", [2]],
         "t.v.[1]: expected string",
     ),
     (
@@ -110,14 +111,14 @@ _VALUE_CASES: list[tuple[str, Any, Any, Any, str]] = [
         "anyOf",
         {"anyOf": [{"type": "string"}, {"type": "integer"}]},
         3,
-        3.5,
+        [3.5],
         "t.v: does not match any allowed schema",
     ),
     (
         "oneOf",
         {"oneOf": [{"type": "integer"}, {"type": "string"}]},
         "a",
-        None,
+        [],
         "t.v: does not match any allowed schema",
     ),
     (
@@ -290,7 +291,7 @@ def test_unknown_keywords_are_ignored() -> None:
     "value_schema",
     [
         {"type": "tuple"},
-        {"type": ["string", "date"]},
+        {"type": ["date"]},
         {"type": [["string"]]},
         {"type": 3},
         {"required": "v"},
@@ -330,7 +331,7 @@ def test_one_of_does_not_reject_a_second_apparent_match() -> None:
 
     assert _check(narrowed, {"v": 1}) == {"v": 1}
     assert _check(plain, {"v": 3}) == {"v": 3}
-    assert _error(plain, {"v": "3"}) == "t.v: does not match any allowed schema"
+    assert _error(plain, {"v": [3]}) == "t.v: does not match any allowed schema"
 
 
 @pytest.mark.parametrize(
@@ -379,7 +380,7 @@ def test_numbers_compare_as_json_numbers() -> None:
         "v": huge
     }
     assert "expected number" in _error(_object({"type": "number"}), {"v": float("nan")})
-    assert "expected integer" in _error(_object({"type": "integer"}), {"v": True})
+    assert "expected integer" in _error(_object({"type": "integer"}), {"v": [1]})
     assert _check(_object({"enum": [[1, {"a": 1.0}]]}), {"v": [1.0, {"a": 1}]}) == {
         "v": [1.0, {"a": 1}]
     }
@@ -422,3 +423,156 @@ def test_the_caller_must_name_the_tool_and_pass_a_schema() -> None:
         validate_foreign_arguments(
             tool_name="t", schema=cast(Any, "object"), arguments={}
         )
+
+
+# -- Pi ``validateToolArguments``: optional nulls and coercion (goal check M11,
+# T8; mirrors ``packages/ai/test/validation.test.ts``) ----------------------
+
+
+def _value(value_schema: Any) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {"value": value_schema},
+        "required": ["value"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("value_schema", "given", "expected"),
+    [
+        # Pi: "coerces serialized plain JSON schemas with AJV-compatible
+        # primitive rules"
+        ({"type": "number"}, "42", 42),
+        ({"type": "number"}, True, 1),
+        ({"type": "number"}, None, 0),
+        ({"type": "integer"}, "42", 42),
+        ({"type": "boolean"}, "true", True),
+        ({"type": "boolean"}, "false", False),
+        ({"type": "boolean"}, 1, True),
+        ({"type": "boolean"}, 0, False),
+        ({"type": "string"}, None, ""),
+        ({"type": "string"}, True, "true"),
+        ({"type": "null"}, "", None),
+        ({"type": "null"}, 0, None),
+        ({"type": "null"}, False, None),
+        ({"type": ["number", "string"]}, "1", "1"),
+        ({"type": ["boolean", "number"]}, "1", 1),
+        # Pi: "preserves a value that already matches a oneOf nullable union
+        # arm" and "still coerces nullable unions when the original value does
+        # not match any arm"
+        ({"oneOf": [{"type": "number"}, {"type": "null"}]}, None, None),
+        ({"anyOf": [{"type": "number"}, {"type": "null"}]}, "42", 42),
+        # Pi: "accepts null for nullable array schemas with items"
+        ({"type": ["array", "null"], "items": {"type": "string"}}, None, None),
+        # JavaScript's Number() and String().
+        ({"type": "number"}, " 1.5e3 ", 1500),
+        ({"type": "number"}, "0x1f", 31),
+        ({"type": "number"}, ".5", 0.5),
+        ({"type": "integer"}, "5.0", 5),
+        ({"type": "string"}, 1.5, "1.5"),
+        ({"type": "string"}, 5.0, "5"),
+        ({"type": "string"}, 1e21, "1e+21"),
+        ({"type": "string"}, 1e-7, "1e-7"),
+        ({"type": "string"}, 0.000001, "0.000001"),
+        ({"type": "string"}, -2.5e-10, "-2.5e-10"),
+        # JavaScript reads a JSON number as a double: rounded, or Infinity.
+        ({"type": "string"}, 1000000000000000128, "1000000000000000100"),
+        ({"type": "string"}, 9007199254740993, "9007199254740992"),
+        ({"type": "string"}, 10**400, "Infinity"),
+        ({"type": "string"}, -(10**400), "-Infinity"),
+        # Through properties, additionalProperties and items.
+        (
+            {
+                "type": "object",
+                "properties": {"n": {"type": "integer"}},
+                "additionalProperties": {"type": "boolean"},
+            },
+            {"n": "3", "flag": "true"},
+            {"n": 3, "flag": True},
+        ),
+        ({"type": "array", "items": {"type": "number"}}, ["1", "2"], [1, 2]),
+    ],
+)
+def test_primitives_are_coerced_as_pi_coerces_them(
+    value_schema: Any, given: Any, expected: Any
+) -> None:
+    result = _check(_value(value_schema), {"value": given})
+
+    assert result == {"value": expected}
+    assert type(result["value"]) is type(expected)
+
+
+@pytest.mark.parametrize(
+    ("value_schema", "given"),
+    [
+        # Pi: "rejects invalid coercions for serialized plain JSON schemas"
+        ({"type": "boolean"}, "1"),
+        ({"type": "boolean"}, "0"),
+        ({"type": "null"}, "null"),
+        ({"type": "integer"}, "42.1"),
+        ({"type": "number"}, "Infinity"),
+        ({"type": "number"}, "1_000"),
+        ({"type": "number"}, "  "),
+        # Beyond the double range JavaScript reads Infinity, which is not finite.
+        ({"type": "number"}, "0x" + "f" * 300),
+        ({"type": "number"}, "1e400"),
+    ],
+)
+def test_values_no_coercion_fits_are_still_refused(
+    value_schema: Any, given: Any
+) -> None:
+    _error(_value(value_schema), {"value": given})
+
+
+def test_an_optional_null_the_schema_refuses_is_dropped() -> None:
+    # Pi: "treats null as omission for optional non-nullable properties"
+    schema = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "offset": {"type": "number"},
+            "nullable": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            "metadata": {
+                "type": "object",
+                "properties": {"enabled": {"type": "boolean"}},
+            },
+        },
+        "required": ["path", "metadata"],
+    }
+
+    assert _check(
+        schema,
+        {
+            "path": "file.txt",
+            "offset": None,
+            "nullable": None,
+            "metadata": {"enabled": None},
+        },
+    ) == {"path": "file.txt", "nullable": None, "metadata": {}}
+    # A required property's null is coerced instead.
+    assert _check(_value({"type": "number"}), {"value": None}) == {"value": 0}
+
+
+def test_an_optional_null_whose_referenced_schema_is_nullable_is_kept() -> None:
+    # Pi: "preserves optional nulls whose referenced schema is nullable"
+    schema = {
+        "type": "object",
+        "properties": {"value": {"$ref": "#/$defs/value"}},
+        "$defs": {"value": {"anyOf": [{"type": "number"}, {"type": "null"}]}},
+    }
+
+    assert _check(schema, {"value": None}) == {"value": None}
+
+
+def test_coercion_leaves_the_callers_arguments_unchanged() -> None:
+    arguments: dict[str, Any] = {"value": ["1"], "offset": None}
+    schema = {
+        "type": "object",
+        "properties": {
+            "value": {"type": "array", "items": {"type": "number"}},
+            "offset": {"type": "number"},
+        },
+    }
+
+    assert _check(schema, arguments) == {"value": [1]}
+    assert arguments == {"value": ["1"], "offset": None}

@@ -298,7 +298,8 @@ def test_a_direct_mcp_tool_is_declared_and_called_like_a_builtin(
             _result(
                 tool_calls=(
                     ProviderToolCall("c1", "mcp__docs__search", '{"query": "pipy"}'),
-                    ProviderToolCall("c2", "mcp__docs__search", '{"query": 3}'),
+                    # A value no conversion makes a string (Pi turns 3 into "3").
+                    ProviderToolCall("c2", "mcp__docs__search", '{"query": [3]}'),
                 )
             ),
             _result(final_text="done"),

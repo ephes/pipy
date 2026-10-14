@@ -1309,8 +1309,9 @@ Differences from Pi:
 - When the listing would be longer than one tool result (64 KiB), the lines
   that do not fit are replaced by `(and <n> more)`. Every matched tool is
   loaded all the same.
-- `limit` is declared as a JSON number, as in Pi. A value of another type
-  (`"3"`) is refused by argument validation; Pi converts it first.
+- `limit` is declared as a JSON number, as in Pi. `"3"` is converted to `3`
+  before validation, as Pi converts it; a value no conversion fits
+  (`"three"`) is refused.
 - `tool_search` is registered with pipy's own built-in tools. A session made
   with the [Python SDK](sdk.md#codemode-tool-search-and-mcp) has it only when
   it is created with `tool_search=True`.
@@ -1887,8 +1888,11 @@ Differences from Pi in tools:
 
 - A tool whose input schema declares a type other than `object` cannot be
   declared by pipy. Pi registers it as it is.
-- Arguments are checked against the server's schema but not converted
-  (`"3"` stays a string).
+- Arguments are converted and checked as Pi's `validateToolArguments` does
+  for a server's schema (an optional `null` is dropped, `"3"` becomes `3`
+  where the schema asks for a number), but by pipy's own validator, which
+  enforces a named set of JSON Schema keywords; the server remains the
+  authority for the rest.
 - Progress is added to the call's live output line by line; Pi replaces the
   call's preliminary result. The call's row shows the last line, so a
   progress message of several lines shows only its last one.

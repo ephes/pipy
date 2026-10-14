@@ -935,8 +935,12 @@ keywords: `type` (also a list of types, with `number` and `null`),
 enforced by pipy; the tool's owner stays the authority on what it accepts.
 The validator never rejects arguments because of a keyword it does not
 enforce, which is why `oneOf` only requires that at least one branch matches.
-Pi validates with a full JSON Schema implementation and converts argument
-types where it can; pipy passes foreign arguments through unchanged.
+Before validating, pipy prepares the arguments as Pi's
+`validateToolArguments` does for such a schema: an optional property sent as
+`null` is dropped when its schema does not allow `null`, and primitives are
+converted to the types the schema names (`"5"` to `5`, `"true"` to `true`, a
+number to a string, `null` to `0`, `false` or `""`). Pi then validates with a
+full JSON Schema implementation.
 
 A tool result may carry `structured_content`, the machine-readable result for
 programmatic callers such as codemode scripts. As in Pi it is never sent to a

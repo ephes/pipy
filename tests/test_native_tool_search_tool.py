@@ -514,9 +514,9 @@ def test_a_limit_that_is_not_a_positive_integer_fails(
     "arguments",
     [
         {},
-        {"query": 3},
-        {"query": "docs", "limit": "3"},
-        {"query": "docs", "limit": True},
+        {"query": [3]},
+        {"query": "docs", "limit": "three"},
+        {"query": "docs", "limit": [1]},
     ],
 )
 def test_arguments_of_the_wrong_type_are_refused_by_the_schema(
@@ -528,6 +528,17 @@ def test_arguments_of_the_wrong_type_are_refused_by_the_schema(
 
     assert result.is_error
     assert len(tools.loadable_tools()) == 3
+
+
+def test_a_limit_sent_as_a_string_is_converted(tmp_path: Path) -> None:
+    # Pi ``validateToolArguments`` coerces ``"1"`` to ``1`` for the foreign
+    # schema of ``tool_search`` (DEV-10 since G6).
+    tools = _capabilities(tmp_path, _deferred_fixture())
+
+    result = _search(tools, {"query": "docs", "limit": "1"})
+
+    assert not result.is_error
+    assert len(tools.loadable_tools()) == 2
 
 
 # -- TSR-09 and the session ------------------------------------------------

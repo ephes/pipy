@@ -500,6 +500,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   whenever the text stayed the same). `dispatch_tool_result_hooks` takes the
   new fields and returns `None` when no hook changed the result. See
   [Result hooks](docs/extension-api.md#extension-tool-metadata).
+- Arguments of MCP tools, `tool_search` and other tools with a foreign schema
+  are converted before validation as Pi converts them: an optional argument
+  sent as `null` is dropped when its schema does not allow `null`, and
+  primitives are converted to the type the schema asks for (`"5"` to `5`,
+  `"true"` to `true`, a number to a string, `null` to `0`, `false` or `""`).
+  Before, such arguments were refused. See
+  [MCP tools](docs/mcp.md).
 - The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
   as Pi's `prompt` handles them. A text that names an extension command runs
   it and starts no run; `/mcp` is such a command and prints the server
