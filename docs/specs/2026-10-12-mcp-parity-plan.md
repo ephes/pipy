@@ -3,6 +3,12 @@
 Status: plan, 2026-10-12. Work item `pipy-mcp-codemode-parity`, backlog ID MCP1.
 No product code is changed by this document.
 
+Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
+`feat/mcp-parity`, not merged. Of the 287 rows of section 2, 285 are closed
+(106 of them with a recorded limit or deviation), MGR-09 is closed in part
+and SLH-13 is open; see section 3.2 and the
+[acceptance note](../acceptance/2026-10-13-mcp-parity.md).
+
 ## 1. Goal, reference and how to read this plan
 
 pipy has no MCP support, and its Python codemode tool reaches only the seven
@@ -34,7 +40,8 @@ Path abbreviations used in the checklist:
 Section 2 is the acceptance list for the final parity judgement. Every row is
 one checkable behaviour with the Pi location that defines it and the slice
 that closes it. Section 3 lists what this plan proposes not to port, with the
-reason. Section 4 is the pipy design, section 5 the ordered slices, section 6
+reason, the differences the slices recorded (3.1) and the result of the
+closing audit (3.2). Section 4 is the pipy design, section 5 the ordered slices, section 6
 the test strategy and section 7 the owner's decisions on the questions the plan raised.
 
 Decisions already made by the owner and not reopened here:
@@ -59,7 +66,8 @@ substitutions apply to every row and are not repeated.
 
 A row is closed when the named slice has landed with a test that pins the
 behaviour. "Text" in a row means the exact user-visible string is part of the
-behaviour (with the `pi`/`pipy` substitution).
+behaviour (with the `pi`/`pipy` substitution). Section 3.2 says which rows
+are closed.
 
 ### 2.1 Configuration (CFG)
 
@@ -454,10 +462,11 @@ Pi-shaped camelCase alias where the API already offers both).
 | DOC-04 | The extension API reference documents exposure, namespaces, annotations, output schemas, `reaches_tools`, nested execution and MCP server registration. | `docs/extensions.md` | S02, S36, S37 |
 | DOC-05 | The changelog records each user-visible change. | coding-agent `CHANGELOG.md` | each slice |
 
-Row count: 280 (CFG 26, CLT 16, STD 7, HTP 11, CON 16, TLS 19, SES 20, SEC 7,
-EXP 12, TSR 11, CMD 30, RES 10, OAU 36, CMDL 14, SLH 6, MGR 10, RND 4, EXT 16,
+Row count: 287 (CFG 26, CLT 16, STD 7, HTP 11, CON 16, TLS 19, SES 20, SEC 7,
+EXP 12, TSR 11, CMD 30, RES 10, OAU 36, CMDL 14, SLH 13, MGR 10, RND 4, EXT 16,
 SDK 4, DOC 5; the abbreviation CLT stands for the client library and CMDL for
-the shell commands).
+the shell commands). The plan had 280 rows when it was written; item X1
+added SLH-07 to SLH-13.
 
 ## 3. Proposed deviations
 
@@ -480,13 +489,102 @@ owner has decided.
 | DEV-10 | Tool arguments are validated against the full JSON Schema of the tool before the call. | MCP and other foreign-schema tools are validated with a standard-library validator for a named keyword set (S01); keywords outside it are not enforced by pipy and the server remains the authority. Native and extension tools keep pipy's strict subset. | No JSON Schema dependency in the runtime (`pyproject.toml` keeps two dependencies). The named set is pinned by tests. |
 | DEV-11 | MCP, codemode and tool search are built-in extensions built only on the public extension API. | They are native modules. The public extension API still gains every hook Pi documents for them (section 2.18). | pipy's codemode is a native composite tool with a WASI host; rebuilding it on the extension API is an architecture change the backlog rules out. |
 | DEV-12 | The official MCP conformance suite runs in CI through `npx`. | A manual `just` recipe runs the same suite against pipy's client with a committed baseline (S40); CI runs pipy's own mirrored cases (section 6). | The suite needs Node and network access; pipy's CI has neither as a requirement. |
-
 | DEV-13 | The token usage and cost of nested results, at every depth, is added to the calling tool's result usage and counts toward the session cost. | Not ported in this campaign. pipy tool results carry no usage field. | Nothing in scope produces tool usage: MCP tools and pipy's built-in and extension tools report none, and the only Pi producers are `models.classify()` and `models.generateImages()` (DEV-04). The field and its propagation belong to the slice that adds a usage-producing tool. |
 | DEV-14 | The refresh lock of a server's credentials is a lock directory (`proper-lockfile`): a lock its holder stopped renewing is taken over after 20 s (OAU-20). | The lock is a `flock` on a lock file. The kernel frees the lock of a holder that died at once, and no lock is ever taken from a process that is alive. The 25 s a waiter waits are kept. | pipy already locks `auth.json` with `flock`; it needs no renewing thread and cannot be lost while held, which a lock taken over by age can (Pi `onCompromised`). Added by S30. |
 
 Not listed as deviations because Pi does not implement them either: the legacy
 SSE transport, elicitation, sampling, prompts, resource subscriptions, MCP App
 rendering, the stateless `2026-07-28` protocol.
+
+### 3.1 Differences the slices recorded
+
+DEV-01 to DEV-14 were proposed before or while the slices were built. The
+slices recorded further differences from Pi in their "Decided in" blocks
+(sections 4.1 to 4.9) and in the "Different from Pi" paragraphs of the user
+documents. The closeout (S40) collected them here so that the final judgement
+has one list. None of them is an owner decision yet: each is a proposal.
+
+"Rows" names the checklist rows whose behaviour a difference changes, or
+`none` when it lies beside every row. "Kind" says how pipy differs:
+*narrower* (Pi does something pipy does not), *other form* (the same
+purpose, reached another way or at another time) or *stricter* (pipy refuses
+or guards something Pi lets through). The acceptance note marks every row
+that is named here as `closed, with limits` and cites the DEV row.
+
+| ID | Rows | pipy differs from Pi in | Kind | Recorded in |
+| --- | --- | --- | --- | --- |
+| DEV-15 | SES-04, EXT-06, EXT-10 | A notice is shown where the session drains its notices, before the next prompt runs and when a turn starts, not at the moment it arises. That holds for the startup report, the report for a server an extension registered later, and the `mcp_servers_change` hooks; `codemode` or `tool_search` is activated for a server registered later at the same points. A session whose first action is `/mcp` therefore sees the startup report after the manager was closed. | other form | Decided in S19, S34, S36 |
+| DEV-16 | SES-20 | `/new`, `/resume` and `/fork` in one process keep the servers: `mcp.json` is not read again and the startup report and the first-prompt wait are not repeated. Pi closes the servers and reads the files again there. `/reload` is transactional: a reload that keeps the previous extensions keeps the running servers, where Pi restarts them in every case. | narrower | Decided in S17, S22; `docs/mcp.md` "Reloading" |
+| DEV-17 | SES-05, SES-10, SLH-02, SLH-03, CON-11 | pipy's waits can be interrupted where Pi's cannot: the first prompt's wait (Escape or an abort ends the wait and the prompt goes on), the waits of `/mcp` and its subcommands, the reconnects at a turn's start, and the 250 ms before a resource request is made again. | other form | Decided in S18, S21, S26, S31 |
+| DEV-18 | TLS-10, RND-02 | Progress of a running call is appended to the call's live output line by line, and the row shows the last line. Pi replaces the preliminary result, which also carries `{server, tool}` details. | other form | Decided in S16, S35 |
+| DEV-19 | TLS-11, RES-09 | An image is never drawn in the terminal: the row shows `[Image: [<mime>] <w>x<h>]`, which is what Pi shows without an image protocol. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4) |
+| DEV-20 | CMD-29, CMD-30 | The images of one script have a byte cap of their own (16 MiB of base64) beside the 1 MiB of text; in Pi text and images share one limit. There are no `==> text N/M <==` separators (DEV-04). A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
+| DEV-21 | TLS-11 | How a tool result's images are sent to a provider differs in three points: a text-only result is sent as before (no `(no tool output)` for an empty one); the Mistral adapter sends images as the Chat Completions family does; there is no `requiresAssistantAfterToolResult`. Images are withheld from a model without image input only when the model has a catalog row of its own, so a model without a row and a provider object passed in by an embedder are sent the images. | narrower | Decided in S39 (part 2); `docs/providers.md` |
+| DEV-22 | CMD-25 | A `tool_result` transform always replaces the content and decides the structured content with it. It cannot replace `details`, `isError` or usage, it is not shown a result's images, and an extension tool cannot return an image (`ToolResult.content` is a string). | narrower | Decided in S04, S39 (part 1) |
+| DEV-23 | CMD-22 | With `codemode.mode: "only"` a direct model call to a tool whose declaration is left out is an unknown tool; Pi would run it. `codemode.mode` and `codemode.inlineBudget` are read at session start and on `/reload`, not before every prompt. | other form | Decided in S08 |
+| DEV-24 | CMD-27 | The codemode system prompt contribution has two guideline lines. The second comes from the codemode adherence slice and predates this plan. | other form | Decided in S08 |
+| DEV-25 | CMD-06, CMD-19, EXT-03 | Only the built-in tools have prompt guidelines; extension tools have none, so nothing is added for them in `ALL_TOOLS` and the catalog. `get_all_tools()` is a method of the handler context (`ctx.get_all_tools()`), not of the activation API, and reports no `promptGuidelines` or `sourceInfo`. | narrower | Decided in S02, S07, S08 |
+| DEV-26 | EXT-04 | Tools are registered while an extension loads and not afterwards. A tool whose last registration is `hidden` is registered and never declared; a session sees a withdrawal after the next `/reload`. A tool name another extension registered disables the second extension, where Pi lets the first one win silently. | other form | Decided in S02 |
+| DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. `limit` must be an `int` (`8.0` is refused). When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
+| DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
+| DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. A string or boolean `limit` is refused, where Pi converts it (DEV-10). Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
+| DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi's CLI does the same (it always passes the initial tool names); Pi's SDK resume, which the mirrored Pi test uses, restores. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22 |
+| DEV-31 | none | An unknown name in `--tools`, `--exclude-tools` or `defaultTools` is refused at startup; Pi accepts it. An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. | stricter | Decided in S10 |
+| DEV-32 | EXP-12 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin mcp`. The `builtin:mcp` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). | other form | Decided in S19 |
+| DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
+| DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
+| DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built. `event.system_prompt` is a string taken when the handler is called, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20; `docs/extension-api.md` |
+| DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. | stricter | Decided in S16, S17 |
+| DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21 |
+| DEV-38 | SLH-01, SLH-02, SLH-06 | For a line typed into a session the order is built-in command, prompt template or custom command, extension command, `/mcp`, so a template or custom command named `mcp` takes the command's place; in Pi only an extension command does. For a prompt of print, JSON and RPC mode the order is Pi's. An unknown action prints the usage without waiting for the startup connections. | other form | Decided in S21, X1 |
+| DEV-39 | SLH-07 | A command that fails is the line `pipy: extension command /<name> failed (<error>)` on stderr in print, JSON and RPC mode. Pi prints `Extension error (command:<name>): <message>` and, in RPC mode, sends an `extension_error` object. | other form | Decided in X1 |
+| DEV-40 | SLH-09 | pipy's rules for skills and templates stay: a template named like a built-in command is not expanded, custom commands (`.pipy/commands`) expand like templates, a skill or template turn skips the `input` hooks (Pi runs them first), and an unknown or unreadable skill is reported on stderr before the text goes to the model. | other form | Decided in X1 |
+| DEV-41 | SLH-11 | In print and JSON mode a command's notices go to stderr; Pi shows nothing there. In RPC mode only `/mcp` has the UI channel: `ctx.has_ui` stays false for extensions, their own `select`, `confirm`, `input` and `editor` return defaults without a request, and there are no `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle` or `set_editor_text` requests and no `timeout` option. | narrower | Decided in X1 |
+| DEV-42 | none | The RPC command `get_commands` answers an empty list; Pi lists the extension commands, prompt templates and skills. | narrower | Decided in X1 |
+| DEV-43 | MGR-09 | The manager view beside the open part of MGR-09: the copy key is fixed to Ctrl+X (pipy has no `app.message.copy` action); titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal is cut above its controls, where Pi's scrolls; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34; `docs/mcp.md` "The `/mcp` manager" |
+| DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` and `/share` run no extension code. | other form | Decided in S35, S39 (part 3) |
+| DEV-45 | EXT-15 | A resolver's `next()` gives a marker for pipy's own rows and `None` for an extension tool without renderers, so a resolver cannot call and wrap pipy's rows as it can wrap Pi's renderers. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35 |
+| DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
+| DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
+| DEV-48 | EXT-11 | One level of nesting: a tool that was itself called through `execute_tool` or from a script cannot run tools. A tool cannot call itself. The callable tools are fixed when the calling tool starts. `execute_tool` returns pipy's `ToolResult` and takes no `signal` or `onUpdate`. No event is emitted for a name that is not callable. In a session that cannot be interrupted, `execute_tool` from another thread is refused. Usage is DEV-13. | narrower | Decided in S37 |
+| DEV-49 | EXT-12 | The loadout has no `getExposure`, `getNamespace` or `getPromptGuidelines`. The function is called at every read of the declarations and must be pure; Pi calls it when the active tools change. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37 |
+| DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
+| DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session runs no slash command (`submit()` sends its text to the model), so `open_url` and `update_config` reach the command and the manager and nothing in a product session uses them. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38; `docs/sdk.md` |
+| DEV-52 | OAU-36 | `auth.provider` reads `auth.json` and the environment only: a `models.json` key, `--api-key`, the `openai-codex` login and ambient cloud credentials give no token, and a login pipy does not refresh for its own requests is sent as stored. A stored `!command` key runs for every MCP request. | narrower | Decided in S33 |
+| DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
+| DEV-54 | CFG-02, CFG-13, CFG-17, CFG-18, CFG-20, OAU-34 | URLs are read by a strict parser that repairs nothing: a URL without `//`, with a backslash or with a shortened IPv4 address is an error, where Pi's parser accepts it. The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A file that is not UTF-8 is an error. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | stricter | Decided in S11 to S14, S32; `docs/mcp.md` "Configuration rules" |
+| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; a lock held for 25 s, and a file that cannot be read, are reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. | stricter | Decided in S30, S31 |
+| DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15 | Connections: a failed refresh of the tool list is recorded only for the current connection. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Configured headers and tokens are sent only to the server's own origin, so a redirect to another host fails, and the OAuth fetch follows a redirect only for a request without a body. `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26; `docs/mcp.md` "Server connections" |
+| DEV-57 | CMDL-01, CMDL-04, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. `--oauth-callback-port` and `--timeout` take a decimal number; Pi also reads JavaScript's other spellings. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error. When the question for the redirect URL ends without an answer, pipy ends its line. | other form | Decided in S20a, S31; `docs/mcp.md` "Differences from Pi" |
+| DEV-58 | RES-04, RES-07, RES-08, RES-10 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. A resource list change is refreshed on the thread that refreshes the tool list, one kind per round. | other form | Decided in S23 |
+| DEV-59 | CMD-03, CMD-04, EXT-02 | A tool cannot hand a script JSON `null` as its structured content; the script gets the text. A reply to a script over 16 MiB, or one that is not JSON, is a `ToolError` that names the tool and the size. The JSON and RPC event `tool_execution_end` carries no structured content. | narrower | Decided in S04 |
+| DEV-60 | TLS-12, TLS-15 | Results of MCP tools: a resource link without `uri` or `name` is shown as `[unsupported MCP content resource_link]`; the message of a failed call is cut to 20 KB like a result and nothing is saved for it; a lone surrogate in a server's text reaches the model as U+FFFD. | other form | `docs/mcp.md` "Differences from Pi in tools" |
+| DEV-61 | none | Texts that come from the platform are Python's, not Node's: errors of the operating system (a missing executable is `[Errno 2] No such file or directory: '<command>'`), messages of the JSON parser, and the reason of a failed save. A JSON number such as `1.0` in log data or a listing is written `1.0`. | other form | `docs/mcp.md` "Differences from Pi" paragraphs |
+| DEV-62 | none (DEV-12) | The conformance runner checks `--mode` in its argument parser (exit status 2), reports a missing `npx` and a temporary directory with a space in its path before anything runs, and fails the `runner` check for a `checks.json` it cannot read. | other form | Decided in S40 (part 1) |
+
+Two rows are open and are not deviations until the owner decides to accept
+them as such: SLH-13 (commands and expansion in queued RPC input) and the
+hyperlink part of MGR-09. Section 3.2 has the audit result.
+
+### 3.2 Audit result (S40, 2026-10-14)
+
+The closeout walked every row of section 2 against the tests of
+`feat/mcp-parity`. The table of rows, tests and limits is the
+[acceptance note](../acceptance/2026-10-13-mcp-parity.md);
+`tests/test_mcp_parity_audit.py` keeps it in step with this plan and the
+test suite.
+
+| State | Rows | Which |
+| --- | --- | --- |
+| Closed with a test | 179 | see the note |
+| Closed with a limit or deviation | 106 | each names its DEV rows or its limit in the note |
+| Closed in part | 1 | MGR-09: the authorization URL is plain text, not a terminal hyperlink, and there is no "click to open" hint |
+| Open | 1 | SLH-13: `steer`, `follow_up` and a `prompt` sent during a run are queued without a look at the text |
+
+The 106 rows count as closed only if the final judgement accepts the
+deviation or limit each one names. Not rows, and still outstanding: the live evidence
+of section 6.5, which needs the owner's provider login and an account at an
+OAuth MCP server, and question Q1 of section 7.
 
 ## 4. pipy design
 
@@ -2387,6 +2485,56 @@ Decided in S40 (closeout, part 2: the user docs pass; `docs/mcp.md`,
   removed, since later entries of the same release add the parts; nothing
   else in the entries changed.
 
+Decided in S40 (closeout, part 3: the row audit;
+`docs/acceptance/2026-10-13-mcp-parity.md`, `tests/test_mcp_parity_audit.py`,
+sections 3.1 and 3.2 of this plan):
+
+- The acceptance note has one line per row of section 2: the slice, the
+  state (`closed`, `closed, with limits`, `part open`, `open`), tests that
+  pin the row, and the limit or the DEV rows that apply. It also has the
+  count of mirrored Pi cases per test file (section 6.3), the result of the
+  conformance run and what the note does not show.
+- How a row was read: many tests name their row in a comment; the others
+  were matched by the test names of the module that implements the row and,
+  where a name left doubt, the test's body. A second pass checked three
+  things by program: every test the note names exists; the texts the rows
+  quote are in the tests (of 174 texts, 127 in a test the row names; the
+  other 47 were read one by one and are notation, asserted elsewhere, or
+  one of two Pi texts pipy does not print, see DEV-39 and SLH-13); and the
+  count of mirrored Pi cases, taken again from the Pi files at the reference
+  commit. Parts of rows with several clauses were then read against the
+  tests by sample. The audit did not run tests against a changed
+  implementation and did not compare with a running Pi.
+- `tests/test_mcp_parity_audit.py` runs in `just check`. It fails when a
+  row of section 2 is missing from the note or listed twice, when a named
+  test does not exist, when a row without a test is not marked open, when
+  the stated row counts are wrong, when a DEV row the note names is not in
+  section 3, and when a row that table 3.1 names does not cite that DEV row
+  or is listed as plainly `closed`. It does not prove that a test covers its row. Its last five
+  tests are the pins of DOC-01 to DOC-05: the headings and terms those rows
+  ask for are in the user documents and the changelog.
+- Five Pi cases had a pipy test without the name comment; the comment was
+  added. For one, "routes tools whose names differ only in - and _", a test
+  was added at the manager
+  (`test_calls_reach_tools_whose_names_differ_only_in_dash_and_underscore`).
+  The count of section 6.3 was corrected: `agent-session-mcp.test.ts` has 48
+  cases at the reference commit, not 44.
+- Section 3 gained 3.1: the differences from Pi that the slices recorded in
+  their "Decided in" blocks and in the user documents, as DEV-15 to DEV-62,
+  each a proposal for the final judgement. The table of DEV-01 to DEV-14
+  was broken by a blank line before DEV-13; that line is gone.
+- Result: section 3.2. Two rows are not closed (SLH-13, and MGR-09 in
+  part); no product code was changed to close them in this slice.
+- Docs pass: `docs/backlog.md` said that no slice had landed and counted
+  280 rows; `docs/extension-api.md` "Tools" said that no tool name may
+  shadow a built-in, which "Replacing built-in tools" on the same page
+  contradicts for `codemode` and `tool_search`. Both are corrected. The
+  other pages the slice names (`docs/mcp.md`, `docs/codemode.md`,
+  `docs/sdk.md`, `docs/automation-rpc.md`, `docs/usage.md`,
+  `docs/index.md`) were read for statements that a built part is missing or
+  a missing part is built; none was found after part 2.
+- Not done, and not a row: the live evidence of section 6.5.
+
 Open after the merge, owned by later slices:
 
 - Fixtures: the stdio fake is single-threaded, so a `sleep` step blocks it.
@@ -3471,7 +3619,7 @@ The slice details name them. In total the plan mirrors:
   `mcp-command.test.ts` (8), `mcp-manager-view.test.ts` (2),
   `mcp-oauth-refresh.test.ts` (11), `mcp-oauth-store.test.ts` (1 of 3; the two
   legacy-key cases fall under DEV-08), `tool-search.test.ts` (9),
-  `suite/agent-session-mcp.test.ts` (all 44), `suite/agent-session-mcp-oauth.test.ts`
+  `suite/agent-session-mcp.test.ts` (all 48), `suite/agent-session-mcp-oauth.test.ts`
   (9), `suite/agent-session-tool-orchestration.test.ts` (3), and from
   `suite/agent-session-codemode.test.ts` the cases about reaching tools
   ("presents callable tools per codemode.mode", "shows the guidelines of tools

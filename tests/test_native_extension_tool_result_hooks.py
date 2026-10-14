@@ -243,6 +243,8 @@ def _dispatch_structured(hooks, structured_content):
 def test_tool_result_hooks_see_and_decide_the_structured_content() -> None:
     # MCP parity plan S04 (CMD-25), Pi ``emitToolResult``: a transform
     # replaces the content and decides the structured content with it.
+    # Pi: "keeps structured content that tool_result handlers replace along
+    # with the content", at the hook dispatcher.
     original = {"files": 2, "names": ["a", "b"]}
     seen: list[object] = []
 

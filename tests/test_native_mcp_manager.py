@@ -439,6 +439,8 @@ def test_a_name_another_tool_has_is_left_out_and_reported_once(
 def test_a_changed_list_adds_withdraws_and_restores_tools(
     tmp_path: Path, sessions: list[_Session]
 ) -> None:
+    # Pi: "withdraws and restores %s MCP tools the server changes" (direct and
+    # codemode), here with one server that has a tool of each kind.
     server = _Server(tools=[_tool("search"), _tool("fetch")])
     session = _Session(
         tmp_path,
@@ -490,6 +492,36 @@ def test_a_colliding_tool_renames_both_and_its_removal_restores_the_name(
     server.tools = [_tool("a-b")]
     server.notify("notifications/tools/list_changed")
     _wait_until(lambda: session.mcp_names() == ("mcp__docs__a_b",))
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_calls_reach_tools_whose_names_differ_only_in_dash_and_underscore(
+    tmp_path: Path, sessions: list[_Session], reverse: bool
+) -> None:
+    # Pi: "routes tools whose names differ only in - and _ (reverse: %s)"
+    # (#10239). Pi's case finds the two tools from a codemode script; this
+    # one calls them by the names they were registered under.
+    tools = [
+        _tool("read-file", description="dashed"),
+        _tool("read_file", description="underscored"),
+    ]
+    if reverse:
+        tools.reverse()
+
+    def call(message: Any) -> object:
+        return {"content": [{"type": "text", "text": message["params"]["name"]}]}
+
+    server = _Server(tools=tools, handlers={"tools/call": call})
+    session = _Session(tmp_path, {"docs": server}, [_entry("docs", exposure="direct")])
+    sessions.append(session)
+    session.start()
+
+    names = {
+        session.port(name).definition.description: name for name in session.mcp_names()
+    }
+    assert sorted(names) == ["dashed", "underscored"]
+    assert session.call(names["dashed"]) == "read-file"
+    assert session.call(names["underscored"]) == "read_file"
 
 
 def test_a_state_change_without_new_tools_publishes_nothing(

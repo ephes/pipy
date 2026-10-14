@@ -723,6 +723,7 @@ def test_a_client_secret_that_cannot_be_resolved_fails_the_refresh_only(
     credentials: McpOAuthCredentialStore,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Pi: "resolves the OAuth client secret lazily".
     monkeypatch.delenv("PIPY_TEST_OAUTH_SECRET", raising=False)
     fixture = _Protected(
         server, credentials, {"clientSecret": "${PIPY_TEST_OAUTH_SECRET}"}

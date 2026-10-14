@@ -120,6 +120,8 @@ def _fixture(tmp_path: Path, name: str = "scenario", **scenario: Any) -> dict[st
 def test_lists_servers_with_state_tools_and_errors_and_fails_while_anything_is_wrong(
     home: _Home, tmp_path: Path
 ) -> None:
+    # Pi: "lists servers with their state, tools, and errors, and fails while
+    # anything is wrong".
     fixture = _fixture(tmp_path)
     home.write(
         {

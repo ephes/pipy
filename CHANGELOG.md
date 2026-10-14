@@ -547,6 +547,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   does not support. The MCP commands in the [CLI reference](docs/usage.md)
   now list `login` and `logout`.
 
+- The MCP feature has an
+  [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
+  the 287 behaviours of the
+  [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
+  that pin it and where pipy differs from Pi. 285 are closed, 106 of them
+  with a recorded limit or deviation. Two are not: commands in queued RPC
+  input, and the clickable link of the sign-in screen. The plan lists every
+  recorded difference from Pi (section 3.1) and the result (section 3.2);
+  the [backlog](docs/backlog.md) says what is open, including live use with
+  a real server and model.
+
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;
   includes all provider requests, fact retention, rereads and cache counters.

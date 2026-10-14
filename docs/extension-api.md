@@ -831,8 +831,9 @@ Extension tools are model-visible tools that join the bounded tool registry.
 
 Rules:
 
-- Tool names must not shadow built-ins unless a later explicit override policy
-  is designed.
+- The names of the seven built-in file and shell tools are reserved. An
+  extension tool named `codemode` or `tool_search` replaces the built-in
+  tool of that name, see [Replacing built-in tools](#replacing-built-in-tools).
 - A tool name another extension registered is a duplicate and disables the
   second extension. An extension that registers one of its own tool names
   again replaces its earlier registration, as in Pi.

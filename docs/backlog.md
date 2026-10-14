@@ -1,7 +1,7 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-04 and 2026-10-12 (MCP1 selected).
+updated 2026-10-04, 2026-10-12 (MCP1 selected) and 2026-10-14 (MCP1 audited).
 
 ## Status
 
@@ -87,13 +87,13 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
-### MCP1 — MCP and codemode tool reach (planned 2026-10-12)
+### MCP1 — MCP and codemode tool reach (built 2026-10-14, not merged)
 
 Owner-requested 2026-10-12: the whole Pi MCP feature at functionality parity,
 against Pi `a447ba11f`. The
 [parity plan](specs/2026-10-12-mcp-parity-plan.md) holds the acceptance
-checklist (280 rows with Pi sources), the proposed deviations, the design, the
-ordered slices S01–S40 and the test strategy. Scope: codemode reaching
+checklist (287 rows with Pi sources), the deviations, the design, the
+ordered slices S01–S40 and X1, and the test strategy. Scope: codemode reaching
 extension and MCP tools with discovery, the MCP client (stdio and streamable
 HTTP), `mcp.json` configuration and project overrides, exposure modes,
 `tool_search`, the `mcp_servers` prompt section, resources, OAuth, result
@@ -104,12 +104,30 @@ Fixed by the owner: the synchronous native core stays (no async runtime, no
 `mcp` SDK dependency; the client is written in pipy), codemode stays Python
 on WASI with Python names, and configuration uses Pi's `mcp.json` format at
 pipy's locations under the existing project-trust rules. Nested calls stay
-sequential (plan DEV-03). No implementation slice has landed. Decided
+sequential (plan DEV-03). Decided
 2026-10-12 (plan section 7): images in tool results and the extension
 orchestration hooks are in scope, the client name is `pipy`, and slices land
 on `feat/mcp-parity`, pushed per slice, as a campaign exception to the trunk
-rule; the merge to `main` needs owner approval. Still open: the default CIMD
-document (none is built in until decided).
+rule; the merge to `main` needs owner approval.
+
+State after the closing audit (2026-10-14, plan section 3.2 and the
+[acceptance note](acceptance/2026-10-13-mcp-parity.md)): every slice is on
+`feat/mcp-parity`. Of the 287 rows, 179 are closed with a test and 106 with
+a recorded limit or deviation. The official MCP conformance suite gives the
+same result for pipy as for Pi (`just mcp-conformance`, a manual recipe).
+Open:
+
+- **SLH-13, commands in queued RPC input:** `steer`, `follow_up` and a
+  `prompt` sent during a run are queued as they are; see
+  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
+- **MGR-09, one part:** the authorization URL of the sign-in screen is plain
+  text, not a terminal hyperlink.
+- **Live evidence** (plan section 6.5): a stdio server through `uvx` or
+  `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
+  needs the owner's provider login and an account at an OAuth MCP server.
+- **Owner decisions:** the merge to `main`; which of the recorded
+  differences from Pi (plan section 3.1, DEV-15 to DEV-62) are accepted;
+  the default CIMD document (none is built in until decided).
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -481,10 +499,11 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 Revisit these when an active item needs them or the Pi surface stabilizes.
 
 - **Pi MCP / tool search:** no longer deferred. Selected on 2026-10-12 as
-  [MCP1](#mcp1-mcp-and-codemode-tool-reach-planned-2026-10-12). What MCP1
-  proposes not to port is listed in the plan's deviations table (parallel
-  nested calls, the non-reach codemode globals, Radius setup, Windows process
-  handling).
+  [MCP1](#mcp1-mcp-and-codemode-tool-reach-built-2026-10-14-not-merged),
+  which is built on `feat/mcp-parity`. What it does not port is listed in
+  the plan's deviations tables (parallel nested calls, the non-reach
+  codemode globals, Radius setup, Windows process handling, and the
+  differences the slices recorded).
 - **Pi durable execution and experimental TUI** (`5609b0d6c`): a separate
   architecture watch track, not the established-agent parity target. Reassess
   when contracts stabilize or a user need requires it; see the scope decision.
