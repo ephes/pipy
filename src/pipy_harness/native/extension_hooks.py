@@ -69,6 +69,7 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     TurnStarted,
 )
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
@@ -578,7 +579,7 @@ def dispatch_tool_result_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
-    structured_content: object | None = None,
+    structured_content: object = NO_STRUCTURED_CONTENT,
 ) -> ToolResultTransform:
     """Run `tool_result` hooks over a finalized tool result; return the result.
 

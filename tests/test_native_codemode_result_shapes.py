@@ -57,6 +57,11 @@ def activate(api):
     # Structured content without a declared output schema stays with the host.
     tool('plain', stats)
     tool('silent', lambda ctx, params: ToolResult(content='', is_error=True))
+    # Null is structured content too (Pi: only `undefined` is none).
+    tool('nothing', lambda ctx, params: ToolResult(
+        content='no stats', structured_content=None,
+        is_error=params.get('key') == 'broken'),
+        output_schema={'type': 'null'})
     tool('audited', stats, output_schema=_STATS)
     tool('redacted', stats, output_schema=_STATS)
     tool('big', lambda ctx, params: ToolResult(
@@ -117,6 +122,8 @@ text({
     'invalid': error(lambda: tools.stats(key=3)),
     'audited': tools.audited(key='a'),
     'redacted': tools.redacted(key='a'),
+    'null': error(lambda: tools.nothing()),
+    'null_error': error(lambda: tools.nothing(key='broken')),
 })
 """
 
@@ -140,6 +147,9 @@ text({
     # content; replacing the content alone dropped it.
     assert output["audited"] == {"files": 0, "names": []}
     assert output["redacted"] == "redacted"
+    # M6: a null structured result is the value None, also for a failure.
+    assert output["null"] == {"returned": None}
+    assert output["null_error"] == {"returned": None}
     # The record follows the tool's outcome and keeps no result of any shape.
     record = parent.details["nestedCalls"]
     assert [(call["name"], call["status"]) for call in record["calls"]] == [
@@ -154,6 +164,8 @@ text({
         ("stats", "error"),
         ("audited", "ok"),
         ("redacted", "ok"),
+        ("nothing", "ok"),
+        ("nothing", "error"),
     ]
     assert record["calls"][1]["error"] == "no such key"
     assert record["calls"][6]["error"] == 'Tool "silent" failed'

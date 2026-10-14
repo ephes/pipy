@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
     ImageContent,
     ProductContent,
     TextContent,
@@ -31,6 +32,7 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.codemode.host import run_script
 from pipy_harness.native.codemode.outcome import (
+    NO_VALUE,
     CallResult,
     ErrorKind,
     ScriptError,
@@ -312,9 +314,11 @@ class CodemodeCompositeRunner:
                 control.interrupted(outcome.interruption)
                 result = outcome.result
                 # Pi ``toScriptValue``: a tool that declares an output schema
-                # resolves to its structured content, also for an error result
-                # that carries one; any other tool resolves to its text, and a
-                # failure raises with the tool's error text.
+                # resolves to its structured content (``None`` too, which is
+                # null), also for an error result that carries one; any other
+                # tool resolves to its text, and a failure raises with the
+                # tool's error text.
+                value = result.structured_content
                 settle(
                     CallResult(
                         ok=not result.is_error,
@@ -323,7 +327,9 @@ class CodemodeCompositeRunner:
                         else result.content.value,
                         cancelled=outcome.interruption is not None
                         or outcome.status is NestedCallStatus.CANCELLED,
-                        value=result.structured_content if structured else None,
+                        value=value
+                        if structured and value is not NO_STRUCTURED_CONTENT
+                        else NO_VALUE,
                     )
                 )
 

@@ -184,6 +184,9 @@ def test_a_reply_carries_text_a_structured_value_or_an_error(
     cyclic: list[object] = []
     cyclic.append(cyclic)
     results["cyclic"] = CallResult(ok=True, text="cyclic", value={"rows": cyclic})
+    # M6: ``None`` is the JSON value null, a value like any other, also for
+    # a failed call (Pi ``structuredContent !== undefined``).
+    results["null"] = CallResult(ok=False, text="none", value=None)
     names = tuple(results)
     scenario = (
         "start()\n"
@@ -213,6 +216,7 @@ def test_a_reply_carries_text_a_structured_value_or_an_error(
     assert by_name["failed"]["ok"] is True
     assert by_name["failed"]["value"] == {"error": "boom"}
     assert by_name["falsy"]["value"] == 0 and "text" not in by_name["falsy"]
+    assert by_name["null"] == {"type": "result", "id": 9, "ok": True, "value": None}
     assert by_name["plain"] == {
         "type": "result",
         "id": 4,
@@ -240,6 +244,7 @@ def test_a_reply_carries_text_a_structured_value_or_an_error(
         ("object", CallStatus.OK),
         ("keys", CallStatus.OK),
         ("cyclic", CallStatus.OK),
+        ("null", CallStatus.ERROR),
     ]
 
 

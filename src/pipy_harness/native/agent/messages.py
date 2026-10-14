@@ -14,6 +14,7 @@ from pipy_harness.native.agent._validation import (
     require_non_negative_int,
 )
 from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
     ProductContent,
     TextContent,
     ThinkingContent,
@@ -303,8 +304,9 @@ class AgentToolResultMessage:
     # programmatic callers (codemode scripts). Pi keeps it on the tool result
     # and leaves it out of the ``ToolResultMessage`` it stores, so it is never
     # sent to a provider and never written to the session file. The executor
-    # copies it from a validated ``ToolExecutionResult``.
-    structured_content: Any = field(default=None, compare=False)
+    # copies it from a validated ``ToolExecutionResult``. ``None`` is the
+    # JSON value null; NO_STRUCTURED_CONTENT means the tool gave none.
+    structured_content: Any = field(default=NO_STRUCTURED_CONTENT, compare=False)
     blocks: tuple[ToolResultBlock, ...] = ()
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 

@@ -16,7 +16,11 @@ from typing import Any
 import pytest
 from test_native_mcp_tools import _failing_saver, _saver
 
-from pipy_harness.native.agent.content import ImageContent, TextContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+)
 from pipy_harness.native.codemode.declarations import render_tool_signature
 from pipy_harness.native.mcp.client import McpRequestOptions
 from pipy_harness.native.mcp.protocol import McpAbortError
@@ -355,7 +359,7 @@ def test_a_cursor_needs_a_server() -> None:
         assert result.output_text == (
             "cursor can only be used when a server is specified"
         )
-        assert result.structured_content is None
+        assert result.structured_content is NO_STRUCTURED_CONTENT
     # An empty cursor counts as none.
     assert not _call(port, {"cursor": " "}).is_error
     assert [what for what, _, _ in docs.calls] == ["all"]
@@ -381,7 +385,7 @@ def test_a_failed_page_is_the_error_of_the_call() -> None:
     result = _call(_tools(docs)["list_mcp_resources"], {"server": "docs"})
 
     assert (result.is_error, result.output_text) == (True, "server went away")
-    assert result.structured_content is None
+    assert result.structured_content is NO_STRUCTURED_CONTENT
 
 
 def test_a_cancelled_listing_is_an_error_result() -> None:

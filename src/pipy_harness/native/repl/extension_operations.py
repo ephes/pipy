@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolResultTransform,
@@ -238,7 +239,7 @@ class SessionExtensionOperations:
         tool_name: str,
         content: ProductContent,
         is_error: bool,
-        structured_content: object | None = None,
+        structured_content: object = NO_STRUCTURED_CONTENT,
     ) -> AgentToolResultTransform:
         projection, ui_driver, generation_id = self._projection()
         hooks = projection.hooks.tool_result

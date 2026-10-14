@@ -113,7 +113,8 @@ except ToolError as error:
 What a call returns depends on the tool:
 
 - A tool that declares an output schema returns its structured content as a
-  Python value (`dict`, `list`, `str`, number, `bool`), not as text. It
+  Python value (`dict`, `list`, `str`, number, `bool`, or `None` for a
+  structured `null`), not as text. It
   returns it for a failure too, when the failed result carries structured
   content, so check the value instead of relying on `ToolError`. None of the
   built-in tools declares an output schema; an

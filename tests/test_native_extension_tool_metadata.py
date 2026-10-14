@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.extensions import (
+    NO_STRUCTURED_CONTENT,
     ExtensionCapabilityError,
     ExtensionTool,
     ToolAnnotations,
@@ -315,7 +316,9 @@ def test_result_carries_structured_content_and_is_error(tmp_path: Path) -> None:
     assert result.structured_content is not data
 
 
-@pytest.mark.parametrize("value", [0, False, "", [], {}, "text", 3.5, [1, {"a": None}]])
+@pytest.mark.parametrize(
+    "value", [0, False, "", [], {}, "text", 3.5, [1, {"a": None}], None]
+)
 def test_structured_content_is_any_json_value(tmp_path: Path, value: object) -> None:
     port = _port(lambda ctx, params: ToolResult(content="x", structured_content=value))
 
@@ -337,7 +340,7 @@ def test_structured_content_that_is_not_json_is_dropped(
     result = _invoke(port, tmp_path)
 
     assert result.output_text == "x"
-    assert result.structured_content is None
+    assert result.structured_content is NO_STRUCTURED_CONTENT
 
 
 def test_plain_results_stay_successes_without_structured_content(
@@ -347,7 +350,7 @@ def test_plain_results_stay_successes_without_structured_content(
         result = _invoke(_port(lambda ctx, params, value=returned: value), tmp_path)
 
         assert result.is_error is False
-        assert result.structured_content is None
+        assert result.structured_content is NO_STRUCTURED_CONTENT
 
 
 def test_is_error_result_reaches_the_model_as_an_error(tmp_path, monkeypatch) -> None:

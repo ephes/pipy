@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
     ImageContent,
     TextContent,
     ToolResultBlock,
@@ -159,7 +160,9 @@ class _ExtensionToolPort:
         # that still carries data by returning it instead of raising.
         is_error = isinstance(result, ToolResult) and bool(result.is_error)
         structured_content = (
-            result.structured_content if isinstance(result, ToolResult) else None
+            result.structured_content
+            if isinstance(result, ToolResult)
+            else NO_STRUCTURED_CONTENT
         )
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,

@@ -527,6 +527,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A tool whose structured result is `null` now gives a codemode script
+  `None`, also for a failed result, as Pi does; before, the script received
+  the tool's text or a `ToolError`. A result without structured content is
+  marked with the new `NO_STRUCTURED_CONTENT` (from
+  `pipy_harness.extensions`), which is now the default of
+  `ToolResult.structured_content` and `ToolResultTransform.structured_content`
+  and what a `tool_result` handler sees in `ToolResultEvent` when there is
+  none; `None` there means `null`.
+
 - Compaction and branch summaries retry eligible failures from every provider and
   show dedicated retry countdowns and bounded JSON/RPC status events. Private
   summary content, usage and provider failure text remain suppressed. Generic

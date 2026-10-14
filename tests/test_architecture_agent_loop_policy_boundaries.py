@@ -33,6 +33,8 @@ _CANONICAL_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.active_input",
         "pipy_harness.native.agent.active_input.AgentActiveInput",
         "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.NO_STRUCTURED_CONTENT",
+        "pipy_harness.native.agent.content.NoStructuredContent",
         "pipy_harness.native.agent.content.ProductContent",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",

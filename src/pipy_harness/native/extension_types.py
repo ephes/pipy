@@ -18,7 +18,8 @@ headless UI implementation and render helpers live in `extension_ui`;
 activation lives in `extensions.activation`, session render orchestration lives
 with its payload and UI owners, and the concrete live driver stays in `tui`.
 
-It has no project imports, so it can never participate in an import cycle with
+Its only project import is the leaf `agent.content` (for
+`NO_STRUCTURED_CONTENT`), so it can never participate in an import cycle with
 the runtime or loader that import it. The stable `pipy_harness.extensions` façade imports
 `normalize_shortcut_key` directly from this owner.
 """
@@ -29,6 +30,11 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    NoStructuredContent,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
     import threading
@@ -792,14 +798,15 @@ class ToolResultEvent:
     `tool_name` is the tool that ran (built-in or extension); `content`
     is the current provider-visible result text; `is_error` marks an
     error observation. `structured_content` is the current machine-readable
-    result (`None` when there is none); treat it as read-only and return a
-    `ToolResultTransform` to change it.
+    result (`NO_STRUCTURED_CONTENT` when there is none; `None` is the JSON
+    value null); treat it as read-only and return a `ToolResultTransform` to
+    change it.
     """
 
     tool_name: str
     content: str
     is_error: bool
-    structured_content: object | None = None
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
 
 
 @dataclass(frozen=True, slots=True)
@@ -810,12 +817,12 @@ class ToolResultTransform:
     transform decides both (Pi `ToolResultEventResult`): `structured_content`
     replaces the result's structured content, and a transform without one
     drops it. A hook that redacts `content` and wants codemode scripts to
-    keep receiving a structured value returns the redacted value here; a value
-    that is not JSON is dropped.
+    keep receiving a structured value returns the redacted value here
+    (`None` is the JSON value null); a value that is not JSON is dropped.
     """
 
     content: str
-    structured_content: object | None = None
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
 
 
 @dataclass(frozen=True, slots=True)
@@ -836,8 +843,10 @@ class ToolResult:
     image say no more than their text, which is then the result's text.
 
     `structured_content` is the machine-readable result of a tool that
-    declares an `output_schema`, for programmatic callers; any JSON value (a
-    value that is not JSON is dropped). It is never sent to the provider and
+    declares an `output_schema`, for programmatic callers; any JSON value,
+    `None` being null (a value that is not JSON is dropped). Left out, it is
+    `NO_STRUCTURED_CONTENT`: the result has none (Pi `undefined`). It is
+    never sent to the provider and
     not written to the session file. `is_error` reports a failure without
     raising: the model sees `content` as an error, and the result keeps its
     `details` and `structured_content`.
@@ -845,7 +854,7 @@ class ToolResult:
 
     content: str
     details: Mapping[str, object] | None = None
-    structured_content: object | None = None
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
     is_error: bool = False
     blocks: "tuple[ToolResultBlock, ...]" = ()
 

@@ -25,7 +25,7 @@ from test_native_agent_loop import (
 )
 
 from pipy_harness.native.agent import AgentEventSink
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ProductContent
 from pipy_harness.native.agent.events import (
     ToolCallCompleted,
     ToolCallStarted,
@@ -1116,7 +1116,8 @@ def test_structured_content_follows_the_result_policy_and_the_output_schema() ->
         assert not service.declares_output_schema("missing")
         # CMD-26: the retained records keep no result, structured or not.
         assert all(
-            record.result.structured_content is None for record in service.records()
+            record.result.structured_content is NO_STRUCTURED_CONTENT
+            for record in service.records()
         )
         return ToolExecutionOutcome(_tool_result(call))
 
@@ -1132,7 +1133,7 @@ def test_structured_content_follows_the_result_policy_and_the_output_schema() ->
     assert seen == {
         "stats": ("2 files", {"files": 2}, True),
         "plain": ("2 files", {"files": 2}, False),
-        "redacted": ("0 files", None, True),
+        "redacted": ("0 files", NO_STRUCTURED_CONTENT, True),
         "replaced": ("0 files", {"files": 0}, True),
         "kept": ("2 files", {"files": 2}, True),
     }

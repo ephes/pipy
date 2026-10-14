@@ -46,6 +46,7 @@ from typing import Any
 
 from pipy_harness.native.codemode.declarations import to_codemode_identifier
 from pipy_harness.native.codemode.outcome import (
+    NO_VALUE,
     CallResult,
     CallStatus,
     DiscoveryResult,
@@ -397,7 +398,7 @@ def _encode_reply(call_id: int, name: str, result: CallResult, limit: int) -> by
     """
 
     head: dict[str, Any] = {"type": "result", "id": call_id, "ok": True}
-    if result.value is not None:
+    if result.value is not NO_VALUE:
         try:
             line = (
                 json.dumps(

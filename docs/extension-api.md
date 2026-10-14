@@ -452,7 +452,7 @@ class ExtensionTool:
 class ToolResult:
     content: ToolContent
     details: Mapping[str, Any] | None = None
-    structured_content: Any = None
+    structured_content: Any = NO_STRUCTURED_CONTENT
     is_error: bool = False
     # Pi's content array for a result with images: TextContent and
     # ImageContent values; their text is then the result's text.
@@ -1018,8 +1018,10 @@ def activate(api):
 
 **Results.** A handler that returns data declares an `output_schema` and
 returns the data as `ToolResult(structured_content=...)` next to `content`. It
-is any JSON value; a value that is not JSON is dropped, and the result keeps a
-copy. To report a failure that still carries data, return the result with
+is any JSON value, `None` being `null`; a value that is not JSON is dropped,
+and the result keeps a copy. A result without structured content has
+`NO_STRUCTURED_CONTENT` there (importable from `pipy_harness.extensions`), the
+default, as Pi's has `undefined`. To report a failure that still carries data, return the result with
 `is_error=True` instead of raising: the model sees `content` as an error, and
 the result keeps its `details` and `structured_content`. A codemode script
 that calls a tool with an `output_schema` receives the structured content as a
@@ -1041,7 +1043,8 @@ blocks`.
 
 **Result hooks.** A `tool_result` handler receives a `ToolResultEvent` with
 `tool_name`, `content`, `is_error` and `structured_content` (the current
-structured content, or `None`; treat it as read-only). It may return
+structured content, `NO_STRUCTURED_CONTENT` when there is none; `None` is the
+value `null`; treat it as read-only). It may return
 `ToolResultTransform(content=..., structured_content=...)`. The structured
 content belongs to the content it was produced with, so a transform decides
 both: the `structured_content` it carries replaces the result's (a value that

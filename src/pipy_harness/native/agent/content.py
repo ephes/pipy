@@ -22,6 +22,22 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import Enum
+from typing import Final
+
+
+class NoStructuredContent(Enum):
+    """The type of :data:`NO_STRUCTURED_CONTENT`."""
+
+    NO_STRUCTURED_CONTENT = "NO_STRUCTURED_CONTENT"
+
+    def __repr__(self) -> str:
+        return "NO_STRUCTURED_CONTENT"
+
+
+NO_STRUCTURED_CONTENT: Final = NoStructuredContent.NO_STRUCTURED_CONTENT
+"""A tool result without structured content (Pi ``structuredContent:
+undefined``). ``None`` is structured content: the JSON value ``null``."""
 
 
 @dataclass(frozen=True, slots=True)

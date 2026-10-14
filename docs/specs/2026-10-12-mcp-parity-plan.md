@@ -3300,6 +3300,7 @@ Slices outside these two lists are serial.
 | G2 | Nested tool calls: async handlers, every depth, concurrent calls, `signal` and `on_update`, update events, the full outcome (goal-check findings M1, M2, M12, E2 to E5) | EXT-11, CMD-24, CMD-26 | M, several commits | G1 | no |
 | G3 | A codemode script's calls at the same time (goal-check finding M3, DEV-03) | CMD-24, CMD-26 | M | G2 | no |
 | G4 | Codemode `store()`/`load()` per session branch (goal-check finding M4, DEV-04) | none (DEV-04) | M | G3 | no |
+| G5 | What a codemode script gets and may emit: a `null` structured result, structured `bash` results, images from `read`, the `// @options:` line, output over the limits truncated (goal-check findings M6, M15 to M18, DEV-04) | CMD-03 | M, several commits | G4 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3823,6 +3824,24 @@ root, ignoring malformed data"); sessions (Pi "persists store() writes as
 custom entries for later calls", "appends nothing for failed scripts or
 scripts without writes", "loads the values written on the current
 branch", extended to resume, `/tree select` and `/fork`).
+
+**G5 What a script gets and may emit.** Added after the goal check,
+in several commits. Part 1 (finding M6, CMD-03): a structured result of
+`null` is a value. `None` is the JSON `null` everywhere a result's
+structured content travels; a result without one carries
+`NO_STRUCTURED_CONTENT` (`agent/content.py`, exported by
+`pipy_harness.extensions`), the default of `ToolExecutionResult`,
+`AgentToolResultMessage`, `NestedToolResult`, `AgentToolResultTransform`,
+`ToolResult`, `ToolResultEvent` and `ToolResultTransform` (Pi
+`structuredContent: undefined`). A value that is not JSON becomes
+`NO_STRUCTURED_CONTENT` (`json_safe_value`). The codemode package, which may
+not import the agent, has its own `NO_VALUE` for `CallResult.value`; the
+runner maps one to the other, so a tool with an output schema that returns
+`null` gives the script `None`, also for an error result. Tests:
+`test_a_reply_carries_text_a_structured_value_or_an_error` (host),
+`test_script_receives_structured_content_text_or_a_tool_error` (real guest),
+`test_null_structured_content_is_a_value_hooks_see_and_keep`,
+`test_structured_content_is_any_json_value` (`None` added).
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

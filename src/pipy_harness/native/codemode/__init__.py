@@ -12,6 +12,7 @@ from pipy_harness.native.codemode.host import (
     run_script,
 )
 from pipy_harness.native.codemode.outcome import (
+    NO_VALUE,
     CallResult,
     CallStatus,
     DiscoveryResult,
@@ -36,6 +37,7 @@ from pipy_harness.native.codemode.runtime import (
 from pipy_harness.native.codemode.selftest import Availability, availability
 
 __all__ = [
+    "NO_VALUE",
     "RUNTIME_PIN",
     "Availability",
     "CallResult",

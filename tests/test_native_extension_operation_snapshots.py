@@ -17,6 +17,7 @@ import pipy_harness.native.repl.extension_attach as extension_attach_module
 from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.session import CodingSession
@@ -234,7 +235,7 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
             is_error=False,
         )
         assert transformed.content.value == "result"
-        assert transformed.structured_content is None
+        assert transformed.structured_content is NO_STRUCTURED_CONTENT
         if identity:
             assert transformed.content is content
     else:

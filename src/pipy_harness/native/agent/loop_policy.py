@@ -12,7 +12,11 @@ from pipy_harness.native.agent._validation import (
     require_non_negative_int,
 )
 from pipy_harness.native.agent.active_input import AgentActiveInput
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    NoStructuredContent,
+    ProductContent,
+)
 from pipy_harness.native.agent.messages import (
     AgentToolCall,
     AgentToolResultMessage,
@@ -127,14 +131,15 @@ def validate_agent_tool_policy_decision(decision: object) -> None:
 @dataclass(frozen=True, slots=True)
 class AgentToolResultTransform:
     """What a tool policy makes of one result: its content and, with it, the
-    structured content programmatic callers receive (``None`` for none).
+    structured content programmatic callers receive (``NO_STRUCTURED_CONTENT``
+    for none; ``None`` is the JSON value null).
 
     Pi ``AfterToolCallResult``: structured content belongs to the content it
     was produced with, so whoever replaces the content decides both.
     """
 
     content: ProductContent
-    structured_content: object | None = None
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
 
     def __post_init__(self) -> None:
         validate_product_content(self.content, "AgentToolResultTransform.content")

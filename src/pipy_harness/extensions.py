@@ -24,7 +24,11 @@ one-shot completion.
 
 from __future__ import annotations
 
-from pipy_harness.native.agent.content import ImageContent, TextContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
@@ -214,6 +218,7 @@ __all__ = [
     "ToolCallInfo",
     "ToolCallOutcome",
     "TextContent",
+    "NO_STRUCTURED_CONTENT",
     "ImageContent",
     "RegisteredTool",
     "ToolResultEvent",

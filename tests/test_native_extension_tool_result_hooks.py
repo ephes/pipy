@@ -14,6 +14,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pipy_harness.extensions import NO_STRUCTURED_CONTENT
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.coding.session import (
     CodingSession,
@@ -313,6 +314,31 @@ def test_structured_content_from_a_tool_result_hook_is_a_detached_json_copy() ->
             {"files": 2},
         )
         assert dropped == ToolResultTransform(content="ok")
+
+
+def test_null_structured_content_is_a_value_hooks_see_and_keep() -> None:
+    # Goal-check finding M6, Pi ``emitToolResult``: only ``undefined`` is no
+    # structured content; ``null`` is a value a hook sees, keeps or sets.
+    seen: list[object] = []
+
+    def observe(event, ctx):
+        seen.append(event.structured_content)
+
+    def set_null(event, ctx):
+        return ToolResultTransform(content="none", structured_content=None)
+
+    kept = _dispatch_structured((observe,), None)
+    assert kept.structured_content is None and seen == [None]
+    assert _dispatch_structured((set_null,), {"files": 2}) == ToolResultTransform(
+        content="none", structured_content=None
+    )
+    # Without structured content the event says so, and a transform that
+    # leaves it out has none.
+    seen.clear()
+    absent = _dispatch_structured((observe,), NO_STRUCTURED_CONTENT)
+    assert seen == [NO_STRUCTURED_CONTENT]
+    assert absent.structured_content is NO_STRUCTURED_CONTENT
+    assert ToolResultTransform("x").structured_content is NO_STRUCTURED_CONTENT
 
 
 def test_a_structured_value_the_json_round_trip_refuses_is_dropped(

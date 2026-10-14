@@ -9,8 +9,8 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
-from enum import StrEnum
-from typing import Any
+from enum import Enum, StrEnum
+from typing import Any, Final
 
 KIB = 1024
 MIB = 1024 * KIB
@@ -95,12 +95,27 @@ class ScriptLimits:
         return self.wall_seconds + self.cpu_margin_seconds
 
 
+class NoValue(Enum):
+    """The type of :data:`NO_VALUE`."""
+
+    NO_VALUE = "NO_VALUE"
+
+    def __repr__(self) -> str:
+        return "NO_VALUE"
+
+
+NO_VALUE: Final = NoValue.NO_VALUE
+"""A call result without a structured value (Pi ``undefined``); ``None``
+is a value, the JSON ``null``."""
+
+
 @dataclass(frozen=True, slots=True)
 class CallResult:
     """What a tool callback returns for one ``tools.<name>(args)`` call.
 
-    A result with a ``value`` (any JSON value but ``None``, which means "no
-    value") makes the call return that value, whether or not ``ok``: a tool
+    A result with a ``value`` (any JSON value, ``None`` included; the default
+    :data:`NO_VALUE` means none) makes the call return that value, whether
+    or not ``ok``: a tool
     that declares structured results returns them for its failures too.
     Otherwise ``ok`` with ``text`` becomes the script's return value, and a
     result that is not ``ok`` raises ``ToolError(text)``. ``ok`` also decides
@@ -112,7 +127,7 @@ class CallResult:
     ok: bool
     text: str
     cancelled: bool = False
-    value: Any = None
+    value: Any = NO_VALUE
 
 
 @dataclass(frozen=True, slots=True)

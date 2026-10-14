@@ -20,7 +20,11 @@ from typing import Any
 import pytest
 
 from pipy_harness.native.agent import AgentToolCall, ProductContent
-from pipy_harness.native.agent.content import ImageContent, TextContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+)
 from pipy_harness.native.agent.tools import ToolExecutor
 from pipy_harness.native.codemode.declarations import (
     render_tool_output_type,
@@ -912,7 +916,7 @@ def test_what_a_call_raises_is_the_error_result() -> None:
     result = _invoke(_port(None, get_caller=refuse), {"id": 1})
     assert result.is_error is True
     assert result.output_text == 'MCP server "docs" is disabled.'
-    assert result.structured_content is None
+    assert result.structured_content is NO_STRUCTURED_CONTENT
     assert result.details == {"server": "docs", "tool": "get.item"}
 
     def fail(options: McpRequestOptions) -> dict[str, Any]:

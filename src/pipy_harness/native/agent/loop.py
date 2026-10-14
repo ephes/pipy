@@ -19,6 +19,7 @@ from pipy_harness.native.agent.assistant_blocks import (
     stopped_assistant,
 )
 from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
     ProductContent,
     TextContent,
     ThinkingContent,
@@ -1591,7 +1592,9 @@ def _transform_tool_result(
         # Pi: structured content that is not replaced along with the content
         # may no longer match it, so replaced content alone drops it.
         structured_content = (
-            result.structured_content if content == result.content else None
+            result.structured_content
+            if content == result.content
+            else NO_STRUCTURED_CONTENT
         )
     if content == result.content and structured_content is result.structured_content:
         return result

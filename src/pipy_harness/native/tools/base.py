@@ -53,6 +53,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal, Protocol, get_args, runtime_checkable
 
 from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
     ToolResultBlock,
     normalized_tool_result_blocks,
 )
@@ -416,9 +417,10 @@ class ToolExecutionResult:
     details: Mapping[str, Any] | None = None
     # Pi ``AgentToolResult.structuredContent``: the machine-readable result of
     # a tool that declares an ``output_schema``, for programmatic callers such
-    # as codemode scripts. Any JSON value; None means the tool gave none. It is
-    # never sent to a provider and, as in Pi, never written to the session file.
-    structured_content: Any = None
+    # as codemode scripts. Any JSON value, ``None`` being null;
+    # NO_STRUCTURED_CONTENT means the tool gave none. It is never sent to a
+    # provider and, as in Pi, never written to the session file.
+    structured_content: Any = NO_STRUCTURED_CONTENT
     # Pi ``AgentToolResult.content`` when the result has an image: the ordered
     # text and image blocks the model receives. ``output_text`` is then the
     # text blocks joined by newlines. Empty for a result that is text only.
@@ -453,7 +455,7 @@ class ToolExecutionResult:
             )
         if self.details is not None and not is_json_object(self.details):
             raise ValueError("ToolExecutionResult.details must be a JSON object")
-        if self.structured_content is not None and not is_json_value(
+        if self.structured_content is not NO_STRUCTURED_CONTENT and not is_json_value(
             self.structured_content
         ):
             raise ValueError("ToolExecutionResult.structured_content must be JSON")
@@ -518,18 +520,19 @@ def json_safe_details(value: object) -> dict[str, Any] | None:
 
 
 def json_safe_value(value: object) -> Any:
-    """A detached JSON copy of ``value`` when it is JSON data, else None.
+    """A detached JSON copy of ``value`` when it is JSON data (``None`` is
+    null), else ``NO_STRUCTURED_CONTENT``.
 
     The copy is what a tool result keeps as ``structured_content``, so a
     handler that goes on mutating its own value cannot change the result.
     """
 
-    if value is None or not is_json_value(value):
-        return None
+    if value is NO_STRUCTURED_CONTENT or not is_json_value(value):
+        return NO_STRUCTURED_CONTENT
     try:
         return json.loads(json.dumps(value, allow_nan=False))
     except (ValueError, RecursionError):
-        return None
+        return NO_STRUCTURED_CONTENT
 
 
 # What a tool gets for a call to another tool where none can run (Pi's text).
@@ -555,7 +558,7 @@ class NestedToolResult:
     content: str
     is_error: bool = False
     details: Mapping[str, Any] | None = None
-    structured_content: Any = None
+    structured_content: Any = NO_STRUCTURED_CONTENT
     blocks: tuple[ToolResultBlock, ...] = ()
     tool_call_id: str = ""
     arguments: Mapping[str, Any] = field(default_factory=dict)

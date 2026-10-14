@@ -29,6 +29,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
 from pipy_harness.native.agent.request import snapshot_provider_request
 from pipy_harness.native.agent.system_messages import tool_declaration
 from pipy_harness.native.agent.tools import ToolExecutor
@@ -331,7 +332,9 @@ def test_a_foreign_declaration_replays_from_the_transcript_unchanged() -> None:
 
 
 class _Tool:
-    def __init__(self, definition: ToolDefinition, structured: Any = None) -> None:
+    def __init__(
+        self, definition: ToolDefinition, structured: Any = NO_STRUCTURED_CONTENT
+    ) -> None:
         self._definition = definition
         self._structured = structured
         self.requests: list[ToolRequest] = []
@@ -398,10 +401,12 @@ def test_a_result_without_structured_content_has_none(tmp_path: Path) -> None:
         _call("mcp__docs__search", {"query": "q"}), ToolContext(workspace_root=tmp_path)
     )
 
-    assert outcome.result.structured_content is None
+    assert outcome.result.structured_content is NO_STRUCTURED_CONTENT
 
 
-@pytest.mark.parametrize("value", [{"a": [1, 2.5, None, True]}, [1, "two"], "text", 0])
+@pytest.mark.parametrize(
+    "value", [{"a": [1, 2.5, None, True]}, [1, "two"], "text", 0, None]
+)
 def test_structured_content_is_any_json_value(value: Any) -> None:
     result = ToolExecutionResult(
         tool_request_id=make_tool_request_id(),
@@ -470,4 +475,4 @@ def test_structured_content_is_not_written_to_the_session_file(tmp_path: Path) -
         "is_error": False,
         "provider_correlation_id": "call-1",
     }
-    assert [result.structured_content for result in results] == [None]
+    assert [result.structured_content for result in results] == [NO_STRUCTURED_CONTENT]

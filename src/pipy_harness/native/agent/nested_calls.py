@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Final, Protocol, runtime_checkable
 
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_record import bounded_arguments, finite_duration
 from pipy_harness.native.agent.nested_status import NestedCallStatus as NestedCallStatus
@@ -1117,7 +1117,7 @@ class NestedToolCallService:
                 outcome.result,
                 content=ProductContent(error[:500]),
                 details=None,
-                structured_content=None,
+                structured_content=NO_STRUCTURED_CONTENT,
                 blocks=(),
             ),
         )
