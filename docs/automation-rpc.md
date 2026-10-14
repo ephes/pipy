@@ -993,7 +993,10 @@ Pi sends the user interaction of an extension to an RPC client: an
 
 Every request also has `type: "extension_ui_request"` and an `id` (a UUID).
 A notice is sent when it is produced, so a command's notices come before
-the `prompt` response that says `handled`.
+the `prompt` response that says `handled`. The notices of MCP servers, such
+as the startup report, are sent while the session waits for a command, so a
+client gets the report without sending anything; one that arises during a
+run is sent after it.
 
 Input control line (stdin, not a command):
 `{ "type": "extension_ui_response", "id": "<request id>", ... }` with

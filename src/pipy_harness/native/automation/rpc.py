@@ -44,6 +44,7 @@ from pipy_harness.native.automation.rpc_ui import RpcUi
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.coding.session_controller import (
     _NATIVE_CONTROL_EOF,
+    _NATIVE_CONTROL_IDLE,
     _NATIVE_CONTROL_WAKE,
     _NativeControlReady,
     _NativeControlSnapshot,
@@ -224,6 +225,10 @@ _KNOWN_COMMANDS = frozenset(
 )
 
 
+# How often the idle worker looks for notices while no command arrives.
+_IDLE_POLL_SECONDS = 0.1
+
+
 class _WakeChannel:
     """Blocking wake/EOF transport for the native control bridge.
 
@@ -231,7 +236,9 @@ class _WakeChannel:
     bare newline and EOF is the empty string, so the bridge can tell a
     redundant wake (no reservation left to select) from end of input; the
     bridge resolves the matching native reservation separately. EOF is sticky:
-    every read after it returns EOF immediately.
+    every read after it returns EOF immediately. A read that waits longer
+    than ``_IDLE_POLL_SECONDS`` returns the idle marker, so that the worker
+    can do its idle work.
     """
 
     def __init__(self) -> None:
@@ -247,7 +254,13 @@ class _WakeChannel:
             self._q.put(True)
 
     def readline(self, *_args: Any) -> str:
-        if self._q.get():
+        try:
+            eof = self._q.get(timeout=_IDLE_POLL_SECONDS)
+        except queue.Empty:
+            # Nothing yet: the worker shows what arose meanwhile (the
+            # notices of the MCP servers) and reads again.
+            return _NATIVE_CONTROL_IDLE
+        if eof:
             self._q.put(True)
             return _NATIVE_CONTROL_EOF
         return _NATIVE_CONTROL_WAKE

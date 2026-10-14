@@ -1437,7 +1437,8 @@ Different from Pi:
   Pi's.
 - A server that fails or needs a sign-in after it was registered later is
   reported like the [startup report](mcp.md#startup-report), with only that
-  server in it, where the session shows its notices: before the next prompt.
+  server in it, as soon as the session waits for input (in the editor, or in
+  RPC mode while no command runs); Pi reports it when it arises.
 
 First-slice candidates:
 

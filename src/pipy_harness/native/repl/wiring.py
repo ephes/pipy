@@ -2292,8 +2292,13 @@ def _assemble_session_wiring(
             else lambda: None
         ),
     )
+    # What the MCP servers have to say is shown while the session waits for
+    # a key or a command (Pi shows it when it arises).
+    if terminal_ui is not None:
+        terminal_ui.components.screen.set_idle_work(extension.mcp.deliver_idle_notices)
     bridge = _control_bridge(inputs)
     if bridge is not None:
+        bridge.bind_idle_work(extension.mcp.deliver_idle_notices)
         _bind_rpc_transition_port(
             bridge,
             collaborators_phase.transition,

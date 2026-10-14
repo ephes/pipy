@@ -81,9 +81,11 @@ _NativeSessionControl = _input_queue._NativeSessionControl
 # newline and EOF is the empty string. A wake is only a hint to re-examine the
 # native reservation, so a redundant wake (its reservation already selected
 # through an earlier wake or direct promotion) is harmless; only EOF ends the
-# worker's input.
+# worker's input. A reader that returns ``_NATIVE_CONTROL_IDLE`` instead has
+# nothing yet: the worker does its idle work and reads again.
 _NATIVE_CONTROL_WAKE = "\n"
 _NATIVE_CONTROL_EOF = ""
+_NATIVE_CONTROL_IDLE = "\x00idle"
 
 _NOT_HANDLED_COMMAND_NOTICE = (
     "supported local commands are /hotkeys, /reload, "
@@ -171,6 +173,7 @@ class _NativeSessionControlBridge:
         "_event",
         "_fatal",
         "_handled_prompt",
+        "_idle_work",
         "_manual_handler",
         "_outcome",
         "_outcome_lock",
@@ -199,6 +202,7 @@ class _NativeSessionControlBridge:
             Callable[[_NativeRunClaim], _NativeControlSnapshot] | None
         ) = None
         self._wake_reader: Callable[[], str] | None = None
+        self._idle_work: Callable[[], None] | None = None
         self._handled_prompt: Callable[[], None] | None = None
         self._fatal = False
         self._manual_handler: (
@@ -266,6 +270,17 @@ class _NativeSessionControlBridge:
             if self._wake_reader is not None:
                 raise RuntimeError("native control bridge wake reader is already bound")
             self._wake_reader = reader
+
+    def bind_idle_work(self, work: Callable[[], None]) -> None:
+        """Bind what the worker does while it waits for a wake: it runs
+        whenever the wake reader returns ``_NATIVE_CONTROL_IDLE``."""
+
+        if not callable(work):
+            raise TypeError("idle work must be callable")
+        with self._outcome_lock:
+            if self._idle_work is not None:
+                raise RuntimeError("native control bridge idle work is already bound")
+            self._idle_work = work
 
     def bind_transition_control(
         self,
@@ -335,11 +350,18 @@ class _NativeSessionControlBridge:
             return ""
         raise AssertionError("infinite native control drain terminated")
 
-    @staticmethod
-    def _read_wake(reader: Callable[[], str]) -> bool:
-        """Block for one wake/EOF value; return ``True`` only for EOF."""
+    def _read_wake(self, reader: Callable[[], str]) -> bool:
+        """Block for one wake/EOF value, doing the idle work while the
+        reader has nothing; return ``True`` only for EOF."""
 
-        wake = reader()
+        wake = _NATIVE_CONTROL_IDLE
+        # The reader never returns ``None``: this loops until a wake or EOF.
+        for wake in iter(reader, None):
+            if wake != _NATIVE_CONTROL_IDLE:
+                break
+            work = self._idle_work
+            if work is not None:
+                work()
         if wake == _NATIVE_CONTROL_EOF:
             return True
         if wake != _NATIVE_CONTROL_WAKE:

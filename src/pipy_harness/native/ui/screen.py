@@ -229,6 +229,9 @@ class Screen:
         self._sources: FrameSources | None = None
         # The live thinking level for the editor border colour.
         self._border_level: Callable[[], str] = lambda: "off"
+        # Run while a key is waited for: what other threads left for the
+        # user is shown at once (the notices of the MCP servers).
+        self._idle_work: Callable[[], None] = lambda: None
         self.render_inputs = ScreenRenderInputs(
             self.frame_width, terminal_stream, self.tools_expanded
         )
@@ -270,6 +273,12 @@ class Screen:
 
         with self._paint_lock:
             self._border_level = source
+
+    def set_idle_work(self, work: Callable[[], None]) -> None:
+        """Install what runs about ten times a second while a key is waited
+        for, on the thread that waits."""
+
+        self._idle_work = work
 
     def frame_width(self) -> int:
         return self._driver.size()[0]
@@ -622,6 +631,7 @@ class Screen:
 
     def _poll_idle_sources(self) -> None:
         self._require_sources().poll_idle()
+        self._idle_work()
         self.poll_resize_repaint()
 
     def poll_resize_repaint(self) -> bool:

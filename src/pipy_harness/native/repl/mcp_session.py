@@ -9,6 +9,12 @@ an import (Pi closes its servers on ``session_shutdown`` and reads
 ``mcp.json`` again on ``session_start``). Everything else in the session
 asks it for the current ones, so nothing keeps a manager that was closed.
 
+The servers' notices (the startup report, for example) are shown on the
+session thread: where it shows the extensions' messages, and over and over
+while the editor or the RPC worker waits for input
+(``deliver_idle_notices``), so that a report made while nobody types is seen
+at once, as in Pi.
+
 A sign-in made outside the session, by ``pipy mcp login`` that the agent
 ran through ``bash`` for example, is picked up when the next turn starts:
 ``before_turn`` connects the servers again that were waiting for a sign-in
@@ -394,6 +400,20 @@ class McpSession:
         servers = self.servers
         self._apply_registrations(servers)
         servers.manager.deliver_notices(self._notify)
+
+    def deliver_idle_notices(self) -> None:
+        """Show what the servers have to tell the user while the session
+        waits for input: the startup report once the servers settled, the
+        report of a server an extension registered meanwhile (Pi
+        ``reportProblems`` when the connections settle).
+
+        Called again and again by the thread that waits for the input. It
+        only shows notices; the hooks of a change of the registered servers
+        run where :meth:`deliver_notices` runs. A notice of servers that are
+        being replaced is shown once, here or by the replacement.
+        """
+
+        self.servers.manager.deliver_notices(self._notify)
 
     def before_turn(
         self, waiter: ToolInterruptWaiter | None

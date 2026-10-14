@@ -480,10 +480,13 @@ server that failed (with the first line of its error) or needs a sign-in
 [`/mcp`](#the-mcp-command) shows every server with its whole error. After
 correcting `mcp.json`, run `/reload`.
 
-The report and the other warnings on this page are shown before the next
-prompt runs, not at the moment they arise: in the terminal you see them when
-you send your next message, in a one-shot run on stderr at the end. Pi shows
-them at once.
+The report and the other warnings on this page are shown while the session
+waits for input: in the terminal while the editor waits for your next
+message, and in [RPC mode](automation-rpc.md) as a `notify` request while no
+command runs. One that arises while a prompt runs is shown when the run has
+ended. A one-shot run writes them to stderr at the end, and a product
+session of the [SDK](sdk.md) hands them on when the next prompt is
+submitted. Pi shows them at once, also during a run.
 
 Two more cases are reported, each once:
 

@@ -52,3 +52,46 @@ in, one section per item.
   commands with real stdio servers, the SDK `new_session()`, the
   `McpSession.replace_session` unit cases) and
   `tests/test_native_tool_capabilities_mcp.py::test_another_session_does_not_declare_loaded_tools_again`.
+
+## N1-b: MCP notices while the session waits for input (goal-check E9)
+
+### Changelog (Unreleased, Changed)
+
+- MCP: the startup report and the report of a server an extension
+  registered later are shown while the session waits for input, in the
+  terminal editor and as an RPC `notify` request while no command runs,
+  instead of with the next prompt.
+
+### Plan updates
+
+- 4.5 (the `deliver_notices(sink)` bullet) and "Decided in S19": the session
+  also shows the manager's notices while idle. `McpSession.deliver_idle_notices()`
+  hands the current manager's notices to the sink and does nothing else (no
+  `mcp_servers_change` hooks, no `ensure_active`; those stay at the drain
+  points and the turn start). Callers: the terminal's `Screen` runs the work
+  installed with `Screen.set_idle_work` in `_poll_idle_sources`, about ten
+  times a second while any key is waited for (the editor's `read_line` and
+  the modal key loop); the RPC worker's `_NativeSessionControlBridge` runs
+  its bound idle work (`bind_idle_work`) whenever the wake reader returns
+  `_NATIVE_CONTROL_IDLE`, which `rpc._WakeChannel.readline` does after
+  `_IDLE_POLL_SECONDS` (0.1 s) without a wake.
+- "Decided in S34", "Still open, not owned by a slice: notices are shown
+  when the session drains them, so the startup report of a session whose
+  first action is `/mcp` appears after the manager was closed": closed; the
+  modal key loop runs the idle work too, so the report is shown behind the
+  manager view as it arises.
+- Section 3.1, difference (proposal, kind "other form"): Pi shows these
+  notices when they arise, also during a run; pipy shows them while the
+  session waits for input, so one that arises during a run is shown after
+  it. `mcp_servers_change` hooks still fire at the drain points (before a
+  prompt, when a turn starts), not while idle. Non-interactive plain input,
+  one-shot runs and SDK product sessions show notices at the next step as
+  before.
+
+### Acceptance note / audit test
+
+- SES-04 and EXT-10 (report of later-registered servers): the limit
+  "shown before the next prompt" becomes "shown while idle"; tests
+  `tests/test_native_mcp_idle_notices.py` (PTY editor, RPC client without a
+  command, bridge and wake channel units, `deliver_idle_notices`) and the
+  updated `tests/test_native_automation_rpc_ui.py::test_mcp_login_takes_the_pasted_redirect_url`.

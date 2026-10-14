@@ -263,6 +263,7 @@ class _ExitOnlyUi:
                 external_io_suspension=noop_scope,
                 defer_paints=noop,
                 set_border_level_source=lambda _source: None,
+                set_idle_work=lambda _work: None,
             ),
             overlays=SimpleNamespace(),
             input_editor=self.input_editor,
