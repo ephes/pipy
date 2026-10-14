@@ -234,6 +234,11 @@ class ToolCapabilityState:
     # are not registered now (Pi ``_pendingToolNames``). A name becomes
     # active when its tool registers and is dropped when the next run starts.
     pending_tool_names: frozenset[str] = frozenset()
+    # The optional built-in tools (``codemode``, ``tool_search``) this value
+    # may register: the session offers them and their built-in extensions
+    # (``builtin:codemode``, ``builtin:tool-search``) are loaded. Decided
+    # when the value is prepared, so a reload reads the settings again.
+    offered_builtins: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -594,11 +599,18 @@ class NativeToolCapabilities:
         diagnostic: Callable[[str], None] | None = None,
         codemode_loadout: Callable[[], PrepareToolLoadout] | None = None,
         optional_builtins: Collection[str] | None = None,
+        builtin_extension_enabled: Callable[[str], bool] | None = None,
     ) -> None:
         """``optional_builtins`` names the optional built-in tools
         (``codemode``, ``tool_search``) this session may register, whatever
         its registry is. Without it a session of the production registry may
-        register both and another session neither."""
+        register both and another session neither.
+
+        ``builtin_extension_enabled`` says whether a built-in extension
+        (``codemode``, ``tool-search``) is loaded now, as the ``extensions``
+        settings and the resource flags say (Pi loads both tools as built-in
+        extensions). It is asked whenever a capability value is prepared;
+        without it both are loaded."""
 
         self._context = ToolContext(workspace_root=workspace_root)
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
@@ -616,6 +628,7 @@ class NativeToolCapabilities:
             if optional_builtins is None
             else "tool_search" in optional_builtins
         )
+        self._builtin_extension_enabled = builtin_extension_enabled
         self._base_registry = dict(builtin_registry)
         self._default_tools = default_tools
         self._diagnostic = diagnostic
@@ -628,13 +641,27 @@ class NativeToolCapabilities:
         self._codemode_probe_lock = threading.Lock()
         # The loadout failures that were reported; guarded by _state_lock.
         self._reported_loadout_errors: set[str] = set()
-        self._state = ToolCapabilityState.build(
-            builtin_registry,
-            extension_registry,
-            filter_options=filter_options,
-            cancel_join_timeout_seconds=cancel_join_timeout_seconds,
-            codemode_loadout=codemode_loadout() if codemode_loadout else None,
+        self._state = replace(
+            ToolCapabilityState.build(
+                builtin_registry,
+                extension_registry,
+                filter_options=filter_options,
+                cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+                codemode_loadout=codemode_loadout() if codemode_loadout else None,
+            ),
+            offered_builtins=self._offered_builtins(),
         )
+
+    def _offered_builtins(self) -> frozenset[str]:
+        """The optional built-in tools a value prepared now may register."""
+
+        enabled = self._builtin_extension_enabled or (lambda _name: True)
+        names: set[str] = set()
+        if self._offers_codemode and enabled("codemode"):
+            names.add("codemode")
+        if self._offers_tool_search and enabled("tool-search"):
+            names.add("tool_search")
+        return frozenset(names)
 
     @property
     def state(self) -> ToolCapabilityState:
@@ -841,7 +868,9 @@ class NativeToolCapabilities:
         state = self.state
         if "codemode" in state.registry:
             return "codemode" in _kept_names(state)
-        return self._offers_codemode and _filters_keep_codemode(state.filter_options)
+        return "codemode" in state.offered_builtins and _filters_keep_codemode(
+            state.filter_options
+        )
 
     def register_codemode(self) -> bool:
         """Register the optional built-in ``codemode`` for this run.
@@ -858,7 +887,10 @@ class NativeToolCapabilities:
         state = self.state
         if "codemode" in state.registry:
             return True
-        if not (self._offers_codemode and _filters_keep_codemode(state.filter_options)):
+        if not (
+            "codemode" in state.offered_builtins
+            and _filters_keep_codemode(state.filter_options)
+        ):
             return False
         if not self._probe_codemode():
             return False
@@ -868,6 +900,13 @@ class NativeToolCapabilities:
             state = self._state
             if "codemode" in state.registry:
                 return True
+            # A reload published during the probe may have turned the
+            # built-in extension off: decide on the live value.
+            if not (
+                "codemode" in state.offered_builtins
+                and _filters_keep_codemode(state.filter_options)
+            ):
+                return False
             builtin = {**state.builtin_registry, "codemode": CodemodeTool()}
             registry = _merged_registry(
                 builtin, state.extension_registry, state.mcp_registry
@@ -1012,6 +1051,7 @@ class NativeToolCapabilities:
             codemode_loadout = (
                 self._codemode_loadout() if self._codemode_loadout else None
             )
+            offered = self._offered_builtins()
         selected: tuple[str, ...]
         if options.no_builtin_tools:
             selected = ()
@@ -1028,9 +1068,10 @@ class NativeToolCapabilities:
         builtin = dict(self._base_registry)
         # Registered optional ports persist for this lifetime, like Pi's
         # registry; removing a default does not deactivate an active tool.
-        if self._offers_codemode and "codemode" in state.builtin_registry:
+        # A built-in extension turned off on reload takes its tool away.
+        if "codemode" in offered and "codemode" in state.builtin_registry:
             builtin["codemode"] = state.builtin_registry["codemode"]
-        if self._offers_tool_search:
+        if "tool_search" in offered:
             from pipy_harness.native.tool_search import (
                 TOOL_SEARCH_TOOL_NAME,
                 ToolSearchTool,
@@ -1047,7 +1088,7 @@ class NativeToolCapabilities:
         wants_codemode = (
             wants_codemode and not options.no_tools and not options.excludes("codemode")
         )
-        if self._offers_codemode and wants_codemode and "codemode" not in mapping:
+        if "codemode" in offered and wants_codemode and "codemode" not in mapping:
             if self._probe_codemode():
                 from pipy_harness.native.tools.codemode import CodemodeTool
 
@@ -1089,6 +1130,7 @@ class NativeToolCapabilities:
             else frozenset(),
             selection_initialized=True,
             active_selection_customized=state.active_selection_customized,
+            offered_builtins=offered,
         )
 
     def publish(self, state: ToolCapabilityState) -> None:

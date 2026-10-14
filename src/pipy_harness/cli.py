@@ -379,8 +379,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Disable default workspace/global/package extension discovery and "
-            "the built-in MCP support for this run. Explicit --extension "
-            "paths still load, and --extension builtin:mcp keeps MCP."
+            "the built-in extensions (mcp, codemode, tool-search) for this run. "
+            "Explicit --extension paths still load, and --extension "
+            "builtin:<name> keeps a built-in extension."
         ),
     )
     repl_parser.add_argument(

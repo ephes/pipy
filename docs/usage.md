@@ -361,6 +361,11 @@ registered tools that are not declared to the model (exposure `codemode` or
 on. Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch. See [tool search](mcp.md#tool-search).
 
+`codemode` and `tool_search` come from the built-in extensions
+`builtin:codemode` and `builtin:tool-search`. `--no-extensions` or a
+`-builtin:<name>` entry in the `extensions` setting removes them; see
+[turning MCP off](mcp.md#turning-mcp-off).
+
 Entries of `--tools` and `--exclude-tools` are tool names or patterns in which
 `*` matches any characters: `--exclude-tools 'ext_*'` disables every tool
 whose name starts with `ext_`. Nothing else is special in a pattern, and it
@@ -399,8 +404,8 @@ turns MCP off altogether.
 
 | Option | Description |
 | --- | --- |
-| `--extension PATH`, `-e PATH` | Load an extension file or directory for this run, or the built-in MCP support with `builtin:mcp` |
-| `--no-extensions`, `-ne` | Disable default extension discovery and the built-in MCP support; explicit `--extension` still loads, so `pipy -ne -e builtin:mcp` keeps MCP |
+| `--extension PATH`, `-e PATH` | Load an extension file or directory for this run, or a built-in extension: `builtin:mcp`, `builtin:codemode` or `builtin:tool-search` |
+| `--no-extensions`, `-ne` | Disable default extension discovery and the built-in extensions (MCP, `codemode`, `tool_search`); explicit `--extension` still loads, so `pipy -ne -e builtin:mcp` keeps MCP |
 | `--no-mcp` | Disable the built-in MCP support for this run: no `mcp.json` is read, no server connects and there are no MCP tools. See [turning MCP off](mcp.md#turning-mcp-off) |
 | `--skill PATH` | Load a skill Markdown file or directory for this run |
 | `--no-skills`, `-ns` | Disable default skill discovery; explicit `--skill` still loads |

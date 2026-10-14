@@ -555,10 +555,19 @@ Different from Pi:
 in a running session; the flags hold for the whole run.
 
 With MCP off, pipy does not turn on `codemode` or `tool_search` and reports
-nothing about `mcp.json`. `mcp` is the only built-in entry; Pi also has
-`builtin:codemode`, `builtin:tool-search` and `builtin:llama.cpp`, which in
-pipy are selected as tools (`--tools`, `defaultTools`) or do not exist. An
-unknown `builtin:` name after `--extension` is an error at startup.
+nothing about `mcp.json`.
+
+`codemode` and `tool_search` are built-in extensions too, named
+`builtin:codemode` and `builtin:tool-search`, and the same entries and flags
+apply to them: `"extensions": ["-builtin:tool-search"]` or
+`pipy config disable builtin tool-search` removes the `tool_search` tool, so
+MCP cannot turn it on for `deferred` servers (pipy then warns that their
+tools cannot be called), and `--no-extensions` removes both tools unless
+`--extension builtin:codemode` or `--extension builtin:tool-search` loads
+them again. `--no-mcp` concerns MCP alone. `/reload` reads these entries
+again as well. Pi's `builtin:llama.cpp` has no counterpart in pipy; an
+unknown `builtin:` name after `--extension` is an error at startup, where Pi
+reports a load error.
 
 ### Diagnose connection problems
 
@@ -1513,9 +1522,9 @@ Different from Pi:
 - The notice names the extension by its name, where Pi shows its path, and
   points to `pipy config list`.
 - pipy shows no notice when an extension replaces `codemode` or
-  `tool_search`. In Pi both are built-in extensions that are loaded unless
-  they are replaced; in pipy the built-in `codemode` is registered only when
-  something asks for it.
+  `tool_search`. In both, they are built-in extensions that are loaded
+  unless they are replaced or turned off; in pipy the built-in `codemode` is
+  registered only when something asks for it.
 - A `/reload` reads `mcp.json` once before it knows the extensions it will
   load. When the reload brings an extension with `/mcp`, what was read is
   dropped: nothing connects and nothing is reported.

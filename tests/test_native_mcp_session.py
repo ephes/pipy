@@ -1309,3 +1309,93 @@ def test_the_builtin_mcp_entry_turns_mcp_off_and_on(
     declared = "mcp__docs__search" in _tool_names(provider.requests[0])
     assert declared is connects
     assert record.exists() is connects
+
+
+@pytest.mark.parametrize(
+    ("extensions", "options", "declared"),
+    [
+        (["-builtin:tool-search"], RuntimeResourceOptions(), False),
+        (
+            [],
+            RuntimeResourceOptions(no_extensions=True, builtin_extensions=("mcp",)),
+            False,
+        ),
+        (
+            ["-builtin:tool-search"],
+            RuntimeResourceOptions(
+                no_extensions=True, builtin_extensions=("mcp", "tool-search")
+            ),
+            True,
+        ),
+        ([], RuntimeResourceOptions(), True),
+    ],
+)
+def test_the_builtin_tool_search_entry_turns_tool_search_off_and_on(
+    tmp_path: Path,
+    monkeypatch,
+    extensions: list[str],
+    options: RuntimeResourceOptions,
+    declared: bool,
+) -> None:
+    # Pi loads tool_search as the built-in extension `tool-search`:
+    # `-builtin:tool-search`, `--no-extensions` and `-e builtin:tool-search`
+    # apply to it as to `mcp`. Without it a deferred server's tools are
+    # unreachable, which the user is told.
+    monkeypatch.setattr(selftest, "availability", lambda: None)
+    config = tmp_path / "config"
+    config.mkdir()
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    (config / "settings.json").write_text(json.dumps({"extensions": extensions}))
+    entry, _record = _server(tmp_path / "servers")
+    _write_mcp_json(config / "mcp.json", {"docs": {**entry, "exposure": "deferred"}})
+    settings = SettingsManager(
+        global_path=config / "settings.json",
+        project_path=workspace / ".pipy" / "settings.json",
+        overrides={"theme": "pi"},
+    )
+    provider = _Provider([_result()])
+
+    status, errors = _run(
+        workspace, provider, settings=settings, resource_options=options
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert ("tool_search" in _tool_names(provider.requests[0])) is declared
+    assert ("MCP tools are only reachable" in errors) is not declared
+
+
+@pytest.mark.parametrize(
+    "options",
+    [RuntimeResourceOptions(), RuntimeResourceOptions(no_extensions=True)],
+)
+def test_the_builtin_codemode_entry_turns_codemode_off(
+    tmp_path: Path, monkeypatch, options: RuntimeResourceOptions
+) -> None:
+    # Pi loads codemode as the built-in extension `codemode`; turned off,
+    # `defaultTools` cannot select it and its runtime is never probed.
+    probes: list[object] = []
+    monkeypatch.setattr(selftest, "availability", lambda: probes.append(1))
+    config = tmp_path / "config"
+    config.mkdir()
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    disabled = [] if options.no_extensions else ["-builtin:codemode"]
+    (config / "settings.json").write_text(
+        json.dumps({"extensions": disabled, "defaultTools": ["+codemode"]})
+    )
+    settings = SettingsManager(
+        global_path=config / "settings.json",
+        project_path=workspace / ".pipy" / "settings.json",
+        overrides={"theme": "pi"},
+    )
+    provider = _Provider([_result()])
+
+    status, errors = _run(
+        workspace, provider, settings=settings, resource_options=options
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "codemode" not in names and "read" in names
+    assert probes == []

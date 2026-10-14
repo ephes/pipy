@@ -76,6 +76,13 @@ a plain CLI allowlist overrides it and filters extensions. For example,
 modifies the defaults. CLI lists cannot mix plain names and modifiers.
 See [selection rules](settings-config.md#default-tool-selection).
 
+`codemode` is the built-in extension `builtin:codemode`, as in Pi:
+`"extensions": ["-builtin:codemode"]` in the settings (or
+`pipy config disable builtin codemode`) and `--no-extensions` remove the tool,
+so neither `--tools` nor `defaultTools` nor MCP can select it, and
+`--extension builtin:codemode` loads it again for one run (see
+[turning MCP off](mcp.md#turning-mcp-off)).
+
 A session made with the [Python SDK](sdk.md#codemode-tool-search-and-mcp) has
 `codemode` only when it is created with `codemode=CodemodeOptions()`; the
 setting then activates it as above. `CodemodeOptions(mode=...,

@@ -820,3 +820,57 @@ def test_dropping_a_tool_the_filters_hide_keeps_the_pending_tools(
     assert tools.state.pending_tool_names == {"mcp__docs__find"}
     tools.publish_mcp_tools(_mcp(find="deferred"))
     assert _declared(tools) == ("read", "lookup", "mcp__docs__find")
+
+
+def test_builtin_extensions_decide_on_codemode_and_tool_search_per_value(
+    tmp_path: Path,
+) -> None:
+    # Pi loads both tools as built-in extensions (`builtin:codemode`,
+    # `builtin:tool-search`); a reload reads their settings again.
+    loaded = {"codemode": True, "tool-search": False}
+    tools = NativeToolCapabilities(
+        ProductionToolRegistry({"read": _Tool("read")}),
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        builtin_extension_enabled=lambda name: loaded[name],
+    )
+    tools.publish(tools.prepare_extensions({}))
+
+    assert "tool_search" not in tools.registered_names
+    assert tools.state.offered_builtins == {"codemode"}
+    assert tools.codemode_selectable()
+
+    loaded.update({"codemode": False, "tool-search": True})
+    tools.publish(tools.prepare_extensions({}))
+
+    assert "tool_search" in tools.registered_names
+    assert not tools.codemode_selectable()
+    assert not tools.register_codemode()
+    assert "codemode" not in tools.registered_names
+
+
+def test_register_codemode_follows_a_reload_published_during_the_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    loaded = {"codemode": True, "tool-search": True}
+    tools = NativeToolCapabilities(
+        ProductionToolRegistry({"read": _Tool("read")}),
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        builtin_extension_enabled=lambda name: loaded[name],
+    )
+    tools.publish(tools.prepare_extensions({}))
+
+    def probe_while_reloading() -> bool:
+        loaded["codemode"] = False
+        tools.publish(tools.prepare_extensions({}))
+        return True
+
+    monkeypatch.setattr(tools, "_probe_codemode", probe_while_reloading)
+
+    assert not tools.register_codemode()
+    assert "codemode" not in tools.registered_names

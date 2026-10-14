@@ -752,3 +752,60 @@ Audit test references: `tests/test_harness_native_cli.py`
 `test_modifiers_after_no_builtin_tools_start_from_nothing`),
 `tests/test_native_tool_capabilities.py`
 (`test_filter_precedence_is_selection_then_exclude`, the validation test).
+
+## G8, commit 2: T3 (built-in extension controls for `codemode` and `tool_search`)
+
+Pi source read: `coding-agent/src/extensions/index.ts` (built-in extensions
+`llama.cpp`, `codemode`, `tool-search`, `mcp`), `src/core/resource-loader.ts`
+(`disabledBuiltinExtensions`, the `--no-extensions` cut-off and
+`loadExtensionPaths` for `builtin:<name>`), `docs/settings.md` line 162 and
+`extensions/mcp/index.ts` `ensureDiscoveryActive` (no tool, no activation,
+the "only reachable" warning). The finding holds.
+
+What changed:
+
+- `resource_enablement.BUILTIN_EXTENSIONS` is `("codemode", "tool-search",
+  "mcp")`, Pi's order without `llama.cpp`. `pipy config list` shows all
+  three under `built-in`, `pipy config enable|disable builtin <name>`
+  takes them, and `--extension builtin:codemode` /
+  `builtin:tool-search` are accepted.
+- `RuntimeResourceOptions.builtin_extension_enabled(name, configured=)`:
+  `--extension builtin:<name>` turns one on, `--no-extensions` and the
+  settings turn it off. `mcp_enabled` is that plus `--no-mcp`.
+- `NativeToolCapabilities(builtin_extension_enabled=)`: asked whenever a
+  capability value is prepared (start, `/reload`). The new field
+  `ToolCapabilityState.offered_builtins` holds the optional built-in tools
+  the value may register; `codemode_selectable`, `register_codemode` and
+  `prepare_extensions` read it. A built-in extension turned off on reload
+  takes its tool away. `repl/wiring.py` passes it for the `pipy` command
+  only; an embedded session keeps `SessionBuiltins`.
+
+Changelog lines (section Unreleased):
+
+- `codemode` and `tool_search` are the built-in extensions
+  `builtin:codemode` and `builtin:tool-search`, as in Pi:
+  `"extensions": ["-builtin:tool-search"]`, `pipy config disable builtin
+  codemode` and `--no-extensions` remove the tools, `--extension
+  builtin:<name>` loads one for a run, and `/reload` reads the entries again.
+
+Plan rows and texts:
+
+- The DEV-11 statement (and the S19 "Decided in" text near line 919) that
+  `mcp` is the only built-in name is superseded: `codemode` and
+  `tool-search` are built-in names too. Remaining difference: Pi's
+  `llama.cpp` has no counterpart; an unknown `builtin:` name is a startup
+  error in pipy, a load error in Pi.
+- No checklist row covered it (finding "not in checklist"); suggested row
+  next to EXP-12: "`-builtin:codemode`, `-builtin:tool-search`,
+  `--no-extensions` and `-e builtin:<name>` apply to `codemode` and
+  `tool_search` as to `mcp` (`core/resource-loader.ts`)".
+
+Audit test references: `tests/test_native_mcp_session.py`
+(`test_the_builtin_tool_search_entry_turns_tool_search_off_and_on`,
+`test_the_builtin_codemode_entry_turns_codemode_off`),
+`tests/test_native_tool_capabilities_mcp.py`
+(`test_builtin_extensions_decide_on_codemode_and_tool_search_per_value`,
+`test_register_codemode_follows_a_reload_published_during_the_probe`),
+`tests/test_native_mcp_discovery.py`
+(`test_run_options_decide_whether_codemode_is_loaded`, the config command
+tests, `test_cli_flags_parse_to_run_options`).
