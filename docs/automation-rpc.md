@@ -1140,8 +1140,8 @@ Different from Pi:
 
 The interactive session is not affected: a line typed into the terminal UI
 or the plain REPL, also one piped to `pipy` without `--print`, runs the
-built-in commands as before. A [product session](sdk.md) sends the text of
-`submit()` to the model and runs no command.
+built-in commands as before. A [product session](sdk.md)'s `submit()`
+handles its text like a prompt, as Pi's SDK `session.prompt()` does.
 
 ## (c) `--print/-p` One-Shot Mapping
 

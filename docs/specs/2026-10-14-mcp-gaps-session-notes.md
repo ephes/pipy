@@ -293,6 +293,11 @@ in, one section per item.
   while the bridge has a reservation runs on a thread of its own (so the
   command thread keeps reading and dialogs get answers), concurrently with
   the run, as Pi's does; a queued prompt is expanded before admission.
+  The server tracks those command threads and, at the end of input (not on
+  SIGTERM/SIGHUP), joins them without a limit after closing the UI and
+  before the drain, so the `handled` response is written and the command
+  runs against the live session. `SessionCommandPort.expand` leaves a text
+  that does not start with `/` alone (` /review` stays text).
 - Still different (new 3.1 difference, "narrower"): the `input` hooks do not
   run when a message is queued (Pi runs them in `_queueUserInput` and
   `prompt`); a queued message that later runs while idle meets them before
@@ -310,5 +315,54 @@ in, one section per item.
 - SLH-13: tests `tests/test_native_automation_rpc_queued_commands.py`
   (refused steer/follow_up for an extension command, `/mcp` and a failing
   one; a command prompt run during a held run; its failure as
-  `extension_error`; expansion of queued steer, follow-up and prompt;
-  `get_commands`).
+  `extension_error`; expansion of queued steer, follow-up and prompt; a
+  leading space is not expanded; a command still waiting for its dialog at
+  the end of input is answered before the session ends; `get_commands`).
+
+## N2-e: commands in a product session's submit() (goal-check E18)
+
+### Changelog (Unreleased, Changed)
+
+- SDK: `ProductSession.submit()` handles its text as Pi's SDK
+  `session.prompt()` does: an extension command (also `/mcp`, so
+  `McpOptions.open_url` is reached by `/mcp login`) runs and starts no run,
+  the `input` hooks may change or handle the text, and skill commands and
+  prompt templates are expanded. Built-in commands of the interactive
+  session and `!` stay text for the model. Before, `submit()` sent every
+  text to the model unchanged.
+
+### Plan updates
+
+- "Decided in S38": replace "A product session runs no slash command
+  (`submit()` sends its text to the model)" with: `submit()` queues its
+  content as `CodingInputSource.SUBMITTED_PROMPT`
+  (`CodingInputQueue.enqueue_submitted_prompt`, in the positional seeds'
+  place), and the controller turns that source into a step with
+  `external_prompt=True`, so the loop step runs `dispatch_prompt` as for an
+  RPC prompt. Without a control bridge the handled settlement is a no-op;
+  the product operation's claim is settled when `drive()` reaches idle.
+  A command's notices and errors go to the `diagnostic_sink` (the session's
+  local notice sink; `Extension "command:<name>" error: <message>`).
+- "Decided in X1", "Not changed": remove "the product API (`submit()` still
+  sends its text to the model ...)".
+- DEV-51 (SDK-02 to SDK-04): remove "A product session runs no slash
+  command (`submit()` sends its text to the model), so `open_url` and
+  `update_config` reach the command and the manager and nothing in a product
+  session uses them." Replace with: a product session has no UI, so `/mcp`
+  without a subcommand opens no manager view and its status is a notice for
+  the `diagnostic_sink`; `update_config` is used only by a manager change
+  the embedder makes. Pi's SDK session without UI drops the notice
+  (`noOpUIContext`); pipy hands it to the diagnostic sink (difference kept
+  under DEV-51).
+- Positional seeds (`pipy "text"` in the interactive session) are not
+  changed: they still reach the model as text (separate from E18).
+
+### Acceptance note / audit test
+
+- SDK-02 (open_url, update_config reachable): tests
+  `tests/test_product_session_commands.py` (an extension command and no run,
+  a failing command as an extension error on the diagnostic sink, template
+  and skill expansion, an `input` hook that handles a submitted text,
+  `/mcp reconnect` and `/mcp` status); the existing
+  `tests/test_product_session_api.py::test_submit_is_literal_multiline_provider_content`
+  still pins that `/exit` and `!` reach the model as text.

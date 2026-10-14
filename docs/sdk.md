@@ -8,10 +8,21 @@ link pipy in-process through `pipy_harness.sdk` rather than shelling out to the
 ## Product session API
 
 `create_product_session(...)` starts one synchronous native coding lifetime with
-an explicitly supplied tool-capable `ProviderPort`. `submit()` accepts literal
-nonempty text, preserves multiline content (including leading `/` and `!`), and
-returns a `CodingSessionResultSnapshot` after all extension continuations settle.
-It retains the same conversation and resources for later submissions.
+an explicitly supplied tool-capable `ProviderPort`. `submit()` accepts nonempty
+text, preserves multiline content, and returns a `CodingSessionResultSnapshot`
+after all extension continuations settle. It retains the same conversation and
+resources for later submissions.
+
+`submit()` handles its text as Pi's SDK `session.prompt()` does, and as pipy's
+automation modes handle a prompt ([Commands in a prompt](automation-rpc.md#commands-in-a-prompt)):
+a text that starts with `/` and names an extension command (`/mcp` while the
+session has MCP) runs that command and starts no run; otherwise the `input`
+hooks see the text and may change or handle it; then `/skill:<name>` and a
+prompt template or custom command are expanded. Everything else, the built-in
+commands of the interactive session (`/exit`, `/model`, ...) and a leading `!`
+included, reaches the model as text. A command's failure is reported as
+`Extension "command:<name>" error: <message>` to the `diagnostic_sink`, and
+its notices go there too.
 
 See the executable, offline
 [`product_session_embedding.py`](examples/product_session_embedding.py) example
@@ -165,9 +176,11 @@ The `extensions` setting that turns MCP off for the command
 registers the `/mcp` command [replaces MCP](mcp.md#replace-the-built-in-mcp-support)
 in such a session as in the command.
 
-`open_url` and `update_config` serve the `/mcp` command and its sign-in.
-`submit()` sends its text to the model and runs no slash command, so a
-product session has no way to use them today.
+`open_url` and `update_config` serve the `/mcp` command and its sign-in:
+`submit("/mcp login docs")` opens the sign-in through `open_url`. A product
+session has no UI, so `/mcp` without a subcommand opens no manager view (its
+status goes to the `diagnostic_sink`), and `update_config` is used only by an
+`McpManager` change the embedder makes itself.
 
 The executable, offline
 [`sdk_codemode_mcp.py`](examples/sdk_codemode_mcp.py) example turns all
@@ -188,8 +201,6 @@ Different from Pi:
 - Pi's MCP extension connects on `session_start`, which an SDK caller
   triggers with `bindExtensions()`. A pipy product session starts its
   extensions and servers when it is created.
-- Pi's `/mcp` runs from `session.prompt("/mcp ...")`. A pipy product session
-  runs no slash commands (see above).
 - `startup_wait_seconds`, `inline_budget` and `mode` are checked when the
   options are made; Pi takes any value.
 - In Pi's SDK an MCP factory is not left out when another extension
@@ -631,7 +642,7 @@ their explicit trust decision. The one-shot CLI runtime is unchanged.
 
 | Operation | Minimal contract |
 | --- | --- |
-| Submit | Construction-thread-only, non-reentrant, nonempty provider-visible content; preserve multiline text and bypass slash/shell command interpretation. Admit through the existing queue and drive through extension continuations to true idle. Preserve one state/history across calls. |
+| Submit | Construction-thread-only, non-reentrant, nonempty content; preserve multiline text, run extension commands, `input` hooks and skill/template expansion as Pi's `prompt()` does, and no built-in command or `!` shortcut. Admit through the existing queue and drive through extension continuations to true idle. Preserve one state/history across calls. |
 | Observe | One canonical sink fixed at construction, synchronous existing composite order, full-content private events, no replay/subscriber registry. Preserve callback failure semantics. |
 | Cancel | Sole cross-thread method; signal the current accepted operation through canonical cancellation. Idle cancel is harmless and cannot poison the next submit. |
 | Snapshot | Detached immutable state projection on the construction thread while idle; reject observer reentry. Do not infer arbitrary-thread coherence from partially locked counters. |

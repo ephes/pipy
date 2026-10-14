@@ -1587,7 +1587,7 @@ def test_external_operation_settles_exact_claim_once_on_each_exit(
     if exit_kind == "enqueue":
         monkeypatch.setattr(
             CodingInputQueue,
-            "enqueue_seed",
+            "enqueue_submitted_prompt",
             lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
         )
     lifetime = _CodingSessionLifetime(
@@ -1675,7 +1675,7 @@ def test_operation_primary_survives_settlement_and_retirement_failures(
     if primary_stage == "enqueue":
         monkeypatch.setattr(
             CodingInputQueue,
-            "enqueue_seed",
+            "enqueue_submitted_prompt",
             lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
         )
     lifetime = _CodingSessionLifetime(

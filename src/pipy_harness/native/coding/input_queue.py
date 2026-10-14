@@ -30,6 +30,9 @@ class CodingInputSource(StrEnum):
     EXTERNAL_QUEUE = "external_queue"
     EXTERNAL_PROMPT = "external_prompt"
     POSITIONAL_SEED = "positional_seed"
+    # The text of a product session's ``submit()``, dispatched as Pi's
+    # ``AgentSession.prompt`` dispatches it.
+    SUBMITTED_PROMPT = "submitted_prompt"
     EXTENSION_STEERING = "extension_steering"
     EXTENSION_FOLLOW_UP = "extension_follow_up"
     EXTENSION_PROMPT = "extension_prompt"
@@ -594,7 +597,7 @@ class CodingInputQueue:
         ):
             raise TypeError("pending_local_command_source must be callable")
         self._pending_local_command_source = pending_local_command_source
-        self._seeds: deque[ProductContent] = deque()
+        self._seeds: deque[tuple[ProductContent, CodingInputSource]] = deque()
         self._extension_steering: deque[AgentQueuedInput] = deque()
         self._extension_follow_ups: deque[AgentQueuedInput] = deque()
         self._extension_prompts: deque[ProductContent] = deque()
@@ -796,7 +799,14 @@ class CodingInputQueue:
     @_guarded_queue_api
     def enqueue_seed(self, content: ProductContent) -> None:
         _require_content(content, "content")
-        self._seeds.append(content)
+        self._seeds.append((content, CodingInputSource.POSITIONAL_SEED))
+
+    @_guarded_queue_api
+    def enqueue_submitted_prompt(self, content: ProductContent) -> None:
+        """Queue a product session's submitted text in the seeds' place."""
+
+        _require_content(content, "content")
+        self._seeds.append((content, CodingInputSource.SUBMITTED_PROMPT))
 
     @_guarded_queue_api
     def enqueue_extension_steering(self, content: ProductContent) -> None:
@@ -851,9 +861,7 @@ class CodingInputQueue:
         if external is not None:
             return self._queued_selection(external, CodingInputSource.EXTERNAL_QUEUE)
         if self._seeds:
-            return self._prompt_selection(
-                self._seeds.popleft(), CodingInputSource.POSITIONAL_SEED
-            )
+            return self._prompt_selection(*self._seeds.popleft())
         if self._extension_steering:
             return self._queued_selection(
                 self._extension_steering.popleft(),

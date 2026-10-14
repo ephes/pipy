@@ -1283,7 +1283,8 @@ class CodingSessionController:
             selection.content,
             selection.queued_input,
             settle_pending,
-            external_prompt=selection.source is CodingInputSource.EXTERNAL_PROMPT,
+            external_prompt=selection.source
+            in (CodingInputSource.EXTERNAL_PROMPT, CodingInputSource.SUBMITTED_PROMPT),
         )
 
     def dispatch_command(
@@ -1466,7 +1467,9 @@ class _CodingSessionLifetime:
         if claim is None:
             raise RuntimeError("product session operation already active")
         try:
-            self.enqueue_seed(claim.content)
+            # Pi's SDK session runs ``prompt()``: extension commands, input
+            # hooks, then skill and template expansion.
+            self.input_queue.enqueue_submitted_prompt(claim.content)
             result = self.drive(step_once)
         except BaseException as primary:
             try:

@@ -137,7 +137,14 @@ class ProductSession:
             self._entry_in_progress = False
 
     def submit(self, content: str) -> CodingSessionResultSnapshot:
-        """Run literal provider-visible content through continuations to true idle."""
+        """Handle ``content`` as Pi's SDK ``session.prompt()`` and drive to true idle.
+
+        A text that starts with ``/`` and names an extension command (``/mcp``
+        while the session has MCP) runs that command and starts no run; otherwise
+        the ``input`` hooks see it and may change or handle it, and a skill
+        command or prompt template is expanded. Built-in commands of the
+        interactive session and a leading ``!`` reach the model as text.
+        """
 
         with self._entry():
             if self._scope is None:
