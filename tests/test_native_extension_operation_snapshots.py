@@ -678,7 +678,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
         tool_name="probe",
         arguments_json=ProductContent("{}"),
     )
-    SessionCollaborators.apply_extension_tool_policy(collaborator, call)
+    SessionCollaborators.apply_extension_tool_policy(collaborator, call, {}, None)
 
     assert len(retained) == 1
     assert retained[0].set_active_tools(()) is True

@@ -1405,10 +1405,12 @@ and the hints its server declares (`read_only_hint`, `destructive_hint`,
 by them. The hints are what the server says about itself; pipy does not
 check them. A stdio server runs with your permissions, like `bash`.
 
-A handler is given the tool's name and the arguments of a call. For a call
-that a codemode script made, the [JSON](json.md) and [RPC](rpc.md) events
-carry the id of the `codemode` call as `parentToolCallId`; the handler is
-not told the parent.
+A handler is given the tool's name, the call's id and its validated
+arguments, which it may change (see
+[call hooks](extension-api.md#extension-tool-metadata)). For a call that a codemode script
+made, the handler's event carries the id of the `codemode` call as
+`parent_tool_call_id`, and the [JSON](json.md) and [RPC](rpc.md) events
+carry it as `parentToolCallId`.
 
 ## Extensions and SDK
 

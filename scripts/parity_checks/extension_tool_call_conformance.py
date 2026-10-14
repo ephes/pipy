@@ -186,7 +186,12 @@ def run_checks(base: Path) -> list[Check]:
         )
     )
     crash_block = dispatch_tool_call_hooks(
-        crash_hooks, tool_name="read", tool_input={}, cwd=str(crash_ws), has_ui=False
+        crash_hooks,
+        tool_name="read",
+        tool_input={},
+        tool_call_id="call-1",
+        cwd=str(crash_ws),
+        has_ui=False,
     )
     checks.append(
         Check(
@@ -222,7 +227,12 @@ def run_checks(base: Path) -> list[Check]:
         )
     )
     order_block = dispatch_tool_call_hooks(
-        order_hooks, tool_name="read", tool_input={}, cwd=str(order_ws), has_ui=False
+        order_hooks,
+        tool_name="read",
+        tool_input={},
+        tool_call_id="call-1",
+        cwd=str(order_ws),
+        has_ui=False,
     )
     checks.append(
         Check(

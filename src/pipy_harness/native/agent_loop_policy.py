@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from typing import Any
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.loop_policy import (
@@ -102,7 +103,9 @@ class NativeAgentToolPolicy:
 
     def __init__(
         self,
-        before_execute: Callable[[AgentToolCall], AgentToolPolicyDecision],
+        before_execute: Callable[
+            [AgentToolCall, dict[str, Any], str | None], AgentToolPolicyDecision
+        ],
         transform_result: Callable[
             [AgentToolCall, AgentToolResultMessage],
             ProductContent | AgentToolResultTransform,
@@ -115,10 +118,20 @@ class NativeAgentToolPolicy:
         self._before_execute = before_execute
         self._transform_result = transform_result
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+        /,
+    ) -> AgentToolPolicyDecision:
         if type(call) is not AgentToolCall:
             raise TypeError("call must be AgentToolCall")
-        decision = self._before_execute(call)
+        if type(arguments) is not dict:
+            raise TypeError("arguments must be a dict")
+        if parent_call_id is not None and type(parent_call_id) is not str:
+            raise TypeError("parent_call_id must be a string or None")
+        decision = self._before_execute(call, arguments, parent_call_id)
         if type(decision) is not AgentToolPolicyDecision:
             raise TypeError(
                 "before_execute callback must return AgentToolPolicyDecision"

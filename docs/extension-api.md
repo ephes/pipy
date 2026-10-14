@@ -598,7 +598,7 @@ target vocabulary includes:
 | `context` | Observe or contribute bounded context before provider-visible context is finalized. | None or `ContextContribution` |
 | `message_start` / `message_update` | Observe assistant/user/tool-result message lifecycle events. | None |
 | `message_end` | Observe or replace the finalized message before later lifecycle hooks see it. | None or `MessageTransform` |
-| `tool_call` | Inspect, mutate within policy, or block a model-selected tool call before execution. | None or `ToolBlock` |
+| `tool_call` | Inspect, change the arguments of, or block a tool call after its arguments were validated and before it runs. | None or `ToolBlock` |
 | `tool_execution_start` | Observe extension or native tool execution starting. | None |
 | `tool_execution_update` | Observe bounded progress updates from running tools. | None |
 | `tool_execution_end` | Observe extension or native tool execution ending after `tool_result` hooks have produced the finalized result. | None |
@@ -775,7 +775,7 @@ def activate(api):
 
 Hook event objects may expose live runtime data to trusted local Python
 extensions when the event requires it. For example, `tool_call` must expose the
-live tool name and parsed input so permission gates can inspect a bash command
+live tool name and validated input so permission gates can inspect a bash command
 or write path. That live access does not change archive policy: the
 metadata-only workflow archive/catalog must not store prompts, raw tool inputs,
 raw tool results, file contents, provider payloads, secrets, or UI text unless
@@ -1040,6 +1040,23 @@ images: past it, the text block that reaches it is cut and marked, later
 text blocks are left out, and images are kept whole. Anything else in
 `blocks` makes the result the error `extension tool error: invalid result
 blocks`.
+
+**Call hooks.** A `tool_call` handler receives a `ToolCallEvent` with
+`tool_name`, `input`, `tool_call_id` and `parent_tool_call_id`. The handlers
+run after argument validation, as in Pi: a call whose arguments do not fit
+the tool's schema gets the validation error and reaches no `tool_call` or
+`tool_result` handler. `input` is the validated arguments, the very dict the
+tool runs with: to change the arguments, change `event.input` in place
+(`event.input["path"] = ...`). Later handlers see the change, and the tool
+runs with what the last handler left; the transcript keeps the arguments the
+model sent. `tool_call_id` is the call's id. A call another tool made, a
+codemode script's or one through `ctx.execute_tool`, has the id
+`<calling id>/<n>`, and its `parent_tool_call_id` is the calling tool's id;
+for a call the model made it is `None`. Different from Pi: the tool validates
+changed arguments again, so a change the schema refuses gives the validation
+error instead of running the tool (it does not count as a malformed call of
+the model), and a handler that leaves a value that is not JSON in `input`
+blocks the call with `tool_call hooks left arguments that are not JSON`.
 
 **Result hooks.** A `tool_result` handler receives a `ToolResultEvent` with
 `tool_name`, `content`, `is_error` and `structured_content` (the current

@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -232,6 +233,7 @@ class _NoCanonicalTools:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        arguments: Any = None,
     ) -> ToolExecutionOutcome:
         del call, output_sink, wait_for_interrupt
         self.execute_count += 1
@@ -246,9 +248,17 @@ class _NoCanonicalTools:
         del call, output_text
         raise AssertionError("no canonical tool result is expected")
 
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        del call
+        raise AssertionError("metadata fixtures are not canonical provider tool calls")
+
 
 class _AllowToolPolicy:
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
         del call
         return AgentToolPolicyDecision()
 

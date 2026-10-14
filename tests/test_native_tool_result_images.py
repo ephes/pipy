@@ -194,7 +194,9 @@ class _Policy:
     def __init__(self, transformed: Any) -> None:
         self._transformed = transformed
 
-    def before_execute(self, call: AgentToolCall) -> Any:
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> Any:
         raise AssertionError("not used")
 
     def transform_result(

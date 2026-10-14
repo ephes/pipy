@@ -562,6 +562,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-61 | none | Texts that come from the platform are Python's, not Node's: errors of the operating system (a missing executable is `[Errno 2] No such file or directory: '<command>'`), messages of the JSON parser, and the reason of a failed save. A JSON number such as `1.0` in log data or a listing is written `1.0`. | other form | `docs/mcp.md` "Differences from Pi" paragraphs |
 | DEV-62 | none (DEV-12) | The conformance runner checks `--mode` in its argument parser (exit status 2), reports a missing `npx` and a temporary directory with a space in its path before anything runs, and fails the `runner` check for a `checks.json` it cannot read. | other form | Decided in S40 (part 1) |
 | DEV-63 | none | Ended by SIGTERM or SIGHUP, pipy exits with status 143 or 129 in every mode; Pi's interactive mode exits with 0. A second signal during the shutdown is ignored in every mode; Pi's RPC mode exits at once on it. The exit hook for server processes that are still running sends SIGKILL to a group that is not gone when its close timeout is over and waits until the servers are reaped (at most a second after the last SIGKILL); Pi's hook sends SIGTERM and returns. | other form | Decided in X2 |
+| DEV-64 | none | A `tool_call` handler's change to the arguments is validated again before the tool runs: a change the schema refuses is the validation error (not a malformed call), and a value that is not JSON blocks the call. Pi runs the changed arguments as they are. | stricter | Decided in G6 |
 
 Two rows are open and are not deviations until the owner decides to accept
 them as such: SLH-13 (commands and expansion in queued RPC input) and the
@@ -3301,6 +3302,7 @@ Slices outside these two lists are serial.
 | G3 | A codemode script's calls at the same time (goal-check finding M3, DEV-03) | CMD-24, CMD-26 | M | G2 | no |
 | G4 | Codemode `store()`/`load()` per session branch (goal-check finding M4, DEV-04) | none (DEV-04) | M | G3 | no |
 | G5 | What a codemode script gets and may emit: a `null` structured result, structured `bash` results, images from `read`, the `// @options:` line, output over the limits truncated (goal-check findings M6, M15 to M18, DEV-04) | CMD-03 | M, several commits | G4 | no |
+| G6 | Tool hooks and argument validation as Pi has them: validation before the `tool_call` hooks, their argument changes run, call ids on the hook events, `tool_result` hooks that change `is_error`, details and images, foreign arguments validated and coerced, a record with an unfinished call is not complete (goal-check findings M8 to M11, M13, M14, E8, T6, T8) | CMD-24, CMD-25, CMD-26, SES-19, TLS-10 | M, several commits | G5 | no |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -3939,6 +3941,41 @@ the budget and spilled whole. Tests: `test_text_in_pieces_is_one_item`,
 `test_long_text_reaches_the_host_whole` (real guest),
 `test_images_and_text_share_the_output_cap_and_the_message_cap`,
 `test_output_over_the_line_limit_is_truncated_and_spilled` (real guest).
+
+**G6 Tool hooks and argument validation.** Added after the goal check, in
+several commits. Part 1 (findings M8 and E8 for `tool_call`, M9, M10): the
+agent loop runs Pi's `prepareToolCall` order for direct and nested calls
+alike. After admission it asks the tools for `validated_arguments(call)`
+(`ToolExecutor.validated_arguments`, also on the capability snapshots and
+`SessionExecutionProjections`; part of `AgentToolCapabilities` and
+`NestedCallableTools`): the parsed, prepared and validated arguments, or the
+malformed outcome, which settles without the `tool_call` and `tool_result`
+policy. The policy port is `before_execute(call, arguments, parent_call_id)`;
+`apply_extension_tool_policy` hands `arguments` itself to
+`dispatch_tool_call_hooks` as `ToolCallEvent.input`, so a handler changes the
+arguments in place (Pi "mutate `event.input` in place"). `ToolCallEvent`
+gains `tool_call_id` (the call's id, `<parent id>/<n>` for a nested call)
+and `parent_tool_call_id` (`None` for a call the model made). The tool
+runs the arguments the hooks left: `execute(..., arguments=...)` (on
+`ToolExecutor` and every capability surface) validates them again but does
+not run `prepare_arguments` again, so a tool's preparation runs once per
+call, as in Pi. A composite parent reads its arguments from the call, so
+when the hooks changed them (compared as sorted JSON) it runs a copy of the
+call whose `arguments_json` is the changed arguments; the transcript, the
+events, the result policy and the nested-call record keep the call as it
+was asked for. The validation of changed arguments is pipy's (DEV-64): an
+error there is an error result that does not count as a malformed call, and
+arguments that are not JSON block the call with `tool_call hooks left
+arguments that are not JSON`. Tests:
+`test_native_tool_call_hook_arguments.py` (session level: a hook changes the
+arguments, sees the call id and the calling tool's id, invalid arguments
+reach no hook), `test_arguments_that_fail_validation_reach_no_tool_policy`,
+`test_the_arguments_a_tool_policy_leaves_are_what_runs`,
+`test_arguments_a_tool_policy_made_invalid_are_not_malformed`,
+`test_arguments_a_tool_policy_left_that_are_not_json_block_the_call`,
+`test_nested_calls_are_validated_and_the_policy_gets_their_parent_id`,
+`test_a_nested_call_runs_with_the_arguments_the_policy_left`,
+`test_given_arguments_are_validated_but_not_prepared_again`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

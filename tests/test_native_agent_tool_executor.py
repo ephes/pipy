@@ -798,3 +798,41 @@ def test_external_abort_rejects_late_success_and_output_after_retirement(
         assert finished.wait(5)
         worker.join(5)
         assert not worker.is_alive()
+
+
+@dataclass(slots=True)
+class _PreparingTool(_FixtureTool):
+    prepared: list[object] = field(default_factory=list)
+
+    def prepare_arguments(self, arguments: object) -> object:
+        # Not idempotent on purpose: running it twice would show.
+        self.prepared.append(arguments)
+        assert isinstance(arguments, dict)
+        return {**arguments, "text": arguments["text"] + ".prepared"}
+
+
+@pytest.mark.parametrize("interruptible", [False, True])
+def test_given_arguments_are_validated_but_not_prepared_again(
+    tmp_path: Path, interruptible: bool
+) -> None:
+    # Pi runs ``prepareArguments`` once, before the hooks; what the hooks
+    # left runs as it is.
+    tool = _PreparingTool(_echo_result)
+    executor = ToolExecutor({"echo": tool})
+
+    validated = executor.validated_arguments(_call())
+    assert validated == {"text": "hello.prepared"}
+    outcome = executor.execute(
+        _call(),
+        _context(tmp_path),
+        (lambda done, cancel: (done.wait(), ToolExecutionInterruption.SETTLED)[1])
+        if interruptible
+        else None,
+        arguments={"text": "from hook"},
+    )
+
+    assert outcome.result.content == ProductContent("from hook")
+    assert len(tool.prepared) == 1
+    invalid = executor.execute(_call(), _context(tmp_path), arguments={"text": 3})
+    assert invalid.malformed_arguments and invalid.result.is_error
+    assert len(tool.requests) == 1 and len(tool.prepared) == 1

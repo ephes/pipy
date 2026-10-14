@@ -195,11 +195,11 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
     errors = next(row for row in rows if row[0] == "errors")
     assert "forbidden text" in errors[1]
     assert "text" in errors[2]
-    # The hooks saw the parent and every nested call that names a tool.
+    # The hooks saw the parent and every nested call that names a tool,
+    # except the one whose arguments failed validation (Pi validates first).
     assert [row[1] for row in rows if row[0] == "tool_call"] == [
         "run_tools",
         "helper",
-        "echo",
         "echo",
         "echo",
     ]

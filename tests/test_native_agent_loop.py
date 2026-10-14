@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -23,6 +24,7 @@ from pipy_harness.native.agent.events import (
     RunCancelled,
     SteeringConsumed,
     ToolCallCompleted,
+    ToolCallStarted,
     TurnCompleted,
     TurnStarted,
 )
@@ -269,6 +271,7 @@ class _Tools:
         self._order = order
         self._outcomes = list(outcomes)
         self.executed: list[AgentToolCall] = []
+        self.arguments: list[Any] = []
 
     def definitions(
         self,
@@ -285,10 +288,12 @@ class _Tools:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        arguments: Any = None,
     ) -> ToolExecutionOutcome:
         del wait_for_interrupt
         self._order.append(f"tool:execute:{call.provider_correlation_id}")
         self.executed.append(call)
+        self.arguments.append(arguments)
         if output_sink is not None:
             output_sink("progress")
         if self._outcomes:
@@ -304,6 +309,22 @@ class _Tools:
         self._order.append(f"tool:error:{call.provider_correlation_id}")
         return _tool_result(call, output_text, is_error=True)
 
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        """The arguments when they are a JSON object, else the malformed
+        outcome (the fixture's schema accepts any object)."""
+        try:
+            arguments = json.loads(call.arguments_json.value)
+        except ValueError:
+            arguments = None
+        if not isinstance(arguments, dict):
+            return ToolExecutionOutcome(
+                _tool_result(call, "bad arguments", is_error=True),
+                malformed_arguments=True,
+            )
+        return arguments
+
 
 class _ToolPolicy:
     def __init__(
@@ -313,16 +334,30 @@ class _ToolPolicy:
         blocked: bool = False,
         fail_before: bool = False,
         fail_transform: bool = False,
+        change_arguments: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._order = order
         self._blocked = blocked
         self._fail_before = fail_before
         self._fail_transform = fail_transform
+        self._change_arguments = change_arguments
         self.before_calls = 0
+        self.seen: list[tuple[str, dict[str, Any], str | None]] = []
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+        /,
+    ) -> AgentToolPolicyDecision:
         self._order.append(f"policy:before:{call.provider_correlation_id}")
         self.before_calls += 1
+        self.seen.append(
+            (call.provider_correlation_id, dict(arguments), parent_call_id)
+        )
+        if self._change_arguments is not None:
+            self._change_arguments(arguments)
         if self._fail_before:
             raise RuntimeError("tool preflight failed")
         if self._blocked:
@@ -1116,22 +1151,9 @@ def test_third_malformed_call_is_a_typed_fatal_loop_failure() -> None:
 
 def test_malformed_streak_spans_iterations_and_a_settled_call_resets_it() -> None:
     order: list[str] = []
-    malformed_outcomes = [
-        ToolExecutionOutcome(
-            _tool_result(
-                AgentToolCall(correlation_id, "fixture", ProductContent("{")),
-                "invalid arguments",
-                is_error=True,
-            ),
-            malformed_arguments=True,
-        )
-        for correlation_id in ("p1", "p2")
-    ]
+    # The malformed arguments of p1 and p2 fail validation before the tool.
     settled_call = AgentToolCall("p3", "fixture", ProductContent("{}"))
-    tools = _Tools(
-        order,
-        [*malformed_outcomes, ToolExecutionOutcome(_tool_result(settled_call))],
-    )
+    tools = _Tools(order, [ToolExecutionOutcome(_tool_result(settled_call))])
     loop, provider, _events, _usage = _make_loop(
         order,
         [
@@ -1161,6 +1183,7 @@ def test_malformed_streak_spans_iterations_and_a_settled_call_resets_it() -> Non
     assert outcome.final_tool_state.consecutive_malformed_streak == 0
     assert outcome.final_tool_state.tool_invocation_count == 1
     assert outcome.final_tool_state.invocations_this_turn == 1
+    assert [call.provider_correlation_id for call in tools.executed] == ["p3"]
 
 
 @pytest.mark.parametrize(
@@ -2148,6 +2171,7 @@ def test_invalid_executed_tool_result_stops_before_completion_and_effect(
             *,
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             del output_sink, wait_for_interrupt
             self._order.append(f"tool:execute:{call.provider_correlation_id}")
@@ -2746,3 +2770,172 @@ def test_headless_loop_passes_retry_observer_and_accepts_each_attempt() -> None:
     assert [e.result.will_retry for e in completions] == [True, False]
     assert len([e for e in events.events if isinstance(e, AgentRunSettled)]) == 1
     assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
+
+
+# -- Pi ``prepareToolCall``: validation, then the tool_call policy ----------
+
+
+def test_arguments_that_fail_validation_reach_no_tool_policy() -> None:
+    # Pi validates the arguments before ``beforeToolCall``; a call that fails
+    # validation settles without the tool_call or tool_result hooks.
+    order: list[str] = []
+    tools = _Tools(order)
+    policy = _ToolPolicy(order)
+    loop, _provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling", calls=(_provider_call("p1", arguments="[1]"),)
+                )
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tools=tools,
+        tool_policy=policy,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert policy.before_calls == 0
+    assert not any(entry.startswith("policy:") for entry in order)
+    assert tools.executed == []
+    completed = next(e for e in events.events if isinstance(e, ToolCallCompleted))
+    assert completed.result.is_error
+    assert completed.result.content.value == "bad arguments"
+    assert outcome.final_tool_state.malformed_argument_count == 1
+
+
+def test_the_arguments_a_tool_policy_leaves_are_what_runs() -> None:
+    # Pi: "To modify arguments, mutate ``event.input`` in place"; the
+    # transcript keeps the call the model made.
+    order: list[str] = []
+    tools = _Tools(order)
+
+    def change(arguments: dict[str, Any]) -> None:
+        arguments["path"] = "changed"
+
+    policy = _ToolPolicy(order, change_arguments=change)
+    loop, _provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling",
+                    calls=(_provider_call("p1", arguments='{"path": "asked"}'),),
+                )
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tools=tools,
+        tool_policy=policy,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert policy.seen == [("p1", {"path": "asked"}, None)]
+    (ran,) = tools.executed
+    assert json.loads(ran.arguments_json.value) == {"path": "changed"}
+    assert tools.arguments == [{"path": "changed"}]
+    assistant = next(
+        m for m in outcome.result.messages if isinstance(m, AgentAssistantMessage)
+    )
+    assert assistant.tool_calls[0].arguments_json.value == '{"path": "asked"}'
+    started = next(e for e in events.events if isinstance(e, ToolCallStarted))
+    assert started.call.arguments_json.value == '{"path": "asked"}'
+    assert outcome.final_tool_state.tool_invocation_count == 1
+
+
+def test_arguments_a_tool_policy_left_as_they_were_run_the_call_itself() -> None:
+    order: list[str] = []
+    tools = _Tools(order)
+    policy = _ToolPolicy(order, change_arguments=lambda arguments: None)
+    loop, _provider, _events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling",
+                    calls=(_provider_call("p1", arguments='{ "b": 1, "a": [2] }'),),
+                )
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tools=tools,
+        tool_policy=policy,
+    )
+
+    loop.run(_run_input())
+
+    (ran,) = tools.executed
+    assert ran.arguments_json.value == '{ "b": 1, "a": [2] }'
+
+
+def test_arguments_a_tool_policy_made_invalid_are_not_malformed() -> None:
+    # The tool validates changed arguments again; what fails is the hook's
+    # doing, so the model's malformed count does not grow.
+    order: list[str] = []
+    invalid = ToolExecutionOutcome(
+        _tool_result(
+            AgentToolCall("p1", "fixture", ProductContent("{}")),
+            "fixture.path: expected string",
+            is_error=True,
+        ),
+        malformed_arguments=True,
+    )
+    tools = _Tools(order, [invalid])
+
+    def change(arguments: dict[str, Any]) -> None:
+        arguments["path"] = 3
+
+    policy = _ToolPolicy(order, change_arguments=change)
+    loop, _provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result(
+                    "calling", calls=(_provider_call("p1", arguments='{"path": "a"}'),)
+                )
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tools=tools,
+        tool_policy=policy,
+    )
+
+    outcome = loop.run(_run_input())
+
+    completed = next(e for e in events.events if isinstance(e, ToolCallCompleted))
+    assert completed.result.is_error
+    assert outcome.final_tool_state.malformed_argument_count == 0
+    assert outcome.final_tool_state.consecutive_malformed_streak == 0
+
+
+def test_arguments_a_tool_policy_left_that_are_not_json_block_the_call() -> None:
+    order: list[str] = []
+    tools = _Tools(order)
+
+    def change(arguments: dict[str, Any]) -> None:
+        arguments["path"] = object()
+
+    policy = _ToolPolicy(order, change_arguments=change)
+    loop, _provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(
+                result=_provider_result("calling", calls=(_provider_call("p1"),))
+            ),
+            ProviderTurnOutcome(result=_provider_result()),
+        ],
+        tools=tools,
+        tool_policy=policy,
+    )
+
+    loop.run(_run_input())
+
+    assert tools.executed == []
+    completed = next(e for e in events.events if isinstance(e, ToolCallCompleted))
+    assert completed.result.is_error
+    assert completed.result.content.value == (
+        "blocked by extension: tool_call hooks left arguments that are not JSON"
+    )

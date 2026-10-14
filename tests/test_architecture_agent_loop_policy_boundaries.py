@@ -57,6 +57,7 @@ _CANONICAL_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.status",
         "pipy_harness.status.HarnessStatus",
         "typing",
+        "typing.Any",
         "typing.Protocol",
         "typing.runtime_checkable",
     }
@@ -66,6 +67,8 @@ _PRODUCT_ALLOWED_DIRECT_IMPORTS = frozenset(
     {
         "__future__",
         "__future__.annotations",
+        "typing",
+        "typing.Any",
         "collections.abc",
         "collections.abc.Callable",
         "dataclasses",

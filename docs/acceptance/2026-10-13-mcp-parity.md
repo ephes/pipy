@@ -22,7 +22,7 @@ judgement accepts the deviation or limit each one names (plan section 3).
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
   (2026-10-12), as the plan records.
 - pipy: branch `feat/mcp-parity`, slices S01 to S40 and X1. (X2 came after
-  this note and added DEV-63, which changes no row.) The merge to
+  this note and added DEV-63, and G6 added DEV-64; neither changes a row.) The merge to
   `main` is an owner approval (plan section 7, Q5).
 - Checks at the time of writing: `just check` passes (see the slice's
   commit), `just docs-build` reports no issues.
@@ -82,7 +82,7 @@ Plan section 3 lists DEV-01 to DEV-14, which were proposed before or while
 the slices were built. They hold as written.
 
 The slices recorded further differences from Pi. Plan section 3.1 now lists
-them as DEV-15 to DEV-63, each with the rows it changes, its kind (narrower,
+them as DEV-15 to DEV-64, each with the rows it changes, its kind (narrower,
 other form, stricter) and where it is recorded. Every row named there names
 the DEV row in the "Limits and deviations" column of the tables below and
 is `closed, with limits`. The ones a user is most likely to meet:
@@ -107,7 +107,7 @@ is `closed, with limits`. The ones a user is most likely to meet:
 - **A sign-in screen taller than the terminal is cut, not scrolled**
   (DEV-43; `docs/mcp.md` "The `/mcp` manager").
 
-All of DEV-15 to DEV-63 are proposals. Which of them are accepted is for
+All of DEV-15 to DEV-64 are proposals. Which of them are accepted is for
 the final judgement.
 
 ## Conformance suite
@@ -407,7 +407,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMD-21 | S08 | closed | `test_native_codemode_description.py`: `test_leaves_deferred_tools_and_their_namespaces_out_entirely`, `test_leaves_namespace_instructions_out`, `test_description_is_byte_identical_when_a_deferred_tool_registers` |  |
 | CMD-22 | S08 | closed, with limits | `test_native_codemode_description.py`: `test_presents_callable_tools_per_codemode_mode`, `test_script_call_line_says_what_a_call_resolves_to`, `test_session_request_with_mode_only_leaves_direct_declarations_out`, `test_tools_hidden_by_mode_only_stay_callable_from_a_script` | With `only`, a direct model call to a tool whose declaration is left out is an unknown tool in pipy (Pi would run it). Settings are read at session start and on `/reload`, not before every prompt. DEV-23. |
 | CMD-23 | S16 | closed | `test_native_mcp_tools.py`: `test_a_direct_tool_tells_scripts_what_a_call_resolves_to` |  |
-| CMD-24 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_nested_pipeline_statuses_budget_and_parent_only_records`; `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model`; `test_native_codemode_composite.py`: `test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order`, `test_submitted_calls_take_the_budget_in_the_order_they_were_made` (G3) |  |
+| CMD-24 | S03, G6 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_tool_call_hook_arguments.py`: `test_a_tool_call_hook_sees_the_call_id_and_the_calling_tools_id` (G6); `test_native_agent_nested_calls.py`: `test_nested_calls_are_validated_and_the_policy_gets_their_parent_id` (G6); `test_native_agent_nested_calls.py`: `test_nested_pipeline_statuses_budget_and_parent_only_records`; `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model`; `test_native_codemode_composite.py`: `test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order`, `test_submitted_calls_take_the_budget_in_the_order_they_were_made` (G3) |  |
 | CMD-25 | S04 | closed, with limits | `test_native_extension_tool_result_hooks.py`: `test_tool_result_hooks_see_and_decide_the_structured_content`; `test_native_agent_nested_calls.py`: `test_structured_content_follows_the_result_policy_and_the_output_schema` | Pipy's `tool_result` transform always replaces the content; Pi's can also replace details, `isError` and usage. DEV-22. |
 | CMD-26 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_transient_records_bound_argument_bytes_and_drop_mutable_details` |  |
 | CMD-27 | S08 | closed, with limits | `test_native_codemode_description.py`: `test_prompt_contribution_is_one_snippet_and_does_not_depend_on_tools` | Pipy's contribution has two guideline lines; the second predates this plan (codemode adherence). MCP adds nothing. DEV-24. |
@@ -600,7 +600,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 3. Q1: a default Client ID Metadata Document. Until one is named, `cimd`
    needs `oauth.clientMetadataBaseUrl` (DEV-06).
 4. SLH-13 and the hyperlink part of MGR-09: build or accept.
-5. Which of DEV-15 to DEV-63 (plan section 3.1) are accepted. Until then
+5. Which of DEV-15 to DEV-64 (plan section 3.1) are accepted. Until then
    the rows that name one are closed on that condition.
 6. One observation no slice owns: notices are drained only before the next
    step, so the startup report of a session whose first action is `/mcp`

@@ -114,7 +114,7 @@ from pipy_harness.native.session_tree_commands import (
 )
 from pipy_harness.native.settings import SettingsManager, retry_policy_from_settings
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
-from pipy_harness.native.tool_renderers import _parse_tool_input, _ToolLoopRenderer
+from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
     TerminalUi,
@@ -677,7 +677,10 @@ class SessionCollaborators:
         return self.extension_operations.prepare_provider_request(policy_input)
 
     def apply_extension_tool_policy(
-        self, call: AgentToolCall
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
     ) -> AgentToolPolicyDecision:
         generation_id, hooks, flags, ui_driver = (
             self.execution_projections.tool_call_policy_inputs()
@@ -685,7 +688,9 @@ class SessionCollaborators:
         tool_block = dispatch_tool_call_hooks(
             hooks,
             tool_name=call.tool_name,
-            tool_input=_parse_tool_input(call.arguments_json.value),
+            tool_input=arguments,
+            tool_call_id=call.provider_correlation_id,
+            parent_tool_call_id=parent_call_id,
             cwd=str(self.cwd),
             has_ui=self.terminal_ui is not None,
             notify_sink=self.extension_notify,

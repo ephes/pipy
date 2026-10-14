@@ -8,7 +8,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from time import monotonic
-from typing import Final, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
@@ -99,7 +99,16 @@ class NestedCallableTools(Protocol):
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: NestedToolCalls | None = None,
-    ) -> ToolExecutionOutcome: ...
+        arguments: dict[str, Any] | None = None,
+    ) -> ToolExecutionOutcome:
+        """As ``AgentToolCapabilities.execute``, on these tools."""
+        ...
+
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        """As ``AgentToolCapabilities.validated_arguments``, on these tools."""
+        ...
 
 
 class NestedToolEligibility(Protocol):

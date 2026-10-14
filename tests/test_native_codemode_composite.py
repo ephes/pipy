@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import pytest
 from codemode_driver import REAL_RUNTIME, group_is_gone, real_runtime_skip_reason
@@ -67,7 +68,7 @@ from pipy_harness.native.tools.base import (
     ToolPort,
     ToolRequest,
 )
-from pipy_harness.native.tools.codemode import CodemodeTool
+from pipy_harness.native.tools.codemode import CodemodeTool, codemode_definition
 from pipy_harness.native.tools.read import ReadTool
 from pipy_harness.native.tools.write import WriteTool
 
@@ -112,8 +113,15 @@ class _Tool:
 
     @property
     def definition(self) -> ToolDefinition:
+        # The loop validates a call's arguments before its hooks, so the
+        # fixture standing in for codemode takes codemode's arguments.
+        schema = (
+            codemode_definition().input_schema
+            if self.name == "codemode"
+            else {"type": "object"}
+        )
         return ToolDefinition(
-            self.name, "internal fixture", {"type": "object"}, exposure=self.exposure
+            self.name, "internal fixture", schema, exposure=self.exposure
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -128,11 +136,13 @@ class _Policy(_ToolPolicy):
         self.thread = threading.current_thread()
         self.children: list[AgentToolCall] = []
 
-    def before_execute(self, call: AgentToolCall, /):
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ):
         assert threading.current_thread() is self.thread
         if call.tool_name != "codemode":
             self.children.append(call)
-        return super().before_execute(call)
+        return super().before_execute(call, arguments, parent_call_id)
 
     def transform_result(
         self, call: AgentToolCall, result: AgentToolResultMessage, /
@@ -287,10 +297,10 @@ raise RuntimeError('after effect')
         state.budget_exhausted_count,
     ) == (4, 5, 1, 1)
     assert not state.reserved_parent_slot
+    # parent/3's arguments fail validation, so it reaches no hook (Pi).
     assert [call.provider_correlation_id for call in policy.children] == [
         "parent/1",
         "parent/2",
-        "parent/3",
         "parent/4",
     ]
     lifecycle = [
@@ -540,7 +550,6 @@ def test_disabled_or_extension_codemode_retains_direct_behavior(
         enabled=enabled,
         registered=registered,
         extensions={"codemode": _Tool("codemode")} if extension else None,
-        arguments="{}",
     )
     outcome = loop.run(_run_input())
     assert _parent(outcome).content.value == "fixture result"
@@ -620,8 +629,10 @@ def test_policy_rejection_is_catchable_guest_error(
     from pipy_harness.native.agent.loop_policy import AgentToolPolicyDecision
 
     class RejectPolicy(_Policy):
-        def before_execute(self, call: AgentToolCall, /):
-            super().before_execute(call)
+        def before_execute(
+            self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+        ):
+            super().before_execute(call, arguments, parent_call_id)
             return AgentToolPolicyDecision(
                 ProductContent("rejected") if call.tool_name == "write" else None
             )

@@ -407,6 +407,7 @@ def test_normal_extension_context_families_expose_zero_arg_trust_reads(
         [observe("tool")],
         tool_name="read",
         tool_input={},
+        tool_call_id="call-1",
         cwd=str(tmp_path),
         has_ui=False,
         project_trusted=True,

@@ -146,7 +146,9 @@ class _RequestPolicy:
 
 
 class _ToolPolicy:
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
         del call
         return AgentToolPolicyDecision()
 
@@ -164,9 +166,11 @@ class _CountingToolPolicy(_ToolPolicy):
     def __init__(self) -> None:
         self.before_execute_count = 0
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
         self.before_execute_count += 1
-        return super().before_execute(call)
+        return super().before_execute(call, arguments, parent_call_id)
 
 
 def _admit_with_policy(
@@ -180,7 +184,7 @@ def _admit_with_policy(
         return admission
     return apply_tool_policy_decision(
         admission.state,
-        policy.before_execute(_call()),
+        policy.before_execute(_call(), {}, None),
     )
 
 
@@ -194,7 +198,7 @@ def test_request_and_tool_policy_protocols_are_runtime_checkable(
     assert isinstance(request_policy, AgentProviderRequestPolicy)
     assert request_policy.prepare(policy_input).request == policy_input.baseline
     assert isinstance(tool_policy, AgentToolPolicy)
-    assert tool_policy.before_execute(_call()) == AgentToolPolicyDecision()
+    assert tool_policy.before_execute(_call(), {}, None) == AgentToolPolicyDecision()
     assert tool_policy.transform_result(_call(), _tool_result()) == ProductContent(
         "transformed"
     )

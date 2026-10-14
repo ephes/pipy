@@ -709,6 +709,7 @@ def test_non_lifecycle_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> N
         ),
         tool_name="bash",
         tool_input={},
+        tool_call_id="call-1",
         cwd=str(tmp_path),
         has_ui=True,
         ui_driver=driver,  # type: ignore[arg-type]

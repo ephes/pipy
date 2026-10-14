@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from test_native_agent_loop import (
@@ -41,6 +42,7 @@ from pipy_harness.native.agent.loop_policy import (
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
     NestedCallStatus,
+    NestedToolCallOutcome,
     NestedToolCallService,
 )
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
@@ -96,6 +98,7 @@ class _NestedTools(_Tools):
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: object = None,
+        arguments: Any = None,
     ) -> ToolExecutionOutcome:
         if call.arguments_json.value == "malformed":
             self.executed.append(call)
@@ -109,8 +112,10 @@ class _NestedTools(_Tools):
 
 
 class _Policy(_ToolPolicy):
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
-        super().before_execute(call)
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
+        super().before_execute(call, arguments, parent_call_id)
         return AgentToolPolicyDecision(
             ProductContent("denied") if call.tool_name == "write" else None
         )
@@ -220,12 +225,10 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
         NestedCallStatus.BUDGET_EXHAUSTED,
     ]
     assert seen[0].result.content.value.endswith(" transformed")
+    # Malformed arguments fail validation before the hooks and the tool.
     assert [call.provider_correlation_id for call in tools.executed] == [
         "parent0/1",
         "parent0/3",
-        "parent0/4",
-        "parent0/5",
-        "parent0/6",
     ]
     state = outcome.final_tool_state
     assert (
@@ -436,15 +439,18 @@ def test_nested_waiter_validation_and_callback_threads() -> None:
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             return pinned.execute(
                 call, output_sink=output_sink, wait_for_interrupt=wait_for_interrupt
             )
 
     class ThreadPolicy(_Policy):
-        def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+        def before_execute(
+            self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+        ) -> AgentToolPolicyDecision:
             assert threading.current_thread() is session_thread
-            return super().before_execute(call)
+            return super().before_execute(call, arguments, parent_call_id)
 
         def transform_result(
             self, call: AgentToolCall, result: AgentToolResultMessage, /
@@ -474,6 +480,7 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             result = super().execute(
                 call, output_sink=output_sink, wait_for_interrupt=wait_for_interrupt
@@ -548,13 +555,15 @@ def test_reentrant_call_is_refused_without_second_execution() -> None:
     service_holder: list[NestedToolCallService] = []
 
     class Policy(_Policy):
-        def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+        def before_execute(
+            self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+        ) -> AgentToolPolicyDecision:
             if "/" in call.provider_correlation_id:
                 assert (
                     service_holder[0].call("read", "{}").status
                     is NestedCallStatus.REFUSED
                 )
-            return super().before_execute(call)
+            return super().before_execute(call, arguments, parent_call_id)
 
     def run(
         call: AgentToolCall, service: NestedToolCallService
@@ -681,9 +690,15 @@ def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             self.order.append(f"snapshot:execute:{call.provider_correlation_id}")
             return ToolExecutionOutcome(_tool_result(call, "from snapshot"))
+
+        def validated_arguments(
+            self, call: AgentToolCall, /
+        ) -> dict[str, Any] | ToolExecutionOutcome:
+            return dict(json.loads(call.arguments_json.value))
 
     class LiveTools(_NestedTools):
         live = frozenset({"read"})
@@ -793,7 +808,6 @@ def test_parent_preserves_child_interruption_ignored_by_runner(
 
 @pytest.mark.parametrize("limit", ["count", "per_call", "total"])
 def test_sticky_interruption_survives_evidence_limits(limit: str) -> None:
-    from pipy_harness.native.agent.nested_calls import NestedToolCallOutcome
 
     interrupt = False
 
@@ -1075,7 +1089,13 @@ def test_structured_content_follows_the_result_policy_and_the_output_schema() ->
         structured = frozenset({"stats", "redacted", "replaced", "kept", "codemode"})
 
         def execute(
-            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
         ):
             del output_sink, wait_for_interrupt
             self.executed.append(call)
@@ -1144,7 +1164,13 @@ def test_a_failed_call_without_error_text_is_recorded_as_failed() -> None:
 
     class Tools(_NestedTools):
         def execute(
-            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
         ):
             del output_sink, wait_for_interrupt
             return ToolExecutionOutcome(_tool_result(call, "", is_error=True))
@@ -1198,7 +1224,13 @@ def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
 
     class Blocking(_NestedTools):
         def execute(
-            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
         ):
             release.wait(5)
             return super().execute(call)
@@ -1236,7 +1268,13 @@ def test_a_script_child_serves_the_calls_of_its_own_threads() -> None:
     # depth), also from a thread it starts while the script's call waits.
     class Nesting(_NestedTools):
         def execute(
-            self, call, *, output_sink=None, wait_for_interrupt=None, nested_tools=None
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
         ):
             if call.tool_name != "read" or nested_tools is None:
                 return super().execute(call)
@@ -1272,3 +1310,48 @@ def test_a_script_child_serves_the_calls_of_its_own_threads() -> None:
     assert outcomes[0].result.content.value.startswith("read saw ")
     # The record keeps the order the calls began in, as Pi's recorder does.
     assert ids == [["parent0/1", "parent0/1/1"]]
+
+
+def test_nested_calls_are_validated_and_the_policy_gets_their_parent_id() -> None:
+    # Pi ``_beforeToolCall(context, parentId)``: the hooks of a nested call
+    # see its ``<parent id>/<n>`` id and the calling tool's id, after the
+    # arguments were validated; a call that fails validation reaches no hook.
+    policy = _Policy([])
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        assert service.call("read", '{"path": "a"}').status is NestedCallStatus.SETTLED
+        assert service.call("read", "[]").status is NestedCallStatus.MALFORMED
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, tools, _, _ = _setup(_Runner(run), policy=policy)
+    outcome = loop.run(_run_input())
+    assert policy.seen == [
+        ("parent0", {}, None),
+        ("parent0/1", {"path": "a"}, "parent0"),
+    ]
+    assert [call.provider_correlation_id for call in tools.executed] == ["parent0/1"]
+    assert outcome.final_tool_state.nested_malformed_count == 1
+
+
+def test_a_nested_call_runs_with_the_arguments_the_policy_left() -> None:
+    def change(arguments: dict[str, Any]) -> None:
+        if "path" in arguments:
+            arguments["path"] = "changed"
+
+    policy = _Policy([], change_arguments=change)
+    seen: list[NestedToolCallOutcome] = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        seen.append(service.call("read", '{"path": "asked"}'))
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, tools, _, _ = _setup(_Runner(run), policy=policy)
+    loop.run(_run_input())
+    (ran,) = tools.executed
+    assert json.loads(ran.arguments_json.value) == {"path": "changed"}
+    # The outcome and the record name the call as it was asked for.
+    assert seen[0].nested_call.arguments_json.value == '{"path": "asked"}'

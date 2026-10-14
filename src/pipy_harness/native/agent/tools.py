@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
@@ -111,7 +111,13 @@ class AgentToolCapabilities(Protocol):
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
-    ) -> ToolExecutionOutcome: ...
+        arguments: dict[str, Any] | None = None,
+    ) -> ToolExecutionOutcome:
+        """Run ``call``; with ``arguments``, run those instead of its own.
+
+        See :meth:`ToolExecutor.execute`.
+        """
+        ...
 
     def error_result(
         self,
@@ -119,6 +125,15 @@ class AgentToolCapabilities(Protocol):
         output_text: str,
         /,
     ) -> AgentToolResultMessage: ...
+
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        """The call's arguments as its tool will run them, before any hook.
+
+        See :meth:`ToolExecutor.validated_arguments`.
+        """
+        ...
 
 
 def cancelled_tool_outcome(
@@ -237,17 +252,28 @@ class ToolExecutor:
         call: AgentToolCall,
         context: ToolContext,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        *,
+        arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
-        """Execute ``call``, optionally on a worker observed by ``wait_for_interrupt``."""
+        """Execute ``call``, optionally on a worker observed by ``wait_for_interrupt``.
+
+        Without ``arguments`` the call's own arguments are parsed, prepared
+        and validated (:meth:`validated_arguments`). With them, the call runs
+        those arguments, which :meth:`validated_arguments` produced and the
+        ``tool_call`` hooks may have changed: they are validated again but
+        not prepared again, so the tool's ``prepare_arguments`` runs once per
+        call (Pi runs ``prepareArguments`` once, before the hooks).
+        """
 
         output_gate = _InvocationOutputGate(context.output_sink)
         invocation_context = replace(context, output_sink=output_gate.sink)
         try:
             if wait_for_interrupt is None:
-                return self._execute_once(call, invocation_context)
+                return self._execute_once(call, invocation_context, arguments)
             return self._execute_interruptibly(
                 call,
                 invocation_context,
+                arguments,
                 wait_for_interrupt,
                 output_gate,
             )
@@ -269,10 +295,62 @@ class ToolExecutor:
             provider_correlation_id=call.provider_correlation_id,
         )
 
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        """Pi ``prepareToolCall`` up to the hooks: the call's arguments
+        parsed, put through the tool's ``prepare_arguments`` and validated
+        against its schema, as a detached copy the ``tool_call`` hooks may
+        change. An unknown tool, arguments that are not JSON and arguments the
+        schema refuses give the malformed outcome the call settles with
+        instead.
+        """
+
+        tool = self._registry.get(call.tool_name)
+        if tool is None:
+            return ToolExecutionOutcome(
+                self.error_result(call, f"unknown tool: {call.tool_name}"),
+                malformed_arguments=True,
+            )
+        try:
+            raw_arguments = json.loads(call.arguments_json.value)
+        except json.JSONDecodeError as exc:
+            return ToolExecutionOutcome(
+                self.error_result(call, f"invalid arguments JSON: {exc.msg}"),
+                malformed_arguments=True,
+            )
+        # Pi's `prepareArguments` runs before schema validation.
+        prepare = getattr(tool, "prepare_arguments", None)
+        if callable(prepare):
+            raw_arguments = prepare(raw_arguments)
+        return self._checked_arguments(call, tool, raw_arguments)
+
+    def _checked_arguments(
+        self, call: AgentToolCall, tool: ToolPort, arguments: object
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        definition = tool.definition
+        validate = (
+            validate_foreign_arguments
+            if definition.schema_mode == "foreign"
+            else validate_arguments
+        )
+        try:
+            return validate(
+                tool_name=call.tool_name,
+                schema=definition.input_schema,
+                arguments=arguments,
+            )
+        except ToolArgumentError as exc:
+            return ToolExecutionOutcome(
+                self.error_result(call, str(exc)),
+                malformed_arguments=True,
+            )
+
     def _execute_interruptibly(
         self,
         call: AgentToolCall,
         context: ToolContext,
+        arguments: dict[str, Any] | None,
         wait_for_interrupt: ToolInterruptWaiter,
         output_gate: _InvocationOutputGate,
     ) -> ToolExecutionOutcome:
@@ -285,7 +363,9 @@ class ToolExecutor:
 
         def _worker() -> None:
             try:
-                result_holder.append(self._execute_once(call, cancellable_context))
+                result_holder.append(
+                    self._execute_once(call, cancellable_context, arguments)
+                )
             # re-raised by the caller
             except BaseException as exc:  # pragma: no cover  # noqa: BLE001
                 error_holder.append(exc)
@@ -372,36 +452,17 @@ class ToolExecutor:
         self,
         call: AgentToolCall,
         context: ToolContext,
+        given: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
         tool = self._registry.get(call.tool_name)
-        if tool is None:
-            return ToolExecutionOutcome(
-                self.error_result(call, f"unknown tool: {call.tool_name}"),
-                malformed_arguments=True,
-            )
+        if given is None or tool is None:
+            arguments = self.validated_arguments(call)
+        else:
+            arguments = self._checked_arguments(call, tool, given)
+        if isinstance(arguments, ToolExecutionOutcome):
+            return arguments
+        assert tool is not None  # an unknown tool is a malformed outcome
         try:
-            raw_arguments = json.loads(call.arguments_json.value)
-        except json.JSONDecodeError as exc:
-            return ToolExecutionOutcome(
-                self.error_result(call, f"invalid arguments JSON: {exc.msg}"),
-                malformed_arguments=True,
-            )
-        # Pi's `prepareArguments` runs before schema validation.
-        prepare = getattr(tool, "prepare_arguments", None)
-        if callable(prepare):
-            raw_arguments = prepare(raw_arguments)
-        definition = tool.definition
-        validate = (
-            validate_foreign_arguments
-            if definition.schema_mode == "foreign"
-            else validate_arguments
-        )
-        try:
-            arguments = validate(
-                tool_name=call.tool_name,
-                schema=definition.input_schema,
-                arguments=raw_arguments,
-            )
             request = ToolRequest(
                 tool_request_id=make_tool_request_id(),
                 tool_name=call.tool_name,

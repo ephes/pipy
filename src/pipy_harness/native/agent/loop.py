@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import copy
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from math import isfinite
 from time import monotonic
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import require_bool
 from pipy_harness.native.agent.active_input import AgentActiveInput
@@ -49,6 +51,7 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolInvocationMode,
     AgentToolPolicy,
     AgentToolPolicyAction,
+    AgentToolPolicyDecision,
     AgentToolPolicyState,
     AgentToolPolicyTransition,
     AgentToolResultTransform,
@@ -938,8 +941,8 @@ class AgentLoop:
             call,
             turn_index,
             publish_budget_state,
-            composite_execute=lambda transition: self._execute_as_parent(
-                state, snapshot, call, turn_index, transition
+            composite_execute=lambda transition, run_call: self._execute_as_parent(
+                state, snapshot, call, run_call, turn_index, transition
             ),
         )
         return self._record_tool_call(state, calls, call_index, settled, results)
@@ -948,12 +951,15 @@ class AgentLoop:
         self,
         state: _RunState,
         snapshot: AgentProviderRequestSnapshot,
+        asked: AgentToolCall,
         call: AgentToolCall,
         turn_index: int,
         transition: AgentToolPolicyTransition,
     ) -> _SettledToolCall | None:
         """Run the admitted call as a composite parent when a runner takes
-        it: the built-in ``codemode``, or what the product names."""
+        it: the built-in ``codemode``, or what the product names. ``call``
+        carries the arguments the ``tool_call`` hooks left; ``asked`` is the
+        call the model made."""
         runner: AgentCompositeToolRunner | None = None
         if (
             self._composite_runner is not None
@@ -969,7 +975,7 @@ class AgentLoop:
         if runner is None:
             return None
         return self._execute_composite(
-            state, snapshot, call, turn_index, transition, runner
+            state, snapshot, asked, call, turn_index, transition, runner
         )
 
     def _settle_tool_call(
@@ -981,7 +987,7 @@ class AgentLoop:
         publish_budget_state: Callable[[AgentToolPolicyState], None],
         *,
         composite_execute: Callable[
-            [AgentToolPolicyTransition], _SettledToolCall | None
+            [AgentToolPolicyTransition, AgentToolCall], _SettledToolCall | None
         ]
         | None = None,
     ) -> _SettledToolCall:
@@ -1016,36 +1022,37 @@ class AgentLoop:
         admitted_state: AgentToolPolicyState,
         *,
         composite_execute: Callable[
-            [AgentToolPolicyTransition], _SettledToolCall | None
+            [AgentToolPolicyTransition, AgentToolCall], _SettledToolCall | None
         ]
         | None = None,
     ) -> _SettledToolCall:
         self._events.emit(ToolCallStarted(turn_index, call))
-        decision = self._tool_policy.before_execute(call)
-        transition = apply_tool_policy_decision(admitted_state, decision)
-        if transition.action is AgentToolPolicyAction.BLOCKED:
-            assert decision.blocked_reason is not None
-            result = self._tools.error_result(
-                call,
-                f"blocked by extension: {decision.blocked_reason.value}",
-            )
-            _validate_tool_result_for_call(result, call)
-            self._emit_tool_completed(call, result, turn_index)
-            return _SettledToolCall(result, transition)
+        prepared = self._prepare_tool_call(
+            self._tools, call, admitted_state, AgentToolInvocationMode.DIRECT, None
+        )
+        if isinstance(prepared, _SettledToolCall):
+            self._emit_tool_completed(call, prepared.result, turn_index)
+            return prepared
+        transition, run_call, arguments = prepared
         # The product's wait for what the call needs (MCP servers that are
         # still connecting) comes after the hooks and before a composite
         # parent takes its callable snapshot, so that snapshot has the tools
         # the wait was for.
         interrupted = self._wait_until_ready(call, None)
         if interrupted is None and composite_execute is not None:
-            composite = composite_execute(transition)
+            composite = composite_execute(transition, run_call)
             if composite is not None:
                 return composite
         started_at = datetime.now(UTC)
-        execution = interrupted or self._tools.execute(
+        execution = interrupted or _hook_arguments_outcome(
             call,
-            output_sink=self._tool_output_sink(turn_index, call),
-            wait_for_interrupt=self._tool_waiter,
+            run_call,
+            self._tools.execute(
+                run_call,
+                output_sink=self._tool_output_sink(turn_index, call),
+                wait_for_interrupt=self._tool_waiter,
+                arguments=arguments,
+            ),
         )
         settled = self._settle_execution(
             admitted_state, call, execution, AgentToolInvocationMode.DIRECT
@@ -1058,6 +1065,56 @@ class AgentLoop:
             )
         )
         return settled
+
+    def _prepare_tool_call(
+        self,
+        tools: AgentToolCapabilities | NestedCallableTools,
+        call: AgentToolCall,
+        tool_state: AgentToolPolicyState,
+        mode: AgentToolInvocationMode,
+        parent_call_id: str | None,
+    ) -> (
+        _SettledToolCall
+        | tuple[AgentToolPolicyTransition, AgentToolCall, dict[str, Any]]
+    ):
+        """Pi ``prepareToolCall``: validate the arguments, then run the
+        ``tool_call`` policy on them.
+
+        How the call settled when it does not run: arguments that fail
+        validation reach no hook (and no ``tool_result`` hook either), and a
+        blocked call is an error result. Otherwise the admitted transition,
+        the call to run, which carries the arguments as the hooks left them
+        (``call`` itself when they left them as validated) for a composite
+        parent that reads them from the call, and those arguments, which the
+        tool runs without preparing them again.
+        """
+        arguments = tools.validated_arguments(call)
+        if isinstance(arguments, ToolExecutionOutcome):
+            return self._settle_execution(
+                tool_state, call, arguments, mode, run_hooks=False
+            )
+        if type(arguments) is not dict:
+            raise TypeError("validated_arguments must return a dict")
+        validated = copy.deepcopy(arguments)
+        decision = self._tool_policy.before_execute(call, arguments, parent_call_id)
+        run_call: AgentToolCall | None = call
+        if decision.blocked_reason is None:
+            run_call = _call_with_arguments(call, validated, arguments)
+            if run_call is None:
+                decision = AgentToolPolicyDecision(
+                    ProductContent("tool_call hooks left arguments that are not JSON")
+                )
+        transition = apply_tool_policy_decision(tool_state, decision, mode=mode)
+        if transition.action is AgentToolPolicyAction.BLOCKED:
+            assert decision.blocked_reason is not None
+            result = self._tools.error_result(
+                call,
+                f"blocked by extension: {decision.blocked_reason.value}",
+            )
+            _validate_tool_result_for_call(result, call)
+            return _SettledToolCall(result, transition)
+        assert run_call is not None
+        return transition, run_call, arguments
 
     def _wait_until_ready(
         self, call: AgentToolCall, nested_waiter: ToolInterruptWaiter | None
@@ -1078,12 +1135,17 @@ class AgentLoop:
         call: AgentToolCall,
         execution: ToolExecutionOutcome,
         mode: AgentToolInvocationMode,
+        *,
+        run_hooks: bool = True,
     ) -> _SettledToolCall:
         """Settle what the tool returned (or the outcome of a call cancelled
-        before it ran) and run the ``tool_result`` hooks."""
+        before it ran) and run the ``tool_result`` hooks, unless the call
+        never reached its ``tool_call`` hooks."""
         settlement = settle_tool_execution(tool_state, execution, mode=mode)
         _validate_tool_result_for_call(execution.result, call)
-        result = _transform_tool_result(self._tool_policy, call, execution.result)
+        result = execution.result
+        if run_hooks:
+            result = _transform_tool_result(self._tool_policy, call, result)
         _validate_tool_result_for_call(result, call)
         return _SettledToolCall(result, settlement, execution.cancelled)
 
@@ -1092,14 +1154,16 @@ class AgentLoop:
         state: _RunState,
         snapshot: AgentProviderRequestSnapshot,
         call: AgentToolCall,
+        tools: NestedCallableTools | None,
         eligible: frozenset[str],
         pending: int,
         waiter: ToolInterruptWaiter | None,
         publish: Callable[[AgentToolPolicyState], None],
-    ) -> _SettledToolCall | None:
-        """Session thread: a nested call's admission, ``tool_call`` hooks
-        and readiness wait, on the current state. ``None`` when it may run;
-        otherwise how it settled without running."""
+    ) -> _SettledToolCall | tuple[AgentToolCall, dict[str, Any]]:
+        """Session thread: a nested call's admission, argument validation,
+        ``tool_call`` hooks and readiness wait, on the current state. The
+        call to run and its arguments when it may run; otherwise how it
+        settled without running."""
         mode = AgentToolInvocationMode.NESTED
         admission = decide_tool_admission(
             state.tool_state,
@@ -1121,25 +1185,22 @@ class AgentLoop:
             result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
             _validate_tool_result_for_call(result, call)
             return _SettledToolCall(result, admission)
-        decision = self._tool_policy.before_execute(call)
-        transition = apply_tool_policy_decision(state.tool_state, decision, mode=mode)
-        if transition.action is AgentToolPolicyAction.BLOCKED:
-            assert decision.blocked_reason is not None
-            result = self._tools.error_result(
-                call,
-                f"blocked by extension: {decision.blocked_reason.value}",
-            )
-            _validate_tool_result_for_call(result, call)
-            return _SettledToolCall(result, transition)
+        assert tools is not None  # nothing is eligible without it
+        prepared = self._prepare_tool_call(
+            tools, call, state.tool_state, mode, _caller_id(call)
+        )
+        if isinstance(prepared, _SettledToolCall):
+            return prepared
         interrupted = self._wait_until_ready(call, waiter)
         if interrupted is not None:
             return self._settle_execution(state.tool_state, call, interrupted, mode)
-        return None
+        return prepared[1], prepared[2]
 
     def _execute_composite(
         self,
         state: _RunState,
         snapshot: AgentProviderRequestSnapshot,
+        asked: AgentToolCall,
         call: AgentToolCall,
         turn_index: int,
         transition: AgentToolPolicyTransition,
@@ -1195,7 +1256,9 @@ class AgentLoop:
             reserved = reserve_composite_parent(transition)
             _revalidate_tool_policy_state(reserved)
             state.tool_state = reserved
-            execution = self._run_composite(call, service, runner)
+            execution = _hook_arguments_outcome(
+                asked, call, self._run_composite(call, service, runner)
+            )
             service.raise_pipeline_failure()
             service.close()
             if (
@@ -1215,7 +1278,9 @@ class AgentLoop:
                     execution,
                     result=self._with_nested_record(execution.result, service),
                 )
-            result = _transform_tool_result(self._tool_policy, call, execution.result)
+            # The result policy sees the call as it was asked for, as for a
+            # direct or a nested call.
+            result = _transform_tool_result(self._tool_policy, asked, execution.result)
             _validate_tool_result_for_call(result, call)
             if recorded:
                 # Hooks own content; canonical metadata is a fresh post-hook
@@ -1485,19 +1550,21 @@ class _NestedPipeline:
         loop._events.emit(
             NestedToolCallStarted(self._turn_index, _caller_id(child), child)
         )
+        tools = self._callable_tools
         before = loop._admit_nested(
             self._state,
             self._snapshot,
             child,
+            tools,
             self._eligible,
             self._pending,
             waiter,
             self._publish,
         )
-        if before is not None:
+        if isinstance(before, _SettledToolCall):
             return self._outcome(child, before, started)
-        tools = self._callable_tools
-        assert tools is not None  # nothing is eligible without it
+        assert tools is not None
+        run_child, arguments = before
         self._pending += 1
         finished = False
 
@@ -1507,11 +1574,16 @@ class _NestedPipeline:
             nested_tools: NestedToolCalls | None,
             output_sink: Callable[[str], None] | None = None,
         ) -> ToolExecutionOutcome:
-            return tools.execute(
+            return _hook_arguments_outcome(
                 child,
-                output_sink=output_sink,
-                wait_for_interrupt=wait_for_interrupt,
-                nested_tools=nested_tools,
+                run_child,
+                tools.execute(
+                    run_child,
+                    output_sink=output_sink,
+                    wait_for_interrupt=wait_for_interrupt,
+                    nested_tools=nested_tools,
+                    arguments=arguments,
+                ),
             )
 
         def finish(execution: ToolExecutionOutcome) -> NestedToolCallOutcome:
@@ -1568,6 +1640,40 @@ class _NestedPipeline:
             )
         )
         return outcome
+
+
+def _call_with_arguments(
+    call: AgentToolCall, validated: dict[str, Any], arguments: dict[str, Any]
+) -> AgentToolCall | None:
+    """The call to run with the arguments the ``tool_call`` hooks left.
+
+    ``call`` itself when they left the validated arguments as they were, so
+    the tool validates them again to the same result; otherwise a call with
+    the changed arguments, which the tool validates again too (Pi runs them
+    as they are). ``None`` when the hooks left a value that is not JSON.
+    """
+
+    try:
+        before = json.dumps(validated, sort_keys=True, allow_nan=False)
+        after = json.dumps(arguments, sort_keys=True, allow_nan=False)
+        if after == before:
+            return call
+        text = json.dumps(arguments, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return None
+    return replace(call, arguments_json=ProductContent(text))
+
+
+def _hook_arguments_outcome(
+    asked: AgentToolCall, ran: AgentToolCall, execution: ToolExecutionOutcome
+) -> ToolExecutionOutcome:
+    """Arguments that a ``tool_call`` hook made invalid are not the model's
+    malformed arguments: the error result stays, the malformed count does
+    not grow."""
+
+    if ran is asked or not execution.malformed_arguments:
+        return execution
+    return replace(execution, malformed_arguments=False)
 
 
 def _caller_id(call: AgentToolCall) -> str:

@@ -98,6 +98,7 @@ def _dispatch(workspace, tool_name, tool_input):
         _hooks(workspace),
         tool_name=tool_name,
         tool_input=tool_input,
+        tool_call_id="call-1",
         cwd=str(workspace),
         has_ui=False,
     )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import FrozenInstanceError, dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -323,6 +323,7 @@ def test_agent_protocol_accepts_a_headless_fake_implementation() -> None:
             output_sink: Callable[[str], None] | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             del call, output_sink, wait_for_interrupt
             raise AssertionError("execution is not required for protocol discovery")
@@ -332,6 +333,12 @@ def test_agent_protocol_accepts_a_headless_fake_implementation() -> None:
         ) -> AgentToolResultMessage:
             del call, output_text
             raise AssertionError("errors are not required for protocol discovery")
+
+        def validated_arguments(
+            self, call: AgentToolCall, /
+        ) -> dict[str, object] | ToolExecutionOutcome:
+            del call
+            raise AssertionError("arguments are not required for protocol discovery")
 
     capabilities: AgentToolCapabilities = _HeadlessCapabilities()
     assert isinstance(capabilities, AgentToolCapabilities)

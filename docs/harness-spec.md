@@ -1518,7 +1518,11 @@ boundary for one model-selected tool call. It receives a canonical
 `AgentToolCall`, a `ToolContext`, and a registry of `ToolPort` implementations;
 it owns lookup, a tool's optional `prepare_arguments` (Pi's `prepareArguments`,
 run on the parsed arguments before validation; `edit` uses it to accept Pi's
-legacy argument shapes), JSON/schema validation, pipy-owned request-id allocation,
+legacy argument shapes), JSON/schema validation (also on its own as
+`validated_arguments`, which the agent loop runs before the `tool_call`
+policy; the loop then passes the arguments the hooks left as
+`execute(..., arguments=...)`, which validates them again without preparing
+them again), pipy-owned request-id allocation,
 invocation, live output propagation, exact malformed/error observations, and
 normalization into `AgentToolResultMessage`. Unexpected exceptions and invalid
 tool return types still propagate. A caller may inject a wait port for the

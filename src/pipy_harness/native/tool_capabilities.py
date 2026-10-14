@@ -7,6 +7,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
+from typing import Any
 
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.tools import (
@@ -517,6 +518,7 @@ class NativeToolCapabilitySnapshot:
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         extension_generation_id: int | None = None,
         nested_tools: NestedToolCalls | None = None,
+        arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
         return self.state.executor.execute(
             call,
@@ -527,7 +529,13 @@ class NativeToolCapabilitySnapshot:
                 nested_tools=nested_tools,
             ),
             wait_for_interrupt=wait_for_interrupt,
+            arguments=arguments,
         )
+
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        return self.state.executor.validated_arguments(call)
 
     def is_extension_tool(self, name: str) -> bool:
         """Whether the registered tool of this name is an extension's."""
@@ -1199,11 +1207,13 @@ class NativeToolCapabilities:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
         return NativeToolCapabilitySnapshot(self, self.state).execute(
             call,
             output_sink=output_sink,
             wait_for_interrupt=wait_for_interrupt,
+            arguments=arguments,
         )
 
     def error_result(
@@ -1215,6 +1225,11 @@ class NativeToolCapabilities:
         return NativeToolCapabilitySnapshot(self, self.state).error_result(
             call, output_text
         )
+
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        return NativeToolCapabilitySnapshot(self, self.state).validated_arguments(call)
 
 
 def _same_ports(left: Mapping[str, ToolPort], right: Mapping[str, ToolPort]) -> bool:

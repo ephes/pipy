@@ -479,6 +479,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- `tool_call` hooks run after argument validation, as in Pi: a call whose
+  arguments do not fit the tool's schema gets the validation error and
+  reaches no `tool_call` or `tool_result` hook (before, the hooks saw the
+  raw arguments and the tool rejected them afterwards). `event.input` is the
+  validated arguments, and a hook that changes it in place changes what the
+  tool runs with; before, changes were ignored. The transcript keeps the
+  arguments the model sent. `ToolCallEvent` gains `tool_call_id` and
+  `parent_tool_call_id`, so a hook can tell a codemode script's call
+  (`<parent id>/<n>`) and its calling tool. `dispatch_tool_call_hooks` takes
+  `tool_call_id` (and `parent_tool_call_id`). See
+  [Call hooks](docs/extension-api.md#extension-tool-metadata).
 - The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
   as Pi's `prompt` handles them. A text that names an extension command runs
   it and starts no run; `/mcp` is such a command and prints the server

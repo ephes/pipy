@@ -949,16 +949,23 @@ class ToolBlock:
 
 @dataclass(frozen=True, slots=True)
 class ToolCallEvent:
-    """The live model-selected tool call presented to a `tool_call` hook.
+    """The live tool call presented to a `tool_call` hook.
 
-    `tool_name` is the tool the model chose; `input` is its parsed
-    arguments. Trusted local hooks may inspect these to gate execution;
+    `tool_name` is the tool called; `input` is its arguments after argument
+    validation, the very dict the tool runs with: a hook changes the
+    arguments by changing `input` in place (Pi `ToolCallEvent.input`).
+    `tool_call_id` is the call's id; a call another tool made (a codemode
+    script's, `ctx.execute_tool`) has the id `<parent id>/<n>` and its
+    `parent_tool_call_id` is the calling tool's id, `None` for a call the
+    model made. Trusted local hooks may inspect these to gate execution;
     this live access does not change archive policy (raw tool inputs are
     not archived by default).
     """
 
     tool_name: str
-    input: Mapping[str, object]
+    input: dict[str, object]
+    tool_call_id: str
+    parent_tool_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

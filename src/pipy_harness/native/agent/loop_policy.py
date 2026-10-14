@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import (
     require_bool,
@@ -149,7 +149,21 @@ class AgentToolResultTransform:
 class AgentToolPolicy(Protocol):
     """Product-owned tool policy constrained to blocking and content transforms."""
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision: ...
+    def before_execute(
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+        /,
+    ) -> AgentToolPolicyDecision:
+        """Decide whether ``call`` runs, after its arguments were validated.
+
+        ``arguments`` are the validated arguments the tool will run with; a
+        change the policy makes to them in place is what runs (Pi
+        ``beforeToolCall``). ``parent_call_id`` is the id of the call that
+        made a nested call, ``None`` for a call the model made.
+        """
+        ...
 
     def transform_result(
         self,

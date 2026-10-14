@@ -15,7 +15,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TextIO
+from typing import Any, TextIO
 
 from pipy_harness.native.agent import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.tools import ToolExecutionOutcome, ToolInterruptWaiter
@@ -86,6 +86,7 @@ class ExecutionCallableSnapshot:
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: NestedToolCalls | None = None,
+        arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
         return self.tools.execute(
             call,
@@ -93,7 +94,13 @@ class ExecutionCallableSnapshot:
             wait_for_interrupt=wait_for_interrupt,
             extension_generation_id=self.generation_id,
             nested_tools=nested_tools,
+            arguments=arguments,
         )
+
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        return self.tools.validated_arguments(call)
 
 
 class SessionExecutionProjections:
@@ -189,6 +196,7 @@ class SessionExecutionProjections:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
         active = self._require_active()
         return active.tools.execute(
@@ -196,6 +204,7 @@ class SessionExecutionProjections:
             output_sink=output_sink,
             wait_for_interrupt=wait_for_interrupt,
             extension_generation_id=active.generation_id,
+            arguments=arguments,
         )
 
     def runs_as_parent(self, tool_name: str) -> bool:
@@ -228,6 +237,11 @@ class SessionExecutionProjections:
         /,
     ) -> AgentToolResultMessage:
         return self._require_active().tools.error_result(call, output_text)
+
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:
+        return self._require_active().tools.validated_arguments(call)
 
     def tool_renderers(
         self, advertised_names: Sequence[str]

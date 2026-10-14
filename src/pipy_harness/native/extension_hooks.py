@@ -806,7 +806,9 @@ def dispatch_tool_call_hooks(
     hooks: Sequence[HookHandler],
     *,
     tool_name: str,
-    tool_input: Mapping[str, object],
+    tool_input: dict[str, object],
+    tool_call_id: str,
+    parent_tool_call_id: str | None = None,
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
@@ -817,15 +819,22 @@ def dispatch_tool_call_hooks(
 ) -> ToolBlock | None:
     """Run `tool_call` hooks for one tool call; return the first block.
 
-    Each hook receives a `ToolCallEvent` (live tool name + parsed input)
-    and a mode-aware context. The first hook to return a `ToolBlock`
-    blocks the call; hooks returning anything else allow it. A hook that
-    raises fails closed (blocks with a safe reason), since a policy gate
-    that errors must not silently allow the action. `KeyboardInterrupt` /
+    Each hook receives the same `ToolCallEvent` (tool name, validated input,
+    call id and parent call id) and a mode-aware context. `tool_input` is
+    handed over, not copied: what the hooks change in it is what the caller
+    runs (Pi `emitToolCall`). The first hook to return a `ToolBlock` blocks
+    the call; hooks returning anything else allow it. A hook that raises
+    fails closed (blocks with a safe reason), since a policy gate that
+    errors must not silently allow the action. `KeyboardInterrupt` /
     `SystemExit` propagate (user abort is never swallowed).
     """
 
-    event = ToolCallEvent(tool_name=tool_name, input=tool_input)
+    event = ToolCallEvent(
+        tool_name=tool_name,
+        input=tool_input,
+        tool_call_id=tool_call_id,
+        parent_tool_call_id=parent_tool_call_id,
+    )
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
