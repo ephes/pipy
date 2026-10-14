@@ -187,10 +187,13 @@ def test_deactivating_without_a_selection_changes_nothing(tmp_path: Path) -> Non
     assert before.active_tool_names is None
 
 
-def test_a_withdrawn_tool_is_gone_and_active_again_when_it_comes_back(
+def test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back(
     tmp_path: Path,
 ) -> None:
     # SES-03, for a tool that `tool_search` or an extension had activated.
+    # Pi re-registers a withdrawn tool hidden, and applying the loadout drops
+    # it from the active tools; offered again, it is a new tool: a `direct`
+    # one is activated by registering, a loaded `deferred` one is not.
     tools = _session(tmp_path)
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
     assert tools.load_tools(["mcp__docs__find"]) == ("mcp__docs__find",)
@@ -203,9 +206,13 @@ def test_a_withdrawn_tool_is_gone_and_active_again_when_it_comes_back(
     assert "mcp__docs__find" not in _callable(tools)
     assert _run(tools, "mcp__docs__find") == "unknown tool: mcp__docs__find"
 
+    tools.publish_mcp_tools({})
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
 
-    assert _declared(tools) == ("read", "bash", "mcp__docs__search", "mcp__docs__find")
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search")
+    assert [definition.name for definition in tools.loadable_tools()] == [
+        "mcp__docs__find"
+    ]
 
 
 def test_a_tool_whose_exposure_becomes_direct_is_activated(tmp_path: Path) -> None:

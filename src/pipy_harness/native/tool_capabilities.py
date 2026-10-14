@@ -344,9 +344,12 @@ class ToolCapabilityState:
         declarable MCP tool it names or matches is active; otherwise a tool
         becomes active when registration activates it and it was not
         registered that way before. A selection of ``None`` already means
-        "as registration left it". A name whose tool is gone stays in the
-        selection, so the tool is active again when its server offers it
-        again. A pending name whose tool is offered now becomes active.
+        "as registration left it". An MCP tool that is gone leaves the
+        selection (Pi re-registers it hidden, and applying the loadout drops
+        it): when its server offers it again it is a new tool, so a
+        ``direct`` one is activated by registering and one ``tool_search``
+        had loaded has to be loaded again. A pending name whose tool is
+        offered now becomes active.
         """
 
         mcp = dict(mcp_registry)
@@ -367,7 +370,10 @@ class ToolCapabilityState:
                     offered & activated_on_registration(registry)
                 ) - activated_on_registration(self.registry)
             arrived = pending & offered
-            active = active | activated | arrived
+            withdrawn = frozenset(
+                _accepted_mcp_tools(self.registry, self.mcp_registry)
+            ).difference(registry)
+            active = (active - withdrawn) | activated | arrived
             pending = pending - arrived
         return replace(
             self,

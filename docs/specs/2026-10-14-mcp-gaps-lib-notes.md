@@ -809,3 +809,45 @@ Audit test references: `tests/test_native_mcp_session.py`
 `tests/test_native_mcp_discovery.py`
 (`test_run_options_decide_whether_codemode_is_loaded`, the config command
 tests, `test_cli_flags_parse_to_run_options`).
+
+## G8, commit 3: T7 (a loaded tool is not declared again when its server comes back)
+
+Pi source read: `coding-agent/src/extensions/mcp/index.ts` `registerTools`
+(tools a server stops offering are re-registered `hidden`) and `hideTools`
+(line 459, a disabled or removed server), `src/core/agent-session.ts`
+`_refreshToolRegistry` (the next active set starts from
+`getActiveToolNames()`, which reads `agent.state.tools`) and
+`_applyToolLoadout` (line 1579, drops `hidden` tools from the active
+tools). The finding holds.
+
+What changed:
+
+- `ToolCapabilityState.with_mcp_registry` takes the MCP tools that left the
+  merged registry out of the active selection. When the server offers a
+  tool again it is a new tool: a `direct` one is activated by registering,
+  one that `tool_search` had loaded (or an extension had activated) has to
+  be loaded again. Pending names (`/reload`, a restored transcript) are
+  unchanged: they still become active when their tool registers before the
+  next run.
+
+Changelog lines (section Unreleased):
+
+- A tool that `tool_search` loaded is no longer declared again on its own
+  when its server is disabled and enabled again, or stops offering it and
+  offers it again; it has to be loaded again, as in Pi.
+
+Plan rows and texts:
+
+- The S17 "Decided in" text (near line 2637 of the plan) that a withdrawn
+  tool's name stays in the selection "so the tool is active again when the
+  server offers it again", with the claim that Pi's hidden registration has
+  the same effect, is superseded by the text above. TSR rows: suggested new
+  row next to TSR-10: "A tool whose server is disabled or stops offering it
+  leaves the active tools; offered again, a loaded `codemode`/`deferred`
+  tool must be loaded again (`extensions/mcp/index.ts` `hideTools`,
+  `agent-session.ts` `_applyToolLoadout`)".
+
+Audit test references: `tests/test_native_mcp_manager.py`
+(`test_a_loaded_tool_is_not_declared_again_when_its_server_is_enabled_again`),
+`tests/test_native_tool_capabilities_mcp.py`
+(`test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back`).

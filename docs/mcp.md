@@ -1322,8 +1322,11 @@ Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch: `/tree` to an entry before the load drops the
 tool, and `/tree` to a later entry declares it again. After a `/reload` a
 loaded MCP tool is declared again once its server has connected, see
-[Reloading](#reloading). A session that is resumed in a new pipy process
-starts from the configured tools, as in Pi's CLI.
+[Reloading](#reloading). A tool whose server is disabled, or that its server
+stops offering, is no longer declared; when it comes back, a `direct` tool is
+declared again, and a tool `tool_search` had loaded has to be loaded again,
+as in Pi. A session that is resumed in a new pipy process starts from the
+configured tools, as in Pi's CLI.
 
 `tool_search` never loads `direct`, `model-only` or `hidden` tools, and it
 does not load a tool that `--tools` or `--exclude-tools` filters out. With
