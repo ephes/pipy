@@ -309,6 +309,9 @@ class NativeRpcServer:
         # The session finds it through `automation_ui(observer)`.
         self.ui = RpcUi(self._writer)
 
+        # Lines of stdin for the commands, in order; `None` is the end.
+        self._lines: queue.Queue[str | None] = queue.Queue()
+        self._input_error: BaseException | None = None
         self._channel = _WakeChannel()
         self._bridge = _NativeSessionControlBridge()
         self._bridge.bind_wake_reader(self._channel.readline)
@@ -440,6 +443,10 @@ class NativeRpcServer:
 
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._worker.start()
+        # stdin is read from the start, so that an extension's dialog in
+        # `session_start` or in a command's handler (also one that runs on
+        # this thread, such as a session transition hook) gets its answer.
+        threading.Thread(target=self._read_input, daemon=True).start()
         ready = False
         ending = False
         try:
@@ -539,21 +546,53 @@ class NativeRpcServer:
             # fails it. Nothing answers a prompt from then on.
             self._worker_has_ended(ended)
 
-    def _read_loop(self) -> None:
+    def _read_input(self) -> None:
+        """The input thread: answers to UI requests are delivered at once
+        (Pi handles `extension_ui_response` as it arrives); every other
+        line waits for this thread's commands in order. At the end of the
+        input every waiting UI request ends unanswered."""
+
         buffer = JsonlLineBuffer()
-        while True:
-            chunk = self._stdin.readline()
-            if chunk == "":
-                # Flush any buffered partial line, then EOF → graceful shutdown.
-                for line in buffer.flush():
-                    self._handle_line(line)
-                    if self._retired:
-                        return
-                return
-            for line in buffer.feed(chunk):
-                self._handle_line(line)
-                if self._retired:
+        try:
+            while True:
+                chunk = self._stdin.readline()
+                # At EOF a partial last line still counts.
+                lines = buffer.flush() if chunk == "" else buffer.feed(chunk)
+                for line in lines:
+                    if not self._answer_ui(line):
+                        self._lines.put(line)
+                if chunk == "":
                     return
+        except BaseException as error:  # noqa: BLE001 - raised on the command thread
+            # What failed here fails `run` as it did when the command thread
+            # read stdin itself.
+            self._input_error = error
+        finally:
+            self.ui.close()
+            self._lines.put(None)
+
+    def _answer_ui(self, line: str) -> bool:
+        try:
+            command = loads_strict(line)
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(command, dict) or command.get("type") != (
+            "extension_ui_response"
+        ):
+            return False
+        self.ui.respond(command)
+        return True
+
+    def _read_loop(self) -> None:
+        while True:
+            line = self._lines.get()
+            if line is None:
+                if self._input_error is not None:
+                    raise self._input_error
+                return
+            self._handle_line(line)
+            if self._retired:
+                return
 
     # -- dispatch --------------------------------------------------------
     def _handle_line(self, line: str) -> None:

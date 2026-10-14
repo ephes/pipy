@@ -52,7 +52,6 @@ from pipy_harness.native.tool_capabilities import (
 from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.tools import ToolDefinition, ToolPort
 from pipy_harness.native.tools.base import NestedToolCalls
-from pipy_harness.native.tui import _LiveExtensionUiDriver
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +108,7 @@ class SessionExecutionProjections:
         *,
         generation_ref: SessionGenerationRef,
         tool_capabilities: NativeToolCapabilities,
-        ui_driver: _LiveExtensionUiDriver | None,
+        ui_driver: ExtensionUiDriver | None,
     ) -> None:
         self._generation_ref = generation_ref
         self._tools = tool_capabilities
@@ -124,8 +123,11 @@ class SessionExecutionProjections:
                 raise RuntimeError("published extension generation has no projection")
             chrome = projection.chrome
             ui_driver: ExtensionUiDriver | None = self._ui_driver
-            if chrome is not None and self._ui_driver is not None:
-                ui_driver = self._ui_driver.generation_driver(chrome.sink)
+            # The terminal binds its chrome per generation; an RPC client
+            # has no chrome of its own.
+            bind = getattr(self._ui_driver, "generation_driver", None)
+            if chrome is not None and callable(bind):
+                ui_driver = bind(chrome.sink)
             active = ExecutionProjectionSnapshot(
                 generation_id=snapshot.generation_id,
                 tools=self._tools.snapshot_for_projection(

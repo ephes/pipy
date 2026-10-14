@@ -1474,7 +1474,13 @@ so Pi extensions translate naturally:
   external-editor handoff from the resolved `app.editor.external` keybinding
   (default Ctrl+G) in interactive TTY sessions. Ctrl+G is a reserved app binding;
   an extension that registers it as a shortcut is disabled rather than shadowing
-  the editor.
+  the editor. `select`, `confirm` and `input` take Pi's `timeout` option as a
+  keyword, in milliseconds (`ctx.ui.confirm("Allow?", "rm -rf", timeout=10000)`):
+  in [RPC mode](automation-rpc.md#extension-ui-requestresponse-channel) the
+  dialog ends with its default when it passes; the terminal's dialogs wait
+  without one (Pi counts it down there too). In RPC mode `ctx.has_ui` is true
+  and the dialogs, `notify`, `set_status`, `set_widget` (lines of text),
+  `set_title` and `set_editor_text` are requests to the client, as in Pi.
 - Status and indicators **(shipped for command/shortcut contexts)**:
   `set_status(key, text)`, working-message and working-indicator controls, and
   `ctx.ui.set_hidden_thinking_label(label=None)` /

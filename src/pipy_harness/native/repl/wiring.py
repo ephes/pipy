@@ -109,6 +109,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks as dispatch_session_before_hooks,
 )
 from pipy_harness.native.extension_types import (
+    ExtensionUiDriver,
     QueuedCustomMessage,
     QueuedUserMessage,
     normalize_shortcut_key,
@@ -602,6 +603,8 @@ class _ExtensionPhase:
     extension_notify: Callable[[str, str], None]
     extension_error: Callable[[str, str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
+    # The driver of extension contexts: the terminal's or the RPC client's.
+    ui_driver: ExtensionUiDriver | None
     tool_capabilities: NativeToolCapabilities
     # The MCP servers; ``/reload`` replaces what it holds.
     mcp: McpSession
@@ -889,8 +892,9 @@ def _compose_extension_phase(
             safe_message,
         )
 
+    transport_ui = automation_ui(inputs.automation_observer)
     reports = ExtensionReports(
-        transport_ui=automation_ui(inputs.automation_observer),
+        transport_ui=transport_ui,
         local_notify=_local_notify,
         error_stream=error_stream,
         prompt_mode=_prompt_mode(inputs),
@@ -909,6 +913,11 @@ def _compose_extension_phase(
         if terminal_ui is not None
         else None
     )
+    # What an extension's `ctx.ui` has: the terminal, an RPC client (Pi's
+    # RPC mode has a UI too), or nothing.
+    ui_driver: ExtensionUiDriver | None = extension_ui_driver
+    if ui_driver is None and transport_ui is not None:
+        ui_driver = transport_ui.extension_driver()
     builtins = startup.resource_options.builtins
     tool_capabilities = NativeToolCapabilities(
         inputs.tool_registry,
@@ -968,7 +977,7 @@ def _compose_extension_phase(
             runtime=extension_bundle,
             flag_values=startup.extension_flag_values,
             state_lock=session_state_lock,
-            has_ui=terminal_ui is not None,
+            has_ui=ui_driver is not None,
             notify_sink=_extension_notify,
             set_active_tools=lambda generation_id, names: (
                 provider_binding.set_active_tools(generation_id, names)
@@ -995,7 +1004,7 @@ def _compose_extension_phase(
         execution_projections = SessionExecutionProjections(
             generation_ref=generation_ref,
             tool_capabilities=tool_capabilities,
-            ui_driver=extension_ui_driver,
+            ui_driver=ui_driver,
         )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
@@ -1009,6 +1018,7 @@ def _compose_extension_phase(
         extension_notify=_extension_notify,
         extension_error=reports.error,
         extension_ui_driver=extension_ui_driver,
+        ui_driver=ui_driver,
         tool_capabilities=tool_capabilities,
         mcp=mcp,
         startup_projection=startup_projection,
@@ -1240,7 +1250,7 @@ def _compose_emitter(
     cwd: Path,
     terminal_ui: TerminalUi | None,
     extension_notify: Callable[[str, str], None],
-    extension_ui_driver: _LiveExtensionUiDriver | None,
+    ui_driver: ExtensionUiDriver | None,
     project_trusted: bool,
 ) -> _extension_hooks._ExtensionLifecycleAgentEventAdapter:
     product_action_sink = NativeProductSessionActionSink(append_agent_message)
@@ -1260,9 +1270,9 @@ def _compose_emitter(
         immediate_sink,
         generation_snapshot=generation_ref.snapshot,
         cwd=str(cwd),
-        has_ui=terminal_ui is not None,
+        has_ui=ui_driver is not None,
         notify_sink=extension_notify,
-        ui_driver=extension_ui_driver,
+        ui_driver=ui_driver,
         project_trusted=project_trusted,
     )
 
@@ -1282,7 +1292,6 @@ def _compose_product_session(
     terminal_ui = extension.terminal_ui
     generation_ref = extension.generation_ref
     extension_notify = extension.extension_notify
-    extension_ui_driver = extension.extension_ui_driver
     agent_settled_pending = extension.agent_settled_pending
     extension_in_agent_turn = startup.extension_in_agent_turn
     output_stream = inputs.output_stream
@@ -1406,7 +1415,7 @@ def _compose_product_session(
         cwd=cwd,
         terminal_ui=terminal_ui,
         extension_notify=extension_notify,
-        extension_ui_driver=extension_ui_driver,
+        ui_driver=extension.ui_driver,
         project_trusted=settings.project_trusted,
     )
     return _ProductPhase(
@@ -1787,9 +1796,9 @@ def _compose_collaborators(
     extension_operations = SessionExtensionOperations(
         generation_ref=ctl.generation_ref,
         cwd=str(cwd),
-        has_ui=terminal_ui is not None,
+        has_ui=extension.ui_driver is not None,
         notify_sink=_extension_notify,
-        ui_driver=extension_ui_driver,
+        ui_driver=extension.ui_driver,
         project_trusted=settings.project_trusted,
         model_runtime_factory=lambda generation_id, allow_model: (
             provider_mutation.model_runtime_control(

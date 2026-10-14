@@ -668,6 +668,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
             provider_mutation=Mutation(),
             cwd=tmp_path,
             terminal_ui=None,
+            extension_operations=SimpleNamespace(has_ui=False),
             extension_notify=lambda _kind, _message: None,
             settings=SimpleNamespace(project_trusted=True),
         ),

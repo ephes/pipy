@@ -391,6 +391,7 @@ class SessionCollaborators:
             keybindings=keybindings,
             terminal_ui=self.terminal_ui,
             extension_ui_driver=self.extension_ui_driver,
+            ui_driver=self.extension_operations.ui_driver,
             renderer=renderer,
             error_stream=self.error_stream,
             emitter=emitter,
@@ -687,7 +688,7 @@ class SessionCollaborators:
             tool_name=call.tool_name,
             tool_input=_parse_tool_input(call.arguments_json.value),
             cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
+            has_ui=self.extension_operations.has_ui,
             notify_sink=self.extension_notify,
             ui_driver=ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(

@@ -22,7 +22,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Never, cast
+from typing import Any, cast
 
 import pytest
 
@@ -806,20 +806,37 @@ def test_startup_failure_rejects_all_provisional_control_commands(
         server._bridge.admit_prompt(ProductContent("must not admit"))
 
 
+def test_a_failure_of_the_input_thread_fails_the_server(tmp_path: Path) -> None:
+    """stdin is read on its own thread; what fails there fails `run` as it did
+    when the command thread read stdin itself."""
+
+    stdin = io.StringIO("[" * 200_000 + "\n")
+    server = NativeRpcServer(
+        adapter=CodingSessionAdapter(provider=AutomationFakeProvider()),
+        cwd=tmp_path,
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=stdin,
+        stdout_buffer=io.BytesIO(),
+        error_stream=io.StringIO(),
+    )
+
+    with pytest.raises(RecursionError):
+        server.run()
+
+
 def test_prepare_failure_publishes_startup_failure_before_command_intake(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A preparation error unblocks startup without reading a provisional prompt."""
+    """A preparation error unblocks startup without running a provisional prompt.
 
-    class UnreadableInput(io.StringIO):
-        reads = 0
+    stdin is read from the start, so that a startup hook's UI request can be
+    answered; a command read before readiness waits for it and, when startup
+    fails, never runs.
+    """
 
-        def readline(self, size: int | None = -1) -> Never:
-            del size
-            self.reads += 1
-            raise AssertionError("RPC command intake must wait for native readiness")
-
-    stdin = UnreadableInput()
+    stdin = io.StringIO(
+        json.dumps({"id": "p", "type": "prompt", "message": "must not run"}) + "\n"
+    )
     stdout = io.BytesIO()
     adapter = CodingSessionAdapter(provider=AutomationFakeProvider())
     server = NativeRpcServer(
@@ -840,7 +857,6 @@ def test_prepare_failure_publishes_startup_failure_before_command_intake(
     started = time.monotonic()
     assert server.run() == 1
     assert time.monotonic() - started < 2.0
-    assert stdin.reads == 0
     assert stdout.getvalue() == b""
     outcome = server._bridge.wait_ready(0)
     assert isinstance(outcome, _NativeControlFailed)

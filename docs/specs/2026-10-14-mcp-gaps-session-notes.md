@@ -203,3 +203,59 @@ in, one section per item.
   An idle RPC `steer`/`follow_up` that a hook handles settles its claim
   (`CodingSessionController.settle_handled_prompt`), pinned by
   `tests/test_native_automation_rpc_prompt_dispatch.py::test_an_idle_queued_message_a_hook_handled_frees_the_session`.
+
+## N2-c: extension UI over RPC for every extension (goal-check E13)
+
+### Changelog (Unreleased)
+
+- Added: in RPC mode every extension has the client as its UI, as in Pi:
+  `ctx.has_ui` is true, `ctx.ui.select`, `confirm`, `input` and `editor` are
+  `extension_ui_request` dialogs the client answers, and `set_status`,
+  `set_widget` (lines of text), `set_title`, `set_editor_text` and
+  `paste_to_editor` are requests without an answer (`setStatus`,
+  `setWidget`, `setTitle`, `set_editor_text`). `select`, `confirm` and
+  `input` take Pi's `timeout` option (milliseconds); in RPC mode the dialog
+  then ends with its default. Before, extensions had no UI in RPC mode and
+  only `/mcp` sent requests.
+
+### Plan updates
+
+- "Decided in X1 (RPC UI requests)": `RpcUi` gained `confirm`, `editor`,
+  `send` (fire-and-forget) and a `timeout` on `select`/`input`/`confirm`;
+  `RpcUi.extension_driver()` returns `RpcExtensionUiDriver`, an
+  `ExtensionUiDriver` over it (`dialog_timeouts = True`; terminal-only
+  methods are no-ops; `apply_theme` fails with Pi's text).
+  `AutomationUi.extension_driver()` is in the protocol. The wiring's
+  `_ExtensionPhase.ui_driver` is the terminal's live driver or, without one,
+  the transport's; it is what extension contexts get (attach `has_ui`,
+  lifecycle adapter, `SessionExecutionProjections`, `SessionExtensionOperations`,
+  the tool-call policy, `ReloadCommandEffects.ui_driver` for a reload's
+  `session_start`). `extension_ui_driver` stays the live driver for the
+  terminal's chrome. `SessionExecutionProjections` binds `generation_driver`
+  only on a driver that has it. `_CollectingUi.select/confirm/input` take
+  `timeout=` and pass it only to a driver with `dialog_timeouts`.
+- Remove from "Different from Pi" of that block: `ctx.has_ui` false for
+  extensions in RPC mode, and no `confirm`/`editor`/`setStatus`/`setWidget`/
+  `setTitle`/`set_editor_text` requests or `timeout` option. Still
+  different: no dialog `signal` option (an RPC `abort` does not end an
+  extension's dialog), and the terminal ignores `timeout` (Pi counts down).
+- `NativeRpcServer` reads stdin on its own thread from the start
+  (`_read_input`): `extension_ui_response` lines are delivered at once, other
+  lines queue for the command thread (`_read_loop`), and the end of the input
+  closes the UI. So a `session_start` dialog (before readiness) and a dialog
+  of a transition hook (on the command thread) get their answers. A dialog
+  answer after its timeout is ignored (`_Asked.deadline`). Startup still has
+  the 120 s readiness limit (recorded as a difference).
+- DEV-41 (SLH-11): with N2-a's change, reduce to those two points plus the
+  120 s startup limit.
+- Row SLH-11 (RPC part for extensions) is closed.
+
+### Acceptance note / audit test
+
+- SLH-11: tests `tests/test_native_automation_rpc_extension_ui.py` (an
+  extension command's dialogs and fire-and-forget requests end to end, a
+  `session_start` hook with `has_ui` true, dialogs of `session_start` and of
+  a `new_session` transition hook answered, the dialog timeout and a late
+  answer, widget filtering and the terminal-only no-ops, a terminal driver
+  that gets no timeout); `tests/test_native_automation_rpc.py::test_prepare_failure_publishes_startup_failure_before_command_intake`
+  now pins that a command read before a failed startup never runs.

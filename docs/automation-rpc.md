@@ -983,15 +983,31 @@ summary retries do not activate the ordinary retry lease. See the
 Pi sends the user interaction of an extension to an RPC client: an
 `extension_ui_request` on stdout, answered where an answer is expected by an
 `extension_ui_response` on stdin with the same `id` (`rpc-types.ts`
-`RpcExtensionUIRequest`). pipy sends three of Pi's methods:
+`RpcExtensionUIRequest`, Pi's `docs/rpc-extension-ui.md`). pipy does the
+same for every extension: in RPC mode `ctx.has_ui` is true and an
+extension's `ctx.ui` sends these requests, as does pipy's own `/mcp`.
 
 | `method` | Request fields | Expected response | Sent for |
 | --- | --- | --- | --- |
+| `select` | `title`, `options: string[]`, `timeout?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.select`; `/mcp login`, `logout` and `reconnect` without a server name, when several servers qualify (`title` is `MCP server`). |
+| `confirm` | `title`, `message`, `timeout?` | `{ confirmed: boolean }` or `{ cancelled: true }` | `ctx.ui.confirm` |
+| `input` | `title`, `placeholder?`, `timeout?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.input`; `/mcp login`: the pasted redirect URL of a sign-in. |
+| `editor` | `title`, `prefill?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.editor` |
 | `notify` | `message`, `notifyType: "info"\|"warning"\|"error"` | (none) | Every notice of an extension command or hook (`ctx.ui.notify`), and the notices of [MCP](mcp.md): the status and messages of `/mcp`, the startup report, changes of extension-registered servers. pipy's own diagnostics (lines that start with `pipy:`, a tool warning such as an unavailable `codemode`) stay on stderr. |
-| `select` | `title`, `options: string[]` | `{ value }` or `{ cancelled: true }` | `/mcp login`, `logout` and `reconnect` without a server name, when several servers qualify (`title` is `MCP server`). |
-| `input` | `title`, `placeholder?` | `{ value }` or `{ cancelled: true }` | `/mcp login`: the pasted redirect URL of a sign-in. |
+| `setStatus` | `statusKey`, `statusText?` (absent clears it) | (none) | `ctx.ui.set_status` |
+| `setWidget` | `widgetKey`, `widgetLines?` (absent clears it), `widgetPlacement: "aboveEditor"\|"belowEditor"` | (none) | `ctx.ui.set_widget` with a list of strings or `None`; a component factory is not sent. |
+| `setTitle` | `title` | (none) | `ctx.ui.set_title` |
+| `set_editor_text` | `text` | (none) | `ctx.ui.set_editor_text` and `ctx.ui.paste_to_editor` |
 
 Every request also has `type: "extension_ui_request"` and an `id` (a UUID).
+A `timeout` (milliseconds) is sent when the extension gave one
+(`ctx.ui.select(title, options, timeout=5000)`): when it passes, pipy ends
+the dialog with its default (`None`, or `False` for `confirm`), and a later
+response is ignored. What needs the terminal does nothing in RPC mode, as in
+Pi: the working message and indicator, the header and footer, `custom()`,
+the hidden-thinking label; `get_editor_text()` returns `""` and switching the
+theme fails with `Theme switching not supported in RPC mode`.
+
 A notice is sent when it is produced, so a command's notices come before
 the `prompt` response that says `handled`. The notices of MCP servers, such
 as the startup report, are sent while the session waits for a command, so a
@@ -1000,20 +1016,24 @@ run is sent after it.
 
 Input control line (stdin, not a command):
 `{ "type": "extension_ui_response", "id": "<request id>", ... }` with
-`{ value: string }` or `{ cancelled: true }`. A response whose `id` no
-request waits for is ignored. A `select` or `input` waits until it is
-answered; the session does nothing else meanwhile, and a `prompt` sent then
-is queued. The end of the input (stdin EOF) ends every waiting request as
-cancelled. An `input` also ends unanswered when its answer is no longer
-wanted, which for a sign-in is when the browser came back.
+`{ value: string }`, `{ confirmed: boolean }` or `{ cancelled: true }`. A
+response whose `id` no request waits for is ignored. A dialog waits until it
+is answered or its timeout passes; the thread that asked does nothing else
+meanwhile (for a command or a hook that is the session), and a `prompt` sent
+then is queued. The end of the input (stdin EOF) ends every waiting request
+as cancelled. An `input` of `/mcp login` also ends unanswered when its
+answer is no longer wanted, which for a sign-in is when the browser came
+back.
 
-Not built, different from Pi:
+pipy reads stdin from the start, and answers are delivered as they arrive,
+also while a command waits: a dialog of a `session_start` hook, or of a hook
+that a `new_session`, `switch_session`, `fork` or `clone` runs, gets its
+answer. Other commands sent meanwhile wait their turn.
 
-- An extension's own `ctx.ui.select`, `confirm`, `input` and `editor` are
-  not sent to the client: `ctx.has_ui` is false in RPC mode and they return
-  their defaults, as in print mode. In Pi `ctx.hasUI` is true there.
-- `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle` and
-  `set_editor_text` requests, and the `timeout` option of a dialog.
+Different from Pi: a dialog's `signal` option does not exist; an RPC `abort`
+ends the waits of `/mcp` but not an extension's dialog. A session whose
+startup (with its `session_start` hooks) takes longer than 120 seconds, for
+example because a dialog there is not answered, fails to start.
 
 ### Extension errors
 

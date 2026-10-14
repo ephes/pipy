@@ -37,6 +37,7 @@ from pipy_harness.native.coding.state import CodingReloadHistoryValue
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
+from pipy_harness.native.extension_types import ExtensionUiDriver
 from pipy_harness.native.extensions.activation import (
     _ExtensionCandidate,
     _report_activation_cleanup,
@@ -164,6 +165,8 @@ class ReloadCommandEffects:
         [str, str, bool, "Mapping[str, object]", object | None], object
     ]
     extension_ui_driver: _LiveExtensionUiDriver | None = None
+    # The driver of extension contexts without the terminal: an RPC client's.
+    ui_driver: ExtensionUiDriver | None = None
     # The session's own slash commands (``/mcp``), kept in the menu.
     session_commands: Mapping[str, str] = field(default_factory=dict)
     # The session's MCP servers: an accepted reload reads ``mcp.json`` again
@@ -300,7 +303,7 @@ class ReloadCommandEffects:
                 runtime=runtime,
                 flag_values=flag_values,
                 state_lock=cast(SessionStateLock, predecessor.lock),
-                has_ui=self.terminal_ui is not None,
+                has_ui=self.terminal_ui is not None or self.ui_driver is not None,
                 notify_sink=self.provider_mutation.extension_notify,
                 set_active_tools=self.provider_mutation.extension_set_active_tools,
                 project_trusted=self.settings.project_trusted,
@@ -352,7 +355,7 @@ class ReloadCommandEffects:
             ui_driver=(
                 self.extension_ui_driver.candidate_driver(chrome_candidate)
                 if self.extension_ui_driver is not None and chrome_candidate is not None
-                else None
+                else self.ui_driver
             ),
         )
 
