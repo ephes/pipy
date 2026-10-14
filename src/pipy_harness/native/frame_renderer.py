@@ -18,6 +18,7 @@ from types import MappingProxyType
 from pipy_harness.native.ansi_wrap import wrap_text_with_ansi
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.terminal_image import TerminalImage, image_rows
 
 _DEFAULT_HISTORY_VIEW_LINES = 21
 _TOOL_PANEL_HISTORY_VIEW_LINES = 23
@@ -79,12 +80,28 @@ class LinkedFrameLine(FrameLine):
     __slots__ = ()
 
 
+class ImageFrameLine(FrameLine):
+    """The last row of an inline image (``terminal_image.image_rows``): its
+    text is the escape sequence that draws the image over this row and the
+    empty rows above it. Only committed rows carry it; it is never
+    sanitized, clipped or padded, and its ``meta`` holds the Kitty image id
+    (``kitty_id``) to delete before the screen is drawn again."""
+
+    __slots__ = ()
+
+
 @dataclass(frozen=True, slots=True)
 class FrameBlock:
-    """Immutable raw history block; wrapping is owned by this renderer."""
+    """Immutable raw history block; wrapping is owned by this renderer.
+
+    ``images`` are a tool row's result images (Pi ``ToolExecutionComponent``
+    draws each one after a spacer below its box): drawn in committed rows,
+    and shown as their text line where the frame is only text.
+    """
 
     kind: str
     lines: tuple[str, ...]
+    images: tuple[TerminalImage, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +194,8 @@ class PaintPlan:
     live_height: int
     live_input_row: int
     painted_size: tuple[int, int]
+    # The Kitty images this paint draws, deleted before a full redraw.
+    kitty_image_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,11 +307,26 @@ def pad_text(text: str, width: int) -> str:
     return text + (" " * (width - length))
 
 
-def block_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
-    """Wrap and frame one raw block without observing or mutating UI state."""
+def block_lines(
+    block: FrameBlock, width: int, *, image_height: int | None = None
+) -> tuple[FrameLine, ...]:
+    """Wrap and frame one raw block without observing or mutating UI state.
+
+    A block's images are drawn when ``image_height`` (the terminal height)
+    is given, as committed rows do; otherwise each shows its text line.
+    """
 
     if block.kind == "tool_box":
-        return _tool_box_lines(block, width)
+        rows = _tool_box_lines(block, width)
+        if not block.images:
+            return rows
+        # Before the row's closing spacer, as Pi adds them after its box.
+        images = tuple(
+            row
+            for image in block.images
+            for row in _image_lines(image, width, image_height)
+        )
+        return (*rows[:-1], *images, *rows[-1:])
     if block.kind in _CUSTOM_BLOCK_KINDS:
         return _custom_block_lines(block, width)
     return _regular_block_lines(block, width)
@@ -338,6 +372,22 @@ def _tool_box_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
             FrameLine(clip_custom_text(f" {piece}", width), kind) for piece in pieces
         )
     return tuple(rows)
+
+
+def _image_lines(
+    image: TerminalImage, width: int, height: int | None
+) -> tuple[FrameLine, ...]:
+    """Pi's ``Spacer(1)`` and ``Image``: the drawn image, or its text line."""
+
+    drawn = None if height is None else image_rows(image, width=width, height=height)
+    if drawn is None:
+        return FrameLine(""), FrameLine(clip_custom_text(image.fallback, width))
+    meta = None if drawn.kitty_id is None else {"kitty_id": drawn.kitty_id}
+    return (
+        FrameLine(""),
+        *(FrameLine("") for _ in range(drawn.rows - 1)),
+        ImageFrameLine(drawn.last, "image", meta),
+    )
 
 
 def _custom_block_lines(block: FrameBlock, width: int) -> tuple[FrameLine, ...]:
@@ -962,7 +1012,8 @@ def build_paint_plan(
 ) -> PaintPlan:
     """Return logical paint operations and publication values for one attempt."""
 
-    committed = _committed_paint_rows(snapshot, state, style)
+    committed_lines = _committed_lines(snapshot, state)
+    committed = tuple(_paint_row(row, style, snapshot.width) for row in committed_lines)
     live = render_live_region(snapshot)
     live, current_input = _stabilize_input_row(live, state, len(committed))
     live_rows = tuple(_paint_row(row, style, snapshot.width) for row in live)
@@ -979,7 +1030,17 @@ def build_paint_plan(
         live_height=len(live),
         live_input_row=current_input,
         painted_size=(snapshot.width, snapshot.height),
+        kitty_image_ids=_kitty_image_ids(committed_lines),
     )
+
+
+def _kitty_image_ids(rows: tuple[FrameLine, ...]) -> tuple[int, ...]:
+    ids: list[int] = []
+    for row in rows:
+        image_id = (row.meta or {}).get("kitty_id")
+        if isinstance(row, ImageFrameLine) and isinstance(image_id, int):
+            ids.append(image_id)
+    return tuple(ids)
 
 
 def _cursor_col(live: tuple[FrameLine, ...], input_row: int) -> int:
@@ -989,17 +1050,20 @@ def _cursor_col(live: tuple[FrameLine, ...], input_row: int) -> int:
     return raw_cursor if isinstance(raw_cursor, int) else 0
 
 
-def _committed_paint_rows(
-    snapshot: FrameSnapshot, state: PaintState, style: ChromeStyle
-) -> tuple[PaintRow, ...]:
+def _committed_lines(
+    snapshot: FrameSnapshot, state: PaintState
+) -> tuple[FrameLine, ...]:
     return tuple(
-        _paint_row(row, style, snapshot.width)
+        row
         for block in snapshot.history[state.painted_block_count :]
-        for row in block_lines(block, snapshot.width)
+        for row in block_lines(block, snapshot.width, image_height=snapshot.height)
     )
 
 
 def _paint_row(row: FrameLine, style: ChromeStyle, width: int) -> PaintRow:
+    if isinstance(row, ImageFrameLine):
+        # The rows it draws over were just written empty: nothing to erase.
+        return PaintRow(row.text, False)
     styled = style_line(row, style, width)
     return PaintRow(styled, visible_len(styled) < width)
 

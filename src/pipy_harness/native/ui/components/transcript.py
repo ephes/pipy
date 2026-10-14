@@ -52,6 +52,7 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
 )
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.terminal_image import TerminalImage
 from pipy_harness.native.tool_rows import (
     BoxRow,
     EditPreview,
@@ -86,16 +87,29 @@ HistoryBlock = tuple[str, tuple[str, ...]]
 
 
 class HistoryBlockTuple(tuple[str, tuple[str, ...]]):
-    """Tuple-compatible history block with optional live render metadata."""
+    """Tuple-compatible history block with optional live render metadata
+    and the inline images a tool row draws after its box."""
 
     state: object | None
+    images: tuple[TerminalImage, ...]
 
     def __new__(
-        cls, kind: str, lines: tuple[str, ...], state: object | None = None
+        cls,
+        kind: str,
+        lines: tuple[str, ...],
+        state: object | None = None,
+        images: tuple[TerminalImage, ...] = (),
     ) -> Self:
         obj = tuple.__new__(cls, (kind, lines))
         obj.state = state
+        obj.images = images
         return obj
+
+
+def _images(block: HistoryBlock) -> tuple[TerminalImage, ...]:
+    """The inline images a rebuilt block keeps."""
+
+    return getattr(block, "images", ())
 
 
 @dataclass(slots=True)
@@ -651,7 +665,9 @@ class TranscriptComponent:
 
         with self._paint_lock:
             self.history_blocks = [
-                HistoryBlockTuple(block[0], self._tool_row_lines(state), state)
+                HistoryBlockTuple(
+                    block[0], self._tool_row_lines(state), state, _images(block)
+                )
                 if isinstance(
                     state := getattr(block, "state", None),
                     ToolRowState | SummaryBox | SkillInvocationBox,
@@ -1022,10 +1038,12 @@ class TranscriptComponent:
                 # Pi `setExpanded` on every ToolExecutionComponent and summary.
                 next_lines = self._tool_row_lines(state)
                 changed = changed or next_lines != lines
-                rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
+                rebuilt.append(
+                    HistoryBlockTuple(kind, next_lines, state, _images(block))
+                )
                 continue
             if state is None:
-                rebuilt.append(HistoryBlockTuple(kind, lines, state))
+                rebuilt.append(HistoryBlockTuple(kind, lines, state, _images(block)))
                 continue
             state = cast(CustomMessageRenderState, state)
             next_block = self._rerendered_block(state, width=width, theme=theme)
