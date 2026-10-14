@@ -8,6 +8,7 @@ bounded record of them.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import threading
@@ -486,6 +487,70 @@ def test_a_nested_result_keeps_its_images(tmp_path, monkeypatch) -> None:
     )
 
 
+_SIGNAL = """import threading
+from pipy_harness.extensions import ExtensionTool, ToolResult
+
+_NONE = {'type': 'object', 'properties': {}, 'additionalProperties': False}
+
+
+def activate(api):
+    def watch(ctx, params):
+        chunks = []
+        outcome = ctx.executeTool(
+            'bash', {'command': 'printf one; sleep 0.3; printf two'},
+            {'onUpdate': chunks.append})
+        stop = threading.Event()
+        threading.Timer(0.3, stop.set).start()
+        stopped = ctx.execute_tool(
+            'bash', {'command': 'sleep 20'}, signal=stop)
+        return ToolResult(content=' | '.join([
+            outcome.result.content.strip(), ''.join(chunks).strip(),
+            stopped.result.content, str(ctx.signal is not None)]))
+
+    api.register_tool(ExtensionTool(
+        name='watch', description='Watches bash.', input_schema=_NONE,
+        handler=watch))
+"""
+
+
+def test_a_nested_call_has_a_signal_and_updates(tmp_path, monkeypatch) -> None:
+    # Pi ExecuteToolOptions: `signal` cancels the nested call alone, and
+    # `onUpdate` receives its partial results, which the session also emits
+    # as parent-linked update events.
+    from pipy_harness.native.agent import NestedToolCallUpdated
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True)
+    (directory / "signal.py").write_text(_SIGNAL, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(tool_calls=(ProviderToolCall("p1", "watch", "{}"),)),
+            _result(final_text="done"),
+        ]
+    )
+
+    result, sink = _session(tmp_path, provider, abort_event=threading.Event())
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    (parent,) = _tool_results(provider.requests[1])
+    output, chunks, stopped, has_signal = parent.content.value.split(" | ")
+    assert "one" in output and "two" in output
+    assert "one" in chunks and "two" in chunks
+    assert stopped == "tool cancelled by its caller"
+    assert has_signal == "True"
+    updates = [e for e in sink.events if isinstance(e, NestedToolCallUpdated)]
+    assert updates and {e.call.provider_correlation_id for e in updates} <= {
+        "p1/1",
+        "p1/2",
+    }
+    assert {e.parent_correlation_id for e in updates} == {"p1"}
+    completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
+    assert completed.details is not None
+    statuses = [c["status"] for c in completed.details["nestedCalls"]["calls"]]
+    assert statuses == ["ok", "cancelled"]
+
+
 # -- the bridge between a handler's thread and the session thread -----------
 
 
@@ -666,7 +731,7 @@ def _running_settle(execute):
     session = threading.current_thread()
 
     def settle(call):
-        def run(*, wait_for_interrupt, nested_tools):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
             return ToolExecutionOutcome(_message(call, execute(call, nested_tools)))
 
         def finish(execution):
@@ -719,7 +784,7 @@ def test_a_running_nested_call_is_cancelled_when_its_parent_ends() -> None:
     cancelled: list[bool] = []
 
     def settle(call):
-        def run(*, wait_for_interrupt, nested_tools):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
             done = threading.Event()
             cancel = threading.Event()
 
@@ -822,7 +887,7 @@ def test_a_call_waiting_for_readiness_ends_with_its_parent() -> None:
         never = threading.Event()
         reason = waiter(never, threading.Event())
 
-        def run(*, wait_for_interrupt, nested_tools):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
             ran.append(call.provider_correlation_id)
             return ToolExecutionOutcome(_message(call, "ran"))
 
@@ -903,7 +968,7 @@ def test_a_call_waiting_for_readiness_ends_with_its_own_caller() -> None:
                     )
                 )
 
-        def run(*, wait_for_interrupt, nested_tools):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
             ran.append(call.provider_correlation_id)
             if call.tool_name == "child":
                 threading.Thread(
@@ -943,6 +1008,166 @@ def test_a_call_waiting_for_readiness_ends_with_its_own_caller() -> None:
             break
         threading.Event().wait(0.02)
     assert late == ["not ready: caller_stop"]
+
+
+def _waiting_service(settle):
+    """A service whose pipeline has the waiter variant, as the loop's."""
+    parent = AgentToolCall("p", "parent", ProductContent("{}"))
+    return NestedToolCallService(
+        parent,
+        frozenset({"child"}),
+        lambda call: settle(call),
+        lambda call, text: _message(call, text, error=True),
+        settle_with_waiter=settle,
+        callable_tools=(
+            ToolDefinition(
+                name="child", description="c", input_schema={"type": "object"}
+            ),
+        ),
+    )
+
+
+def test_a_signal_ends_the_readiness_wait_of_a_call() -> None:
+    ran: list[str] = []
+    stop = threading.Event()
+
+    def settle(call, waiter=None):
+        def finish(execution):
+            status = NestedCallStatus.CANCELLED if execution.cancelled else _STATUS
+            return NestedToolCallOutcome(call, execution.result, status)
+
+        assert waiter is not None
+        threading.Timer(0.05, stop.set).start()
+        reason = waiter(threading.Event(), threading.Event())
+        if reason is not ToolExecutionInterruption.SETTLED:
+            return finish(
+                ToolExecutionOutcome(
+                    _message(call, f"not ready: {reason.value}", error=True),
+                    cancelled=True,
+                )
+            )
+
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
+            ran.append(call.provider_correlation_id)
+            return ToolExecutionOutcome(_message(call, "ran"))
+
+        return PendingNestedCall(call, run, finish)
+
+    outcome = _waiting_service(settle).call("child", "{}", signal=stop)
+
+    assert outcome.result.content.value == "not ready: caller_stop"
+    assert outcome.status is NestedCallStatus.CANCELLED
+    assert ran == []
+
+
+def test_live_output_of_another_thread_is_published_on_the_session_thread() -> None:
+    session = threading.current_thread()
+    published: list[str] = []
+    received: list[str] = []
+
+    def settle(call, waiter=None):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
+            done = threading.Event()
+
+            def tool() -> None:
+                assert output_sink is not None
+                output_sink("progress")
+                done.set()
+
+            threading.Thread(target=tool).start()
+            wait_for_interrupt(done, threading.Event())
+            return ToolExecutionOutcome(_message(call, "ran"))
+
+        def update(chunk):
+            assert threading.current_thread() is session
+            published.append(chunk)
+
+        return PendingNestedCall(
+            call,
+            run,
+            lambda execution: NestedToolCallOutcome(call, execution.result, _STATUS),
+            update,
+        )
+
+    # No waiter at all: the call still runs under the service's own wait.
+    outcome = _waiting_service(settle).call("child", "{}", on_update=received.append)
+
+    assert outcome.result.content.value == "ran"
+    assert published == received == ["progress"]
+
+
+def test_a_failure_to_publish_live_output_is_the_pipelines() -> None:
+    class SinkFailure(Exception):
+        pass
+
+    def settle(call, waiter=None):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
+            done = threading.Event()
+
+            def tool() -> None:
+                assert output_sink is not None
+                output_sink("progress")
+                done.set()
+
+            threading.Thread(target=tool).start()
+            wait_for_interrupt(done, threading.Event())
+            return ToolExecutionOutcome(_message(call, "ran"))
+
+        def update(chunk):
+            raise SinkFailure(chunk)
+
+        return PendingNestedCall(
+            call,
+            run,
+            lambda execution: NestedToolCallOutcome(call, execution.result, _STATUS),
+            update,
+        )
+
+    service = _waiting_service(settle)
+    with pytest.raises(SinkFailure):
+        service.call("child", "{}")
+
+    # The runner cannot absorb it: the failure is kept, and the call is
+    # recorded once as unfinished.
+    with pytest.raises(SinkFailure):
+        service.raise_pipeline_failure()
+    assert [r.status for r in service.records()] == [NestedCallStatus.UNFINISHED]
+
+
+def test_a_failure_to_publish_queued_output_is_kept() -> None:
+    # The chunk of a call running on its own thread is published by serve;
+    # when that raises, the runner must not be able to absorb it.
+    class SinkFailure(Exception):
+        pass
+
+    def settle(call):
+        def run(*, wait_for_interrupt, nested_tools, output_sink=None):
+            assert output_sink is not None
+            output_sink("progress")
+            return ToolExecutionOutcome(_message(call, "ran"))
+
+        def update(chunk):
+            raise SinkFailure(chunk)
+
+        return PendingNestedCall(
+            call,
+            run,
+            lambda execution: NestedToolCallOutcome(call, execution.result, _STATUS),
+            update,
+        )
+
+    def handler(context):
+        return context.nested_tools.execute("child", {}).content
+
+    service = _service(settle)
+    with contextlib.suppress(BaseException):
+        _run_parent(handler, service, _wait)
+
+    with pytest.raises(SinkFailure):
+        service.raise_pipeline_failure()
+    assert [
+        (r.nested_call.provider_correlation_id, r.status) for r in service.records()
+    ] == [("p/1", NestedCallStatus.UNFINISHED)]
 
 
 def test_calls_of_an_ended_caller_are_refused() -> None:

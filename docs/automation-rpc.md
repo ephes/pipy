@@ -159,6 +159,11 @@ Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
 | `tool_execution_update` | `toolCallId`, `toolName`, `args`, `partialResult` | Bounded progress from a running tool. |
 | `tool_execution_end` | `toolCallId`, `toolName`, `result`, `isError: boolean` | A tool call finished. |
 
+A call that another tool made (a codemode script, or an extension tool's
+`ctx.execute_tool`) has the id `<calling id>/<n>`, and its
+`tool_execution_start`, `tool_execution_update` and `tool_execution_end`
+carry the id of the calling call as `parentToolCallId`, as in Pi.
+
 Session-extension events (Pi `AgentSessionEvent`,
 `packages/coding-agent/src/core/agent-session.ts`):
 

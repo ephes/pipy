@@ -419,7 +419,8 @@ not be saved, publish no path and preserve the primary outcome and nested record
 ## Nested evidence and availability
 
 Live children appear inside the parent row; Ctrl+O expands retained evidence.
-JSON/RPC child lifecycle events carry `parentToolCallId`. Only the parent result
+JSON/RPC child lifecycle events, live output (`tool_execution_update`) included,
+carry `parentToolCallId`. Only the parent result
 enters provider and durable product history, with a bounded `nestedCalls` record:
 256 calls, 8 KiB arguments per call, 32 KiB total arguments and 500 characters
 per error. Omitted evidence marks the record incomplete; nested result bodies

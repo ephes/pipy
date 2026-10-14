@@ -26,6 +26,7 @@ from pipy_harness.native.agent import (
     MessageStarted,
     NestedToolCallCompleted,
     NestedToolCallStarted,
+    NestedToolCallUpdated,
     ProviderFailed,
     RetryCompleted,
     RetryScheduled,
@@ -79,6 +80,18 @@ class AutomationAgentEventAdapter:
             return self._project_run_turn_message(event)
         if isinstance(event, (AssistantTextDelta, AssistantReasoningDelta)):
             return self._project_assistant_delta(event)
+        if isinstance(event, NestedToolCallUpdated):
+            # Pi nested-tool-calls.ts: tool_execution_update with
+            # parentToolCallId; the partial result is the chunk, as for a
+            # call the model made.
+            return {
+                "type": "tool_execution_update",
+                "toolCallId": event.call.provider_correlation_id,
+                "parentToolCallId": event.parent_correlation_id,
+                "toolName": event.call.tool_name,
+                "args": parse_tool_arguments(event.call.arguments_json.value),
+                "partialResult": event.update.value,
+            }
         if isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
             projected: PiAutomationEvent = {
                 "type": "tool_execution_start"

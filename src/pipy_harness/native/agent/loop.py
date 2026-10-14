@@ -32,6 +32,7 @@ from pipy_harness.native.agent.events import (
     MessageStarted,
     NestedToolCallCompleted,
     NestedToolCallStarted,
+    NestedToolCallUpdated,
     ProviderFailed,
     RunCancelled,
     SteeringConsumed,
@@ -1503,9 +1504,13 @@ class _NestedPipeline:
             *,
             wait_for_interrupt: ToolInterruptWaiter | None,
             nested_tools: NestedToolCalls | None,
+            output_sink: Callable[[str], None] | None = None,
         ) -> ToolExecutionOutcome:
             return tools.execute(
-                child, wait_for_interrupt=wait_for_interrupt, nested_tools=nested_tools
+                child,
+                output_sink=output_sink,
+                wait_for_interrupt=wait_for_interrupt,
+                nested_tools=nested_tools,
             )
 
         def finish(execution: ToolExecutionOutcome) -> NestedToolCallOutcome:
@@ -1522,7 +1527,14 @@ class _NestedPipeline:
             )
             return self._outcome(child, settled, started)
 
-        return PendingNestedCall(child, execute, finish)
+        def update(chunk: str) -> None:
+            loop._events.emit(
+                NestedToolCallUpdated(
+                    self._turn_index, _caller_id(child), child, ProductContent(chunk)
+                )
+            )
+
+        return PendingNestedCall(child, execute, finish, update)
 
     def _outcome(
         self, child: AgentToolCall, settled: _SettledToolCall, started: float

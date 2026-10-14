@@ -17,6 +17,7 @@ are re-exported from `pipy_harness.extensions`.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -168,7 +169,9 @@ class ExtensionToolContext(CommandContext, Protocol):
     runs one of them through the same argument validation, ``tool_call`` and
     ``tool_result`` hooks and tool budget as a call the model made, and
     returns its ``ToolCallOutcome``: the call, the result with its image
-    blocks, ``is_error`` and the duration. It never raises for a tool failure: a tool that is
+    blocks, ``is_error`` and the duration. ``signal`` cancels that call
+    alone (default: ``signal``, the tool's own), and ``on_update`` receives
+    the chunks of its live output. It never raises for a tool failure: a tool that is
     not callable, invalid arguments, a blocked call and a failed tool come
     back as a result with ``is_error``.
 
@@ -181,12 +184,23 @@ class ExtensionToolContext(CommandContext, Protocol):
     @property
     def tools(self) -> "tuple[ToolInfo, ...]": ...
 
+    @property
+    def signal(self) -> "threading.Event | None": ...
+
     def execute_tool(
-        self, name: str, arguments: Mapping[str, object] | None = None
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        *,
+        signal: "threading.Event | None" = None,
+        on_update: Callable[[str], None] | None = None,
     ) -> ToolCallOutcome: ...
 
     def executeTool(  # noqa: N802 - Pi-shaped alias
-        self, name: str, arguments: Mapping[str, object] | None = None
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        options: Mapping[str, object] | None = None,
     ) -> ToolCallOutcome: ...
 
 
@@ -252,15 +266,30 @@ class _CommandContext:
         nested = self._model_runtime.nested_tools
         return () if nested is None else nested.tools()
 
+    @property
+    def signal(self) -> "threading.Event | None":
+        """The running tool's cancellation signal (Pi ``signal``), or None."""
+        return self._model_runtime.tool_signal
+
     def execute_tool(
-        self, name: str, arguments: Mapping[str, object] | None = None
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        *,
+        signal: "threading.Event | None" = None,
+        on_update: Callable[[str], None] | None = None,
     ) -> ToolCallOutcome:
         nested = self._model_runtime.nested_tools
         name = str(name)
         if nested is None:
             result = NestedToolResult(NESTED_CALLS_UNAVAILABLE, is_error=True)
         else:
-            result = nested.execute(name, arguments)
+            result = nested.execute(
+                name,
+                arguments,
+                signal=self._model_runtime.tool_signal if signal is None else signal,
+                on_update=on_update,
+            )
         return ToolCallOutcome(
             tool_call=ToolCallInfo(result.tool_call_id, name, result.arguments),
             result=ToolResult(
@@ -275,9 +304,21 @@ class _CommandContext:
         )
 
     def executeTool(  # noqa: N802 - Pi-shaped alias
-        self, name: str, arguments: Mapping[str, object] | None = None
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        options: Mapping[str, object] | None = None,
     ) -> ToolCallOutcome:
-        return self.execute_tool(name, arguments)
+        """Pi's ``executeTool(name, args, {signal, onUpdate})``."""
+        options = options or {}
+        signal = options.get("signal")
+        on_update = options.get("onUpdate", options.get("on_update"))
+        return self.execute_tool(
+            name,
+            arguments,
+            signal=signal if isinstance(signal, threading.Event) else None,
+            on_update=on_update if callable(on_update) else None,
+        )
 
     def set_model(self, reference: str) -> bool:
         if self._model_runtime.set_model_fn is None:

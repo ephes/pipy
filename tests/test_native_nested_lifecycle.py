@@ -198,11 +198,26 @@ def test_loop_to_live_transcript_and_all_projections(
     assert all(type(v) is int for v in workflow._counts)
     assert "read" not in repr(workflow.counts())
     assert sdk.result is outcome.result
-    children = [e for e in automation.events if "parentToolCallId" in e]
+    children = [
+        e
+        for e in automation.events
+        if "parentToolCallId" in e and e["type"] != "tool_execution_update"
+    ]
     assert [e["type"] for e in children] == [
         "tool_execution_start",
         "tool_execution_end",
     ] * 2
+    # The fixture tool writes "progress" while it runs: Pi's parent-linked
+    # tool_execution_update (M12).
+    updates = [e for e in automation.events if e["type"] == "tool_execution_update"]
+    assert updates[0] == {
+        "type": "tool_execution_update",
+        "toolCallId": "parent0/1",
+        "parentToolCallId": "parent0",
+        "toolName": "read",
+        "args": {},
+        "partialResult": "progress",
+    }
     assert all(e["parentToolCallId"] == "parent0" for e in children)
     assert children[0] == {
         "type": "tool_execution_start",

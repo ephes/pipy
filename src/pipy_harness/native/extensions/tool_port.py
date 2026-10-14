@@ -110,6 +110,7 @@ class _ExtensionToolPort:
                 set_active_tools_fn=set_active_tools,
                 get_all_tools_fn=self._get_all_tools_fn,
                 nested_tools=context.nested_tools,
+                tool_signal=context.cancel_event,
             ),
             flags=self._flags,
             project_trusted=self._project_trusted,

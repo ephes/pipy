@@ -182,6 +182,22 @@ class NestedToolCallStarted:
 
 
 @dataclass(frozen=True, slots=True)
+class NestedToolCallUpdated:
+    """Live output of a running nested call (Pi ``tool_execution_update``
+    with ``parentToolCallId``); like ``ToolCallUpdated``, one chunk."""
+
+    turn_index: int
+    parent_correlation_id: str
+    call: AgentToolCall
+    update: ProductContent
+
+    def __post_init__(self) -> None:
+        NestedToolCallStarted(self.turn_index, self.parent_correlation_id, self.call)
+        if not isinstance(self.update, ProductContent):
+            raise TypeError("NestedToolCallUpdated.update must be ProductContent")
+
+
+@dataclass(frozen=True, slots=True)
 class NestedToolCallCompleted:
     """Validated post-transform child text, without a top-level result append."""
 
@@ -380,6 +396,7 @@ AgentEvent = (
     | MessageCompleted
     | ToolCallStarted
     | NestedToolCallStarted
+    | NestedToolCallUpdated
     | NestedToolCallCompleted
     | ToolCallUpdated
     | ToolCallCompleted

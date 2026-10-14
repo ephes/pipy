@@ -31,6 +31,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
+    import threading
+
     # ``ChromePalette`` is the theme value object returned by ``ExtensionUi``'s
     # ``theme`` / ``get_theme`` and accepted by ``set_theme``. It is imported
     # here only to resolve those annotations: a type-checking-only edge with no
@@ -232,6 +234,9 @@ class ExtensionModelRuntimeControl:
     get_all_tools_fn: ControlGetAllToolsFn | None = None
     # Set for the context of a running tool that may call other tools.
     nested_tools: "NestedToolCalls | None" = None
+    # The running tool's cancellation signal (Pi's ``signal`` of
+    # ``execute``), the default ``signal`` of its nested calls.
+    tool_signal: "threading.Event | None" = None
 
 
 # Coding-session host collaborators an activated extension may invoke through a

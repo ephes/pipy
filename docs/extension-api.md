@@ -1110,7 +1110,8 @@ def read_all(ctx, params):
   [tool model](#tool-model), as they were when the tool the model called
   started, the tool itself included when it is callable. A tool that is
   `model-only` is not in the list and cannot be called this way.
-- `ctx.execute_tool(name, arguments)` (also `ctx.executeTool`) runs the tool
+- `ctx.execute_tool(name, arguments, *, signal=None, on_update=None)` (also
+  `ctx.executeTool(name, arguments, {"signal": ..., "onUpdate": ...})`) runs the tool
   and returns a `ToolCallOutcome`, Pi's `AgentToolCallOutcome`:
   `tool_call` (a `ToolCallInfo` with the call's `id`, `name` and
   `arguments`), `result` (a `ToolResult` with `content`, `details`,
@@ -1119,7 +1120,13 @@ def read_all(ctx, params):
   for a name that is not callable). A tool can return the `blocks` of a
   nested result as its own, so an MCP screenshot reaches the model as an
   image. `arguments` is a mapping, or nothing
-  for a tool without arguments. The call passes argument validation and the
+  for a tool without arguments. `signal`, a `threading.Event`, cancels this
+  call alone when it is set: it ends with the error
+  `tool cancelled by its caller`. Without it the call uses `ctx.signal`, the
+  calling tool's own cancellation signal (`None` where it has none).
+  `on_update` receives each chunk of the tool's live output (a `bash`
+  command's output, an MCP server's progress), on the thread that produced
+  it; what it raises is ignored. The call passes argument validation and the
   `tool_call` and `tool_result` handlers like a call the model made, and it
   counts against the tool budget of the turn.
 - It never raises for a failure of the tool. A name that is not callable
@@ -1134,7 +1141,8 @@ def read_all(ctx, params):
   the calling tool, which reports them in its own result. They have the ids
   `<calling id>/<n>` (`p1/2/1` is the first call of the second call of
   `p1`), and the session emits a start and an end event for
-  each with the id of the calling call (`parentToolCallId` in
+  each, and an update event for each chunk of its live output, with the id of
+  the calling call (`parentToolCallId` in
   [JSON mode](json.md) and [RPC mode](rpc.md)). The result of the calling
   tool the model called keeps a bounded record of them, at every depth, as
   `nestedCalls` in its `details`
@@ -1171,11 +1179,11 @@ Different from Pi:
   `sequential`; pipy has neither setting.
 - Pi lets a nested call still running when its calling tool returned go on;
   pipy cancels it when the tool the model called returned.
-- `execute_tool` takes no `signal` or `onUpdate` options; a pipy tool
-  handler has neither a signal nor partial results. In the outcome,
-  `result.content` is the result's text and `result.blocks` its ordered
-  text and image blocks when it has an image; Pi's `result.content` is
-  always the block list.
+- In the outcome, `result.content` is the result's text and `result.blocks`
+  its ordered text and image blocks when it has an image; Pi's
+  `result.content` is always the block list. A partial result is a chunk of
+  text, as in pipy's own `tool_execution_update`; Pi's is a result object.
+  A pipy tool handler reports no partial results of its own.
 - Pi adds the usage that nested results report to the calling tool's
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record

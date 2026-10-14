@@ -32,6 +32,7 @@ from pipy_harness.native.agent import (
     MessageStarted,
     NestedToolCallCompleted,
     NestedToolCallStarted,
+    NestedToolCallUpdated,
     ProductContent,
     ProviderFailed,
     RetryCompleted,
@@ -77,6 +78,7 @@ EXPECTED_PUBLIC_EXPORTS = [
     "MessageStarted",
     "NestedToolCallStarted",
     "NestedToolCallCompleted",
+    "NestedToolCallUpdated",
     "ProductContent",
     "ProviderFailed",
     "RetryCompleted",
@@ -131,6 +133,7 @@ def _event_examples() -> tuple[AgentEvent, ...]:
         ToolCallUpdated(0, call, ProductContent("partial output")),
         ToolCallCompleted(0, tool_result, 0.25),
         NestedToolCallStarted(0, "provider-call-1", child),
+        NestedToolCallUpdated(0, "provider-call-1", child, ProductContent("partial")),
         NestedToolCallCompleted(
             0, "provider-call-1", child, child_result, NestedCallStatus.SETTLED, 0.1
         ),
@@ -154,7 +157,7 @@ def test_agent_event_union_covers_the_phase_one_vocabulary() -> None:
     events = _event_examples()
 
     assert {type(event) for event in events} == set(get_args(AgentEvent))
-    assert len(events) == 21
+    assert len(events) == 22
 
 
 def test_native_agent_public_exports_are_exact() -> None:

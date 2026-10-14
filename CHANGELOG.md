@@ -495,6 +495,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   When the tool the model called returns, its nested calls that still run
   are cancelled. See
   [running other tools](docs/extension-api.md#running-other-tools).
+- `ctx.execute_tool` takes Pi's options: `signal` (a `threading.Event`)
+  cancels one nested call, by default with the calling tool's own signal,
+  now `ctx.signal`; `on_update` receives the live output of the nested tool
+  (`ctx.executeTool(name, args, {"signal": ..., "onUpdate": ...})`). Nested
+  calls now also emit their live output, such as an MCP server's progress
+  or a `bash` command's output, as `tool_execution_update` events with
+  `parentToolCallId` in JSON and RPC mode; it was dropped.
 
 ### Fixed
 

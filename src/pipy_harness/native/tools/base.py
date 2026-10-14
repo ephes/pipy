@@ -573,8 +573,21 @@ class NestedToolCalls(Protocol):
         """The tools ``execute`` can call, in registration order."""
         ...
 
-    def execute(self, tool_name: str, arguments: object, /) -> NestedToolResult:
-        """Run the tool and return its result. Never raises for a tool failure."""
+    def execute(
+        self,
+        tool_name: str,
+        arguments: object,
+        /,
+        *,
+        signal: threading.Event | None = None,
+        on_update: Callable[[str], None] | None = None,
+    ) -> NestedToolResult:
+        """Run the tool and return its result. Never raises for a tool failure.
+
+        ``signal`` cancels this call alone when it is set (Pi
+        ``ExecuteToolOptions.signal``). ``on_update`` receives each chunk of
+        the tool's live output, on the thread that produced it (Pi
+        ``onUpdate``)."""
         ...
 
 
