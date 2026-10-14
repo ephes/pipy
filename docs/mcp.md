@@ -1842,8 +1842,10 @@ call that fails before there is a result raises `ToolError`.
 An image block of a result (`{"type": "image", "data", "mimeType"}`) and an
 embedded resource whose `blob` has an `image/` type reach the model as
 images, between the text blocks where the server put them. The same holds
-for an image resource read with `read_mcp_resource`. pipy passes the data
-and the type on as the server sent them and does not look into the image; a
+for an image resource read with `read_mcp_resource`. As in Pi, an image
+that is too large is scaled down, one of another type is converted to PNG,
+and `images.blockImages` keeps all of them from the model; see
+[providers](providers.md#size-of-tool-result-images-and-images-settings). A
 block without data or without a type is named in a text line,
 `[image <mime> without data omitted]`. Images do not count toward the 20 KB
 limit of the text and follow the shortened text when it is cut.
@@ -1858,10 +1860,10 @@ again, and the file grows by the size of every image.
 A script that calls the tool gets the image block in `content` (or the
 `blob` of a resource); what the model sees of it is up to the script.
 
-Different from Pi: a provider that rejects an image (a type it does not
-take, data that is not an image) rejects the request, and because the result
-is stored, every later request of the session. Pi behaves the same; neither
-checks a server's image.
+A provider that rejects an image that could not be processed (data that is
+not an image, or Pillow is not installed) rejects the request, and because
+the result is stored, every later request of the session. Pi behaves the
+same.
 
 Differences from Pi in tools:
 

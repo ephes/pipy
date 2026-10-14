@@ -477,6 +477,53 @@ does. Pi's Chat Completions adapter adds an assistant message before the image
 message for models that need one (`requiresAssistantAfterToolResult`); pipy
 has no such switch.
 
+### Size of tool result images and `images` settings
+
+Tools that make images themselves (MCP servers, codemode scripts, extension
+tools) can return images of any size, and a provider that rejects one rejects
+every later request of the session, since the result is stored. As in Pi,
+every image of a tool result is therefore processed once, after the
+`tool_result` hooks and before it is shown, stored or sent; this holds for a
+call a script or another tool made as well:
+
+- PNG, JPEG, GIF and WebP stay in their type (`image/jpg` is renamed
+  `image/jpeg`). Another type pipy can decode (BMP, ICO, TIFF, TGA, PNM, DDS)
+  becomes a PNG, followed by the text `[Image converted from <type> to
+  <new type>.]`.
+- With `images.autoResize` (default `true`), an image wider or taller than
+  2000 pixels, or with more than 4.5 MB of base64 data, is scaled down to fit
+  (a JPEG or WebP is first turned upright by its EXIF orientation). It is
+  then sent as a PNG or, if that is too large, as a JPEG of falling quality,
+  whichever first fits under 4.5 MB; failing that, the size shrinks by a
+  quarter at a time. A text follows the image: `[Image: original 3000x1000,
+  displayed at 2000x667. Multiply coordinates by 1.50 to map to original
+  image.]`.
+- An image that cannot be decoded or made small enough is kept as the tool
+  returned it.
+
+This needs Pillow, from the `images` extra (`uv sync --extra images` in a
+checkout, `uv tool install '.[images]'` as a tool). Without it every image
+is kept as the tool returned it, which is also what Pi does when its image
+library cannot load.
+
+With `images.blockImages` set to `true`, no tool result image is sent: each
+image becomes the text `Image reading is disabled.`, and of several such
+texts in a row only the first remains. The setting is read for every
+request, so it takes effect at once, and the session keeps the images.
+
+Different from Pi:
+
+- Pi takes the limits from the model's catalog row (`inputLimits`); pipy's
+  catalog has none and uses Pi's defaults, which every row of Pi's catalog
+  repeats.
+- Pi resizes with Photon, pipy with Pillow: the resized bytes differ, and an
+  image of more than about 89 million pixels is kept as it is rather than
+  decoded.
+- Pi's `images.blockImages` also replaces the images of a user message;
+  pipy's `@image` attachments are not affected by it yet.
+- A note that would take a result's text past 64 KiB is left out; the image
+  is still resized.
+
 ## Session cost
 
 Every turn is priced from the selected model's catalog row, with Pi's

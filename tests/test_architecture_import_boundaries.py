@@ -453,6 +453,8 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentMessage",
         "pipy_harness.native.agent.messages.AgentToolCall",
+        # The type of the forwarded result normalizer.
+        "pipy_harness.native.agent.messages.AgentToolResultMessage",
         # The coordinator forwards only the UI-free optional composite ports.
         "pipy_harness.native.agent.nested_calls",
         "pipy_harness.native.agent.nested_calls.AgentCompositeToolRunner",

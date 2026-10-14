@@ -1129,6 +1129,18 @@ class SettingsManager:
                 return value
         return 60000
 
+    def get_image_auto_resize(self) -> bool:
+        """``images.autoResize``: tool result images are resized (Pi
+        ``getImageAutoResize``)."""
+
+        return self._nested_bool("images", "autoResize", default=True)
+
+    def get_block_images(self) -> bool:
+        """``images.blockImages``: tool result images are withheld from
+        every provider request (Pi ``getBlockImages``)."""
+
+        return self._nested_bool("images", "blockImages", default=False)
+
     def get_branch_summary_reserve_tokens(self) -> int:
         return self._nested_int("branchSummary", "reserveTokens", default=16384)
 

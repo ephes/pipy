@@ -282,7 +282,9 @@ as `retry.provider` are replaced wholesale):
 - `terminal?: { showImages?: boolean=true; imageWidthCells?: number=60;
   clearOnShrink?: boolean (env `PIPY_CLEAR_ON_SHRINK`=1); showTerminalProgress?:
   boolean=false }`
-- `images?: { autoResize?: boolean=true; blockImages?: boolean=false }`
+- `images?: { autoResize?: boolean=true; blockImages?: boolean=false }` (both
+  apply to tool result images, see
+  [providers](providers.md#size-of-tool-result-images-and-images-settings))
 - `thinkingBudgets?: { minimal?; low?; medium?; high? }`
 - `markdown?: { codeBlockIndent?: string="  " }`
 - `warnings?: { anthropicExtraUsage?: boolean=true }`

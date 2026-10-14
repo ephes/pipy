@@ -174,7 +174,9 @@ can copy or move the file. An image shown twice is saved once. When saving
 fails, the line is `[Image (<type>, <size>) could not be saved: <reason>]`
 and the image is still attached. Images are not cut by the output budget:
 when the text is over it, the text becomes one shortened block and the
-images follow it.
+images follow it. Like any tool result image, an attached image that is too
+large is then scaled down (the saved file keeps the original), see
+[providers](providers.md#size-of-tool-result-images-and-images-settings).
 
 A tool's own images do not reach the model through a script: a tool without
 an output schema returns its text, and an MCP tool returns its result with

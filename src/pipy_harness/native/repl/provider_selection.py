@@ -39,7 +39,10 @@ from pipy_harness.native.agent.history import (
     compact_agent_history_tool_cycles,
     estimate_context_tokens,
 )
-from pipy_harness.native.agent.messages import without_tool_result_images
+from pipy_harness.native.agent.messages import (
+    without_blocked_images,
+    without_tool_result_images,
+)
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnDeltaPolicy,
@@ -1370,10 +1373,13 @@ class ProviderMutationEffects:
     def request_history(
         self, binding: CodingProviderBinding, messages: tuple[AgentMessage, ...]
     ) -> tuple[AgentMessage, ...]:
-        """History as a request to the bound model holds it (Pi
-        ``transformMessages``): without tool result images for a model that
-        takes none."""
+        """History as a request to the bound model holds it: without tool
+        result images when ``images.blockImages`` is set (Pi
+        ``convertToLlmWithBlockImages``, read per request) or the model takes
+        none (Pi ``transformMessages``)."""
 
+        if self.settings.get_block_images():
+            messages = without_blocked_images(messages)
         if self.model_takes_images(binding):
             return messages
         return without_tool_result_images(messages)

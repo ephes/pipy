@@ -603,3 +603,86 @@ Plan rows and texts:
   shorten "Narrower than Pi" to: ambient cloud credentials, `--api-key`
   for every provider, no refresh of a login pipy does not refresh for its
   own requests, a `!command` key run for every MCP request.
+
+## G7: T4 (`images.blockImages` for tool result images) and T5/M22 (tool result images normalized and resized)
+
+Pi source read: `coding-agent/src/utils/tool-result-images.ts`
+(`normalizeToolResultImages`), `utils/image-process.ts` (`processImage`),
+`utils/image-resize.ts` (`formatDimensionNote`), `utils/image-resize-core.ts`
+(`resizeImageInProcess`, defaults 2000x2000, 4.5 MB of base64, JPEG quality
+80 then 85/70/55/40, shrink by 0.75), `utils/image-convert.ts`,
+`utils/exif-orientation.ts` (JPEG and WebP only), `core/agent-session.ts`
+`_afterToolCall` (lines 684-723: hooks, then normalization with
+`getImageAutoResize()` and the model's `inputLimits.images.resize`, also for
+nested calls) and `core/sdk.ts` `convertToLlmWithBlockImages` (line 297 ff.).
+`packages/ai/src/providers/data/*.json`: every `inputLimits.images.resize`
+equals the defaults. All three findings hold.
+
+What changed:
+
+- New module `native/image_process.py` (`process_image`, `resize_image`,
+  `format_dimension_note`, `decode_base64`, `ImageResizeOptions`,
+  `ResizedImage`, `ProcessedImage`): Pi's `processImage` with Pillow in place
+  of Photon. Pillow is the new optional extra `images` (`pillow>=12,<13`) and
+  is in the dev group; without it every call fails and the image is kept,
+  as Pi does when Photon cannot load. Only Photon's decoder formats are
+  opened (PNG, JPEG, GIF, WebP, BMP, ICO, TIFF, TGA, PNM, DDS); over
+  `PIL.Image.MAX_IMAGE_PIXELS` an image is not decoded.
+- New module `native/tool_result_images.py` (`normalize_tool_result_images`,
+  `normalize_tool_result`, `tool_result_normalizer`).
+- `AgentLoop` and `CodingAgentRunCoordinator` take `normalize_result`; the
+  loop calls it in `_after_tool_call` after `_transform_tool_result` (the
+  `tool_result` hooks) for direct, nested and composite-parent results,
+  before `ToolCallCompleted` is emitted and the result is stored.
+  `repl/loop_step.py` passes `tool_result_normalizer(scope.settings)`.
+- `SettingsManager.get_image_auto_resize()` and `get_block_images()`.
+- `agent/messages.py`: `BLOCKED_IMAGE_PLACEHOLDER` ("Image reading is
+  disabled.") and `without_blocked_images` (Pi's map and filter: consecutive
+  placeholder texts, also ones the tool wrote, collapse to one).
+  `ProviderMutationEffects.request_history` applies it first when
+  `images.blockImages` is set, read per request, then the non-vision
+  downgrade.
+
+Changelog lines (section Unreleased):
+
+- Images in tool results (MCP tools and resources, codemode `image()`,
+  extension tools) are processed as Pi processes them before they are
+  stored and sent: an image larger than 2000x2000 pixels or 4.5 MB of
+  base64 is scaled down, with a text that gives the original size and the
+  coordinate scale, and an image of another type than PNG, JPEG, GIF or
+  WebP is converted to PNG. `images.autoResize: false` turns the resizing
+  off. This needs the new optional extra `images` (Pillow); without it the
+  images are sent as before.
+- `images.blockImages: true` keeps tool result images from every provider
+  request; each becomes the text `Image reading is disabled.`.
+
+Plan rows and texts:
+
+- No row of the plan covered either behaviour (the findings were "not in
+  checklist" next to TLS-11, RES-09 and CMD-29). Suggested new rows next
+  to TLS-11: "Tool result images, nested ones included, are processed after
+  the `tool_result` hooks: other types become PNG, oversized images are
+  resized to the model's limits with a dimension note, failures keep the
+  image (`utils/tool-result-images.ts` `normalizeToolResultImages`,
+  `core/agent-session.ts` `_afterToolCall`)" and "With `images.blockImages`
+  every tool result image is replaced by `Image reading is disabled.`,
+  consecutive ones once (`core/sdk.ts` `convertToLlmWithBlockImages`)".
+- The S39 decision text and notes-A4 limit "TLS-11: like Pi, a server's
+  image is not checked" are superseded: oversized images are resized; type
+  and base64 are still not validated, a failed decode keeps the image.
+- New deviations for section 6 (all documented in docs/providers.md "Size
+  of tool result images and `images` settings"): Pillow instead of Photon
+  and only with the `images` extra (without it no resizing); resized bytes
+  differ; over about 89 million pixels no decode; limits are Pi's defaults,
+  not per catalog row (pipy's catalog has no `inputLimits`; every Pi row
+  repeats the defaults); `images.blockImages` does not touch `@image`
+  attachments (Pi replaces user message images too); a note that would
+  take a result's text past 64 KiB is dropped. Pi resizes in a worker
+  thread; pipy resizes on the thread that runs the tool loop.
+- Module table (section 4.1): `native/image_process.py`,
+  `native/tool_result_images.py`.
+
+Audit test references: `tests/test_native_tool_result_image_normalize.py`
+(unit tests of processing, the loop hook order with a nested call, and two
+session tests: the resized image and note in the next request, and
+`images.blockImages`).

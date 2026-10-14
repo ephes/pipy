@@ -409,11 +409,16 @@ class AgentLoop:
         before_turn: TurnStartHook | None = None,
         parent_runner: Callable[[AgentToolCall], AgentCompositeToolRunner | None]
         | None = None,
+        normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
+        | None = None,
     ) -> None:
         """``composite_runner`` runs the built-in ``codemode``.
         ``parent_runner`` is asked for every other admitted call the model
         made: the runner it returns runs that call as a composite parent,
-        which may then call other tools; ``None`` runs it as a plain call."""
+        which may then call other tools; ``None`` runs it as a plain call.
+        ``normalize_result`` sees every result after the ``tool_result``
+        hooks, nested ones included, before it is shown or stored (Pi
+        ``_afterToolCall`` normalizes the images there)."""
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
         _require_protocol(tool_capabilities, AgentToolCapabilities, "tool_capabilities")
@@ -434,7 +439,10 @@ class AgentLoop:
             raise TypeError("before_turn must be callable or None")
         if parent_runner is not None and not callable(parent_runner):
             raise TypeError("parent_runner must be callable or None")
+        if normalize_result is not None and not callable(normalize_result):
+            raise TypeError("normalize_result must be callable or None")
         self._parent_runner = parent_runner
+        self._normalize_result = normalize_result
         self._request_source = request_source
         self._provider_turn = provider_turn
         self._tools = tool_capabilities
@@ -1111,8 +1119,7 @@ class AgentLoop:
         )
         settlement = settle_tool_execution(tool_state, execution, mode=mode)
         _validate_tool_result_for_call(execution.result, call)
-        result = _transform_tool_result(self._tool_policy, call, execution.result)
-        _validate_tool_result_for_call(result, call)
+        result = self._after_tool_call(call, execution.result)
         duration = (datetime.now(UTC) - started_at).total_seconds()
         if emit_events:
             self._events.emit(
@@ -1241,8 +1248,7 @@ class AgentLoop:
                     execution,
                     result=self._with_nested_record(execution.result, service),
                 )
-            result = _transform_tool_result(self._tool_policy, call, execution.result)
-            _validate_tool_result_for_call(result, call)
+            result = self._after_tool_call(call, execution.result)
             if recorded:
                 # Hooks own content; canonical metadata is a fresh post-hook
                 # snapshot.
@@ -1266,6 +1272,21 @@ class AgentLoop:
         finally:
             service.close()
             self._release_composite_reservation(state, unwinding=unwinding)
+
+    def _after_tool_call(
+        self, call: AgentToolCall, result: AgentToolResultMessage
+    ) -> AgentToolResultMessage:
+        """The ``tool_result`` hooks, then the normalizer (Pi
+        ``_afterToolCall``)."""
+
+        result = _transform_tool_result(self._tool_policy, call, result)
+        _validate_tool_result_for_call(result, call)
+        if self._normalize_result is None:
+            return result
+        normalized = self._normalize_result(result)
+        if normalized is not result:
+            _validate_tool_result_for_call(normalized, call)
+        return normalized
 
     def _release_composite_reservation(
         self, state: _RunState, *, unwinding: bool
