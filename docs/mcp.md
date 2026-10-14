@@ -419,7 +419,7 @@ authorization URL, which pipy also opens in your browser, and an input:
 
  Approve access in your browser. If it did not open, visit:
  https://auth.example.com/authorize?response_type=code&client_id=…
- ctrl+x to copy
+ Cmd+click to open • ctrl+x to copy
 
  If the browser runs on another machine, paste the URL it was redirected to:
 >
@@ -431,7 +431,10 @@ When the browser comes back to this machine the sign-in goes on by itself.
 When it cannot reach this machine, over SSH for example, copy the URL from
 the address bar of the page the browser ended on (it starts with
 `http://127.0.0.1:`), paste it into the input and press Enter; an empty
-input is not submitted. Ctrl+X (the key bound to `app.message.copy` in
+input is not submitted. The URL and the `Cmd+click to open` hint
+(`Ctrl+click` outside macOS) are terminal hyperlinks (OSC 8) to the
+authorization URL, so a terminal that supports them opens it on a click
+even when it wraps. Ctrl+X (the key bound to `app.message.copy` in
 [`keybindings.json`](keybindings.md)) copies the authorization URL to the
 clipboard, for a URL too long to select in the terminal. While the server
 is connected again the screen says `Connecting…`. Escape or Ctrl+C cancels
@@ -446,9 +449,11 @@ connected state).
 
 Different from Pi in the manager:
 
-- The authorization URL is plain text, not a terminal hyperlink, so there
-  is no "click to open" hint. Most terminals still let you click a URL that
-  fits on one line; use Ctrl+X for one that wraps.
+- An authorization URL that is not printable ASCII (or is longer than 4096
+  characters) is shown as plain text, without a link and without the click
+  hint. Pi links every URL.
+- The click hint and the copy hint are shown with the URL, so a screen
+  taller than the terminal scrolls them with it.
 - `app.message.copy` copies only the sign-in URL in pipy. In Pi the same
   key also copies messages in the editor and in `/tree`.
 - The title of a screen is not bold, and the note after a copy has no colour

@@ -416,3 +416,50 @@ in, one section per item.
 - MGR-09 row: remove "The copy key is fixed to Ctrl+X." and "DEV-43 for the
   copy key"; add test
   `tests/test_native_mcp_manager_view.py::test_the_copy_key_is_the_users_app_message_copy_binding`.
+
+## N3-b: the sign-in URL as a terminal hyperlink (goal-check E20)
+
+### Changelog (Unreleased, Changed)
+
+- MCP: the authorization URL on the `/mcp` sign-in screen and a new
+  `Cmd+click to open` hint (`Ctrl+click` outside macOS) are OSC 8
+  hyperlinks to the URL, as Pi's `AuthUrlComponent` draws them, so a
+  terminal that supports links opens a wrapped URL on a click. The frame
+  keeps such links only on the rows that ask for them.
+
+### Plan / backlog updates
+
+- 3.2 audit table "Closed in part" (MGR-09) and DEV-43: MGR-09 is closed;
+  remove "the authorization URL is plain text, not a terminal hyperlink,
+  and there is no click to open hint". Add to DEV-43 (narrower): a URL that
+  is not printable ASCII up to 4096 characters stays plain text without the
+  click hint (Pi links every URL); the click and copy hints are part of the
+  scrolled text above the controls, so a long copy failure can be scrolled
+  to instead of being cut to one line.
+- "Decided in S34", "Narrower than Pi": remove "the authorization URL is
+  plain text, not an OSC 8 hyperlink (the frame carries only SGR
+  sequences), with no click hint". Add the design: `ansi_wrap` recognises
+  OSC 8 (`hyperlink()`, `OSC8_CLOSE`; a link open at a wrap is closed and
+  opened again, as pi-tui's `AnsiCodeTracker` does);
+  `frame_renderer.sanitize_custom_text`/`clip_custom_text` take
+  `links=True` to keep only `ESC ]8;;<[!-~]{0,4096}> ESC \` and close a link
+  left open at the end of a row; `LinkedFrameLine` marks such rows so
+  full-frame finishing keeps them; only `search_selector_region_lines` (the
+  editor-area overlay) asks for links. `visible_len` counts no link bytes.
+- docs/backlog.md: remove the item "MGR-09, one part: the authorization
+  URL of the sign-in screen is plain text, not a terminal hyperlink."
+
+### Acceptance note / audit test
+
+- MGR-09: status closed; remove the "one part" row of the open-parts table
+  (line ~75) and the note "The authorization URL is plain accent-coloured
+  text, not a clickable OSC 8 hyperlink, and there is no click to open
+  hint". Tests:
+  `tests/test_native_mcp_manager_view.py::test_the_url_and_the_click_hint_are_links_to_the_url`,
+  `::test_a_url_the_frame_cannot_link_is_plain_text`,
+  `::test_what_a_failed_copy_says_can_be_scrolled_to`;
+  `tests/test_native_frame_hyperlinks.py` (wrapping, sanitising, clipping,
+  full-frame finishing); `tests/test_native_mcp_login_pty.py::test_escape_cancels_a_login_that_waits_for_the_browser`
+  (the OSC 8 link and the click hint reach a real terminal).
+- The list item "SLH-13 and the hyperlink part of MGR-09: build or accept"
+  (line ~599) loses its hyperlink part.

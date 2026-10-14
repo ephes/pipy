@@ -1280,7 +1280,13 @@ editors cross as detached `ResolvedCustomEditorLine` tuples, an immutable
 `FrameLine` subtype retaining resolved kind and cursor metadata. The façade
 applies the established plain control/SGR clipping policy once; the subtype
 marks that hand-off so full-frame finishing preserves the exact bytes (adding
-only requested right padding), while input layout only applies the row window. Pure functions perform block wrapping,
+only requested right padding), while input layout only applies the row window.
+One more subtype, `LinkedFrameLine`, marks rows whose text may keep OSC 8
+hyperlinks: the editor-area overlay (the `/mcp` manager's sign-in URL) clips
+them with `clip_custom_text(..., links=True)`, which keeps only a plain
+`ESC ]8;;<printable ASCII URL> ESC \` form and closes a link left open at the
+end of the row, and full-frame finishing clips them the same way. Every other
+row still loses every escape but SGR. Pure functions perform block wrapping,
 clipping, row budgeting/selection, input/footer pinning, style mapping, cursor
 placement, and deterministic terminal paint-plan calculation. The renderer does
 not call components or callbacks, inspect streams or terminal geometry, acquire

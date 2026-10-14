@@ -39,6 +39,12 @@ _TOOL_BOX_KINDS = {
     "none": "tool_box_none",
 }
 _SAFE_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+# An OSC 8 hyperlink as ``ansi_wrap.hyperlink`` writes it: no parameters, a
+# bounded printable-ASCII URL (empty closes the link) and the ST terminator.
+_SAFE_OSC8_RE = re.compile(r"\x1b\]8;;([!-~]{0,4096})\x1b\\")
+_OSC8_CLOSE = "\x1b]8;;\x1b\\"
+# What has no width: SGR, and the hyperlinks of text that may keep them.
+_ZERO_WIDTH_RE = re.compile(f"{_SAFE_SGR_RE.pattern}|{_SAFE_OSC8_RE.pattern}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,14 @@ class ResolvedCustomEditorLine(FrameLine):
     frame finishing from applying the ordinary sanitization/clipping pass a
     second time. It adds no state and retains ``FrameLine`` kind/metadata.
     """
+
+    __slots__ = ()
+
+
+class LinkedFrameLine(FrameLine):
+    """A row whose text may keep OSC 8 hyperlinks (``clip_custom_text`` with
+    ``links``). Finishing a full frame clips it with links kept, where an
+    ordinary row would lose them."""
 
     __slots__ = ()
 
@@ -181,17 +195,27 @@ class _LayoutRegions:
 # Safe clipping and immutable line/block projection.
 
 
-def sanitize_custom_text(text: str) -> str:
-    """Sanitize extension text while preserving simple SGR styling."""
+def sanitize_custom_text(text: str, *, links: bool = False) -> str:
+    """Sanitize extension text while preserving simple SGR styling.
+
+    With ``links``, OSC 8 hyperlinks of the form ``ansi_wrap.hyperlink``
+    writes are kept too, and a link still open at the end is closed there,
+    so that it never runs on into the rows that follow.
+    """
 
     raw = str(text)
     cleaned: list[str] = []
+    open_link = False
     index = 0
     while index < len(raw):
-        match = _SAFE_SGR_RE.match(raw, index)
-        if match is not None:
-            cleaned.append(match.group(0))
-            index = match.end()
+        found = _SAFE_SGR_RE.match(raw, index)
+        if found is None and links:
+            found = _SAFE_OSC8_RE.match(raw, index)
+            if found is not None:
+                open_link = bool(found.group(1))
+        if found is not None:
+            cleaned.append(found.group(0))
+            index = found.end()
             continue
         ch = raw[index]
         code = ord(ch)
@@ -199,17 +223,20 @@ def sanitize_custom_text(text: str) -> str:
             " " if code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F else ch
         )
         index += 1
+    if open_link:
+        cleaned.append(_OSC8_CLOSE)
     return "".join(cleaned)
 
 
 def visible_len(text: str) -> int:
-    return len(_SAFE_SGR_RE.sub("", text))
+    return len(_ZERO_WIDTH_RE.sub("", text))
 
 
-def clip_custom_text(text: str, width: int) -> str:
-    """Clip text by visible width while retaining only safe SGR sequences."""
+def clip_custom_text(text: str, width: int, *, links: bool = False) -> str:
+    """Clip text by visible width while retaining only safe SGR sequences
+    and, with ``links``, safe hyperlinks (see ``sanitize_custom_text``)."""
 
-    safe = sanitize_custom_text(text)
+    safe = sanitize_custom_text(text, links=links)
     if width <= 0:
         return ""
     if visible_len(safe) <= width:
@@ -220,18 +247,26 @@ def clip_custom_text(text: str, width: int) -> str:
 
 
 def _clip_sgr_prefix(text: str, target: int) -> str:
+    """The first ``target`` columns of sanitized ``text``, with a link that
+    is cut off closed."""
+
     visible = 0
     clipped: list[str] = []
+    open_link = False
     index = 0
     while index < len(text) and visible < target:
-        match = _SAFE_SGR_RE.match(text, index)
+        match = _ZERO_WIDTH_RE.match(text, index)
         if match is not None:
+            if match.group(0).startswith("\x1b]"):
+                open_link = bool(match.group(1))
             clipped.append(match.group(0))
             index = match.end()
         else:
             clipped.append(text[index])
             visible += 1
             index += 1
+    if open_link:
+        clipped.append(_OSC8_CLOSE)
     return "".join(clipped)
 
 
@@ -717,6 +752,11 @@ def _finish_line(row: FrameLine, width: int, pad: bool) -> FrameLine:
         if pad:
             text += " " * max(0, width - visible_len(text))
         return ResolvedCustomEditorLine(text, row.kind, row.meta)
+    if isinstance(row, LinkedFrameLine):
+        text = clip_custom_text(row.text, width, links=True)
+        if pad:
+            text += " " * max(0, width - visible_len(text))
+        return LinkedFrameLine(text, row.kind, row.meta)
     text = pad_text(row.text, width) if pad else clip_custom_text(row.text, width)
     return FrameLine(text, row.kind, row.meta)
 

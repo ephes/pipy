@@ -19,10 +19,9 @@ callback runs or a menu is built.
 
 Different from Pi:
 
-- The authorization URL is plain text in the accent colour, not an OSC 8
-  hyperlink: pipy's frame carries no hyperlinks. A terminal that recognises
-  URLs makes it clickable as long as it fits on one line; the copy key is
-  for the rest. There is no "click to open" hint for the same reason.
+- A URL that is not printable ASCII up to 4096 characters is shown as
+  plain text, without a link and without the click hint: the frame keeps
+  only links it can check (``frame_renderer.sanitize_custom_text``).
 - The copy key is ``app.message.copy`` as in Pi, but pipy binds that action
   to nothing else: in Pi it also copies a message in the editor.
 - The title is in the accent colour and not bold as well, and the note
@@ -41,12 +40,14 @@ Different from Pi:
 
 from __future__ import annotations
 
+import re
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from pipy_harness.native.ansi_wrap import wrap_text_with_ansi
+from pipy_harness.native.ansi_wrap import hyperlink, wrap_text_with_ansi
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.keybindings import KeybindingsManager, key_display_text
 from pipy_harness.native.mcp.manager_menus import McpMenu
@@ -66,6 +67,15 @@ _PASTE_TEXT: Final = (
     "If the browser runs on another machine, paste the URL it was redirected to:"
 )
 _COPIED_TEXT: Final = "Copied URL to clipboard"
+# What the frame keeps as a link target (`frame_renderer.sanitize_custom_text`).
+_LINKABLE_URL: Final = re.compile(r"[!-~]{1,4096}")
+
+
+def _click_text() -> str:
+    """Pi's click hint, by platform."""
+
+    return "Cmd+click to open" if sys.platform == "darwin" else "Ctrl+click to open"
+
 
 # Copies a text to the clipboard; returns ``None``, or why it could not.
 CopyText = Callable[[str], str | None]
@@ -486,11 +496,19 @@ class McpManagerView:
             else style.muted(screen.copied)
         )
         before = ["", *_text(_APPROVE_TEXT, width, style.muted)]
-        url = _text(screen.url, width, style.accent)
+        # Pi `AuthUrlComponent`: the URL and the click hint are links to it.
+        # A URL the frame cannot carry as a link stays plain text.
+        linked = _LINKABLE_URL.fullmatch(screen.url) is not None
+        shown = hyperlink(screen.url, screen.url) if linked else screen.url
+        url = _text(shown, width, style.accent)
+        hint = copied
+        if linked:
+            click = style.dim(hyperlink(_click_text(), screen.url))
+            hint = f"{click} {style.dim('•')} {copied}"
+        # The hint is shown with the URL, through the window: a long
+        # failure of a copy can be scrolled to like the URL.
+        url += _wrapped(hint, width)
         after = [
-            # One line, whatever a failed copy has to say: the rows below
-            # are the controls.
-            *_wrapped(copied, width)[:1],
             "",
             *_text(_PASTE_TEXT, width, style.muted),
             screen.input.render(width, style),
