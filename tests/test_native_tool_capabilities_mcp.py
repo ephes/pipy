@@ -586,6 +586,25 @@ def test_a_reload_declares_loaded_tools_again_once_their_server_connects(
     assert tools.state.pending_tool_names == frozenset()
 
 
+def test_another_session_does_not_declare_loaded_tools_again(
+    tmp_path: Path,
+) -> None:
+    # A new Pi session (/new, /resume, /fork) starts from the configured
+    # tools: a tool `tool_search` loaded has to be loaded again, a `direct`
+    # one is declared when it registers. Names pending from a reload go too.
+    tools = _loaded(tmp_path)
+    _reload(tools)
+    assert tools.state.pending_tool_names
+
+    tools.restart_mcp_tools(keep_declared=False)
+
+    assert _registered(tools) == ("read", "bash")
+    assert tools.state.pending_tool_names == frozenset()
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
+    assert _declared(tools) == ("read", "bash", "mcp__docs__search")
+    assert tools.state.pending_tool_names == frozenset()
+
+
 def test_a_restored_tool_that_registers_after_the_run_started_is_not_activated(
     tmp_path: Path,
 ) -> None:

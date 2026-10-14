@@ -521,12 +521,28 @@ name now, as at the start of a session:
   refused (`pipy: keeping the previous extensions.`), it also keeps the
   servers as they are and does not use the `mcp.json` it read.
 
+Another session in the same run, by `/new`, `/resume`, `/fork`, `/clone`
+or `/import` (and the RPC and SDK operations that do the same), closes the
+servers and starts them again from the `mcp.json` files in the same way.
+What differs from `/reload`:
+
+- No tool of a server is declared again for the new session: a tool that
+  `tool_search` loaded has to be loaded again, a `direct` tool is declared
+  once its server has connected.
+- A change made in [`/mcp`](#the-mcp-command) to a server an extension
+  registered applied to the old session only; the new one starts from the
+  registration.
+- The switch returns when the old connections are closed. A switch that an
+  extension refuses keeps the servers.
+
 Different from Pi:
 
-- Pi closes the servers and reads `mcp.json` again for every new session in
-  one process (`/new`, `/resume`, `/fork`) as well. pipy keeps the servers
-  there; only `/reload` and a restart read the files again. The first-prompt
-  wait and the startup report are not repeated for such a session.
+- Pi builds a new runtime for another session, so the whole tool selection
+  starts again from the configured tools. pipy does this for the MCP tools
+  only: the other tools stay as they were, also a `codemode` or
+  `tool_search` that was turned on for servers the new configuration no
+  longer has.
+
 - Pi's reload is not undone when an extension fails to load, so its servers
   restart in every case.
 - While `/reload` decides whether the new extensions are accepted, a change

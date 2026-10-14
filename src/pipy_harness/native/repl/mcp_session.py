@@ -1,12 +1,13 @@
-"""The MCP servers of a session across ``/reload``.
+"""The MCP servers of a session across ``/reload`` and session switches.
 
 An ``McpManager`` serves one loaded configuration and is not started twice.
 ``McpSession`` is what the session holds instead: it has the manager of the
 configuration that is in use, with the objects that belong to it, and
-replaces them when a reload is accepted (Pi closes its servers on
-``session_shutdown`` and reads ``mcp.json`` again on ``session_start``).
-Everything else in the session asks it for the current ones, so nothing
-keeps a manager that was closed.
+replaces them when a reload is accepted and when another session replaces
+this one in the process, by ``/new``, ``/resume``, ``/fork``, ``/clone`` or
+an import (Pi closes its servers on ``session_shutdown`` and reads
+``mcp.json`` again on ``session_start``). Everything else in the session
+asks it for the current ones, so nothing keeps a manager that was closed.
 
 A sign-in made outside the session, by ``pipy mcp login`` that the agent
 ran through ``bash`` for example, is picked up when the next turn starts:
@@ -157,7 +158,7 @@ class RestartableMcpTools(Protocol):
     """What a reload needs of the session's tool capabilities
     (``NativeToolCapabilities``)."""
 
-    def restart_mcp_tools(self) -> None: ...
+    def restart_mcp_tools(self, *, keep_declared: bool = True) -> None: ...
 
 
 class McpServersChangeEvents(Protocol):
@@ -465,9 +466,28 @@ class McpSession:
         with self.servers.manager.publications_held():
             yield accept
         if accepted:
-            self._replace(candidate)
+            self._replace(candidate, keep_declared=True)
 
-    def _replace(self, candidate: McpServers) -> None:
+    def replace_session(self) -> None:
+        """Another session replaced this one in the process: ``/new``,
+        ``/resume``, ``/fork``, ``/clone`` or an import (Pi's
+        ``session_shutdown`` and ``session_start`` handlers).
+
+        Like an accepted reload, but the tools ``tool_search`` loaded and
+        the other declared MCP tools are not declared again: the new session
+        starts from the configured tools, as a new Pi session does. Changes
+        made in ``/mcp`` that apply only to the session, to a server an
+        extension registered, are gone with the old manager, and a
+        registered server nothing connects is reported again. Returns when
+        the old connections are closed and the new servers have started to
+        connect.
+        """
+
+        candidate = self._load(self._registered, self._loaded_for)
+        self._reported_unhandled = set()
+        self._replace(candidate, keep_declared=False)
+
+    def _replace(self, candidate: McpServers, *, keep_declared: bool) -> None:
         retired = self.servers.manager
         try:
             retired.close()
@@ -476,9 +496,9 @@ class McpSession:
             # of a session that was reloaded at once for example.
             retired.deliver_notices(self._notify)
         # Nothing publishes now: the retired manager is closed and the next
-        # one has not started. The tools that are declared are pending until
-        # their servers have connected again.
-        self._tools.restart_mcp_tools()
+        # one has not started. On a reload the tools that are declared are
+        # pending until their servers have connected again.
+        self._tools.restart_mcp_tools(keep_declared=keep_declared)
         with self._lock:
             self._servers = candidate
         self.start()

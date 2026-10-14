@@ -140,12 +140,13 @@ session. A field left at `None` keeps the setting.
 servers of `mcp.json` in the config home, and of the project's `mcp.json`
 when `settings` says the project is trusted (without `settings` it is not).
 The servers start connecting when the session is created and are closed when
-it is closed. Every field of `McpOptions` replaces one part and defaults to
+it is closed; a transition to another session closes them and starts them
+again, as Pi's MCP extension does on `session_shutdown` and `session_start`. Every field of `McpOptions` replaces one part and defaults to
 what the command does.
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `load_config` | `load_config(*, config_home, cwd, project_trusted)` returns the servers as a `LoadedMcpConfig`. It is called when the session is created. | `load_mcp_config`, which reads the `mcp.json` files |
+| `load_config` | `load_config(*, config_home, cwd, project_trusted)` returns the servers as a `LoadedMcpConfig`. It is called when the session is created and again by each `fork()`, `clone()`, `new_session()` and `switch_session()` that completes, which close the servers and start them again ([another session](mcp.md#reloading)). | `load_mcp_config`, which reads the `mcp.json` files |
 | `create_transport` | `create_transport(entry, cwd, auth_provider)` returns the transport to one server. | stdio for a `command`, streamable HTTP for a `url` |
 | `credentials` | The `McpOAuthCredentialStore` with the servers' OAuth credentials. | `mcp-auth.json` in the config home |
 | `log_path` | The file server log messages are appended to. | `mcp.log` in the config home |
@@ -414,7 +415,9 @@ or settling run. `cancel()` remains the only cross-thread operation. The
 current provider and validated workspace remain owned by the facade for its
 whole lifetime. Transition neither emits a new `session_start` nor a
 `session_shutdown`; those lifecycle events still occur once for construction
-and once for retirement of this facade.
+and once for retirement of this facade. A completed transition does restart
+the MCP servers of a session made with `mcp` (see
+[Codemode, tool search and MCP](#codemode-tool-search-and-mcp)).
 
 `fork(entry_id)` requires a persistent source. With no `entry_id`, it uses the
 current leaf; with one, it accepts an exact existing entry ID of any native

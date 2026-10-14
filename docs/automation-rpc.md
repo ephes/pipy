@@ -828,6 +828,9 @@ existing replacement, entry-selected fork, and current-leaf clone.
 `new_session.parentSession` is not adopted until a later separately reviewed
 lineage contract; D6b3 refuses a supplied value rather than inventing parent
 authority.
+A completed operation closes the session's MCP servers and starts them again
+from the `mcp.json` files, as `/new` does in a terminal
+([MCP: reloading](mcp.md#reloading)).
 
 Every accepted RPC session operation is atomically admitted and settled by the existing
 native control with the same true-idle/abort boundary as other control commands.

@@ -890,17 +890,20 @@ class NativeToolCapabilities:
                 pending_tool_names=_unregistered_mcp_names(state, names),
             )
 
-    def restart_mcp_tools(self) -> None:
+    def restart_mcp_tools(self, *, keep_declared: bool = True) -> None:
         """Unregister the MCP tools: their servers are started again.
 
-        The MCP tools that are declared now are pending afterwards, with the
-        names that were pending already (the reload that restarts the
-        servers kept what was declared before it, see :meth:`publish`). A
-        pending name is active again when its tool registers before the next
-        run starts (Pi ``reload``). Every name of an MCP tool leaves the
-        selection, so a tool that registers later is treated as a new one.
-        One critical section: no publication of a server can fall between
-        reading what is declared and unregistering the tools.
+        With ``keep_declared`` (``/reload``) the MCP tools that are declared
+        now are pending afterwards, with the names that were pending already
+        (the reload that restarts the servers kept what was declared before
+        it, see :meth:`publish`). A pending name is active again when its
+        tool registers before the next run starts (Pi ``reload``). Without it
+        (another session replaced this one) nothing is pending: a new Pi
+        session starts from the configured tools, so a tool that
+        ``tool_search`` loaded has to be loaded again. Every name of an MCP
+        tool leaves the selection, so a tool that registers later is treated
+        as a new one. One critical section: no publication of a server can
+        fall between reading what is declared and unregistering the tools.
         """
 
         with self._state_lock:
@@ -908,6 +911,9 @@ class NativeToolCapabilities:
             state = self._state.with_mcp_registry(
                 {}, cancel_join_timeout_seconds=self._cancel_join_timeout_seconds
             )
+            if not keep_declared:
+                state = replace(state, pending_tool_names=frozenset())
+                declared = frozenset()
             active = state.active_tool_names
             if active is not None:
                 gone = frozenset(

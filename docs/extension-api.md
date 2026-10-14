@@ -1390,7 +1390,8 @@ def changed(event, ctx):
   with its own `/mcp` command, or one that runs while MCP is turned off. With MCP
   [turned off](mcp.md#turning-mcp-off) or replaced, and no hook for the event, nothing
   connects a registered server; pipy then reports each registration once
-  per load of the extensions, also one that was unregistered again right
+  per load of the extensions and per session (`/new`, `/resume`, `/fork`
+  and the like start another), also one that was unregistered again right
   away:
 
   ```text
