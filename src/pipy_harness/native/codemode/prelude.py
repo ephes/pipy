@@ -16,7 +16,8 @@ stdin and stdout carry it:
 - guest -> host: ``{"type": "call", "id": int, "name": str, "args": object}``;
   ids count up from 1. The guest may send further messages before the
   reply, with at most :data:`MAX_PENDING_REQUESTS` requests whose reply it
-  has not read
+  has not read. A call line may be up to :data:`MAX_CALL_LINE_BYTES` long,
+  every other line but an image or done line up to :data:`MAX_LINE_BYTES`
 - host -> guest: ``{"type": "result", "id": int, "ok": true, "text": str}``
   (the call returns the tool's text), ``{"type": "result", "id": int, "ok":
   true, "value": <JSON>}`` (the call returns the tool's structured content) or
@@ -30,10 +31,12 @@ stdin and stdout carry it:
   (the helper returns the value) or ``{"type": "result", "id": int, "ok":
   false, "error": str}`` (the helper raises ``ValueError``)
 - guest -> host: ``{"type": "text", "value": str}``, one per ``text()`` call,
-  ``print()`` call or direct write to ``sys.stdout``/``sys.stderr``, in order
-  and never buffered. A value longer than ``TEXT_PIECE_CHARS`` goes in pieces
-  of that many characters, each but the last with ``"more": true``, sent one
-  after another; the host joins them into one item
+  and ``{"type": "text", "value": str, "console": true}``, one per
+  ``print()`` call or direct write to ``sys.stdout``/``sys.stderr`` (Pi's
+  ``console.*``), in order and never buffered. A value longer than
+  ``TEXT_PIECE_CHARS`` goes in pieces of that many characters, each but the
+  last with ``"more": true``, sent one after another; the host joins them
+  into one item
 - guest -> host: ``{"type": "image", "data": str, "mimeType": str}``, one per
   ``image()`` call, in order with the text messages: base64 data of a PNG,
   JPEG, GIF or WebP image and the type its first bytes show
@@ -43,6 +46,9 @@ stdin and stdout carry it:
   [key], ...]``: a key's new value as JSON text, or the key alone for one it
   deleted. A ``done`` line with writes may be longer than other lines (the
   host allows for the store's limits)
+
+Lines are UTF-8 JSON in both directions; a guest line with a lone surrogate
+uses JSON's ASCII escapes, which carry it.
 
 The traceback keeps only frames from the script (``<codemode>``). A malformed
 host message ends the guest with :data:`EXIT_PROTOCOL` before anything else
@@ -96,6 +102,11 @@ MAX_IMAGE_CHARS = 16 * 1024 * 1024
 # the line (an escaped astral character), so a piece stays well within the
 # host's 1 MiB line limit.
 TEXT_PIECE_CHARS = 64 * 1024
+# The host's limits on a line (``ScriptLimits.line_bytes``) and on a tool
+# call line (``ScriptLimits.reply_bytes``); a test pins that they match. A
+# request over them raises in the script rather than ending it.
+MAX_LINE_BYTES = 1024 * 1024
+MAX_CALL_LINE_BYTES = 16 * 1024 * 1024
 IMAGE_HELPER_EXPECTS = (
     "image expects a non-empty image URL string, an object with image_url, or "
     'an image block {"type": "image", "data", "mimeType"}'
@@ -719,9 +730,18 @@ def _failed(exc: BaseException, namespace: dict[str, Any]) -> dict[str, Any]:
 
 
 def encode(message: dict[str, Any]) -> bytes:
-    """One strict JSON line: NaN and Infinity are not JSON and raise ValueError."""
+    """One strict JSON line in UTF-8: NaN and Infinity are not JSON and raise
+    ValueError. A lone surrogate has no UTF-8 form; a message with one uses
+    JSON's ASCII escapes."""
 
-    return (json.dumps(message, separators=(",", ":"), allow_nan=False) + "\n").encode()
+    text = json.dumps(
+        message, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
+    try:
+        return (text + "\n").encode()
+    except UnicodeEncodeError:
+        text = json.dumps(message, separators=(",", ":"), allow_nan=False)
+        return (text + "\n").encode()
 
 
 def _splits_a_pair(value: str, index: int) -> bool:
@@ -766,7 +786,8 @@ class Wire:
             protocol_failure("the host sent a line that is not an object")
         return message
 
-    def text(self, value: str) -> None:
+    def text(self, value: str, console: bool = False) -> None:
+        kind: dict[str, Any] = {"console": True} if console else {}
         start = 0
         while True:
             end = start + TEXT_PIECE_CHARS
@@ -775,10 +796,13 @@ class Wire:
                 # only when both halves are in the same line.
                 end -= 1
             if end >= len(value):
-                self.send({"type": "text", "value": value[start:]})
+                self.send({"type": "text", "value": value[start:], **kind})
                 return
-            self.send({"type": "text", "value": value[start:end], "more": True})
+            self.send({"type": "text", "value": value[start:end], "more": True, **kind})
             start = end
+
+    def console(self, value: str) -> None:
+        self.text(value, console=True)
 
     def image(self, data: str, mime_type: str) -> None:
         # ``type`` first: the host tells an image line by how it starts.
@@ -795,6 +819,12 @@ class Wire:
             raise TypeError(
                 f"{label}() arguments must be JSON serializable: {exc}"
             ) from None
+        limit = MAX_CALL_LINE_BYTES if message["type"] == "call" else MAX_LINE_BYTES
+        if len(line) > limit:
+            raise ValueError(
+                f"{label}() arguments are {len(line)} bytes as JSON, more than "
+                f"the {limit}-byte limit for one call"
+            )
         while len(self._waiting) >= MAX_PENDING_REQUESTS:
             self._read_reply()
         self._next_id = call_id
@@ -897,7 +927,7 @@ def main() -> None:
     wire = Wire()
     code, records, snapshot = _run_request(wire.receive())
     keys, all_tools = tool_table(records)
-    stream = TextStream(wire.text)
+    stream = TextStream(wire.console)
     empty = io.StringIO()
     # setattr: these names are typed as final/overloaded, but reassigning
     # them is exactly what routes the script's output.

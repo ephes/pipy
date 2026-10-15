@@ -177,15 +177,45 @@ receives the structured content the hook returned, or the replaced text when
 the hook returned none.
 
 A structured value is not cut to the 64 KiB a tool's text is limited to. One
-tool reply may be up to 16 MiB as JSON; a larger one raises `ToolError` in the
-script, after the tool has run. A script still has 256 MiB of memory for the
+tool reply may be up to 16 MiB as JSON in UTF-8 (a non-ASCII character counts
+its UTF-8 bytes); a larger one raises `ToolError` in the script, after the
+tool has run. A call's arguments may be as large: a script can hand
+`tools.write` a file of several megabytes. Arguments over 16 MiB as JSON raise
+`ValueError` in the script, and the call is not made. A script still has 256 MiB of memory for the
 values it keeps and can emit 16,777,216 characters of output, so reduce a
 large value before emitting it.
 
 `text(value)` emits strings unchanged and other values as JSON (falling back to
-`repr` for values JSON cannot encode). `print()` and stdout/stderr writes are
-included in order. Filter before emitting: bulk raw results can exhaust output
-budgets and require another model turn.
+`repr` for values JSON cannot encode). `print()` and writes to `sys.stdout`
+and `sys.stderr` are the script's console output, Pi's `console.*`. Filter
+before emitting: bulk raw results can exhaust output budgets and require
+another model turn.
+
+The result starts with `Script completed` or `Script failed`, the wall time
+and `Output:`, then lays the output out as Pi does, so the model can tell
+items apart:
+
+- `text()` items and images appear in order, each on its own line. With more
+  than one `text()` item, each starts with a `==> text N/M <==` line.
+- The console output follows all of them in one block,
+  `<console_output>` ... `</console_output>`, as the script wrote it: a
+  `print()` ends its line, `print(..., end="")` and `sys.stdout.write()`
+  continue it.
+- A failed script keeps this partial output, followed by `Script error:`, the
+  error and the tool calls made before the failure.
+
+```text
+Script completed
+Wall time 0.4 seconds
+Output:
+==> text 1/2 <==
+3 files
+==> text 2/2 <==
+{"largest": "src/app.py"}
+<console_output>
+checked src
+</console_output>
+```
 
 ### Calls at the same time
 
@@ -365,7 +395,7 @@ With no match it lists the tools when there are at most 20.
 | --- | --- |
 | `tools.<identifier>(args)`, `tools["<name>"](args)` | Call a tool with one `dict` or with keyword arguments. |
 | `tools.<identifier>.submit(args)` | Start the call and return at once; `.result()` waits for it. See [calls at the same time](#calls-at-the-same-time). |
-| `text(value)` | Emit a string unchanged, another value as JSON. |
+| `text(value)` | Emit a string unchanged, another value as JSON. `print()` output goes to the [console block](#writing-a-script) instead. |
 | `image(value)` | Add an image to the output; see [images](#images). |
 | `store(key, value)`, `load(key)` | Keep a JSON value for later scripts on this branch, and read it back; see [keeping values between scripts](#keeping-values-between-scripts). |
 | `ToolError` | Raised by a tool call that failed. |
@@ -520,8 +550,9 @@ Scripts are not automatically retried after effects.
 | Wall deadline | none; `timeout_ms` in the [options line](#writing-a-script) sets one, including startup and time inside tools |
 | Guest memory | 256 MiB; exhaustion raises catchable `MemoryError` |
 | Source | 256 KiB UTF-8, checked before spawning |
-| Protocol line | 1 MiB per line the script sends (a tool call with its arguments); violation fails the sandbox. Longer text is sent in pieces, and an image message may be as long as the output limit allows |
-| Tool reply | 16 MiB as JSON per call; a larger result raises `ToolError` |
+| Protocol line | 1 MiB per line the script sends; violation fails the sandbox. Longer text is sent in pieces, an image message may be as long as the output limit allows, and a tool call with its arguments as long as a tool reply |
+| Tool call | 16 MiB of arguments as JSON (UTF-8) per call; larger arguments raise `ValueError` and the call is not made. Pi has no limit |
+| Tool reply | 16 MiB as JSON (UTF-8) per call; a larger result raises `ToolError` |
 | Emitted output | 16,777,216 characters of text and base64 image data together, or 100,000 `text()`, `image()` and print calls; excess fails the script (Pi's limits) |
 | Emitted images | within the output limit; `image()` raises `ValueError` once the images' base64 data would pass 16 MiB |
 | Result display | 10,000 estimated tokens (characters / 4), head and tail; `max_output_tokens` sets it, up to 16,000 |

@@ -318,6 +318,91 @@ def test_a_reply_larger_than_the_reply_limit_becomes_a_tool_error(
 
 def test_reply_limit_defaults_to_the_transport_message_size() -> None:
     assert ScriptLimits().reply_bytes == 16 * 1024 * 1024
+
+
+def test_a_reply_counts_utf8_bytes_not_ascii_escapes() -> None:
+    # Goal check r2 D2/U3: 3,000,000 accented characters are 6 MB of UTF-8
+    # but 18 MB as ``\u00e9`` escapes; the reply fits the 16 MiB limit.
+    text = "é" * 3_000_000
+    limit = ScriptLimits().reply_bytes
+    for result in (
+        CallResult(ok=True, text=text),
+        CallResult(ok=True, text="", value={"text": text}),
+    ):
+        line = host._encode_reply(1, "read", result, limit)
+        assert len(line) < 7_000_000
+        reply = json.loads(line)
+        assert reply["ok"] is True
+        assert reply.get("text", reply.get("value")) in (text, {"text": text})
+
+
+def test_a_reply_with_a_lone_surrogate_keeps_it_escaped() -> None:
+    # A lone surrogate has no UTF-8 form: the reply escapes it, as before.
+    line = host._encode_reply(
+        1, "read", CallResult(ok=True, text="a\udc80é"), ScriptLimits().reply_bytes
+    )
+    assert line == b'{"type":"result","id":1,"ok":true,"text":"a\\udc80\\u00e9"}\n'
+    assert json.loads(line)["text"] == "a\udc80é"
+
+
+def test_the_guests_line_limits_are_the_hosts() -> None:
+    limits = ScriptLimits()
+    assert prelude.MAX_LINE_BYTES == limits.line_bytes
+    assert prelude.MAX_CALL_LINE_BYTES == limits.reply_bytes
+
+
+def test_the_guest_encodes_lines_in_utf8_and_escapes_only_lone_surrogates() -> None:
+    assert prelude.encode({"value": "é"}) == '{"value":"é"}\n'.encode()
+    assert prelude.encode({"value": "\udc80é"}) == b'{"value":"\\udc80\\u00e9"}\n'
+
+
+def test_a_call_line_may_be_as_long_as_a_reply(
+    monkeypatch: pytest.MonkeyPatch, spawned: list[int]
+) -> None:
+    # Goal check r2 D3: a call's arguments are not held to the line limit
+    # but to the reply limit; every other line still is.
+    limits = ScriptLimits(wall_seconds=5.0, line_bytes=4096, reply_bytes=64 * 1024)
+    seen: list[str] = []
+
+    def write(name: str, arguments_json: str) -> CallResult:
+        seen.append(arguments_json)
+        return CallResult(ok=True, text="wrote")
+
+    def scenario(size: int) -> str:
+        # The prelude's compact form, by which the host tells a call line.
+        message = {"type": "call", "name": "write", "args": {"content": "x" * size}}
+        line = json.dumps({**message, "id": 1}, separators=(",", ":")) + "\n"
+        return (
+            "start()\n"
+            f"raw({line.encode()!r})\n"
+            "send({'type': 'text', 'value': recv()['text']})\n"
+            "done()\n"
+            "exit_status()\n"
+        )
+
+    outcome = _run(
+        monkeypatch,
+        scenario(50_000),
+        call_tool=write,
+        tool_names=("write",),
+        limits=limits,
+    )
+    assert outcome.ok, outcome
+    assert outcome.output == ("wrote",)
+    assert seen == [json.dumps({"content": "x" * 50_000}, ensure_ascii=False)]
+
+    seen.clear()
+    _sandbox_error(
+        _run(
+            monkeypatch,
+            scenario(70_000),
+            call_tool=write,
+            tool_names=("write",),
+            limits=limits,
+        ),
+        "a guest line exceeded 4096 bytes",
+    )
+    assert seen == []
     assert ScriptLimits().line_bytes == 1024 * 1024
     with pytest.raises(ValueError, match="reply_bytes"):
         ScriptLimits(reply_bytes=0)

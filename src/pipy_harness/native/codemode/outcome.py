@@ -49,7 +49,9 @@ class ScriptLimits:
     each tool reply the host sends, as its encoded JSON line: 16 MiB, the size
     of the largest message an MCP transport accepts, so an untruncated
     structured result can reach the script. A larger reply becomes a
-    ``ToolError`` in the script.
+    ``ToolError`` in the script. A tool call line from the guest may be as
+    long as a reply, so a script can pass a tool what a tool can hand it
+    (a large file's text to ``write``); Pi bounds neither.
 
     ``output_chars`` bounds what a script emits, its text and the base64
     data of the images it shows with ``image()`` together, in characters
@@ -178,6 +180,18 @@ class ScriptImage:
         return f"ScriptImage({self.mime_type}, {len(self.data)} characters)"
 
 
+class ConsoleText(str):
+    """Output a script wrote with ``print()`` or to ``sys.stdout`` and
+    ``sys.stderr``, Pi's ``console.*`` output. A plain ``str`` in
+    :attr:`ScriptOutcome.output` is a ``text()`` item. It compares equal to
+    the plain string with the same characters."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return f"ConsoleText({str.__repr__(self)})"
+
+
 @dataclass(frozen=True, slots=True)
 class ToolCallRecord:
     name: str
@@ -210,7 +224,8 @@ class ScriptError:
 class ScriptOutcome:
     """The result of one run; the runner never raises, it returns this.
 
-    ``output`` holds the script's ``text``/``print`` messages and its
+    ``output`` holds the script's ``text()`` items (``str``), its
+    ``print()`` and stdout/stderr writes (:class:`ConsoleText`) and its
     ``image()`` images in order (at most the output caps). ``calls`` lists every tool call the callback ran,
     in order. ``diagnostics`` is the worker's capped stderr and exit report,
     for humans only; it is never parsed and never shown to the model.

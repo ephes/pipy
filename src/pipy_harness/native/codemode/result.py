@@ -5,7 +5,7 @@
     Script completed|Script failed
     Wall time 1.2 seconds
     Output:
-    <text/print output, in order, truncated per budget>
+    <text() items and images, in order, then the print() output; truncated per budget>
     Script error:
     <traceback | Script timed out: … | Script aborted: … | Script sandbox failed: …>
 
@@ -16,6 +16,12 @@ summary appear only on failure; with no calls the summary is "No tool calls
 were made." Output and error are truncated together to a token budget
 (chars/4), keeping the head and the tail. Spilling the full text to a file is
 the composite caller's job (T8a): :class:`ResultText` hands it the untruncated text.
+
+Pi ``formatOutput`` lays the output out so the model can tell items apart:
+with more than one ``text()`` item, each starts with a ``==> text N/M <==``
+line, and what the script printed (``print()`` and writes to ``sys.stdout``
+or ``sys.stderr``, Pi's ``console.*``) follows all other output in one
+``<console_output>`` block.
 
 Images a script showed with ``image()`` stay where they are in the output,
 between the text around them (Pi ``formatOutput``). They are never cut: when
@@ -31,6 +37,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from pipy_harness.native.codemode.outcome import (
+    ConsoleText,
     ErrorKind,
     ScriptError,
     ScriptImage,
@@ -74,7 +81,7 @@ def format_result(
 ) -> ResultText:
     status = "Script completed" if outcome.ok else "Script failed"
     header = f"{status}\nWall time {outcome.wall_seconds:.1f} seconds\nOutput:\n"
-    output: list[str | ScriptImage] = list(outcome.output)
+    output = format_output(outcome.output)
     if outcome.error is not None:
         output.append(f"Script error:\n{error_text(outcome.error, outcome.calls)}")
     items = join_adjacent_text(output)
@@ -93,6 +100,44 @@ def format_result(
         header=header,
         items=tuple(items),
     )
+
+
+def format_output(
+    output: Iterable[str | ScriptImage],
+) -> list[str | ScriptImage]:
+    """Pi ``formatOutput``: mark where each ``text()`` item starts, and
+    gather the console output into one block after everything else.
+
+    With more than one ``text()`` item, each starts with a
+    ``==> text N/M <==`` line. Console output is a stream (a ``print()``
+    ends its line itself), so its writes are joined as they are; the block
+    ends its last line when the script did not.
+    """
+
+    items = list(output)
+    total = sum(
+        1
+        for item in items
+        if isinstance(item, str) and not isinstance(item, ConsoleText)
+    )
+    formatted: list[str | ScriptImage] = []
+    console: list[str] = []
+    index = 0
+    for item in items:
+        if isinstance(item, ScriptImage):
+            formatted.append(item)
+        elif isinstance(item, ConsoleText):
+            console.append(item)
+        else:
+            index += 1
+            formatted.append(
+                f"==> text {index}/{total} <==\n{item}" if total > 1 else str(item)
+            )
+    if console:
+        stream = "".join(console)
+        end = "" if stream.endswith("\n") else "\n"
+        formatted.append(f"<console_output>\n{stream}{end}</console_output>")
+    return formatted
 
 
 def join_adjacent_text(
@@ -116,18 +161,18 @@ def join_adjacent_text(
 
 
 def join_output(items: Iterable[str]) -> str:
-    """Join output items in order, starting each on a new line.
-
-    ``print()`` items already end with a newline; a ``text()`` item does not,
-    so a newline is inserted after it (Pi shows each ``text()`` value as its
-    own block).
-    """
+    """Join text items in order, each starting on its own line (Pi
+    ``joinAdjacentText``): a newline goes between two items unless the
+    text so far is empty or already ends with one."""
 
     parts: list[str] = []
+    # Whether the text so far is empty or ends with a newline.
+    ends_line = True
     for item in items:
-        if parts and not parts[-1].endswith("\n"):
+        if not ends_line:
             parts.append("\n")
         parts.append(item)
+        ends_line = not item or item.endswith("\n")
     return "".join(parts)
 
 

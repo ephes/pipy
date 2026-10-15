@@ -23,6 +23,7 @@ from pipy_harness.native.codemode import host
 from pipy_harness.native.codemode.outcome import (
     CallResult,
     CallStatus,
+    ConsoleText,
     ErrorKind,
     ScriptLimits,
     ScriptOutcome,
@@ -415,8 +416,8 @@ def test_effects_before_a_failure_are_reported_as_not_undone(
     assert result.is_error
     assert result.text.startswith("Script failed\nWall time ")
     assert (
-        "Output:\nsaved\nScript error:\nTraceback (most recent call last):"
-        in result.text
+        "Output:\n<console_output>\nsaved\n</console_output>\n"
+        "Script error:\nTraceback (most recent call last):" in result.text
     )
     assert result.text.endswith(
         "RuntimeError: after the write\n\n"
@@ -444,3 +445,92 @@ def test_a_surrogate_pair_across_a_piece_boundary_stays_one_character(
 
     assert outcome.ok, outcome
     assert outcome.output == ("x" * 65535 + "🙂",)
+
+
+def test_printed_output_is_console_output_and_text_items_are_marked(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal check r2 D11, Pi "marks where each text item starts and puts
+    # console lines last in one text block": print() and writes to stdout or
+    # stderr are Pi's console output.
+    code = (
+        "import sys\n"
+        "text('one\\ntwo')\n"
+        "print('a')\n"
+        "sys.stderr.write('b\\n')\n"
+        "text('three\\n')\n"
+        "text(4)\n"
+    )
+    outcome = _run(paths, code)
+    assert outcome.ok, outcome
+    assert outcome.output == ("one\ntwo", "a\n", "b\n", "three\n", "4")
+    assert [isinstance(item, ConsoleText) for item in outcome.output] == [
+        False,
+        True,
+        True,
+        False,
+        False,
+    ]
+    assert format_result(outcome).text.endswith(
+        "Output:\n==> text 1/3 <==\none\ntwo\n==> text 2/3 <==\nthree\n"
+        "==> text 3/3 <==\n4\n<console_output>\na\nb\n</console_output>"
+    )
+
+
+def test_a_call_may_carry_more_than_the_line_limit(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal check r2 D3: a script can hand a tool a 3 MB argument (a file to
+    # write), over the 1 MiB line limit.
+    seen: list[str] = []
+
+    def write(name: str, arguments_json: str) -> CallResult:
+        seen.append(arguments_json)
+        return CallResult(ok=True, text="wrote")
+
+    content = "é" * 1_500_000
+    outcome = _run(
+        paths,
+        "text(tools.read(path='big', content='é' * 1_500_000))\n",
+        call_tool=write,
+    )
+    assert outcome.ok, outcome
+    assert outcome.output == ("wrote",)
+    assert [json.loads(arguments) for arguments in seen] == [
+        {"path": "big", "content": content}
+    ]
+
+
+def test_a_call_over_the_call_limit_raises_in_the_script(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    code = (
+        "try:\n"
+        "    tools.read(content='x' * (16 * 1024 * 1024))\n"
+        "except ValueError as error:\n"
+        "    text(str(error))\n"
+    )
+    outcome = _run(paths, code)
+    assert outcome.ok, outcome
+    assert outcome.calls == ()
+    (message,) = outcome.texts
+    assert message.startswith("tools.read() arguments are 167772")
+    assert message.endswith(
+        "bytes as JSON, more than the 16777216-byte limit for one call"
+    )
+
+
+def test_a_large_non_ascii_result_reaches_the_script(
+    paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal check r2 D2/U3: 6 MB of UTF-8 is 18 MB escaped; the reply is
+    # measured in UTF-8 bytes and fits the 16 MiB limit.
+    def read(name: str, arguments_json: str) -> CallResult:
+        return CallResult(ok=True, text="", value={"text": "é" * 3_000_000})
+
+    code = (
+        "value = tools.read()['text']\nprint(len(value), value == 'é' * len(value))\n"
+    )
+    outcome = _run(paths, code, call_tool=read)
+    assert outcome.ok, outcome
+    assert outcome.output == ("3000000 True\n",)

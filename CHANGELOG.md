@@ -8,6 +8,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Codemode: a script's output is laid out as Pi lays it out, so the model
+  can tell where one item ends and the next begins. With more than one
+  `text()` item, each starts with a `==> text N/M <==` line, and what the
+  script printed (`print()`, writes to `sys.stdout` and `sys.stderr`)
+  follows all other output in one `<console_output>` block. Before, the
+  items ran together. A script can also hand a tool arguments of up to
+  16 MiB as JSON (a large file for `write`); before, a call over 1 MiB ended
+  the script as a sandbox failure, and now larger arguments raise
+  `ValueError` in the script. A tool's reply to a script counts the UTF-8
+  bytes of non-ASCII text against its 16 MiB limit instead of 6-byte
+  escapes, so a 6 MB accented result reaches the script. See
+  [writing a script](docs/codemode.md#writing-a-script).
+
 - Extension tools: calls that tools make of other tools
   (`ctx.execute_tool`, codemode scripts and their `submit()`) now follow
   Pi's execution mode. A tool registered with

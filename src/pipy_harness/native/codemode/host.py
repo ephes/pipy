@@ -49,6 +49,7 @@ from pipy_harness.native.codemode.outcome import (
     NO_VALUE,
     CallResult,
     CallStatus,
+    ConsoleText,
     DiscoveryResult,
     ErrorKind,
     ScriptError,
@@ -120,6 +121,9 @@ _IMAGE_FRAME = 1024
 # deleted are keys of the snapshot.
 _DONE_LINE = b'{"type":"done",'
 _STORE_BYTES_PER_CHAR = 20
+# How the prelude's tool call line starts. It may be as long as a reply
+# (``ScriptLimits.reply_bytes``): its arguments can be as large as a result.
+_CALL_LINE = b'{"type":"call",'
 
 ABORTED_MESSAGE = "Execution aborted"
 # Pi's prelude text, with pipy's calls that add output.
@@ -370,8 +374,22 @@ def _worker_argv(python: str, status_fd: int, request: str) -> list[str]:
     return [python, "-I", str(WORKER_PATH), "run", str(status_fd), request]
 
 
-def _encode(message: dict[str, Any]) -> bytes:
-    return (json.dumps(message, separators=(",", ":")) + "\n").encode()
+def _encode(message: dict[str, Any], *, allow_nan: bool = True) -> bytes:
+    """One JSON line in UTF-8, so a non-ASCII character takes its UTF-8
+    bytes rather than a 6-byte escape against the reply limit.
+
+    A lone surrogate has no UTF-8 form; a message with one is sent with
+    JSON's ASCII escapes, which carry it to the guest as it is.
+    """
+
+    text = json.dumps(
+        message, separators=(",", ":"), ensure_ascii=False, allow_nan=allow_nan
+    )
+    try:
+        return (text + "\n").encode()
+    except UnicodeEncodeError:
+        text = json.dumps(message, separators=(",", ":"), allow_nan=allow_nan)
+        return (text + "\n").encode()
 
 
 def _has_only_string_keys(value: object) -> bool:
@@ -405,14 +423,7 @@ def _encode_reply(call_id: int, name: str, result: CallResult, limit: int) -> by
     head: dict[str, Any] = {"type": "result", "id": call_id, "ok": True}
     if result.value is not NO_VALUE:
         try:
-            line = (
-                json.dumps(
-                    head | {"value": result.value},
-                    separators=(",", ":"),
-                    allow_nan=False,
-                )
-                + "\n"
-            ).encode()
+            line = _encode(head | {"value": result.value}, allow_nan=False)
             # After encoding, which refuses a cyclic value: the encoder turns
             # the key 1 into "1" and would send duplicate keys.
             if not _has_only_string_keys(result.value):
@@ -445,19 +456,10 @@ def _encode_discovery_reply(
         line = _error_reply(call_id, str(result.error))
     else:
         try:
-            line = (
-                json.dumps(
-                    {
-                        "type": "result",
-                        "id": call_id,
-                        "ok": True,
-                        "value": result.value,
-                    },
-                    separators=(",", ":"),
-                    allow_nan=False,
-                )
-                + "\n"
-            ).encode()
+            line = _encode(
+                {"type": "result", "id": call_id, "ok": True, "value": result.value},
+                allow_nan=False,
+            )
         except (TypeError, ValueError, RecursionError) as exc:
             return _error_reply(
                 call_id,
@@ -521,7 +523,7 @@ class _Discovery:
 @dataclass(frozen=True, slots=True)
 class _Finished:
     error: ScriptError | None
-    output: tuple[str | ScriptImage, ...] = ()
+    output: tuple[str | ConsoleText | ScriptImage, ...] = ()
     diagnostics: str = ""
     store_writes: StoreWrites = StoreWrites()
 
@@ -861,14 +863,16 @@ class _Channel:
         self._line = bytearray()
         self._status_buf = bytearray()
         self._stderr_tail = bytearray()
-        self._output: list[str | ScriptImage] = []
+        self._output: list[str | ConsoleText | ScriptImage] = []
         self._output_chars = 0
         # A text item sent in pieces: the pieces so far, held apart from
         # the output until the last one came, so an item over the cap leaves
-        # nothing of itself (Pi checks a call's output whole).
+        # nothing of itself (Pi checks a call's output whole), and whether
+        # they are console output.
         self._pieces: list[str] = []
         self._piece_chars = 0
         self._text_open = False
+        self._piece_console = False
         # A request stays outstanding until its reply has been written in
         # full: the ids awaiting a reply, and the replies not written yet.
         # Their sum is capped, so the reply buffer stays bounded however
@@ -1155,9 +1159,9 @@ class _Channel:
     def _append_line(self, piece: memoryview) -> None:
         size = len(self._line) + len(piece)
         if size > self._limits.line_bytes:
-            # Only an image line and a done line may be longer: as long as
-            # the image cap or the store's limits allow. What the line is
-            # is decided when it is parsed.
+            # Only an image, a done and a call line may be longer: as long
+            # as the image cap, the store's limits or a reply allow. What
+            # the line is is decided when it is parsed.
             head = bytes(self._line[: len(_IMAGE_LINE)])
             head += bytes(piece[: len(_IMAGE_LINE) - len(head)])
             kind = (
@@ -1165,6 +1169,8 @@ class _Channel:
                 if head == _IMAGE_LINE
                 else "done"
                 if head.startswith(_DONE_LINE)
+                else "call"
+                if head.startswith(_CALL_LINE)
                 else None
             )
             if size > self._line_limit(kind):
@@ -1180,6 +1186,8 @@ class _Channel:
             return self._limits.output_chars + _IMAGE_FRAME
         if kind == "done":
             return self._done_line_bytes
+        if kind == "call":
+            return max(self._limits.line_bytes, self._limits.reply_bytes)
         return self._limits.line_bytes
 
     def _handle_line(self, line: bytes) -> None:
@@ -1191,7 +1199,7 @@ class _Channel:
             raise _violation("the guest sent a line that is not a JSON object")
         kind = message.get("type")
         if len(line) > max(self._limits.line_bytes, self._line_limit(kind)):
-            # The longer allowances are an image's and a done's: a line that
+            # The longer allowances are an image's, a done's and a call's: a line that
             # only started like one (a second ``type`` key wins in JSON) gets
             # the limit its own type has.
             raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
@@ -1213,8 +1221,15 @@ class _Channel:
     def _on_text(self, message: dict[str, Any]) -> None:
         value = message.get("value")
         more = message.get("more", False)
-        if not isinstance(value, str) or not isinstance(more, bool):
+        console = message.get("console", False)
+        if (
+            not isinstance(value, str)
+            or not isinstance(more, bool)
+            or not isinstance(console, bool)
+        ):
             raise _violation("a text message had no string value")
+        if self._text_open and console is not self._piece_console:
+            raise _violation("a text message in pieces changed its kind")
         size = self._piece_chars + len(value)
         if self._output_chars + size > self._limits.output_chars:
             raise self._output_capped()
@@ -1228,10 +1243,12 @@ class _Channel:
             self._pieces.append(value)
             self._piece_chars = size
             self._text_open = True
+            self._piece_console = console
             return
         if len(self._output) >= self._limits.output_messages:
             raise self._output_capped()
-        self._output.append("".join([*self._pieces, value]))
+        text = "".join([*self._pieces, value])
+        self._output.append(ConsoleText(text) if console else text)
         self._output_chars += size
         self._pieces = []
         self._piece_chars = 0

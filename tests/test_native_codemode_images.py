@@ -32,6 +32,7 @@ from test_sdk_codemode_mcp import _config, _submit, _workspace
 from pipy_harness.native.agent.content import ImageContent, TextContent
 from pipy_harness.native.codemode import prelude
 from pipy_harness.native.codemode.outcome import (
+    ConsoleText,
     ErrorKind,
     ScriptError,
     ScriptImage,
@@ -264,7 +265,9 @@ def test_only_an_image_line_may_be_longer_than_the_line_limit(
     too_long = run_fake(monkeypatch, scenario, limits=tight)
     _sandbox_error(too_long, "a guest line exceeded 65536 bytes")
     # A second ``type`` key wins in JSON: such a line is another message and
-    # has the limit of every other message, before anything acts on it.
+    # has the limit of its own type, before anything acts on it. A call's
+    # is the reply limit.
+    calls = ScriptLimits(wall_seconds=5.0, line_bytes=64 * 1024, reply_bytes=64 * 1024)
     called: list[str] = []
 
     def call_tool(name: str, arguments_json: str) -> Any:
@@ -278,7 +281,7 @@ def test_only_an_image_line_may_be_longer_than_the_line_limit(
         "hang()\n"
     )
     _sandbox_error(
-        run_fake(monkeypatch, smuggled, limits=limits, call_tool=call_tool),
+        run_fake(monkeypatch, smuggled, limits=calls, call_tool=call_tool),
         "a guest line exceeded 65536 bytes",
     )
     assert called == []
@@ -319,9 +322,12 @@ PHOTO = ScriptImage(JPEG, "image/jpeg")
 
 
 def test_a_result_without_images_is_the_text_it_was() -> None:
-    formatted = format_result(_outcome("one\n", "two"))
-    assert formatted.text == HEADER + "one\ntwo"
-    assert (formatted.header, formatted.items) == (HEADER, ("one\ntwo",))
+    formatted = format_result(_outcome("one\n", ConsoleText("two")))
+    assert formatted.text == HEADER + "one\n<console_output>\ntwo\n</console_output>"
+    assert (formatted.header, formatted.items) == (
+        HEADER,
+        ("one\n<console_output>\ntwo\n</console_output>",),
+    )
     assert result_content(formatted.header, formatted.items) == (
         formatted.text,
         (TextContent(formatted.text),),
@@ -338,24 +344,25 @@ def test_images_stay_in_output_order_each_after_its_saved_path() -> None:
         return f"/tmp/image-{len(saved)}{extension}"
 
     formatted = format_result(_outcome("captured", IMAGE, IMAGE, "after\n", PHOTO))
-    assert formatted.items == ("captured", IMAGE, IMAGE, "after\n", PHOTO)
-    assert formatted.text == HEADER + "captured\nafter\n"
+    first, second = "==> text 1/2 <==\ncaptured", "==> text 2/2 <==\nafter\n"
+    assert formatted.items == (first, IMAGE, IMAGE, second, PHOTO)
+    assert formatted.text == HEADER + first + "\n" + second
 
     text, blocks = result_content(formatted.header, formatted.items, save)
 
     png_label = "[Image saved to /tmp/image-1.png (image/png, 70B)]"
     jpeg_label = "[Image saved to /tmp/image-2.jpg (image/jpeg, 12B)]"
     assert blocks == (
-        TextContent(f"{HEADER}captured\n{png_label}"),
+        TextContent(f"{HEADER}{first}\n{png_label}"),
         ImageContent(PNG, "image/png"),
         # The same image again: the same file.
         TextContent(png_label),
         ImageContent(PNG, "image/png"),
-        TextContent(f"after\n{jpeg_label}"),
+        TextContent(f"{second}{jpeg_label}"),
         ImageContent(JPEG, "image/jpeg"),
     )
     assert text == "\n".join(
-        [HEADER + "captured", png_label, png_label, "after", jpeg_label]
+        [HEADER + first, png_label, png_label, second + jpeg_label]
     )
     assert saved == [(base64.b64decode(PNG), ".png"), (base64.b64decode(JPEG), ".jpg")]
 
@@ -392,8 +399,10 @@ def test_images_follow_a_truncated_text_and_are_never_cut() -> None:
     assert shown.startswith("Warning: truncated output (original token count: ")
     assert "tokens truncated…" in shown
     assert images == [IMAGE, PHOTO]
-    # The budget is for the text of the items joined by newlines.
-    assert formatted.full_output == "".join(rows[:50]) + "\n" + "".join(rows[50:])
+    # The budget is for the text of the items joined by newlines, each
+    # item after its ``==> text N/M <==`` line (Pi "spills the full output").
+    marked = [f"==> text {index + 1}/100 <==\n{row}" for index, row in enumerate(rows)]
+    assert formatted.full_output == "".join(marked[:50]) + "\n" + "".join(marked[50:])
     assert formatted.text == HEADER + shown
 
     text, blocks = result_content(
@@ -527,22 +536,29 @@ def test_a_session_attaches_only_the_images_the_script_shows(
     lines = result.content.value.split("\n")
     assert lines[:3] == ["Script completed", lines[1], "Output:"]
     # The same image shown twice is saved once, so both labels name one file.
-    assert lines[3:] == ["captured", lines[4], lines[4], "after"]
-    match = LABEL.match(lines[4])
-    assert match is not None, lines[4]
+    assert lines[3:] == [
+        "==> text 1/2 <==",
+        "captured",
+        lines[5],
+        lines[5],
+        "==> text 2/2 <==",
+        "after",
+    ]
+    match = LABEL.match(lines[5])
+    assert match is not None, lines[5]
     saved = Path(match.group(1))
     try:
         assert saved.read_bytes() == base64.b64decode(PNG)
         assert stat.S_IMODE(os.stat(saved).st_mode) == 0o600
     finally:
         saved.unlink()
-    head = "\n".join(lines[:5])
+    head = "\n".join(lines[:6])
     assert result.blocks == (
         TextContent(head),
         ImageContent(PNG, "image/png"),
-        TextContent(lines[4]),
+        TextContent(lines[5]),
         ImageContent(PNG, "image/png"),
-        TextContent("after"),
+        TextContent("==> text 2/2 <==\nafter"),
     )
     # The nested call's own image went to the script, not to the model.
     assert result.details is not None

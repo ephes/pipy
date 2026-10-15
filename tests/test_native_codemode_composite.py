@@ -964,7 +964,9 @@ def test_public_definition_write_then_raise_and_spill(
         return
     spill = Path(parent.details["fullOutputPath"])
     body = spill.read_text()
-    assert body.startswith("é🙂" * 25000 + "\nScript error:\n")
+    assert body.startswith(
+        "<console_output>\n" + "é🙂" * 25000 + "\n</console_output>\nScript error:\n"
+    )
     assert "RuntimeError: after effect" in body
     assert "not undone" in body and "write (ok)" in body
     assert len(parent.content.value) < 41000
@@ -1099,7 +1101,9 @@ text({"a": a.result(), "b": b.result(), "again": a.result()})
     parent = _parent(outcome)
     assert not parent.is_error, parent.content.value
     assert parent.content.value.endswith(
-        'files 2\necho,stats\n{"a": "echo: one", "b": "echo: two", "again": "echo: one"}'
+        "==> text 1/2 <==\necho,stats\n==> text 2/2 <==\n"
+        '{"a": "echo: one", "b": "echo: two", "again": "echo: one"}\n'
+        "<console_output>\nfiles 2\n</console_output>"
     )
     assert parent.details is not None
     record = parent.details["nestedCalls"]
@@ -1164,9 +1168,10 @@ for call in calls:
     # although the first is still running when it is made.
     outcome = loop.run(_run_input(tool_budget=3))
     parent = _parent(outcome)
-    assert "done 1\ndone 2\nerror: tool budget exhausted (limit 3)" in (
-        parent.content.value
-    )
+    assert (
+        "==> text 1/3 <==\ndone 1\n==> text 2/3 <==\ndone 2\n"
+        "==> text 3/3 <==\nerror: tool budget exhausted (limit 3)"
+    ) in parent.content.value
     assert parent.details is not None
     assert [
         (c["id"], c["name"], c["status"])
@@ -1317,7 +1322,9 @@ def test_the_options_line_sets_the_deadline_and_the_output_budget(
     assert parent.details is not None
     assert parent.details["truncation"]["maxTokens"] == 10
     body = Path(parent.details["fullOutputPath"]).read_text()
-    assert body.startswith("x" * 100 + "\nScript error:\n")
+    assert body.startswith(
+        "<console_output>\n" + "x" * 100 + "\n</console_output>\nScript error:\n"
+    )
     assert "Script timed out: Execution timed out after 1.5 s" in body
 
 

@@ -50,7 +50,9 @@ def test_definition_literal_contract_and_fallback(tmp_path: Path) -> None:
         "\n"
         "Globals:\n"
         "- `text(value)` emits output: strings as-is, anything else as JSON. "
-        "`print()` output is included as well.\n"
+        "`print()` output is included as well. With several `text()` items, each "
+        "starts with a `==> text N/M <==` line, and `print()` output follows the "
+        "other output in one `<console_output>` block.\n"
         "- `image(value)` adds an image to the output: a base64 `data:` URL, a dict "
         'with `image_url`, or an image block `{"type": "image", "data", '
         '"mimeType"}` as MCP tools return it. PNG, JPEG, GIF and WebP are accepted; '
