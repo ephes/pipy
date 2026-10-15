@@ -14,16 +14,16 @@ Limits of what is promised:
 
 - ``close()`` sends its signals to the process group only while the server
   has not been reaped, so they cannot reach an unrelated group that reused
-  the id. Where the platform can wait without reaping (``os.waitid``), an
-  exited server stays unreaped until its stdout and stderr closed. So, as
-  with Pi, ``close()`` keeps signalling the group (SIGTERM, then SIGKILL)
-  while a child that outlived the server holds them, also when the server
-  had exited before ``close()`` was called. The one signal sent after the
-  pipes closed (to end children that do not hold them) is sent before the
-  reaping. Without ``os.waitid`` the watcher polls for the exit and reaps
-  the server in the same locked step that untracks it; from then on neither
-  ``close()`` nor the exit hook signals the group, so children that outlive
-  the server are not ended there, and ``close()`` does not wait for them.
+  the id. The watcher waits for the exit without reaping (``os.waitid``, or
+  a kqueue where Python has no ``os.waitid``, as on macOS before Python
+  3.13), so an exited server stays unreaped until its stdout and stderr
+  closed. So, as with Pi, ``close()`` keeps signalling the group (SIGTERM,
+  then SIGKILL) while a child that outlived the server holds them, also when
+  the server had exited before ``close()`` was called. The one signal sent
+  after the pipes closed (to end children that do not hold them) is sent
+  before the reaping. A server the system reaped by itself (SIGCHLD
+  ignored) is only untracked; from then on neither ``close()`` nor the exit
+  hook signals its group, and ``close()`` does not wait for its pipes.
 - A descendant that left the process group is not signalled. When such a
   descendant keeps the server's stdout open after the server exited, the
   transport stays open until ``close()`` is called; ``close()`` then returns
@@ -32,8 +32,8 @@ Limits of what is promised:
 - ``close()`` called from a message, error or stderr listener does not wait
   for the pipe of the reader it runs on, which cannot be read meanwhile.
 - After ``close()`` the readers go on delivering until the pipes close, or
-  until they are stopped: after the SIGKILL, or at once without
-  ``os.waitid``. A message that is already being delivered, and the error
+  until they are stopped: after the SIGKILL, or at once when the system
+  reaped the server. A message that is already being delivered, and the error
   for a partial message read before the stop, may reach their listeners
   after the close listeners ran.
 - A ``send`` that is blocked because the server does not read its stdin ends
@@ -49,11 +49,14 @@ from __future__ import annotations
 
 import atexit
 import codecs
+import errno
 import json
 import os
+import select
 import selectors
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -86,8 +89,8 @@ _exiting = False
 # How long the exit hook waits for a server it killed to be reaped.
 _EXIT_REAP_SECONDS: Final = 1.0
 _EXIT_POLL_SECONDS: Final = 0.01
-# How often a watcher looks for the server's exit where ``os.waitid`` is
-# missing.
+# How often a watcher looks for the server's exit where it cannot wait
+# without reaping.
 _REAP_POLL_SECONDS: Final = 0.05
 
 
@@ -157,6 +160,60 @@ def _untrack_process_group(pid: int) -> None:
         _live_process_groups.pop(pid, None)
         if _exiting:
             _signal_group(pid, signal.SIGKILL)
+
+
+def _wait_unreaped(pid: int) -> bool:
+    """Block until the child ``pid`` exited, leaving it unreaped.
+
+    Returns whether it exited and is still unreaped. False when the system
+    reaped it by itself (SIGCHLD ignored), and on a platform with neither
+    ``os.waitid`` nor a kqueue; the caller then polls for the exit.
+    """
+
+    if hasattr(os, "waitid"):
+        try:
+            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+        except ChildProcessError:
+            return False  # Already reaped by the system.
+        return True
+    # Where Python has no os.waitid but a kqueue, as on macOS before Python
+    # 3.13, wait for the process's exit note. (The platform test is for type
+    # checkers, which know a kqueue only outside Linux and Windows.)
+    if sys.platform == "linux" or sys.platform == "win32":
+        return False
+    if not hasattr(select, "kqueue"):
+        return False
+    exit_note = select.kevent(
+        pid,
+        filter=select.KQ_FILTER_PROC,
+        flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+        fflags=select.KQ_NOTE_EXIT,
+    )
+    try:
+        queue = select.kqueue()
+        try:
+            events = queue.control([exit_note], 1, None)
+        finally:
+            queue.close()
+    except OSError:
+        return False
+    if not events:
+        return False
+    if events[0].flags & select.KQ_EV_ERROR and events[0].data != errno.ESRCH:
+        return False
+    # The process exited, while it was waited for or before (ESRCH). A kqueue
+    # does not tell whether it is still unreaped, and once the system reaped
+    # it its id may belong to another process. Only ignoring SIGCHLD makes
+    # the system reap pipy's children, so the exit is trusted only while
+    # SIGCHLD is not ignored; the signal 0 test then catches a child that is
+    # gone anyway.
+    if signal.getsignal(signal.SIGCHLD) == signal.SIG_IGN:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
 
 
 def _reject_constant(name: str) -> NoReturn:
@@ -490,21 +547,17 @@ class StdioTransport(TransportEvents):
     def _wait_for_exit(self, process: subprocess.Popen[bytes]) -> bool:
         """Block until the server exited. Returns whether it is still unreaped.
 
-        With ``os.waitid`` the server is left unreaped, so its id stays
-        reserved. Without it the server is polled for, and reaped while
-        ``_lock`` and the tracking lock are held and its group is untracked
-        in the same step, so no signal of ``close()`` or of the exit hook
-        follows the reaping. A server the system reaped by itself (SIGCHLD
-        ignored) is only untracked; the group is not signalled after that.
+        The server is left unreaped where ``_wait_unreaped`` can wait for it,
+        so its id stays reserved. Otherwise it is polled for, and reaped
+        while ``_lock`` and the tracking lock are held and its group is
+        untracked in the same step, so no signal of ``close()`` or of the
+        exit hook follows the reaping. A server the system reaped by itself
+        (SIGCHLD ignored) is only untracked; the group is not signalled after
+        that.
         """
 
-        if hasattr(os, "waitid"):
-            try:
-                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
-            except ChildProcessError:
-                pass  # Already reaped by the system.
-            else:
-                return True
+        if _wait_unreaped(process.pid):
+            return True
         while True:
             with self._lock, _live_groups_lock:
                 if process.poll() is not None:

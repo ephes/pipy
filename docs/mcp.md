@@ -1645,12 +1645,12 @@ they are gone. What is left of a server's group after the server exited,
 such as a child that ignores SIGTERM, is sent SIGKILL.
 
 Both the close and the exit hook reach a server's group after the server
-exited only while pipy can keep the exited server unreaped, which needs
-`os.waitid` (Linux and macOS have it). On a platform without it, or when
-SIGCHLD is ignored so the system reaps the server itself, the group is not
-signalled once the server is gone, so a child that outlives the server is
-not ended by pipy: its process id could already belong to an unrelated
-process.
+exited only while pipy keeps the exited server unreaped, so its process id
+cannot belong to an unrelated process yet. pipy waits for the exit with
+`os.waitid`, or with a kqueue where Python has no `os.waitid` (macOS before
+Python 3.13), and both leave the server unreaped. When SIGCHLD is ignored so
+the system reaps the server itself, the group is not signalled once the
+server is gone, so a child that outlives the server is not ended by pipy.
 
 Nothing can be done when pipy is killed with SIGKILL. A server then ends
 when it notices that its stdin closed, as a server should; one that does

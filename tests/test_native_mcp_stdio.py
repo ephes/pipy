@@ -6,6 +6,7 @@ import json
 import os
 import queue
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -74,9 +75,29 @@ def _exited(pid: int) -> bool:
     return not state or state.startswith("Z")
 
 
-# Keeping an exited server unreaped while a child holds its pipes needs
-# os.waitid; without it close() cannot signal the group after the exit.
 _needs_waitid = pytest.mark.skipif(not hasattr(os, "waitid"), reason="needs os.waitid")
+
+
+@pytest.fixture(params=["waitid", "kqueue"])
+def unreaped_wait(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> str:
+    """Wait for servers without reaping them in each way this platform has.
+
+    Keeping an exited server unreaped while a child holds its pipes lets
+    close() go on signalling the group. It needs os.waitid, or a kqueue where
+    Python has no os.waitid (macOS before Python 3.13).
+    """
+
+    if request.param == "waitid":
+        if not hasattr(os, "waitid"):
+            pytest.skip("needs os.waitid")
+    else:
+        if not hasattr(select, "kqueue"):
+            pytest.skip("needs a kqueue")
+        # As on macOS before Python 3.13.
+        monkeypatch.delattr(os, "waitid", raising=False)
+    return str(request.param)
 
 
 class _Server:
@@ -750,7 +771,7 @@ def test_close_kills_a_server_that_ignores_shutdown_including_its_children(
     assert server.events() == ["stdin-closed", "sigterm"]
 
 
-@_needs_waitid
+@pytest.mark.usefixtures("unreaped_wait")
 def test_close_terminates_children_that_outlive_a_server_that_exited(
     start_server: StartServer,
 ) -> None:
@@ -790,8 +811,8 @@ def test_a_reaped_server_is_untracked_and_its_group_not_signalled(
     # Once the server is reaped its id may be reused: no signal of close() or
     # of the exit hook may follow. A child that outlived it is left alone.
     if reaped_by == "polling":
-        # Platforms without os.waitid.
-        monkeypatch.delattr(os, "waitid", raising=False)
+        # A platform with neither os.waitid nor a kqueue.
+        monkeypatch.setattr(stdio, "_wait_unreaped", lambda pid: False)
     else:
         # SIGCHLD ignored: the system reaps, and waitid finds no child.
         waitid = os.waitid
@@ -816,7 +837,7 @@ def test_a_reaped_server_is_untracked_and_its_group_not_signalled(
     assert _is_alive(child)
 
 
-@_needs_waitid
+@pytest.mark.usefixtures("unreaped_wait")
 def test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm(
     start_server: StartServer,
 ) -> None:
@@ -844,7 +865,7 @@ def test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm(
     assert pid not in stdio._live_process_groups
 
 
-@_needs_waitid
+@pytest.mark.usefixtures("unreaped_wait")
 def test_close_after_the_server_exited_kills_a_child_that_holds_its_output(
     start_server: StartServer,
 ) -> None:
@@ -902,35 +923,49 @@ def test_close_does_not_wait_for_a_child_that_left_the_process_group(
     assert _is_alive(child)
 
 
-def test_close_without_waitid_does_not_wait_for_a_child_that_holds_the_output(
+@pytest.mark.usefixtures("unreaped_wait")
+def test_an_exited_child_is_waited_for_without_reaping_it() -> None:
+    process = subprocess.Popen([sys.executable, "-c", "pass"])  # noqa: S603
+    try:
+        # It exits before the wait begins.
+        _wait_until(lambda: _exited(process.pid))
+
+        assert stdio._wait_unreaped(process.pid)
+        assert _exited(process.pid) and _is_alive(process.pid)
+    finally:
+        process.wait()
+
+    # A reaped child is not waited for.
+    assert not stdio._wait_unreaped(process.pid)
+
+
+@pytest.mark.usefixtures("unreaped_wait")
+def test_a_child_the_system_reaped_is_not_waited_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # With SIGCHLD ignored the system reaps the child, and its id may then
+    # belong to another process, which must not pass for the child.
+    previous = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+    try:
+        process = subprocess.Popen([sys.executable, "-c", "pass"])  # noqa: S603
+        _wait_until(lambda: not _is_alive(process.pid))
+        # As if the id had been reused.
+        monkeypatch.setattr(os, "kill", lambda pid, signum: None)
+
+        assert not stdio._wait_unreaped(process.pid)
+    finally:
+        signal.signal(signal.SIGCHLD, previous)
+
+
+def test_a_server_reaped_by_polling_is_not_tracked_while_a_child_holds_its_output(
     start_server: StartServer,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Without os.waitid the server is reaped when it exits; its group is not
-    # signalled after that, so close() cannot end such a child.
-    monkeypatch.delattr(os, "waitid", raising=False)
-    server = start_server(
-        {"startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}]},
-        close_timeout_ms=60_000,
-    )
-    assert server.request(1, "ping")["id"] == 1
-    child = server.child_pid()
-
-    started_at = time.monotonic()
-    server.transport.close()
-
-    assert time.monotonic() - started_at < 5
-    assert server.closed.is_set()
-    assert _is_alive(child)
-
-
-def test_without_waitid_a_reaped_server_is_not_tracked_while_a_child_holds_its_output(
-    start_server: StartServer,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # A reaped server's id may be reused, so the exit hook must not signal it,
-    # although the transport stays open while the child holds the output.
-    monkeypatch.delattr(os, "waitid", raising=False)
+    # On a platform with neither os.waitid nor a kqueue the server is reaped
+    # when it exits. Its id may then be reused, so the exit hook must not
+    # signal it, although the transport stays open while the child holds the
+    # output.
+    monkeypatch.setattr(stdio, "_wait_unreaped", lambda pid: False)
     server = start_server(
         {
             "startup": [{"spawn": {"ignoreSigterm": True, "inheritStdio": True}}],
@@ -1008,7 +1043,7 @@ def test_running_servers_are_tracked_until_they_exit(start_server: StartServer) 
     assert pid not in stdio._live_process_groups
 
 
-@_needs_waitid
+@pytest.mark.usefixtures("unreaped_wait")
 def test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server(
     start_server: StartServer,
     monkeypatch: pytest.MonkeyPatch,

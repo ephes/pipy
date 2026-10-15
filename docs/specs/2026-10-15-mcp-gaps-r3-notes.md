@@ -248,3 +248,66 @@ records the live cap, so none changes.
 rolling window (r3 D6).
 
 **Audit test references:** none changed.
+
+## T6: Stdio close on Python without `os.waitid` (P1)
+
+The coordinator moved P1 from ACCEPT to FIX, so it is fixed, not accepted:
+do not add the proposed DEV-84 row, do not add the backlog item "Optional:
+macOS `kqueue` exit wait for the stdio transport on Python < 3.13", and in
+the Q12 row of plan section 7 move P1 from the accepted list ("P1 (DEV-84;
+this corrects Q11's refutation of r2 P4, ...)") to the "Fixed by slices"
+list. Q12 should still say that Q11's refutation of r2 P4 assumed
+`os.waitid` on macOS, where Python has it only from 3.13.
+
+**Changelog (Unreleased, Fixed):**
+
+- Closing a stdio MCP server on macOS with Python 3.11 or 3.12 now ends a
+  child of the server that outlives it and keeps its stdout or stderr open:
+  the transport waits for the server's exit with a kqueue there (Python has
+  no `os.waitid` on macOS before 3.13), so the exited server stays unreaped
+  and its process group keeps getting the SIGTERM and SIGKILL of the close,
+  and of the exit hook, until the pipes close, as with Pi. Before, the
+  server was reaped at once and such a child was never signalled.
+
+**Plan, block G1 (the "Limits" and "Tests" part).** Replace the sentences
+from "Without `os.waitid` (and when the system reaps ..." to "... are then
+not ended." with:
+
+> The watcher waits without reaping by `os.waitid` with `WNOWAIT`, or, where
+> Python has no `os.waitid` (macOS before Python 3.13), by a kqueue
+> `NOTE_EXIT` filter (added after goal check r3, finding P1). Only when the
+> system reaps the server itself because SIGCHLD is ignored, or on a
+> platform with neither, is the server reaped in the same locked step that
+> untracks it; its group is not signalled after that, also not with the one
+> SIGTERM after the exit, so children that outlive the server are then not
+> ended.
+
+In the test list of G1, drop
+`test_close_without_waitid_does_not_wait_for_a_child_that_holds_the_output`
+(removed: it asserted the leak), rename
+`test_without_waitid_a_reaped_server_is_not_tracked_while_a_child_holds_its_output`
+to
+`test_a_server_reaped_by_polling_is_not_tracked_while_a_child_holds_its_output`,
+and add `test_an_exited_child_is_waited_for_without_reaping_it` and
+`test_a_child_the_system_reaped_is_not_waited_for` (with SIGCHLD ignored a
+kqueue exit is not trusted, since the id may already be reused). The tests
+`test_close_terminates_children_that_outlive_a_server_that_exited`,
+`test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm`,
+`test_close_after_the_server_exited_kills_a_child_that_holds_its_output`,
+`test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server`
+and the two new ones now run once per wait (`[waitid]`, `[kqueue]`, through the
+`unreaped_wait` fixture); each variant the platform cannot run is skipped.
+On macOS with Python 3.13+ both run (the `kqueue` variant removes
+`os.waitid`); on Linux only `waitid`; on macOS with Python 3.11/3.12 only
+`kqueue`. The `polling` case of
+`test_a_reaped_server_is_untracked_and_its_group_not_signalled` now stands
+for a platform with neither and replaces `_wait_unreaped`.
+
+**Plan, DEV rows:** none changes. STD-05 has no DEV row for this.
+
+**Acceptance (STD-05 row):** no change needed to its listed tests; they
+now also run with the kqueue wait. Optionally add
+`test_an_exited_child_is_waited_for_without_reaping_it` (r3 P1).
+
+**Audit test references:** none changed (none of the removed or renamed
+tests is referenced there).
