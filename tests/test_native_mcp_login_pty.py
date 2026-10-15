@@ -99,6 +99,9 @@ def test_escape_cancels_a_login_that_waits_for_the_browser(tmp_path: Path) -> No
         assert shown is not None
         assert wait_for_output(chunks, "/authorize?", after=shown, timeout=_TIMEOUT)
         assert wait_for_output(chunks, " to copy", after=shown, timeout=_TIMEOUT)
+        # The URL and the click hint reach the terminal as OSC 8 links.
+        assert wait_for_output(chunks, "\x1b]8;;http", after=shown, timeout=_TIMEOUT)
+        assert wait_for_output(chunks, "click to open", after=shown, timeout=_TIMEOUT)
         assert wait_for_output(chunks, "paste the URL", after=shown, timeout=_TIMEOUT)
         assert (
             wait_for_output(chunks, "Sign-in cancelled.", after=shown, timeout=1.0)

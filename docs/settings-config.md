@@ -281,7 +281,9 @@ as `retry.provider` are replaced wholesale):
   maxRetryDelayMs?: number=60000 } }`
 - `terminal?: { showImages?: boolean=true; imageWidthCells?: number=60;
   clearOnShrink?: boolean (env `PIPY_CLEAR_ON_SHRINK`=1); showTerminalProgress?:
-  boolean=false }`
+  boolean=false }`; `showImages` and `imageWidthCells` decide whether and how
+  wide tool-result images are drawn, see
+  [images in tool results](tui-workflow.md#images-in-tool-results)
 - `images?: { autoResize?: boolean=true; blockImages?: boolean=false }` (both
   apply to tool result images, see
   [providers](providers.md#size-of-tool-result-images-and-images-settings))
@@ -431,6 +433,8 @@ pipy ships the same default app-binding table Pi defines in
 - `app.thinking.toggle` = `ctrl+t` — toggle thinking blocks
 - `app.session.toggleNamedFilter` = `ctrl+n`
 - `app.editor.external` = `ctrl+g` — open external editor
+- `app.message.copy` = `ctrl+x` — on the MCP sign-in screen, copy the
+  sign-in URL (Pi also copies the last assistant message with it)
 - `app.message.followUp` = `alt+enter` — queue follow-up
 - `app.message.dequeue` = `alt+up` — restore queued messages
 - `app.clipboard.pasteImage` = `ctrl+v` (`alt+v` on Windows)

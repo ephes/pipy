@@ -504,7 +504,7 @@ class _Discovery:
 
 
 class _Tools:
-    def restart_mcp_tools(self) -> None:
+    def restart_mcp_tools(self, *, keep_declared: bool = True) -> None:
         raise AssertionError("nothing is reloaded here")
 
 

@@ -7,7 +7,9 @@ The two status-screen cases mirror Pi's ``mcp-manager-view.test.ts``.
 from __future__ import annotations
 
 import io
+import re
 import select
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,6 +17,7 @@ import pytest
 
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.frame_renderer import visible_len
+from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.mcp.manager_menus import McpMenu, McpMenuItem
 from pipy_harness.native.overlay_state import OverlayState
 from pipy_harness.native.terminal_driver import TerminalDriver
@@ -29,6 +32,8 @@ from pipy_harness.native.ui.components.search_selectors import (
 from pipy_harness.native.ui.screen import KEY_WAIT_ENDED, Screen
 
 _PLAIN = ChromeStyle(enabled=False)
+_LINK = re.compile(r"\x1b\]8;;[!-~]*\x1b\\")
+_CLICK = "Cmd+click to open" if sys.platform == "darwin" else "Ctrl+click to open"
 _URL = "https://auth.example/authorize?client_id=abc&state=xyz"
 
 
@@ -36,8 +41,14 @@ def _view(copy: Callable[[str], str | None] = lambda text: None) -> McpManagerVi
     return McpManagerView(mcp_manager_keys(None), copy=copy)
 
 
+def _unlinked(lines: list[str]) -> list[str]:
+    """``lines`` without their OSC 8 hyperlink sequences."""
+
+    return [_LINK.sub("", line) for line in lines]
+
+
 def _rendered(view: McpManagerView, width: int = 80) -> str:
-    return "\n".join(view.render(width, _PLAIN))
+    return "\n".join(_unlinked(view.render(width, _PLAIN)))
 
 
 def _row(mark: str, value: str, description: str) -> str:
@@ -232,13 +243,13 @@ def test_a_long_list_shows_twelve_items_around_the_selection() -> None:
 def test_the_sign_in_screen_shows_the_url_an_input_and_the_keys() -> None:
     view = _view()
     view.redirect_url("Sign in to issues", _URL, lambda answer: None)
-    assert view.render(80, _PLAIN) == [
+    assert _unlinked(view.render(80, _PLAIN)) == [
         "─" * 80,
         " Sign in to issues",
         "",
         " Approve access in your browser. If it did not open, visit:",
         f" {_URL}",
-        " ctrl+x to copy",
+        f" {_CLICK} • ctrl+x to copy",
         "",
         " If the browser runs on another machine, paste the URL it was redirected to:",
         "> " + " " * 78,
@@ -246,6 +257,32 @@ def test_the_sign_in_screen_shows_the_url_an_input_and_the_keys() -> None:
         " enter submit • escape/ctrl+c cancel",
         "─" * 80,
     ]
+
+
+def test_the_url_and_the_click_hint_are_links_to_the_url() -> None:
+    view = _view()
+    view.redirect_url("Sign in to issues", _URL, lambda answer: None)
+    link = f"\x1b]8;;{_URL}\x1b\\"
+    close = "\x1b]8;;\x1b\\"
+    lines = view.render(30, _PLAIN)
+    start = lines.index(" Approve access in your") + 3
+    url_lines = lines[start : start + 2]
+    for line in url_lines:
+        assert line.startswith(f" {link}") and line.endswith(close)
+    assert lines[start + 2].startswith(f" {link}{_CLICK}{close} •")
+    # The frame keeps the links (and closes each on its line).
+    region = [line for line in _region_raw(view, height=40) if link in line]
+    assert len(region) == 2
+
+
+def test_a_url_the_frame_cannot_link_is_plain_text() -> None:
+    view = _view()
+    url = "https://auth.example/authorize?name=Jürgen"
+    view.redirect_url("Sign in", url, lambda answer: None)
+    lines = view.render(80, _PLAIN)
+    assert f" {url}" in lines
+    assert " ctrl+x to copy" in lines
+    assert not [line for line in lines if "\x1b" in line]
 
 
 def test_confirm_submits_a_pasted_url_that_is_not_empty() -> None:
@@ -358,6 +395,19 @@ def _region(view: McpManagerView, *, width: int = 80, height: int) -> list[str]:
         style=_PLAIN,
     )
     assert len(lines) <= height
+    return _unlinked([line.text for line in lines])
+
+
+def _region_raw(view: McpManagerView, *, height: int) -> list[str]:
+    overlays = OverlayState()
+    overlays.begin_search_selector(view)
+    lines = search_selector_region_lines(
+        overlays,
+        width=80,
+        height=height,
+        footer_lines=("footer one", "footer two"),
+        style=_PLAIN,
+    )
     return [line.text for line in lines]
 
 
@@ -370,14 +420,14 @@ def test_a_long_error_leaves_the_actions_on_the_screen() -> None:
         ),
         lambda choice: None,
     )
-    # 18 rows for the view: what does not fit is counted, the rest stays.
+    # 18 rows for the view: a window over the text, the rest stays.
     assert _region(view, height=20) == [
         "─" * 80,
         " MCP servers",
         " npx server",
         " State: failed",
         *(f" stderr line {n}" for n in range(7)),
-        " … 17 more lines",
+        " … lines 1-9 of 26, pageup/pagedown to scroll",
         "",
         _row("→", "reconnect", "about reconnect"),
         _row(" ", "disable", "about disable"),
@@ -388,7 +438,7 @@ def test_a_long_error_leaves_the_actions_on_the_screen() -> None:
         "footer two",
     ]
     # With room for everything nothing is cut.
-    assert not [line for line in _region(view, height=60) if "more line" in line]
+    assert not [line for line in _region(view, height=60) if "to scroll" in line]
 
 
 def test_a_long_url_leaves_the_input_and_the_keys_on_the_screen() -> None:
@@ -397,9 +447,8 @@ def test_a_long_url_leaves_the_input_and_the_keys_on_the_screen() -> None:
     assert len(view.render(80, _PLAIN)) > 24
     lines = _region(view, height=20)
     assert len(lines) == 20
-    assert lines[10:] == [
-        " … 12 more lines",
-        " ctrl+x to copy",
+    assert lines[11:] == [
+        " … lines 1-7 of 19, pageup/pagedown to scroll",
         "",
         " If the browser runs on another machine, paste the URL it was redirected to:",
         "> " + " " * 78,
@@ -409,9 +458,13 @@ def test_a_long_url_leaves_the_input_and_the_keys_on_the_screen() -> None:
         "footer one",
         "footer two",
     ]
+    # The hints below the URL are scrolled to with it.
+    for _ in range(3):
+        view.handle_key("pagedown")
+    assert f" {_CLICK} • ctrl+x to copy" in _region(view, height=20)
 
 
-def test_what_a_failed_copy_says_takes_one_line() -> None:
+def test_what_a_failed_copy_says_can_be_scrolled_to() -> None:
     failure = "no clipboard command available and the terminal refused OSC 52"
     view = _view(lambda text: failure)
     view.redirect_url("Sign in to issues", _URL, lambda answer: None)
@@ -419,9 +472,11 @@ def test_what_a_failed_copy_says_takes_one_line() -> None:
     view.handle_key("ctrl-x")
     after = _region(view, width=20, height=24)
     assert len(after) == len(before) == 24
-    # The first line of the failure, and every control below it.
-    assert after[9:] == [
-        " no clipboard",
+    # Every control stays below the window over the URL and the hint.
+    assert after[7:] == [
+        " https://auth.examp",
+        " le/authorize?clien",
+        " … lines 1-2 of 8, …",
         "",
         " If the browser",
         " runs on another",
@@ -436,6 +491,13 @@ def test_what_a_failed_copy_says_takes_one_line() -> None:
         "─" * 20,
         "footer one",
         "footer two",
+    ]
+    for _ in range(3):
+        view.handle_key("pagedown")
+    assert _region(view, width=20, height=24)[7:10] == [
+        " and the terminal",
+        " refused OSC 52",
+        " … lines 7-8 of 8, …",
     ]
 
 
@@ -464,7 +526,7 @@ def test_a_status_message_is_cut_short_too() -> None:
         " Sign in",
         "",
         " line 0",
-        " … 29 more lines",
+        " … lines 1-1 of 30, pageup/pagedown to scroll",
         "",
         " escape/ctrl+c cancel",
         "─" * 80,
@@ -476,10 +538,137 @@ def test_a_status_message_is_cut_short_too() -> None:
 def test_a_long_url_is_wrapped_and_keeps_every_character() -> None:
     view = _view()
     view.redirect_url("Sign in", _URL, lambda answer: None)
-    lines = view.render(30, _PLAIN)
+    lines = _unlinked(view.render(30, _PLAIN))
     start = lines.index(" Approve access in your") + 3
-    end = lines.index(" ctrl+x to copy")
+    end = lines.index(f" {_CLICK} • ctrl+x")
     assert "".join(line[1:] for line in lines[start:end]) == _URL
+
+
+def test_page_keys_scroll_a_message_that_does_not_fit() -> None:
+    view = _view()
+    view.status("Sign in", "\n".join(f"line {n}" for n in range(12)), lambda: None)
+
+    def window() -> list[str]:
+        return _region(view, height=12)[3:7]
+
+    # Four rows for the text: three lines of it and where they are.
+    assert window() == [
+        " line 0",
+        " line 1",
+        " line 2",
+        " … lines 1-3 of 12, pageup/pagedown to scroll",
+    ]
+    view.handle_key("pagedown")
+    assert window()[:3] == [" line 3", " line 4", " line 5"]
+    # Not past the end, and back up from there.
+    for _ in range(10):
+        view.handle_key("pagedown")
+    assert window() == [
+        " line 9",
+        " line 10",
+        " line 11",
+        " … lines 10-12 of 12, pageup/pagedown to scroll",
+    ]
+    view.handle_key("pageup")
+    assert window()[0] == " line 6"
+    for _ in range(10):
+        view.handle_key("pageup")
+    assert window()[0] == " line 0"
+
+
+def test_a_long_error_scrolls_while_the_menu_keeps_its_keys() -> None:
+    chosen: list[str | None] = []
+    stderr = "\n".join(f"stderr line {n}" for n in range(24))
+    menu = _menu("reconnect", "disable", details="State: failed", error=stderr)
+    view = _view()
+    view.menu(lambda: menu, chosen.append, live=True)
+    _region(view, height=20)
+    view.handle_key("pagedown")
+    view.refresh()
+    lines = _region(view, height=20)
+    # A live menu built again keeps the window where it was.
+    assert lines[2:4] == [" stderr line 8", " stderr line 9"]
+    assert _row("→", "reconnect", "about reconnect") in lines
+    view.handle_key("down")
+    view.handle_key("enter")
+    assert chosen == ["disable"]
+
+
+def test_a_long_error_above_a_long_list_keeps_rows_to_scroll() -> None:
+    stderr = "\n".join(f"stderr line {n}" for n in range(24))
+    view = _view()
+    view.menu(
+        lambda: _menu(*(f"s{n:02}" for n in range(20)), error=stderr),
+        lambda choice: None,
+    )
+    lines = _region(view, height=20)
+    assert lines[2:5] == [
+        " stderr line 0",
+        " stderr line 1",
+        " … lines 1-2 of 24, pageup/pagedown to scroll",
+    ]
+    assert " enter manage • escape/ctrl+c close" in lines
+    view.handle_key("pagedown")
+    assert _region(view, height=20)[2] == " stderr line 2"
+
+
+def test_a_copy_key_bound_to_a_page_key_still_copies() -> None:
+    copied: list[str] = []
+
+    def copy(text: str) -> None:
+        copied.append(text)
+
+    keys = mcp_manager_keys(KeybindingsManager({"app.message.copy": "pageDown"}))
+    view = McpManagerView(keys, copy=copy)
+    view.redirect_url("Sign in", _URL * 25, lambda answer: None)
+    before = _region(view, height=20)
+    view.handle_key("pagedown")
+    assert copied == [_URL * 25]
+    # The window did not move; pageUp still scrolls (nothing above here).
+    assert _region(view, height=20)[:10] == before[:10]
+    # Elsewhere there is nothing to copy, so the key scrolls.
+    view.status("Sign in", "\n".join(f"line {n}" for n in range(30)), lambda: None)
+    assert _region(view, height=12)[3] == " line 0"
+    view.handle_key("pagedown")
+    assert _region(view, height=12)[3] == " line 3"
+    stderr = "\n".join(f"stderr line {n}" for n in range(24))
+    view.menu(lambda: _menu("reconnect", error=stderr), lambda choice: None)
+    assert _region(view, height=20)[2] == " stderr line 0"
+    view.handle_key("pagedown")
+    assert _region(view, height=20)[2] != " stderr line 0"
+    assert copied == [_URL * 25]
+
+
+def test_page_keys_do_not_reach_the_input_of_the_sign_in_screen() -> None:
+    view = _view()
+    view.redirect_url("Sign in", _URL * 25, lambda answer: None)
+    before = _region(view, height=20)
+    view.handle_key("pagedown")
+    after = _region(view, height=20)
+    assert after != before
+    assert "> " + " " * 78 in after
+
+
+def test_the_copy_key_is_the_users_app_message_copy_binding() -> None:
+    copied: list[str] = []
+
+    def copy(text: str) -> None:
+        copied.append(text)
+
+    keys = mcp_manager_keys(KeybindingsManager({"app.message.copy": "ctrl+y"}))
+    view = McpManagerView(keys, copy=copy)
+    view.redirect_url("Sign in to issues", _URL, lambda answer: None)
+    assert f" {_CLICK} • ctrl+y to copy" in _unlinked(view.render(80, _PLAIN))
+    view.handle_key("ctrl-x")
+    assert copied == []
+    view.handle_key("ctrl-y")
+    assert copied == [_URL]
+    # Unbound, nothing copies.
+    keys = mcp_manager_keys(KeybindingsManager({"app.message.copy": []}))
+    view = McpManagerView(keys, copy=copy)
+    view.redirect_url("Sign in to issues", _URL, lambda answer: None)
+    view.handle_key("ctrl-x")
+    assert copied == [_URL]
 
 
 # -- the key loop --------------------------------------------------------------

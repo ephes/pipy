@@ -160,20 +160,34 @@ class _CollectingUi:
             return None
         return self._custom_driver(factory, options)
 
-    def select(self, title: str, options: Sequence[str]) -> str | None:
+    def _timeout(self, timeout: int | None) -> dict[str, int]:
+        """Pi's dialog ``timeout`` (milliseconds), for a driver that takes
+        it (RPC mode); the terminal's dialogs wait without one."""
+
+        if timeout is None or not getattr(self._ui_driver, "dialog_timeouts", False):
+            return {}
+        return {"timeout": int(timeout)}
+
+    def select(
+        self, title: str, options: Sequence[str], *, timeout: int | None = None
+    ) -> str | None:
         choices = tuple(str(option) for option in options if str(option))
         if self._ui_driver is None or not self.has_ui or not choices:
             return None
         try:
-            return self._ui_driver.select(str(title), choices)
+            return self._ui_driver.select(str(title), choices, **self._timeout(timeout))
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return None
 
-    def input(self, title: str, placeholder: str | None = None) -> str | None:
+    def input(
+        self, title: str, placeholder: str | None = None, *, timeout: int | None = None
+    ) -> str | None:
         if self._ui_driver is None or not self.has_ui:
             return None
         try:
-            return self._ui_driver.input(str(title), placeholder)
+            return self._ui_driver.input(
+                str(title), placeholder, **self._timeout(timeout)
+            )
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return None
 
@@ -185,11 +199,15 @@ class _CollectingUi:
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return None
 
-    def confirm(self, title: str, message: str) -> bool:
+    def confirm(self, title: str, message: str, *, timeout: int | None = None) -> bool:
         if self._ui_driver is None or not self.has_ui:
             return False
         try:
-            return bool(self._ui_driver.confirm(str(title), str(message)))
+            return bool(
+                self._ui_driver.confirm(
+                    str(title), str(message), **self._timeout(timeout)
+                )
+            )
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return False
 

@@ -247,6 +247,10 @@ def test_mcp_login_takes_the_pasted_redirect_url(
     monkeypatch.setattr(wiring, "open_browser", opened.append)
     with FakeOAuthMcpServer() as server:
         client, store = _oauth_session(tmp_path, connect, server)
+        # The startup report is a notice too, which the client gets while
+        # the session waits for a command.
+        report = client.until(_is_request("notify"))[-1]
+        assert report["message"] == _STARTUP_REPORT
 
         client.send(id="p", type="prompt", message="/mcp login issues")
         records = client.until(_is_request("input"))
@@ -282,9 +286,7 @@ def test_mcp_login_takes_the_pasted_redirect_url(
             },
         ]
         assert store.tokens("issues", server.url) is not None
-        # The startup report is a notice too. The session shows its notices
-        # before its next step, which here is the end of the input.
-        assert [record["message"] for record in client.close()] == [_STARTUP_REPORT]
+        assert client.close() == []
 
 
 def test_mcp_login_through_the_browser_ends_the_input_request(

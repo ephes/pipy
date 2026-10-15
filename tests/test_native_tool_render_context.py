@@ -15,6 +15,7 @@ from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.extension_types import ToolRenderContext
 from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
@@ -88,7 +89,7 @@ def test_a_live_row_tells_the_renderer_about_the_call(tmp_path: Path) -> None:
     assert call.execution_started is True
     assert call.args_complete is True
     assert call.is_partial is True and call.is_result is False
-    assert call.show_images is False
+    assert call.show_images is True  # Pi's terminal.showImages default
     assert call.duration_ms is None
     assert call.last_component is None
 
@@ -240,3 +241,84 @@ def test_a_component_that_fails_to_draw_is_not_kept() -> None:
     drawn = lines_component(["fine"])
     assert render_tool_phase(lambda c: drawn, ctx, keep=good.append) == ["fine"]
     assert good == [drawn]
+
+
+def test_the_renderer_is_told_the_show_images_setting(tmp_path: Path) -> None:
+    # Pi `showImages: this.showImages`: the setting, whatever the terminal.
+    recorder = _Recorder()
+    live = _Live(tmp_path, recorder)
+    live.transcript.set_image_options(None, show=False, width_cells=60)
+    live.call()
+    assert recorder.seen[-1].show_images is False
+    live.transcript.set_image_options(None, show=True, width_cells=60)
+    live.renderer.render_tool_result(output_text="ok", is_error=False)
+    assert recorder.seen[-1].show_images is True
+
+
+def _last_images(live: _Live) -> tuple[object, ...]:
+    block: Any = live.transcript.history_blocks[-1]
+    return tuple(block.images)
+
+
+def test_an_extension_rows_images_stay_through_a_redraw_and_a_resume(
+    tmp_path: Path,
+) -> None:
+    from test_native_tool_result_image_rows import IMAGE
+
+    recorder = _Recorder()
+    scratch = _Live(tmp_path, recorder)
+    scratch.transcript.set_image_options("kitty", show=True, width_cells=60)
+    scratch.call()
+    scratch.renderer.render_tool_result(
+        output_text="shot", is_error=False, images=ResultImages("shot", (IMAGE,))
+    )
+    assert len(_last_images(scratch)) == 1
+
+    ctx = recorder.seen[-1]
+    ctx.state["text"] = "loaded"
+    ctx.invalidate()
+    assert "loaded" in "".join(scratch.transcript.history_blocks[-1][1])
+    assert len(_last_images(scratch)) == 1
+
+    shown = _Live(tmp_path, recorder)
+    shown.transcript.set_image_options("kitty", show=True, width_cells=60)
+    shown.transcript.replace_conversation(scratch.transcript.history_blocks)
+    assert len(_last_images(shown)) == 1
+
+
+def test_a_changed_show_images_setting_draws_extension_rows_again(
+    tmp_path: Path,
+) -> None:
+    # Pi `setShowImages` updates every tool component, so a renderer that
+    # reads `show_images` is drawn again also for a result without images.
+    recorder = _Recorder()
+    recorder.on_render = lambda ctx: ctx.state.__setitem__(
+        "text", f"show={ctx.show_images}"
+    )
+    live = _Live(tmp_path, recorder)
+    live.call()
+    live.renderer.render_tool_result(output_text="ok", is_error=False)
+    assert "show=True" in "".join(live.transcript.history_blocks[-1][1])
+
+    live.transcript.set_image_options(None, show=False, width_cells=60)
+    assert "show=False" in "".join(live.transcript.history_blocks[-1][1])
+    assert live.scrollback_resets == 1
+
+
+def test_a_changed_show_images_setting_draws_a_pending_row_again(
+    tmp_path: Path,
+) -> None:
+    recorder = _Recorder()
+    recorder.on_render = lambda ctx: ctx.state.__setitem__(
+        "text", f"show={ctx.show_images}"
+    )
+    live = _Live(tmp_path, recorder)
+    live.call()
+    assert "show=True" in "".join(live.transcript.pending_tool_lines)
+    repaints = live.repaints
+
+    live.transcript.set_image_options(None, show=False, width_cells=60)
+    assert "show=False" in "".join(live.transcript.pending_tool_lines)
+    assert live.repaints == repaints + 1
+    live.transcript.set_image_options(None, show=False, width_cells=40)
+    assert live.repaints == repaints + 1  # nothing a renderer is told changed

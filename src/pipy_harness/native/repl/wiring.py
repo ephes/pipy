@@ -109,6 +109,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks as dispatch_session_before_hooks,
 )
 from pipy_harness.native.extension_types import (
+    ExtensionUiDriver,
     QueuedCustomMessage,
     QueuedUserMessage,
     normalize_shortcut_key,
@@ -151,6 +152,7 @@ from pipy_harness.native.repl.extension_attach import (
 from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
 )
+from pipy_harness.native.repl.extension_reports import ExtensionReports
 from pipy_harness.native.repl.loop_scope import (
     ReplLoopScope,
     RunControlState,
@@ -167,8 +169,13 @@ from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
+    apply_image_settings,
 )
 from pipy_harness.native.repl.selector_actions import slash_argument_completer
+from pipy_harness.native.repl.session_command_port import (
+    SessionCommandPort,
+    bind_session_command_port,
+)
 from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseRegistry,
     CanonicalSessionLeaseSlot,
@@ -432,6 +439,12 @@ def _control_bridge(inputs: SessionWiringInput) -> _NativeSessionControlBridge |
     )
 
 
+def _prompt_mode(inputs: SessionWiringInput) -> bool:
+    """Whether the session reads prompts (print and JSON mode)."""
+
+    return getattr(inputs.input_stream, "is_prompt", False) is True
+
+
 def _runtime_abort_event(
     inputs: SessionWiringInput,
     control: CodingSessionController | None = None,
@@ -603,7 +616,10 @@ class _StartupPhase:
 class _ExtensionPhase:
     terminal_ui: TerminalUi | None
     extension_notify: Callable[[str, str], None]
+    extension_error: Callable[[str, str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
+    # The driver of extension contexts: the terminal's or the RPC client's.
+    ui_driver: ExtensionUiDriver | None
     tool_capabilities: NativeToolCapabilities
     # The MCP servers; ``/reload`` replaces what it holds.
     mcp: McpSession
@@ -900,14 +916,13 @@ def _compose_extension_phase(
         )
 
     transport_ui = automation_ui(inputs.automation_observer)
-
-    def _extension_notify(kind: str, message: str) -> None:
-        # What Pi sends through `ctx.ui.notify`: in RPC mode a request to
-        # the client.
-        if transport_ui is not None:
-            transport_ui.notify(str(message), kind)
-        else:
-            _local_notify(kind, message)
+    reports = ExtensionReports(
+        transport_ui=transport_ui,
+        local_notify=_local_notify,
+        error_stream=error_stream,
+        prompt_mode=_prompt_mode(inputs),
+    )
+    _extension_notify = reports.notify
 
     extension_ui_driver = (
         _LiveExtensionUiDriver(
@@ -921,6 +936,11 @@ def _compose_extension_phase(
         if terminal_ui is not None
         else None
     )
+    # What an extension's `ctx.ui` has: the terminal, an RPC client (Pi's
+    # RPC mode has a UI too), or nothing.
+    ui_driver: ExtensionUiDriver | None = extension_ui_driver
+    if ui_driver is None and transport_ui is not None:
+        ui_driver = transport_ui.extension_driver()
     builtins = startup.resource_options.builtins
     tool_capabilities = NativeToolCapabilities(
         inputs.tool_registry,
@@ -952,6 +972,7 @@ def _compose_extension_phase(
         ),
         tools=tool_capabilities,
         notify=_extension_notify,
+        report_error=reports.error,
         extensions=extension_bundle,
     )
 
@@ -984,7 +1005,7 @@ def _compose_extension_phase(
             runtime=extension_bundle,
             flag_values=startup.extension_flag_values,
             state_lock=session_state_lock,
-            has_ui=terminal_ui is not None,
+            has_ui=ui_driver is not None,
             notify_sink=_extension_notify,
             set_active_tools=lambda generation_id, names: (
                 provider_binding.set_active_tools(generation_id, names)
@@ -1011,7 +1032,7 @@ def _compose_extension_phase(
         execution_projections = SessionExecutionProjections(
             generation_ref=generation_ref,
             tool_capabilities=tool_capabilities,
-            ui_driver=extension_ui_driver,
+            ui_driver=ui_driver,
         )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
@@ -1023,7 +1044,9 @@ def _compose_extension_phase(
     return _ExtensionPhase(
         terminal_ui=terminal_ui,
         extension_notify=_extension_notify,
+        extension_error=reports.error,
         extension_ui_driver=extension_ui_driver,
+        ui_driver=ui_driver,
         tool_capabilities=tool_capabilities,
         mcp=mcp,
         startup_projection=startup_projection,
@@ -1186,6 +1209,7 @@ def _prepare_startup_extension_consumers(
     terminal_ui.components.autocomplete.set_max_visible(
         settings.get_autocomplete_max_visible()
     )
+    apply_image_settings(terminal_ui, settings)
     terminal_ui.components.autocomplete.replace_command_surface(
         published_command_surface(
             workspace_resources, startup_commands, session_commands
@@ -1255,7 +1279,7 @@ def _compose_emitter(
     cwd: Path,
     terminal_ui: TerminalUi | None,
     extension_notify: Callable[[str, str], None],
-    extension_ui_driver: _LiveExtensionUiDriver | None,
+    ui_driver: ExtensionUiDriver | None,
     project_trusted: bool,
 ) -> _extension_hooks._ExtensionLifecycleAgentEventAdapter:
     product_action_sink = NativeProductSessionActionSink(append_agent_message)
@@ -1275,9 +1299,9 @@ def _compose_emitter(
         immediate_sink,
         generation_snapshot=generation_ref.snapshot,
         cwd=str(cwd),
-        has_ui=terminal_ui is not None,
+        has_ui=ui_driver is not None,
         notify_sink=extension_notify,
-        ui_driver=extension_ui_driver,
+        ui_driver=ui_driver,
         project_trusted=project_trusted,
     )
 
@@ -1297,7 +1321,6 @@ def _compose_product_session(
     terminal_ui = extension.terminal_ui
     generation_ref = extension.generation_ref
     extension_notify = extension.extension_notify
-    extension_ui_driver = extension.extension_ui_driver
     agent_settled_pending = extension.agent_settled_pending
     extension_in_agent_turn = startup.extension_in_agent_turn
     output_stream = inputs.output_stream
@@ -1422,7 +1445,7 @@ def _compose_product_session(
         cwd=cwd,
         terminal_ui=terminal_ui,
         extension_notify=extension_notify,
-        extension_ui_driver=extension_ui_driver,
+        ui_driver=extension.ui_driver,
         project_trusted=settings.project_trusted,
     )
     return _ProductPhase(
@@ -1639,17 +1662,22 @@ def _show_compaction(
 
 
 def _rebuild_replaced_session(
-    rebuild_history: Callable[[], None], sync_settings: Callable[[], None]
+    rebuild_history: Callable[[], None],
+    sync_settings: Callable[[], None],
+    replace_mcp: Callable[[], None],
 ) -> None:
-    """A published session replacement: history, then model and thinking.
+    """A published session replacement: history, model and thinking, then
+    the MCP servers.
 
     Pi creates a whole runtime for ``/resume``, ``/fork``, ``/clone``,
     ``/new`` and import, which restores the session's model and level
-    (``core/sdk.ts``); the transition coordinator runs this after publishing.
+    (``core/sdk.ts``) and closes and starts its MCP servers again; the
+    transition coordinator runs this after publishing.
     """
 
     rebuild_history()
     sync_settings()
+    replace_mcp()
 
 
 def _start_chrome(
@@ -1798,9 +1826,9 @@ def _compose_collaborators(
     extension_operations = SessionExtensionOperations(
         generation_ref=ctl.generation_ref,
         cwd=str(cwd),
-        has_ui=terminal_ui is not None,
+        has_ui=extension.ui_driver is not None,
         notify_sink=_extension_notify,
-        ui_driver=extension_ui_driver,
+        ui_driver=extension.ui_driver,
         project_trusted=settings.project_trusted,
         model_runtime_factory=lambda generation_id, allow_model: (
             provider_mutation.model_runtime_control(
@@ -1901,6 +1929,16 @@ def _compose_collaborators(
         session_commands=extension.mcp.commands,
         mcp=extension.mcp,
     )
+    bind_session_command_port(
+        inputs.automation_observer,
+        SessionCommandPort(
+            extension_commands=extension_operations.commands,
+            session_commands=extension.mcp.commands,
+            resources=lambda: ctl.workspace_resources,
+            run_command=collaborators.dispatch_extension_effect,
+            report_error=extension.extension_error,
+        ),
+    )
     transition = SessionTransitionCoordinator(
         workspace=cwd,
         get_tree=lambda: ctl.session_tree,
@@ -1919,6 +1957,7 @@ def _compose_collaborators(
             _rebuild_replaced_session,
             product_session.rebuild_active_history,
             provider_mutation.sync_session_settings,
+            extension.mcp.replace_session,
         ),
         clear_extension_inputs=coding_input_queue.clear_extension_inputs,
     )
@@ -2087,6 +2126,8 @@ def _compose_commands(
         record_resource=coding_state.record_resource_invocation,
         resolve_resource=collaborators.dispatch_resource_effect,
         resolve_extension=collaborators.dispatch_extension_effect,
+        report_extension_error=extension.extension_error,
+        run_input_hooks=collaborators_phase.extension_operations.dispatch_input,
     )
     return _CommandPhase(command_effects=command_effects)
 
@@ -2270,7 +2311,7 @@ def _assemble_session_wiring(
         session_prompt_sections=extension.mcp.prompt_sections,
         run_prepared=extension.tool_capabilities.drop_pending_tools,
         compaction_event=_compaction_event,
-        prompt_mode=getattr(inputs.input_stream, "is_prompt", False) is True,
+        prompt_mode=_prompt_mode(inputs),
     )
     extension.mcp.announce_through(emitter)
     delegation = _LoopDelegation(
@@ -2310,8 +2351,13 @@ def _assemble_session_wiring(
             else lambda: None
         ),
     )
+    # What the MCP servers have to say is shown while the session waits for
+    # a key or a command (Pi shows it when it arises).
+    if terminal_ui is not None:
+        terminal_ui.components.screen.set_idle_work(extension.mcp.deliver_idle_notices)
     bridge = _control_bridge(inputs)
     if bridge is not None:
+        bridge.bind_idle_work(extension.mcp.deliver_idle_notices)
         _bind_rpc_transition_port(
             bridge,
             collaborators_phase.transition,

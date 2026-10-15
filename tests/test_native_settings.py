@@ -1333,3 +1333,25 @@ def test_compaction_budget_snapshot_defaults_zero_reserve_and_exact_guard(
 def test_quiet_startup_modes(tmp_path: Path, value: object, expected: object) -> None:
     manager = _manager(tmp_path, overrides={"quietStartup": value})
     assert manager.get_quiet_startup() == expected
+
+
+@pytest.mark.parametrize(
+    ("terminal", "show", "width"),
+    [
+        ({}, True, 60),
+        ({"showImages": False, "imageWidthCells": 40}, False, 40),
+        ({"showImages": "no", "imageWidthCells": 12.9}, True, 12),
+        ({"imageWidthCells": 0}, True, 1),
+        ({"imageWidthCells": True}, True, 60),
+        ({"imageWidthCells": "80"}, True, 60),
+        ({"imageWidthCells": 10**400}, True, 10**400),
+        ({"imageWidthCells": 1e400}, True, 60),
+    ],
+)
+def test_image_getters_are_pis(
+    tmp_path: Path, terminal: dict[str, object], show: bool, width: int
+) -> None:
+    _write_json(tmp_path / "config" / "settings.json", {"terminal": terminal})
+    mgr = _manager(tmp_path)
+    assert mgr.get_show_images() is show
+    assert mgr.get_image_width_cells() == width

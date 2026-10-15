@@ -589,7 +589,7 @@ target vocabulary includes:
 | `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
 | `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
-| `input` | Observe or transform submitted user input before a provider turn. | None or `InputTransform` |
+| `input` | Observe or transform submitted user input before a provider turn, or handle it so that no turn starts (`InputHandled`, Pi's `{action: "handled"}`; later hooks then do not run). A prompt of print, JSON or RPC mode reaches the hooks before skill and template expansion, as in Pi; a line typed into a session reaches them only when it is not a skill or template. | None, `InputTransform` or `InputHandled` |
 | `user_bash` | Observe or gate a user-run bash command entered via Pi's `!`/`!!` prefix, including whether it is excluded from model context. | None or `UserBashDecision` |
 | `before_agent_start` | Inject bounded context, alter system-prompt options, or add safe custom messages before a turn. | None or `BeforeAgentStartResult` |
 | `agent_start` | Observe a low-level agent run starting, including each admitted retry continuation. | None |
@@ -1371,7 +1371,11 @@ has Pi's fields:
 - `is_partial`: the call has no final result yet. `is_result` is True also
   for a partial result (streamed output), so a renderer that draws progress
   checks both.
-- `show_images`: False, since pipy's terminal draws no images.
+- `show_images`: the `terminal.showImages` setting, as in Pi; whether the
+  terminal draws the result's images after the row also depends on its
+  image protocol (see
+  [images in tool results](tui-workflow.md#images-in-tool-results)). False
+  for captured output and the HTML export.
 - `duration_ms`: how long the call ran, with the final result; None while it
   runs and when it is not known.
 - `invalidate()`: draws the call's row again, from any thread; for example
@@ -1547,12 +1551,19 @@ def changed(event, ctx):
   with its own `/mcp` command, or one that runs while MCP is turned off. With MCP
   [turned off](mcp.md#turning-mcp-off) or replaced, and no hook for the event, nothing
   connects a registered server; pipy then reports each registration once
-  per load of the extensions, also one that was unregistered again right
+  per load of the extensions and per session (`/new`, `/resume`, `/fork`
+  and the like start another), also one that was unregistered again right
   away:
 
   ```text
   Extension ".pipy/extensions/jira.py" error: MCP server "jira" is registered, but no loaded extension connects MCP servers; another extension may have replaced the built-in MCP support
   ```
+
+  That is the form of a session in a terminal. It is an extension error, as
+  in Pi (event `register_mcp_server`): print and JSON mode write
+  `Extension error (.pipy/extensions/jira.py): MCP server "jira" is registered, ...`
+  to stderr, and RPC mode sends an
+  [`extension_error` object](automation-rpc.md#extension-errors).
 
 `register_mcp_server` raises `McpServerRegistrationError` (a `ValueError`):
 
@@ -1593,7 +1604,8 @@ Different from Pi:
   Pi's.
 - A server that fails or needs a sign-in after it was registered later is
   reported like the [startup report](mcp.md#startup-report), with only that
-  server in it, where the session shows its notices: before the next prompt.
+  server in it, as soon as the session waits for input (in the editor, or in
+  RPC mode while no command runs); Pi reports it when it arises.
 
 First-slice candidates:
 
@@ -1623,7 +1635,13 @@ so Pi extensions translate naturally:
   external-editor handoff from the resolved `app.editor.external` keybinding
   (default Ctrl+G) in interactive TTY sessions. Ctrl+G is a reserved app binding;
   an extension that registers it as a shortcut is disabled rather than shadowing
-  the editor.
+  the editor. `select`, `confirm` and `input` take Pi's `timeout` option as a
+  keyword, in milliseconds (`ctx.ui.confirm("Allow?", "rm -rf", timeout=10000)`):
+  in [RPC mode](automation-rpc.md#extension-ui-requestresponse-channel) the
+  dialog ends with its default when it passes; the terminal's dialogs wait
+  without one (Pi counts it down there too). In RPC mode `ctx.has_ui` is true
+  and the dialogs, `notify`, `set_status`, `set_widget` (lines of text),
+  `set_title` and `set_editor_text` are requests to the client, as in Pi.
 - Status and indicators **(shipped for command/shortcut contexts)**:
   `set_status(key, text)`, working-message and working-indicator controls, and
   `ctx.ui.set_hidden_thinking_label(label=None)` /

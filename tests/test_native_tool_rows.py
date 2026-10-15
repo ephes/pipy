@@ -629,6 +629,75 @@ def test_mcp_result_without_text_adds_no_rows(tmp_path: Path) -> None:
     ]
 
 
+_SCRIPT = "Script completed\nWall time 0.4 seconds\nOutput:\n"
+
+
+def _codemode(tmp_path: Path) -> ToolRowState:
+    return _state("codemode", {"code": "print(1)"}, tmp_path)
+
+
+def test_codemode_result_drops_the_script_header(tmp_path: Path) -> None:
+    # M19, Pi codemodeRenderers.renderResult.
+    state = _codemode(tmp_path)
+    state.result = _result(_SCRIPT + "1\n2\n")
+    assert _rows(state) == [
+        ("success", ""),
+        ("success", 'codemode code="print(1)"'),
+        ("success", ""),
+        ("success", "1"),
+        ("success", "2"),
+        ("success", ""),
+        ("none", ""),
+    ]
+    # Rejected input has no header and is shown as it is.
+    state.result = _result("Invalid options: timeout", error=True)
+    assert _text(state)[1:] == ["Invalid options: timeout"]
+
+
+def test_codemode_result_counts_wrapped_lines_and_names_the_full_output(
+    tmp_path: Path,
+) -> None:
+    # Pi: "Limit wrapped lines, not logical ones: script output is often one
+    # long JSON line." 4000 characters at content width 98 are 41 rows.
+    notice = "Full output saved to /tmp/pipy-codemode-1.log (4000 bytes)."
+    details = {"fullOutputPath": "/tmp/pipy-codemode-1.log"}
+    state = _codemode(tmp_path)
+    state.result = _result(_SCRIPT + "x" * 4000 + f"\n\n{notice}", details)
+    assert _text(state) == [
+        'codemode code="print(1)"',
+        *["x" * 98] * 5,
+        "... (38 more lines, ctrl+o to expand)",
+        "Full output: /tmp/pipy-codemode-1.log",
+    ]
+    # Expanded, the whole output and the notice at its end; no extra path.
+    expanded = _text(state, expanded=True)
+    assert expanded[-1] == notice
+    assert "".join(expanded[2:-1]) == "x" * 4000
+    assert "Full output: /tmp/pipy-codemode-1.log" not in expanded
+
+
+def test_codemode_result_is_empty_while_the_script_runs(tmp_path: Path) -> None:
+    state = _codemode(tmp_path)
+    state.partial_output = "partial"
+    assert _text(state) == ['codemode code="print(1)"']
+    state.result = _result(_SCRIPT)
+    assert _text(state) == ['codemode code="print(1)"']
+
+
+def test_codemode_error_result_uses_the_error_colour(tmp_path: Path) -> None:
+    state = _codemode(tmp_path)
+    state.result = _result(
+        "Script failed\nWall time 0.1 seconds\nOutput:\nboom", error=True
+    )
+    rows = render_tool_row(
+        state, RowRenderInputs(expanded=False, width=100, theme=MARKED)
+    )
+    error = f"\x1b[{MARKED.codes['error']}m"
+    assert [row.text for row in rows if row.text.startswith(error)] == [
+        f"{error}boom\x1b[39m"
+    ]
+
+
 def test_a_running_mcp_call_shows_its_latest_progress(tmp_path: Path) -> None:
     state = _mcp({}, tmp_path)
     state.partial_output = "Progress 1/3\nindexing\n"

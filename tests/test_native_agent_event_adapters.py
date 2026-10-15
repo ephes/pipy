@@ -114,6 +114,7 @@ class _RecordingRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
         details: Mapping[str, object] | None = None,
+        images: object = None,
     ) -> None:
         self.actions.append(
             ("tool-complete", output_text, is_error, duration_seconds, details)

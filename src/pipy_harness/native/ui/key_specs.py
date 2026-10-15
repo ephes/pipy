@@ -24,7 +24,12 @@ from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsMana
 # `DEFAULT_KEYBINDINGS` alone, so an unrecognized user binding cannot silently
 # take over a key the product owns.
 USER_KEYBINDING_ACTIONS = frozenset(
-    {"app.editor.external", "app.thinking.save", "app.models.save"}
+    {
+        "app.editor.external",
+        "app.thinking.save",
+        "app.models.save",
+        "app.message.copy",
+    }
 )
 
 

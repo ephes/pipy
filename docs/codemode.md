@@ -289,6 +289,9 @@ when the text is over it, the text becomes one shortened block and the
 images follow it. Like any tool result image, an attached image that is too
 large is then scaled down (the saved file keeps the original), see
 [providers](providers.md#size-of-tool-result-images-and-images-settings).
+In the terminal the images are drawn after the codemode row when the
+terminal can draw them, see
+[images in tool results](tui-workflow.md#images-in-tool-results).
 
 A tool's own images do not reach the model through a script: a tool without
 an output schema returns its text, an MCP tool returns its result with the
@@ -541,6 +544,15 @@ not be saved, publish no path and preserve the primary outcome and nested record
 ## Nested evidence and availability
 
 Live children appear inside the parent row; Ctrl+O expands retained evidence.
+Below them the row shows the script's output as Pi's codemode renderer does:
+without the `Script completed`, `Wall time` and `Output:` lines, nothing while
+the script runs, and collapsed only the first five lines as wrapped at the
+row's width (script output is often one long JSON line), followed by
+`... (N more lines, ctrl+o to expand)` and, when the output was spilled,
+`Full output: <path>`. Ctrl+O shows all of it, with the notice that ends a
+spilled result. Unlike Pi, the call is still drawn as `codemode code="…"`
+rather than as the highlighted script, and the row adds no `Model calls:`
+cost line.
 JSON/RPC child lifecycle events, live output (`tool_execution_update`) included,
 carry `parentToolCallId`. Only the parent result
 enters provider and durable product history, with a bounded `nestedCalls` record:

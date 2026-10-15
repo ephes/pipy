@@ -46,6 +46,7 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
+    RegisteredCommand,
 )
 from pipy_harness.native.extensions.dispatch import (
     ExtensionCommandDispatch,
@@ -136,6 +137,12 @@ class SessionExtensionOperations:
             project_trusted=self.project_trusted,
         )
 
+    def commands(self) -> Mapping[str, RegisteredCommand]:
+        """The extension commands of the published generation."""
+
+        projection, _driver, _generation_id = self._projection()
+        return projection.commands.commands
+
     def dispatch_shortcut(
         self,
         key: str,
@@ -158,7 +165,7 @@ class SessionExtensionOperations:
             project_trusted=self.project_trusted,
         )
 
-    def dispatch_input(self, text: str) -> str:
+    def dispatch_input(self, text: str) -> str | None:
         projection, ui_driver, generation_id = self._projection()
         return dispatch_input_hooks(
             projection.hooks.input,

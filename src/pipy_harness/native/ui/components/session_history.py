@@ -38,7 +38,10 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
     SessionEntry,
 )
-from pipy_harness.native.tool_result_display import tool_result_display_text
+from pipy_harness.native.tool_result_display import (
+    result_images,
+    tool_result_display_text,
+)
 from pipy_harness.native.tool_rows import SummaryBox
 from pipy_harness.native.ui.components.custom_entry_renderer import (
     CustomEntryRenderer,
@@ -145,6 +148,9 @@ class SessionHistoryRenderer:
         # Thinking rows follow the live fold and label (Pi hideThinkingBlock).
         scratch.thinking_hidden = self.transcript.thinking_hidden
         scratch.hidden_thinking_label = self.transcript.hidden_thinking_label
+        # Stored results draw their images as live ones do.
+        protocol, show, width_cells = self.transcript.image_options
+        scratch.set_image_options(protocol, show=show, width_cells=width_cells)
         # The published extension generation draws the stored calls, also
         # of tools no provider turn has declared yet.
         renderer = self.tool_renderer.detached(
@@ -263,6 +269,7 @@ def _render_assistant(
                 output_text=tool_result_display_text(result),
                 is_error=result.is_error,
                 details=result.details,
+                images=result_images(result),
             )
         else:
             # No stored result: the row stays pending, at its own position.

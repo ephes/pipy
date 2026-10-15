@@ -453,11 +453,19 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         repaint=noop,
         custom_editor=custom_editor,
     )
-    terminal_ui = SimpleNamespace(components=SimpleNamespace(autocomplete=autocomplete))
+    terminal_ui = SimpleNamespace(
+        components=SimpleNamespace(
+            autocomplete=autocomplete,
+            transcript=SimpleNamespace(set_image_options=lambda *_a, **_k: None),
+        ),
+        terminal_stream=io.StringIO(),
+    )
     effect = SimpleNamespace(
         settings=SimpleNamespace(
             get_theme=lambda: None,
             get_autocomplete_max_visible=lambda: 5,
+            get_show_images=lambda: True,
+            get_image_width_cells=lambda: 60,
             load_errors=lambda: {},
             get_quiet_startup=lambda: True,
             project_trusted=True,
@@ -669,6 +677,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
             provider_mutation=Mutation(),
             cwd=tmp_path,
             terminal_ui=None,
+            extension_operations=SimpleNamespace(has_ui=False),
             extension_notify=lambda _kind, _message: None,
             settings=SimpleNamespace(project_trusted=True),
         ),

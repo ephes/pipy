@@ -391,6 +391,7 @@ class SessionCollaborators:
             keybindings=keybindings,
             terminal_ui=self.terminal_ui,
             extension_ui_driver=self.extension_ui_driver,
+            ui_driver=self.extension_operations.ui_driver,
             renderer=renderer,
             error_stream=self.error_stream,
             emitter=emitter,
@@ -692,7 +693,7 @@ class SessionCollaborators:
             tool_call_id=call.provider_correlation_id,
             parent_tool_call_id=parent_call_id,
             cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
+            has_ui=self.extension_operations.has_ui,
             notify_sink=self.extension_notify,
             ui_driver=ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(
@@ -725,10 +726,10 @@ class SessionCollaborators:
         )
 
     def dispatch_resource_effect(
-        self, command_text: str
+        self, command_text: str, *, prompt: bool = False
     ) -> ResourceDispatchResolution | None:
         resource_dispatch = dispatch_resource_command(
-            command_text, self.ctl.workspace_resources
+            command_text, self.ctl.workspace_resources, prompt=prompt
         )
         if resource_dispatch is None:
             return None
@@ -762,4 +763,5 @@ class SessionCollaborators:
             name=extension_dispatch.name,
             ran=extension_dispatch.ran,
             error=extension_dispatch.error,
+            message=extension_dispatch.message,
         )

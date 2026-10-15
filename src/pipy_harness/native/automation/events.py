@@ -25,6 +25,8 @@ import threading
 from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
+from pipy_harness.native.extension_types import ExtensionUiDriver
+
 
 @runtime_checkable
 class AutomationEventSink(Protocol):
@@ -43,7 +45,9 @@ class AutomationUi(Protocol):
     """The UI a session has through its automation transport.
 
     RPC mode has one (``rpc_ui.RpcUi``): the requests go to the client as
-    ``extension_ui_request`` lines. Print and JSON mode have none.
+    ``extension_ui_request`` lines, those of the session itself (``/mcp``)
+    and, through ``extension_driver``, those of every extension's
+    ``ctx.ui``. Print and JSON mode have none.
     """
 
     def notify(self, message: str, kind: str = "info") -> None: ...
@@ -61,6 +65,12 @@ class AutomationUi(Protocol):
         placeholder: str | None = None,
         cancel_event: threading.Event | None = None,
     ) -> str | None: ...
+
+    def extension_error(self, extension_path: str, event: str, error: str) -> None: ...
+
+    def extension_driver(self) -> ExtensionUiDriver:
+        """The driver of an extension's ``ctx.ui`` over this transport."""
+        ...
 
 
 def automation_ui(observer: object) -> AutomationUi | None:

@@ -15,6 +15,8 @@ once; the test types ``/mcp`` and uses the manager.
 
 ``--phase rows``: a server with one ``direct`` tool that connects at once and
 answers with eight lines; the provider's first turn calls the tool.
+``--phase image``: the same, but the tool answers with a line of text and a
+PNG image.
 
 ``--phase login`` and ``--phase login-cancel``: the server is the fake OAuth
 MCP server, running in this process, and the test types ``/mcp login``. The
@@ -26,10 +28,13 @@ a user who never approves.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
+import struct
 import sys
 import webbrowser
+import zlib
 from pathlib import Path
 
 from pipy_harness.native.coding.session import CodingSession
@@ -43,10 +48,48 @@ sys.path.insert(0, str(Path(__file__).with_name("fixtures")))
 from mcp_fake_oauth import FakeBrowser, FakeOAuthMcpServer  # noqa: E402
 
 _FAKE_SERVER = Path(__file__).with_name("fixtures") / "mcp_fake_server.py"
-_PHASES = ("prompt", "tool", "command", "manager", "rows", "login", "login-cancel")
+_PHASES = (
+    "prompt",
+    "tool",
+    "command",
+    "manager",
+    "rows",
+    "image",
+    "login",
+    "login-cancel",
+)
 _SEARCH_TOOL = {"name": "search", "inputSchema": {"type": "object"}}
 _EIGHT_LINES = {
     "content": [{"type": "text", "text": "\n".join(f"hit {n}" for n in range(8))}]
+}
+
+
+def _png(width: int, height: int) -> str:
+    """A complete PNG (a grey gradient) a terminal can display."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    pixels = b"".join(
+        b"\x00" + bytes((x * 255 // width) for x in range(width)) for _ in range(height)
+    )
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(pixels))
+        + chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode()
+
+
+_PNG = _png(90, 36)
+_SHOT = {
+    "content": [
+        {"type": "text", "text": "screenshot taken"},
+        {"type": "image", "data": _PNG, "mimeType": "image/png"},
+    ]
 }
 
 
@@ -75,8 +118,13 @@ def main() -> int:
     scenario = root / "scenario.json"
     scenario.write_text(
         json.dumps(
-            {"tools": [_SEARCH_TOOL], "toolResults": {"search": _EIGHT_LINES}}
-            if args.phase in ("manager", "rows")
+            {
+                "tools": [_SEARCH_TOOL],
+                "toolResults": {
+                    "search": _SHOT if args.phase == "image" else _EIGHT_LINES
+                },
+            }
+            if args.phase in ("manager", "rows", "image")
             else {
                 "record": str(root / "record.jsonl"),
                 "methods": {"initialize": [{"record": "initialize"}, {"sleep": 600}]},
@@ -104,14 +152,14 @@ def main() -> int:
     # Escape, not the limit, has to end the first prompt's wait.
     readiness.STARTUP_WAIT_SECONDS = 600.0
     search = ProviderToolCall("search", "tool_search", '{"query": "docs"}')
-    if args.phase == "rows":
+    if args.phase in ("rows", "image"):
         search = ProviderToolCall("search", "mcp__slow__search", '{"query": "pi"}')
     CodingSession(
         provider=FakeNativeProvider(
             supports_tool_calls=True,
             final_text="S18_DONE",
             programmable_tool_calls=((search,), ())
-            if args.phase in ("tool", "rows")
+            if args.phase in ("tool", "rows", "image")
             else (),
         ),
         settings_manager=SettingsManager(

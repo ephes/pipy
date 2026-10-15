@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -599,15 +600,20 @@ class _FakeCommandEffects:
         *,
         resource: ResourceDispatchResolution | None = None,
         extension: ExtensionDispatchResolution | None = None,
+        input_hooks: Callable[[str], str | None] = lambda text: text,
     ) -> None:
         self._resource = resource
         self._extension = extension
+        self._input_hooks = input_hooks
+        self.input_hook_texts: list[str] = []
+        self.resource_prompt_flags: list[bool] = []
         self.diagnostics: list[str] = []
         self.footer_calls = 0
         self.resource_invocations = 0
         self.resource_dispatches: list[str] = []
         self.extension_dispatches: list[str] = []
         self.interpretations: list[CodingCommandOutcome] = []
+        self.extension_errors: list[tuple[str, str, str]] = []
 
     def emit_diagnostic(self, message: str) -> None:
         self.diagnostics.append(message)
@@ -621,15 +627,27 @@ class _FakeCommandEffects:
     def record_resource_invocation(self) -> None:
         self.resource_invocations += 1
 
-    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
         self.resource_dispatches.append(command_text)
+        self.resource_prompt_flags.append(prompt)
         return self._resource
+
+    def run_input_hooks(self, text: str) -> str | None:
+        self.input_hook_texts.append(text)
+        return self._input_hooks(text)
 
     def dispatch_extension(
         self, command_text: str
     ) -> ExtensionDispatchResolution | None:
         self.extension_dispatches.append(command_text)
         return self._extension
+
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None:
+        self.extension_errors.append((extension_path, event, error))
 
 
 def _dispatch(
@@ -901,7 +919,9 @@ def test_dispatch_command_rejects_non_effects_port() -> None:
 
 def test_dispatch_command_rejects_wrong_resource_result_type() -> None:
     class _BadResource(_FakeCommandEffects):
-        def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution:
+        def dispatch_resource(
+            self, command_text: str, *, prompt: bool = False
+        ) -> ResourceDispatchResolution:
             return object()  # type: ignore[return-value]
 
     controller, _ = _controller(CodingInputQueue())
@@ -958,14 +978,61 @@ def test_prompt_runs_an_extension_command_before_any_resource() -> None:
 
 
 def test_prompt_reports_a_failed_extension_command_and_starts_no_run() -> None:
+    # Pi `_tryExecuteExtensionCommand`: an extension error with the
+    # exception's text, and the prompt counts as handled.
     effects = _FakeCommandEffects(
-        extension=ExtensionDispatchResolution(name="note", ran=False, error="boom")
+        extension=ExtensionDispatchResolution(
+            name="note", ran=False, error="ValueError", message="boom"
+        )
     )
 
     resolution = _dispatch_prompt("/note", effects)
 
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
-    assert effects.diagnostics == ["pipy: extension command /note failed (boom)"]
+    assert effects.extension_errors == [("command:note", "command", "boom")]
+    assert effects.diagnostics == []
+
+
+def test_prompt_input_hooks_see_the_unexpanded_text() -> None:
+    # Pi `prompt`: extension commands, then the `input` handlers on the
+    # text as sent, then skill and template expansion of what they left.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        input_hooks=lambda text: "/review " + text[len("/rv ") :],
+    )
+
+    resolution = _dispatch_prompt("/rv the diff", effects)
+
+    assert effects.extension_dispatches == ["/rv the diff"]
+    assert effects.input_hook_texts == ["/rv the diff"]
+    assert effects.resource_dispatches == ["/review the diff"]
+    assert effects.resource_prompt_flags == [True]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/review the diff"
+    assert resolution.resource_provider_text == "expanded"
+
+
+def test_prompt_handled_by_an_input_hook_starts_no_run() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        input_hooks=lambda text: None,
+    )
+
+    resolution = _dispatch_prompt("/skill:lint now", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.resource_dispatches == []
+
+
+def test_prompt_with_changed_text_carries_new_content() -> None:
+    selected = ProductContent("hello")
+    effects = _FakeCommandEffects(input_hooks=lambda text: text.upper())
+
+    resolution = _dispatch_prompt("hello", effects, selected)
+
+    assert resolution.user_input == "HELLO"
+    assert resolution.selected_provider_content == ProductContent("HELLO")
+    assert effects.extension_dispatches == []
 
 
 def test_prompt_never_interprets_a_builtin_or_reports_an_unknown_name() -> None:
@@ -1520,7 +1587,7 @@ def test_external_operation_settles_exact_claim_once_on_each_exit(
     if exit_kind == "enqueue":
         monkeypatch.setattr(
             CodingInputQueue,
-            "enqueue_seed",
+            "enqueue_submitted_prompt",
             lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
         )
     lifetime = _CodingSessionLifetime(
@@ -1608,7 +1675,7 @@ def test_operation_primary_survives_settlement_and_retirement_failures(
     if primary_stage == "enqueue":
         monkeypatch.setattr(
             CodingInputQueue,
-            "enqueue_seed",
+            "enqueue_submitted_prompt",
             lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
         )
     lifetime = _CodingSessionLifetime(

@@ -37,6 +37,7 @@ from pipy_harness.native.coding.state import CodingReloadHistoryValue
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
+from pipy_harness.native.extension_types import ExtensionUiDriver
 from pipy_harness.native.extensions.activation import (
     _ExtensionCandidate,
     _report_activation_cleanup,
@@ -74,6 +75,7 @@ from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import ReloadPreparationRefused
 from pipy_harness.native.session_state_lock import SessionStateLock
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.terminal_image import terminal_image_protocol
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
@@ -82,6 +84,18 @@ from pipy_harness.native.tui import (
     _LiveExtensionUiDriver,
 )
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
+
+
+def apply_image_settings(terminal_ui: TerminalUi, settings: SettingsManager) -> None:
+    """Hand the terminal's image protocol and the image settings to the
+    transcript (Pi passes ``showImages``/``imageWidthCells`` to every tool
+    row and updates them when the settings change)."""
+
+    terminal_ui.components.transcript.set_image_options(
+        terminal_image_protocol(terminal_ui.terminal_stream),
+        show=settings.get_show_images(),
+        width_cells=settings.get_image_width_cells(),
+    )
 
 
 @dataclass(slots=True)
@@ -164,6 +178,8 @@ class ReloadCommandEffects:
         [str, str, bool, "Mapping[str, object]", object | None], object
     ]
     extension_ui_driver: _LiveExtensionUiDriver | None = None
+    # The driver of extension contexts without the terminal: an RPC client's.
+    ui_driver: ExtensionUiDriver | None = None
     # The session's own slash commands (``/mcp``), kept in the menu.
     session_commands: Mapping[str, str] = field(default_factory=dict)
     # The session's MCP servers: an accepted reload reads ``mcp.json`` again
@@ -300,7 +316,7 @@ class ReloadCommandEffects:
                 runtime=runtime,
                 flag_values=flag_values,
                 state_lock=cast(SessionStateLock, predecessor.lock),
-                has_ui=self.terminal_ui is not None,
+                has_ui=self.terminal_ui is not None or self.ui_driver is not None,
                 notify_sink=self.provider_mutation.extension_notify,
                 set_active_tools=self.provider_mutation.extension_set_active_tools,
                 project_trusted=self.settings.project_trusted,
@@ -352,7 +368,7 @@ class ReloadCommandEffects:
             ui_driver=(
                 self.extension_ui_driver.candidate_driver(chrome_candidate)
                 if self.extension_ui_driver is not None and chrome_candidate is not None
-                else None
+                else self.ui_driver
             ),
         )
 
@@ -388,6 +404,7 @@ class ReloadCommandEffects:
             self.terminal_ui.components.autocomplete.set_max_visible(
                 self.settings.get_autocomplete_max_visible()
             )
+            apply_image_settings(self.terminal_ui, self.settings)
             self.terminal_ui.components.autocomplete.replace_command_surface(
                 published_command_surface(
                     self.ctl.workspace_resources, commands, self.session_commands

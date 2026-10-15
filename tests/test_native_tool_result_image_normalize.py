@@ -407,3 +407,74 @@ def test_a_session_with_blocked_images_sends_the_text_instead(
     assert sent.blocks == ()
     assert sent.content.value == f"saved\n{BLOCKED_IMAGE_PLACEHOLDER}"
     assert NON_VISION_TOOL_IMAGE_PLACEHOLDER not in sent.content.value
+
+
+def test_a_rows_inline_images_are_the_normalized_ones() -> None:
+    # The terminal draws a row's images (ResultImages) from the completed
+    # event, which carries the result after the hooks and the normalizer,
+    # so an oversized image is drawn as the model sees it.
+    from dataclasses import replace
+
+    from pipy_harness.native.agent.events import ToolCallCompleted
+    from pipy_harness.native.ui.state import RenderToolResult, UiState, reduce
+
+    order: list[str] = []
+    events = _EventSink(order)
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        del service
+        shot = _result(TextContent("shot"), WIDE)
+        return ToolExecutionOutcome(
+            replace(
+                shot,
+                tool_request_id=f"pipy-tool-{call.provider_correlation_id}",
+                tool_name=call.tool_name,
+                provider_correlation_id=call.provider_correlation_id,
+            )
+        )
+
+    class _KeepingPolicy(_Policy):
+        def transform_result(
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
+        ) -> ProductContent:
+            super().transform_result(call, result, arguments, parent_call_id)
+            return result.content
+
+    tools = _NestedTools(order)
+    AgentLoop(
+        request_source=_RequestSource(order),
+        provider_turn=_ProviderTurn(
+            order,
+            [
+                ProviderTurnOutcome(
+                    result=_provider_result(
+                        calls=(_provider_call("parent", name="codemode"),)
+                    )
+                ),
+                ProviderTurnOutcome(result=_provider_result()),
+            ],
+        ),
+        tool_capabilities=tools,
+        tool_policy=_KeepingPolicy(order),
+        event_sink=events,
+        usage_publisher=_UsagePublisher(order),
+        queued_input_port=_QueuedInputs(),
+        status_policy=_StatusPolicy(order),
+        composite_runner=_Runner(run),
+        nested_eligibility=tools,
+        normalize_result=normalize_tool_result,
+    ).run(_run_input())
+    (completed,) = (e for e in events.events if isinstance(e, ToolCallCompleted))
+    _state, decisions = reduce(UiState(assistant_active=True), completed)
+    (row,) = (d for d in decisions if isinstance(d, RenderToolResult))
+    assert row.images is not None
+    (image,) = row.images.images
+    assert _size(image) == (2000, 667)
+    assert WIDE_NOTE in row.images.text

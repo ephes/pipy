@@ -26,7 +26,12 @@ from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.ansi_wrap import wrap_text_with_ansi
 from pipy_harness.native.chrome import ChromeStyle
-from pipy_harness.native.frame_renderer import FrameLine, clip_custom_text, clip_text
+from pipy_harness.native.frame_renderer import (
+    FrameLine,
+    LinkedFrameLine,
+    clip_custom_text,
+    clip_text,
+)
 from pipy_harness.native.fuzzy import fuzzy_filter, js_trim
 from pipy_harness.native.keybindings import KeybindingsManager, key_display_text
 from pipy_harness.native.overlay_state import OverlayState
@@ -539,7 +544,11 @@ def search_selector_region_lines(
         else component.render(width, style)
     )[:rows]
     return [
-        *(FrameLine(clip_custom_text(line, width), "normal") for line in body),
+        # The manager's sign-in URL is a hyperlink (Pi `AuthUrlComponent`).
+        *(
+            LinkedFrameLine(clip_custom_text(line, width, links=True), "normal")
+            for line in body
+        ),
         FrameLine(clip_text(footer_lines[0], width), "footer"),
         FrameLine(clip_text(footer_lines[1], width), "footer"),
     ]

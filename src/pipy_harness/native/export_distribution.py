@@ -707,6 +707,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
 .tool-rendered .expandable .output-full, .tool-rendered .expandable.expanded .output-preview { display: none; }
 .tool-rendered .expandable.expanded .output-full { display: block; }
 .tool-image { display: block; max-width: 100%; margin-top: 8px; border-radius: 6px; }
+.nested-calls { margin-top: 8px; cursor: pointer; color: var(--muted); }
+.nested-calls .output-full, .nested-calls.expanded .output-preview { display: none; }
+.nested-calls.expanded .output-full { display: block; }
 </style>
 </head>
 <body>
@@ -734,6 +737,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     pre.textContent = text || "";
     wrap.append(label, pre);
     entries.append(wrap);
+    return wrap;
   }
   // Rows drawn ahead by the tool's renderers, by call id. The HTML in them
   // was escaped when it was made.
@@ -769,7 +773,52 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     }
     entries.append(wrap);
   }
-  function appendRenderedTool(rows) {
+  // The calls a tool made to other tools (a codemode script's), from the
+  // nestedCalls record of its result, without their results (Pi
+  // renderNestedCalls): the count, and one line per call on a click.
+  function nestedCallsText(details) {
+    const record = details && typeof details === "object" ? details.nestedCalls : null;
+    // An imported file may hold anything: a call without a string name and
+    // status is left out, and only plain values are shown.
+    const calls = record && Array.isArray(record.calls)
+      ? record.calls.filter(call => call && typeof call === "object" &&
+        typeof call.name === "string" && typeof call.status === "string") : [];
+    if (!calls.length) return "";
+    const icons = new Map([["ok", "\u2713"], ["error", "\u2717"], ["unfinished", "\u2026"], ["cancelled", "\u2298"]]);
+    const lines = calls.map(call => {
+      const bytes = typeof call.argumentsBytes === "number" ? call.argumentsBytes : "?";
+      const args = call.arguments !== undefined
+        ? JSON.stringify(call.arguments)
+        : `[arguments omitted, ${bytes} bytes]`;
+      const duration = typeof call.durationMs === "number" ? ` ${Math.round(call.durationMs)}ms` : "";
+      const error = typeof call.error === "string" && call.error
+        ? `\\n    ${call.error.split("\\n").join("\\n    ")}` : "";
+      return `${icons.get(call.status) || "?"} ${call.name} ${args}${duration}${error}`;
+    });
+    const title = `Nested calls: ${calls.length}${record.complete ? "" : " (incomplete record)"}`;
+    return [title, ...lines].join("\\n");
+  }
+  function appendNestedCalls(target, details) {
+    const text = nestedCallsText(details);
+    if (!text) return;
+    const lines = text.split("\\n");
+    const output = document.createElement("div");
+    output.className = "nested-calls";
+    const preview = document.createElement("pre");
+    preview.className = "output-preview";
+    preview.textContent = `${lines[0]}\\n... (${lines.length - 1} more lines)`;
+    const full = document.createElement("pre");
+    full.className = "output-full";
+    full.textContent = text;
+    output.append(preview, full);
+    output.addEventListener("click", function () {
+      if (!window.getSelection().toString()) output.classList.toggle("expanded");
+    });
+    target.append(output);
+  }
+  // The box of each call drawn ahead, by call id, for its nested calls.
+  const renderedBoxes = new Map();
+  function appendRenderedTool(rows, id) {
     const wrap = document.createElement("article");
     wrap.className = "entry";
     const label = document.createElement("div");
@@ -787,6 +836,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     } else if (rows.resultHtmlExpanded) box.append(part("tool-output", rows.resultHtmlExpanded));
     wrap.append(label, box);
     entries.append(wrap);
+    renderedBoxes.set(id, box);
   }
   for (const entry of data.entries || []) {
     if (entry.type === "message") {
@@ -799,13 +849,16 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
         else if (plain.length || !calls.length) append("Assistant", JSON.stringify(plain, null, 2));
         for (const call of calls) {
           const rows = rendered(call.provider_correlation_id);
-          if (rows) appendRenderedTool(rows);
+          if (rows) appendRenderedTool(rows, call.provider_correlation_id);
         }
       }
       else if (msg.role === "tool") {
         // A result drawn ahead is shown in its call's box.
-        const rows = rendered(msg.provider_correlation_id);
-        if (!rows || !("resultHtmlExpanded" in rows)) append("Tool result", msg.output_text || "", "tool");
+        const id = msg.provider_correlation_id;
+        const rows = rendered(id);
+        const box = rows && "resultHtmlExpanded" in rows ? renderedBoxes.get(id) : undefined;
+        const target = box || append("Tool result", msg.output_text || "", "tool");
+        appendNestedCalls(target, msg.details);
         appendImages(msg.blocks);
       }
       else append("Message", JSON.stringify(msg, null, 2));

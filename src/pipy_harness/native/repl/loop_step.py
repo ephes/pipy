@@ -180,7 +180,7 @@ class _AcceptedRun:
 class _AcceptedInputEffects:
     turn: _TurnScope
 
-    def transform_input(self, prompt: str) -> str:
+    def transform_input(self, prompt: str) -> str | None:
         return self.turn.scope.extension_operations.dispatch_input(prompt)
 
     def resolve_file_references(self, prompt: str) -> FileReferenceResolution:
@@ -763,15 +763,20 @@ def _phase_d_dispatch(
     return resolution
 
 
+def _unchanged(text: str) -> str:
+    return text
+
+
 def _phase_e_accepted_input(
     turn_input: _TurnInput,
     resolution: CommandDispatchResolution,
-) -> _AcceptedRun:
+) -> _AcceptedRun | None:
     scope = turn_input.turn.scope
     effects = _AcceptedInputEffects(turn_input.turn)
     run_prompt = _RunSystemPrompt(turn_input.turn)
     accepted_turn = CodingAcceptedInputPreparer(
-        transform_input=effects.transform_input,
+        # A prompt met the `input` hooks in its dispatch, before expansion.
+        transform_input=_unchanged if turn_input.prompt else effects.transform_input,
         resolve_file_references=effects.resolve_file_references,
         resolve_image_attachments=effects.resolve_image_attachments,
         system_prompt_suffix=run_prompt.suffix,
@@ -787,6 +792,12 @@ def _phase_e_accepted_input(
         selected_provider_content=resolution.selected_provider_content,
         base_system_prompt=run_prompt.base,
     )
+    if accepted_turn is None:
+        # An `input` hook handled the input: no run (Pi `prompt`). An idle
+        # RPC `steer` or `follow_up` came with the transport's claim.
+        scope.loop_controller.settle_handled_prompt()
+        scope.refresh_legacy_footer_with_usage()
+        return None
     return _AcceptedRun(
         turn_input=turn_input,
         accepted_turn=accepted_turn,
@@ -917,6 +928,8 @@ class _ReplLoopStep:
         if isinstance(dispatch, LoopStepSignal):
             return dispatch
         accepted = _phase_e_accepted_input(hotkey, dispatch)
+        if accepted is None:
+            return LoopStepSignal.continue_loop()
         coordinator = _phase_f1_assemble(accepted)
         return _phase_f2_run_and_settle(accepted, coordinator)
 

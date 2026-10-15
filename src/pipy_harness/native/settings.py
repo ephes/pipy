@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import stat
 import tempfile
@@ -1158,6 +1159,24 @@ class SettingsManager:
             return value
         return self._env_flag("PIPY_HARDWARE_CURSOR")
 
+    def get_show_images(self) -> bool:
+        """Pi ``getShowImages``: ``terminal.showImages``, default true."""
+
+        return self._nested_bool("terminal", "showImages", default=True)
+
+    def get_image_width_cells(self) -> int:
+        """Pi ``getImageWidthCells``: ``terminal.imageWidthCells`` rounded
+        down and at least 1; 60 when it is not a finite number."""
+
+        value: object = self._get_nested("terminal", "imageWidthCells")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return 60
+        if isinstance(value, int):
+            return max(1, value)
+        if not math.isfinite(value):
+            return 60
+        return max(1, math.floor(value))
+
     def get_clear_on_shrink(self) -> bool:
         """terminal.clearOnShrink toggle; falls back to ``PIPY_CLEAR_ON_SHRINK`` env."""
 
@@ -1241,7 +1260,9 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         f"editorPaddingX={manager.get_editor_padding_x()}, "
         f"autocompleteMaxVisible={manager.get_autocomplete_max_visible()}, "
         f"showHardwareCursor={manager.get_show_hardware_cursor()}, "
-        f"clearOnShrink={manager.get_clear_on_shrink()}",
+        f"clearOnShrink={manager.get_clear_on_shrink()}, "
+        f"showImages={manager.get_show_images()}, "
+        f"imageWidthCells={manager.get_image_width_cells()}",
         f"    httpIdleTimeoutMs: {_http_idle_timeout_display(manager)}",
         f"    retry.provider.timeoutMs: {_provider_timeout_display(manager)}",
         f"    effectiveProviderTimeoutMs: {_effective_provider_timeout_display(manager)}",

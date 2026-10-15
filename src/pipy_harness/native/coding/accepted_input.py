@@ -38,7 +38,8 @@ from pipy_harness.native.image_attachment import (
 # Injected product ports. Each is a thin seam the controller binds around its
 # existing effectful helper so this module carries no composition, UI,
 # extension, provider, persistence, or archive dependency of its own.
-AcceptedInputHookTransform = Callable[[str], str]
+# The prompt as the `input` hooks leave it; ``None`` when one handled it.
+AcceptedInputHookTransform = Callable[[str], str | None]
 AcceptedFileReferenceResolver = Callable[[str], FileReferenceResolution]
 AcceptedImageAttachmentResolver = Callable[[str], ImageAttachmentResolution]
 # Returns the bounded ``before_agent_start`` suffix for this run's system
@@ -224,7 +225,11 @@ class CodingAcceptedInputPreparer:
         resource_provider_text: str | None,
         selected_provider_content: ProductContent | None,
         base_system_prompt: str | Callable[[], str],
-    ) -> CodingAcceptedTurn:
+    ) -> CodingAcceptedTurn | None:
+        """The accepted turn, or ``None`` when an ``input`` hook handled the
+        prompt: then nothing was recorded and no run starts (Pi ``prompt``
+        returns after ``preflightResult("handled")``)."""
+
         turn_attachments: tuple[ProviderImageAttachment, ...] = ()
         if resource_provider_text is not None:
             # Resource turn: the bounded instruction/expansion is the provider
@@ -244,30 +249,11 @@ class CodingAcceptedInputPreparer:
                 else ProductContent(user_input)
             )
             transformed_input = self._transform_input(user_input)
-            provider_user_input = transformed_input
-            file_references = self._resolve_file_references(transformed_input)
-            if file_references.reference_count:
-                self._state_recorder.record_file_references(
-                    reference_count=file_references.reference_count,
-                    loaded_count=file_references.loaded_count,
-                    failed_count=file_references.failed_count,
-                )
-                for diagnostic in file_references.diagnostics():
-                    self._emit_diagnostic(diagnostic)
-                if file_references.used:
-                    provider_user_input = file_references.augmented_prompt(
-                        transformed_input
-                    )
-            image_attachments = self._resolve_image_attachments(transformed_input)
-            if image_attachments.reference_count:
-                self._state_recorder.record_image_attachments(
-                    attachment_count=image_attachments.reference_count,
-                    loaded_count=image_attachments.loaded_count,
-                    failed_count=image_attachments.failed_count,
-                )
-                for diagnostic in image_attachments.diagnostics():
-                    self._emit_diagnostic(diagnostic)
-                turn_attachments = image_attachments.attachments()
+            if transformed_input is None:
+                return None
+            provider_user_input, turn_attachments = self._resolve_references(
+                transformed_input
+            )
         turn_user_message = AgentUserMessage(content=accepted_user_content)
         # `before_agent_start` hooks may inject bounded context into this run's
         # system prompt. Computed before the next-turn-context read to preserve
@@ -303,3 +289,36 @@ class CodingAcceptedInputPreparer:
             agent_system_prompt=agent_system_prompt,
             base_system_prompt=base_system_prompt,
         )
+
+    def _resolve_references(
+        self, transformed_input: str
+    ) -> tuple[str, tuple[ProviderImageAttachment, ...]]:
+        """The provider text with its ``@file`` references, and the image
+        attachments, of a literal prompt."""
+
+        provider_user_input = transformed_input
+        file_references = self._resolve_file_references(transformed_input)
+        if file_references.reference_count:
+            self._state_recorder.record_file_references(
+                reference_count=file_references.reference_count,
+                loaded_count=file_references.loaded_count,
+                failed_count=file_references.failed_count,
+            )
+            for diagnostic in file_references.diagnostics():
+                self._emit_diagnostic(diagnostic)
+            if file_references.used:
+                provider_user_input = file_references.augmented_prompt(
+                    transformed_input
+                )
+        turn_attachments: tuple[ProviderImageAttachment, ...] = ()
+        image_attachments = self._resolve_image_attachments(transformed_input)
+        if image_attachments.reference_count:
+            self._state_recorder.record_image_attachments(
+                attachment_count=image_attachments.reference_count,
+                loaded_count=image_attachments.loaded_count,
+                failed_count=image_attachments.failed_count,
+            )
+            for diagnostic in image_attachments.diagnostics():
+                self._emit_diagnostic(diagnostic)
+            turn_attachments = image_attachments.attachments()
+        return provider_user_input, turn_attachments

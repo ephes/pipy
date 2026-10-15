@@ -17,9 +17,10 @@ the lines Pi draws outside a box) and whether the frame renderer wraps them
 
 Deviations, documented in ``docs/tui-workflow.md``: no syntax highlighting
 (Pi's ``highlightCode`` uses highlight.js; lines Pi would highlight keep the
-terminal's default colour), no OSC 8 file links and no image blocks. A
-running ``bash`` row ticks ``Elapsed`` every second (the transcript owns
-the timer).
+terminal's default colour) and no OSC 8 file links. A result's images are
+drawn after the row by the frame (``RowRenderInputs.inline_images``), or
+named in its text. A running ``bash`` row ticks ``Elapsed`` every second
+(the transcript owns the timer).
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from pipy_harness.native.ansi_wrap import (
 )
 from pipy_harness.native.frame_renderer import encode_tool_box_line
 from pipy_harness.native.tool_headers import INVALID_ARG, shorten_path
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tools.bash_executor import (
     sanitize_binary_output,
     strip_ansi,
@@ -92,6 +94,11 @@ _GREP_PREVIEW_LINES = 15
 _FIND_LS_PREVIEW_LINES = 20
 _BASH_PREVIEW_LINES = 5
 _MCP_PREVIEW_LINES = 5
+# Pi `extensions/codemode/renderer.ts` OUTPUT_PREVIEW_LINES and SCRIPT_HEADER.
+_CODEMODE_PREVIEW_LINES = 5
+_SCRIPT_HEADER = re.compile(
+    r"Script (?:completed|failed)\nWall time [0-9.]+ seconds\nOutput:\n"
+)
 _COLLAPSED_ARGS_CHARS = 100
 _COMPACT_RESOURCE_FILE_NAMES = frozenset(
     {"AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"}
@@ -127,6 +134,9 @@ class ToolRowResult:
     content: str
     details: Mapping[str, Any] | None
     is_error: bool
+    # The result's images; a row that draws them shows `images.text`, the
+    # content without its image lines (Pi `getTextOutput` with images).
+    images: ResultImages | None = None
 
 
 @dataclass(slots=True)
@@ -233,6 +243,9 @@ class ToolRowState:
     last_components: dict[str, object | None] = field(default_factory=dict)
     # Draws this row again (Pi `ctx.invalidate`); set where rows are live.
     invalidate: Callable[[], None] | None = None
+    # The Kitty ids of the result's images, kept so that a redraw replaces
+    # the images it drew before (pi-tui `Image` keeps its `imageId`).
+    image_ids: list[int] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -1096,11 +1109,28 @@ def _mcp_result_rows(
     )
     if expanded:
         return [RowLine("", bg), *_text_rows(styled, bg)]
+    return [
+        RowLine("", bg),
+        *_preview_rows(styled, theme, key, bg, width, _MCP_PREVIEW_LINES),
+        *_full_output_rows(result, theme, bg),
+    ]
+
+
+def _preview_rows(
+    styled: str,
+    theme: RowTheme,
+    key: str,
+    bg: RowBackground,
+    width: int,
+    limit: int,
+) -> list[RowLine]:
+    """Pi ``VisualLinePreview`` with ``keep: "start"``: the first ``limit``
+    visual lines at the box's width, then how many more there are."""
+
     content_width = max(1, width - 2)
     visual = _visual_lines(styled, content_width)
-    hidden = max(0, len(visual) - _MCP_PREVIEW_LINES)
-    rows = [RowLine("", bg)]
-    rows.extend(RowLine(line, bg, False) for line in visual[:_MCP_PREVIEW_LINES])
+    hidden = max(0, len(visual) - limit)
+    rows = [RowLine(line, bg, False) for line in visual[:limit]]
     if hidden:
         hint = (
             theme.fg("muted", f"... ({hidden} more lines,")
@@ -1109,12 +1139,59 @@ def _mcp_result_rows(
             + theme.fg("muted", ")")
         )
         rows.append(RowLine(_truncate_to_width(hint, content_width), bg, False))
-    # The preview hides the truncation notice at the end of the text.
+    return rows
+
+
+def _full_output_rows(
+    result: ToolRowResult, theme: RowTheme, bg: RowBackground
+) -> list[RowLine]:
+    """``Full output: <path>``: a collapsed preview hides the truncation
+    notice at the end of the text."""
+
     details = result.details
     full_path = details.get("fullOutputPath") if details is not None else None
     if isinstance(full_path, str) and full_path:
-        rows.extend(_text_rows(theme.fg("muted", f"Full output: {full_path}"), bg))
-    return rows
+        return _text_rows(theme.fg("muted", f"Full output: {full_path}"), bg)
+    return []
+
+
+def _codemode_result_rows(
+    result: ToolRowResult,
+    theme: RowTheme,
+    key: str,
+    bg: RowBackground,
+    *,
+    expanded: bool,
+    partial: bool,
+    width: int,
+) -> list[RowLine]:
+    """The output part of Pi ``codemodeRenderers.renderResult``.
+
+    The script's output without the ``Script completed``/``Wall time``/
+    ``Output:`` header (input that was rejected has none), nothing while the
+    script runs, and collapsed the first 5 visual lines, because script
+    output is often one long JSON line. The nested calls are drawn above by
+    ``render_tool_row``.
+    """
+
+    if partial:
+        return []
+    text = _text_output(result.content)
+    header = _SCRIPT_HEADER.match(text)
+    output = _js_trim(text[header.end() :] if header is not None else text)
+    if not output:
+        return []
+    color = "error" if result.is_error else "toolOutput"
+    styled = "\n".join(
+        theme.fg(color, line) for line in _replace_tabs(output).split("\n")
+    )
+    if expanded:
+        return [RowLine("", bg), *_text_rows(styled, bg)]
+    return [
+        RowLine("", bg),
+        *_preview_rows(styled, theme, key, bg, width, _CODEMODE_PREVIEW_LINES),
+        *_full_output_rows(result, theme, bg),
+    ]
 
 
 def _bash_warnings(
@@ -1210,6 +1287,11 @@ class RowRenderInputs:
     extension_theme: object = None
     # The monotonic clock reading a running `bash` row's `Elapsed` uses.
     now: float = 0.0
+    # The terminal draws the result's images after the row.
+    inline_images: bool = False
+    # Pi's `terminal.showImages` setting, told to extension renderers
+    # (`ToolRenderContext.show_images`).
+    show_images: bool = False
 
 
 def _render_extension(
@@ -1252,6 +1334,7 @@ def _render_extension(
         cwd=str(state.cwd),
         execution_started=state.started_at is not None,
         is_partial=unsettled,
+        show_images=inputs.show_images,
         duration_ms=(
             None
             if unsettled or state.duration_seconds is None
@@ -1352,6 +1435,8 @@ def render_tool_row(
 
     partial = state.result is None
     result = state.result
+    if result is not None and result.images is not None and inputs.inline_images:
+        result = replace(result, content=result.images.text)
     if result is None and (state.partial_output or _bash_started(state)):
         # Pi's bash tool sends an empty update as it starts, so its row shows
         # the result part (`Elapsed`) before any output.
@@ -1578,6 +1663,16 @@ def _other_result_rows(
         return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
     if state.mcp_label is not None:
         return _mcp_result_rows(
+            result,
+            theme,
+            key,
+            bg,
+            expanded=expanded,
+            partial=partial,
+            width=inputs.width,
+        )
+    if state.tool_name == "codemode":
+        return _codemode_result_rows(
             result,
             theme,
             key,

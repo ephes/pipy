@@ -335,8 +335,8 @@ Different from Pi:
   RPC client's `prompt`, and starts no run there (see
   [Commands in a prompt](automation-rpc.md#commands-in-a-prompt)). An RPC
   client gets the status and every other message of the command as `notify`
-  requests, as in Pi. In print and JSON mode pipy prints them to stderr; Pi
-  shows nothing there, also not that a login needs interactive mode.
+  requests, as in Pi. Print and JSON mode show nothing, as in Pi, also not
+  that a login needs interactive mode.
 - For a line typed into a session, a prompt template or custom command
   named `mcp` takes the place of the command, as does an extension command
   of that name. In Pi only an extension command does, and that is also
@@ -406,9 +406,10 @@ closed gets `codemode` or `tool_search` activated, when its exposure needs
 one, before the next prompt runs.
 
 A screen that is taller than the terminal keeps its controls on the screen:
-a long error or URL is cut short, with a line such as `… 16 more lines`, and
-a long list shows fewer servers at a time. [`pipy mcp list`](#list) in a
-shell prints a server's whole error.
+a long error or URL is shown through a window, with a line such as
+`… lines 1-9 of 26, pageup/pagedown to scroll`, and a long list shows fewer
+servers at a time. PageUp and PageDown move the window by its height.
+[`pipy mcp list`](#list) in a shell prints a server's whole error.
 
 #### Signing in from the manager
 
@@ -421,7 +422,7 @@ authorization URL, which pipy also opens in your browser, and an input:
 
  Approve access in your browser. If it did not open, visit:
  https://auth.example.com/authorize?response_type=code&client_id=…
- ctrl+x to copy
+ Cmd+click to open • ctrl+x to copy
 
  If the browser runs on another machine, paste the URL it was redirected to:
 >
@@ -433,7 +434,11 @@ When the browser comes back to this machine the sign-in goes on by itself.
 When it cannot reach this machine, over SSH for example, copy the URL from
 the address bar of the page the browser ended on (it starts with
 `http://127.0.0.1:`), paste it into the input and press Enter; an empty
-input is not submitted. Ctrl+X copies the authorization URL to the
+input is not submitted. The URL and the `Cmd+click to open` hint
+(`Ctrl+click` outside macOS) are terminal hyperlinks (OSC 8) to the
+authorization URL, so a terminal that supports them opens it on a click
+even when it wraps. Ctrl+X (the key bound to `app.message.copy` in
+[`keybindings.json`](keybindings.md)) copies the authorization URL to the
 clipboard, for a URL too long to select in the terminal. While the server
 is connected again the screen says `Connecting…`. Escape or Ctrl+C cancels
 the sign-in at each of these steps and closes the screen at once.
@@ -447,17 +452,20 @@ connected state).
 
 Different from Pi in the manager:
 
-- The authorization URL is plain text, not a terminal hyperlink, so there
-  is no "click to open" hint. Most terminals still let you click a URL that
-  fits on one line; use Ctrl+X for one that wraps.
-- Ctrl+X is fixed. In Pi it is the key bound to `app.message.copy`, an
-  action pipy does not have.
+- An authorization URL that is not printable ASCII (or is longer than 4096
+  characters) is shown as plain text, without a link and without the click
+  hint. Pi links every URL.
+- The click hint and the copy hint are shown with the URL, so a screen
+  taller than the terminal scrolls them with it.
+- `app.message.copy` copies only the sign-in URL in pipy. In Pi the same
+  key also copies messages in the editor and in `/tree`.
 - The title of a screen is not bold, and the note after a copy has no colour
   of its own.
 - The pasted URL is edited with the keys of pipy's selector input:
   Backspace, Left and Right, Home and End, Ctrl+U and Ctrl+K.
 - Pi's screen scrolls with the terminal when it is taller than the window.
-  pipy cuts the text above the controls short instead, as described above.
+  pipy shows the text above the controls through a window that PageUp and
+  PageDown scroll instead, as described above.
 - In Pi the cancel key does nothing while the server is connected again
   after the tokens were stored; in pipy it ends the waiting.
 - A `Sign out` that cannot delete the credentials (the credentials file
@@ -483,10 +491,13 @@ server that failed (with the first line of its error) or needs a sign-in
 [`/mcp`](#the-mcp-command) shows every server with its whole error. After
 correcting `mcp.json`, run `/reload`.
 
-The report and the other warnings on this page are shown before the next
-prompt runs, not at the moment they arise: in the terminal you see them when
-you send your next message, in a one-shot run on stderr at the end. Pi shows
-them at once.
+The report and the other warnings on this page are shown while the session
+waits for input: in the terminal while the editor waits for your next
+message, and in [RPC mode](automation-rpc.md) as a `notify` request while no
+command runs. One that arises while a prompt runs is shown when the run has
+ended. A one-shot run (`--print`, `--mode json`) has no UI and drops them,
+as Pi does, and a product session of the [SDK](sdk.md) hands them on when
+the next prompt is submitted. Pi shows them at once, also during a run.
 
 Two more cases are reported, each once:
 
@@ -524,12 +535,28 @@ name now, as at the start of a session:
   refused (`pipy: keeping the previous extensions.`), it also keeps the
   servers as they are and does not use the `mcp.json` it read.
 
+Another session in the same run, by `/new`, `/resume`, `/fork`, `/clone`
+or `/import` (and the RPC and SDK operations that do the same), closes the
+servers and starts them again from the `mcp.json` files in the same way.
+What differs from `/reload`:
+
+- No tool of a server is declared again for the new session: a tool that
+  `tool_search` loaded has to be loaded again, a `direct` tool is declared
+  once its server has connected.
+- A change made in [`/mcp`](#the-mcp-command) to a server an extension
+  registered applied to the old session only; the new one starts from the
+  registration.
+- The switch returns when the old connections are closed. A switch that an
+  extension refuses keeps the servers.
+
 Different from Pi:
 
-- Pi closes the servers and reads `mcp.json` again for every new session in
-  one process (`/new`, `/resume`, `/fork`) as well. pipy keeps the servers
-  there; only `/reload` and a restart read the files again. The first-prompt
-  wait and the startup report are not repeated for such a session.
+- Pi builds a new runtime for another session, so the whole tool selection
+  starts again from the configured tools. pipy does this for the MCP tools
+  only: the other tools stay as they were, also a `codemode` or
+  `tool_search` that was turned on for servers the new configuration no
+  longer has.
+
 - Pi's reload is not undone when an extension fails to load, so its servers
   restart in every case.
 - While `/reload` decides whether the new extensions are accepted, a change
@@ -1914,8 +1941,9 @@ limit of the text and follow the shortened text when it is cut.
 How a provider is sent the image, and what a model without image input gets
 instead, is described under
 [providers](providers.md#thinking-images-and-current-limits). In the
-transcript the row shows a line `[Image: [image/png] 640x480]` after the
-text. The session file stores the image, so a resumed session sends it
+transcript the image is drawn after the row when the terminal can draw
+images, and otherwise named in a line `[Image: [image/png] 640x480]` after
+the text, see [images in tool results](tui-workflow.md#images-in-tool-results). The session file stores the image, so a resumed session sends it
 again, and the file grows by the size of every image.
 
 A script that calls the tool gets the image block in `content` (or the
@@ -1998,15 +2026,6 @@ six either.
   systems and is tested on macOS and Linux only.
 - A built-in Client ID Metadata Document. `clientRegistration: "cimd"`
   works with documents you host, see [OAuth settings](#oauth-settings).
-- Images drawn in the terminal. An image in a result reaches the model; the
-  transcript shows a line that names it, see
-  [images in results](#images-in-results).
-- A clickable link for the authorization URL in the sign-in screen, see
-  [signing in from the manager](#signing-in-from-the-manager).
-- `/mcp` and other extension commands in a message that an RPC client
-  queues with `steer` or `follow_up`, or sends as a `prompt` while a run is
-  under way: the text goes to the model. See
-  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
 
 ## What exists as a library
 

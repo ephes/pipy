@@ -92,6 +92,7 @@ shortcut (`app.message.followUp`), not the configurable newline action.
 | `app.thinking.toggle` | `ctrl+t` | Toggle thinking blocks |
 | `app.thinking.cycle` | `shift+tab` | Cycle thinking level |
 | `app.thinking.save` | `ctrl+s` | In the `/thinking` selector: apply the level and save it as `defaultThinkingLevel` |
+| `app.message.copy` | `ctrl+x` | On the MCP sign-in screen, copy the sign-in URL. Pi also copies the selected message in `/tree` and the last assistant message in the editor with it; pipy does not |
 | `app.message.followUp` | `alt+enter` | Queue follow-up message |
 | `app.message.dequeue` | `alt+up` | Restore queued messages |
 

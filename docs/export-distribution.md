@@ -259,6 +259,17 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   only. The base64 data of an image block is exempt from the credential
   redaction, which would only break the image; data that is not plain base64
   is redacted like any text.
+- Nested calls (Pi `renderNestedCalls`): a tool result whose `details` hold
+  a `nestedCalls` record, the calls a codemode script (or an extension tool
+  through `ctx.execute_tool`) made, shows `Nested calls: <n>`, with
+  ` (incomplete record)` when calls were left out of the record. A click
+  shows one line per call: its status (`✓`, `✗`, `…`, and `⊘` for a
+  cancelled call, which Pi's page shows as `?`), its name, its arguments as
+  compact JSON or `[arguments omitted, <n> bytes]`, its duration in whole
+  milliseconds (Pi prints the recorded number), and its error indented below.
+  The section is in the call's box when the call is drawn, and below the
+  "Tool result" entry otherwise. The record has passed the credential
+  redaction like the rest of `details`.
 
 Templates, CSS, and JS live as packaged data files under the pipy package (for
 example `src/pipy_harness/native/export_html/`) and are read at runtime via

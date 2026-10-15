@@ -1,12 +1,19 @@
-"""The MCP servers of a session across ``/reload``.
+"""The MCP servers of a session across ``/reload`` and session switches.
 
 An ``McpManager`` serves one loaded configuration and is not started twice.
 ``McpSession`` is what the session holds instead: it has the manager of the
 configuration that is in use, with the objects that belong to it, and
-replaces them when a reload is accepted (Pi closes its servers on
-``session_shutdown`` and reads ``mcp.json`` again on ``session_start``).
-Everything else in the session asks it for the current ones, so nothing
-keeps a manager that was closed.
+replaces them when a reload is accepted and when another session replaces
+this one in the process, by ``/new``, ``/resume``, ``/fork``, ``/clone`` or
+an import (Pi closes its servers on ``session_shutdown`` and reads
+``mcp.json`` again on ``session_start``). Everything else in the session
+asks it for the current ones, so nothing keeps a manager that was closed.
+
+The servers' notices (the startup report, for example) are shown on the
+session thread: where it shows the extensions' messages, and over and over
+while the editor or the RPC worker waits for input
+(``deliver_idle_notices``), so that a report made while nobody types is seen
+at once, as in Pi.
 
 A sign-in made outside the session, by ``pipy mcp login`` that the agent
 ran through ``bash`` for example, is picked up when the next turn starts:
@@ -157,7 +164,7 @@ class RestartableMcpTools(Protocol):
     """What a reload needs of the session's tool capabilities
     (``NativeToolCapabilities``)."""
 
-    def restart_mcp_tools(self) -> None: ...
+    def restart_mcp_tools(self, *, keep_declared: bool = True) -> None: ...
 
 
 class McpServersChangeEvents(Protocol):
@@ -172,12 +179,13 @@ class McpServersChangeEvents(Protocol):
 
 
 def unhandled_mcp_server_error(server: RegisteredMcpServer) -> str:
-    """The error of an extension whose registered server nothing connects."""
+    """The error of an extension whose registered server nothing connects
+    (Pi ``reportUnhandledMcpServers``, event ``register_mcp_server``)."""
 
     return (
-        f'Extension "{server.extension_path}" error: MCP server "{server.name}" is '
-        "registered, but no loaded extension connects MCP servers; another "
-        "extension may have replaced the built-in MCP support"
+        f'MCP server "{server.name}" is registered, but no loaded extension '
+        "connects MCP servers; another extension may have replaced the built-in "
+        "MCP support"
     )
 
 
@@ -210,6 +218,7 @@ class McpSession:
         *,
         tools: RestartableMcpTools,
         notify: Callable[[str, str], None],
+        report_error: Callable[[str, str, str], None] | None = None,
         extensions: LoadedExtensions | None = None,
     ) -> None:
         """``load`` reads the configuration as it is now and returns a
@@ -217,11 +226,14 @@ class McpSession:
         reload, with the function that returns what the extensions have
         registered, for the manager, and with the extension that replaced
         MCP. ``extensions`` are those loaded at the start of the session;
-        ``follow_extensions`` says where they are found afterwards."""
+        ``follow_extensions`` says where they are found afterwards.
+        ``report_error`` reports an extension error (path, event, text) as
+        Pi's ``emitError``; without it the error is an ``error`` notice."""
 
         self._load = load
         self._tools = tools
         self._notify = notify
+        self._report_error = report_error
         self._lock = threading.Lock()
         # Where the registry of the loaded extensions is found, and the one
         # that is followed since the last start. Guarded by the lock.
@@ -354,7 +366,14 @@ class McpSession:
             for server in registered:
                 if server.name not in self._reported_unhandled:
                     self._reported_unhandled.add(server.name)
-                    self._notify("error", unhandled_mcp_server_error(server))
+                    self._extension_error(server)
+
+    def _extension_error(self, server: RegisteredMcpServer) -> None:
+        error = unhandled_mcp_server_error(server)
+        if self._report_error is not None:
+            self._report_error(server.extension_path, "register_mcp_server", error)
+        else:
+            self._notify("error", f'Extension "{server.extension_path}" error: {error}')
 
     def start(self) -> None:
         """Start connecting the servers in the background, also those the
@@ -393,6 +412,20 @@ class McpSession:
         servers = self.servers
         self._apply_registrations(servers)
         servers.manager.deliver_notices(self._notify)
+
+    def deliver_idle_notices(self) -> None:
+        """Show what the servers have to tell the user while the session
+        waits for input: the startup report once the servers settled, the
+        report of a server an extension registered meanwhile (Pi
+        ``reportProblems`` when the connections settle).
+
+        Called again and again by the thread that waits for the input. It
+        only shows notices; the hooks of a change of the registered servers
+        run where :meth:`deliver_notices` runs. A notice of servers that are
+        being replaced is shown once, here or by the replacement.
+        """
+
+        self.servers.manager.deliver_notices(self._notify)
 
     def before_turn(
         self, waiter: ToolInterruptWaiter | None
@@ -465,9 +498,28 @@ class McpSession:
         with self.servers.manager.publications_held():
             yield accept
         if accepted:
-            self._replace(candidate)
+            self._replace(candidate, keep_declared=True)
 
-    def _replace(self, candidate: McpServers) -> None:
+    def replace_session(self) -> None:
+        """Another session replaced this one in the process: ``/new``,
+        ``/resume``, ``/fork``, ``/clone`` or an import (Pi's
+        ``session_shutdown`` and ``session_start`` handlers).
+
+        Like an accepted reload, but the tools ``tool_search`` loaded and
+        the other declared MCP tools are not declared again: the new session
+        starts from the configured tools, as a new Pi session does. Changes
+        made in ``/mcp`` that apply only to the session, to a server an
+        extension registered, are gone with the old manager, and a
+        registered server nothing connects is reported again. Returns when
+        the old connections are closed and the new servers have started to
+        connect.
+        """
+
+        candidate = self._load(self._registered, self._loaded_for)
+        self._reported_unhandled = set()
+        self._replace(candidate, keep_declared=False)
+
+    def _replace(self, candidate: McpServers, *, keep_declared: bool) -> None:
         retired = self.servers.manager
         try:
             retired.close()
@@ -476,9 +528,9 @@ class McpSession:
             # of a session that was reloaded at once for example.
             retired.deliver_notices(self._notify)
         # Nothing publishes now: the retired manager is closed and the next
-        # one has not started. The tools that are declared are pending until
-        # their servers have connected again.
-        self._tools.restart_mcp_tools()
+        # one has not started. On a reload the tools that are declared are
+        # pending until their servers have connected again.
+        self._tools.restart_mcp_tools(keep_declared=keep_declared)
         with self._lock:
             self._servers = candidate
         self.start()

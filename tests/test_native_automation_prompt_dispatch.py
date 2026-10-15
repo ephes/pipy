@@ -90,8 +90,9 @@ def _resource(directory: Path, name: str, body: str) -> None:
 
 
 def test_print_mode_runs_mcp_and_starts_no_run(tmp_path: Path) -> None:
-    # SLH-02, SLH-07: the command waits for the server and reports it; the
-    # model is not asked and nothing is printed as the answer.
+    # SLH-02, SLH-07, SLH-11: the command runs, the model is not asked, and
+    # nothing is printed: print mode has no UI, so the status notice is
+    # dropped (Pi's `noOpUIContext`).
     workspace = tmp_path / "work"
     entry, _record = _server(tmp_path / "servers")
     _mcp_json(workspace, {"docs": {**entry, "exposure": "direct"}})
@@ -102,7 +103,7 @@ def test_print_mode_runs_mcp_and_starts_no_run(tmp_path: Path) -> None:
     assert code == 0, errors
     assert stdout == ""
     assert provider.requests == []
-    assert "docs: connected, 2 tools (direct)\n" in errors
+    assert "docs:" not in errors
 
 
 def test_json_mode_runs_mcp_and_emits_only_the_header(tmp_path: Path) -> None:
@@ -117,11 +118,12 @@ def test_json_mode_runs_mcp_and_emits_only_the_header(tmp_path: Path) -> None:
     assert code == 0, errors
     assert [record["type"] for record in records] == ["session"]
     assert provider.requests == []
-    assert "docs: connected, 2 tools (codemode)\n" in errors
+    assert "docs:" not in errors
 
 
 def test_mcp_subcommand_runs_from_a_prompt(tmp_path: Path) -> None:
-    # SLH-06 through the same port: the usage text, and no run.
+    # SLH-06 through the same port: no run, and the usage notice is dropped
+    # like every notice of print mode.
     workspace = tmp_path / "work"
     workspace.mkdir()
     provider = _Provider([])
@@ -129,10 +131,7 @@ def test_mcp_subcommand_runs_from_a_prompt(tmp_path: Path) -> None:
     code, stdout, errors = _print(workspace, provider, "/mcp frobnicate")
 
     assert (code, stdout, provider.requests) == (0, "", [])
-    assert (
-        "Usage: /mcp, /mcp login [server], /mcp logout [server], "
-        "/mcp reconnect [server]"
-    ) in errors
+    assert "Usage" not in errors
 
 
 @pytest.mark.parametrize("mode", ["print", "json"])
@@ -154,19 +153,28 @@ def test_an_extension_command_runs_with_its_arguments(
     assert code == 0, errors
     assert provider.requests == []
     assert (directory / "note.txt").read_text() == repr("two words")
-    assert "noted two words" in errors
+    # SLH-11: `ctx.ui.notify` does nothing without a UI.
+    assert "noted" not in errors
 
 
-def test_a_failing_extension_command_is_still_handled(tmp_path: Path) -> None:
-    # SLH-07: the error is reported and there is no run.
+@pytest.mark.parametrize("mode", ["print", "json"])
+def test_a_failing_extension_command_is_still_handled(
+    tmp_path: Path, mode: str
+) -> None:
+    # SLH-07: Pi's `onError` of print and JSON mode, and there is no run.
     workspace = tmp_path / "work"
     _extension(workspace, "commands", _COMMANDS)
     provider = _Provider([])
 
-    code, stdout, errors = _print(workspace, provider, "/broken")
+    if mode == "print":
+        code, stdout, errors = _print(workspace, provider, "/broken")
+        assert stdout == ""
+    else:
+        code, records, errors = _json(workspace, provider, "/broken")
+        assert [record["type"] for record in records] == ["session"]
 
-    assert (code, stdout, provider.requests) == (0, "", [])
-    assert "extension command /broken failed" in errors
+    assert (code, provider.requests) == (0, [])
+    assert errors == "Extension error (command:broken): no luck\n"
 
 
 @pytest.mark.parametrize(
@@ -237,6 +245,76 @@ def test_a_prompt_template_and_a_skill_are_expanded(tmp_path: Path) -> None:
     assert sent.startswith('<skill name="lint"')
     assert "Apply the lint rules." in sent
     assert sent.endswith("now")
+
+
+_HOOKS = """from pathlib import Path
+from pipy_harness.extensions import InputHandled, InputTransform
+
+
+def activate(api):
+    @api.on('input')
+    def hook(event, ctx):
+        with open(Path(__file__).with_name('seen.txt'), 'a') as f:
+            f.write(event.text + '\\n')
+        if event.text == 'skip':
+            return InputHandled()
+        if event.text == 'go':
+            return InputTransform(text='/review the diff')
+"""
+
+
+def test_input_hooks_run_before_expansion(tmp_path: Path) -> None:
+    # SLH-09: the `input` hooks see the template invocation as sent, and a
+    # template their text names is expanded.
+    workspace = tmp_path / "work"
+    directory = _extension(workspace, "hooks", _HOOKS)
+    _resource(
+        workspace / ".pipy" / "templates", "review", "Please review $ARGUMENTS.\n"
+    )
+
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+    code, stdout, errors = _print(workspace, provider, "/review this")
+    assert (code, stdout) == (0, "one\n"), errors
+    code, stdout, errors = _print(workspace, provider, "go")
+    assert (code, stdout) == (0, "two\n"), errors
+
+    assert [request.user_prompt.strip() for request in provider.requests] == [
+        "Please review this.",
+        "Please review the diff.",
+    ]
+    assert (directory / "seen.txt").read_text() == "/review this\ngo\n"
+
+
+@pytest.mark.parametrize("mode", ["print", "json"])
+def test_a_prompt_an_input_hook_handled_starts_no_run(
+    tmp_path: Path, mode: str
+) -> None:
+    # SLH-10 for Pi's `handled` input result: as a handled command.
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _HOOKS)
+    provider = _Provider([])
+
+    if mode == "print":
+        code, stdout, errors = _print(workspace, provider, "skip")
+        assert stdout == ""
+    else:
+        code, records, errors = _json(workspace, provider, "skip")
+        assert [record["type"] for record in records] == ["session"]
+
+    assert (code, provider.requests) == (0, []), errors
+
+
+def test_a_template_named_like_a_builtin_command_is_expanded(tmp_path: Path) -> None:
+    # SLH-09: a prompt knows no built-in commands, so nothing hides the
+    # template (Pi `expandPromptTemplate`).
+    workspace = tmp_path / "work"
+    _resource(workspace / ".pipy" / "templates", "model", "Describe $ARGUMENTS.\n")
+    provider = _Provider([_result(final_text="described")])
+
+    code, stdout, errors = _print(workspace, provider, "/model the diff")
+
+    assert (code, stdout) == (0, "described\n"), errors
+    assert provider.requests[0].user_prompt.strip() == "Describe the diff."
 
 
 def test_an_extension_command_comes_before_a_template_of_its_name(

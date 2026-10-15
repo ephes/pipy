@@ -327,9 +327,10 @@ class ToolRenderContext:
     The keyword fields are Pi's: `tool_call_id` (the call's id, the same for
     its call and result renders), `cwd`, `execution_started` (the call
     started running in this session; False for a call drawn from the
-    session file), `args_complete`, `show_images` (False: pipy's terminal
-    draws no images), `duration_ms` (of the final result, None while it
-    runs or when unknown), `invalidate()` (draw this call's row again) and
+    session file), `args_complete`, `show_images` (the
+    `terminal.showImages` setting; False where rows are not drawn in a
+    terminal), `duration_ms` (of the final result, None while it runs or
+    when unknown), `invalidate()` (draw this call's row again) and
     `last_component` (what this renderer returned the previous time for
     this row, None the first time)."""
 
@@ -444,13 +445,21 @@ class ExtensionUi(Protocol):
 
     def notify(self, message: str, kind: str = "info") -> None: ...
 
-    def select(self, title: str, options: Sequence[str]) -> str | None: ...
+    # `timeout` is Pi's dialog option, in milliseconds: the dialog ends with
+    # its default when it passes. RPC mode honours it; the terminal does not.
+    def select(
+        self, title: str, options: Sequence[str], *, timeout: int | None = None
+    ) -> str | None: ...
 
-    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+    def input(
+        self, title: str, placeholder: str | None = None, *, timeout: int | None = None
+    ) -> str | None: ...
 
     def editor(self, title: str, prefill: str | None = None) -> str | None: ...
 
-    def confirm(self, title: str, message: str) -> bool: ...
+    def confirm(
+        self, title: str, message: str, *, timeout: int | None = None
+    ) -> bool: ...
 
     def set_status(self, key: str, text: str | None) -> None: ...
 
@@ -762,6 +771,12 @@ class InputTransform:
     """Returned by an `input` hook to replace the submitted prompt text."""
 
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class InputHandled:
+    """Returned by an `input` hook that consumed the prompt (Pi's
+    `{action: "handled"}`): later hooks do not run and no run starts."""
 
 
 @dataclass(frozen=True, slots=True)

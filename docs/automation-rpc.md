@@ -664,10 +664,15 @@ The ID is `null` only for an explicitly non-persistent native session; a
 persistent session requires the exact retained durable entry ID.
 
 `RpcSlashCommand` (`get_commands`): `name: string`, `description?: string`,
-`source: "extension" | "prompt" | "skill"`, `sourceInfo: object`. Pi lists
-its extension commands, prompt templates, and skills (`skill:<name>`); pipy
-answers an empty list today, although a prompt
-[runs them](#commands-in-a-prompt).
+`source: "extension" | "prompt" | "skill"`, `sourceInfo?: object`. As in Pi
+the list holds the extension commands (with `/mcp` while MCP is on), then
+the prompt templates, then the skills (`skill:<name>`): what a `prompt`
+[runs or expands](#commands-in-a-prompt). pipy's custom commands
+(`.pipy/commands`) are listed with the templates, as `prompt`, since they
+expand the same way. Different from Pi: `sourceInfo` has only `path`, the
+file's path as pipy shows it (relative to the workspace, or
+`<global>/...`), or the extension that registered the command; `/mcp` has
+none.
 
 ### Mid-turn steering, follow-up, and abort
 
@@ -833,6 +838,9 @@ existing replacement, entry-selected fork, and current-leaf clone.
 `new_session.parentSession` is not adopted until a later separately reviewed
 lineage contract; D6b3 refuses a supplied value rather than inventing parent
 authority.
+A completed operation closes the session's MCP servers and starts them again
+from the `mcp.json` files, as `/new` does in a terminal
+([MCP: reloading](mcp.md#reloading)).
 
 Every accepted RPC session operation is atomically admitted and settled by the existing
 native control with the same true-idle/abort boundary as other control commands.
@@ -985,35 +993,73 @@ summary retries do not activate the ordinary retry lease. See the
 Pi sends the user interaction of an extension to an RPC client: an
 `extension_ui_request` on stdout, answered where an answer is expected by an
 `extension_ui_response` on stdin with the same `id` (`rpc-types.ts`
-`RpcExtensionUIRequest`). pipy sends three of Pi's methods:
+`RpcExtensionUIRequest`, Pi's `docs/rpc-extension-ui.md`). pipy does the
+same for every extension: in RPC mode `ctx.has_ui` is true and an
+extension's `ctx.ui` sends these requests, as does pipy's own `/mcp`.
 
 | `method` | Request fields | Expected response | Sent for |
 | --- | --- | --- | --- |
+| `select` | `title`, `options: string[]`, `timeout?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.select`; `/mcp login`, `logout` and `reconnect` without a server name, when several servers qualify (`title` is `MCP server`). |
+| `confirm` | `title`, `message`, `timeout?` | `{ confirmed: boolean }` or `{ cancelled: true }` | `ctx.ui.confirm` |
+| `input` | `title`, `placeholder?`, `timeout?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.input`; `/mcp login`: the pasted redirect URL of a sign-in. |
+| `editor` | `title`, `prefill?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.editor` |
 | `notify` | `message`, `notifyType: "info"\|"warning"\|"error"` | (none) | Every notice of an extension command or hook (`ctx.ui.notify`), and the notices of [MCP](mcp.md): the status and messages of `/mcp`, the startup report, changes of extension-registered servers. pipy's own diagnostics (lines that start with `pipy:`, a tool warning such as an unavailable `codemode`) stay on stderr. |
-| `select` | `title`, `options: string[]` | `{ value }` or `{ cancelled: true }` | `/mcp login`, `logout` and `reconnect` without a server name, when several servers qualify (`title` is `MCP server`). |
-| `input` | `title`, `placeholder?` | `{ value }` or `{ cancelled: true }` | `/mcp login`: the pasted redirect URL of a sign-in. |
+| `setStatus` | `statusKey`, `statusText?` (absent clears it) | (none) | `ctx.ui.set_status` |
+| `setWidget` | `widgetKey`, `widgetLines?` (absent clears it), `widgetPlacement: "aboveEditor"\|"belowEditor"` | (none) | `ctx.ui.set_widget` with a list of strings or `None`; a component factory is not sent. |
+| `setTitle` | `title` | (none) | `ctx.ui.set_title` |
+| `set_editor_text` | `text` | (none) | `ctx.ui.set_editor_text` and `ctx.ui.paste_to_editor` |
 
 Every request also has `type: "extension_ui_request"` and an `id` (a UUID).
+A `timeout` (milliseconds) is sent when the extension gave one
+(`ctx.ui.select(title, options, timeout=5000)`): when it passes, pipy ends
+the dialog with its default (`None`, or `False` for `confirm`), and a later
+response is ignored. What needs the terminal does nothing in RPC mode, as in
+Pi: the working message and indicator, the header and footer, `custom()`,
+the hidden-thinking label; `get_editor_text()` returns `""` and switching the
+theme fails with `Theme switching not supported in RPC mode`.
+
 A notice is sent when it is produced, so a command's notices come before
-the `prompt` response that says `handled`.
+the `prompt` response that says `handled`. The notices of MCP servers, such
+as the startup report, are sent while the session waits for a command, so a
+client gets the report without sending anything; one that arises during a
+run is sent after it.
 
 Input control line (stdin, not a command):
 `{ "type": "extension_ui_response", "id": "<request id>", ... }` with
-`{ value: string }` or `{ cancelled: true }`. A response whose `id` no
-request waits for is ignored. A `select` or `input` waits until it is
-answered; the session does nothing else meanwhile, and a `prompt` sent then
-is queued. The end of the input (stdin EOF) ends every waiting request as
-cancelled. An `input` also ends unanswered when its answer is no longer
-wanted, which for a sign-in is when the browser came back.
+`{ value: string }`, `{ confirmed: boolean }` or `{ cancelled: true }`. A
+response whose `id` no request waits for is ignored. A dialog waits until it
+is answered or its timeout passes; the thread that asked does nothing else
+meanwhile (for a command or a hook that is the session), and a `prompt` sent
+then is queued. The end of the input (stdin EOF) ends every waiting request
+as cancelled. An `input` of `/mcp login` also ends unanswered when its
+answer is no longer wanted, which for a sign-in is when the browser came
+back.
 
-Not built, different from Pi:
+pipy reads stdin from the start, and answers are delivered as they arrive,
+also while a command waits: a dialog of a `session_start` hook, or of a hook
+that a `new_session`, `switch_session`, `fork` or `clone` runs, gets its
+answer. Other commands sent meanwhile wait their turn.
 
-- An extension's own `ctx.ui.select`, `confirm`, `input` and `editor` are
-  not sent to the client: `ctx.has_ui` is false in RPC mode and they return
-  their defaults, as in print mode. In Pi `ctx.hasUI` is true there.
-- `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle` and
-  `set_editor_text` requests, and the `timeout` option of a dialog.
-- The `extension_error` object: an extension error is a line on stderr.
+Different from Pi: a dialog's `signal` option does not exist; an RPC `abort`
+ends the waits of `/mcp` but not an extension's dialog. A session whose
+startup (with its `session_start` hooks) takes longer than 120 seconds, for
+example because a dialog there is not answered, fails to start.
+
+### Extension errors
+
+Pi reports what an extension did wrong through one listener per mode
+(`onError`). In RPC mode that is an object on stdout, not a response:
+
+```json
+{"type": "extension_error", "extensionPath": "command:deploy", "event": "command", "error": "no target"}
+```
+
+pipy sends it for an extension command that a `prompt` ran and that raised
+(`extensionPath` `command:<name>`, event `command`, `error` the exception's
+text), and for a server an extension registered that nothing connects
+because MCP is off (`extensionPath` the extension's path, event
+`register_mcp_server`; see [MCP](mcp.md)). Other extension failures (a hook
+that raises, a tool that fails) are reported as before, on stderr.
 
 ### Lifecycle and shutdown
 
@@ -1023,7 +1069,9 @@ Not built, different from Pi:
 - On shutdown pipy unsubscribes event listeners, disposes the runtime, flushes
   stdout (except on SIGTERM), and exits. It joins tracked direct-bash workers;
   explicit abort and timeout terminate their child process groups before the
-  terminal response is written.
+  terminal response is written. At the end of input it first waits, without
+  a limit, for an extension command that a `prompt` started during a run
+  (its dialogs end with their default) and writes that prompt's response.
 - The end of input lets the run in flight and the queued messages finish
   first. SIGTERM and SIGHUP do not: the run and the running direct-bash
   commands are aborted and queued steering and follow-up messages are
@@ -1039,16 +1087,31 @@ not lines typed into a session.
    runs that command, with the text after the first space as its arguments.
    [`/mcp`](mcp.md#the-mcp-command) is such a command while MCP is on. No run
    starts and the model is not asked.
-2. Otherwise `/skill:<name> [args]` becomes the skill block and `/<name>
-   [args]` the expanded prompt template or custom command of that name.
-3. Every other text is the prompt as it stands. That includes the built-in
+2. Otherwise the extensions' `input` hooks see the text. One may change it,
+   or handle it (`InputHandled`): then no run starts, as for a command.
+3. In the text the hooks left, `/skill:<name> [args]` becomes the skill
+   block and `/<name> [args]` the expanded prompt template or custom
+   command of that name, also a template named like a built-in command of
+   the interactive session (`/model`, `/tree`, ...).
+4. Every other text is the prompt as it stands. That includes the built-in
    commands of the interactive session (`/model`, `/compact`, `/exit` and
    the rest), an unknown `/name` and a line that starts with `!`: the model
    receives them as text.
 
 The text is not trimmed: ` /mcp` with a leading space is a prompt.
 
-What a handled prompt (case 1) looks like:
+Input queued while a run is in flight follows the same rules, as in Pi:
+
+- `steer` and `follow_up` whose text names an extension command (also
+  `/mcp`, and also while the session is idle) fail with
+  `Extension command "/<name>" cannot be queued. Use prompt() or execute the command when not streaming.`
+- A `prompt` that names an extension command runs it at once, while the run
+  goes on, and is answered `handled` when the command returned; a failure
+  is an [`extension_error`](#extension-errors) before that response.
+- Otherwise a skill command or prompt template is expanded when the message
+  is queued, so `queue_update` and the run see the expanded text.
+
+What a handled prompt (case 1, or a hook that handled it) looks like:
 
 | Mode | Result |
 | --- | --- |
@@ -1060,36 +1123,30 @@ The other dispositions of an RPC `prompt`: `"started"` is written just
 before the run's `agent_start`, `"queued"` at once for a prompt that went
 behind the run in flight.
 
-A command's notices (`ctx.ui.notify`, the status `/mcp` prints) go to stderr
-in print and JSON mode. In RPC mode they are
+Print and JSON mode have no UI, as in Pi: a notice (`ctx.ui.notify`, the
+status `/mcp` prints, the notices of MCP servers) is dropped, so
+`pipy -p /mcp` shows nothing. In RPC mode notices are
 [`notify` requests](#extension-ui-requestresponse-channel) to the client,
-written before the response. A command that raises is reported on stderr as
-`pipy: extension command /<name> failed (<error type>)` in all three modes,
-and its prompt is handled all the same.
+written before the response. A command that raises is an extension error,
+and its prompt is handled all the same: in print and JSON mode the line
+`Extension error (command:<name>): <message>` on stderr, in RPC mode an
+[`extension_error` object](#extension-errors) written before the response.
+A line typed into a session keeps pipy's report
+`pipy: extension command /<name> failed (<error type>)`.
 
 Different from Pi:
 
-- In print and JSON mode Pi's commands have no UI and a notice is dropped,
-  so `pi -p /mcp` shows nothing. pipy writes notices to stderr there.
-- In RPC mode Pi reports a failed command as an `extension_error` object.
-  pipy writes it to stderr.
-- `steer`, `follow_up` and a `prompt` sent while a run is in flight are
-  queued as they are. A queued text that names an extension command reaches
-  the model as text, and a queued skill or template name is not expanded.
-  Pi refuses `steer` and `follow_up` for an extension command (`Extension
-  command "/<name>" cannot be queued. ...`), runs such a `prompt` at once,
-  and expands skills and templates when it queues a message.
-- A prompt template named like a built-in command is not expanded, and a
-  skill or template turn skips the `input` hooks (Pi runs them first). A
-  skill that is unknown or cannot be read, and a template that expands to
+- The `input` hooks do not see a `steer`, `follow_up` or `prompt` that is
+  queued behind a run when it is queued; Pi runs them then. One that runs
+  when the session is idle meets them before its run, after its expansion.
+- A skill that is unknown or cannot be read, and a template that expands to
   nothing, say so on stderr; the text then goes to the model unchanged.
-- `get_commands` answers an empty list; Pi lists the extension commands,
-  prompt templates and skills.
+  Custom commands (`.pipy/commands`) expand like templates.
 
 The interactive session is not affected: a line typed into the terminal UI
 or the plain REPL, also one piped to `pipy` without `--print`, runs the
-built-in commands as before. A [product session](sdk.md) sends the text of
-`submit()` to the model and runs no command.
+built-in commands as before. A [product session](sdk.md)'s `submit()`
+handles its text like a prompt, as Pi's SDK `session.prompt()` does.
 
 ## (c) `--print/-p` One-Shot Mapping
 

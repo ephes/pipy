@@ -19,12 +19,11 @@ callback runs or a menu is built.
 
 Different from Pi:
 
-- The authorization URL is plain text in the accent colour, not an OSC 8
-  hyperlink: pipy's frame carries no hyperlinks. A terminal that recognises
-  URLs makes it clickable as long as it fits on one line; the copy key is
-  for the rest. There is no "click to open" hint for the same reason.
-- The copy key is Pi's default of ``app.message.copy``, ``ctrl+x``; pipy has
-  no such action to rebind.
+- A URL that is not printable ASCII up to 4096 characters is shown as
+  plain text, without a link and without the click hint: the frame keeps
+  only links it can check (``frame_renderer.sanitize_custom_text``).
+- The copy key is ``app.message.copy`` as in Pi, but pipy binds that action
+  to nothing else: in Pi it also copies a message in the editor.
 - The title is in the accent colour and not bold as well, and the note
   after a copy is not in a colour of its own: the chrome style has neither.
 - The input is the selectors' search input (``search_input.py``), with the
@@ -32,20 +31,23 @@ Different from Pi:
 - A live menu is drawn again only when what it shows changed.
 - pipy's live region shows only as many rows as the terminal has and drops
   the rest from the bottom, where Pi's output scrolls. So a screen that is
-  taller than the rows it is given (``render_within``) cuts the text above
-  its controls short, with a line that counts what is not shown, and a long
-  list shows fewer items; the list or the input and the key hints stay on
-  the screen.
+  taller than the rows it is given (``render_within``) shows a window of
+  the text above its controls, with a line that says which lines are shown,
+  and ``tui.select.pageUp``/``pageDown`` scroll that window; a long list
+  shows fewer items. The list or the input and the key hints stay on the
+  screen.
 """
 
 from __future__ import annotations
 
+import re
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from pipy_harness.native.ansi_wrap import wrap_text_with_ansi
+from pipy_harness.native.ansi_wrap import hyperlink, wrap_text_with_ansi
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.keybindings import KeybindingsManager, key_display_text
 from pipy_harness.native.mcp.manager_menus import McpMenu
@@ -54,8 +56,9 @@ from pipy_harness.native.ui.components.select_list import SelectItem, SelectList
 from pipy_harness.native.ui.key_specs import matches_key_specs, resolved_key_specs
 
 _MAX_VISIBLE_ITEMS: Final = 12
-# Pi's default key of ``app.message.copy``.
-_COPY_KEYS: Final = ("ctrl+x",)
+# The rows a menu's text above a long list keeps: two lines and the line
+# that says which lines are shown.
+_TEXT_ROWS_KEPT: Final = 3
 _LOADING_TITLE: Final = "MCP servers"
 _LOADING_TEXT: Final = "Loading…"
 _NOTHING_TO_SHOW: Final = "Nothing to show."
@@ -64,6 +67,15 @@ _PASTE_TEXT: Final = (
     "If the browser runs on another machine, paste the URL it was redirected to:"
 )
 _COPIED_TEXT: Final = "Copied URL to clipboard"
+# What the frame keeps as a link target (`frame_renderer.sanitize_custom_text`).
+_LINKABLE_URL: Final = re.compile(r"[!-~]{1,4096}")
+
+
+def _click_text() -> str:
+    """Pi's click hint, by platform."""
+
+    return "Cmd+click to open" if sys.platform == "darwin" else "Ctrl+click to open"
+
 
 # Copies a text to the clipboard; returns ``None``, or why it could not.
 CopyText = Callable[[str], str | None]
@@ -79,9 +91,12 @@ class McpManagerKeys:
     confirm: tuple[str, ...]
     cancel: tuple[str, ...]
     copy: tuple[str, ...]
+    page_up: tuple[str, ...]
+    page_down: tuple[str, ...]
     confirm_text: str
     cancel_text: str
     copy_text: str
+    page_text: str
 
 
 def mcp_manager_keys(manager: KeybindingsManager | None) -> McpManagerKeys:
@@ -95,19 +110,34 @@ def mcp_manager_keys(manager: KeybindingsManager | None) -> McpManagerKeys:
 
     confirm = specs("tui.select.confirm")
     cancel = specs("tui.select.cancel")
+    copy = specs("app.message.copy")
+    page_up = specs("tui.select.pageUp")
+    page_down = specs("tui.select.pageDown")
     return McpManagerKeys(
         up=specs("tui.select.up"),
         down=specs("tui.select.down"),
         confirm=confirm,
         cancel=cancel,
-        copy=_COPY_KEYS,
+        copy=copy,
+        page_up=page_up,
+        page_down=page_down,
         confirm_text=text(confirm),
         cancel_text=text(cancel),
-        copy_text=text(_COPY_KEYS),
+        copy_text=text(copy),
+        page_text=f"{text(page_up)}/{text(page_down)}",
     )
 
 
-class _Menu:
+class _Scroll:
+    """Where the window over a screen's text starts, when the text does not
+    fit (``render_within``), and how many lines the window had when it was
+    last drawn."""
+
+    scroll: int = 0
+    page: int = 0
+
+
+class _Menu(_Scroll):
     """A menu on the screen: the value it was built from and the list."""
 
     def __init__(
@@ -143,14 +173,16 @@ class _Menu:
         self.selected = None if item is None else item.value
 
 
-@dataclass(slots=True)
-class _Status:
-    title: str
-    message: str
-    on_cancel: Callable[[], None] | None
+class _Status(_Scroll):
+    def __init__(
+        self, title: str, message: str, on_cancel: Callable[[], None] | None
+    ) -> None:
+        self.title = title
+        self.message = message
+        self.on_cancel = on_cancel
 
 
-class _RedirectUrl:
+class _RedirectUrl(_Scroll):
     """The sign-in screen: the URL, and the input for the redirect URL."""
 
     def __init__(
@@ -275,6 +307,8 @@ class McpManagerView:
 
     def _key_effect(self, key: str) -> Effect | None:
         screen = self._screen
+        if self._scrolled(screen, key):
+            return None
         if isinstance(screen, _Menu):
             return self._menu_key(screen, key)
         if isinstance(screen, _Status):
@@ -285,6 +319,29 @@ class McpManagerView:
 
     def _is(self, key: str, specs: tuple[str, ...]) -> bool:
         return matches_key_specs(key, specs)
+
+    def _scrolled(self, screen: _Scroll, key: str) -> bool:
+        """Move the window over the text by a page; whether ``key`` did.
+        Only while the text does not fit, and never for a key the screen
+        uses (a user may bind ``app.message.copy`` to a page key). The next
+        drawing keeps the window inside the text."""
+
+        keys = self._keys
+        if isinstance(screen, _Menu):
+            own = (*keys.up, *keys.down, *keys.confirm, *keys.cancel)
+        elif isinstance(screen, _Status):
+            own = keys.cancel
+        else:
+            own = (*keys.confirm, *keys.cancel, *keys.copy)
+        if screen.page == 0 or self._is(key, own):
+            return False
+        if self._is(key, keys.page_down):
+            screen.scroll += screen.page
+        elif self._is(key, self._keys.page_up):
+            screen.scroll = max(0, screen.scroll - screen.page)
+        else:
+            return False
+        return True
 
     def _menu_key(self, screen: _Menu, key: str) -> Effect | None:
         keys = self._keys
@@ -372,7 +429,13 @@ class McpManagerView:
         if not menu.items:
             empty = _text(menu.empty or _NOTHING_TO_SHOW, width, style.muted)
             return _frame(
-                menu.title, [], above, ["", *empty], cancel, *(width, height, style)
+                menu.title,
+                [],
+                above,
+                ["", *empty],
+                cancel,
+                *(width, height, style),
+                window=(screen, keys.page_text),
             )
         confirm = self._hint(keys.confirm_text, menu.confirm_label, style)
         footer = f"{confirm}{style.dim(' • ')}{cancel}"
@@ -383,11 +446,24 @@ class McpManagerView:
             room = height - len(
                 _frame(menu.title, [], [], [""], footer, width, None, style)
             )
+            # The text above keeps a few rows, so that its window can be
+            # scrolled however long the list is.
+            room -= min(len(above), _TEXT_ROWS_KEPT)
             if visible + (visible < len(menu.items)) > room:
                 visible = max(1, room - 1)
         screen.list.max_visible = visible
         rows = screen.list.render(width, style)
-        return _frame(menu.title, [], above, ["", *rows], footer, width, height, style)
+        return _frame(
+            menu.title,
+            [],
+            above,
+            ["", *rows],
+            footer,
+            width,
+            height,
+            style,
+            window=(screen, keys.page_text),
+        )
 
     def _render_status(
         self, screen: _Status, width: int, height: int | None, style: ChromeStyle
@@ -398,7 +474,17 @@ class McpManagerView:
             if screen.on_cancel is None
             else self._hint(self._keys.cancel_text, "cancel", style)
         )
-        return _frame(screen.title, [""], message, [], footer, width, height, style)
+        return _frame(
+            screen.title,
+            [""],
+            message,
+            [],
+            footer,
+            width,
+            height,
+            style,
+            window=(screen, self._keys.page_text),
+        )
 
     def _render_redirect(
         self, screen: _RedirectUrl, width: int, height: int | None, style: ChromeStyle
@@ -410,11 +496,19 @@ class McpManagerView:
             else style.muted(screen.copied)
         )
         before = ["", *_text(_APPROVE_TEXT, width, style.muted)]
-        url = _text(screen.url, width, style.accent)
+        # Pi `AuthUrlComponent`: the URL and the click hint are links to it.
+        # A URL the frame cannot carry as a link stays plain text.
+        linked = _LINKABLE_URL.fullmatch(screen.url) is not None
+        shown = hyperlink(screen.url, screen.url) if linked else screen.url
+        url = _text(shown, width, style.accent)
+        hint = copied
+        if linked:
+            click = style.dim(hyperlink(_click_text(), screen.url))
+            hint = f"{click} {style.dim('•')} {copied}"
+        # The hint is shown with the URL, through the window: a long
+        # failure of a copy can be scrolled to like the URL.
+        url += _wrapped(hint, width)
         after = [
-            # One line, whatever a failed copy has to say: the rows below
-            # are the controls.
-            *_wrapped(copied, width)[:1],
             "",
             *_text(_PASTE_TEXT, width, style.muted),
             screen.input.render(width, style),
@@ -423,7 +517,17 @@ class McpManagerView:
             f"{self._hint(keys.confirm_text, 'submit', style)}{style.dim(' • ')}"
             f"{self._hint(keys.cancel_text, 'cancel', style)}"
         )
-        return _frame(screen.title, before, url, after, footer, width, height, style)
+        return _frame(
+            screen.title,
+            before,
+            url,
+            after,
+            footer,
+            width,
+            height,
+            style,
+            window=(screen, keys.page_text),
+        )
 
 
 def _wrapped(text: str, width: int) -> list[str]:
@@ -438,17 +542,23 @@ def _text(text: str, width: int, colour: Callable[[str], str]) -> list[str]:
     return [f" {colour(line)}" for line in wrap_text_with_ansi(text, max(1, width - 2))]
 
 
-def _cut_short(lines: list[str], room: int, style: ChromeStyle) -> list[str]:
-    """``lines`` in at most ``room`` lines; the last one then says how many
-    are not shown."""
+def _window(
+    lines: list[str], room: int, at: _Scroll, page_text: str, style: ChromeStyle
+) -> list[str]:
+    """``lines`` in at most ``room`` lines: when they do not fit, the lines
+    of a window that starts at ``at.scroll``, and a line that says which
+    ones they are. Keeps ``at`` inside the text and notes its page."""
 
-    if len(lines) <= room:
-        return lines
-    if room <= 0:
-        return []
-    hidden = len(lines) - (room - 1)
-    more = f"… {hidden} more line{'' if hidden == 1 else 's'}"
-    return [*lines[: room - 1], f" {style.muted(more)}"]
+    if len(lines) <= room or room <= 0:
+        at.scroll = at.page = 0
+        return lines if len(lines) <= room else []
+    at.page = page = room - 1
+    if page == 0:
+        at.scroll = 0
+        return [f" {style.muted(f'… {len(lines)} more lines')}"]
+    at.scroll = start = min(at.scroll, len(lines) - page)
+    note = f"… lines {start + 1}-{start + page} of {len(lines)}, {page_text} to scroll"
+    return [*lines[start : start + page], f" {style.muted(note)}"]
 
 
 def _frame(
@@ -460,14 +570,20 @@ def _frame(
     width: int,
     height: int | None,
     style: ChromeStyle,
+    *,
+    window: tuple[_Scroll, str] | None = None,
 ) -> list[str]:
     """Pi ``frame``: accent borders around the title, the body and the key
     hints. The body is ``before``, ``flexible`` and ``after``; with a
-    ``height``, ``flexible`` is cut short to make the frame fit."""
+    ``height``, ``flexible`` is shown through the ``window`` (the screen's
+    scroll state and how the scroll keys are named) to make the frame
+    fit."""
 
     border = style.accent("─" * max(1, width))
     head = [border, *_text(title, width, style.accent), *before]
     tail = [*after, *(["", *_wrapped(footer, width)] if footer else []), border]
-    if height is not None:
-        flexible = _cut_short(flexible, height - len(head) - len(tail), style)
+    if height is not None and window is not None:
+        at, page_text = window
+        room = height - len(head) - len(tail)
+        flexible = _window(flexible, room, at, page_text, style)
     return [*head, *flexible, *tail]
