@@ -217,6 +217,35 @@ def test_disabling_the_only_server_with_resources_makes_the_tools_unreachable(
     assert _invoke(prepared, tmp_path, arguments) == (False, "# docs://intro")
 
 
+def test_a_loaded_resource_tool_leaves_the_selection_when_it_is_hidden(
+    tmp_path: Path,
+    sessions: list[_Session],  # noqa: F811
+) -> None:
+    # Pi `_applyToolLoadout` drops a hidden tool from the active tools, so
+    # a resource tool `tool_search` had loaded is not declared again when a
+    # server with resources comes back; it has to be loaded again (TSR-12).
+    session = _Session(tmp_path, {"docs": _ResourceServer()})
+    sessions.append(session)
+    session.start()
+    assert session.tools.load_tools(["read_mcp_resource"]) == ("read_mcp_resource",)
+    assert session.declared() == ("read", "read_mcp_resource")
+
+    assert session.manager.set_enabled("docs", False) is None
+
+    assert _exposures(session) == {"hidden"}
+    assert session.declared() == ("read",)
+    assert "read_mcp_resource" not in (session.tools.state.active_tool_names or ())
+
+    session.servers = {"docs": _ResourceServer()}
+    assert session.manager.set_enabled("docs", True) is None
+
+    assert _exposures(session) == {"deferred"}
+    assert session.declared() == ("read",)
+    assert "read_mcp_resource" in {
+        definition.name for definition in session.tools.loadable_tools()
+    }
+
+
 def test_the_other_server_keeps_the_tools_when_one_is_disabled(
     tmp_path: Path,
     sessions: list[_Session],  # noqa: F811

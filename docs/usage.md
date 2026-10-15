@@ -391,9 +391,11 @@ Entries of `--tools` and `--exclude-tools` are tool names or patterns in which
 whose name starts with `ext_`. Nothing else is special in a pattern, and it
 has to match the whole name. Quote a pattern so that the shell does not expand
 it. `+name` and `-name` entries take exact names, not patterns; use
-`--exclude-tools` to disable tools by pattern. A name that no tool has is an
-error at startup; a pattern that matches nothing is not, and neither is the
-name of an MCP tool, because a server's tools are registered when it connects.
+`--exclude-tools` to disable tools by pattern. A name that no tool has is
+ignored, as in Pi; pipy names it in a notice at startup (`pipy: unknown tool
+name(s): ...`). A pattern that matches nothing gets no notice, and neither
+does the name of an MCP tool, because a server's tools are registered when it
+connects.
 
 #### MCP tools
 

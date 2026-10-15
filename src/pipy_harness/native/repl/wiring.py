@@ -1044,7 +1044,7 @@ def _compose_extension_phase(
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
         )
-        _raise_unknown_startup_tool_filters(tool_capabilities)
+        _notify_unknown_startup_tool_filters(tool_capabilities, error_stream)
     except BaseException as error:  # noqa: BLE001 - preserve startup primary
         raise_first((error, _abort_startup_attachment_nonraising(attached)))
         raise AssertionError("startup failure did not propagate")
@@ -1266,15 +1266,14 @@ def _interrupt_key_text(keybindings: KeybindingsManager) -> str:
     return "/".join(keybindings.keys_for("app.interrupt")) or "escape"
 
 
-def _raise_unknown_startup_tool_filters(
-    tool_capabilities: NativeToolCapabilities,
+def _notify_unknown_startup_tool_filters(
+    tool_capabilities: NativeToolCapabilities, error_stream: TextIO
 ) -> None:
-    unknown_filter_names = tool_capabilities.unknown_filter_names
-    if not unknown_filter_names:
-        return
-    known = ", ".join(sorted(tool_capabilities.registered_names)) or "<none>"
-    unknown = ", ".join(unknown_filter_names)
-    raise ValueError(f"unknown tool name(s): {unknown}. Known tools: {known}")
+    """Name the unknown tool names the selection ignores; startup goes on."""
+
+    notice = tool_capabilities.unknown_filter_notice()
+    if notice is not None:
+        emit_diagnostic(None, error_stream, notice)
 
 
 def _compose_emitter(

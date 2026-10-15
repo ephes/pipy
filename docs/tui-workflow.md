@@ -673,8 +673,11 @@ Narrower than Pi:
 - The cell size is pi-tui's default of 9x18 pixels; pipy does not ask the
   terminal for it, so an image can be a little stretched where cells have
   another shape.
-- Kitty takes PNG only. Pi converts other types; pipy shows the image's
-  line instead.
+- Kitty takes PNG only. Like Pi, pipy converts another type (JPEG, GIF,
+  WebP) to PNG to draw it, with Pillow from the optional `images` extra
+  (see [providers](providers.md#size-of-tool-result-images-and-images-settings));
+  without Pillow, or for an image that does not decode, the image's line is
+  shown instead.
 - The image data must be plain base64 to go into the escape sequence;
   other data shows the line.
 - An iTerm2 image gets the rows pipy reserved as its height (Pi: `auto`).

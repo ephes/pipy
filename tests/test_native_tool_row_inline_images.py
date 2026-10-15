@@ -5,7 +5,10 @@ the text lines stay."""
 
 from __future__ import annotations
 
+import base64
 import io
+import sys
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,7 @@ import pytest
 from test_native_session_history_render import _box, _Terminal
 from test_native_tool_result_image_rows import GIF, IMAGE, PNG, _result
 
+from pipy_harness.native import terminal_image
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolCall,
@@ -21,7 +25,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.agent.content import ImageContent, TextContent
 from pipy_harness.native.agent.events import ToolCallCompleted
-from pipy_harness.native.terminal_image import terminal_image_protocol
+from pipy_harness.native.terminal_image import image_rows, terminal_image_protocol
 from pipy_harness.native.tool_result_display import ResultImages, result_images
 from pipy_harness.native.ui.state import RenderToolResult, UiState, reduce
 
@@ -90,6 +94,56 @@ def test_an_image_pi_cannot_size_assumes_800x600_and_bad_data_is_not_drawn(
     assert gif.data == GIF and gif.size == (320, 200)
     assert bad.data is None and bad.size == (800, 600)
     assert "[Image: [image/png] 800x600]" in bad.fallback
+
+
+def _jpeg(width: int, height: int) -> str:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (10, 120, 200)).save(buffer, format="JPEG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def test_kitty_draws_another_type_converted_to_png(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # pi-tui `Image` converts a non-PNG image for a Kitty terminal; pipy
+    # does it with Pillow. iTerm2 takes the image as it is.
+    monkeypatch.setattr(terminal_image, "_png_cache", OrderedDict())
+    jpeg = ImageContent(_jpeg(30, 20), "image/jpeg")
+    terminal = _resume(tmp_path, jpeg, options=("kitty", True, 60))
+
+    (image,) = _tool_block(terminal).images
+    assert image.mime_type == "image/png" and image.size == (30, 20)
+    assert image.data is not None
+    assert base64.b64decode(image.data).startswith(b"\x89PNG\r\n\x1a\n")
+    assert "[Image: [image/jpeg] 30x20]" in image.fallback
+    rows = image_rows(image, width=80, height=40)
+    assert rows is not None and "f=100" in rows.last
+    # The conversion is kept, so drawing again does not convert again.
+    assert list(terminal_image._png_cache) == [jpeg.data]
+
+    terminal = _resume(tmp_path, jpeg, options=("iterm2", True, 60))
+    (image,) = _tool_block(terminal).images
+    assert (image.data, image.mime_type) == (jpeg.data, "image/jpeg")
+
+
+def test_kitty_shows_the_line_for_an_image_pillow_cannot_convert(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Without Pillow (the optional `images` extra) nothing is converted, as
+    # pi-tui without a transcoder: the line is shown instead of the image.
+    monkeypatch.setattr(terminal_image, "_png_cache", OrderedDict())
+    jpeg = ImageContent(_jpeg(30, 20), "image/jpeg")
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    terminal = _resume(
+        tmp_path, jpeg, ImageContent(GIF, "image/gif"), options=("kitty", True, 60)
+    )
+
+    for image in _tool_block(terminal).images:
+        assert image.data is None
+        assert image_rows(image, width=80, height=40) is None
+    assert "[Image: [image/gif] 320x200]" in _tool_block(terminal).images[1].fallback
 
 
 def test_changing_the_settings_draws_the_rows_again(tmp_path: Path) -> None:

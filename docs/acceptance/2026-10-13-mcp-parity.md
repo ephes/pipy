@@ -2,8 +2,8 @@
 
 Status: **implemented on `feat/mcp-parity`, not merged.** Of the 292
 checklist rows of the
-[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 178 are
-closed with a test and 114 are closed with a recorded limit or
+[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 179 are
+closed with a test and 113 are closed with a recorded limit or
 deviation; no row is open. The official MCP
 client conformance suite gives the same result for pipy as for Pi. Live use
 with a real server and a real model (plan section 6.5) has **not** been
@@ -14,7 +14,7 @@ implemented the slice, from the tests and documents in the repository: a
 first pass on 2026-10-13 and a second one on 2026-10-14 that checked the
 first. It is evidence for the owner's final judgement, not that judgement.
 
-The 114 rows that are closed with a limit count as closed only if the
+The 113 rows that are closed with a limit count as closed only if the
 judgement accepts the deviation or limit each one names (plan section 3).
 The owner accepted the DEV rows that plan section 7, Q11, names
 (2026-10-15).
@@ -114,7 +114,7 @@ is `closed, with limits`. The ones a user is most likely to meet:
   (DEV-45; EXT-15).
 - **Image processing needs the optional `images` extra** (DEV-68; TLS-20),
   and images are drawn in the terminal only with the Kitty or iTerm2
-  protocol (DEV-19; TLS-11).
+  protocol, on Kitty another type than PNG only with that extra (DEV-19; TLS-11).
 
 The owner accepted the DEV rows that plan section 7, Q11, names
 (2026-10-15), among them DEV-69 to DEV-78. The others of DEV-15 to DEV-68,
@@ -311,7 +311,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | TLS-08 | S16 | closed | `test_native_mcp_tools.py`: `test_namespace_carries_alias_description_and_instructions` |  |
 | TLS-09 | S16 | closed | `test_native_mcp_tools.py`: `test_mcp_exposure_maps_to_tool_exposure` |  |
 | TLS-10 | S16 | closed, with limits | `test_native_mcp_tools.py`: `test_a_call_sends_arguments_timeout_and_cancellation`, `test_progress_notifications_become_live_updates`, `test_the_executor_validates_arguments_against_the_servers_schema` | DEV-10: arguments are checked with pipy's own validator for a named keyword set. Progress is appended to the call's live output line by line; Pi replaces the preliminary result. DEV-18. |
-| TLS-11 | S16, S39 | closed, with limits | `test_native_mcp_tools.py`: `test_converts_results_passing_the_call_tool_result_to_scripts`, `test_images_are_image_blocks_of_a_result_in_the_servers_order`; `test_native_mcp_session_images.py`: `test_mcp_images_reach_every_adapter_family_and_survive_a_resume`; `test_native_tool_row_inline_images.py`: `test_a_drawn_image_leaves_the_rows_text`, `test_without_a_protocol_or_with_show_images_off_the_line_stays` (N4) | Like Pi, pipy does not check a server's image; an image over the size limits is scaled down (TLS-20). An image block without data or type becomes the text `[image <mime> without data omitted]`. The terminal draws the image where it can (Kitty, iTerm2), else shows a line that names it. DEV-19, DEV-21. |
+| TLS-11 | S16, S39 | closed, with limits | `test_native_mcp_tools.py`: `test_converts_results_passing_the_call_tool_result_to_scripts`, `test_images_are_image_blocks_of_a_result_in_the_servers_order`; `test_native_mcp_session_images.py`: `test_mcp_images_reach_every_adapter_family_and_survive_a_resume`; `test_native_tool_row_inline_images.py`: `test_a_drawn_image_leaves_the_rows_text`, `test_without_a_protocol_or_with_show_images_off_the_line_stays` (N4), `test_kitty_draws_another_type_converted_to_png`, `test_kitty_shows_the_line_for_an_image_pillow_cannot_convert` (R4) | Like Pi, pipy does not check a server's image; an image over the size limits is scaled down (TLS-20). An image block without data or type becomes the text `[image <mime> without data omitted]`. The terminal draws the image where it can (Kitty, iTerm2; on Kitty another type than PNG only with Pillow), else shows a line that names it. DEV-19, DEV-21. |
 | TLS-12 | S16, S23 | closed, with limits | `test_native_mcp_tools.py`: `test_resource_link_parts_appear_only_when_present`, `test_resource_links_name_the_read_tool_when_resources_are_reachable` | DEV-60. |
 | TLS-13 | S16 | closed | `test_native_mcp_tools.py`: `test_a_blob_with_a_text_mime_type_is_decoded_as_text`, `test_a_binary_blob_is_saved_with_the_extension_of_its_uri`, `test_a_binary_blob_that_cannot_be_saved_says_why` |  |
 | TLS-14 | S16 | closed | `test_native_mcp_tools.py`: `test_an_error_result_is_an_error_that_keeps_the_result_for_scripts`, `test_is_error_follows_javascript_truthiness` |  |
@@ -321,7 +321,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | TLS-18 | S16 | closed | `test_native_mcp_tools.py`: `test_converts_results_passing_the_call_tool_result_to_scripts`, `test_a_long_result_is_cut_for_the_model_and_whole_for_scripts` |  |
 | TLS-19 | S17 | closed | `test_native_mcp_manager.py`: `test_a_call_to_a_tool_the_server_withdrew_is_no_longer_available`, `test_a_call_to_a_hidden_tool_is_no_longer_available`, `test_a_call_after_the_session_closed_says_the_server_is_disabled`, `test_a_call_resolves_its_server_when_it_runs` |  |
 | TLS-20 | G7 | closed, with limits | `test_native_tool_result_image_normalize.py`: `test_an_oversized_image_is_resized_and_followed_by_its_note`, `test_another_type_is_converted_to_png_with_a_hint`, `test_an_image_that_does_not_decode_is_kept`, `test_without_auto_resize_an_oversized_image_is_kept`, `test_the_loop_normalizes_every_result_after_the_hooks`, `test_a_session_sends_the_resized_tool_result_image`, `test_a_rows_inline_images_are_the_normalized_ones` | Pillow from the optional `images` extra in place of Photon; without it nothing is resized. DEV-68. DEV-75, DEV-76. |
-| TLS-21 | G7 | closed, with limits | `test_native_tool_result_image_normalize.py`: `test_blocked_images_become_one_text_per_run`, `test_a_session_with_blocked_images_sends_the_text_instead` | `@image` attachments of the user's turn are not replaced. DEV-68. |
+| TLS-21 | G7, R4 | closed | `test_native_tool_result_image_normalize.py`: `test_blocked_images_become_one_text_per_run`, `test_a_session_with_blocked_images_sends_the_text_instead`, `test_blocked_images_also_keep_the_users_attachments_back`, `test_blocking_user_images_marks_the_latest_user_message_or_the_prompt` | The `@image` attachments of the user's turn are replaced as well (R4). |
 
 ### Session integration (SES)
 
@@ -393,7 +393,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | TSR-09 | S09 | closed, with limits | `test_native_tool_search_tool.py`: `test_session_loads_a_deferred_tool_and_keeps_it_declared_on_the_branch` | A session resumed in a new process starts from the configured tools, as in Pi's CLI and SDK. DEV-30. |
 | TSR-10 | S22 | closed, with limits | `test_native_mcp_reload.py`: `test_tools_tool_search_loaded_are_declared_again_after_reload`, `test_a_loaded_tool_that_registers_after_the_prompt_started_stays_inactive`; `test_native_tool_capabilities_mcp.py`: `test_a_restored_transcript_declares_its_tools_once_their_server_connects` | After resume in a new process nothing is restored from the transcript (Pi's CLI does the same); `/reload` and `/tree` restore. DEV-30. |
 | TSR-11 | S09 | closed | `test_native_tool_search_tool.py`: `test_finds_nothing_when_every_match_is_already_declared` |  |
-| TSR-12 | G8 | closed | `test_native_mcp_manager.py`: `test_a_loaded_tool_is_not_declared_again_when_its_server_is_enabled_again`; `test_native_tool_capabilities_mcp.py`: `test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back` |  |
+| TSR-12 | G8 | closed | `test_native_mcp_manager.py`: `test_a_loaded_tool_is_not_declared_again_when_its_server_is_enabled_again`; `test_native_tool_capabilities_mcp.py`: `test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back`; `test_native_mcp_manager_resources.py`: `test_a_loaded_resource_tool_leaves_the_selection_when_it_is_hidden` (R4) |  |
 
 ### Codemode reaching other tools (CMD)
 

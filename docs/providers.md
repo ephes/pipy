@@ -508,8 +508,11 @@ library cannot load.
 
 With `images.blockImages` set to `true`, no tool result image is sent: each
 image becomes the text `Image reading is disabled.`, and of several such
-texts in a row only the first remains. The setting is read for every
-request, so it takes effect at once, and the session keeps the images.
+texts in a row only the first remains. The `@image` attachments of the
+user's turn are not sent either: the user message gains one line `Image
+reading is disabled.` in their place, as Pi replaces a user message's
+images. The setting is read for every request, so it takes effect at once,
+and the session keeps the images.
 
 Different from Pi:
 
@@ -519,8 +522,6 @@ Different from Pi:
 - Pi resizes with Photon, pipy with Pillow: the resized bytes differ, and an
   image of more than about 89 million pixels is kept as it is rather than
   decoded.
-- Pi's `images.blockImages` also replaces the images of a user message;
-  pipy's `@image` attachments are not affected by it yet.
 - A note that would take a result's text past 64 KiB is left out; the image
   is still resized.
 

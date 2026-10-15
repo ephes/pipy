@@ -265,6 +265,17 @@ def _save(image: Image, image_format: str, **params: int) -> bytes:
     return buffer.getvalue()
 
 
+def png_for_display(data: str) -> str | None:
+    """The base64 PNG of a base64 image, or ``None`` (Pi ``loadPngTranscoder``'s
+    transcoder, which pi-tui's ``Image`` uses for a Kitty terminal).
+
+    ``None`` without Pillow or for data that does not decode.
+    """
+
+    png = _convert_to_png(decode_base64(data))
+    return None if png is None else _encode(png)
+
+
 def _convert_to_png(raw: bytes) -> bytes | None:
     """Pi ``convertImageBytesToPng``."""
 

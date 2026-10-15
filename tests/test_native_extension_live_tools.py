@@ -127,6 +127,34 @@ def test_publishing_extension_tools_withdraws_and_activates(tmp_path: Path) -> N
     assert _declared(capabilities) == ["a", "b"]
 
 
+def test_a_tool_registered_again_as_hidden_leaves_the_selection(
+    tmp_path: Path,
+) -> None:
+    # Pi `_refreshToolRegistry` applies the loadout, which drops a hidden
+    # tool: a `deferred` tool that was named is not declared again when it
+    # comes back, until something names it once more.
+    capabilities = _capabilities(tmp_path)
+    generation = capabilities.state.extension_generation
+    assert capabilities.publish_extension_tools(
+        lambda: {"a": _Port("a"), "b": _Port("b", "deferred")},
+        extension_generation=generation,
+    )
+    assert capabilities.set_active_tools(["a", "b"])
+    assert _declared(capabilities) == ["a", "b"]
+
+    assert capabilities.publish_extension_tools(
+        lambda: {"a": _Port("a"), "b": _Port("b", "hidden")},
+        extension_generation=generation,
+    )
+    assert capabilities.state.active_tool_names == frozenset({"a"})
+
+    assert capabilities.publish_extension_tools(
+        lambda: {"a": _Port("a"), "b": _Port("b", "deferred")},
+        extension_generation=generation,
+    )
+    assert _declared(capabilities) == ["a"]
+
+
 def test_another_generation_publishes_nothing(tmp_path: Path) -> None:
     capabilities = _capabilities(tmp_path)
     state = capabilities.state

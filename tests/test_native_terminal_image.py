@@ -185,6 +185,7 @@ def test_the_image_fits_the_width_and_the_screen() -> None:
 
 
 def test_what_cannot_be_drawn_gives_the_text_line() -> None:
-    # Kitty takes PNG only and pipy has no transcoder.
+    # Kitty takes PNG only; the transcript converts another type first
+    # (`kitty_png`), and what is still not PNG gives the line.
     assert image_rows(_image(mime="image/jpeg"), width=100, height=40) is None
     assert image_rows(_image(data=None), width=100, height=40) is None

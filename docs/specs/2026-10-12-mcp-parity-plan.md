@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(114 of them with a recorded limit or deviation); see section 3.2 and the
+(113 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -527,7 +527,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-16 | SES-20 | Another session in the same run restarts the MCP servers and reads `mcp.json` again, as Pi does (since N1), but only the MCP tools restart: the rest of the tool selection, including a `codemode` or `tool_search` that discovery turned on, is kept, where Pi builds a new runtime from the configured tools. Extensions get no `session_shutdown`/`session_start` on such a switch (not specific to MCP). `/reload` is transactional: a reload that keeps the previous extensions keeps the running servers, where Pi restarts them in every case. | narrower | Decided in S17, S22, N1; `docs/mcp.md` "Reloading" |
 | DEV-17 | SES-05, SES-10, SLH-02, SLH-03, CON-11 | pipy's waits can be interrupted where Pi's cannot: the first prompt's wait (Escape or an abort ends the wait and the prompt goes on), the waits of `/mcp` and its subcommands, the reconnects at a turn's start, and the 250 ms before a resource request is made again. | other form | Decided in S18, S21, S26, S31 |
 | DEV-18 | TLS-10, RND-02 | Progress of a running call is appended to the call's live output line by line, and the row shows the last line. Pi replaces the preliminary result, which also carries `{server, tool}` details. | other form | Decided in S16, S35 |
-| DEV-19 | TLS-11, RES-09 | An image is drawn in the terminal when it speaks the Kitty or iTerm2 protocol and `terminal.showImages` is on (since N4); otherwise the row shows `[Image: [<mime>] <w>x<h>]`. Narrower than pi-tui: no `CSI 16 t` cell-size query (9x18 pixel cells are assumed); Kitty gets PNG only (another type shows the line below the box); data that is not plain base64 shows the line; an iTerm2 image gets `height=<reserved rows>` instead of `auto`; an image is at most as tall as the terminal; `/settings` has no "Show images" or "Image width" rows, and a change applies on `/reload`. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4), N4 |
+| DEV-19 | TLS-11, RES-09 | An image is drawn in the terminal when it speaks the Kitty or iTerm2 protocol and `terminal.showImages` is on (since N4); otherwise the row shows `[Image: [<mime>] <w>x<h>]`. Narrower than pi-tui: no `CSI 16 t` cell-size query (9x18 pixel cells are assumed); Kitty gets PNG, so another type is converted with Pillow, which needs the optional `images` extra (Q10); without it, or for an image that does not decode, the line below the box is shown (since R4; before, every other type showed the line); data that is not plain base64 shows the line; an iTerm2 image gets `height=<reserved rows>` instead of `auto`; an image is at most as tall as the terminal; `/settings` has no "Show images" or "Image width" rows, and a change applies on `/reload`. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4), N4; narrowed by R4 |
 | DEV-20 | CMD-29, CMD-30 | Text and images share Pi's limit of 16 Mi characters (since G5; S39 had a byte cap of 16 MiB for images beside 1 MiB of text), and `image()` also raises `ValueError` once the images alone would pass it. The output is laid out as Pi's `formatOutput` does (`==> text N/M <==` lines, one `<console_output>` block) since R1. A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
 | DEV-21 | TLS-11 | How a tool result's images are sent to a provider differs in three points: a text-only result is sent as before (no `(no tool output)` for an empty one); the Mistral adapter sends images as the Chat Completions family does; there is no `requiresAssistantAfterToolResult`. Images are withheld from a model without image input only when the model has a catalog row of its own, so a model without a row and a provider object passed in by an embedder are sent the images. | narrower | Decided in S39 (part 2); `docs/providers.md` |
 | DEV-22 | CMD-25 | A `tool_result` transform cannot replace usage: pipy counts no usage of tools (DEV-13). Since G6 it is shown the whole result (blocks, details, the arguments and the call ids) and replaces the content, images included, the error flag and the details as Pi's does. | narrower | Decided in S04, S39 (part 1), G6 |
@@ -539,7 +539,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
-| DEV-31 | none | An unknown name in `--tools`, `--exclude-tools` or `defaultTools` is refused at startup; Pi accepts it. An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. | stricter | Decided in S10 |
+| DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 |
 | DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). An unknown `builtin:` name is a startup error, where Pi reports a load error. | other form | Decided in S19, G8 |
 | DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
@@ -576,7 +576,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-65 | SLH-13 | Queued RPC input (since N2): the `input` hooks do not run when a message is queued (Pi runs them in `_queueUserInput` and `prompt`); a queued message that later runs while idle meets them before its run, after expansion, and one taken by the run in flight does not. The expansion of queued input records no resource invocation. A `prompt` admitted just as the run ends may be expanded twice when its expansion starts with `/` and names another template. | narrower | Decided in X1, N2 |
 | DEV-66 | RND-04 | A codemode call is still the generic `codemode code="…"` row, not Pi's highlighted script preview of ten visual lines; there is no `Model calls:` cost line, and nested calls are drawn between the call and the output without Pi's spacer. The HTML export shows a cancelled nested call as `⊘` (Pi's page prints `?`), rounds durations to whole milliseconds and does not draw codemode calls ahead (no codemode call renderer). | other form | Decided in S35, N3 |
 | DEV-67 | OAU-37 | The HTTP transport's `fetch` option is not JavaScript's `fetch`: it takes one request object and returns a response object, with a `CancelToken` where Pi passes an `AbortSignal`, and an auth provider is not handed the transport's fetch (`UnauthorizedContext` has none), so `adapt_oauth_provider` sends its flow through the OAuth library's fetch or the one passed to it. A `Location` is resolved with `urljoin`, not a WHATWG parser, and one with user info is refused; a name lookup cannot be interrupted (no socket is opened after it). The OAuth fetch and (since R6) the transport's default fetch ask for `gzip, deflate` only and decode those codings; Node also asks for `br` and `zstd` over `https`. | other form | Decided in L1, L2, R6 |
-| DEV-68 | TLS-20, TLS-21 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. `images.blockImages` does not touch `@image` attachments (Pi replaces user message images too). | narrower | Decided in G7; `docs/providers.md` |
+| DEV-68 | TLS-20 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. | narrower | Decided in G7; `docs/providers.md`; `images.blockImages` part closed by R4 |
 | DEV-69 | OAU-15, OAU-18 | A server URL's fragment is not part of its credential key or of the server URL its auth provider compares stored values with: two servers with the same name in different `mcp.json` files whose URLs differ only in the fragment share their sign-in. A fragment never reaches the server. | other form | Goal check r2 (Q6), accepted in Q11 |
 | DEV-70 | OAU-11 | `expires_in` is accepted as a JSON number or a decimal string; Pi's `Number()` also accepts hex (`"0xe10"`) and whitespace-only strings. RFC 6749 defines it as a number. | stricter | Goal check r2 (Q9), accepted in Q11 |
 | DEV-71 | STD-01 | The stdio transport has no `stderr: "inherit"` option; a server's stderr is always piped and handed to `on_stderr` (bounded). Pi's MCP extension does not use `inherit` either; only direct users of the transport could. | narrower | Goal check r2 (P5), accepted in Q11 |
@@ -603,8 +603,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 178 | see the note |
-| Closed with a limit or deviation | 114 | each names its DEV rows or its limit in the note |
+| Closed with a test | 179 | see the note |
+| Closed with a limit or deviation | 113 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -613,7 +613,9 @@ L4 and N1 to N4 were merged: five rows were added (TLS-20, TLS-21, EXP-13,
 TSR-12, OAU-37) and the two rows the audit left open are closed. Updated
 again after the triage of the second goal check (2026-10-15): DEV-69 to
 DEV-78 set five more rows (OAU-02, OAU-03, OAU-11, OAU-15, STD-01) to
-closed with a limit. The 114 rows count as closed only if the final
+closed with a limit. R4 closed TLS-21 without a limit, since
+`images.blockImages` now also covers the `@image` attachments. The 113 rows
+count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
 accepts the DEV rows it names. Not rows, and still outstanding: the
 live evidence of section 6.5, which needs the owner's provider login and an
@@ -2974,10 +2976,17 @@ Decided in S10 (patterns and the MCP rules of the filters):
 - `all_tools()` (`ctx.get_all_tools()`) leaves out the tools the filters
   removed, as Pi's registry does. `registered_names` and the "Known tools"
   list of the unknown-name error are unchanged.
-- pipy rejects unknown names in `--tools`, `--exclude-tools` and
-  `defaultTools` at startup (Pi does not). A pattern is never unknown, and
-  neither is an MCP tool name, because a server's tools are registered when
-  it connects.
+- Unknown names in `--tools`, `--exclude-tools` and `defaultTools` are
+  ignored, as in Pi; since R4 pipy names them in one notice at startup and
+  after `/reload` (`NativeToolCapabilities.unknown_filter_notice`) instead
+  of refusing to start. A pattern is never unknown, and neither is an MCP
+  tool name, because a server's tools are registered when it connects.
+- `set_active_tools` ignores unknown and `hidden` names and applies the
+  others (Pi `setActiveToolsByName`, since R4). `with_mcp_registry`,
+  `with_extension_registry` and `publish` (reload) drop the names of tools
+  registered `hidden` from the selection, as Pi's `_applyToolLoadout` does
+  when it refreshes the registry; a pending name whose tool arrives
+  `hidden` stays pending.
 - A pattern in `--tools` that matches `codemode` selects the optional
   built-in like its name does.
 
@@ -4394,7 +4403,10 @@ is emitted and the result stored (INT3: only for a call that reached its
 (`agent/messages.py` `without_blocked_images`, Pi
 `convertToLlmWithBlockImages`) replaces tool result images in provider
 requests with `Image reading is disabled.`, consecutive ones once, read per
-request; the terminal still draws them, as in Pi. Differences: DEV-68.
+request; the terminal still draws them, as in Pi. Since R4 it also keeps
+the `@image` attachments of the user's turn back (`with_user_images_blocked`,
+applied in `repl/loop_step.py` as the request leaves for the provider, after
+the hooks): the latest user message gains the line once. Differences: DEV-68.
 Tests: `test_native_tool_result_image_normalize.py`.
 
 **G8 Tool selection flags and built-in extensions.** Commit 1 (findings T1,
@@ -4659,7 +4671,7 @@ DEV-20, DEV-26, DEV-40, DEV-41, DEV-48, DEV-59, DEV-65) as they land.
 
 | ID | Question | Decision |
 | --- | --- | --- |
-| Q11 | Goal-check round 2 (goal-r2.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decision, 2026-10-15). The following findings are settled and are not functional gaps for the parity goal: P2, P3, Q7, Q8 (DEV-67); P5 (DEV-71); Q3, Q5 (DEV-54, DEV-08); Q6 (DEV-69); Q9 (DEV-70); Q10 (DEV-72); D1 (DEV-20, the overflow of the result text with image labels only); D4 (DEV-73); D6 (DEV-03); D8, S32 (DEV-13); D9, D10 (DEV-23); D12 (DEV-04); D13 (DEV-18, the terminal row only); U4 (DEV-10, the validation of foreign schemas only); U5 (DEV-74); U7 (DEV-60); U8 (DEV-75); U9 (DEV-76); U11 (DEV-19); U12 (DEV-77); U13, S22, S23 (DEV-49); U14 (DEV-78); S5 (DEV-16, transactional reload only); S8 (DEV-38); S10, S12 (DEV-41, signal and RPC startup deadline only); S13 (DEV-34); S14, S17 (DEV-15); S15 (DEV-25); S16 (DEV-46); S21 (DEV-64); S24 (DEV-35; extension-API backlog); S25, S26 (DEV-45, renderShell and resolver errors only); S30, S31 (DEV-48, unknown-name events and cancel-on-return only); S33, S34, S35 (DEV-51); S36, S37 (DEV-50); S38 (DEV-43). Refuted, not gaps: P4, F5, U2, S4. Fixed: F1, Q1, Q2, Q4, D5, S1, plus slices R1-R6. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts are fixed by R1 to R6 or stay proposals. |
+| Q11 | Goal-check round 2 (goal-r2.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decision, 2026-10-15). The following findings are settled and are not functional gaps for the parity goal: P2, P3, Q7, Q8 (DEV-67); P5 (DEV-71); Q3, Q5 (DEV-54, DEV-08); Q6 (DEV-69); Q9 (DEV-70); Q10 (DEV-72); D1 (DEV-20, the overflow of the result text with image labels only); D4 (DEV-73); D6 (DEV-03); D8, S32 (DEV-13); D9, D10 (DEV-23); D12 (DEV-04); D13 (DEV-18, the terminal row only); U4 (DEV-10, the validation of foreign schemas only); U5 (DEV-74); U7 (DEV-60); U8 (DEV-75); U9 (DEV-76); U11 (DEV-19, without Pillow only); U12 (DEV-77); U13, S22, S23 (DEV-49); U14 (DEV-78); S5 (DEV-16, transactional reload only); S8 (DEV-38); S10, S12 (DEV-41, signal and RPC startup deadline only); S13 (DEV-34); S14, S17 (DEV-15); S15 (DEV-25); S16 (DEV-46); S21 (DEV-64); S24 (DEV-35; extension-API backlog); S25, S26 (DEV-45, renderShell and resolver errors only); S30, S31 (DEV-48, unknown-name events and cancel-on-return only); S33, S34, S35 (DEV-51); S36, S37 (DEV-50); S38 (DEV-43). Refuted, not gaps: P4, F5, U2, S4. Fixed: F1, Q1, Q2, Q4, D5, S1, plus slices R1-R6. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts are fixed by R1 to R6 or stay proposals. |
 
 A DEV row of section 3 or 3.1 that Q11 names is accepted. One it does not
 name stays a proposal for the final judgement.

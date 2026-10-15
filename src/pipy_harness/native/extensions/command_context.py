@@ -116,7 +116,12 @@ class CommandContext(Protocol):
         ...
 
     def set_active_tools(self, tool_names: Sequence[str]) -> bool:
-        """Restrict the active model-visible tools for later provider turns."""
+        """Restrict the active model-visible tools for later provider turns.
+
+        Unknown and ``hidden`` names are ignored and the others applied (Pi
+        ``setActiveToolsByName``); ``False`` means the context can no longer
+        change the session.
+        """
         ...
 
     def get_all_tools(self) -> "tuple[ToolInfo, ...]":

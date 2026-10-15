@@ -530,6 +530,43 @@ def without_blocked_images(
     return blocked
 
 
+def with_user_images_blocked(
+    messages: Sequence[AgentMessage], user_prompt: str
+) -> tuple[tuple[AgentMessage, ...], str]:
+    """The current turn's request with ``images.blockImages`` set and its
+    ``@image`` attachments left out (Pi ``convertToLlmWithBlockImages`` for
+    a user message).
+
+    The adapters attach a turn's images to the latest user message, or to
+    ``user_prompt`` when there are no messages. That text gains the line
+    :data:`BLOCKED_IMAGE_PLACEHOLDER` instead, once for all its images, as
+    Pi keeps one of consecutive placeholders. The stored history is not
+    changed.
+    """
+
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, AgentUserMessage):
+            blocked = replace(
+                message,
+                content=ProductContent(
+                    _with_placeholder_line(
+                        message.content.value, message.CONTENT_MAX_LENGTH
+                    )
+                ),
+            )
+            return (*messages[:index], blocked, *messages[index + 1 :]), user_prompt
+    return tuple(messages), _with_placeholder_line(user_prompt, None)
+
+
+def _with_placeholder_line(text: str, limit: int | None) -> str:
+    joined = (
+        f"{text}\n{BLOCKED_IMAGE_PLACEHOLDER}" if text else BLOCKED_IMAGE_PLACEHOLDER
+    )
+    # A placeholder may take the text past the cap a user message has.
+    return joined if limit is None else joined[:limit]
+
+
 def _with_images_blocked(message: AgentToolResultMessage) -> AgentToolResultMessage:
     mapped = [
         block.text if isinstance(block, TextContent) else BLOCKED_IMAGE_PLACEHOLDER

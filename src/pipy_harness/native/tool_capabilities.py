@@ -345,12 +345,13 @@ class ToolCapabilityState:
         declarable MCP tool it names or matches is active; otherwise a tool
         becomes active when registration activates it and it was not
         registered that way before. A selection of ``None`` already means
-        "as registration left it". An MCP tool that is gone leaves the
-        selection (Pi re-registers it hidden, and applying the loadout drops
-        it): when its server offers it again it is a new tool, so a
-        ``direct`` one is activated by registering and one ``tool_search``
-        had loaded has to be loaded again. A pending name whose tool is
-        offered now becomes active.
+        "as registration left it". An MCP tool that is gone, or that is
+        registered again as ``hidden`` (the resource tools once no server
+        offers resources), leaves the selection (Pi re-registers it hidden,
+        and applying the loadout drops it): when its server offers it again
+        it is a new tool, so a ``direct`` one is activated by registering and
+        one ``tool_search`` had loaded has to be loaded again. A pending name
+        whose tool is offered now, and not ``hidden``, becomes active.
         """
 
         mcp = dict(mcp_registry)
@@ -370,11 +371,12 @@ class ToolCapabilityState:
                 activated = (
                     offered & activated_on_registration(registry)
                 ) - activated_on_registration(self.registry)
-            arrived = pending & offered
+            hidden = _hidden_names(registry)
+            arrived = (pending & offered) - hidden
             withdrawn = frozenset(
                 _accepted_mcp_tools(self.registry, self.mcp_registry)
             ).difference(registry)
-            active = (active - withdrawn) | activated | arrived
+            active = (active - withdrawn - hidden) | activated | arrived
             pending = pending - arrived
         return replace(
             self,
@@ -403,7 +405,8 @@ class ToolCapabilityState:
         it and did not before, so a tool that changed from ``hidden`` to
         ``direct`` is activated like a new one. A selection of ``None``
         already means "as registration left it". A tool registered again as
-        ``hidden`` keeps its name in the selection and is never declared.
+        ``hidden`` leaves the selection (Pi ``_applyToolLoadout`` drops it),
+        so it is declared again only when something activates it.
         """
 
         extensions = dict(extension_registry)
@@ -422,7 +425,7 @@ class ToolCapabilityState:
                 activated = activated_on_registration(
                     extensions
                 ) - activated_on_registration(self.extension_registry)
-            active = active | activated
+            active = (active - _hidden_names(registry)) | activated
         return replace(
             self,
             extension_registry=extensions,
@@ -460,6 +463,14 @@ def _merged_registry(
     for name, port in mcp.items():
         registry.setdefault(name, port)
     return registry
+
+
+def _hidden_names(registry: Mapping[str, ToolPort]) -> frozenset[str]:
+    """Names whose tool is registered ``hidden``: they are never active."""
+
+    return frozenset(
+        name for name, port in registry.items() if port.definition.exposure == "hidden"
+    )
 
 
 def _accepted_mcp_tools(
@@ -786,6 +797,21 @@ class NativeToolCapabilities:
             )
         )
 
+    def unknown_filter_notice(self) -> str | None:
+        """The notice that names :attr:`unknown_filter_names`, or ``None``.
+
+        Pi ignores a name in ``--tools``, ``--exclude-tools`` or
+        ``defaultTools`` that no tool has; pipy ignores it as well and says
+        so once, at startup and after ``/reload``. A global ``defaultTools``
+        may name a tool that only some projects' extensions register.
+        """
+
+        unknown = self.unknown_filter_names
+        if not unknown:
+            return None
+        known = ", ".join(sorted(self.registered_names)) or "<none>"
+        return f"pipy: unknown tool name(s): {', '.join(unknown)}. Known tools: {known}"
+
     def all_tools(self) -> tuple[ToolInfo, ...]:
         """Pi ``getAllTools``: every registered tool of the live value.
 
@@ -855,20 +881,26 @@ class NativeToolCapabilities:
     def set_active_tools(self, names: Sequence[str]) -> bool:
         """Atomically replace the provider-visible tool-name selection.
 
-        Validation and assignment share one critical section, so a concurrent
-        publication can neither be undone by a selection derived from the
-        superseded registry nor slip a name past the registry check.
+        Pi ``setActiveToolsByName``: unknown and ``hidden`` names are
+        ignored and the others become the selection, so the call always
+        applies and returns ``True``. Filtering and assignment share one
+        critical section, so a concurrent publication can neither be undone
+        by a selection derived from the superseded registry nor slip a name
+        past the registry check.
 
         A selection that deactivates a tool replaces a restored one, whose
-        pending names are dropped; one that only adds tools keeps them (Pi
-        ``setActiveToolsByName``).
+        pending names are dropped; one that only adds tools keeps them.
         """
 
-        normalized = frozenset(str(name) for name in names if str(name))
+        requested = frozenset(str(name) for name in names if str(name))
         with self._state_lock:
             state = self._state
-            if any(name not in state.registry for name in normalized):
-                return False
+            hidden = _hidden_names(state.registry)
+            normalized = frozenset(
+                name
+                for name in requested
+                if name in state.registry and name not in hidden
+            )
             # What counts is what was declared: a name the filters hide was
             # not active for the model, so dropping it deactivates nothing.
             deactivates = any(
@@ -1335,6 +1367,13 @@ class NativeToolCapabilities:
                 )
                 if restorable:
                     state = replace(state, pending_tool_names=restorable)
+            hidden = _hidden_names(state.registry)
+            if state.active_tool_names is not None and state.active_tool_names & hidden:
+                # Pi ``_applyToolLoadout``: a tool the reload registered
+                # ``hidden`` leaves the active tools, as on any refresh.
+                state = replace(
+                    state, active_tool_names=state.active_tool_names - hidden
+                )
             self._state = state
 
     def publish_extension_tools(

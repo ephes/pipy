@@ -284,8 +284,9 @@ as `retry.provider` are replaced wholesale):
   boolean=false }`; `showImages` and `imageWidthCells` decide whether and how
   wide tool-result images are drawn, see
   [images in tool results](tui-workflow.md#images-in-tool-results)
-- `images?: { autoResize?: boolean=true; blockImages?: boolean=false }` (both
-  apply to tool result images, see
+- `images?: { autoResize?: boolean=true; blockImages?: boolean=false }`
+  (`autoResize` applies to tool result images, `blockImages` also to the
+  `@image` attachments of the user's turn, see
   [providers](providers.md#size-of-tool-result-images-and-images-settings))
 - `thinkingBudgets?: { minimal?; low?; medium?; high? }`
 - `markdown?: { codeBlockIndent?: string="  " }`
@@ -1177,9 +1178,11 @@ An empty list inherits a lower-layer list. Without an inherited list, it selects
 no builtins. Other arrays still replace wholesale, and other object settings
 retain the existing one-level merge.
 Unknown/malformed values survive round-trip; the typed getter ignores nonstring
-list entries and treats a non-list value as an empty selection. Unknown selected
-names are rejected at normal startup after extensions load. Recognized but
-unavailable builtin codemode is omitted without becoming an unknown-name error.
+list entries and treats a non-list value as an empty selection. As in Pi, a selected
+name that no tool has is ignored: after extensions load, pipy names such names
+in one notice and starts (also after `/reload`), so a global `defaultTools`
+may name a tool that only some projects' extensions register. Recognized but
+unavailable builtin codemode is omitted without such a notice.
 
 This setting selects initial builtins; default extension visibility remains.
 Caller-injected plain registries keep their ownership and are not replaced or

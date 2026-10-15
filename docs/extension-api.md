@@ -901,7 +901,10 @@ The exposure decides two sets:
   `--no-tools` removed is not declared when something names it, and neither
   is an [MCP tool](usage.md#mcp-tools) that a `--tools` list keeps without
   naming it (unless `tool_search` could load it).
-  `ctx.set_active_tools([...])` still accepts such a name.
+  `ctx.set_active_tools([...])` still accepts such a name. As in Pi it
+  ignores a name that no tool has and a `hidden` tool, and makes the other
+  names the active tools; it returns `False` only when the context can no
+  longer change the session.
 - **Callable** from a [codemode](codemode.md) script: the active `direct`
   tools and every registered `codemode` or `deferred` tool, whether or not it
   is active. `model-only` and `hidden` tools and `codemode` itself are never
@@ -1142,7 +1145,9 @@ def gate(event, ctx):
 with `exposure="hidden"` to withdraw it: the tool stays registered and
 `get_all_tools()` reports it as `hidden`, but no request declares it,
 `ctx.set_active_tools(...)` cannot bring it back, and a model call to it is
-answered with `unknown tool`. As in Pi, `api.register_tool` stays usable while
+answered with `unknown tool`. As in Pi it leaves the active tools: registered
+again as `codemode` or `deferred`, it is declared only once something names
+it again. As in Pi, `api.register_tool` stays usable while
 the session runs the extension, for example from a command: the tool is
 published at once, and the next request no longer declares a withdrawn tool;
 the transcript tells the model that it was removed. Such a registration may

@@ -217,22 +217,31 @@ def test_filter_precedence_is_selection_then_exclude(
     assert _names(capabilities) == expected
 
 
-def test_active_tool_replacement_accepts_empty_and_rejects_unknown_atomically(
+def test_active_tool_replacement_accepts_empty_and_ignores_unknown_names(
     tmp_path: Path,
 ) -> None:
+    # Pi `setActiveToolsByName`: "Unknown and hidden tool names are ignored",
+    # and the other names are applied.
     capabilities = _capabilities(
         tmp_path,
-        builtins=(_RecordingTool("first"), _RecordingTool("second")),
+        builtins=(
+            _RecordingTool("first"),
+            _RecordingTool("second"),
+            _RecordingTool("withdrawn", exposure="hidden"),
+        ),
     )
 
     assert capabilities.set_active_tools([]) is True
     assert _names(capabilities) == ()
-    assert capabilities.set_active_tools(["missing"]) is False
-    assert _names(capabilities) == ()
     assert capabilities.set_active_tools(["second", "second", ""]) is True
     assert _names(capabilities) == ("second",)
-    assert capabilities.set_active_tools(["first", "missing"]) is False
+    assert capabilities.set_active_tools(["first", "missing"]) is True
+    assert _names(capabilities) == ("first",)
+    assert capabilities.set_active_tools(["missing"]) is True
+    assert _names(capabilities) == ()
+    assert capabilities.set_active_tools(["second", "withdrawn"]) is True
     assert _names(capabilities) == ("second",)
+    assert capabilities.state.active_tool_names == frozenset({"second"})
 
 
 def test_extension_replacement_preserves_unfiltered_sentinel(
@@ -251,6 +260,35 @@ def test_extension_replacement_preserves_unfiltered_sentinel(
     )
 
     assert _names(capabilities) == ("builtin", "new_extension")
+
+
+def test_a_reload_that_hides_a_tool_takes_it_out_of_the_selection(
+    tmp_path: Path,
+) -> None:
+    # Pi applies the loadout after a reload as after any refresh, which
+    # drops a hidden tool: reloaded as `deferred` again, it is not declared
+    # until something names it once more.
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(_RecordingTool("later", exposure="deferred"),),
+    )
+    assert capabilities.set_active_tools(["builtin", "later"]) is True
+    assert _names(capabilities) == ("builtin", "later")
+
+    capabilities.publish(
+        capabilities.prepare_extensions(
+            {"later": _RecordingTool("later", exposure="hidden")}
+        )
+    )
+    assert capabilities.state.active_tool_names == frozenset({"builtin"})
+
+    capabilities.publish(
+        capabilities.prepare_extensions(
+            {"later": _RecordingTool("later", exposure="deferred")}
+        )
+    )
+    assert _names(capabilities) == ("builtin",)
 
 
 def test_extension_replacement_recomputes_configured_filters(
@@ -458,10 +496,11 @@ def test_set_active_tools_replaces_state_without_mutating_the_old_value(
     assert capabilities.state is not before
     assert before.active_tool_names is None
     assert capabilities.state.active_tool_names == frozenset({"second"})
-    # A rejected selection leaves the live value in place entirely.
-    rejected_from = capabilities.state
-    assert capabilities.set_active_tools(("missing",)) is False
-    assert capabilities.state is rejected_from
+    # An unknown name is left out; the old value is not changed.
+    previous = capabilities.state
+    assert capabilities.set_active_tools(("first", "missing")) is True
+    assert capabilities.state.active_tool_names == frozenset({"first"})
+    assert previous.active_tool_names == frozenset({"second"})
 
 
 def test_published_state_mappings_are_read_only(tmp_path: Path) -> None:

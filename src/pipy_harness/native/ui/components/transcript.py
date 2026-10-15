@@ -59,6 +59,7 @@ from pipy_harness.native.terminal_image import (
     TerminalImage,
     allocate_image_id,
     clean_base64,
+    kitty_png,
 )
 from pipy_harness.native.tool_result_display import image_dimensions
 from pipy_harness.native.tool_rows import (
@@ -861,14 +862,23 @@ class TranscriptComponent:
             size = image_dimensions(image.data, image.mime_type) or DEFAULT_IMAGE_SIZE
             # pi-tui `Image` names the size it assumed for an unreadable one.
             fallback = f"[Image: [{image.mime_type}] {size[0]}x{size[1]}]"
+            data: str | None = image.data
+            mime_type, drawn_size = image.mime_type, size
+            if protocol == "kitty" and mime_type != "image/png":
+                # Kitty takes PNG only. The conversion may turn the image by
+                # its EXIF orientation, so the PNG's own size counts.
+                data = kitty_png(image.data)
+                if data is not None:
+                    mime_type = "image/png"
+                    drawn_size = image_dimensions(data, mime_type) or size
             drawn.append(
                 TerminalImage(
-                    data=clean_base64(image.data),
-                    mime_type=image.mime_type,
+                    data=None if data is None else clean_base64(data),
+                    mime_type=mime_type,
                     protocol=protocol,
                     max_width_cells=self._image_width_cells,
                     image_id=image_id,
-                    size=size,
+                    size=drawn_size,
                     fallback=theme.fg("toolOutput", fallback),
                 )
             )

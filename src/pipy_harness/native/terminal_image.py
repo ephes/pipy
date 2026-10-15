@@ -13,8 +13,10 @@ Narrower than Pi:
   terminal (Pi's ``CSI 16 t`` query), so a terminal whose cells have another
   shape draws a Kitty image a little stretched.
 - A Kitty terminal only takes PNG. Pi converts other types with its Photon
-  transcoder; pipy has none and shows the image's text line instead, as
-  pi-tui does when no transcoder is registered.
+  transcoder; pipy converts them with Pillow (the optional ``images``
+  extra, :func:`kitty_png`). Without Pillow, or for an image that does not
+  decode, the image's text line is shown, as pi-tui does when no
+  transcoder is registered.
 - No Windows detection (pipy does not run there).
 - An iTerm2 image gets the reserved rows as its height, where Pi passes
   ``height=auto``.
@@ -30,6 +32,8 @@ import math
 import os
 import random
 import re
+import threading
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
@@ -43,6 +47,10 @@ CELL_HEIGHT_PX = 18
 DEFAULT_IMAGE_SIZE = (800, 600)
 
 _KITTY_CHUNK = 4096
+#: pi-tui ``pngCache``: the converted images, least recently used first.
+_PNG_CACHE_SIZE = 32
+_png_cache: OrderedDict[str, str | None] = OrderedDict()
+_png_cache_lock = threading.Lock()
 _BASE64_RE = re.compile(r"[A-Za-z0-9+/]*={0,2}")
 _WHITESPACE_RE = re.compile(r"[\t\n\x0b\x0c\r ]+")
 
@@ -114,6 +122,30 @@ def clean_base64(data: str) -> str | None:
     if not cleaned or len(cleaned) % 4 or _BASE64_RE.fullmatch(cleaned) is None:
         return None
     return cleaned
+
+
+def kitty_png(data: str) -> str | None:
+    """pi-tui ``toPng``: an image as base64 PNG for a Kitty terminal.
+
+    Converted with Pillow (``image_process.png_for_display``); ``None``
+    without it or for data that does not decode. The last 32 results are
+    kept by their source data, failures included, because a row's images
+    are built again whenever the frame is drawn.
+    """
+
+    with _png_cache_lock:
+        if data in _png_cache:
+            _png_cache.move_to_end(data)
+            return _png_cache[data]
+    from pipy_harness.native.image_process import png_for_display
+
+    png = png_for_display(data)
+    with _png_cache_lock:
+        _png_cache[data] = png
+        _png_cache.move_to_end(data)
+        while len(_png_cache) > _PNG_CACHE_SIZE:
+            _png_cache.popitem(last=False)
+    return png
 
 
 def allocate_image_id() -> int:

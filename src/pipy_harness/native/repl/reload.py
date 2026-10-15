@@ -397,12 +397,9 @@ class ReloadCommandEffects:
         self._diagnose_unknown_tool_filters()
 
     def _diagnose_unknown_tool_filters(self) -> None:
-        unknown_filter_names = self.tool_capabilities.unknown_filter_names
-        if not unknown_filter_names:
-            return
-        known = ", ".join(sorted(self.tool_capabilities.registered_names)) or "<none>"
-        unknown = ", ".join(unknown_filter_names)
-        self.diag(f"pipy: unknown tool name(s): {unknown}. Known tools: {known}")
+        notice = self.tool_capabilities.unknown_filter_notice()
+        if notice is not None:
+            self.diag(notice)
 
     def _refresh_presentation_and_persistence(self) -> bool:
         reloaded_theme = self.settings.get_theme()

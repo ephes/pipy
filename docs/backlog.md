@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 178 are closed with a
-test and 114 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 179 are closed with a
+test and 113 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 

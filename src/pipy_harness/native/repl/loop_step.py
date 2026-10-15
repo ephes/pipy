@@ -26,6 +26,7 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import should_compact_agent_history
 from pipy_harness.native.agent.loop import AgentLoopRequestPreparation
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
+from pipy_harness.native.agent.messages import with_user_images_blocked
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnOutcome,
@@ -297,6 +298,8 @@ class _RequestPreparationEffects:
                 settings = scope.settings.capture_compaction_budget_settings()
             except ValueError as exc:
                 invalid_policy = str(exc)
+            # Read once: the estimates and the request agree on what is sent.
+            block_images = scope.settings.get_block_images()
         if invalid_policy is not None:
             return self._refuse(context, invalid_policy)
         declared = scope.declared_context_window(context.binding)
@@ -315,6 +318,9 @@ class _RequestPreparationEffects:
         baseline = freeze_provider_request(
             self._request_values(active_input, turn_index, available_tools, context)
         )
+        if block_images:
+            # Measured as it will be sent: blocked attachments count nothing.
+            baseline = replace(baseline, attachments=())
         compaction = self._compact_if_needed(
             context, budget, settings.enabled, baseline, active_input
         )
@@ -331,6 +337,8 @@ class _RequestPreparationEffects:
                 active_input=active_input,
             )
         )
+        if block_images and snapshot.request.attachments:
+            snapshot = _with_user_images_blocked(snapshot)
         scope.coding_state.validate_run_context(context)
         estimate = estimate_request(
             snapshot.request,
@@ -494,6 +502,26 @@ class _RequestPreparationEffects:
             session_id=scope.ctl.session_tree.session_id,
             system_messages=system_messages,
         )
+
+
+def _with_user_images_blocked(
+    snapshot: AgentProviderRequestSnapshot,
+) -> AgentProviderRequestSnapshot:
+    """Pi ``convertToLlmWithBlockImages`` for a user message: the ``@image``
+    attachments are not sent, and the user message says so.
+
+    Applied to the snapshot the hooks produced, because the hooks find the
+    accepted message in the request by identity.
+    """
+
+    request = snapshot.request
+    messages, user_prompt = with_user_images_blocked(
+        request.messages, request.user_prompt
+    )
+    return AgentProviderRequestSnapshot(
+        replace(request, messages=messages, user_prompt=user_prompt, attachments=()),
+        snapshot.advertised_tool_names,
+    )
 
 
 @dataclass(frozen=True, slots=True)

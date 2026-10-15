@@ -44,6 +44,8 @@ from pipy_harness.native.agent.messages import (
     NON_VISION_TOOL_IMAGE_PLACEHOLDER,
     AgentToolCall,
     AgentToolResultMessage,
+    AgentUserMessage,
+    with_user_images_blocked,
     without_blocked_images,
 )
 from pipy_harness.native.agent.nested_calls import NestedToolCallService
@@ -339,7 +341,10 @@ class _WideShotTool:
 
 
 def _session_requests(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, settings: dict[str, object]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    settings: dict[str, object],
+    prompt: str = "look",
 ) -> list[ProviderRequest]:
     from dataclasses import replace
 
@@ -376,7 +381,7 @@ def _session_requests(
         settings_manager=SettingsManager(global_path=path, env={}),
     ).run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO("look\n/exit\n"),
+        input_stream=io.StringIO(f"{prompt}\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
     )
@@ -407,6 +412,75 @@ def test_a_session_with_blocked_images_sends_the_text_instead(
     assert sent.blocks == ()
     assert sent.content.value == f"saved\n{BLOCKED_IMAGE_PLACEHOLDER}"
     assert NON_VISION_TOOL_IMAGE_PLACEHOLDER not in sent.content.value
+
+
+@pytest.mark.parametrize("blocked", [False, True])
+def test_blocked_images_also_keep_the_users_attachments_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blocked: bool
+) -> None:
+    # Pi `convertToLlmWithBlockImages` replaces the images of a user
+    # message as well: the `@image` attachments are not sent, and the user
+    # message gains one placeholder for them.
+    (tmp_path / "one.png").write_bytes(_image_bytes(4, 4))
+    (tmp_path / "two.png").write_bytes(_image_bytes(6, 6))
+    requests = _session_requests(
+        tmp_path,
+        monkeypatch,
+        {"images": {"blockImages": blocked, "autoResize": False}},
+        prompt="compare @image:one.png @image:two.png",
+    )
+
+    first = requests[0]
+    (user,) = [
+        message for message in first.messages if isinstance(message, AgentUserMessage)
+    ]
+    if not blocked:
+        assert len(first.attachments) == 2
+        assert BLOCKED_IMAGE_PLACEHOLDER not in user.content.value
+        return
+    assert first.attachments == ()
+    assert user.content.value.endswith(f"\n{BLOCKED_IMAGE_PLACEHOLDER}")
+    assert user.content.value.count(BLOCKED_IMAGE_PLACEHOLDER) == 1
+    assert first.user_prompt == "compare @image:one.png @image:two.png"
+    # The history keeps what the user wrote.
+    stored = requests[1].messages[0]
+    assert isinstance(stored, AgentUserMessage)
+    assert BLOCKED_IMAGE_PLACEHOLDER not in stored.content.value
+
+
+def test_a_blocked_attachment_does_not_count_toward_the_context_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The estimate measures the request as it is sent, so an attachment
+    # that blockImages keeps back cannot push it past the context window.
+    (tmp_path / "one.png").write_bytes(_image_bytes(4, 4))
+    budget = {"enabled": False, "contextWindow": 3000, "reserveTokens": 0}
+    requests = _session_requests(
+        tmp_path,
+        monkeypatch,
+        {"images": {"blockImages": True}, "compaction": budget},
+        prompt="compare @image:one.png",
+    )
+    assert requests[0].attachments == ()
+
+
+def test_blocking_user_images_marks_the_latest_user_message_or_the_prompt() -> None:
+    older = AgentUserMessage(ProductContent("before"))
+    latest = AgentUserMessage(ProductContent("see"))
+    messages = (older, latest)
+
+    blocked, prompt = with_user_images_blocked(messages, "see")
+
+    assert blocked[0] is older
+    assert blocked[1] == AgentUserMessage(
+        ProductContent(f"see\n{BLOCKED_IMAGE_PLACEHOLDER}")
+    )
+    assert prompt == "see"
+    assert messages[1].content.value == "see"
+    assert with_user_images_blocked((), "") == ((), BLOCKED_IMAGE_PLACEHOLDER)
+    full = AgentUserMessage(ProductContent("x" * AgentUserMessage.CONTENT_MAX_LENGTH))
+    ((capped,), _prompt) = with_user_images_blocked((full,), "x")
+    assert len(capped.content.value) == AgentUserMessage.CONTENT_MAX_LENGTH
 
 
 def test_a_rows_inline_images_are_the_normalized_ones() -> None:

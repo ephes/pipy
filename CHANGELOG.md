@@ -8,6 +8,26 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Tool selection follows Pi: a name in `--tools`, `--exclude-tools` or the
+  `defaultTools` setting that no tool has is ignored with a notice instead of
+  stopping startup, so a global `defaultTools` that names one project's
+  extension tool no longer breaks every other project. An extension's
+  `ctx.set_active_tools([...])` ignores unknown and `hidden` names and applies
+  the others, where before one unknown name refused the whole selection. A
+  tool that is registered again as `hidden` (an extension's withdrawn tool,
+  also through `/reload`, or the MCP resource tools once no server offers
+  resources) leaves the active tools, so a tool that `tool_search` had
+  loaded has to be loaded again when it comes back. See [tool options](docs/usage.md#tool-options).
+- `images.blockImages` also keeps the `@image` attachments of the user's
+  turn from the model, as in Pi: the user message gets the line `Image
+  reading is disabled.` in their place. Before, they were sent. See
+  [providers](docs/providers.md#size-of-tool-result-images-and-images-settings).
+- Inline images on Kitty-protocol terminals (kitty, Ghostty, WezTerm, Warp):
+  a JPEG, GIF or WebP tool result image is converted to PNG and drawn, as Pi
+  does, when Pillow (the optional `images` extra) is installed. Before, only
+  PNG images were drawn and the others showed their text line, which is
+  still what happens without Pillow. See
+  [images in tool results](docs/tui-workflow.md#images-in-tool-results).
 - MCP over HTTP: compressed answers work, as with Pi's `fetch`. The
   transport's default fetch asks for `gzip` and `deflate` and decodes an
   answer in those codings, a JSON body as a whole and an event stream as
@@ -1031,7 +1051,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 114 of them
+  that pin it and where pipy differs from Pi. All are closed, 113 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
