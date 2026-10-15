@@ -169,11 +169,14 @@ carry the id of the calling call as `parentToolCallId`, as in Pi.
 
 - `result` has `content`, the blocks of a `toolResult` message (see below),
   `details` when the result has them (a codemode result's `nestedCalls`
-  record among them), and `structuredContent` when the tool gave
-  machine-readable output.
+  record among them), `structuredContent` when the tool gave
+  machine-readable output, and `terminate: true` when the result asks the
+  agent to stop after the batch (an extension tool's
+  [`terminate`](extension-api.md#ending-the-batch)).
 - `partialResult` has `content` with one text block and, when the tool gave
   them, `details`. An MCP tool's progress is a partial result with
-  `details: {server, tool}` that replaces the previous one. `bash` streams
+  `details: {server, tool}` that replaces the previous one, as is an
+  extension tool's [`ctx.on_update`](extension-api.md#partial-results). `bash` streams
   its output as Pi's does: each update's text is the output so far, the
   last 2000 lines or 50 KB, and its `details` are `{}` until the output is
   cut, then `truncation` and the `fullOutputPath` of the file with all of

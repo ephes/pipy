@@ -243,6 +243,9 @@ class ExtensionModelRuntimeControl:
     # The running tool's cancellation signal (Pi's ``signal`` of
     # ``execute``), the default ``signal`` of its nested calls.
     tool_signal: "threading.Event | None" = None
+    # Where the running tool publishes its partial results (Pi's
+    # ``onUpdate`` of ``execute``); ``None`` where nothing receives them.
+    tool_update: "Callable[[ToolResult], None] | None" = None
 
 
 # Coding-session host collaborators an activated extension may invoke through a
@@ -933,8 +936,7 @@ class ToolResult:
     reaches the model). `details` is structured local state/metadata for
     rendering or later hooks; it is not sent to the provider. Like Pi, the
     session file stores it (a JSON object; a value that does not survive a
-    JSON round trip is dropped). (Pi-shaped `content`/`details`; `terminate`
-    arrives in a later slice.)
+    JSON round trip is dropped). (Pi-shaped `content`/`details`.)
 
     `blocks` is Pi's ordered `content` array for a result with images: a
     tuple of `TextContent` and `ImageContent` values. A result whose blocks
@@ -950,6 +952,12 @@ class ToolResult:
     not written to the session file. `is_error` reports a failure without
     raising: the model sees `content` as an error, and the result keeps its
     `details` and `structured_content`.
+
+    `terminate=True` asks the agent to stop after the current tool batch
+    (Pi `terminate`): when every result of the model's tool calls in one
+    response asks for it, no automatic follow-up provider turn runs and the
+    run ends. A result that is not the model's call's (one that
+    `ctx.execute_tool` returns) does not end anything.
     """
 
     content: str
@@ -957,6 +965,7 @@ class ToolResult:
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
     is_error: bool = False
     blocks: "tuple[ToolResultBlock, ...]" = ()
+    terminate: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1064,9 +1073,15 @@ class RegisteredTool:
 
 @dataclass(frozen=True, slots=True)
 class ToolBlock:
-    """Returned by a `tool_call` hook to block a tool call with a reason."""
+    """Returned by a `tool_call` hook to block a tool call with a reason.
+
+    `terminate=True` gives the blocked call's error result Pi's
+    early-termination hint (`ToolResult.terminate`), so a batch whose calls
+    all end that way runs no automatic follow-up provider turn.
+    """
 
     reason: str
+    terminate: bool = False
 
 
 @dataclass(frozen=True, slots=True)

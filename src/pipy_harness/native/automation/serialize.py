@@ -63,14 +63,17 @@ def tool_result_content(message: AgentToolResultMessage) -> list[dict[str, Any]]
 
 def tool_result_json(message: AgentToolResultMessage) -> dict[str, Any]:
     """Pi's ``AgentToolResult`` of a finished call (``tool_execution_end``
-    ``result``): ``content``, ``details`` when the result has them, and the
-    tool's ``structuredContent`` when it gave one."""
+    ``result``): ``content``, ``details`` when the result has them, the
+    tool's ``structuredContent`` when it gave one, and ``terminate`` when
+    the result asks the agent to stop after the batch."""
 
     result: dict[str, Any] = {"content": tool_result_content(message)}
     if message.details is not None:
         result["details"] = dict(message.details)
     if message.structured_content is not NO_STRUCTURED_CONTENT:
         result["structuredContent"] = message.structured_content
+    if message.terminate:
+        result["terminate"] = True
     return result
 
 

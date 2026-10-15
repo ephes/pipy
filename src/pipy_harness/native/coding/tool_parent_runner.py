@@ -37,7 +37,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
-from pipy_harness.native.tools.base import NestedToolCalls
+from pipy_harness.native.tools.base import NestedToolCalls, ToolOutputSink
 
 
 class _UntilDone:
@@ -65,7 +65,8 @@ class ParentToolExecution(Protocol):
     """Runs the parent itself, with what it calls other tools through, on
     ``arguments``: those the loop prepared and validated and the
     ``tool_call`` hooks left, which are validated again but not prepared
-    again (a tool's ``prepare_arguments`` runs once per call)."""
+    again (a tool's ``prepare_arguments`` runs once per call).
+    ``output_sink`` receives the parent's own live output."""
 
     def __call__(
         self,
@@ -75,6 +76,7 @@ class ParentToolExecution(Protocol):
         wait_for_interrupt: ToolInterruptWaiter | None,
         nested_tools: NestedToolCalls,
         arguments: dict[str, Any],
+        output_sink: ToolOutputSink | None = None,
     ) -> ToolExecutionOutcome: ...
 
 
@@ -120,6 +122,7 @@ class ToolParentRunner:
                 wait_for_interrupt=waiter,
                 nested_tools=nested_tools,
                 arguments=self.arguments,
+                output_sink=service.parent_output_sink(),
             )
         finally:
             service.end_caller(caller_id)

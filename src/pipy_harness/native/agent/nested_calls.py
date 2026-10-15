@@ -424,6 +424,7 @@ def nested_tool_result(outcome: NestedToolCallOutcome) -> NestedToolResult:
         details=result.details,
         structured_content=result.structured_content,
         blocks=result.blocks,
+        terminate=result.terminate,
         tool_call_id=call.provider_correlation_id,
         arguments=arguments if isinstance(arguments, dict) else {},
         duration_ms=None
@@ -515,8 +516,11 @@ class NestedToolCallService:
         session_waiter: ToolInterruptWaiter | None = None,
         sequential: Callable[[], bool] | None = None,
         queue_events: NestedQueueEvents | None = None,
+        parent_update: Callable[[ToolOutput], None] | None = None,
     ) -> None:
         self._parent_id = parent.provider_correlation_id
+        # Session thread: publishes the parent tool's own live output.
+        self._parent_update = parent_update
         self._thread = threading.current_thread()
         # The loop leaves the parent's own tool out unless its runner
         # ``reaches_itself``.
@@ -647,6 +651,24 @@ class NestedToolCallService:
             if not self._closed:
                 self._callers.add(self._parent_id)
         return NestedCallBatch(self, waiter, stop)
+
+    def parent_output_sink(self) -> ToolOutputSink | None:
+        """Where the parent tool writes its own live output (Pi
+        ``onUpdate``), from any thread: it is published on the session
+        thread, in order with the events of the nested calls, while ``serve``
+        waits for the parent. ``None`` when nothing publishes it."""
+        if self._parent_update is None:
+            return None
+        parent_id = self._parent_id
+
+        def sink(output: ToolOutput) -> None:
+            if threading.current_thread() is self._thread:
+                self._publish(parent_id, output)
+                return
+            with self._lock:
+                self._post(_Update(parent_id, output))
+
+        return sink
 
     def nested_tools(self, caller_id: str, /) -> NestedToolCalls:
         """What the tool call ``caller_id`` runs other tools with. Its tool
@@ -885,6 +907,9 @@ class NestedToolCallService:
     def _publish(self, call_id: str, output: ToolOutput) -> None:
         """Session thread: publish a piece of a live call's output; dropped
         once the call ended. A failure to publish is the pipeline's."""
+        if call_id == self._parent_id:
+            self._publish_parent(output)
+            return
         live = self._live.get(call_id)
         if live is None:
             return
@@ -895,6 +920,20 @@ class NestedToolCallService:
             pending.update(output)
         except BaseException as exc:
             self._fail(pending.call, started, exc)
+            raise
+
+    def _publish_parent(self, output: ToolOutput) -> None:
+        """Session thread: publish a piece of the parent's live output;
+        dropped once the service closed. A failure to publish is the
+        pipeline's."""
+        if self._parent_update is None or self._closed:
+            return
+        try:
+            self._parent_update(output)
+        except BaseException as exc:
+            if self._failure is None:
+                self._failure = exc
+            self._closed = True
             raise
 
     def _new_call(

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
+    ToolPartialResult,
     ToolResultBlock,
     tool_result_text,
 )
@@ -24,6 +25,7 @@ from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolOutputSink,
     ToolRequest,
     json_safe_details,
     json_safe_value,
@@ -35,6 +37,29 @@ if TYPE_CHECKING:
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
 _TRUNCATED = "\n[pipy: extension tool output truncated]"
+
+
+def _partial_update(sink: ToolOutputSink) -> Callable[[ToolResult], None]:
+    """``ctx.on_update`` of a running extension tool (Pi ``onUpdate``):
+    each partial ``ToolResult`` becomes a partial result that replaces the
+    previous one, its text bounded like the final result's."""
+
+    def update(partial: ToolResult) -> None:
+        if not isinstance(partial, ToolResult):
+            raise TypeError("on_update expects a ToolResult")
+        if partial.blocks:
+            text = tool_result_text(partial.blocks)
+        else:
+            text = (
+                partial.content
+                if isinstance(partial.content, str)
+                else str(partial.content)
+            )
+        if len(text) > _TOOL_OUTPUT_MAX_CHARS:
+            text = text[: _TOOL_OUTPUT_MAX_CHARS - 64] + _TRUNCATED
+        sink(ToolPartialResult(text, json_safe_details(partial.details)))
+
+    return update
 
 
 class _ExtensionToolPort:
@@ -134,6 +159,11 @@ class _ExtensionToolPort:
                 get_all_tools_fn=self._get_all_tools_fn,
                 nested_tools=context.nested_tools,
                 tool_signal=context.cancel_event,
+                tool_update=(
+                    None
+                    if context.output_sink is None
+                    else _partial_update(context.output_sink)
+                ),
             ),
             flags=self._flags,
             project_trusted=self._project_trusted,
@@ -194,4 +224,6 @@ class _ExtensionToolPort:
             details=json_safe_details(details),
             structured_content=json_safe_value(structured_content),
             blocks=blocks,
+            # Pi ``terminate === true``: only an exact True asks.
+            terminate=isinstance(result, ToolResult) and result.terminate is True,
         )

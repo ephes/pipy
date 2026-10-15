@@ -473,6 +473,10 @@ class ToolExecutionResult:
     # text and image blocks the model receives. ``output_text`` is then the
     # text blocks joined by newlines. Empty for a result that is text only.
     blocks: tuple[ToolResultBlock, ...] = ()
+    # Pi ``AgentToolResult.terminate``: the tool asks the agent to stop after
+    # the current tool batch. The batch ends without the automatic follow-up
+    # provider turn only when every result in it asks for that.
+    terminate: bool = False
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
@@ -493,6 +497,8 @@ class ToolExecutionResult:
             )
         if not isinstance(self.is_error, bool):
             raise ValueError("ToolExecutionResult.is_error must be a bool")
+        if not isinstance(self.terminate, bool):
+            raise ValueError("ToolExecutionResult.terminate must be a bool")
         if self.provider_correlation_id is not None and (
             not isinstance(self.provider_correlation_id, str)
             or not self.provider_correlation_id
@@ -600,7 +606,9 @@ class NestedToolResult:
     itself (Pi ``AgentToolCallOutcome.toolCall`` and ``durationMs``):
     ``tool_call_id`` is ``<calling id>/<n>``, ``arguments`` the arguments
     the call was made with, and ``duration_ms`` how long the call took, or
-    ``None`` when it was refused before it started.
+    ``None`` when it was refused before it started. ``terminate`` is the
+    result's early-termination hint (Pi ``result.terminate``); it has no
+    effect on the calling tool.
     """
 
     content: str
@@ -611,6 +619,7 @@ class NestedToolResult:
     tool_call_id: str = ""
     arguments: Mapping[str, Any] = field(default_factory=dict)
     duration_ms: float | None = None
+    terminate: bool = False
 
 
 class NestedToolCalls(Protocol):

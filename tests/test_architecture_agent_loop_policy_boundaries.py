@@ -335,7 +335,7 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
     assert ast.literal_eval(constant.value) == 200
     fields = {
         "AgentProviderRequestPolicyInput": ("baseline", "active_input"),
-        "AgentToolPolicyDecision": ("blocked_reason",),
+        "AgentToolPolicyDecision": ("blocked_reason", "terminate"),
         "AgentToolResultTransform": (
             "content",
             "structured_content",

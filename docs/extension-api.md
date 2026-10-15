@@ -774,6 +774,7 @@ session startup; `/reload` intentionally starts a fresh batch.
 @dataclass(frozen=True)
 class ToolBlock:
     reason: str
+    terminate: bool = False
 
 
 def activate(api):
@@ -836,6 +837,8 @@ implemented as Python attributes and methods. The target context should expose:
   capability, not the mutable recorder.
 - `ctx.model`: current provider/model selection and safe capability metadata.
 - `ctx.signal`: cancellation signal for active turns and tools.
+- `ctx.on_update(partial)`: a running tool's partial result (Pi `onUpdate`),
+  see [partial results](#partial-results).
 - `ctx.get_system_prompt()`: the current chained system prompt or safe
   system-prompt view for hooks that may affect it.
 - `ctx.get_context_usage()`: safe context/window usage counters when known.
@@ -873,15 +876,17 @@ Rules:
   are: pipy runs the coroutine to its end on the thread that called the
   handler (its own event loop, or a helper thread when that thread already
   runs one) and uses what it returns or raises like a synchronous handler's.
-- Tool handlers receive parsed input, a cancellation signal, and a progress
-  callback or sink for partial updates.
+- Tool handlers receive parsed input and a context with the cancellation
+  signal (`ctx.signal`) and `ctx.on_update(...)`, which publishes a partial
+  result (Pi `onUpdate`); see [partial results](#partial-results).
 - Tool results use Pi-shaped `content` plus `details`, where `content` is the
   provider-visible result and `details` is structured local state/metadata that
   can support rendering, state reconstruction, or later hooks.
 - A tool result may also carry `structured_content` and `is_error`; see
   "Extension tool metadata" below.
-- Tool handlers may signal early termination for workflows where the tool
-  result is final and no automatic follow-up model turn is needed.
+- A tool result may set `terminate=True` when it is final and no automatic
+  follow-up model turn is needed; the batch ends only when every result in
+  it asks, see [ending the batch](#ending-the-batch).
 - Raised exceptions become bounded tool errors, not uncaught session crashes.
 - Stateful tools should be able to reconstruct safe local state from prior
   result `details` or extension-owned append-only entries.
@@ -1096,6 +1101,46 @@ text blocks are left out, and images are kept whole. Anything else in
 `blocks` makes the result the error `extension tool error: invalid result
 blocks`.
 
+<a id="ending-the-batch"></a>
+**Ending the batch.** `ToolResult(..., terminate=True)` asks the agent to
+stop after the current tool batch, as Pi's `terminate` does: when every
+result of the tool calls of one model response asks for it, the run ends
+after their results without the automatic follow-up provider turn. A
+result without it, such as the error of a malformed call, an unknown tool or
+a call over the tool budget, does not end the batch. Only `True` asks (Pi
+`terminate === true`).
+A `tool_call` handler that blocks a call can return `ToolBlock(reason,
+terminate=True)` to give the blocked call's error result the hint, as Pi's
+`ToolCallEventResult.terminate` does. `tool_result` handlers keep the hint as
+the tool set it; as in Pi, `ToolResultTransform` has no field for it. A
+queued steering or follow-up message still starts its own run afterwards,
+and the result of a call another tool made (`ctx.execute_tool`, a codemode
+script) carries the hint on its outcome (`outcome.result.terminate`) but
+ends nothing. JSON and RPC `tool_execution_end` events show it as
+`result.terminate: true`; the session file does not keep it, as in Pi.
+
+<a id="partial-results"></a>
+**Partial results.** A running tool publishes a partial result with
+`ctx.on_update(ToolResult(...))` (also `ctx.onUpdate`), Pi's `onUpdate` of
+`execute`, from the handler's thread or one it started. Each one replaces
+the one before: its text (the text of its `blocks` when it has them; unlike
+Pi, its images are not passed on), bounded to 32 KiB like the final result, and `details` (a
+JSON object) become JSON and RPC `tool_execution_update` with
+`partialResult`, the `on_update` of a calling tool (`ctx.execute_tool`), and
+a line of the call's live row. A partial result that is not a `ToolResult`
+raises `TypeError`. Updates sent after the handler returned are dropped, as
+in Pi. In the context of a command or hook, and of a tool whose updates
+nothing receives, `on_update` does nothing.
+
+```python
+def index(ctx, params):
+    for done, path in enumerate(params["paths"], 1):
+        ctx.on_update(ToolResult(content=f"indexed {done}/{len(params['paths'])}",
+                                 details={"done": done}))
+        ...
+    return ToolResult(content="indexed")
+```
+
 **Call hooks.** A `tool_call` handler receives a `ToolCallEvent` with
 `tool_name`, `input`, `tool_call_id` and `parent_tool_call_id`. The handlers
 run after argument validation, as in Pi: a call whose arguments do not fit
@@ -1135,7 +1180,8 @@ leaves at its default stays as it is:
   schema therefore returns the redacted structured value as well, or scripts
   receive the redacted text.
 - `is_error` replaces the error flag and `details` (a JSON object) the
-  details.
+  details. The result's `terminate` hint stays as the tool set it (see
+  [ending the batch](#ending-the-batch)).
 
 Later handlers see what earlier ones left. A handler that returns nothing,
 raises, or returns a field of the wrong kind changes nothing. A call whose
@@ -1304,8 +1350,7 @@ Different from Pi:
 - In the outcome, `result.content` is the result's text and `result.blocks`
   its ordered text and image blocks when it has an image; Pi's
   `result.content` is always the block list. A partial result's `content`
-  is its text in the same way. A pipy tool handler reports no partial
-  results of its own.
+  is its text in the same way.
 - Pi adds the usage that nested results report to the calling tool's
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record

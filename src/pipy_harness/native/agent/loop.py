@@ -912,6 +912,14 @@ class AgentLoop:
             )
             if cycle_outcome.disposition is _IterationDisposition.STOP:
                 break
+        if (
+            cycle_outcome.disposition is _IterationDisposition.CONTINUE
+            and results
+            and all(result.terminate for result in results)
+        ):
+            # Pi ``shouldTerminateToolBatch``: the batch ends the run without
+            # the automatic follow-up turn only when every result asks.
+            cycle_outcome = _ToolCycleOutcome(_IterationDisposition.STOP)
         turn_outcome = AgentTurnOutcome.SUCCEEDED
         if cycle_outcome.cancellation is not None:
             state.cancellation = cycle_outcome.cancellation
@@ -1148,6 +1156,9 @@ class AgentLoop:
                 call,
                 f"blocked by extension: {decision.blocked_reason.value}",
             )
+            if decision.terminate:
+                # Pi: a blocked result may carry the early-termination hint.
+                result = replace(result, terminate=True)
             _validate_tool_result_for_call(result, call)
             return _SettledToolCall(result, transition)
         assert run_call is not None
@@ -1299,6 +1310,7 @@ class AgentLoop:
             session_waiter=self._tool_waiter,
             sequential=lambda: self.tool_execution == "sequential",
             queue_events=pipeline,
+            parent_update=self._tool_output_sink(turn_index, asked),
         )
         started_at = datetime.now(UTC)
         terminal_emit_attempted = False

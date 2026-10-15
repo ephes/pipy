@@ -2667,7 +2667,11 @@ frozen `AgentToolPolicyState` and pure transitions own tool-budget precedence,
 request-snapshot authorization, product-policy admission, session-wide
 malformed accounting/fatal-after-three, settled invocation accounting, and
 interruption precedence. Tool-budget exhaustion remains an ordinary error tool
-result and never becomes a terminal run or turn outcome. There is no separate
+result and never becomes a terminal run or turn outcome. A tool batch whose
+results all carry Pi's `terminate` hint (`AgentToolResultMessage.terminate`,
+from an extension tool's result or a blocking `tool_call` hook) ends the run
+after those results, without the automatic follow-up provider turn (Pi
+`shouldTerminateToolBatch`). There is no separate
 agent token-budget policy. The canonical named 200-call maximum is also the
 product session/CLI maximum, preventing the two validation layers from drifting.
 Provider status normalization preserves usage-before-

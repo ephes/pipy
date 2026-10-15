@@ -109,9 +109,15 @@ class AgentProviderRequestPolicy(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AgentToolPolicyDecision:
-    """Caller policy result for a tool that passed core authorization."""
+    """Caller policy result for a tool that passed core authorization.
+
+    ``terminate`` gives a blocked call's error result the early-termination
+    hint (Pi ``BeforeToolCallResult.terminate``); it means nothing for a
+    call that is not blocked.
+    """
 
     blocked_reason: ProductContent | None = None
+    terminate: bool = False
 
     def __post_init__(self) -> None:
         validate_agent_tool_policy_decision(self)
@@ -122,6 +128,8 @@ def validate_agent_tool_policy_decision(decision: object) -> None:
 
     if type(decision) is not AgentToolPolicyDecision:
         raise TypeError("decision must be an exact AgentToolPolicyDecision")
+    if type(decision.terminate) is not bool:
+        raise TypeError("AgentToolPolicyDecision.terminate must be a bool")
     if decision.blocked_reason is not None:
         validate_product_content(
             decision.blocked_reason,

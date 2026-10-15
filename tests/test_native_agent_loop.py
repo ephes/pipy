@@ -648,6 +648,117 @@ def test_tool_cycle_runs_sequentially_and_carries_results_to_next_request() -> N
     assert status.tool_states[0].tool_invocation_count == 1
 
 
+@pytest.mark.parametrize(
+    ("terminates", "provider_calls"),
+    [((True, True), 1), ((True, False), 2), ((False, False), 2)],
+)
+def test_a_batch_ends_the_run_only_when_every_result_terminates(
+    terminates: tuple[bool, bool], provider_calls: int
+) -> None:
+    # Pi ``shouldTerminateToolBatch``: no automatic follow-up turn when every
+    # finalized result of the batch sets ``terminate``.
+    order: list[str] = []
+    calls = (_provider_call("p1"), _provider_call("p2"))
+    tools = _Tools(
+        order,
+        [
+            ToolExecutionOutcome(
+                replace(
+                    _tool_result(AgentToolCall(cid, "fixture", ProductContent("{}"))),
+                    terminate=flag,
+                )
+            )
+            for cid, flag in zip(("p1", "p2"), terminates, strict=True)
+        ],
+    )
+    loop, provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(result=_provider_result("calling", calls=calls)),
+            ProviderTurnOutcome(result=_provider_result("finished")),
+        ],
+        tools=tools,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert provider.calls == provider_calls
+    assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
+    results = [
+        m for m in outcome.final_history if isinstance(m, AgentToolResultMessage)
+    ]
+    assert [r.terminate for r in results] == list(terminates)
+    assert _event_names(events.events)[-2:] == ["AgentRunCompleted", "AgentRunSettled"]
+
+
+class _TerminatingPolicy(_ToolPolicy):
+    """Blocks ``p1`` with Pi's ``terminate``; rewrites every result's text."""
+
+    def before_execute(
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+        /,
+    ) -> AgentToolPolicyDecision:
+        super().before_execute(call, arguments, parent_call_id)
+        if call.provider_correlation_id == "p1":
+            return AgentToolPolicyDecision(ProductContent("stop"), terminate=True)
+        return AgentToolPolicyDecision()
+
+    def transform_result(
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
+        /,
+    ) -> ProductContent:
+        super().transform_result(call, result, arguments, parent_call_id)
+        return ProductContent(result.content.value + " (seen)")
+
+
+def test_a_blocked_call_terminates_and_result_hooks_keep_the_hint() -> None:
+    # Pi: a ``beforeToolCall`` block may set ``terminate``; an
+    # ``afterToolCall`` result without ``terminate`` keeps the tool's.
+    order: list[str] = []
+    calls = (_provider_call("p1"), _provider_call("p2"))
+    tools = _Tools(
+        order,
+        [
+            ToolExecutionOutcome(
+                replace(
+                    _tool_result(AgentToolCall("p2", "fixture", ProductContent("{}"))),
+                    terminate=True,
+                )
+            )
+        ],
+    )
+    loop, provider, events, _usage = _make_loop(
+        order,
+        [
+            ProviderTurnOutcome(result=_provider_result("calling", calls=calls)),
+            ProviderTurnOutcome(result=_provider_result("finished")),
+        ],
+        tools=tools,
+        tool_policy=_TerminatingPolicy(order),
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert provider.calls == 1
+    blocked, ran = (
+        event.result for event in events.events if isinstance(event, ToolCallCompleted)
+    )
+    assert (blocked.content.value, blocked.is_error, blocked.terminate) == (
+        "blocked by extension: stop",
+        True,
+        True,
+    )
+    assert (ran.content.value, ran.terminate) == ("tool result (seen)", True)
+    assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
+
+
 def test_run_result_preserves_canonical_appends_after_prepared_history_cut() -> None:
     order: list[str] = []
     injected = AgentAssistantMessage(ProductContent("prepared context"))

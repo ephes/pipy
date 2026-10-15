@@ -605,10 +605,16 @@ class _Parent:
 def _run_parent(handler, service, waiter) -> ToolExecutionOutcome:
     executor = ToolExecutor({"parent": _Parent(handler)}, 0.2)
 
-    def execute_parent(call, /, *, wait_for_interrupt, nested_tools, arguments):
+    def execute_parent(
+        call, /, *, wait_for_interrupt, nested_tools, arguments, output_sink=None
+    ):
         return executor.execute(
             call,
-            ToolContext(workspace_root=Path.cwd(), nested_tools=nested_tools),
+            ToolContext(
+                workspace_root=Path.cwd(),
+                nested_tools=nested_tools,
+                output_sink=output_sink,
+            ),
             wait_for_interrupt,
             arguments=arguments,
         )

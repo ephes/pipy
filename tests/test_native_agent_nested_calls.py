@@ -1212,7 +1212,9 @@ def _parent_execution(handler):
     """``execute_parent`` of a ``ToolParentRunner``: ``handler(nested_tools)``
     runs on a thread of its own while the session thread waits."""
 
-    def execute_parent(call, /, *, wait_for_interrupt, nested_tools, arguments):
+    def execute_parent(
+        call, /, *, wait_for_interrupt, nested_tools, arguments, output_sink=None
+    ):
         done = threading.Event()
         text: list[str] = []
 

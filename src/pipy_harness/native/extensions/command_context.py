@@ -169,6 +169,12 @@ class ExtensionToolContext(CommandContext, Protocol):
     ``ExtensionToolContext``): the extension context plus what runs other
     tools.
 
+    ``on_update(partial)`` publishes a partial result of the running tool
+    (Pi's ``onUpdate`` of ``execute``): a ``ToolResult`` whose text and
+    ``details`` replace the previous partial result in the call's live row,
+    the JSON/RPC ``tool_execution_update`` and a calling tool's
+    ``on_update``. It does nothing where no tool runs.
+
     ``tools`` lists the tools ``execute_tool`` can call: the active
     ``direct`` tools and every registered ``codemode`` or ``deferred`` tool,
     as they were when this tool was called. ``execute_tool(name, arguments)``
@@ -193,6 +199,10 @@ class ExtensionToolContext(CommandContext, Protocol):
 
     @property
     def signal(self) -> "threading.Event | None": ...
+
+    def on_update(self, partial: ToolResult) -> None: ...
+
+    def onUpdate(self, partial: ToolResult) -> None: ...  # noqa: N802 - Pi-shaped alias
 
     def execute_tool(
         self,
@@ -290,6 +300,16 @@ class _CommandContext:
         """The running tool's cancellation signal (Pi ``signal``), or None."""
         return self._model_runtime.tool_signal
 
+    def on_update(self, partial: ToolResult) -> None:
+        """Publish a partial result of the running tool (Pi ``onUpdate``);
+        nothing happens where no tool runs or nothing receives it."""
+        update = self._model_runtime.tool_update
+        if update is not None:
+            update(partial)
+
+    def onUpdate(self, partial: ToolResult) -> None:  # noqa: N802 - Pi-shaped alias
+        self.on_update(partial)
+
     def execute_tool(
         self,
         name: str,
@@ -317,6 +337,7 @@ class _CommandContext:
                 structured_content=result.structured_content,
                 is_error=result.is_error,
                 blocks=result.blocks,
+                terminate=result.terminate,
             ),
             is_error=result.is_error,
             duration_ms=result.duration_ms,

@@ -308,6 +308,11 @@ class AgentToolResultMessage:
     # JSON value null; NO_STRUCTURED_CONTENT means the tool gave none.
     structured_content: Any = field(default=NO_STRUCTURED_CONTENT, compare=False)
     blocks: tuple[ToolResultBlock, ...] = ()
+    # Pi ``AgentToolResult.terminate``: the result asks the agent to stop
+    # after the current tool batch, which it does when every result of the
+    # batch asks. Like ``structured_content`` it stays on the tool result:
+    # never sent to a provider, never written to the session file.
+    terminate: bool = field(default=False, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
@@ -325,6 +330,7 @@ class AgentToolResultMessage:
                 f"{self.CONTENT_MAX_LENGTH} characters"
             )
         require_bool(self.is_error, "AgentToolResultMessage.is_error")
+        require_bool(self.terminate, "AgentToolResultMessage.terminate")
         require_non_empty_string(
             self.provider_correlation_id,
             "AgentToolResultMessage.provider_correlation_id",

@@ -704,7 +704,10 @@ class SessionCollaborators:
         )
         if tool_block is None:
             return AgentToolPolicyDecision()
-        return AgentToolPolicyDecision(ProductContent(tool_block.reason))
+        return AgentToolPolicyDecision(
+            ProductContent(tool_block.reason),
+            terminate=tool_block.terminate is True,
+        )
 
     def transform_extension_tool_result(
         self,

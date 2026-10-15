@@ -8,6 +8,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An extension tool's `ToolResult(terminate=True)` works as in Pi: when
+  every result of the tool calls of one model response asks for it, the run
+  ends after those results without the automatic follow-up provider turn. A
+  `tool_call` hook that blocks a call can ask the same with
+  `ToolBlock(reason, terminate=True)`, and JSON and RPC `tool_execution_end`
+  show `result.terminate: true`. Before, the documented field did not exist.
+  See [ending the batch](docs/extension-api.md#ending-the-batch).
+- An extension tool can publish partial results while it runs with
+  `ctx.on_update(ToolResult(...))`, Pi's `onUpdate`: each one replaces the
+  one before in JSON and RPC `tool_execution_update`, in a calling tool's
+  `on_update` and in the call's live row, published on the session thread
+  also when the handler's own thread sends it. Before, the docs promised a
+  progress callback that handlers did not get. See
+  [partial results](docs/extension-api.md#partial-results).
 - A nested call that waits for its turn behind a `sequential` tool's call
   starts at once, as in Pi: its start event (JSON and RPC
   `tool_execution_start` with `parentToolCallId`) and its live row come when
