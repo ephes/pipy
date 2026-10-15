@@ -12,6 +12,7 @@ from pipy_harness.native.extension_types import RegisteredTool
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.extensions.live_tools import (
     LiveToolRegistry,
+    LiveToolRendererResolvers,
     LiveToolRenderers,
 )
 from pipy_harness.native.tool_capabilities import (
@@ -45,13 +46,16 @@ def _registered(
 
 def test_the_registry_keeps_owners_and_the_latest_registration() -> None:
     changes: list[int] = []
-    registry = LiveToolRegistry([_registered("a"), _registered("b", "other")])
+    registry = LiveToolRegistry(
+        [_registered("a"), _registered("b", "other")],
+        renderer_groups=[("other", ()), ("mine", ())],
+    )
     registry.set_change_listener(lambda: changes.append(1))
 
     registry.register(_registered("a", exposure="hidden"))
     registry.register(_registered("c"))
-    with pytest.raises(ExtensionCapabilityError, match='"b" is already registered'):
-        registry.register(_registered("b"))
+    # `other` loaded first: its name stays its own, silently.
+    registry.register(_registered("b"))
 
     assert changes == [1, 1]
     assert [(r.tool.name, r.tool.exposure) for r in registry.tools()] == [
@@ -172,3 +176,52 @@ def test_renderers_are_read_once_per_name() -> None:
 
     assert list(chosen) == ["a"]
     assert view.readings == 2
+
+
+def test_an_earlier_loaded_extension_takes_a_tool_name_over() -> None:
+    # Pi `getAllRegisteredTools` walks the extensions in load order, so the
+    # earlier one's registration wins whenever it comes.
+    registry = LiveToolRegistry(
+        [_registered("shared", "later")],
+        renderer_groups=[("earlier", ()), ("later", ())],
+    )
+
+    registry.register(_registered("shared", "earlier", exposure="hidden"))
+    registry.register(_registered("shared", "later"))
+    registry.register(_registered("new", "unknown"))
+    registry.register(_registered("new", "later"))
+
+    assert [(r.tool.name, r.extension, r.tool.exposure) for r in registry.tools()] == [
+        ("shared", "earlier", "hidden"),
+        ("new", "later", "direct"),
+    ]
+
+
+def test_resolvers_registered_late_join_their_extension_in_load_order() -> None:
+    def resolver(label: str):  # type: ignore[no-untyped-def]
+        def resolve(name, next):  # type: ignore[no-untyped-def]
+            return label
+
+        resolve.label = label  # type: ignore[attr-defined]
+        return resolve
+
+    first, second = resolver("first"), resolver("second")
+    registry = LiveToolRegistry(
+        renderer_groups=[("one", (first,)), ("two", (second,)), ("three", ())]
+    )
+    view = LiveToolRendererResolvers(registry)
+
+    registry.register_tool_renderer("three", resolver("three"))
+    registry.register_tool_renderer("one", resolver("one-late"))
+    registry.register_tool_renderer("unknown", resolver("unknown"))
+
+    assert [r.label for r in view] == [  # type: ignore[attr-defined]
+        "first",
+        "one-late",
+        "second",
+        "three",
+        "unknown",
+    ]
+    registry.close()
+    with pytest.raises(ExtensionCapabilityError):
+        registry.register_tool_renderer("one", first)

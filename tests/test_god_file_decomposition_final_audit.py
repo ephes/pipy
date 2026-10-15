@@ -2939,7 +2939,7 @@ def test_final_measured_shape_and_complexity_pin_are_exact() -> None:
     # D2a reviewed one-time measured reset; keep the same downward-only bound
     # as _SIZE_RATCHET in test_architecture_quality_gates.py (architecture.md).
     assert relative_counts["src/pipy_harness/native/coding/session.py"] <= 399
-    assert relative_counts["src/pipy_harness/native/extensions/activation.py"] == 1985
+    assert relative_counts["src/pipy_harness/native/extensions/activation.py"] == 2007
     assert max(relative_counts.values()) == 2452
     assert sorted(path for path, count in relative_counts.items() if count == 2452) == [
         "src/pipy_harness/native/session.py"

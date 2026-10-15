@@ -293,6 +293,11 @@ class _ExtensionRuntime:
     message_routing: _message_routing.GenerationMessageRouting
     # Tool renderer resolvers, in extension load order.
     tool_renderers: tuple[ToolRendererResolver, ...] = ()
+    # Every activated extension's name in load order, with the resolvers it
+    # registered while loading (``tool_renderers`` grouped): the order a
+    # resolver or tool registered while the session runs takes its place in.
+    # Empty: ``tool_renderers`` belong to one extension that loaded first.
+    tool_renderer_groups: tuple[tuple[str, tuple[ToolRendererResolver, ...]], ...] = ()
     # The MCP servers the extensions registered: those of the activation
     # hosts, which register in it for as long as the generation is live.
     mcp_servers: McpServerRegistry = field(default_factory=McpServerRegistry)

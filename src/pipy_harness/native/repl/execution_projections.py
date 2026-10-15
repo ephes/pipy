@@ -59,7 +59,7 @@ class ExecutionProjectionSnapshot:
     generation_id: int
     tools: NativeToolCapabilitySnapshot
     renderers: Mapping[str, ExtensionTool]
-    tool_renderer_resolvers: tuple[ToolRendererResolver, ...]
+    tool_renderer_resolvers: Sequence[ToolRendererResolver]
     tool_call_hooks: tuple[HookHandler, ...]
     flags: Mapping[str, object]
     ui_driver: ExtensionUiDriver | None

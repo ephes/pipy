@@ -612,22 +612,36 @@ def test_registering_a_name_again_replaces_the_earlier_tool(tmp_path: Path) -> N
     ]
 
 
-def test_another_extensions_tool_name_is_still_a_duplicate(tmp_path: Path) -> None:
-    body = (
-        "def activate(api):\n"
-        "    api.register_tool(ExtensionTool(\n"
-        "        name='shared', description='shared',\n"
-        "        input_schema={'type': 'object'},\n"
-        "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
-        "        exposure='hidden'))\n"
+def test_another_extensions_tool_name_keeps_the_first_registration(
+    tmp_path: Path,
+) -> None:
+    # Pi `getAllRegisteredTools`: the first registration of a name wins and
+    # the later extension stays enabled with its other tools.
+    def body(description: str) -> str:
+        return (
+            "def activate(api):\n"
+            "    api.register_tool(ExtensionTool(\n"
+            f"        name='shared', description='{description}',\n"
+            "        input_schema={'type': 'object'},\n"
+            "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+            "        exposure='hidden'))\n"
+            "    api.register_tool(ExtensionTool(\n"
+            f"        name='own_{description}', description='own',\n"
+            "        input_schema={'type': 'object'},\n"
+            "        handler=lambda ctx, params: ToolResult(content='ok')))\n"
+        )
+
+    _write(tmp_path, "aaa", body("aaa"))
+    _write(tmp_path, "bbb", body("bbb"))
+
+    activated = {a.name: a for a in _activate(tmp_path)}
+
+    assert (activated["aaa"].status, activated["bbb"].status) == (
+        "activated",
+        "activated",
     )
-    _write(tmp_path, "aaa", body)
-    _write(tmp_path, "bbb", body)
-
-    statuses = {a.name: (a.status, a.reason) for a in _activate(tmp_path)}
-
-    assert statuses["aaa"] == ("activated", None)
-    assert statuses["bbb"] == ("disabled", "duplicate_tool")
+    assert [t.tool.description for t in activated["aaa"].tools] == ["aaa", "own"]
+    assert [t.tool.name for t in activated["bbb"].tools] == ["own_bbb"]
 
 
 def test_hidden_re_registration_withdraws_the_tool(tmp_path, monkeypatch) -> None:
@@ -777,14 +791,15 @@ def test_a_tool_registered_while_the_session_runs_takes_effect_at_once(
     )
     fresh = _tool_results(after_fresh)[-1]
     assert (fresh.is_error, fresh.content.value) == (False, "fresh ran")
-    # Another extension's name and a reserved name are refused and change
-    # nothing.
+    # A reserved name is refused. Another extension's name is not: `live`
+    # loaded before `other`, so its registration takes the name over, as
+    # Pi's first-registration-wins lookup does.
     refused = (tmp_path / ".pipy" / "extensions" / "live.out").read_text()
-    assert 'tool "theirs" is already registered by extension' in refused
-    assert "ExtensionCapabilityError: tool registration refused (reserved_tool)" in (
-        refused
-    )
-    assert "theirs" in _tool_names(third)
+    assert refused.splitlines() == [
+        "ExtensionCapabilityError: tool registration refused (reserved_tool)"
+    ]
+    theirs = next(t for t in third.available_tools if t.name == "theirs")
+    assert theirs.description == "look up"
 
 
 def test_an_api_of_replaced_extensions_registers_no_tools(

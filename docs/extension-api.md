@@ -843,9 +843,13 @@ Rules:
 - The names of the seven built-in file and shell tools are reserved. An
   extension tool named `codemode` or `tool_search` replaces the built-in
   tool of that name, see [Replacing built-in tools](#replacing-built-in-tools).
-- A tool name another extension registered is a duplicate and disables the
-  second extension. An extension that registers one of its own tool names
-  again replaces its earlier registration, as in Pi.
+- Of two extensions that register the same tool name, the one that loaded
+  first has it, as in Pi: the other extension's tool of that name is left out
+  silently, and that extension stays enabled with its other tools, commands
+  and hooks. This also holds for registrations while the session runs: a
+  later-loaded extension cannot take the name, an earlier-loaded one takes it
+  over. An extension that registers one of its own tool names again replaces
+  its earlier registration, as in Pi.
 - An extension tool's input schema is any JSON Schema object with
   `type: "object"`, as Pi's TypeBox `parameters` are: `number`, `null`,
   unions and `$ref` work. pipy holds it to `schema_mode="foreign"`, as an
@@ -1160,12 +1164,14 @@ the session runs the extension, for example from a command: the tool is
 published at once, and the next request no longer declares a withdrawn tool;
 the transcript tells the model that it was removed. Such a registration may
 add a new tool or register one of the extension's own tools again; it raises
-`ExtensionCapabilityError` and changes nothing for an invalid tool, a reserved
-name and a name another extension registered, and once `/reload` replaced the
-extensions or the session ended (an `api` kept from before). A tool registered
+`ExtensionCapabilityError` and changes nothing for an invalid tool and a
+reserved name, and once `/reload` replaced the extensions or the session ended
+(an `api` kept from before). A name another extension has goes to the one of
+the two that loaded first (see [Tools](#tools)). A tool registered
 in a `session_start` handler is kept across `/reload` that way too. A tool that becomes `direct` or
-`model-only` is activated like a new one. The other `register_*` methods stay
-closed after `activate(api)`.
+`model-only` is activated like a new one. `api.register_tool_renderer` also
+works while the session runs (see [Tool rendering](#tool-rendering)); the
+other `register_*` methods stay closed after `activate(api)`.
 
 ### Running other tools
 
@@ -1478,6 +1484,13 @@ def activate(api):
   had returned `next()`. Passing something that is not callable to
   `register_tool_renderer` disables the extension with
   `invalid_tool_renderer`.
+- As in Pi, `register_tool_renderer` also works while the session runs the
+  extension: from a `session_start` handler, a command, a hook or a tool. The
+  resolver joins the extension's others in their order (an extension that
+  loaded earlier still comes first) and is asked for every row drawn from
+  then on; rows already drawn keep what they chose. Something that is not
+  callable then raises `ExtensionCapabilityError`, as does a registration
+  once `/reload` replaced the extensions or the session ended.
 
 Different from Pi:
 

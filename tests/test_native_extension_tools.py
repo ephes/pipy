@@ -122,7 +122,9 @@ def test_reserved_tool_name_disables_extension(tmp_path: Path) -> None:
     assert activated.status == "disabled"
 
 
-def test_duplicate_tool_name_disables_second(tmp_path: Path) -> None:
+def test_duplicate_tool_name_keeps_the_first_and_both_extensions(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     _write(workspace, "aaa", _ECHO_TOOL)
     _write(workspace, "bbb", _ECHO_TOOL)
@@ -131,9 +133,8 @@ def test_duplicate_tool_name_disables_second(tmp_path: Path) -> None:
     aaa = next(a for a in activated if a.name == "aaa")
     bbb = next(a for a in activated if a.name == "bbb")
 
-    assert aaa.status == "activated"
-    assert bbb.status == "disabled"
-    assert [t.tool.name for t in extension_tools(activated)] == ["echo_tool"]
+    assert (aaa.status, bbb.status) == ("activated", "activated")
+    assert [t.extension for t in extension_tools(activated)] == ["aaa"]
 
 
 # -- product path: the model calls an extension tool ----------------------

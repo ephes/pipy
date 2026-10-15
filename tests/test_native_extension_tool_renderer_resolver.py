@@ -534,6 +534,47 @@ def test_a_session_draws_calls_with_a_registered_resolver(
     assert "ls ." in lines
 
 
+_LATE_RESOLVER = """from pipy_harness.extensions import ToolRenderers, lines_component
+
+
+def activate(api):
+    mine = ToolRenderers(
+        render_call=lambda ctx: lines_component(['LATE CALL ' + ctx.tool_name]),
+        render_result=lambda ctx: lines_component(['LATE RESULT ' + ctx.content]))
+
+    def resolve(name, following):
+        return following() or (mine if name.startswith('ghost') else None)
+
+    @api.on('session_start')
+    def register(event, ctx):
+        # Pi allows `registerToolRenderer` after loading.
+        api.register_tool_renderer(resolve)
+"""
+
+
+def test_a_resolver_registered_from_session_start_draws_later_calls(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Goal check r2, S27: registering a resolver while the session runs the
+    # extension neither raises nor disables it, and the resolver is asked.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    workspace = tmp_path / "work"
+    _extension(workspace, "late", _LATE_RESOLVER)
+    provider = _Provider(
+        [
+            _result(tool_calls=(ProviderToolCall("c1", "ghost_tool", "{}"),)),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    lines = [line.strip() for line in errors.splitlines()]
+    assert "LATE CALL ghost_tool" in lines
+    assert "LATE RESULT unknown tool: ghost_tool" in lines
+
+
 # -- wrapping what `next()` gives (goal-check findings E6, M23) ---------------
 
 

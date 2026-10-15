@@ -17,7 +17,7 @@ pipy's own rows of the call through the context's row.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -79,12 +79,14 @@ class ToolRendererLookup:
 
     ``tools`` are the extension tools that have a renderer, by name;
     ``mcp_labels`` the titles of the registered MCP server tools, by name;
-    ``resolvers`` what extensions registered, in load order.
+    ``resolvers`` what extensions registered, in load order; it may be a
+    view that changes while the session runs (an extension registers a
+    resolver), and each ``resolve`` reads it once.
     """
 
     tools: Mapping[str, ExtensionTool] = field(default_factory=dict)
     mcp_labels: Mapping[str, str] = field(default_factory=dict)
-    resolvers: tuple[ToolRendererResolver, ...] = ()
+    resolvers: Sequence[ToolRendererResolver] = ()
 
     def resolve(self, name: str, *, builtin: bool = False) -> object | None:
         """What draws a call to ``name``; None for pipy's generic row.
@@ -97,20 +99,26 @@ class ToolRendererLookup:
         ``next()``, as in Pi.
         """
 
-        return self._resolve(name, 0, builtin)
+        return self._resolve(tuple(self.resolvers), name, 0, builtin)
 
-    def _resolve(self, name: str, index: int, builtin: bool) -> object | None:
-        if index >= len(self.resolvers):
+    def _resolve(
+        self,
+        resolvers: tuple[ToolRendererResolver, ...],
+        name: str,
+        index: int,
+        builtin: bool,
+    ) -> object | None:
+        if index >= len(resolvers):
             return self._own(name, builtin)
         rest: list[object | None] = []
 
         def next_renderers() -> object | None:
             if not rest:
-                rest.append(self._resolve(name, index + 1, builtin))
+                rest.append(self._resolve(resolvers, name, index + 1, builtin))
             return rest[0]
 
         try:
-            chosen = self.resolvers[index](name, next_renderers)
+            chosen = resolvers[index](name, next_renderers)
             # Reading the attributes of what an extension returned can raise.
             valid = chosen is None or is_tool_renderers(chosen)
         except (KeyboardInterrupt, SystemExit):

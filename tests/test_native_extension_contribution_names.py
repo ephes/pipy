@@ -20,7 +20,6 @@ from pipy_harness.native.extension_types import (
     REASON_DUPLICATE_MESSAGE_RENDERER,
     REASON_DUPLICATE_PROVIDER,
     REASON_DUPLICATE_SHORTCUT,
-    REASON_DUPLICATE_TOOL,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_TOOL,
 )
@@ -103,7 +102,6 @@ def test_reserved_names_collide_before_taken_names() -> None:
     ("category", "expected_reason"),
     [
         ("commands", REASON_DUPLICATE_COMMAND),
-        ("tools", REASON_DUPLICATE_TOOL),
         ("providers", REASON_DUPLICATE_PROVIDER),
         ("shortcuts", REASON_DUPLICATE_SHORTCUT),
         ("flags", REASON_DUPLICATE_FLAG),
@@ -122,6 +120,19 @@ def test_each_category_reports_its_own_duplicate_reason(
     )
 
     assert reason == expected_reason
+
+
+def test_a_tool_name_an_earlier_extension_has_is_no_collision() -> None:
+    # Pi `getAllRegisteredTools`: the first registration wins and the later
+    # extension stays enabled; the activation band leaves its tool out.
+    reason = _preloaded_collision_reason(
+        _names(tools=("name",)),
+        reserved=frozenset(),
+        reserved_tools=frozenset(),
+        taken=_TakenContributionState(tools=frozenset({"name"})),
+    )
+
+    assert reason is None
 
 
 def test_non_colliding_names_report_no_reason() -> None:
