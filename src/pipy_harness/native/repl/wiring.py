@@ -1947,6 +1947,7 @@ def _compose_collaborators(
             rebuild_replaced_session,
             product_session.rebuild_active_history,
             provider_mutation.sync_session_settings,
+            lambda: ctl.generation_ref.current.reset_live_registrations(),
             extension.mcp.replace_session,
         ),
         clear_extension_inputs=coding_input_queue.clear_extension_inputs,

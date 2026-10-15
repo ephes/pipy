@@ -380,3 +380,33 @@ def test_one_name_registered_by_two_extensions_at_once_has_one_owner() -> None:
         owners = [outcome for outcome in outcomes if outcome != "refused"]
         assert len(owners) == 1 and len(outcomes) == 2
         assert [server.extension_path for server in registry.list()] == owners
+
+
+def test_another_session_goes_back_to_what_the_extensions_loaded() -> None:
+    # INT4: Pi's new runtime (`/new`, `/resume`, `/fork`) loads the
+    # extensions again with a new registry; pipy keeps them loaded and
+    # resets the registry to what they registered while loading.
+    registry = McpServerRegistry()
+    registry.load([_server("loaded"), _server("other", _B)])
+    changes: list[None] = []
+    registry.set_change_listener(lambda: changes.append(None))
+    registry.register(_server("loaded", url="http://y.invalid"))
+    registry.register(_server("late"))
+    registry.unregister("other", _B)
+
+    registry.reset()
+
+    assert [(server.name, server.config) for server in registry.list()] == [
+        ("loaded", {"url": "http://x.invalid"}),
+        ("other", {"url": "http://x.invalid"}),
+    ]
+    # The changes of the old session are not for the new one, and the reset
+    # is not a change: the session starts its servers from the registry.
+    assert registry.take_changes() == ()
+    assert len(changes) == 3
+    # A handler of the new session registers its server again.
+    registry.register(_server("late"))
+    assert [server.name for server in registry.list()] == ["loaded", "other", "late"]
+    registry.close()
+    registry.reset()
+    assert [server.name for server in registry.list()] == ["loaded", "other", "late"]

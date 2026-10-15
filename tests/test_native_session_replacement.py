@@ -22,6 +22,8 @@ from test_native_extension_tool_metadata import (
     _write,
 )
 from test_native_mcp_reload import _Steps
+from test_native_mcp_session import _extension, _Provider
+from test_native_mcp_session import _run as _run_with_errors
 from test_native_mcp_session_switch import _switch
 
 from pipy_harness.models import HarnessStatus
@@ -29,6 +31,7 @@ from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
 )
+from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
 
 _RECORDER = (
@@ -204,3 +207,118 @@ def test_what_session_shutdown_sends_stays_with_the_old_session(
     (second,) = [path for path in first.parent.glob("*.jsonl") if path != first]
     assert "farewell" not in second.read_text()
     assert "echo" not in second.read_text()
+
+
+# -- what the extensions registered in the old session (INT4) -----------------
+
+_SESSION_RESOLVER = """from pipy_harness.extensions import ToolRenderers, lines_component
+
+
+def activate(api):
+    def resolve(name, following):
+        inner = following()
+        if name != 'ghost_tool':
+            return inner
+
+        def call(ctx):
+            lines = []
+            if inner is not None and inner.render_call is not None:
+                lines = list(inner.render_call(ctx).render(ctx.width))
+            return lines_component(['LATE ' + ctx.tool_name, *lines])
+
+        return ToolRenderers(render_call=call)
+
+    @api.on('session_start')
+    def register(event, ctx):
+        api.register_tool_renderer(resolve)
+"""
+
+
+def _ghost_call(call_id: str):  # type: ignore[no-untyped-def]
+    return _result(tool_calls=(ProviderToolCall(call_id, "ghost_tool", "{}"),))
+
+
+def test_a_resolver_from_session_start_is_asked_once_in_the_next_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Pi's new runtime loads the extensions again, so the resolver that
+    # `session_start` registers is there once in every session. pipy keeps
+    # them loaded and forgets what was registered after loading.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    workspace = tmp_path / "work"
+    _extension(workspace, "late", _SESSION_RESOLVER)
+    provider = _Provider(
+        [
+            _ghost_call("c1"),
+            _result(final_text="one"),
+            _ghost_call("c2"),
+            _result(final_text="two"),
+            _ghost_call("c3"),
+            _result(final_text="three"),
+        ]
+    )
+
+    status, errors = _run_with_errors(
+        workspace, provider, "go\n/new\nagain\n/new\nonce more\n"
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    sessions = errors.split("started a new native session")
+    assert len(sessions) == 3, errors
+    for output in sessions:
+        lines = [line.strip() for line in output.splitlines()]
+        assert lines.count("LATE ghost_tool") == 1, output
+
+
+@pytest.mark.parametrize("command", ["/new", "/resume", "/fork", "/clone", "/import"])
+def test_a_tool_and_a_server_registered_in_the_old_session_are_gone(
+    tmp_path: Path, monkeypatch, command: str
+) -> None:
+    # A command of the old session registered a tool and an MCP server; the
+    # new session has what the extensions registered while loading and
+    # what its own `session_start` handlers register.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    workspace = (tmp_path / "work").resolve()
+    workspace.mkdir()
+    sessions = tmp_path / "sessions"
+    tree = NativeSessionTree.create(workspace, session_dir=sessions)
+    _extension(
+        workspace,
+        "late",
+        "import json\n"
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+        "PROOF = Path(__file__).with_name('servers.jsonl')\n"
+        "def tool(name):\n"
+        "    return ExtensionTool(\n"
+        "        name=name, description=name, input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(content='ok'))\n"
+        "def activate(api):\n"
+        "    api.register_tool(tool('loaded'))\n"
+        "    api.register_mcp_server('early', {'command': 'true'})\n"
+        "    def start(event, ctx):\n"
+        "        with PROOF.open('a') as fh:\n"
+        "            names = [server.name for server in api.get_mcp_servers()]\n"
+        "            fh.write(json.dumps(names) + '\\n')\n"
+        "        api.register_tool(tool('each'))\n"
+        "    api.on('session_start', start)\n"
+        "    def add(ctx, args):\n"
+        "        api.register_tool(tool('added'))\n"
+        "        api.register_mcp_server('added', {'command': 'true'})\n"
+        "        api.unregister_mcp_server('early')\n"
+        "    api.register_command('add', 'register more', add)\n",
+    )
+    provider = _StubProvider([_result(final_text="one"), _result(final_text="two")])
+
+    steps = _Steps("/add", "one", _switch(command, workspace, sessions), "two")
+
+    assert _run(workspace, provider, steps, tree) is HarnessStatus.SUCCEEDED
+    old, new = (set(_tool_names(request)) for request in provider.requests)
+    assert {"loaded", "each", "added"} <= old
+    assert {"loaded", "each"} <= new
+    assert "added" not in new
+    proof = workspace / ".pipy" / "extensions" / "servers.jsonl"
+    assert [json.loads(line) for line in proof.read_text().splitlines()] == [
+        ["early"],
+        ["early"],
+    ]

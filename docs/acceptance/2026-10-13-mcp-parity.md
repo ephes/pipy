@@ -33,7 +33,13 @@ change the rows they fix when they land.
 Updated in INT4 (2026-10-15), when R2 (extension tool registration) and R5
 (structured tool results in JSON/RPC events) were merged: EXT-01, EXT-02,
 EXT-04, EXT-11, EXT-15, TLS-10 and CMD-24 name their new tests and changed
-limits, and the new proposal DEV-79 sets EXT-01 to `closed, with limits`.
+limits, and the new DEV-79 sets EXT-01 to `closed, with limits`.
+
+Updated in R7 (2026-10-15): another session in the same run no longer
+keeps the tools, tool renderer resolvers and MCP servers the extensions
+registered after loading, so EXT-15 loses the resolver added again in each
+new session, and the coordinator accepted DEV-79 and the `duration_ms` part
+of DEV-48 under the triage decision (plan section 7, Q11).
 
 ## Reference
 
@@ -120,9 +126,10 @@ is `closed, with limits`. The ones a user is most likely to meet:
   protocol, on Kitty another type than PNG only with that extra (DEV-19; TLS-11).
 
 The owner accepted the DEV rows that plan section 7, Q11, names
-(2026-10-15), among them DEV-69 to DEV-78. The others of DEV-15 to DEV-68,
-except the closed DEV-39, DEV-42 and DEV-65, and DEV-79 (INT4) are still proposals for the final
-judgement. DEV-06, DEV-07 and DEV-09 are owner decisions since 2026-10-14
+(2026-10-15), among them DEV-69 to DEV-79; DEV-79 and the `duration_ms`
+part of DEV-48 were added the same day under the same triage decision. The
+others of DEV-15 to DEV-68, except the closed DEV-39, DEV-42 and DEV-65, are
+still proposals for the final judgement. DEV-06, DEV-07 and DEV-09 are owner decisions since 2026-10-14
 (plan section 7, Q1 and Q7).
 
 ## Conformance suite
@@ -569,7 +576,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | EXT-12 | S37 | closed, with limits | `test_native_extension_tool_loadout.py`: `test_a_tool_presents_the_loadout_while_it_is_declared`, `test_the_changes_of_several_tools_merge_in_declared_order`, `test_a_failing_loadout_function_is_reported_once_and_changes_nothing`, `test_the_loadout_runs_once_per_capability_value`, `test_a_replaced_value_keeps_its_own_loadout_per_snapshot` (G9); `test_native_extension_tool_prompts.py`: `test_the_loadout_reports_exposure_namespace_and_guidelines` (G9) | The function is not called again before each request with unchanged tools. DEV-49. |
 | EXT-13 | S37 | closed, with limits | `test_native_extension_mcp_replacement.py`: `test_another_extensions_tool_is_activated_when_it_reaches_other_tools`, `test_another_extensions_tool_named_codemode_is_not_activated`, `test_a_replacement_waits_for_servers_only_when_it_declares_a_reach`; `test_native_tool_capabilities.py`: `test_extension_replacement_of_a_builtin_is_callable_by_its_exposure` | No notice when an extension replaces `codemode` or `tool_search`. DEV-50. |
 | EXT-14 | S37 | closed, with limits | `test_native_extension_mcp_replacement.py`: `test_an_extension_with_the_mcp_command_replaces_builtin_mcp`, `test_a_reload_turns_builtin_mcp_off_and_on_with_the_extension`; `test_native_mcp_session_command.py`: `test_an_extension_command_named_mcp_takes_the_place_of_the_builtin` | Only an extension command replaces MCP, not a tool or flag name of Pi's MCP extension. DEV-50. |
-| EXT-15 | S35, R2 | closed, with limits | `test_native_extension_tool_renderer_resolver.py`: `test_resolvers_run_in_order_and_each_can_defer_to_the_next`, `test_a_resolver_draws_the_calls_of_a_tool_that_is_not_registered`, `test_a_session_draws_calls_with_a_registered_resolver`; `test_native_tool_render_context.py`: `test_a_live_row_tells_the_renderer_about_the_call`, `test_invalidate_draws_the_row_again` (G9); `test_native_extension_tool_renderer_resolver.py`: `test_a_resolver_wraps_a_built_in_tools_rows`, `test_a_resolver_wraps_an_mcp_tools_rows` (G9); `test_native_extension_tool_renderer_resolver.py`: `test_a_resolver_registered_from_session_start_draws_later_calls`; `test_native_extension_live_tools.py`: `test_resolvers_registered_late_join_their_extension_in_load_order` (R2) | A wrapped `edit` row has no live preview, a wrapped `bash` row no ticking time; `renderShell` is not ported; a resolver registered from `session_start` is added again in each new session of the run. DEV-45. |
+| EXT-15 | S35, R2 | closed, with limits | `test_native_extension_tool_renderer_resolver.py`: `test_resolvers_run_in_order_and_each_can_defer_to_the_next`, `test_a_resolver_draws_the_calls_of_a_tool_that_is_not_registered`, `test_a_session_draws_calls_with_a_registered_resolver`; `test_native_tool_render_context.py`: `test_a_live_row_tells_the_renderer_about_the_call`, `test_invalidate_draws_the_row_again` (G9); `test_native_extension_tool_renderer_resolver.py`: `test_a_resolver_wraps_a_built_in_tools_rows`, `test_a_resolver_wraps_an_mcp_tools_rows` (G9); `test_native_extension_tool_renderer_resolver.py`: `test_a_resolver_registered_from_session_start_draws_later_calls`; `test_native_extension_live_tools.py`: `test_resolvers_registered_late_join_their_extension_in_load_order` (R2); `test_native_session_replacement.py`: `test_a_resolver_from_session_start_is_asked_once_in_the_next_session`, `test_a_tool_and_a_server_registered_in_the_old_session_are_gone`; `test_native_extension_live_tools.py`: `test_another_session_keeps_only_what_the_extensions_registered_loading`; `test_native_mcp_registry.py`: `test_another_session_goes_back_to_what_the_extensions_loaded` (R7) | A wrapped `edit` row has no live preview, a wrapped `bash` row no ticking time; `renderShell` is not ported. DEV-45. |
 | EXT-16 | S20 | closed, with limits | `test_native_mcp_session_section.py`: `test_a_before_agent_start_hook_reads_and_changes_prompt_sections`, `test_a_hook_replaces_a_builtin_section_and_bad_entries_are_reported`; `test_native_extension_input_hooks.py`: `test_event_system_prompt_is_rendered_on_every_read` (G9) | Only `event.system_prompt_options.sections` exists; Pi's other option fields are not built. DEV-35. DEV-78. |
 
 ### SDK (SDK)

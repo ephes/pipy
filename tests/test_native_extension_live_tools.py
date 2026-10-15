@@ -253,3 +253,50 @@ def test_resolvers_registered_late_join_their_extension_in_load_order() -> None:
     registry.close()
     with pytest.raises(ExtensionCapabilityError):
         registry.register_tool_renderer("one", first)
+
+
+def test_another_session_keeps_only_what_the_extensions_registered_loading() -> None:
+    # INT4: the extensions stay loaded across `/new`, `/resume` and `/fork`,
+    # where Pi's new runtime loads them again. The reset forgets what was
+    # registered after loading, so a `session_start` handler that registers
+    # a resolver again leaves one, not one per session.
+    def resolver(label: str):  # type: ignore[no-untyped-def]
+        def resolve(name, next):  # type: ignore[no-untyped-def]
+            return label
+
+        resolve.label = label  # type: ignore[attr-defined]
+        return resolve
+
+    changes: list[int] = []
+    loaded = resolver("loaded")
+    registry = LiveToolRegistry(
+        [_registered("shared", "later")],
+        renderer_groups=[("earlier", (loaded,)), ("later", ())],
+    )
+    registry.set_change_listener(lambda: changes.append(1))
+    view = LiveToolRendererResolvers(registry)
+    registry.register_tool_renderer("later", resolver("session"))
+    registry.register(_registered("shared", "earlier", exposure="hidden"))
+    registry.register(_registered("late"))
+    assert len(changes) == 2
+
+    registry.reset()
+
+    assert len(changes) == 3
+    assert [r.label for r in view] == ["loaded"]  # type: ignore[attr-defined]
+    assert registry.registrations() == ()
+    assert [(r.tool.name, r.extension) for r in registry.tools()] == [
+        ("shared", "later")
+    ]
+    # The new session's handler registers its resolver once more.
+    registry.register_tool_renderer("later", resolver("session"))
+    assert [r.label for r in view] == ["loaded", "session"]  # type: ignore[attr-defined]
+    # Without a tool registered after loading nothing is published again.
+    registry.reset()
+    assert len(changes) == 3
+    assert [r.label for r in view] == ["loaded"]  # type: ignore[attr-defined]
+    # A closed registry (`/reload`) stays as it is.
+    registry.register_tool_renderer("later", resolver("session"))
+    registry.close()
+    registry.reset()
+    assert len(view) == 2

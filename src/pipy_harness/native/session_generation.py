@@ -1026,6 +1026,18 @@ class SessionExtensionGeneration:
     projection: ExtensionProjection | None = None
     chrome_token: object | None = None
 
+    def reset_live_registrations(self) -> None:
+        """Forget what the extensions registered after they loaded: tools,
+        tool renderer resolvers and MCP servers. Another session in the run
+        replaces this one, and Pi's ``AgentSessionRuntime`` loads the
+        extensions again for it, so what an old session's handlers or
+        commands registered is gone and the new session's ``session_start``
+        handlers register it again once, not once more."""
+
+        if self.projection is not None:
+            self.projection.tools.live.reset()
+        self.runtime.mcp_servers.reset()
+
 
 def publish_candidate_ownership(candidate: _ExtensionCandidate) -> bool:
     try:

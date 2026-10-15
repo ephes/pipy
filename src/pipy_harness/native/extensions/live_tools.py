@@ -15,6 +15,11 @@ silently, also when it came first.
 The registry also holds the generation's tool renderer resolvers, in Pi's
 order: by extension in load order, and in the order each extension
 registered them, so one registered late joins its extension's others.
+
+Another session in the same run (``/new``, ``/resume``, ``/fork``) resets
+the registry to what the extensions registered while they loaded: Pi's new
+runtime loads the extensions again, so only that and what the new
+session's handlers register are there.
 """
 
 from __future__ import annotations
@@ -66,6 +71,7 @@ class LiveToolRegistry:
         for name, resolvers in renderer_groups:
             rank = self._rank.setdefault(name, len(self._rank))
             self._renderers.extend((rank, resolver) for resolver in resolvers)
+        self._loaded_renderers = tuple(self._renderers)
         # The latest registration of each name registered after loading, in
         # the order the names were first registered.
         self._live: dict[str, RegisteredTool] = {}
@@ -136,6 +142,24 @@ class LiveToolRegistry:
             live = dict(self._live)
         loaded = [live.pop(item.tool.name, item) for item in self._loaded]
         return (*loaded, *live.values())
+
+    def reset(self) -> None:
+        """Forget every registration made after loading, tools and
+        resolvers: another session replaced this one in the run, and Pi's
+        new runtime loads the extensions again. Tells the listener when a
+        tool registered after loading is gone. Does nothing once the
+        registry is closed."""
+
+        with self._lock:
+            if self._closed:
+                return
+            withdrawn = bool(self._live)
+            self._owners = {item.tool.name: item.extension for item in self._loaded}
+            self._renderers = list(self._loaded_renderers)
+            self._live = {}
+            listener = self._listener if withdrawn else None
+        if listener is not None:
+            listener()
 
     def close(self) -> None:
         """Refuse every registration from now on: the generation was

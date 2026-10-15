@@ -177,19 +177,24 @@ def _no_lifecycle(_reason: SessionLifecycleReason, _path: Path | None) -> None:
 def rebuild_replaced_session(
     rebuild_history: Callable[[], None],
     sync_settings: Callable[[], None],
+    reset_registrations: Callable[[], None],
     replace_mcp: Callable[[], None],
 ) -> None:
-    """A published session replacement: history, model and thinking, then
-    the MCP servers.
+    """A published session replacement: history, model and thinking, the
+    extensions' registrations, then the MCP servers.
 
     Pi creates a whole runtime for ``/resume``, ``/fork``, ``/clone``,
     ``/new`` and import, which restores the session's model and level
-    (``core/sdk.ts``) and closes and starts its MCP servers again; the
-    transition coordinator runs this after publishing.
+    (``core/sdk.ts``), loads the extensions again and closes and starts its
+    MCP servers again. pipy keeps its extensions loaded and forgets what
+    they registered after loading (tools, tool renderer resolvers, MCP
+    servers), so the servers start from what they registered while
+    loading; the transition coordinator runs this after publishing.
     """
 
     rebuild_history()
     sync_settings()
+    reset_registrations()
     replace_mcp()
 
 

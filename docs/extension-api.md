@@ -727,7 +727,11 @@ renderer sends during that delivery is dropped), and
 `session_start` (with the reason and `previous_session_file`) after the new
 session's history, settings, tool selection and MCP servers are in place; it
 sends no new extension completion event and no UI rebind. The extensions stay
-loaded: the same extension instances receive both events. D6b3 owns the single RPC event/UI rebind
+loaded: the same extension instances receive both events. Where Pi loads the
+extensions again for the new session, pipy forgets, before the MCP servers
+start again, the tools, tool renderer resolvers and MCP servers they
+registered after loading, so the new session has what `activate(api)` and
+its own `session_start` handlers register. D6b3 owns the single RPC event/UI rebind
 after an accepted native transition; refusal and same-target no-op do not
 rebind. The state-first tree/context rebuild
 boundary is not an atomic transaction; a post-publication rebuild error retires
@@ -1179,7 +1183,11 @@ add a new tool or register one of the extension's own tools again; it raises
 reserved name, and once `/reload` replaced the extensions or the session ended
 (an `api` kept from before). A name another extension has goes to the one of
 the two that loaded first (see [Tools](#tools)). A tool registered
-in a `session_start` handler is kept across `/reload` that way too. A tool that becomes `direct` or
+in a `session_start` handler is kept across `/reload` that way too.
+Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+`/import`) forgets the tools registered after loading, as Pi's new runtime
+loads the extensions again; its `session_start` handlers register theirs
+anew. A tool that becomes `direct` or
 `model-only` is activated like a new one. `api.register_tool_renderer` also
 works while the session runs (see [Tool rendering](#tool-rendering)); the
 other `register_*` methods stay closed after `activate(api)`.
@@ -1506,6 +1514,10 @@ def activate(api):
   then on; rows already drawn keep what they chose. Something that is not
   callable then raises `ExtensionCapabilityError`, as does a registration
   once `/reload` replaced the extensions or the session ended.
+- Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+  `/import`) starts with the resolvers registered in `activate(api)` only,
+  as Pi's new runtime loads the extensions again: one a `session_start`
+  handler registers is there once in every session.
 
 Different from Pi:
 
@@ -1517,11 +1529,6 @@ Different from Pi:
   runs, and the HTML export draws built-in tools itself.
 - Pi's `renderShell` is not part of `ToolRenderers`, and the render
   context has no `outputPad`.
-- Another session in the same run (`/new`, `/resume`, `/fork`) keeps the
-  loaded extensions and the resolvers they registered, where Pi loads the
-  extensions again. A `session_start` handler that calls
-  `register_tool_renderer` therefore adds its resolver once more for each
-  new session; register resolvers in `activate(api)`, or only once.
 
 `/export` to HTML draws the calls with the same renderers and stores the
 rows in the file (see `docs/export-distribution.md` "Artifact shape"): an
@@ -1565,7 +1572,11 @@ def activate(api):
 - Nothing is saved: register on every load, for example from the
   extension's own settings. `/reload` loads the extensions again and
   keeps only what they register then; an `api` of the extensions it
-  replaced raises `McpServerRegistrationError`.
+  replaced raises `McpServerRegistrationError`. Another session in the same
+  run (`/new`, `/resume`, `/fork`, `/clone`, `/import`) starts from the
+  servers registered while the extensions loaded, as Pi's new runtime
+  loads them again; one registered later is there only when a
+  `session_start` handler registers it again.
 - Registering a name again replaces the extension's registration. With the
   same configuration nothing happens; with another one the server's tools
   go away, its connection is closed, and it connects again once that

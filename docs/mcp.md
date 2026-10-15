@@ -556,6 +556,11 @@ What differs from `/reload`:
 - A change made in [`/mcp`](#the-mcp-command) to a server an extension
   registered applied to the old session only; the new one starts from the
   registration.
+- The servers the extensions registered after they loaded (from a
+  `session_start` handler, a command or a tool) are gone, as in Pi's new
+  runtime, which loads the extensions again: the new session starts the
+  servers registered in `activate(api)`, and those its `session_start`
+  handlers register connect at once.
 - The switch returns when the old connections are closed. A switch that an
   extension refuses keeps the servers.
 

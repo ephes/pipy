@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+  `/import`) no longer keeps what the extensions registered after they
+  loaded: the tools, tool renderer resolvers and MCP servers registered
+  from a `session_start` handler, a command or a tool are gone, as in Pi,
+  whose new runtime loads the extensions again. Before, a `session_start`
+  handler that called `register_tool_renderer` added its resolver once more
+  for every new session, so it was asked once per session for every row, and a
+  tool or server a command registered stayed in the next session. See
+  [tool rendering](docs/extension-api.md#tool-rendering) and
+  [MCP servers](docs/extension-api.md#mcp-servers).
 - A model call to an extension tool prepares its arguments once: such a call
   runs as a parent that may call other tools, and that path prepared the
   call's arguments a second time instead of running those the `tool_call`

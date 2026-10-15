@@ -8,6 +8,9 @@ session or by one ``/reload``. It validates and stores; it connects nothing.
 The session's ``McpManager`` reads it when it starts and after every change
 (``McpManager.sync_registered``) and connects the servers next to those of
 ``mcp.json``.
+Another session in the same run (``/new``, ``/resume``, ``/fork``) takes
+the registry back to what was registered while the extensions loaded
+(``reset``), as Pi's new runtime starts with a new registry.
 
 Threads. Every method may be called from any thread. The check whether a
 name is free and the registration are one step under the registry's lock, so
@@ -127,6 +130,8 @@ class McpServerRegistry:
         # By name, in registration order; a name that is registered again
         # keeps its place.
         self._servers: dict[str, RegisteredMcpServer] = {}
+        # What the extensions registered while they loaded (``load``).
+        self._loaded: dict[str, RegisteredMcpServer] = {}
         self._listener: Callable[[], None] | None = None
         # The registrations after each change that nobody took yet.
         self._changes: list[tuple[RegisteredMcpServer, ...]] = []
@@ -170,6 +175,7 @@ class McpServerRegistry:
                 raise McpServerRegistrationError(conflict)
             for server in stored:
                 self._servers[server.name] = server
+                self._loaded[server.name] = server
 
     def _load_conflict(self, servers: Sequence[RegisteredMcpServer]) -> str | None:
         taken = dict(self._servers)
@@ -239,6 +245,21 @@ class McpServerRegistry:
 
         self._changes.append(tuple(self._servers.values()))
         return self._listener
+
+    def reset(self) -> None:
+        """Go back to what the extensions registered while they loaded and
+        forget the changes nobody took: another session replaced this one
+        in the run, and Pi's new runtime loads the extensions again, so a
+        server registered later is there only when the new session's
+        handlers register it again. The listener is not called: the
+        session starts its servers again from the registry. Does nothing
+        once the registry is closed."""
+
+        with self._lock:
+            if self._closed:
+                return
+            self._servers = dict(self._loaded)
+            self._changes = []
 
     def close(self) -> None:
         """Refuse every change from now on, call the listener no more and

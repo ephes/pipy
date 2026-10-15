@@ -182,6 +182,36 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
 
 
+def _q11() -> str:
+    """The row of plan section 7 with the owner's triage decision."""
+
+    match = re.search(r"^\| Q11 \|.*$", _PLAN.read_text(), flags=re.MULTILINE)
+    assert match is not None
+    return match.group(0)
+
+
+def test_q11_accepts_the_rows_of_the_triage() -> None:
+    accepted = set(re.findall(r"DEV-\d{2}", _q11()))
+
+    assert {f"DEV-{number}" for number in range(69, 80)} <= accepted
+    # Added 2026-10-15 under the same triage decision (R7): DEV-79 and the
+    # `duration_ms` part of DEV-48.
+    assert "DEV-79 (EXT-01" in _q11()
+    assert "DEV-48 (EXT-11, the outcome's `duration_ms`" in _q11()
+    recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
+    recorded = recorded.split("### 3.2 Audit result")[0]
+    for deviation, source in re.findall(
+        r"^\| (DEV-\d{2}) \|.*\| ([^|]*) \|$", recorded, flags=re.MULTILINE
+    ):
+        if "accepted in Q11" in source:
+            assert deviation in accepted, deviation
+        if deviation in accepted:
+            assert "proposal" not in source, deviation
+    # The acceptance note calls none of them a proposal either.
+    assert "proposal DEV-79" not in _NOTE.read_text()
+    assert "DEV-79 (INT4) are still proposals" not in _NOTE.read_text()
+
+
 def _rows_of(cell: str) -> list[str]:
     """The rows a "Rows" cell names: ``A-01, B-02 to B-04``."""
 
