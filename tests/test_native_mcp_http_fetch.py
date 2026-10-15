@@ -465,7 +465,8 @@ def test_closing_ends_a_tls_handshake_in_progress(silent: _SilentListener) -> No
     _wait_until(lambda: not _io_threads())
     _wait_until(silent.peer_closed)
 
-    # Far below the 30 seconds a connection attempt is given.
+    # A connection attempt has no time limit of its own, as Pi's fetch has
+    # none; the close ends it.
     assert time.monotonic() - started < 5
     assert [type(error) for error in raised] == [McpConnectionClosedError]
 

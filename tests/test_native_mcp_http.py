@@ -503,18 +503,22 @@ def test_notifications_and_responses_ignore_the_response_body(fake: _Fixture) ->
 def test_without_a_send_bound_a_slow_acknowledgment_connects_and_close_ends_a_send(
     fake: _Fixture,
 ) -> None:
-    # Goal check r4, P1: Pi waits for the server to accept a notification
-    # with no deadline, and so do pipy's connections to configured servers
-    # (`send_timeout_ms=math.inf`). Scaled: an acknowledgment of
-    # `notifications/initialized` that a 100 ms bound fails still connects
-    # without one, and `close()` ends a send that is still waiting.
+    # Goal check r4, P1, and r5, P2: Pi waits for the server to accept a
+    # notification with no deadline, and so does the transport unless
+    # `send_timeout_ms` sets one (the default is `math.inf`). Scaled: an
+    # acknowledgment of `notifications/initialized` that a 100 ms bound fails
+    # still connects with the default options, and `close()` ends a send
+    # that is still waiting.
+    assert StreamableHttpTransportOptions(url="http://x/mcp").send_timeout_ms == (
+        math.inf
+    )
     slow = {"notifications/initialized": [{"sleep": 0.3}]}
     bounded = fake.client()
     with pytest.raises(McpTimeoutError, match="after 100ms"):
         bounded.connect(fake.transport(fake.server(methods=slow), send_timeout_ms=100))
 
     server = fake.server(methods={**slow, "notifications/x": [{"hold": True}]})
-    client = fake.connect(server, send_timeout_ms=math.inf)
+    client = fake.connect(server)
     assert client.list_tools() == [_ECHO]
 
     thread, _results, raised = _in_thread(lambda: client.notify("notifications/x"))

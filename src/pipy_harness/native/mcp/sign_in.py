@@ -36,7 +36,9 @@ Cancelling. Setting ``cancel_event`` ends the sign-in at every step with
 server is pending. Every such request is limited to 15 seconds besides.
 
 Threads. The function blocks its caller. ``show_authorization_url`` is
-called on the caller's thread. ``prompt_for_redirect_url`` is called on a
+called on the caller's thread, before the timeout or the cancel event is
+watched, so it has to return at once; ``open_browser`` does not wait for
+the browser. ``prompt_for_redirect_url`` is called on a
 daemon thread of its own (``mcp-sign-in-prompt``) and has to return once
 the event it is given is set; what it returns after that is not used. The
 sign-in waits a second for it to return and then goes on without it.
@@ -55,9 +57,10 @@ Where this differs from Pi:
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import threading
 import urllib.parse
-import webbrowser
 from dataclasses import dataclass, replace
 from typing import Final, Protocol
 
@@ -105,7 +108,8 @@ class McpSignInPrompt(Protocol):
     """How a sign-in reaches the user; see the module text for the threads."""
 
     def show_authorization_url(self, url: str) -> None:
-        """Show the authorization URL to the user and open it in a browser."""
+        """Show the authorization URL to the user and open it in a browser,
+        without waiting for the browser (``open_browser``)."""
 
     def prompt_for_redirect_url(self, cancel_event: threading.Event) -> str | None:
         """Ask for the redirect URL from the browser's address bar, for when
@@ -119,15 +123,47 @@ class McpSignInPrompt(Protocol):
         """
 
 
+def browser_command(target: str) -> list[str]:
+    """The command that opens ``target`` in the platform's browser (Pi
+    ``openBrowser``): ``open`` on macOS, ``rundll32`` on Windows, else
+    ``xdg-open``. Run without a shell, so the URL cannot inject a command."""
+
+    if sys.platform == "darwin":
+        return ["open", target]
+    if sys.platform == "win32":
+        return ["rundll32", "url.dll,FileProtocolHandler", target]
+    return ["xdg-open", target]
+
+
 def open_browser(url: str) -> None:
-    """Open ``url`` in the system's browser, for ``show_authorization_url``.
-    The user is shown the URL as well, so a browser that cannot be started
-    is not an error."""
+    """Start opening ``url`` in the system's browser, for
+    ``show_authorization_url``, and return at once.
+
+    As Pi's ``openBrowser``, the launcher of ``browser_command`` is started
+    in a session of its own with no standard streams and is not waited for:
+    a launcher that blocks delays neither the prompt for the redirect URL nor
+    the end of a sign-in by its timeout or cancellation, and it cannot hold
+    the output of whoever reads pipy's. A daemon thread
+    (``mcp-sign-in-browser``) reaps it when it exits. The user is shown the
+    URL as well, so a launcher that cannot be started is not an error.
+    """
 
     try:
-        webbrowser.open(url)
-    except Exception:  # noqa: BLE001 - best effort: the user has the URL
-        pass
+        launcher = subprocess.Popen(  # noqa: S603 - a fixed launcher, run without a shell
+            browser_command(url),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return  # No launcher (xdg-open missing, for one): the user has the URL.
+    try:
+        threading.Thread(
+            target=launcher.wait, name="mcp-sign-in-browser", daemon=True
+        ).start()
+    except RuntimeError:
+        pass  # Not reaped until the next subprocess is started; harmless.
 
 
 def wait_for_cancel(cancel_event: threading.Event) -> None:

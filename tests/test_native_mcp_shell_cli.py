@@ -14,12 +14,14 @@ import select
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 from test_native_mcp_auth_provider import _sign_in
+from test_native_mcp_sign_in import SlowLauncher, _wait_until
 
 import pipy_harness.cli as cli
 from pipy_harness.native.mcp import connection as connection_module
@@ -36,6 +38,7 @@ from pipy_harness.native.mcp.shell_cli import (
     read_redirect_url,
     run_mcp_command,
 )
+from pipy_harness.native.mcp.sign_in import open_browser
 from pipy_harness.native.project_trust import ProjectTrustStore
 
 sys.path.insert(0, str(Path(__file__).parent / "fixtures"))
@@ -811,6 +814,30 @@ def test_gives_up_on_login_after_the_timeout_also_while_the_server_hangs(
         ]
         assert home.output == []
         assert "token code" not in server.log
+
+
+def test_a_browser_launcher_that_blocks_does_not_delay_the_login_timeout(
+    home: _Home, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Goal check r5, F1: Pi starts the browser and does not wait for it, so
+    # `--timeout` holds also while the launcher blocks. CMDL-13.
+    launcher = SlowLauncher(tmp_path / "bin", monkeypatch)
+    home.open_url = open_browser
+    try:
+        with FakeOAuthMcpServer() as server:
+            home.write({"issues": {"url": server.url}})
+
+            started = time.monotonic()
+            assert home.run("login", "issues", "--timeout", "0.3") == 1
+            assert time.monotonic() - started < 3
+            assert home.errors == [
+                'Sign-in to MCP server "issues" was cancelled or not completed '
+                "within 0 seconds."
+            ]
+            url = home.output[0].split("\n")[1]
+            _wait_until(lambda: launcher.launched() == [url])
+    finally:
+        launcher.stop()
 
 
 def test_login_reports_a_sign_in_that_failed(home: _Home) -> None:

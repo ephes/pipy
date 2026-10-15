@@ -79,6 +79,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
   sends it, no longer fails: as Pi does, pipy waits for that acceptance
   with no deadline, and closing the connection ends the wait. A request
   still times out after the server's `timeout`. See [MCP](docs/mcp.md).
+- The streamable HTTP transport of the MCP library
+  (`StreamableHttpTransportOptions`) waits for a server to accept a
+  notification or a response with no deadline by default, as Pi's transport
+  does; `send_timeout_ms` sets one. Before, a transport built without that
+  option failed after 30 seconds. See
+  [what exists as a library](docs/mcp.md#what-exists-as-a-library).
+- `pipy mcp login` and `/mcp login` open the browser as Pi does: with
+  `open` on macOS, `rundll32` on Windows and `xdg-open` elsewhere, in a
+  session of its own without pipy's input and output, and without waiting
+  for it. Before, Python's `webbrowser` ran on the sign-in's thread, so a
+  launcher that blocked (a `BROWSER` command, `osascript` on macOS) delayed
+  the prompt for the pasted address and made `--timeout` late. See
+  [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- A stdio MCP server whose transport cannot start one of its threads (the
+  interpreter is out of threads) is killed and the connect fails with that
+  error. Before, closing the connection then waited without end. See
+  [what exists as a library](docs/mcp.md#what-exists-as-a-library).
 - A `!command` value (an API key, or an MCP server's `env`, `headers` or
   `oauth.clientSecret` value) runs with no stdin, as in Pi, so `!cat` or a
   command that asks a question can no longer read a piped prompt or RPC

@@ -308,7 +308,9 @@ class StdioTransport(TransportEvents):
         # The reader thread close() was called on, from a listener. Its pipe
         # is not read while it waits, so its closing is not waited for.
         self._closing_reader: threading.Thread | None = None
-        self._killed = False  # close() sent SIGKILL; the pipes are not waited for
+        # close(), or a start that failed, sent SIGKILL; the pipes are not
+        # waited for.
+        self._killed = False
         self._ended = False  # the close is being, or was, reported
         self._finished = threading.Event()  # the close listeners returned
         self._watcher: threading.Thread | None = None
@@ -338,7 +340,13 @@ class StdioTransport(TransportEvents):
             return self._stderr_tail.decode("utf-8", errors="replace")
 
     def start(self) -> None:
-        """Start the server. Raises ``OSError`` when it cannot be started."""
+        """Start the server. Raises ``OSError`` when it cannot be started.
+
+        A thread that cannot be started fails the start with its error, and
+        the server is ended (SIGKILL to its group) and its pipes closed:
+        ``close()`` then returns at once, or after the watcher, already
+        running, reported the close.
+        """
 
         with self._lock:
             if self._started:
@@ -368,38 +376,103 @@ class StdioTransport(TransportEvents):
                 os.close(wake_write)
                 raise
             assert process.stdout is not None and process.stderr is not None
-            readers = [
-                threading.Thread(
-                    target=self._read_stdout,
-                    args=(process.stdout, wake_read),
-                    name="mcp-stdio-stdout",
+            streams = (process.stdout, process.stderr)
+            try:
+                readers = [
+                    threading.Thread(
+                        target=self._read_stdout,
+                        args=(process.stdout, wake_read),
+                        name="mcp-stdio-stdout",
+                        daemon=True,
+                    ),
+                    threading.Thread(
+                        target=self._read_stderr,
+                        args=(process.stderr, wake_read),
+                        name="mcp-stdio-stderr",
+                        daemon=True,
+                    ),
+                ]
+                watcher = threading.Thread(
+                    target=self._watch_process,
+                    args=(process, wake_read, wake_write, readers),
+                    name="mcp-stdio-wait",
                     daemon=True,
-                ),
-                threading.Thread(
-                    target=self._read_stderr,
-                    args=(process.stderr, wake_read),
-                    name="mcp-stdio-stderr",
-                    daemon=True,
-                ),
-            ]
-            watcher = threading.Thread(
-                target=self._watch_process,
-                args=(process, wake_read, wake_write, readers),
-                name="mcp-stdio-wait",
-                daemon=True,
-            )
-            self._process = process
-            self._watcher = watcher
-            self._readers = tuple(readers)
-            self._open_readers = set(readers)
-            _track_process_group(
-                process.pid, max(0.0, self.options.close_timeout_ms / 1000)
-            )
-            # The watcher starts first: once it runs, the server is reaped and
-            # the close reported even if a reader thread cannot be started.
-            watcher.start()
-            for reader in readers:
-                reader.start()
+                )
+                self._process = process
+                self._watcher = watcher
+                self._readers = tuple(readers)
+                self._open_readers = set(readers)
+                _track_process_group(
+                    process.pid, max(0.0, self.options.close_timeout_ms / 1000)
+                )
+                # The watcher starts first: once it runs, the server is reaped
+                # and the close reported even if a reader thread cannot be
+                # started.
+                watcher.start()
+            except Exception:
+                # Nothing runs that would reap the server or report the close.
+                self._abandon_server_locked(process, wake_read, wake_write)
+                raise
+            for index, reader in enumerate(readers):
+                try:
+                    reader.start()
+                except Exception:
+                    self._stop_server_locked(process, readers[index:], streams[index:])
+                    raise
+
+    def _abandon_server_locked(
+        self, process: subprocess.Popen[bytes], wake_read: int, wake_write: int
+    ) -> None:
+        """End a server whose watcher thread could not be started. The caller
+        holds ``_lock``.
+
+        The server is killed with its group and reaped here, and the
+        transport is left as one whose server never started: ``close()``
+        reports the close and returns.
+        """
+
+        # Not reaped yet, so the id is still the server's.
+        _signal_group(process.pid, signal.SIGKILL)
+        _untrack_process_group(process.pid)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass  # The pipe is gone with the server.
+        process.wait()
+        os.close(wake_read)
+        os.close(wake_write)
+        self._process = None
+        self._watcher = None
+        self._readers = ()
+        self._open_readers = set()
+
+    def _stop_server_locked(
+        self,
+        process: subprocess.Popen[bytes],
+        unstarted: Sequence[threading.Thread],
+        streams: Sequence[IO[bytes]],
+    ) -> None:
+        """End a server whose reader threads could not all be started. The
+        caller holds ``_lock``.
+
+        The watcher runs: once the server is killed with its group it reaps
+        it and reports the close, waiting for no pipe. The pipes of the
+        readers that did not start are closed here.
+        """
+
+        for reader in unstarted:
+            self._open_readers.discard(reader)
+        for stream in streams:
+            try:
+                stream.close()
+            except OSError:
+                pass  # The pipe is gone with the server.
+        if not self._reaped:
+            _signal_group(process.pid, signal.SIGKILL)
+        self._killed = True
+        self._changed.notify_all()
 
     def send(self, message: JsonRpcMessage) -> None:
         """Write one message to the server's stdin.

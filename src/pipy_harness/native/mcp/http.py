@@ -19,9 +19,8 @@ network read happens on a thread that waits for a result.
   fails, only that request fails.
 - ``send`` of a notification or a response returns when the server accepted
   the POST (status and headers received and checked) and raises when it
-  failed. It waits at most ``send_timeout_ms``; the connections to
-  configured servers set no bound there, as Pi has none, and ``close()``
-  ends the wait.
+  failed. As in Pi it waits without a deadline unless ``send_timeout_ms``
+  sets one, and ``close()`` ends the wait.
 - ``send`` of ``notifications/cancelled`` ends the I/O thread of the request
   it names by cancelling its token, which shuts its socket down or ends its
   connection attempt, starts the POST of the notice and
@@ -69,8 +68,8 @@ Limits of what is promised:
 - Giving a request up, and ``close()``, end a connection attempt of the
   default fetch at once, in the TCP connect and in the TLS handshake. Only a
   name lookup runs to its end; its I/O thread opens no socket afterwards.
-  Without that, an attempt is given ``send_timeout_ms`` (one second for a
-  cancellation notice and for the DELETE of a session).
+  Without that, an attempt ends only at ``send_timeout_ms`` when it is set
+  (one second for a cancellation notice and for the DELETE of a session).
 - A JSON answer is read as a whole, whatever its size (Pi
   ``response.json()``); ``max_message_bytes`` limits one event of an event
   stream.
@@ -83,6 +82,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import re
 import threading
 import time
@@ -117,7 +117,6 @@ from pipy_harness.native.mcp.transport import DEFAULT_MAX_MESSAGE_BYTES, Transpo
 
 MAX_ERROR_BODY_BYTES: Final = 8 * 1024
 ERROR_MESSAGE_BODY_CHARS: Final = 500
-DEFAULT_SEND_TIMEOUT_MS: Final = 30_000
 # What a cancellation notice and the DELETE of a session get, so a dead server
 # holds neither the caller that gave a request up nor ``close()``.
 CANCEL_NOTICE_TIMEOUT_MS: Final = 1_000
@@ -229,8 +228,8 @@ class StreamableHttpTransportOptions:
 
     ``send_timeout_ms`` bounds a connection attempt and the wait for the
     server to accept a notification or a response; a value that is not a
-    positive finite number removes the bound. Requests are bounded by the
-    client's request timeout instead. ``max_message_bytes`` limits one event
+    positive finite number, the default, sets no bound, as Pi's ``send``
+    has none. Requests are bounded by the client's request timeout instead. ``max_message_bytes`` limits one event
     of an event stream; a JSON answer has no limit. ``open_get_stream`` set to
     ``False`` leaves the server-to-client stream unopened. ``reconnect``
     applies to that stream and to response streams whose events carry ids.
@@ -243,7 +242,7 @@ class StreamableHttpTransportOptions:
     headers: Mapping[str, str] | None = None
     max_message_bytes: int = DEFAULT_MAX_MESSAGE_BYTES
     auth_provider: McpAuthProvider | None = None
-    send_timeout_ms: float = DEFAULT_SEND_TIMEOUT_MS
+    send_timeout_ms: float = math.inf
     open_get_stream: bool = True
     reconnect: StreamableHttpReconnectOptions = field(
         default_factory=StreamableHttpReconnectOptions

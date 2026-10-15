@@ -323,6 +323,113 @@ def test_missing_executable_fails_the_client_connection(tmp_path: Path) -> None:
     assert client.connection_state == "closed"
 
 
+def _fail_thread_start(
+    monkeypatch: pytest.MonkeyPatch, name: str, transport: StdioTransport
+) -> list[int]:
+    """Make the start of the transport's thread ``name`` raise, as when the
+    interpreter cannot start a thread. Returns the server's pid, once the
+    start got that far."""
+
+    pids: list[int] = []
+    start = threading.Thread.start
+
+    def failing_start(thread: threading.Thread) -> None:
+        if thread.name == name:
+            assert transport._process is not None
+            pids.append(transport._process.pid)
+            raise RuntimeError("can't start new thread")
+        start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", failing_start)
+    return pids
+
+
+def _in_time(action: Callable[[], object]) -> list[BaseException]:
+    """Run ``action`` on a thread; fail the test instead of hanging on it."""
+
+    raised: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            action()
+        except BaseException as error:  # noqa: BLE001 - cross-thread capture for the assertion
+            raised.append(error)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(_WAIT_SECONDS)
+    assert not thread.is_alive(), "did not return"
+    return raised
+
+
+def test_a_watcher_that_cannot_start_ends_the_server_and_close_returns(
+    start_server: StartServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Goal check r5, P1: nothing would reap the server or report its close,
+    # and close() waited for that without end. The server ignores the end of
+    # its stdin and SIGTERM, so only the start's SIGKILL ends it.
+    server = start_server({"onStdinClose": [], "onSigterm": []}, start=False)
+    pids = _fail_thread_start(monkeypatch, "mcp-stdio-wait", server.transport)
+
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        server.transport.start()
+    monkeypatch.undo()
+
+    [pid] = pids
+    assert pid not in stdio._live_process_groups
+    assert not _is_alive(pid)  # killed and reaped
+    assert server.transport.pid is None
+    with pytest.raises(McpConnectionClosedError):
+        server.transport.send({"jsonrpc": "2.0", "method": "ping"})
+    started = time.monotonic()
+    assert _in_time(server.transport.close) == []
+    assert time.monotonic() - started < STDIN_CLOSE_GRACE_MS / 1000
+    assert server.log == [("close", None)]
+
+
+def test_a_watcher_that_cannot_start_fails_the_client_connection(
+    start_server: StartServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = start_server({"onStdinClose": [], "onSigterm": []}, start=False)
+    _fail_thread_start(monkeypatch, "mcp-stdio-wait", server.transport)
+    client = McpClient(McpClientOptions(name="stdio-test", version="1.0.0"))
+
+    raised = _in_time(lambda: client.connect(server.transport))
+
+    assert [type(error) for error in raised] == [RuntimeError]
+    assert client.connection_state == "closed"
+    assert server.closed.is_set()
+
+
+@pytest.mark.parametrize("reader", ["mcp-stdio-stdout", "mcp-stdio-stderr"])
+def test_a_reader_that_cannot_start_ends_the_server_and_close_returns(
+    start_server: StartServer, monkeypatch: pytest.MonkeyPatch, reader: str
+) -> None:
+    # The watcher runs: it reaps the killed server and reports the close
+    # without waiting for a pipe nobody reads.
+    server = start_server({"onStdinClose": [], "onSigterm": []}, start=False)
+    pids = _fail_thread_start(monkeypatch, reader, server.transport)
+
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        server.transport.start()
+    monkeypatch.undo()
+
+    [pid] = pids
+    assert server.closed.wait(_WAIT_SECONDS)
+    assert pid not in stdio._live_process_groups
+    assert server.transport.pid is None
+    process = server.transport._process
+    assert process is not None
+    stdout, stderr = process.stdout, process.stderr
+    assert stdout is not None and stderr is not None
+    _wait_until(lambda: stdout.closed and stderr.closed)
+    started = time.monotonic()
+    assert _in_time(server.transport.close) == []
+    assert time.monotonic() - started < STDIN_CLOSE_GRACE_MS / 1000
+    assert server.log == [("close", None)]
+    assert server.events() == []  # neither the end of stdin nor SIGTERM
+
+
 def test_start_is_allowed_once_and_not_after_close(start_server: StartServer) -> None:
     server = start_server()
     with pytest.raises(RuntimeError, match="MCP stdio transport already started"):

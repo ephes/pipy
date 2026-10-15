@@ -105,7 +105,7 @@ are closed.
 
 | ID | Behaviour | Pi source | Slice |
 | --- | --- | --- | --- |
-| CLT-01 | `initialize` sends protocol version `2025-11-25`, the client capabilities (`roots: {}` when roots are configured, nothing for sampling or elicitation) and `clientInfo` name and version; then `notifications/initialized`. The client is usable only after both. | `mcp/client.ts` `connect` | S11 |
+| CLT-01 | `initialize` sends protocol version `2025-11-25`, the client capabilities (`roots: {}` when roots are configured, nothing for sampling or elicitation) and `clientInfo` name and version; then `notifications/initialized`. The client is usable only after both. | `mcp/client.ts` `connect` | S11, goal check r5 (X1) |
 | CLT-02 | A server answer with protocol version `2025-11-25`, `2025-06-18`, `2025-03-26` or `2024-11-05` is accepted; another version fails the connection with `MCP server selected unsupported protocol version <v>`. | `mcp/protocol/types.ts` `SUPPORTED_PROTOCOL_VERSIONS`; `mcp/client.ts` `connect` | S11 |
 | CLT-03 | An `initialize` result without string `protocolVersion`, object `capabilities`, or `serverInfo.name`/`version`, or with non-string `instructions`, is rejected. | `mcp/client.ts` `validateInitializeResult` | S11 |
 | CLT-04 | Server info, capabilities, instructions and the negotiated version are available after connecting; a failed connect closes the transport. | `mcp/client.ts` `connect` | S11 |
@@ -126,11 +126,11 @@ are closed.
 
 | ID | Behaviour | Pi source | Slice |
 | --- | --- | --- | --- |
-| STD-01 | The server process is started with the parent environment plus the configured `env`, in the configured directory, with piped stdin/stdout and captured stderr. A start failure (missing executable) fails the connection. | `mcp/transports/stdio.ts` `start` | S13 |
+| STD-01 | The server process is started with the parent environment plus the configured `env`, in the configured directory, with piped stdin/stdout and captured stderr. A start failure (missing executable) fails the connection. | `mcp/transports/stdio.ts` `start` | S13, goal check r5 (X1) |
 | STD-02 | Messages are newline-delimited JSON in both directions. A trailing `\r` is stripped, blank lines are skipped, and a line that is not a valid JSON-RPC message is reported without closing the connection. | `mcp/transports/stdio.ts` `handleStdout`, `send` | S13 |
 | STD-03 | A message over 16 MiB is dropped with an error (`MCP stdio message exceeds <n> bytes`) and the stream continues. | `mcp/transports/stdio.ts` `handleStdout`; `mcp/transports/transport.ts` `DEFAULT_MAX_MESSAGE_BYTES` | S13 |
 | STD-04 | The last 64 KiB of stderr are kept and readable after the process failed. | `mcp/transports/stdio.ts` `handleStderr` | S13 |
-| STD-05 | The server runs in its own process group (POSIX). Closing closes stdin, sends SIGTERM to the group after 500 ms, SIGKILL after a further 2 s, and after the server exits SIGTERMs the group once more so children of wrappers such as `npx` or `uvx` do not survive. | `mcp/transports/stdio.ts` `close`, `killProcessTree` | S13 |
+| STD-05 | The server runs in its own process group (POSIX). Closing closes stdin, sends SIGTERM to the group after 500 ms, SIGKILL after a further 2 s, and after the server exits SIGTERMs the group once more so children of wrappers such as `npx` or `uvx` do not survive. | `mcp/transports/stdio.ts` `close`, `killProcessTree` | S13, goal check r5 (X1) |
 | STD-06 | Process groups still alive when pipy exits are sent SIGTERM. | `mcp/transports/stdio.ts` `installExitHook` | S13 |
 | STD-07 | When the process exits, the transport closes; a partial message left in the buffer is reported. Sending on a closed transport fails with a connection-closed error. | `mcp/transports/stdio.ts` `start` (close handler), `send` | S13 |
 
@@ -162,7 +162,7 @@ are closed.
 | CON-06 | A dropped connection sets `disconnected` with error `Connection closed`, followed by the last 2000 characters of stderr for stdio servers. The next call reconnects. | `ext/runtime.ts` `handleClientClose`, `getClient` | S15 |
 | CON-07 | A failed connect sets `failed` with the error and the stderr tail and reports `MCP server "<n>" failed to connect: <error>`. | `ext/runtime.ts` `connectFailed` | S15 |
 | CON-08 | Concurrent callers share one connection attempt. | `ext/runtime.ts` `getClient` | S15 |
-| CON-09 | Closing a server stops a connect in progress, including the wait between retries, and returns only when no transport of that server is open. After closing, calls fail with `MCP server "<n>" is shut down`. | `ext/runtime.ts` `close`, `connectOnce` | S15 |
+| CON-09 | Closing a server stops a connect in progress, including the wait between retries, and returns only when no transport of that server is open. After closing, calls fail with `MCP server "<n>" is shut down`. | `ext/runtime.ts` `close`, `connectOnce` | S15, goal check r5 (X1) |
 | CON-10 | HTTP connects that fail with a network error or status 408, 429 or 5xx except 501 are retried twice, after 250 ms and 1 s. Stdio connects are not retried. | `ext/runtime.ts` `open`, `isTransientError`, `CONNECT_RETRY_DELAYS_MS` | S26 |
 | CON-11 | Resource reads and listings are retried once, after 250 ms, after a transient HTTP status. Tool calls are never retried for that reason. | `ext/runtime.ts` `withClient` | S26 |
 | CON-12 | A session-expired answer makes the request run once more on a new session, for tool calls too; other calls in flight on the old session retry the same way. | `ext/runtime.ts` `withClient` | S26 |
@@ -380,7 +380,7 @@ name.
 | CMDL-10 | `mcp list` exits 1 when a config entry is invalid or an enabled server is not connected, else 0. With no servers and no errors it prints `No MCP servers configured. Add them to <path> or .pipy/mcp.json.` | `ext/cli.ts` `list` | S20a |
 | CMDL-11 | `list`, `login` and `logout` read the project file only when the project is already trusted; otherwise a project file that exists is reported as ignored. | `ext/cli.ts` `runMcpCommand` (`untrustedNote`) | S20a |
 | CMDL-12 | `mcp login <server> [--timeout <seconds>]`: an unknown server and a server without OAuth fail with Pi's messages; a server that already connects prints `Already signed in ...`; a server that fails for another reason prints the connection error. | `ext/cli.ts` `runMcpCommand`, `login` | S31 |
-| CMDL-13 | `mcp login` prints the authorization URL, opens the browser and waits; on a terminal it also accepts the pasted redirect URL. `--timeout` (default 300, must be positive) limits the whole sign-in, including requests to the authorization server; on expiry it reports that the sign-in was cancelled or not completed within that time. Success prints `Signed in to MCP server "<n>" (<k> tools).` | `ext/cli.ts` `login`, `waitForRedirectUrl` | S31 |
+| CMDL-13 | `mcp login` prints the authorization URL, opens the browser without waiting for the launcher and waits; on a terminal it also accepts the pasted redirect URL. `--timeout` (default 300, must be positive) limits the whole sign-in, including requests to the authorization server; on expiry it reports that the sign-in was cancelled or not completed within that time. Success prints `Signed in to MCP server "<n>" (<k> tools).` | `ext/cli.ts` `login`, `waitForRedirectUrl`; `utils/open-browser.ts` | S31, goal check r5 (X1) |
 | CMDL-14 | `mcp logout <server>` deletes the stored credentials and prints `Signed out of MCP server "<n>".` or `No stored credentials for MCP server "<n>".` | `ext/cli.ts` `runMcpCommand` | S31 |
 
 ### 2.15 `/mcp` in a session (SLH)
@@ -654,7 +654,8 @@ S7); EXT-01 keeps its limit through DEV-85, so no row changed its state.
 Updated after the triage of the fifth goal check (2026-10-15): DEV-57 now
 also names CMDL-06 (`add --local` with a trust store that cannot be read,
 r5 F2), which sets it to closed with a limit; DEV-25 and DEV-55 say what r5
-U3 and F3 found.
+U3 and F3 found. The fix slice X1 of that triage (P1, P2, F1) changed no
+row's state.
 The 123 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
@@ -781,9 +782,11 @@ Decided in S11 to S14, S24, S25 and S27 (the client track, merged in INT1):
   transport contract has a fourth listener set, `on_request_failure`, through
   which a transport ends one pending request with a typed error.
 - HTTP: `send` waits for the POST to be accepted only for notifications and
-  responses (at most `send_timeout_ms`, default 30 s; since goal check r4,
-  P1, the connections to configured servers pass `math.inf`, as Pi's `send`
-  has no deadline there, and `close()` ends the wait). For a request it
+  responses, without a deadline unless `send_timeout_ms` sets one, as Pi's
+  `send` has none there, and `close()` ends the wait (goal check r4, P1,
+  set `math.inf` for the connections to configured servers; since goal
+  check r5, P2, it is the default of `StreamableHttpTransportOptions`,
+  which was 30 s). For a request it
   starts the I/O thread and returns, and a failure reaches the caller through
   `on_request_failure`; with one writer thread, waiting for response headers
   would put every request of a client behind a slow tool call. A request's
@@ -1454,7 +1457,8 @@ Decided in S26 (HTTP servers in `connection.py`):
 - `create_default_transport` returns a `StreamableHttpTransport` for a `url`
   entry, with the headers resolved by `resolve_config_headers` and the auth
   provider it is given (still `None` until S30). `send_timeout_ms` kept its
-  default until goal check r4 (P1) made it `math.inf`: Pi waits for the
+  default until goal check r4 (P1) made it `math.inf` here, and goal check
+  r5 (P2) made that the transport's default: Pi waits for the
   acceptance of a notification or a response, `notifications/initialized`
   included, with no deadline, and `close()` ends the wait. The config's
   `timeout` is the client's request timeout only.
@@ -1656,7 +1660,9 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
 - `McpServerConnection.clear_challenge()` is Pi's `connection.challenge =
   undefined` after a sign-in.
 - `pipy mcp`: `McpCommandOptions.open_url` is Pi's `openUrl` (default
-  `webbrowser.open`, failures ignored); with one, standard input is never
+  `sign_in.open_browser`, since goal check r5, F1, Pi's `openBrowser`:
+  `open`, `rundll32` or `xdg-open` in a session of its own, without
+  standard streams and not waited for; failures ignored); with one, standard input is never
   asked. There is no `credentials` option: the store is always the file in
   `config_home`. `login` needs no connection for a server without OAuth and
   `logout` creates none at all. `--timeout` is parsed like
@@ -4647,6 +4653,32 @@ ticking time (S11, DEV-45, EXT-15); the live codemode row keeps the latest
 record's (D6, CMD-26). T6: the stdio transport waits for an exited server
 with a kqueue where Python has no `os.waitid` (P1, STD-05; see G1). The
 tests are named in the acceptance note's rows.
+
+**X1 of the fifth goal check: stdio start, HTTP send deadline, browser.**
+Findings P1, P2 and F1 of goal check r5 (not the X1 of the slice table).
+P1 (STD-01, STD-05, CON-09): `StdioTransport.start()` ends the server when
+one of the transport's threads cannot be started, and raises that error.
+When the watcher cannot start, the server's group is sent SIGKILL, untracked
+and reaped, the pipes are closed and the transport is left as one whose
+server never started, so `close()` reports the close and returns. When a
+reader cannot start, the running watcher reaps the killed server and reports
+the close without waiting for a pipe; the pipes of the readers that did not
+start are closed. Before, `close()` waited without end, and so did the
+client's and the connection's cleanup of the failed connect. Pi's `start`
+has no such failure point. P2 (CLT-01): `StreamableHttpTransportOptions`
+has `send_timeout_ms=math.inf` as its default, so a library client also
+waits for the acceptance of `notifications/initialized` (and of other
+notifications and responses, and for a connection) without a deadline, as
+Pi's `authorizedFetch` has none; the cancellation notice and the DELETE keep
+their second. F1 (CMDL-13): `sign_in.open_browser` is Pi's `openBrowser`:
+it starts `open`, `rundll32` or `xdg-open` (`browser_command`) in a session
+of its own with no standard streams and returns at once (a daemon thread
+reaps it), so `--timeout`, cancelling and the prompt for the pasted redirect
+URL are not held by a launcher that blocks, nor is a reader of pipy's
+output. Before, Python's `webbrowser.open` ran on the sign-in's thread. Tests:
+`test_native_mcp_stdio.py`, `test_native_mcp_connection.py`,
+`test_native_mcp_http.py`,
+`test_native_mcp_sign_in.py`, `test_native_mcp_shell_cli.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

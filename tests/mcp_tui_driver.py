@@ -33,7 +33,6 @@ import json
 import os
 import struct
 import sys
-import webbrowser
 import zlib
 from pathlib import Path
 
@@ -41,6 +40,7 @@ from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.mcp import readiness
 from pipy_harness.native.models import ProviderToolCall
+from pipy_harness.native.repl import wiring
 from pipy_harness.native.settings import SettingsManager
 
 sys.path.insert(0, str(Path(__file__).with_name("fixtures")))
@@ -185,13 +185,12 @@ def _login_session(root: Path, *, follow: bool) -> int:
     """A session whose one server needs a sign-in the test makes with
     ``/mcp login``."""
 
-    def browser(url: str, new: int = 0, autoraise: bool = True) -> bool:
+    def browser(url: str) -> None:
         if follow:
             FakeBrowser().open(url)
-        return True
 
     # No real browser: the session opens URLs with this instead.
-    webbrowser.open = browser
+    setattr(wiring, "open_browser", browser)
     config = root / "config"
     config.mkdir()
     with FakeOAuthMcpServer() as server:

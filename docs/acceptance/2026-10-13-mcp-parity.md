@@ -87,6 +87,13 @@ with the test of an `add --local` that a trust store it cannot read stops
 before it writes (r5 F2). The fix slices of that triage (X1 to X3) change
 the rows they fix when they land.
 
+Updated in X1 of the fifth goal check (2026-10-15): STD-01, STD-05, CON-09,
+CLT-01 and CMDL-13 name their new tests (r5 P1, P2, F1): a stdio start
+that cannot start a thread ends the server and its close returns, the HTTP
+transport waits for the acceptance of a notification without a deadline by
+default, and the sign-in does not wait for the browser launcher. No row
+changes its state.
+
 ## Reference
 
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
@@ -294,7 +301,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
-| CLT-01 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_initialize_announces_roots_title_and_configured_capabilities`, `test_client_is_not_usable_before_the_handshake_completes`; `test_native_mcp_http.py`: `test_without_a_send_bound_a_slow_acknowledgment_connects_and_close_ends_a_send` (r4 P1); `test_native_mcp_connection_http.py`: `test_the_default_transport_of_a_url_entry_is_streamable_http` (r4 P1) |  |
+| CLT-01 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_initialize_announces_roots_title_and_configured_capabilities`, `test_client_is_not_usable_before_the_handshake_completes`; `test_native_mcp_http.py`: `test_without_a_send_bound_a_slow_acknowledgment_connects_and_close_ends_a_send` (r4 P1, r5 P2); `test_native_mcp_connection_http.py`: `test_the_default_transport_of_a_url_entry_is_streamable_http` (r4 P1) |  |
 | CLT-02 | S11 | closed | `test_native_mcp_client.py`: `test_accepts_servers_that_answer_with_an_older_protocol_version`, `test_rejects_an_unsupported_protocol_version_and_closes_the_transport` |  |
 | CLT-03 | S11 | closed | `test_native_mcp_client.py`: `test_rejects_an_invalid_initialize_result` |  |
 | CLT-04 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_rejects_an_unsupported_protocol_version_and_closes_the_transport` |  |
@@ -315,11 +322,11 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
-| STD-01 | S13 | closed, with limits | `test_native_mcp_stdio.py`: `test_server_runs_with_the_parent_environment_plus_env_in_cwd_and_own_group`, `test_missing_executable_fails_the_client_connection` | No `stderr: "inherit"`; stderr is always piped. DEV-71. |
+| STD-01 | S13 | closed, with limits | `test_native_mcp_stdio.py`: `test_server_runs_with_the_parent_environment_plus_env_in_cwd_and_own_group`, `test_missing_executable_fails_the_client_connection`, `test_a_watcher_that_cannot_start_fails_the_client_connection` (r5 P1) | No `stderr: "inherit"`; stderr is always piped. DEV-71. |
 | STD-02 | S13 | closed | `test_native_mcp_stdio.py`: `test_sends_newline_delimited_json`, `test_strips_carriage_returns_and_skips_blank_lines`, `test_invalid_lines_are_reported_without_closing` |  |
 | STD-03 | S13 | closed | `test_native_mcp_stdio.py`: `test_a_message_over_16_mib_is_dropped_with_an_error`, `test_oversize_messages_are_dropped_and_the_stream_continues` |  |
 | STD-04 | S13 | closed | `test_native_mcp_stdio.py`: `test_keeps_the_last_64_kib_of_stderr_readable_after_the_server_failed` |  |
-| STD-05 | S13 | closed, with limits | `test_native_mcp_stdio.py`: `test_close_sends_sigterm_after_the_grace_period`, `test_close_kills_a_server_that_ignores_shutdown_including_its_children`, `test_close_terminates_children_that_outlive_a_server_that_exited`, `test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm` (added in G1); `test_native_mcp_stdio.py`: `test_an_exited_child_is_waited_for_without_reaping_it` (r3 P1) | DEV-09: POSIX only. G1: `close()` stops waiting after its SIGKILL for a holder of the pipes that left the group, where Pi waits. |
+| STD-05 | S13 | closed, with limits | `test_native_mcp_stdio.py`: `test_close_sends_sigterm_after_the_grace_period`, `test_close_kills_a_server_that_ignores_shutdown_including_its_children`, `test_close_terminates_children_that_outlive_a_server_that_exited`, `test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm` (added in G1); `test_native_mcp_stdio.py`: `test_an_exited_child_is_waited_for_without_reaping_it` (r3 P1), `test_a_watcher_that_cannot_start_ends_the_server_and_close_returns`, `test_a_reader_that_cannot_start_ends_the_server_and_close_returns` (r5 P1) | DEV-09: POSIX only. G1: `close()` stops waiting after its SIGKILL for a holder of the pipes that left the group, where Pi waits. |
 | STD-06 | S13 | closed | `test_native_mcp_stdio.py`: `test_servers_still_alive_at_interpreter_exit_are_sent_sigterm` |  |
 | STD-07 | S13 | closed | `test_native_mcp_stdio.py`: `test_server_exit_closes_the_transport_and_reports_a_partial_message`, `test_start_is_allowed_once_and_not_after_close` |  |
 
@@ -351,7 +358,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CON-06 | S15 | closed, with limits | `test_native_mcp_connection.py`: `test_marks_a_dropped_connection_and_reconnects_on_the_next_call`, `test_a_dropped_stdio_server_is_reported_with_its_stderr_and_restarted`, `test_a_dropped_server_reports_only_the_end_of_a_long_stderr` | DEV-56. |
 | CON-07 | S15 | closed | `test_native_mcp_connection.py`: `test_a_failed_connect_is_recorded_and_the_next_call_tries_again`, `test_a_stdio_server_that_fails_to_start_is_reported_with_its_stderr` |  |
 | CON-08 | S15 | closed | `test_native_mcp_connection.py`: `test_concurrent_callers_share_one_connection_attempt` |  |
-| CON-09 | S15 | closed | `test_native_mcp_connection.py`: `test_closes_a_connection_that_is_still_initializing_before_close_returns`, `test_calls_after_close_fail_as_shut_down`; `test_native_mcp_connection_http.py`: `test_stops_waiting_to_retry_a_connection_when_closed`; `test_native_mcp_http_fetch.py`: `test_a_tcp_connect_in_progress_ends_when_it_is_woken_or_times_out` (L1) |  |
+| CON-09 | S15 | closed | `test_native_mcp_connection.py`: `test_closes_a_connection_that_is_still_initializing_before_close_returns`, `test_calls_after_close_fail_as_shut_down`; `test_native_mcp_connection_http.py`: `test_stops_waiting_to_retry_a_connection_when_closed`; `test_native_mcp_http_fetch.py`: `test_a_tcp_connect_in_progress_ends_when_it_is_woken_or_times_out` (L1); `test_native_mcp_connection.py`: `test_a_stdio_start_that_cannot_start_a_thread_fails_and_close_returns` (r5 P1) |  |
 | CON-10 | S26 | closed, with limits | `test_native_mcp_connection_http.py`: `test_retries_http_connections_that_fail_with_a_transient_error`, `test_a_connect_is_tried_three_times_with_the_two_delays`, `test_only_network_errors_and_some_statuses_are_tried_again`, `test_stdio_connects_are_not_retried` | Network failures are tested with a refused local connection; no test uses HTTPS. DEV-56. |
 | CON-11 | S26 | closed, with limits | `test_native_mcp_connection_http.py`: `test_retries_resource_reads_but_not_tool_calls_after_a_transient_http_error`, `test_a_resource_request_waits_before_it_is_made_again` | DEV-17. |
 | CON-12 | S26 | closed, with limits | `test_native_mcp_connection_http.py`: `test_starts_a_new_session_and_retries_once_when_the_session_expired`, `test_the_old_session_stays_open_for_its_other_calls`, `test_a_session_that_expires_again_fails_the_call` | DEV-56. |
@@ -566,7 +573,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMDL-10 | S20a | closed | `test_native_mcp_shell_cli.py`: `test_lists_servers_with_state_tools_and_errors_and_fails_while_anything_is_wrong`, `test_list_without_servers_says_where_to_add_them` |  |
 | CMDL-11 | S20a | closed, with limits | `test_native_mcp_shell_cli.py`: `test_list_reads_the_project_file_only_in_a_trusted_project`, `test_login_and_logout_name_the_ignored_project_file_and_no_servers`, `test_the_trust_decision_is_read_from_the_commands_config_home` | DEV-57. |
 | CMDL-12 | S31 | closed | `test_native_mcp_shell_cli.py`: `test_rejects_unknown_servers_and_servers_without_oauth_for_login_and_logout`, `test_login_reports_a_server_that_fails_for_another_reason`, `test_list_connects_to_an_oauth_server_with_the_stored_token` |  |
-| CMDL-13 | S31 | closed, with limits | `test_native_mcp_shell_cli.py`: `test_signs_in_through_the_browser_and_out_again`, `test_reads_the_pasted_redirect_url_from_a_terminal`, `test_the_login_timeout_must_be_a_positive_number`, `test_gives_up_on_login_after_the_timeout_also_while_the_server_hangs` | DEV-57. |
+| CMDL-13 | S31 | closed, with limits | `test_native_mcp_shell_cli.py`: `test_signs_in_through_the_browser_and_out_again`, `test_reads_the_pasted_redirect_url_from_a_terminal`, `test_the_login_timeout_must_be_a_positive_number`, `test_gives_up_on_login_after_the_timeout_also_while_the_server_hangs`, `test_a_browser_launcher_that_blocks_does_not_delay_the_login_timeout` (r5 F1); `test_native_mcp_sign_in.py`: `test_opening_the_browser_does_not_wait_for_the_launcher` (r5 F1) | DEV-57. |
 | CMDL-14 | S31 | closed, with limits | `test_native_mcp_shell_cli.py`: `test_signs_in_through_the_browser_and_out_again`, `test_logout_reports_a_credentials_file_it_cannot_read`; `test_native_mcp_credentials.py`: `test_remove_deletes_anyway_when_a_refresh_holds_the_lock_too_long` (r4 F2) | DEV-55. |
 
 ### `/mcp` in a session (SLH)

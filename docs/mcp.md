@@ -906,6 +906,11 @@ header (in any letter case) or `auth`. You sign in with
 [`/mcp login <server>`](#the-mcp-command) in a session or with
 [`pipy mcp login <server>`](#log-in-and-out) in a shell. Both open a browser
 and store the credentials in [the credentials file](#the-credentials-file).
+As in Pi, the browser is opened with `open` on macOS, `rundll32` on
+Windows and `xdg-open` elsewhere, and the sign-in does not wait for it: a
+launcher that takes its time delays neither the prompt for the pasted
+address nor the end of the sign-in by its time limit or by cancelling, and
+it gets none of pipy's input or output.
 Nothing else opens a browser; connections use what is stored:
 
 - Requests to such a server carry the access token stored for it in
@@ -2092,8 +2097,8 @@ below.
 | --- | --- |
 | `protocol`, `transport` | JSON-RPC message checks, error types, the protocol versions pipy accepts (`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`), conversion of MCP content blocks to text and images, and an in-memory transport pair for tests. |
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
-| `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group until the server exited and its stdout and stderr closed. POSIX only. |
-| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). A JSON answer is read whatever its size; the message limit (`max_message_bytes`, 16 MiB) is for one event of a stream. |
+| `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group until the server exited and its stdout and stderr closed. A start that cannot start one of the transport's threads fails with that error and kills the server, and a close then returns. POSIX only. |
+| `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. As in Pi, a notification or a response is sent when the server accepted it, with no deadline: `StreamableHttpTransportOptions(send_timeout_ms=...)` sets one, and `close()` ends the wait. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). A JSON answer is read whatever its size; the message limit (`max_message_bytes`, 16 MiB) is for one event of a stream. |
 | `http_fetch` | How the HTTP transport sends a request. `StreamableHttpTransportOptions(fetch=...)` takes a function that is called with every request of the transport (`McpHttpRequest`: method, URL, headers, body, the request's cancel token and the time limit for connecting) and returns the answer (`McpHttpResponse`) before its body is read. Pass one for a proxy, another TLS setup or a network of your own; it follows redirects itself. The module text says what such a function has to do. Without the option the transport uses `create_default_fetch()`, which asks for `gzip` and `deflate` and decodes them. |
 | `content_coding` | Decoding of `gzip` and `deflate` answers by the rules of Node's `fetch`, shared by the transport's default fetch (bodies decoded as they are read) and the OAuth fetch (whole bodies). |
 | `config` | Validation, loading and editing of `mcp.json`, as described under [configure servers](#configure-servers). |

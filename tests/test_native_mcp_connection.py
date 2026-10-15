@@ -43,7 +43,7 @@ from pipy_harness.native.mcp.protocol import (
     McpConnectionClosedError,
     McpTimeoutError,
 )
-from pipy_harness.native.mcp.stdio import StdioTransport
+from pipy_harness.native.mcp.stdio import StdioTransport, StdioTransportOptions
 from pipy_harness.native.mcp.transport import (
     McpTransport,
     create_in_memory_transport_pair,
@@ -734,6 +734,51 @@ def test_closes_a_connection_that_is_still_initializing_before_close_returns() -
     assert "failed to connect" in str(failure)
     assert harness.connection.state == "closed"
     caller.join(_WAIT_SECONDS)
+
+
+def test_a_stdio_start_that_cannot_start_a_thread_fails_and_close_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Goal check r5, P1: the failed connect's cleanup and close() waited
+    # without end for a stdio watcher thread that never started.
+    start = threading.Thread.start
+
+    def failing_start(thread: threading.Thread) -> None:
+        if thread.name == "mcp-stdio-wait":
+            raise RuntimeError("can't start new thread")
+        start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", failing_start)
+    # A server that would run for a minute: only the start's SIGKILL ends it.
+    harness = _Harness(
+        [
+            lambda: StdioTransport(
+                StdioTransportOptions(
+                    command=sys.executable, args=("-c", "import time; time.sleep(60)")
+                )
+            )
+        ]
+    )
+    failures: list[BaseException] = []
+
+    def connect_and_close() -> None:
+        try:
+            harness.connection.get_client()
+        except BaseException as error:  # noqa: BLE001 - handed to the test thread
+            failures.append(error)
+        harness.connection.close()
+
+    caller = threading.Thread(target=connect_and_close, daemon=True)
+    caller.start()
+    caller.join(_WAIT_SECONDS)
+
+    assert not caller.is_alive()
+    assert [type(error) for error in failures] == [McpServerConnectionError]
+    assert "can't start new thread" in str(failures[0])
+    assert harness.connection.state == "closed"
+    [transport] = harness.opened
+    assert isinstance(transport, StdioTransport)
+    assert transport.pid is None
 
 
 def test_calls_after_close_fail_as_shut_down() -> None:

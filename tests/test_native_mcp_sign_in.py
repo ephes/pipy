@@ -8,7 +8,10 @@ asks the authorization URL and follows the redirect to the loopback port.
 
 from __future__ import annotations
 
+import os
+import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -33,8 +36,10 @@ from pipy_harness.native.mcp.oauth.types import OAuthChallenge
 from pipy_harness.native.mcp.sign_in import (
     CallbackSettings,
     McpSignInCancelledError,
+    browser_command,
     callback_settings,
     merge_scopes,
+    open_browser,
     response_from_redirect_url,
     sign_in_mcp_server,
     wait_for_cancel,
@@ -557,6 +562,97 @@ def test_cancels_a_sign_in_while_the_authorization_server_hangs(
     assert not thread.is_alive()
     assert time.monotonic() - started < 2.0
     assert [type(error) for error in errors] == [McpSignInCancelledError]
+
+
+class SlowLauncher:
+    """``open`` and ``xdg-open`` on ``PATH`` that record their pid and
+    arguments and then block, holding whatever standard streams they got."""
+
+    def __init__(self, directory: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        directory.mkdir()
+        self.record = directory / "launched"
+        for name in ("open", "xdg-open"):
+            script = directory / name
+            script.write_text(
+                f'#!/bin/sh\necho "$$ $*" >> "{self.record}"\nexec sleep 30\n'
+            )
+            script.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
+
+    def launched(self) -> list[str]:
+        """The arguments of each launch, once it got as far as recording them."""
+
+        if not self.record.exists():
+            return []
+        lines = self.record.read_text().splitlines()
+        return [line.split(" ", 1)[1] for line in lines]
+
+    def stop(self) -> None:
+        if not self.record.exists():
+            return
+        for line in self.record.read_text().splitlines():
+            try:
+                os.kill(int(line.split(" ", 1)[0]), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+@pytest.fixture
+def slow_launcher(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[SlowLauncher]:
+    launcher = SlowLauncher(tmp_path / "bin", monkeypatch)
+    yield launcher
+    launcher.stop()
+
+
+def test_browser_command_is_pis() -> None:
+    # Pi `openBrowser`: no shell, so the URL cannot run a command.
+    command = browser_command("https://a.example/?x=1&y=$(id)")
+    assert command[-1] == "https://a.example/?x=1&y=$(id)"
+    assert command[0] == {"darwin": "open", "win32": "rundll32"}.get(
+        sys.platform, "xdg-open"
+    )
+
+
+def test_opening_the_browser_does_not_wait_for_the_launcher(
+    slow_launcher: SlowLauncher,
+) -> None:
+    # Goal check r5, F1: Pi's openBrowser starts its launcher detached, with
+    # no standard streams, and does not wait for it. A launcher that blocks
+    # must hold neither the sign-in nor the output of whoever reads pipy's.
+    child = subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            "-c",
+            "from pipy_harness.native.mcp.sign_in import open_browser\n"
+            "open_browser('https://auth.example/authorize?x=1')\n"
+            "print('returned')\n",
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        # The pipes close when the child exits, not when the launcher does.
+        stdout, stderr = child.communicate(timeout=_WAIT_SECONDS)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate()
+    assert (stdout, stderr, child.returncode) == ("returned\n", "", 0)
+    _wait_until(
+        lambda: slow_launcher.launched() == ["https://auth.example/authorize?x=1"]
+    )
+
+
+def test_a_launcher_that_cannot_be_started_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The user has the URL (Pi ignores the launcher's error event).
+    monkeypatch.setenv("PATH", str(tmp_path))
+    open_browser("https://auth.example/authorize")
 
 
 def test_a_sign_in_that_is_cancelled_before_it_starts_asks_nobody(
