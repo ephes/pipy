@@ -2,8 +2,8 @@
 
 Status: **implemented on `feat/mcp-parity`, not merged.** Of the 292
 checklist rows of the
-[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 179 are
-closed with a test and 113 are closed with a recorded limit or
+[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 173 are
+closed with a test and 119 are closed with a recorded limit or
 deviation; no row is open. The official MCP
 client conformance suite gives the same result for pipy as for Pi. Live use
 with a real server and a real model (plan section 6.5) has **not** been
@@ -14,9 +14,9 @@ implemented the slice, from the tests and documents in the repository: a
 first pass on 2026-10-13 and a second one on 2026-10-14 that checked the
 first. It is evidence for the owner's final judgement, not that judgement.
 
-The 113 rows that are closed with a limit count as closed only if the
+The 119 rows that are closed with a limit count as closed only if the
 judgement accepts the deviation or limit each one names (plan section 3).
-The owner accepted the DEV rows that plan section 7, Q11, names
+The owner accepted the DEV rows that plan section 7, Q11 and Q12, name
 (2026-10-15).
 
 Updated on 2026-10-15 (INT3), when the goal-check tracks L and N were merged:
@@ -40,6 +40,14 @@ keeps the tools, tool renderer resolvers and MCP servers the extensions
 registered after loading, so EXT-15 loses the resolver added again in each
 new session, and the coordinator accepted DEV-79 and the `duration_ms` part
 of DEV-48 under the triage decision (plan section 7, Q11).
+
+Updated again on 2026-10-15 after the triage of the third goal check:
+six accepted findings became the new rows DEV-80 to DEV-85, which set
+CFG-23, CFG-24, HTP-01 and SES-01 to `closed, with limits`; DEV-54 now also
+names OAU-26 and OAU-31 (a callback path is compared as written), which
+sets them to `closed, with limits` too. The owner accepted the DEV rows plan
+section 7, Q12, names. The fix slices of that triage (T1 to T6) change the
+rows they fix when they land.
 
 ## Reference
 
@@ -105,7 +113,7 @@ Plan section 3 lists DEV-01 to DEV-14, which were proposed before or while
 the slices were built. They hold as written.
 
 The slices recorded further differences from Pi. Plan section 3.1 now lists
-them as DEV-15 to DEV-79, each with the rows it changes, its kind (narrower,
+them as DEV-15 to DEV-85, each with the rows it changes, its kind (narrower,
 other form, stricter) and where it is recorded. Every row named there names
 the DEV row in the "Limits and deviations" column of the tables below and
 is `closed, with limits`. The ones a user is most likely to meet:
@@ -118,6 +126,9 @@ is `closed, with limits`. The ones a user is most likely to meet:
   Pi restarts them in every case.
 - **`auth.provider` differs in details** (DEV-52; OAU-36): no ambient cloud
   credentials.
+- **No proxy support** (DEV-82; HTP-01): HTTP servers and the OAuth requests
+  connect directly, without `HTTP_PROXY`/`HTTPS_PROXY` or an `httpProxy`
+  setting.
 - **Nested calls have no session-wide sequential mode** (DEV-48;
   EXT-11; a tool's `execution_mode` is honoured since H3), and a wrapped built-in row has no live preview or ticking time
   (DEV-45; EXT-15).
@@ -127,7 +138,9 @@ is `closed, with limits`. The ones a user is most likely to meet:
 
 The owner accepted the DEV rows that plan section 7, Q11, names
 (2026-10-15), among them DEV-69 to DEV-79; DEV-79 and the `duration_ms`
-part of DEV-48 were added the same day under the same triage decision. The
+part of DEV-48 were added the same day under the same triage decision.
+Q12 (2026-10-15, the third goal check) accepts the DEV rows it names,
+among them DEV-80 to DEV-85, DEV-59 and DEV-66. The
 others of DEV-15 to DEV-68, except the closed DEV-39, DEV-42 and DEV-65, are
 still proposals for the final judgement. DEV-06, DEV-07 and DEV-09 are owner decisions since 2026-10-14
 (plan section 7, Q1 and Q7).
@@ -232,8 +245,8 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CFG-20 | S14 | closed, with limits | `test_native_mcp_config.py`: `test_invalid_entries_give_their_error_text` | DEV-54. |
 | CFG-21 | S14 | closed | `test_native_mcp_config.py`: `test_validates_provider_auth_and_accepts_it_only_at_user_level` |  |
 | CFG-22 | S14 | closed | `test_native_mcp_config.py`: `test_disabled_servers_stay_in_the_loaded_list` |  |
-| CFG-23 | S14 | closed | `test_native_mcp_config.py`: `test_update_keeps_other_content_and_four_space_indentation`, `test_update_writes_defaults_in_an_override_entry`, `test_update_with_override_creates_a_missing_entry`, `test_update_of_a_server_the_file_does_not_define` |  |
-| CFG-24 | S14 | closed | `test_native_mcp_config.py`: `test_add_creates_the_file_and_its_directory`, `test_add_replaces_an_entry_and_reports_it`, `test_remove_reports_whether_the_entry_existed` |  |
+| CFG-23 | S14 | closed, with limits | `test_native_mcp_config.py`: `test_update_keeps_other_content_and_four_space_indentation`, `test_update_writes_defaults_in_an_override_entry`, `test_update_with_override_creates_a_missing_entry`, `test_update_of_a_server_the_file_does_not_define` | A file holding a number JSON cannot write back (`1e999`) is not rewritten; the edit fails. DEV-81. |
+| CFG-24 | S14 | closed, with limits | `test_native_mcp_config.py`: `test_add_creates_the_file_and_its_directory`, `test_add_replaces_an_entry_and_reports_it`, `test_remove_reports_whether_the_entry_existed` | A file holding a number JSON cannot write back (`1e999`) is not rewritten; the edit fails. DEV-81. |
 | CFG-25 | S15 | closed | `test_native_mcp_config_values.py`: `test_templates_replace_environment_references`, `test_a_command_value_is_its_trimmed_output`, `test_headers_are_resolved_and_named_in_errors`; `test_native_mcp_connection.py`: `test_env_values_are_resolved_and_an_unresolved_one_names_server_and_key` |  |
 | CFG-26 | S15 | closed | `test_native_mcp_connection.py`: `test_home_is_expanded_in_command_arguments_and_cwd`, `test_a_relative_cwd_resolves_against_the_session_directory` |  |
 
@@ -274,7 +287,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
-| HTP-01 | S24 | closed | `test_native_mcp_http.py`: `test_every_message_is_a_post_with_accept_json_body_and_configured_headers` |  |
+| HTP-01 | S24 | closed, with limits | `test_native_mcp_http.py`: `test_every_message_is_a_post_with_accept_json_body_and_configured_headers` | No proxy support. DEV-82. |
 | HTP-02 | S24 | closed | `test_native_mcp_http.py`: `test_handles_json_and_sse_responses_with_session_and_protocol_headers`, `test_the_auth_provider_token_replaces_a_configured_authorization_header` |  |
 | HTP-03 | S24 | closed | `test_native_mcp_http.py`: `test_a_json_array_delivers_every_message`, `test_an_event_stream_delivers_every_message_and_skips_what_is_none`; `test_native_mcp_http.py`: `test_a_json_answer_is_not_held_to_the_message_limit` (L1) |  |
 | HTP-04 | S24 | closed | `test_native_mcp_http.py`: `test_rejects_a_request_the_server_accepts_without_a_response`, `test_notifications_and_responses_ignore_the_response_body`, `test_rejects_another_content_type` |  |
@@ -337,7 +350,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
-| SES-01 | S17 | closed | `test_native_mcp_manager.py`: `test_start_connects_enabled_servers_in_the_background`, `test_servers_register_in_configuration_order`; `test_native_mcp_manager_registered.py`: `test_servers_registered_before_the_start_connect_with_it`, `test_the_mcp_json_server_wins_over_a_registered_one`; `test_native_mcp_session_switch.py`: `test_another_session_reads_mcp_json_again`, `test_a_product_session_transition_loads_the_servers_again` (N1) |  |
+| SES-01 | S17 | closed, with limits | `test_native_mcp_manager.py`: `test_start_connects_enabled_servers_in_the_background`, `test_servers_register_in_configuration_order`; `test_native_mcp_manager_registered.py`: `test_servers_registered_before_the_start_connect_with_it`, `test_the_mcp_json_server_wins_over_a_registered_one`; `test_native_mcp_session_switch.py`: `test_another_session_reads_mcp_json_again`, `test_a_product_session_transition_loads_the_servers_again` (N1) | A replaced session keeps the loaded extensions and starts from what they registered while loading; Pi loads them again. DEV-84. |
 | SES-02 | S17 | closed, with limits | `test_native_mcp_manager.py`: `test_tools_register_with_the_exposure_the_config_resolves` | DEV-36. |
 | SES-03 | S17 | closed | `test_native_mcp_manager.py`: `test_a_changed_list_adds_withdraws_and_restores_tools` |  |
 | SES-04 | S19 | closed, with limits | `test_native_mcp_manager.py`: `test_startup_problems_are_reported_once_in_one_notice`, `test_nothing_is_reported_when_nothing_needs_attention`; `test_native_mcp_session.py`: `test_startup_problems_are_reported_once`; `test_native_mcp_idle_notices.py`: `test_the_editor_shows_the_startup_report_while_it_waits`, `test_an_rpc_client_gets_the_startup_report_without_a_command` (N1) | Shown while the session waits for input (the editor, the modal key loops, an RPC `notify`), not at the moment it arises (docs/mcp.md "Startup report"). DEV-15. |
@@ -438,7 +451,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMD-27 | S08 | closed, with limits | `test_native_codemode_description.py`: `test_prompt_contribution_is_one_snippet_and_does_not_depend_on_tools` | Pipy's contribution has two guideline lines; the second predates this plan (codemode adherence). MCP adds nothing. DEV-24. |
 | CMD-28 | S39 | closed | `test_native_codemode_images.py`: `test_image_accepts_data_urls_image_url_objects_and_image_blocks`, `test_image_rejects_everything_else_with_pis_messages`, `test_a_real_script_shows_images_and_gets_errors_for_what_is_not_one` |  |
 | CMD-29 | S39 | closed, with limits | `test_native_codemode_images.py`: `test_images_stay_in_output_order_each_after_its_saved_path`, `test_a_saved_image_is_a_file_only_its_user_can_read`, `test_a_failed_save_is_named_and_keeps_the_image`, `test_a_session_attaches_only_the_images_the_script_shows`; `test_native_codemode_result.py`: `test_text_items_are_marked_and_console_output_comes_last` (R1); `test_native_codemode_host_runtime.py`: `test_printed_output_is_console_output_and_text_items_are_marked` (R1) | Text and images share Pi's output limit of 16 Mi characters; the `==> text N/M <==` lines and the `<console_output>` block of Pi's `formatOutput` since R1. A script that shows some hundreds of images overflows the result's 64 KiB of text. DEV-20. |
-| CMD-30 | S39 | closed, with limits | `test_native_codemode_images.py`: `test_images_follow_a_truncated_text_and_are_never_cut` | DEV-20. |
+| CMD-30 | S39 | closed, with limits | `test_native_codemode_images.py`: `test_images_follow_a_truncated_text_and_are_never_cut` | DEV-20. `max_output_tokens` is at most 16000. DEV-80. |
 
 ### Resources (RES)
 
@@ -460,16 +473,16 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
 | OAU-01 | S30 | closed | `test_native_mcp_auth_provider.py`: `test_sends_the_stored_access_token`, `test_refreshes_the_tokens_after_a_401`, `test_a_401_without_a_refresh_token_needs_a_sign_in`; `test_native_mcp_connection_oauth.py`: `test_connects_with_the_stored_token_and_refreshes_it_when_it_is_rejected` |  |
-| OAU-02 | S27 | closed, with limits | `test_native_mcp_oauth_discovery.py`: `test_protected_resource_metadata_is_found_below_the_server_path`, `test_protected_resource_metadata_falls_back_to_the_root_form`, `test_the_challenge_s_metadata_url_is_asked_instead_of_the_well_known_ones`, `test_the_metadata_request_carries_the_given_protocol_version`, `test_a_network_failure_loading_resource_metadata_fails_discovery` | A metadata response over 1 MiB is refused. DEV-72. |
-| OAU-03 | S27 | closed, with limits | `test_native_mcp_oauth_discovery.py`: `test_discovery_finds_the_authorization_server_the_resource_names`, `test_without_resource_metadata_the_server_s_origin_is_the_authorization_server`, `test_an_issuer_with_a_path_has_three_candidate_urls`, `test_another_failure_status_ends_the_search`; `test_native_mcp_oauth_flow.py`: `test_a_server_without_metadata_gets_the_default_endpoints` | A metadata response over 1 MiB is refused. DEV-72. |
+| OAU-02 | S27 | closed, with limits | `test_native_mcp_oauth_discovery.py`: `test_protected_resource_metadata_is_found_below_the_server_path`, `test_protected_resource_metadata_falls_back_to_the_root_form`, `test_the_challenge_s_metadata_url_is_asked_instead_of_the_well_known_ones`, `test_the_metadata_request_carries_the_given_protocol_version`, `test_a_network_failure_loading_resource_metadata_fails_discovery` | A metadata response over 1 MiB is refused. DEV-72. No proxy support (DEV-82). |
+| OAU-03 | S27 | closed, with limits | `test_native_mcp_oauth_discovery.py`: `test_discovery_finds_the_authorization_server_the_resource_names`, `test_without_resource_metadata_the_server_s_origin_is_the_authorization_server`, `test_an_issuer_with_a_path_has_three_candidate_urls`, `test_another_failure_status_ends_the_search`; `test_native_mcp_oauth_flow.py`: `test_a_server_without_metadata_gets_the_default_endpoints` | A metadata response over 1 MiB is refused. DEV-72. No proxy support (DEV-82). |
 | OAU-04 | S27 | closed | `test_native_mcp_oauth_discovery.py`: `test_rejects_authorization_metadata_whose_issuer_does_not_match_discovery`, `test_the_issuer_may_differ_by_one_trailing_slash` |  |
 | OAU-05 | S27 | closed | `test_native_mcp_oauth_discovery.py`: `test_a_bearer_challenge_is_parsed`, `test_a_step_up_challenge_is_parsed`, `test_empty_challenge_values_count_as_absent`, `test_no_challenge_without_a_bearer_or_dpop_header` |  |
 | OAU-06 | S27, S28 | closed | `test_native_mcp_oauth_discovery.py`: `test_a_resource_at_or_above_the_server_url_is_selected`, `test_a_resource_that_is_not_the_server_s_fails`; `test_native_mcp_oauth_flow.py`: `test_resource_metadata_for_another_resource_fails_the_flow`, `test_discovers_registers_authorizes_with_pkce_and_refreshes` |  |
 | OAU-07 | S28, S31 | closed | `test_native_mcp_oauth_flow.py`: `test_the_requested_scope_is_the_first_source_that_has_one`; `test_native_mcp_sign_in.py`: `test_asks_for_the_configured_scope_and_the_challenged_one_together` |  |
-| OAU-08 | S28 | closed, with limits | `test_native_mcp_oauth_flow.py`: `test_the_registration_request_carries_the_client_metadata_and_the_scope`, `test_registers_with_an_application_type_derived_from_the_redirect_uris`, `test_a_server_without_a_registration_endpoint_cannot_register`, `test_a_refused_registration_reports_status_and_body`; `test_native_mcp_auth_provider.py`: `test_the_client_of_a_registration_is_named_pipy_unless_configured` | DEV-05: the default `client_name` is `pipy`. A registration response over 1 MiB is refused. DEV-72. |
+| OAU-08 | S28 | closed, with limits | `test_native_mcp_oauth_flow.py`: `test_the_registration_request_carries_the_client_metadata_and_the_scope`, `test_registers_with_an_application_type_derived_from_the_redirect_uris`, `test_a_server_without_a_registration_endpoint_cannot_register`, `test_a_refused_registration_reports_status_and_body`; `test_native_mcp_auth_provider.py`: `test_the_client_of_a_registration_is_named_pipy_unless_configured` | DEV-05: the default `client_name` is `pipy`. A registration response over 1 MiB is refused. DEV-72. No proxy support (DEV-82). |
 | OAU-09 | S28 | closed | `test_native_mcp_oauth_flow.py`: `test_the_authorization_url_carries_the_request`, `test_offline_access_asks_for_consent`, `test_a_server_without_the_code_response_type_fails`, `test_a_server_without_s256_fails` |  |
 | OAU-10 | S28 | closed | `test_native_mcp_oauth_flow.py`: `test_tokens_are_not_requested_from_an_insecure_endpoint`, `test_tokens_are_requested_from_https_and_loopback_endpoints`, `test_a_client_with_a_secret_authenticates_as_registered_or_as_the_server_supports`, `test_a_client_without_a_secret_sends_its_id_only` |  |
-| OAU-11 | S28 | closed, with limits | `test_native_mcp_oauth_flow.py`: `test_an_error_field_is_an_oauth_error_whatever_the_status`, `test_another_failure_status_is_a_server_error`, `test_empty_and_null_optional_token_fields_count_as_absent` | `expires_in` is a number or a decimal string (DEV-70); a token response over 1 MiB is refused (DEV-72). |
+| OAU-11 | S28 | closed, with limits | `test_native_mcp_oauth_flow.py`: `test_an_error_field_is_an_oauth_error_whatever_the_status`, `test_another_failure_status_is_a_server_error`, `test_empty_and_null_optional_token_fields_count_as_absent` | `expires_in` is a number or a decimal string (DEV-70); a token response over 1 MiB is refused (DEV-72). No proxy support (DEV-82). |
 | OAU-12 | S28 | closed | `test_native_mcp_oauth_flow.py`: `test_exchanges_a_code_only_when_its_iss_parameter_names_the_authorization_server`; `test_native_mcp_sign_in.py`: `test_rejects_an_authorization_response_from_another_issuer` |  |
 | OAU-13 | S28 | closed | `test_native_mcp_oauth_flow.py`: `test_a_token_response_without_scope_records_the_requested_scope`, `test_a_refresh_stores_the_rotated_refresh_token`; `test_native_mcp_oauth_provider.py`: `test_a_refresh_through_the_provider_stores_the_rotated_tokens` |  |
 | OAU-14 | S28 | closed | `test_native_mcp_oauth_flow.py`: `test_a_refresh_token_the_server_no_longer_knows_asks_for_authorization`, `test_a_client_the_server_refuses_is_registered_again`, `test_the_flow_runs_again_only_once`, `test_a_refresh_that_fails_otherwise_asks_for_authorization`, `test_another_oauth_error_of_a_refresh_is_reported` |  |
@@ -484,17 +497,17 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | OAU-23 | S30 | closed, with limits | `test_native_mcp_connection_oauth.py`: `test_closing_waits_for_a_running_refresh_to_save_its_tokens`, `test_closes_without_refreshing_an_expiring_token` | DEV-55. |
 | OAU-24 | S31 | closed | `test_native_mcp_sign_in.py`: `test_tries_the_stored_refresh_token_before_the_browser`; `test_native_mcp_oauth_flow.py`: `test_asks_for_authorization_instead_of_refreshing_when_the_server_needs_more_scope` |  |
 | OAU-25 | S31 | closed | `test_native_mcp_sign_in.py`: `test_callback_settings`, `test_a_taken_port_is_replaced_by_a_free_one_and_the_client_registered_again`, `test_a_configured_port_that_is_taken_fails_the_sign_in`, `test_a_configured_client_keeps_its_tokens_on_another_redirect_uri` |  |
-| OAU-26 | S31 | closed | `test_native_mcp_sign_in.py`: `test_signs_in_through_the_browser`, `test_accepts_a_pasted_redirect_url_when_the_browser_cannot_reach_the_callback` |  |
+| OAU-26 | S31 | closed, with limits | `test_native_mcp_sign_in.py`: `test_signs_in_through_the_browser`, `test_accepts_a_pasted_redirect_url_when_the_browser_cannot_reach_the_callback` | A callback path is compared as written, not percent-encoded. DEV-54. |
 | OAU-27 | S31 | closed | `test_native_mcp_sign_in.py`: `test_rejects_a_pasted_url_that_is_not_this_sign_ins_response`, `test_reads_the_authorization_response_from_a_pasted_redirect_url`, `test_an_empty_paste_cancels_the_sign_in` |  |
 | OAU-28 | S31 | closed | `test_native_mcp_sign_in.py`: `test_cancels_a_sign_in_that_waits_for_the_browser`, `test_cancels_a_sign_in_while_the_authorization_server_hangs`; `test_native_mcp_manager_oauth.py`: `test_closing_the_manager_cancels_a_running_sign_in`, `test_a_cancelled_sign_in_says_so` |  |
 | OAU-29 | S31 | closed | `test_native_mcp_manager_oauth.py`: `test_signs_in_through_the_browser_and_connects_the_server`, `test_reports_a_reconnect_that_fails_after_the_sign_in`, `test_reports_a_sign_in_that_failed`, `test_only_an_enabled_oauth_server_can_be_signed_in_to` |  |
 | OAU-30 | S32 | closed | `test_native_mcp_oauth_options.py`: `test_a_configured_client_is_used_without_a_registration`; `test_native_mcp_oauth_provider.py`: `test_a_configured_client_is_used_and_never_stored`; `test_native_mcp_connection_oauth.py`: `test_a_client_secret_that_cannot_be_resolved_fails_the_refresh_only` |  |
-| OAU-31 | S32 | closed | `test_native_mcp_oauth_options.py`: `test_a_callback_port_alone_fixes_the_default_redirect_uri`, `test_uses_the_configured_callback_url_and_scope`, `test_adds_the_listening_port_to_a_callback_url_without_one` |  |
+| OAU-31 | S32 | closed, with limits | `test_native_mcp_oauth_options.py`: `test_a_callback_port_alone_fixes_the_default_redirect_uri`, `test_uses_the_configured_callback_url_and_scope`, `test_adds_the_listening_port_to_a_callback_url_without_one` | A callback path is compared as written, not percent-encoded. DEV-54. |
 | OAU-32 | S32 | closed | `test_native_mcp_oauth_options.py`: `test_registers_with_the_configured_client_name`, `test_a_changed_client_name_applies_only_to_a_new_registration` |  |
 | OAU-33 | S32 | closed, with limits | `test_native_mcp_oauth_options.py`: `test_uses_the_document_when_authorization_responses_name_their_issuer`, `test_fails_instead_of_registering_when_the_server_does_not_support_documents`, `test_a_server_without_documents_for_public_clients_is_refused` | DEV-06: the documents are the user's, named with `oauth.clientMetadataBaseUrl`; pipy has no built-in document (owner question Q1). |
 | OAU-34 | S32 | closed, with limits | `test_native_mcp_oauth_options.py`: `test_uses_a_document_and_callback_path_of_the_server_without_the_iss_parameter`, `test_the_callback_id_is_computed_over_the_server_url_without_its_fragment`, `test_accepts_the_authorization_response_only_on_the_server_specific_redirect_uri`, `test_replaces_a_registered_client_when_switching_to_the_document` | The `<id>` hashes the URL as pipy's parser writes it, which for unusual URLs may differ from Pi's. DEV-54. |
 | OAU-35 | S32 | closed | `test_native_mcp_oauth_options.py`: `test_uses_the_configured_authorization_server_metadata_url`, `test_the_configured_metadata_is_used_as_written_and_never_cached` |  |
-| OAU-36 | S33 | closed, with limits | `test_native_mcp_provider_auth.py`: `test_sends_the_provider_token_and_asks_for_the_provider_login_when_the_server_rejects_it`, `test_the_token_is_read_for_every_request`, `test_a_session_sends_the_login_of_the_provider_and_reports_a_missing_one`; `test_native_mcp_provider_auth.py`: `test_the_models_json_key_is_the_token_when_no_other_source_has_one`, `test_the_codex_login_is_the_token_of_openai_codex` (L4); `test_native_mcp_provider_auth.py`: `test_the_api_key_given_to_the_session_is_the_token_of_its_provider_only`, `test_the_api_key_given_to_the_session_is_never_sent_for_another_provider`, `test_the_session_api_key_belongs_to_the_provider_the_session_starts_with`, `test_every_built_in_login_is_refreshed_and_saved_once_it_expires_soon`, `test_an_extension_login_is_refreshed_and_saved_through_the_extension` (H1) | The key a model request to the provider would use; `--api-key` only for the starting model's provider; every stored login refreshed as Pi does; no ambient cloud credentials. DEV-52. |
+| OAU-36 | S33 | closed, with limits | `test_native_mcp_provider_auth.py`: `test_sends_the_provider_token_and_asks_for_the_provider_login_when_the_server_rejects_it`, `test_the_token_is_read_for_every_request`, `test_a_session_sends_the_login_of_the_provider_and_reports_a_missing_one`; `test_native_mcp_provider_auth.py`: `test_the_models_json_key_is_the_token_when_no_other_source_has_one`, `test_the_codex_login_is_the_token_of_openai_codex` (L4); `test_native_mcp_provider_auth.py`: `test_the_api_key_given_to_the_session_is_the_token_of_its_provider_only`, `test_the_api_key_given_to_the_session_is_never_sent_for_another_provider`, `test_the_session_api_key_belongs_to_the_provider_the_session_starts_with`, `test_every_built_in_login_is_refreshed_and_saved_once_it_expires_soon`, `test_an_extension_login_is_refreshed_and_saved_through_the_extension` (H1) | The key a model request to the provider would use; `--api-key` only for the starting model's provider; every stored login refreshed as Pi does; no ambient cloud credentials. DEV-52. A stored key is resolved by pipy's rules, without Pi's `${VAR}` templates and `env` map. DEV-83. |
 | OAU-37 | L2 | closed, with limits | `test_native_mcp_oauth_adapter.py`: `test_authorizes_a_transport_and_refreshes_after_a_401`, `test_shares_one_refresh_between_concurrent_401s_when_refresh_tokens_rotate`, `test_asks_for_authorization_instead_of_refreshing_when_the_server_needs_more_scope`, `test_a_request_whose_token_was_replaced_is_sent_again_without_a_refresh` | The flow uses the OAuth library's fetch, not the transport's. DEV-67. |
 
 ### `pipy mcp` shell commands (CMDL)
@@ -562,12 +575,12 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
-| EXT-01 | S02, R2 | closed, with limits | `test_native_extension_tool_metadata.py`: `test_activation_accepts_every_metadata_field`, `test_activation_rejects_a_wrong_metadata_shape`; `test_native_extension_tools.py`: `test_a_pi_style_schema_keeps_the_extension_enabled`, `test_a_non_callable_prepare_arguments_disables_the_extension`, `test_the_model_calls_a_pi_style_tool_through_prepare_arguments`, `test_prepare_arguments_runs_once_per_call` (R2) | A `prepare_arguments` that raises names only the exception type. DEV-79. |
+| EXT-01 | S02, R2 | closed, with limits | `test_native_extension_tool_metadata.py`: `test_activation_accepts_every_metadata_field`, `test_activation_rejects_a_wrong_metadata_shape`; `test_native_extension_tools.py`: `test_a_pi_style_schema_keeps_the_extension_enabled`, `test_a_non_callable_prepare_arguments_disables_the_extension`, `test_the_model_calls_a_pi_style_tool_through_prepare_arguments`, `test_prepare_arguments_runs_once_per_call` (R2) | A `prepare_arguments` that raises names only the exception type. DEV-79. No `constrained_sampling` (DEV-85). |
 | EXT-02 | S02, S04, R5 | closed, with limits | `test_native_extension_tool_metadata.py`: `test_result_carries_structured_content_and_is_error`, `test_is_error_result_reaches_the_model_as_an_error`; `test_native_codemode_result_shapes.py`: `test_script_receives_structured_content_text_or_a_tool_error`; `test_native_agent_event_adapters.py`: `test_automation_projection_emits_pi_tool_result_objects` (R5) | DEV-59. |
 | EXT-03 | S02, S17 | closed, with limits | `test_native_extension_tool_metadata.py`: `test_get_all_tools_reports_every_registered_tool`, `test_a_permission_hook_decides_by_annotations`; `test_native_tool_capabilities_mcp.py`: `test_get_all_tools_reports_the_metadata_of_mcp_tools` | DEV-25. |
 | EXT-04 | S02, R2 | closed, with limits | `test_native_extension_tool_metadata.py`: `test_hidden_re_registration_withdraws_the_tool`, `test_hidden_re_registration_removes_the_tool_from_the_next_request`, `test_a_tool_registered_while_the_session_runs_takes_effect_at_once` (G9); `test_native_extension_tool_metadata.py`: `test_another_extensions_tool_name_keeps_the_first_registration`; `test_native_extension_tools.py`: `test_duplicate_tool_name_keeps_the_first_and_both_extensions`; `test_native_extension_live_tools.py`: `test_an_earlier_loaded_extension_takes_a_tool_name_over`; `test_native_extension_contribution_names.py`: `test_a_tool_name_an_earlier_extension_has_is_no_collision` (R2) | DEV-26. |
 | EXT-05 | S02, S18 | closed, with limits | `test_native_extension_tool_metadata.py`: `test_codemode_reach_follows_the_script`; `test_native_mcp_readiness.py`: `test_an_extension_tool_waits_for_the_reach_it_declares`, `test_the_built_in_reaching_tools_declare_their_reach` | DEV-34. |
-| EXT-06 | S36 | closed, with limits | `test_native_extension_mcp_servers.py`: `test_a_server_registered_while_extensions_load_connects_with_the_session`, `test_servers_registered_during_the_session_connect_and_disconnect`, `test_a_server_registered_during_the_session_activates_tool_search` | `codemode` / `tool_search` is activated for a server registered later when the next turn starts, not inside the registering call. DEV-15. |
+| EXT-06 | S36 | closed, with limits | `test_native_extension_mcp_servers.py`: `test_a_server_registered_while_extensions_load_connects_with_the_session`, `test_servers_registered_during_the_session_connect_and_disconnect`, `test_a_server_registered_during_the_session_activates_tool_search` | `codemode` / `tool_search` is activated for a server registered later when the next turn starts, not inside the registering call. DEV-15. A replaced session keeps the loaded extensions (DEV-84). |
 | EXT-07 | S36 | closed, with limits | `test_native_mcp_registry.py`: `test_an_invalid_name_or_config_names_the_extension`, `test_a_name_another_extension_registered_is_refused`, `test_registering_a_name_again_replaces_the_own_registration_in_place`; `test_native_extension_mcp_servers.py`: `test_names_another_extension_registered_are_rejected`, `test_pending_extensions_settle_a_shared_name_when_they_are_finalized` | Extensions that load before the project is trusted do not see each other's registrations; the later one is disabled (`duplicate_mcp_server`) when they are finalized. One extension registering `my-server` and `my_server` is refused the second. DEV-46. |
 | EXT-08 | S36 | closed | `test_native_mcp_registry.py`: `test_unregister_only_removes_the_own_registration`, `test_servers_are_listed_in_registration_order_as_copies`; `test_native_extension_mcp_servers.py`: `test_a_loaded_extension_registers_and_unregisters_in_the_registry` |  |
 | EXT-09 | S36 | closed, with limits | `test_native_extension_mcp_servers.py`: `test_the_mcp_json_server_is_preferred_over_a_registered_one`, `test_mcp_lists_a_registered_server_like_a_configured_one`; `test_native_mcp_manager_registered.py`: `test_status_and_menu_list_the_overridden_registrations`; `test_native_mcp_manager.py`: `test_a_server_an_extension_registered_changes_for_the_session_only` | The owner shown is the extension's path label, not an absolute path. DEV-46. |
@@ -624,8 +637,8 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 1. The merge of `feat/mcp-parity` to `main` (Q5).
 2. The live evidence of plan section 6.5.
-3. Which of the DEV rows of plan section 3.1 that Q11 does not name are
-   accepted. Until then the rows that name one are closed on that
+3. Which of the DEV rows of plan section 3.1 that Q11 and Q12 do not name
+   are accepted. Until then the rows that name one are closed on that
    condition.
 
 Decided since the audit (plan section 7, 2026-10-14): no default Client ID
@@ -633,6 +646,7 @@ Metadata Document (Q1), the goal-check findings C7, O6 and M5 are outside
 the parity goal (Q7), inline terminal images are in scope (Q8, built in N4),
 and Pillow stays an optional extra (Q10). Decided 2026-10-15: the
 findings of the second goal check that its triage neither fixes nor
-refutes are accepted as the DEV rows Q11 names. SLH-13 and the hyperlink
+refutes are accepted as the DEV rows Q11 names, and those of the third
+goal check as the DEV rows Q12 names. SLH-13 and the hyperlink
 part of MGR-09 were built (N2, N3), and the startup report is shown behind the
 `/mcp` manager as it arises (N1).

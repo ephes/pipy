@@ -2047,6 +2047,11 @@ six either.
   systems and is tested on macOS and Linux only.
 - A built-in Client ID Metadata Document. `clientRegistration: "cimd"`
   works with documents you host, see [OAuth settings](#oauth-settings).
+- Proxies. HTTP servers and the OAuth requests connect directly: pipy
+  ignores `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` for them and has no
+  `httpProxy` setting, which Pi has. An embedder can pass the HTTP
+  transport its own `fetch`, see
+  [what exists as a library](#what-exists-as-a-library).
 
 ## What exists as a library
 

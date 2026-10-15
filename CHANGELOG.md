@@ -1143,7 +1143,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 113 of them
+  that pin it and where pipy differs from Pi. All are closed, 119 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
@@ -1159,10 +1159,24 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `message`) are an extension-API item in the [backlog](docs/backlog.md).
   Since R2 and R5 were merged, the plan records the error text of a raising
   `prepare_arguments` as the proposal DEV-79 (EXT-01 is closed with that
-  limit, so 179 rows are closed with a test and 113 with a limit), and
+  limit), and
   DEV-10, DEV-18, DEV-26, DEV-45, DEV-48 and DEV-59 say what R2 and R5
   changed, including that a resolver a `session_start` handler registers
   is added again in each new session of the run.
+
+- The MCP parity plan records the decision on the third goal check
+  (section 7, Q12): the findings its triage neither fixes nor refutes are
+  accepted as the deviations it names, six of them as the new rows DEV-80 to
+  DEV-85 (the codemode output cap, an `mcp.json` with a number JSON cannot
+  write back, no proxy support, stored API keys without Pi's `${VAR}`
+  templates, extensions kept across a session replacement, no
+  `constrained_sampling`). DEV-36, DEV-48, DEV-54 and DEV-67 say more
+  precisely where pipy differs, Q12 corrects Q11's refutation of the stdio
+  child leak on macOS before Python 3.13 (a fix slice of that triage closes
+  the leak), and 173 rows are closed with a
+  test and 119 with a limit. [MCP](docs/mcp.md) lists the missing proxy
+  support, and the [backlog](docs/backlog.md) has proxy support, Pi's
+  `auth.json` config values and `constrained_sampling` as follow-ons.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

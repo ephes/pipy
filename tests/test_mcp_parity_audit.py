@@ -158,7 +158,7 @@ def _deviations() -> list[str]:
 def test_the_deviations_are_numbered_without_a_gap() -> None:
     deviations = _deviations()
 
-    assert deviations == [f"DEV-{number:02d}" for number in range(1, 80)]
+    assert deviations == [f"DEV-{number:02d}" for number in range(1, 86)]
     # A closed deviation keeps its number and says so.
     section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
     closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
@@ -175,19 +175,25 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    # DEV-15 to DEV-79 without the closed DEV-39, DEV-42 and DEV-65.
-    assert len(cells) == 62
+    # DEV-15 to DEV-85 without the closed DEV-39, DEV-42 and DEV-65.
+    assert len(cells) == 68
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
 
 
+def _decision(question: str) -> str:
+    """The row of plan section 7 with the owner's decision ``question``."""
+
+    match = re.search(rf"^\| {question} \|.*$", _PLAN.read_text(), flags=re.MULTILINE)
+    assert match is not None
+    return match.group(0)
+
+
 def _q11() -> str:
     """The row of plan section 7 with the owner's triage decision."""
 
-    match = re.search(r"^\| Q11 \|.*$", _PLAN.read_text(), flags=re.MULTILINE)
-    assert match is not None
-    return match.group(0)
+    return _decision("Q11")
 
 
 def test_q11_accepts_the_rows_of_the_triage() -> None:
@@ -210,6 +216,28 @@ def test_q11_accepts_the_rows_of_the_triage() -> None:
     # The acceptance note calls none of them a proposal either.
     assert "proposal DEV-79" not in _NOTE.read_text()
     assert "DEV-79 (INT4) are still proposals" not in _NOTE.read_text()
+
+
+def test_q12_accepts_the_rows_of_the_third_triage() -> None:
+    q12 = _decision("Q12")
+    accepted = set(re.findall(r"DEV-\d{2}", q12))
+
+    assert {f"DEV-{number}" for number in range(80, 86)} <= accepted
+    assert {"DEV-36", "DEV-40", "DEV-48", "DEV-54", "DEV-59", "DEV-66"} <= accepted
+    assert {"DEV-67", "DEV-68"} <= accepted
+    # Moved from accepted to fixed by the coordinator: no row for them, and
+    # P1 corrects Q11's refutation of round 2's P4.
+    fixed = q12.split("Fixed by the slices T1 to T6: ")[1].split(".")[0]
+    assert {"P1", "D1", "S3"} <= set(fixed.split(", "))
+    recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
+    recorded = recorded.split("### 3.2 Audit result")[0]
+    for deviation, source in re.findall(
+        r"^\| (DEV-\d{2}) \|.*\| ([^|]*) \|$", recorded, flags=re.MULTILINE
+    ):
+        if "accepted in Q12" in source:
+            assert deviation in accepted, deviation
+        if deviation in accepted:
+            assert "proposal" not in source, deviation
 
 
 def _rows_of(cell: str) -> list[str]:

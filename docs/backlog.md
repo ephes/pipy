@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 179 are closed with a
-test and 113 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 173 are closed with a
+test and 119 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,10 +128,11 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-79) that plan
-  section 7, Q11, does not name are accepted. Q11 (2026-10-15) accepts the
-  findings of the second goal check that its triage neither fixes nor
-  refutes; the fix slices R1 to R6 of that triage are the rest of MCP1.
+  differences from Pi (plan section 3.1, DEV-15 to DEV-85) that plan
+  section 7, Q11 and Q12, do not name are accepted. Q11 (2026-10-15) accepts
+  the findings of the second goal check that its triage neither fixes nor
+  refutes; Q12 (2026-10-15) does the same for the third goal check. The fix
+  slices T1 to T6 of the third triage are the rest of MCP1.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -529,6 +530,21 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   handlers) and add a custom message to the run (`message`). Anyone porting
   a Pi extension that does either meets this; it belongs to the
   extension-API track, not MCP.
+- **`constrained_sampling` on extension tools** (MCP1 goal check r3,
+  finding S6; plan DEV-85): Pi's `constrainedSampling` asks the provider for
+  grammar-constrained argument generation (Pi's own codemode tool uses a
+  Lark grammar for the raw script). pipy's tool adapter cannot carry it, and
+  it needs provider-side grammar support. Extension-API track.
+- **Proxy support, pipy-wide** (MCP1 goal check r3, finding F2; plan
+  DEV-82): Pi's `httpProxy` setting (global only) applied as
+  `HTTP_PROXY`/`HTTPS_PROXY`, honoured by the MCP HTTP transport and the
+  OAuth fetch (CONNECT tunnelling in their cancellable connect), with
+  `NO_PROXY`. Model providers already follow the environment proxies through
+  urllib, so behind a proxy MCP HTTP servers fail while model requests work.
+- **`auth.json` config values** (MCP1 goal check r3, finding Q1; plan
+  DEV-83): Pi's `${VAR}` templates, `$$`/`$!` escapes and the credential's
+  `env` map for stored API keys, pipy-wide (model requests and MCP
+  `auth.provider`). This changes how a plain env-variable name is read.
 - **Pi's shared OAuth callback server** (`4df157433`). This is a refactor only:
   pipy already has `AnthropicOAuthProvider` (`oauth_providers.py:117`).
 - **Other deferred items:**
