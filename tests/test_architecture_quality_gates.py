@@ -107,7 +107,7 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # measurement (399), without headroom. See docs/architecture.md, Executable
 # architecture gates. The downward-only rule continues from this measurement.
 _SIZE_RATCHET = {
-    "src/pipy_harness/native/tui.py": 580,
+    "src/pipy_harness/native/tui.py": 570,
     "src/pipy_harness/native/coding/session.py": 399,
 }
 

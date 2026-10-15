@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
+import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Protocol, TypeVar, cast
 
 from pipy_harness.native.extension_types import (
+    CustomComponent,
     CustomComponentFactory,
     CustomComponentOptions,
 )
@@ -90,6 +93,56 @@ def _drive_result(
     closed: _CloseT | None, project: Callable[[_CloseT], _ResultT]
 ) -> DriveResult[_ResultT] | None:
     return None if closed is None else DriveResult(project(closed))
+
+
+class _TitledComponent(CustomComponent, Protocol):
+    title: str
+
+
+class _DialogCountdown:
+    """Pi's ``CountdownTimer`` for an extension dialog with a ``timeout``.
+
+    The title shows the whole seconds left (``Title (5s)``); when they run
+    out the dialog is cancelled, as Pi's ``onExpire`` cancels it: ``select``
+    and ``input`` give ``None``, ``confirm`` gives ``False``. Polled on the
+    key loop's thread.
+    """
+
+    def __init__(
+        self,
+        component: _TitledComponent,
+        timeout_ms: int,
+        done: Callable[..., None],
+        repaint: Callable[[], None],
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._component = component
+        self._title = component.title
+        self._done = done
+        self._repaint = repaint
+        self._clock = clock
+        self._deadline = clock() + math.ceil(timeout_ms / 1000)
+        self._shown: int | None = None
+        self._show(self._left())
+
+    def _left(self) -> int:
+        return max(0, math.ceil(self._deadline - self._clock()))
+
+    def _show(self, seconds: int) -> None:
+        self._shown = seconds
+        self._component.title = f"{self._title} ({seconds}s)"
+
+    def poll(self) -> bool:
+        """Whether the dialog ended because its time ran out."""
+
+        seconds = self._left()
+        if seconds <= 0:
+            self._done(None)
+            return True
+        if seconds != self._shown:
+            self._show(seconds)
+            self._repaint()
+        return False
 
 
 class TerminalModalDriver:
@@ -344,7 +397,12 @@ class TerminalModalDriver:
         self,
         factory: CustomComponentFactory,
         options: CustomComponentOptions | None = None,
+        *,
+        poll: Callable[[], bool] | None = None,
     ) -> object:
+        """``poll`` runs while a key is waited for; ``True`` from it means
+        the component finished meanwhile."""
+
         runner = CustomComponentRunner(self._overlays, self._screen.paint)
         runner.create(factory, options)
         owner: DriveOwner[object] = DriveOwner(
@@ -354,23 +412,54 @@ class TerminalModalDriver:
             ),
             is_finished=lambda: runner.finished,
             dispose=runner.dispose,
+            poll=poll,
         )
         return self._screen.drive(owner)
 
-    def run_extension_select(self, title: str, options: Sequence[str]) -> str | None:
+    def _run_dialog(
+        self,
+        create: Callable[[Callable[..., None]], _TitledComponent],
+        timeout: int | None,
+    ) -> object:
+        """An extension dialog, counting down Pi's ``timeout`` (ms) when
+        it is positive."""
+
+        if timeout is None or timeout <= 0:
+            return self.run_custom_component(create)
+        countdowns: list[_DialogCountdown] = []
+
+        def factory(done: Callable[..., None]) -> _TitledComponent:
+            component = create(done)
+            countdowns.append(
+                _DialogCountdown(component, timeout, done, self._screen.paint)
+            )
+            return component
+
+        return self.run_custom_component(
+            factory, poll=lambda: any(countdown.poll() for countdown in countdowns)
+        )
+
+    def run_extension_select(
+        self, title: str, options: Sequence[str], *, timeout: int | None = None
+    ) -> str | None:
         choices = tuple(str(option) for option in options if str(option))
         if not choices:
             return None
-        result = self.run_custom_component(
-            lambda done: ExtensionSelectComponent(str(title), choices, done)
+        result = self._run_dialog(
+            lambda done: ExtensionSelectComponent(str(title), choices, done), timeout
         )
         return result if isinstance(result, str) else None
 
     def run_extension_input(
-        self, title: str, placeholder: str | None = None
+        self,
+        title: str,
+        placeholder: str | None = None,
+        *,
+        timeout: int | None = None,
     ) -> str | None:
-        result = self.run_custom_component(
-            lambda done: ExtensionInputComponent(str(title), placeholder, done)
+        result = self._run_dialog(
+            lambda done: ExtensionInputComponent(str(title), placeholder, done),
+            timeout,
         )
         return result if isinstance(result, str) else None
 
@@ -388,9 +477,12 @@ class TerminalModalDriver:
         )
         return result if isinstance(result, str) else None
 
-    def run_extension_confirm(self, title: str, message: str) -> bool:
-        result = self.run_custom_component(
-            lambda done: ExtensionConfirmComponent(str(title), str(message), done)
+    def run_extension_confirm(
+        self, title: str, message: str, *, timeout: int | None = None
+    ) -> bool:
+        result = self._run_dialog(
+            lambda done: ExtensionConfirmComponent(str(title), str(message), done),
+            timeout,
         )
         return result == "Yes"
 
@@ -426,3 +518,28 @@ class TerminalModalDriver:
             ),
         )
         return self._screen.drive(owner)
+
+
+class TerminalExtensionDialogs:
+    """The dialogs of the live extension UI driver in the terminal's modal
+    loop. ``select``, ``input`` and ``confirm`` take Pi's ``timeout`` (ms)
+    and count it down (``dialog_timeouts``, which ``_CollectingUi`` reads)."""
+
+    dialog_timeouts = True
+    _modals: TerminalModalDriver
+
+    def select(
+        self, title: str, options: Sequence[str], timeout: int | None = None
+    ) -> str | None:
+        return self._modals.run_extension_select(title, options, timeout=timeout)
+
+    def input(
+        self, title: str, placeholder: str | None = None, timeout: int | None = None
+    ) -> str | None:
+        return self._modals.run_extension_input(title, placeholder, timeout=timeout)
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None:
+        return self._modals.run_extension_editor(title, prefill)
+
+    def confirm(self, title: str, message: str, timeout: int | None = None) -> bool:
+        return self._modals.run_extension_confirm(title, message, timeout=timeout)

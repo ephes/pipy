@@ -702,17 +702,25 @@ def test_extension_trust_decision_drives_and_closes_interactive_startup_ui(
             calls.append(("open", input_stream, terminal_stream, cwd))
             self.components = SimpleNamespace(modals=self, screen=self)
 
-        def run_extension_select(self, title: str, options: object) -> str:
+        def run_extension_select(
+            self, title: str, options: object, *, timeout: int | None = None
+        ) -> str:
             calls.append(("select", title, options))
             return "a"
 
         def run_extension_input(
-            self, title: str, placeholder: str | None = None
+            self,
+            title: str,
+            placeholder: str | None = None,
+            *,
+            timeout: int | None = None,
         ) -> str:
             calls.append(("input", title, placeholder))
             return "typed"
 
-        def run_extension_confirm(self, title: str, message: str) -> bool:
+        def run_extension_confirm(
+            self, title: str, message: str, *, timeout: int | None = None
+        ) -> bool:
             calls.append(("confirm", title, message))
             return True
 

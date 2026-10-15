@@ -162,7 +162,7 @@ class _CollectingUi:
 
     def _timeout(self, timeout: int | None) -> dict[str, int]:
         """Pi's dialog ``timeout`` (milliseconds), for a driver that takes
-        it (RPC mode); the terminal's dialogs wait without one."""
+        it (RPC mode and the terminal, which counts it down)."""
 
         if timeout is None or not getattr(self._ui_driver, "dialog_timeouts", False):
             return {}

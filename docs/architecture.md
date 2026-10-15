@@ -1447,7 +1447,7 @@ boundaries and the current dependency posture until that decision is accepted.
 The completed decomposition's executable ownership, import and complexity
 checks remain in force. `tests/test_architecture_import_boundaries.py` forbids a
 `native.ui` back-edge into `native.tui` or session/repl internals; moving code
-must not recreate that cycle. The 580-line TUI ratchet, other enumerated owner
+must not recreate that cycle. The 570-line TUI ratchet, other enumerated owner
 limits and the 2,488-line general native-module ceiling remain unchanged.
 
 D2a makes one scoped size-gate transition: the historical 336-line

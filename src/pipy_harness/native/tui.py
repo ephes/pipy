@@ -14,7 +14,6 @@ import sys
 from collections.abc import (
     Callable,
     Iterator,
-    Sequence,
 )
 from contextlib import contextmanager
 from dataclasses import InitVar, dataclass, field
@@ -61,7 +60,10 @@ from pipy_harness.native.ui.composition import (
 )
 from pipy_harness.native.ui.extension_generation import ExtensionChromeOwners
 from pipy_harness.native.ui.key_specs import matches_key_specs, resolved_key_specs
-from pipy_harness.native.ui.modal_driver import TerminalModalDriver
+from pipy_harness.native.ui.modal_driver import (
+    TerminalExtensionDialogs,
+    TerminalModalDriver,
+)
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
 # Outcomes of the active-turn watcher / mid-turn editor.
@@ -79,7 +81,7 @@ def _active_editing_mode(accept_queue: bool, accept_commands: bool) -> EditingMo
     return EditingMode.ACTIVE_WATCH
 
 
-class _LiveExtensionUiDriver:
+class _LiveExtensionUiDriver(TerminalExtensionDialogs):
     """Live `ExtensionUiDriver` backed by explicit concrete terminal owners."""
 
     def __init__(
@@ -201,18 +203,6 @@ class _LiveExtensionUiDriver:
                 cast("Callable[[str], object]", values[1])
             )
         return None
-
-    def select(self, title: str, options: Sequence[str]) -> str | None:
-        return self._modals.run_extension_select(title, options)
-
-    def input(self, title: str, placeholder: str | None = None) -> str | None:
-        return self._modals.run_extension_input(title, placeholder)
-
-    def editor(self, title: str, prefill: str | None = None) -> str | None:
-        return self._modals.run_extension_editor(title, prefill)
-
-    def confirm(self, title: str, message: str) -> bool:
-        return self._modals.run_extension_confirm(title, message)
 
     def set_status(self, key: str, text: str | None) -> None:
         self._chrome.component.set_status(key, text)

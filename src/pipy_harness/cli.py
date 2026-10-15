@@ -2168,21 +2168,30 @@ def _resolve_runtime_project_trust_startup(
             terminal_ui = live_ui
 
             class _StartupUiDriver:
-                def select(self, title: str, options: Any) -> str | None:
+                dialog_timeouts = True
+
+                def select(
+                    self, title: str, options: Any, timeout: int | None = None
+                ) -> str | None:
                     return live_ui.components.modals.run_extension_select(
-                        title, options
+                        title, options, timeout=timeout
                     )
 
                 def input(
-                    self, title: str, placeholder: str | None = None
+                    self,
+                    title: str,
+                    placeholder: str | None = None,
+                    timeout: int | None = None,
                 ) -> str | None:
                     return live_ui.components.modals.run_extension_input(
-                        title, placeholder
+                        title, placeholder, timeout=timeout
                     )
 
-                def confirm(self, title: str, message: str) -> bool:
+                def confirm(
+                    self, title: str, message: str, timeout: int | None = None
+                ) -> bool:
                     return live_ui.components.modals.run_extension_confirm(
-                        title, message
+                        title, message, timeout=timeout
                     )
 
             ui_driver = _StartupUiDriver()

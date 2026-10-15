@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An extension dialog's `timeout` counts down in the terminal, as in Pi:
+  `ctx.ui.select`, `input` and `confirm` show the seconds left in their
+  title and are cancelled when they run out (`None`, or `False` for
+  `confirm`). Before, only RPC mode honoured it and a terminal dialog
+  meant to expire waited for ever. See
+  [extension UI](docs/extension-api.md).
 - Extension `input` hooks see all input Pi shows them. An RPC `steer`,
   `follow_up`, or `prompt` sent during a run meets the hooks when it is
   queued, before its skill or template is expanded, as Pi's

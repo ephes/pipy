@@ -394,6 +394,8 @@ WidgetPlacement = Literal["above_editor", "below_editor"]
 class ExtensionUiDriver(Protocol):
     """Live UI operations backed by the product TUI."""
 
+    # A driver whose class sets `dialog_timeouts = True` also takes Pi's
+    # `timeout` (ms) as a keyword of `select`, `input` and `confirm`.
     def select(self, title: str, options: Sequence[str]) -> str | None: ...
 
     def input(self, title: str, placeholder: str | None = None) -> str | None: ...
@@ -447,7 +449,8 @@ class ExtensionUi(Protocol):
     def notify(self, message: str, kind: str = "info") -> None: ...
 
     # `timeout` is Pi's dialog option, in milliseconds: the dialog ends with
-    # its default when it passes. RPC mode honours it; the terminal does not.
+    # its default when it passes. RPC mode and the terminal honour it; the
+    # terminal shows the seconds left in the dialog's title.
     def select(
         self, title: str, options: Sequence[str], *, timeout: int | None = None
     ) -> str | None: ...

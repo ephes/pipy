@@ -1669,8 +1669,10 @@ so Pi extensions translate naturally:
   the editor. `select`, `confirm` and `input` take Pi's `timeout` option as a
   keyword, in milliseconds (`ctx.ui.confirm("Allow?", "rm -rf", timeout=10000)`):
   in [RPC mode](automation-rpc.md#extension-ui-requestresponse-channel) the
-  dialog ends with its default when it passes; the terminal's dialogs wait
-  without one (Pi counts it down there too). In RPC mode `ctx.has_ui` is true
+  dialog ends with its default when it passes. The terminal counts it down
+  as Pi does: the dialog's title shows the seconds left (`Allow? (10s)`),
+  and when they run out the dialog is cancelled (`select` and `input` give
+  `None`, `confirm` gives `False`). In RPC mode `ctx.has_ui` is true
   and the dialogs, `notify`, `set_status`, `set_widget` (lines of text),
   `set_title` and `set_editor_text` are requests to the client, as in Pi.
 - Status and indicators **(shipped for command/shortcut contexts)**:
