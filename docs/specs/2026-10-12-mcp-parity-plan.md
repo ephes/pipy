@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(119 of them with a recorded limit or deviation); see section 3.2 and the
+(122 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -512,8 +512,10 @@ slices recorded further differences from Pi in their "Decided in" blocks
 documents. The closeout (S40) collected them here so that the final judgement
 has one list. DEV-69 to DEV-78 were added by the triage of the second goal
 check (2026-10-15), DEV-79 when R2 was merged (INT4), DEV-80 to DEV-85 by
-the triage of the third goal check (2026-10-15). A row that section 7, Q11
-or Q12, names is accepted by the owner; every other row is still a proposal.
+the triage of the third goal check (2026-10-15), DEV-86 to DEV-93 by the
+triage of the fourth goal check (2026-10-15). A row that section 7, Q11,
+Q12 or Q13, names is accepted by the owner; every other row is still a
+proposal.
 
 "Rows" names the checklist rows whose behaviour a difference changes, or
 `none` when it lies beside every row. "Kind" says how pipy differs:
@@ -542,7 +544,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
 | DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. Since goal check r3 (U2) a selection that is set drops a name the `--tools` allowlist does not let be activated, as Pi's `_applyToolLoadout` does; what is kept is narrowed when read, so a reload that changes an exposure takes a tool out. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 and T3 |
 | DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` entry follows Pi's override rules since goal check r3 (F1); a `!` glob is matched with `fnmatch` against `builtin:<name>`, where Pi's minimatch also tries the path relative to the settings directory (so `**/builtin:mcp` matches in Pi and not in pipy). An unknown `builtin:` name is a startup error, where Pi reports a load error. | other form | Decided in S19, G8, T3 |
-| DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
+| DEV-33 | SES-11, SES-13, EXT-03 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. `get_all_tools()` does not list `codemode` before something registers it, where Pi always registers it inactive (goal check r4, U2; this part accepted in Q13). An extension's `set_active_tools` naming an unregistered `codemode` does not register it yet; the fix slice V2 of that triage does. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure"; goal check r4 (U2) |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
 | DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built, and its result has only `append_system_prompt`: Pi's `systemPrompt` (replace the whole prompt) and `message` (a custom message for the run) are not built (an extension-API item in `docs/backlog.md`). `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
 | DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. Pi resolves a name shared by an MCP tool and an extension tool by load order; with the default order the extension wins in Pi too, so they differ only when `builtin:mcp` loads first (`-e builtin:mcp`). | stricter | Decided in S16, S17 |
@@ -557,7 +559,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9), with the live `edit` preview and the ticking `bash` time (since goal check r3, S11). `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9, T4 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
-| DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls run concurrently, except that calls of a tool with `execution_mode="sequential"` (Pi `executionMode`) run one at a time through Pi's exclusive queue (H3), a waiting call emitting its start event at once as in Pi (T1); no setting selects Pi's session-wide sequential mode. Those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result reaches `on_update` as a `ToolResult` whose `content` is its text (a `bash` partial result is the output so far, as in Pi, since T1). The outcome's `duration_ms` runs from the nested call's start to its outcome, hooks included; Pi's `durationMs` is the tool's `execute()` alone (the JSON/RPC `durationMs` follows Pi since R5). No event is emitted for a name that is not callable. An exception raised by a nested caller's `on_update` is ignored; Pi fails the nested call. Usage is DEV-13. | narrower | Decided in S37 |
+| DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts (section 4.3; owner decision Q6). Nested calls run concurrently, except that calls of a tool with `execution_mode="sequential"` (Pi `executionMode`) run one at a time through Pi's exclusive queue (H3), a waiting call emitting its start event at once as in Pi (T1); no setting selects Pi's session-wide sequential mode. Those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result reaches `on_update` as a `ToolResult` whose `content` is its text (a `bash` partial result is the output so far, as in Pi, since T1). The outcome's `duration_ms` runs from the nested call's start to its outcome, hooks included; Pi's `durationMs` is the tool's `execute()` alone (the JSON/RPC `durationMs` follows Pi since R5). No event is emitted for a name that is not callable. An exception raised by a nested caller's `on_update` is ignored; Pi fails the nested call. Usage is DEV-13. | narrower | Decided in S37 |
 | DEV-49 | EXT-12 | The function is called once per capability value and its result kept (since G9); Pi also calls it again before each request with unchanged tools. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37, G9 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session has no UI, so `/mcp` without a subcommand opens no manager view and its status is a notice for the `diagnostic_sink`, where Pi's SDK session without UI drops it; `update_config` is used only by a manager change the embedder makes. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38, N2; `docs/sdk.md` |
@@ -595,6 +597,14 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-83 | OAU-36 | An `auth.json` `api_key` sent for `auth.provider` is resolved as pipy resolves it for model requests (the value of a set env variable of that name, `!command`, else the literal); Pi's `${VAR}` templates and the credential's `env` map are not applied (pipy-wide, backlog). | other form | Goal check r3 (Q1), accepted in Q12 |
 | DEV-84 | SES-01, EXT-06 | Replacing the session (`/new`, resume, fork, clone, import) keeps the loaded extensions: `activate()` is not run again, the replaced session starts from what they registered while loading, and they get `session_shutdown`/`session_start` (R3). Pi creates a new runtime and runs the extension factories again. `/reload` reloads them. | other form | Goal check r3 (S1), accepted in Q12 |
 | DEV-85 | EXT-01 | Extension tools have no `constrained_sampling` (Pi `constrainedSampling`): no provider-side grammar-constrained argument generation (extension-API backlog). | narrower | Goal check r3 (S6), accepted in Q12 |
+| DEV-86 | EXT-15 | A custom renderer's `ToolRenderContext.content` is the result's text; image blocks and the order of text and image blocks are not passed (the images go to pipy's own image drawing). Pi passes the whole `content` array to `renderResult` (extension-API backlog). | narrower | Goal check r4 (D1), accepted in Q13 |
+| DEV-87 | none | The tool calls of one model response run one at a time, also for tools with `execution_mode="parallel"`; Pi runs them concurrently unless a call or the agent is sequential. Nested calls (scripts, `ctx.execute_tool`) do run concurrently (DEV-03, DEV-48). pipy-wide: the "parallel tools" standing deferral in `docs/backlog.md`. | narrower | Goal check r4 (S2), accepted in Q13 |
+| DEV-88 | EXT-02, EXT-11 | A partial result an extension tool publishes with `on_update` reaches the TUI row, JSON/RPC `partialResult` and a nested caller's `on_update` as its text and object `details`; its image blocks, `structured_content` and `is_error` are dropped. Pi forwards the whole partial `AgentToolResult` (extension-API backlog). | narrower | Goal check r4 (S3), accepted in Q13 |
+| DEV-89 | SLH-09, SLH-13 | The `input` event has only `text`: no `images`, no `source` (interactive, RPC, extension) and no `streamingBehavior` (steer or follow-up), and an `InputTransform` cannot replace images. Pi's `InputEvent` and transform result carry them (extension-API backlog, next to DEV-35). | narrower | Goal check r4 (S4), accepted in Q13 |
+| DEV-90 | SLH-13 | `send_user_message`'s `options` are accepted and ignored: no `deliverAs` (steer, follow-up) and no `expandPromptTemplates`; the message is queued as a plain prompt. Pi honours both (extension-API backlog). | narrower | Goal check r4 (S5), accepted in Q13 |
+| DEV-91 | SLH-07, SLH-08 | A print or JSON mode prompt's own trailing newlines are removed before it is handled, so `/name\n` runs the command `name`; Pi looks up `name\n`, finds no command and sends the text to the model. Pi trims piped stdin too, so only a prompt given on the command line that ends in a newline differs. | other form | Goal check r4 (S6), accepted in Q13 |
+| DEV-92 | EXT-02 | An extension tool result's `details` is kept only when it is a JSON object; an array, string or number becomes `None`. Pi's `details` may be any value (extension-API backlog). | narrower | Goal check r4 (S8), accepted in Q13 |
+| DEV-93 | SLH-09 | An exception raised by an `input` handler is ignored without a diagnostic and the current text goes on, as with pipy's other fail-safe hooks (`before_agent_start`, `tool_result`, observers). Pi also goes on but emits an extension error naming the extension (extension-API backlog). | other form | Goal check r4 (S9), accepted in Q13 |
 
 The two rows the audit left open were built after it: SLH-13 (commands
 and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
@@ -611,8 +621,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 173 | see the note |
-| Closed with a limit or deviation | 119 | each names its DEV rows or its limit in the note |
+| Closed with a test | 170 | see the note |
+| Closed with a limit or deviation | 122 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -634,10 +644,14 @@ limit, and DEV-54 now also names OAU-26 and OAU-31 (the callback path).
 INT5 merged the fix slices T3, T4 and T6 of that triage: DEV-27,
 DEV-31, DEV-32, DEV-45 and DEV-68 got narrower, and no row changed its
 state.
-The 119 rows
+Updated after the triage of the fourth goal check (2026-10-15): DEV-86 to
+DEV-93 set three more rows (SLH-07, SLH-08, SLH-13) to closed with a
+limit, and DEV-33 now also names EXT-03 (the listing of `codemode` in
+`get_all_tools()`).
+The 122 rows
 count as closed only if the final
-judgement accepts the deviation or limit each one names; section 7, Q11 and
-Q12, accept the DEV rows they name. Not rows, and still outstanding: the
+judgement accepts the deviation or limit each one names; section 7, Q11,
+Q12 and Q13, accept the DEV rows they name. Not rows, and still outstanding: the
 live evidence of section 6.5, which needs the owner's provider login and an
 account at an OAuth MCP server.
 
@@ -4760,5 +4774,14 @@ DEV-45, DEV-48, DEV-68) as they land.
 | --- | --- | --- |
 | Q12 | Goal-check round 3 (goal-r3.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decided 2026-10-15 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal: F2 (DEV-82; backlog); F4 (DEV-81); U1, D3 (DEV-59); U3 (DEV-36, the precedence of an MCP tool and an extension tool of one name by load order only); U4 (DEV-68, the `MAX_IMAGE_PIXELS` guard only); D4 (DEV-80); D7 (DEV-66); Q1 (DEV-83; backlog); Q2 (DEV-54, as r2 Q3); Q3 (DEV-67, as r2 Q8); S1 (DEV-84); S2 (DEV-40, a typed line a hook rewrites into a skill or template line only); S6 (DEV-85; extension-API backlog); S8, S10 (DEV-48, the session-wide sequential mode and a raising `on_update` only). Fixed by the slices T1 to T6: D1, D2, D5, D6, D8, F1, F3, P1, Q4, S3, S4, S5, S7, S9, S11, U2. P1 corrects Q11, which refuted round 2's P4 on the premise that Python has `os.waitid` on macOS; it has it only from Python 3.13, so P4 was a gap, and it is fixed with P1. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts are fixed by T1 to T6 or stay proposals. |
 
-A DEV row of section 3 or 3.1 that Q11 or Q12 names is accepted. One neither
-names stays a proposal for the final judgement.
+Recorded 2026-10-15, after the fourth goal check (`goal-r4.md`) and its
+triage, through the campaign coordinator. The fix slices V1 to V3 of that
+triage narrow or remove the DEV rows whose parts they fix (DEV-32, DEV-33,
+DEV-44, DEV-45, DEV-55, DEV-79) as they land.
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| Q13 | Goal-check round 4 (goal-r4.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decided 2026-10-15 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. They are general extension-API, agent-loop and prompt-handling items, not MCP-specific: D1 (DEV-86; backlog); S2 (DEV-87; the standing "parallel tools" deferral in `docs/backlog.md`); S3 (DEV-88; backlog); S4 (DEV-89; backlog); S5 (DEV-90; backlog); S6 (DEV-91; backlog); S8 (DEV-92; backlog); S9 (DEV-93; backlog); U2 (DEV-33, the `get_all_tools()` listing of `codemode` before something registers it only). Refuted, not a gap: S1. The callable snapshot that is fixed for the life of the parent (DEV-48's first sentence) is section 4.3's rule, which Q6 accepted. Fixed by the slices V1 to V3: D2, D3, D4, F1, F2, F3, P1, S7, U1, U2 (activation by `set_active_tools`), U3, U4, U5. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts are fixed by V1 to V3 or stay proposals. |
+
+A DEV row of section 3 or 3.1 that Q11, Q12 or Q13 names is accepted. One
+none of them names stays a proposal for the final judgement.

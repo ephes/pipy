@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 173 are closed with a
-test and 119 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 170 are closed with a
+test and 122 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,12 +128,13 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-85) that plan
-  section 7, Q11 and Q12, do not name are accepted. Q11 (2026-10-15) accepts
-  the findings of the second goal check that its triage neither fixes nor
-  refutes; Q12 (2026-10-15) does the same for the third goal check. The fix
-  slices T1 to T6 of the third triage are on `feat/mcp-parity` (T3, T4 and
-  T6 merged in INT5).
+  differences from Pi (plan section 3.1, DEV-15 to DEV-93) that plan
+  section 7, Q11, Q12 and Q13, do not name are accepted. Q11 (2026-10-15)
+  accepts the findings of the second goal check that its triage neither
+  fixes nor refutes; Q12 and Q13 (2026-10-15) do the same for the third and
+  fourth goal checks. The fix slices T1 to T6 of the third triage are on
+  `feat/mcp-parity` (T3, T4 and T6 merged in INT5); the fix slices V1 to V3
+  of the fourth triage are the rest of MCP1.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -536,6 +537,32 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   grammar-constrained argument generation (Pi's own codemode tool uses a
   Lark grammar for the raw script). pipy's tool adapter cannot carry it, and
   it needs provider-side grammar support. Extension-API track.
+- **Render context content blocks** (MCP1 goal check r4, finding D1; plan
+  DEV-86): pass the result's content blocks (text and images, in order) to
+  custom renderers in the terminal and the HTML export, as Pi's
+  `renderResult` gets `content`. Extension-API track.
+- **Rich partial results** (MCP1 goal check r4, finding S3; plan DEV-88):
+  carry image blocks, `structured_content` and `is_error` of an `on_update`
+  partial result through `ToolPartialResult`, the TUI row, JSON/RPC
+  `partialResult` and nested `on_update`. Extension-API track.
+- **`input` event breadth** (MCP1 goal check r4, finding S4; plan DEV-89):
+  `images`, `source` (interactive, rpc, extension) and `streamingBehavior`
+  on `InputEvent`, and image replacement in `InputTransform`. Extension-API
+  track.
+- **`send_user_message` options** (MCP1 goal check r4, finding S5; plan
+  DEV-90): `deliver_as` (steer, follow-up) and `expand_prompt_templates`
+  (command and template expansion, opt-in as in Pi). Extension-API track.
+- **Trailing newlines of a print or JSON prompt** (MCP1 goal check r4,
+  finding S6; plan DEV-91, low): keep the prompt's own trailing newlines so
+  `/name\n` is not a command, as in Pi.
+- **Non-object `details`** (MCP1 goal check r4, finding S8; plan DEV-92):
+  allow any JSON value as a tool result's `details` (types, session entries,
+  renderers, hooks). Extension-API track.
+- **Report extension hook errors** (MCP1 goal check r4, finding S9; plan
+  DEV-93): emit an extension error (extension path, event, message) when an
+  `input`, `before_agent_start`, `tool_result` or observer handler raises,
+  as Pi's `emitError`, while keeping the fail-safe behaviour. Extension-API
+  track.
 - **Proxy support, pipy-wide** (MCP1 goal check r3, finding F2; plan
   DEV-82): Pi's `httpProxy` setting (global only) applied as
   `HTTP_PROXY`/`HTTPS_PROXY`, honoured by the MCP HTTP transport and the
@@ -552,7 +579,9 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   - per-model compaction overrides (Pi `46bde88a1`)
   - live Codex model discovery
 - **Standing deferrals:**
-  - Parallel tools, until latency evidence starts with explicitly safe reads.
+  - Parallel tools, until latency evidence starts with explicitly safe reads
+    (plan DEV-87; Pi runs a response's tool calls concurrently by default and
+    honours `executionMode`).
   - Image generation.
   - Distributed agents, durable lanes and server mode.
   - Full component/theme parity.

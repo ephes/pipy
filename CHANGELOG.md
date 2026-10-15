@@ -1259,7 +1259,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 119 of them
+  that pin it and where pipy differs from Pi. All are closed, 122 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
@@ -1300,6 +1300,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
   new tests, and the backlog's READ-IMG item is left with what `read` does
   without Pillow. No row changes its state: 173 rows are closed with a test
   and 119 with a limit.
+
+- The MCP parity plan records the decision on the fourth goal check
+  (section 7, Q13): the findings its triage neither fixes nor refutes are
+  accepted as the deviations it names, eight of them as the new rows DEV-86
+  to DEV-93 (the text-only render context, one-at-a-time tool calls of a
+  model response, text-only partial results, the text-only `input` event,
+  ignored `send_user_message` options, trailing newlines of a print or JSON
+  prompt, object-only `details`, silent `input` handler errors). DEV-33 now
+  says that `get_all_tools()` lists `codemode` only once something
+  registers it, DEV-48 says that its callable snapshot is the plan's rule
+  that the owner accepted (Q6), and 170 rows are closed with a test and 122
+  with a limit. The [backlog](docs/backlog.md) has the extension-API items
+  as follow-ons and points the parallel tools deferral at DEV-87.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;
