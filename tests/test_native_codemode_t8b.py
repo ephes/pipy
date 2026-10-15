@@ -139,6 +139,37 @@ def test_selection_boundaries(
     assert len(probes) == probe_count
 
 
+@pytest.mark.parametrize(
+    ("options", "available", "expected", "probe_count"),
+    [
+        (ToolFilterOptions(), True, {"read", "codemode"}, 1),
+        # Without its runtime, or removed by a filter, the name is ignored as
+        # one that no tool has.
+        (ToolFilterOptions(), False, {"read"}, 1),
+        (ToolFilterOptions(exclude=("codemode",)), True, {"read"}, 0),
+    ],
+)
+def test_set_active_tools_registers_codemode_on_demand(
+    tmp_path, monkeypatch, options, available, expected, probe_count
+):
+    # Goal check r4, U2: Pi registers codemode inactive, so `setActiveTools`
+    # can activate it; pipy registers the built-in when a selection names it.
+    caps, probes, warnings = build(
+        tmp_path, monkeypatch, ["read"], options, available=available
+    )
+    assert "codemode" not in caps.registered_names
+
+    assert caps.set_active_tools(["read", "codemode"])
+
+    assert names(caps) == expected
+    assert len(probes) == probe_count
+    assert len(warnings) == (0 if available else probe_count)
+    assert ("codemode" in caps.registered_names) is (available and probe_count == 1)
+    # Registered once: naming it again does not probe again.
+    assert caps.set_active_tools(["codemode"])
+    assert len(probes) == probe_count
+
+
 def test_extension_codemode_keeps_ordinary_execution(tmp_path, monkeypatch):
     from test_native_tool_capabilities import _call, _RecordingTool
 

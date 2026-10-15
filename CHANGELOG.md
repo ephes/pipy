@@ -8,6 +8,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- `/reload` with `--tools` or `--exclude-tools` given keeps an extension
+  tool that `tool_search` loaded declared, as Pi's reload keeps every active
+  tool the filters allow; before, only loaded MCP tools came back. See
+  [tool search](docs/mcp.md#tool-search).
+- An extension's `ctx.set_active_tools([...])` that names `codemode`
+  activates the built-in `codemode` also when nothing selected it before:
+  pipy registers it then (one runtime self-test), as Pi has it registered
+  inactive. Before, the name was dropped. See
+  [the tool model](docs/extension-api.md#tool-model).
+- `ctx.get_all_tools()` keeps listing an MCP tool that its server withdrew,
+  or whose server was disabled, with exposure `hidden`, as Pi's
+  `getAllTools` does. It stays neither declared nor callable, and `/mcp`
+  does not count it. See [when tools change](docs/mcp.md#when-tools-change).
 - A `!` glob in the `extensions`, `skills`, `prompts` or `themes` settings
   matches as Pi's minimatch does for `**/`, which also matches no directory:
   `"extensions": ["!**/builtin:mcp"]` now turns MCP off, where before it

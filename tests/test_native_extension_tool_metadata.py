@@ -677,6 +677,93 @@ def test_hidden_re_registration_withdraws_the_tool(tmp_path, monkeypatch) -> Non
     assert tool_result.content.value == "unknown tool: lookup"
 
 
+@pytest.mark.parametrize("available", [True, False])
+def test_set_active_tools_activates_codemode_that_nothing_selected(
+    tmp_path, monkeypatch, available
+) -> None:
+    # Goal check r4, U2. Pi's codemode extension registers the tool inactive
+    # ("Activate it with --tools, the defaultTools setting, or
+    # setActiveTools()"). pipy registers the built-in when an extension's
+    # selection names it; without its runtime the name is ignored.
+    from pipy_harness.native.codemode import selftest
+    from pipy_harness.native.codemode.selftest import Availability
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    monkeypatch.setattr(
+        selftest, "availability", lambda: Availability(available, "no runtime")
+    )
+    _write(
+        tmp_path,
+        "pick",
+        "def pick(ctx, args):\n"
+        "    before = [t.name for t in ctx.get_all_tools()]\n"
+        "    applied = ctx.set_active_tools(['read', 'codemode'])\n"
+        "    after = [t.name for t in ctx.get_all_tools()]\n"
+        "    (Path(ctx.cwd) / 'picked.json').write_text(\n"
+        "        json.dumps([before, applied, after]))\n"
+        "def activate(api):\n"
+        "    api.register_command('pick', 'pick tools', pick)\n",
+    )
+    provider = _StubProvider([_result(final_text="ok")])
+
+    result = _run(tmp_path, provider, "/pick\ngo\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    before, applied, after = json.loads((tmp_path / "picked.json").read_text())
+    assert applied is True
+    assert "codemode" not in before
+    assert ("codemode" in after) is available
+    assert _tool_names(provider.requests[0]) == (
+        ["read", "codemode"] if available else ["read"]
+    )
+
+
+def test_a_retired_context_does_not_register_codemode(tmp_path, monkeypatch) -> None:
+    # A context of an extension generation that `/reload` replaced changes
+    # nothing, `codemode` included: it neither probes nor registers it.
+    from pipy_harness.native.codemode import selftest
+    from pipy_harness.native.codemode.selftest import Availability
+
+    probes: list[int] = []
+
+    def probe() -> Availability:
+        probes.append(1)
+        return Availability(True, None)
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    monkeypatch.setattr(selftest, "availability", probe)
+    _write(
+        tmp_path,
+        "stale",
+        "import builtins\n"
+        "def keep(ctx, args):\n"
+        "    builtins._pipy_test_kept_context = ctx\n"
+        "def stale(ctx, args):\n"
+        "    old = builtins._pipy_test_kept_context\n"
+        "    applied = old.set_active_tools(['read', 'codemode'])\n"
+        "    names = [t.name for t in ctx.get_all_tools()]\n"
+        "    (Path(ctx.cwd) / 'stale.json').write_text(json.dumps([applied, names]))\n"
+        "def activate(api):\n"
+        "    api.register_command('keep', 'keep the context', keep)\n"
+        "    api.register_command('stale', 'use the kept context', stale)\n",
+    )
+    provider = _StubProvider([_result(final_text="ok")])
+
+    try:
+        result = _run(tmp_path, provider, "/keep\n/reload\n/stale\ngo\n")
+    finally:
+        import builtins
+
+        builtins.__dict__.pop("_pipy_test_kept_context", None)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    applied, names = json.loads((tmp_path / "stale.json").read_text())
+    assert applied is False
+    assert "codemode" not in names
+    assert "codemode" not in _tool_names(provider.requests[0])
+    assert probes == []
+
+
 def test_hidden_re_registration_removes_the_tool_from_the_next_request(
     tmp_path, monkeypatch
 ) -> None:

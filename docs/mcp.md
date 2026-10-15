@@ -1221,7 +1221,9 @@ Different from Pi:
 - Pi always has `codemode` registered. pipy registers its built-in `codemode`
   when something asks for it, because registering it tests the runtime with a
   short self-test. A server with `codemode` exposure asks for it when the
-  session starts, so such a session starts a little later than one without.
+  session starts, so such a session starts a little later than one without;
+  an extension's `ctx.set_active_tools(...)` that names `codemode` asks for
+  it too. Until then `ctx.get_all_tools()` does not list it.
 - With `autoEnableCodemode` false pipy does not test the runtime. The warning
   then names that setting whenever the tool filters would keep `codemode`,
   also when the runtime is not installed.
@@ -1330,7 +1332,11 @@ Different from Pi:
 A server can announce a new tool list while it runs. New tools are
 registered, and a tool the server no longer offers is removed: the model is
 not given it any more and a call to it is an unknown tool. A tool that comes
-back is available again with its configured exposure. A call that was
+back is available again with its configured exposure. As in Pi,
+`ctx.get_all_tools()` still lists a removed tool, and the tools of a server
+you disabled, with exposure `hidden` (see
+[listing tools](extension-api.md#extension-tool-metadata)); `/mcp` does not count
+them. `/reload` starts the servers again and the list with them. A call that was
 already on its way fails with one of these messages:
 
 | Message | When |
@@ -1378,7 +1384,9 @@ Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch: `/tree` to an entry before the load drops the
 tool, and `/tree` to a later entry declares it again. After a `/reload` a
 loaded MCP tool is declared again once its server has connected, see
-[Reloading](#reloading). A tool whose server is disabled, or that its server
+[Reloading](#reloading); a loaded extension tool stays declared when the
+reloaded extensions register it again, also with `--tools` or
+`--exclude-tools` given, as in Pi. A tool whose server is disabled, or that its server
 stops offering, is no longer declared; when it comes back, a `direct` tool is
 declared again, and a tool `tool_search` had loaded has to be loaded again,
 as in Pi. A session that is resumed in a new pipy process starts from the

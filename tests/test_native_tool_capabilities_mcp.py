@@ -592,6 +592,54 @@ def test_get_all_tools_reports_the_metadata_of_mcp_tools(tmp_path: Path) -> None
     assert info.reaches_tools is None
 
 
+def _listed(tools: NativeToolCapabilities) -> list[tuple[str, str]]:
+    return [(tool.name, tool.exposure) for tool in tools.all_tools()]
+
+
+def test_get_all_tools_lists_a_withdrawn_mcp_tool_as_hidden(tmp_path: Path) -> None:
+    # EXT-03, SES-03; Pi registers a withdrawn MCP tool again `hidden` and
+    # `getAllTools` keeps listing it. Listing it is all pipy does with it.
+    tools = _session(tmp_path, ToolFilterOptions(exclude=("mcp__docs__gone",)))
+    tools.publish_mcp_tools(_mcp(search="direct", fetch="deferred", gone="direct"))
+    tools.publish_mcp_tools(_mcp(search="direct"))
+
+    assert _listed(tools) == [
+        ("read", "direct"),
+        ("bash", "direct"),
+        ("mcp__docs__search", "direct"),
+        # Its last definition, exposure aside; an excluded tool stays unlisted.
+        ("mcp__docs__fetch", "hidden"),
+    ]
+    assert tools.registered_names == ("read", "bash", "mcp__docs__search")
+    assert "mcp__docs__fetch" not in _callable(tools)
+    assert tools.loadable_tools() == ()
+    assert tools.set_active_tools(("read", "mcp__docs__fetch"))
+    assert _declared(tools) == ("read",)
+
+    # A reload keeps the list while the servers run; starting them again
+    # empties it, as Pi's new MCP extension has registered nothing.
+    tools.publish(tools.prepare_extensions({}))
+    assert ("mcp__docs__fetch", "hidden") in _listed(tools)
+    tools.restart_mcp_tools()
+    assert _listed(tools) == [("read", "direct"), ("bash", "direct")]
+
+
+def test_a_withdrawn_mcp_tool_offered_again_is_listed_once(tmp_path: Path) -> None:
+    tools = _session(tmp_path)
+    tools.publish_mcp_tools(_mcp(fetch="deferred"))
+    tools.publish_mcp_tools({})
+    assert _listed(tools)[-1] == ("mcp__docs__fetch", "hidden")
+
+    tools.publish_mcp_tools(_mcp(fetch="codemode"))
+
+    assert _listed(tools) == [
+        ("read", "direct"),
+        ("bash", "direct"),
+        ("mcp__docs__fetch", "codemode"),
+    ]
+    assert tools.state.mcp_withdrawn == {}
+
+
 def test_tool_search_loads_mcp_tools_that_registered_later(tmp_path: Path) -> None:
     tools = _session(tmp_path, production=True)
     tools.publish_mcp_tools(_mcp(search="direct", fetch="codemode", find="deferred"))
@@ -800,6 +848,31 @@ def test_a_second_reload_keeps_the_pending_tools(tmp_path: Path) -> None:
     assert tools.state.pending_tool_names == {"mcp__docs__search", "mcp__docs__find"}
     tools.publish_mcp_tools(_mcp(find="deferred"))
     assert _declared(tools) == ("read", "bash", "mcp__docs__find")
+
+
+@pytest.mark.parametrize("registered", [True, False])
+def test_a_reload_with_a_tool_filter_keeps_a_loaded_extension_tool(
+    tmp_path: Path, registered: bool
+) -> None:
+    # TSR-10, r4 U1; Pi `reload` passes every active name on and keeps those
+    # the filters allow. A tool the reloaded extensions no longer register
+    # is not kept.
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(exclude=("bash",)),
+        extensions={"lookup": _Tool("lookup", "deferred")},
+    )
+    assert tools.load_tools(("lookup",)) == ("lookup",)
+    assert _declared(tools) == ("read", "lookup")
+
+    tools.publish(
+        tools.prepare_extensions(
+            {"lookup": _Tool("lookup", "deferred")} if registered else {}
+        )
+    )
+
+    assert _declared(tools) == (("read", "lookup") if registered else ("read",))
+    assert tools.state.pending_tool_names == frozenset()
 
 
 def test_a_reload_with_a_tool_filter_keeps_what_tool_search_loaded(

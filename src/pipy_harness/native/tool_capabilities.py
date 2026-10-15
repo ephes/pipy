@@ -240,6 +240,14 @@ class ToolCapabilityState:
     # (``builtin:codemode``, ``builtin:tool-search``) are loaded. Decided
     # when the value is prepared, so a reload reads the settings again.
     offered_builtins: frozenset[str] = frozenset()
+    # The MCP tools that were registered since the servers were started and
+    # are not now (their server withdrew them, or it was disabled or
+    # removed), by name: the last definition of each, with exposure
+    # ``hidden``. Pi cannot unregister a tool and registers it again
+    # ``hidden``, so its ``getAllTools`` keeps listing it. Here they are only
+    # listed (:meth:`NativeToolCapabilities.all_tools`), never declared or
+    # callable.
+    mcp_withdrawn: Mapping[str, ToolDefinition] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Enforce immutability on the type, not just in `build`. The copy is
@@ -251,6 +259,7 @@ class ToolCapabilityState:
             "builtin_registry",
             "extension_registry",
             "mcp_registry",
+            "mcp_withdrawn",
             "registry",
         ):
             object.__setattr__(
@@ -352,9 +361,20 @@ class ToolCapabilityState:
         it is a new tool, so a ``direct`` one is activated by registering and
         one ``tool_search`` had loaded has to be loaded again. A pending name
         whose tool is offered now, and not ``hidden``, becomes active.
+
+        A tool that is gone is kept in ``mcp_withdrawn`` with exposure
+        ``hidden``, its last definition, until its name is registered again.
         """
 
         mcp = dict(mcp_registry)
+        listed = {
+            name: definition
+            for name, definition in self.mcp_withdrawn.items()
+            if name not in mcp
+        }
+        for name, port in self.mcp_registry.items():
+            if name not in mcp:
+                listed[name] = replace(port.definition, exposure="hidden")
         registry = _merged_registry(self.builtin_registry, self.extension_registry, mcp)
         active = self.active_tool_names
         pending = self.pending_tool_names
@@ -388,6 +408,7 @@ class ToolCapabilityState:
             ),
             active_tool_names=active,
             pending_tool_names=pending,
+            mcp_withdrawn=listed,
         )
 
     def with_extension_registry(
@@ -818,16 +839,32 @@ class NativeToolCapabilities:
         Hidden and inactive tools are included; the entries report what is
         registered, not what the next request declares. A tool that
         ``--tools``, ``--exclude-tools`` or ``--no-tools`` removed is not
-        registered in Pi and is left out.
+        registered in Pi and is left out. After them come the MCP tools that
+        are no longer registered, as ``hidden`` (Pi registers them again
+        ``hidden``); listing them is all pipy does with them.
         """
 
         state = self.state
         kept = _kept_names(state)
+        withdrawn = {
+            name: definition
+            for name, definition in state.mcp_withdrawn.items()
+            if name not in state.registry
+        }
+        if state.filter_configured:
+            listed = state.filter_options.provider_visible_names(
+                registered_names=withdrawn
+            )
+            withdrawn = {
+                name: definition
+                for name, definition in withdrawn.items()
+                if name in listed
+            }
         return tuple(
             tool_info(port.definition)
             for name, port in state.registry.items()
             if name in kept
-        )
+        ) + tuple(tool_info(definition) for definition in withdrawn.values())
 
     def kept_loadout_changes(
         self,
@@ -893,11 +930,23 @@ class NativeToolCapabilities:
 
         A selection that deactivates a tool replaces a restored one, whose
         pending names are dropped; one that only adds tools keeps them.
+
+        Pi always registers its ``codemode`` inactive, so a selection can
+        activate it. pipy registers the built-in on demand: a selection that
+        names it registers it in the same critical section, unless the
+        filters remove it or its runtime is unavailable. The runtime probe
+        must not run under the state lock: a caller that holds it calls
+        :meth:`probe_codemode` before taking it, as the session's extension
+        port does, and the cached result is read here.
         """
 
         requested = frozenset(str(name) for name in names if str(name))
+        if "codemode" in requested:
+            self.probe_codemode()
         with self._state_lock:
             state = self._state
+            if "codemode" in requested:
+                state = self._with_builtin_codemode(state)
             hidden = _hidden_names(state.registry)
             admits = _loadout_admits(state)
             normalized = frozenset(
@@ -1030,16 +1079,66 @@ class NativeToolCapabilities:
             state.filter_options
         )
 
+    def probe_codemode(self) -> bool:
+        """Whether ``codemode`` is registered, or the built-in can be.
+
+        Unlike :meth:`codemode_selectable` this runs the runtime probe once
+        when the built-in could be registered, and registers nothing. The
+        probe must not run under the state lock; once its result is cached,
+        reading it takes only that lock.
+        """
+
+        state = self.state
+        if "codemode" in state.registry:
+            return "codemode" in _kept_names(state)
+        if not (
+            "codemode" in state.offered_builtins
+            and _filters_keep_codemode(state.filter_options)
+        ):
+            return False
+        return self._probe_codemode()
+
+    def _with_builtin_codemode(self, state: ToolCapabilityState) -> ToolCapabilityState:
+        """``state`` with the built-in ``codemode`` registered, when no tool
+        has the name, the built-in extension is loaded, the filters keep it
+        and the cached probe passed; else ``state``. The selection, the
+        other tools and the extension generation are kept. The caller holds
+        the state lock."""
+
+        if (
+            "codemode" in state.registry
+            or self._codemode_available is not True
+            or "codemode" not in state.offered_builtins
+            or not _filters_keep_codemode(state.filter_options)
+        ):
+            return state
+        from pipy_harness.native.tools.codemode import CodemodeTool
+
+        builtin = {**state.builtin_registry, "codemode": CodemodeTool()}
+        registry = _merged_registry(
+            builtin, state.extension_registry, state.mcp_registry
+        )
+        return replace(
+            state,
+            builtin_registry=builtin,
+            registry=registry,
+            executor=ToolExecutor(
+                registry,
+                cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
+            ),
+        )
+
     def register_codemode(self) -> bool:
         """Register the optional built-in ``codemode`` for this run.
 
         Something other than the tool selection wants it (an MCP server whose
-        tools scripts call). Returns whether a ``codemode`` tool is registered
-        afterwards. Nothing is registered when the filters remove it or its
-        runtime is unavailable; the probe reports that once, as when the
-        selection names the tool. An extension's ``codemode`` is left alone
-        and never probed. The new value keeps the selection, the other tools
-        and the extension generation.
+        tools scripts call; a selection registers it itself, see
+        :meth:`set_active_tools`). Returns whether a ``codemode`` tool is
+        registered afterwards. Nothing is registered when the filters remove
+        it or its runtime is unavailable; the probe reports that once, as
+        when the selection names the tool. An extension's ``codemode`` is
+        left alone and never probed. The new value keeps the selection, the
+        other tools and the extension generation.
         """
 
         state = self.state
@@ -1052,33 +1151,11 @@ class NativeToolCapabilities:
             return False
         if not self._probe_codemode():
             return False
-        from pipy_harness.native.tools.codemode import CodemodeTool
-
         with self._state_lock:
-            state = self._state
-            if "codemode" in state.registry:
-                return True
             # A reload published during the probe may have turned the
             # built-in extension off: decide on the live value.
-            if not (
-                "codemode" in state.offered_builtins
-                and _filters_keep_codemode(state.filter_options)
-            ):
-                return False
-            builtin = {**state.builtin_registry, "codemode": CodemodeTool()}
-            registry = _merged_registry(
-                builtin, state.extension_registry, state.mcp_registry
-            )
-            self._state = replace(
-                state,
-                builtin_registry=builtin,
-                registry=registry,
-                executor=ToolExecutor(
-                    registry,
-                    cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
-                ),
-            )
-        return True
+            self._state = self._with_builtin_codemode(self._state)
+            return "codemode" in self._state.registry
 
     def restore_active_tools(self, names: Sequence[str]) -> None:
         """Pi ``setActiveToolsByName`` from a transcript's declared tools.
@@ -1127,8 +1204,13 @@ class NativeToolCapabilities:
 
         with self._state_lock:
             declared = _declared_names(self._state)
-            state = self._state.with_mcp_registry(
-                {}, cancel_join_timeout_seconds=self._cancel_join_timeout_seconds
+            # The servers start again, as Pi's new MCP extension instance,
+            # which has registered nothing yet: nothing is withdrawn.
+            state = replace(
+                self._state.with_mcp_registry(
+                    {}, cancel_join_timeout_seconds=self._cancel_join_timeout_seconds
+                ),
+                mcp_withdrawn={},
             )
             if not keep_declared:
                 self._state = replace(
@@ -1205,7 +1287,17 @@ class NativeToolCapabilities:
                 self._state = replace(self._state, pending_tool_names=frozenset())
 
     def _probe_codemode(self) -> bool:
-        """Cache one probe; present its warning outside both coordination locks."""
+        """Cache one probe; present its warning outside both coordination locks.
+
+        Once the result is cached it is read without the probe lock, so a
+        caller that holds the state lock (``set_active_tools`` under the
+        session lock, after the caller registered ``codemode``) never waits
+        for the probe lock, which is taken before the state lock.
+        """
+        with self._state_lock:
+            cached = self._codemode_available
+        if cached is not None:
+            return cached
         warning = None
         with self._codemode_probe_lock:
             with self._state_lock:
@@ -1344,6 +1436,7 @@ class NativeToolCapabilities:
             selection_initialized=True,
             active_selection_customized=state.active_selection_customized,
             offered_builtins=offered,
+            mcp_withdrawn=state.mcp_withdrawn,
         )
 
     def publish(self, state: ToolCapabilityState) -> None:
@@ -1356,6 +1449,11 @@ class NativeToolCapabilities:
         publishing the earlier sample would silently discard that update. The
         rebind is a reference assignment inside the same critical section as the
         swap, so no accepted selection can be lost.
+
+        With a configured filter the selection is derived from the filter
+        again; the tools declared now that are not MCP tools stay active when
+        the new value has them and the filters let them be active, so a tool
+        ``tool_search`` loaded is kept (Pi ``reload``).
         """
 
         with self._state_lock:
@@ -1365,6 +1463,8 @@ class NativeToolCapabilities:
                     self._state.mcp_registry,
                     cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
                 )
+            # The MCP tools are the live value's, so what they replaced is too.
+            state = replace(state, mcp_withdrawn=self._state.mcp_withdrawn)
             if not state.filter_configured:
                 live = self._state
                 active = (
@@ -1410,6 +1510,28 @@ class NativeToolCapabilities:
                     state,
                     active_tool_names=active,
                     active_selection_customized=live.active_selection_customized,
+                )
+            elif (
+                state.active_tool_names is not None
+                and self._state.selection_initialized
+            ):
+                # Pi ``reload`` passes every active name on and keeps those
+                # the filters allow. A configured filter derives the
+                # selection again, which drops what ``tool_search`` loaded:
+                # the declared tools other than MCP tools are kept here (an
+                # MCP tool waits for its server below). The first value a
+                # session publishes has no selection to keep.
+                admits = _loadout_admits(state)
+                state = replace(
+                    state,
+                    active_tool_names=state.active_tool_names
+                    | frozenset(
+                        name
+                        for name in _declared_names(self._state)
+                        if not is_mcp_tool_name(name)
+                        and name in state.registry
+                        and admits(name)
+                    ),
                 )
             live = self._state
             if live.active_tool_names is not None:

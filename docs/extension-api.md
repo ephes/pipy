@@ -928,7 +928,11 @@ The exposure decides two sets:
   `ctx.set_active_tools([...])` still accepts such a name. As in Pi it
   ignores a name that no tool has and a `hidden` tool, and makes the other
   names the active tools; it returns `False` only when the context can no
-  longer change the session.
+  longer change the session. Naming the built-in `codemode` activates it
+  also when nothing selected it before: pipy then registers it, which runs
+  its runtime self-test once (Pi always has it registered, inactive). When
+  the runtime is unavailable, or `--tools`, `--exclude-tools` or
+  `--no-tools` removed it, the name is ignored like one that no tool has.
 - **Callable** from a [codemode](codemode.md) script: the active `direct`
   tools and every registered `codemode` or `deferred` tool, whether or not it
   is active. `model-only` and `hidden` tools and `codemode` itself are never
@@ -1193,7 +1197,11 @@ counts no usage of tools (DEV-13).
 registered tool, built-in and extension, active or not (the built-in
 [`tool_search`](mcp.md#tool-search) is registered inactive, and naming it in
 `ctx.set_active_tools(...)` activates it), in registration order, without the
-tools that `--tools`, `--exclude-tools` or `--no-tools` removed: `name`, `description`, `input_schema` (a copy), `exposure`,
+tools that `--tools`, `--exclude-tools` or `--no-tools` removed. After them
+come the [MCP tools](mcp.md#when-tools-change) that are no longer registered,
+because their server withdrew them or was disabled, with exposure `hidden`, as
+Pi lists them; they are listed only, never declared or callable. Each entry has
+`name`, `description`, `input_schema` (a copy), `exposure`,
 `namespace`, `annotations`, `reaches_tools` (the function, or `None`) and
 `prompt_guidelines` (as registered). It
 is available in command, shortcut, hook and tool handler contexts of a

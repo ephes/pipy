@@ -544,7 +544,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
 | DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. Since goal check r3 (U2) a selection that is set drops a name the `--tools` allowlist does not let be activated, as Pi's `_applyToolLoadout` does; what is kept is narrowed when read, so a reload that changes an exposure takes a tool out. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 and T3 |
 | DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` entry follows Pi's override rules since goal check r3 (F1); a `!` glob is matched with `fnmatch` against the name `builtin:<name>` alone, where a `**/` segment also matches no directory as in minimatch since goal check r4 (U4); minimatch's brace and extended forms (`{a,b}`, `+(a\|b)`) are not supported, and Pi also tries the path relative to the settings directory. | other form | Decided in S19, G8, T3 |
-| DEV-33 | SES-11, SES-13, EXT-03 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. `get_all_tools()` does not list `codemode` before something registers it, where Pi always registers it inactive (goal check r4, U2; this part accepted in Q13). An extension's `set_active_tools` naming an unregistered `codemode` does not register it yet; the fix slice V2 of that triage does. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure"; goal check r4 (U2) |
+| DEV-33 | SES-11, SES-13, EXT-03 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. `get_all_tools()` does not list `codemode` before something registers it, where Pi always registers it inactive (goal check r4, U2; this part accepted in Q13). Since V2 an extension's `set_active_tools` naming `codemode` registers it then, so the selection activates it as Pi's does. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure"; goal check r4 (U2), fixed in V2 except the listing |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
 | DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built, and its result has only `append_system_prompt`: Pi's `systemPrompt` (replace the whole prompt) and `message` (a custom message for the run) are not built (an extension-API item in `docs/backlog.md`). `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
 | DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. Pi resolves a name shared by an MCP tool and an extension tool by load order; with the default order the extension wins in Pi too, so they differ only when `builtin:mcp` loads first (`-e builtin:mcp`). | stricter | Decided in S16, S17 |
@@ -733,7 +733,8 @@ Decided in S09 (the `tool_search` tool, `native/tool_search.py`):
 - `NativeToolCapabilities.prepare_extensions` registers `tool_search` with
   the production built-ins on every preparation; it needs no runtime, so
   there is no probe as for `codemode`. A caller-injected plain registry does
-  not get it. `codemode` is still registered only when it is named.
+  not get it. `codemode` is still registered only when it is named (since
+  goal check r4, U2, also by an extension's `set_active_tools`).
 - An allowlist (`--tools a,b`) activates every declarable tool it names,
   also one that is inactive by default (Pi `_refreshToolRegistry`); a filter
   that names nothing (`--exclude-tools`, `--no-builtin-tools`) leaves it
@@ -1080,7 +1081,9 @@ Decided in S19 (`discovery.py`, the startup report, the switches):
   marking it as customized; `declared_tool_names()` is Pi `getActiveTools`;
   `codemode_selectable()` says whether `codemode` is or could be registered,
   without probing.
-- pipy registers `codemode` on demand, so SES-11 costs one runtime probe (a
+- pipy registers `codemode` on demand (also when an extension's
+  `set_active_tools` names it, since goal check r4, U2; the probe runs
+  before the session's state lock is taken), so SES-11 costs one runtime probe (a
   self-test in a child process) at the start of every session that has an
   enabled server with `codemode` exposure and `autoEnableCodemode` not
   false. With the setting false nothing is probed, and the SES-13 warning
@@ -1361,7 +1364,11 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
 - TSR-10: `ToolCapabilityState.pending_tool_names` (Pi `_pendingToolNames`).
   Names enter it in three places: `publish` on reload keeps the declared
   MCP tools of the live value (a configured filter derives the selection
-  again, so they are read in the critical section of the swap),
+  again, so they are read in the critical section of the swap; since goal
+  check r4, U1, the same swap keeps the declared tools that are not MCP
+  tools active when the new value has them and the filters admit them, as
+  Pi's `reload` keeps every active name, so an extension tool that
+  `tool_search` loaded survives `/reload`),
   `restart_mcp_tools` moves the MCP tools declared at that moment out of the
   selection in the critical section that unregisters them (so a publication
   of the old servers between the two cannot lose a name), and
@@ -1423,7 +1430,8 @@ Decided in S23 (`resources.py`, resources in `connection.py` and
   disable and after an exposure change (Pi `syncResourceTools`). With no
   server left the ports are published with exposure `hidden` and stay
   registered, as in Pi; S17's rule that a withdrawn tool is absent from the
-  registry holds for server tools only. When the exposure stops being
+  registry holds for server tools only (since goal check r4, U3,
+  `get_all_tools()` lists such a tool as `hidden`, see section 4.4). When the exposure stops being
   `direct` the three names leave the active selection through
   `deactivate_tools`.
 - `McpToolPort.readable_resources` is `McpManager._reads_resources(server)`,
@@ -3061,7 +3069,14 @@ old or the new value.
 
 Pi cannot unregister tools and re-registers withdrawn ones as `hidden`. pipy
 publishes whole registries, so a withdrawn tool is simply absent from the next
-value; a call that was prepared against it fails with the TLS-19 messages. The
+value; a call that was prepared against it fails with the TLS-19 messages.
+Since goal check r4 (U3) the value keeps the last definition of each MCP tool
+that is no longer registered (`mcp_withdrawn`: withdrawn by its server, or its
+server disabled or removed) with exposure `hidden`, and `get_all_tools()`
+lists those after the registered tools, as Pi's `getAllTools` lists its hidden
+copies. They are only listed: never declared or callable, not counted by `/mcp`
+and not in the `mcp_servers` section. Starting the servers again (`/reload`)
+empties the list, as Pi's new MCP extension has registered nothing. The
 name-ownership map (TLS-03) lives in the manager for the session: it records
 which tool a name was assigned to, so a name is never handed to a different
 tool, while collision suffixes are recomputed from every new list as in Pi.

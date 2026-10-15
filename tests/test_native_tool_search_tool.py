@@ -580,6 +580,7 @@ def _session_run(
     *,
     default_tools: list[str] | None,
     tree: NativeSessionTree | None = None,
+    tool_filter_options: ToolFilterOptions | None = None,
 ):
     session = CodingSession(
         provider=provider,
@@ -587,6 +588,7 @@ def _session_run(
         settings_manager=_settings(workspace, default_tools),
         native_session=tree,
         tool_budget=5,
+        tool_filter_options=tool_filter_options or ToolFilterOptions.empty(),
     )
     return session.run(
         workspace_root=workspace,
@@ -760,3 +762,40 @@ def test_session_loads_a_deferred_tool_and_keeps_it_declared_on_the_branch(
     # `initialActiveToolNames`, so the transcript's loadout is not restored).
     assert len(list((tmp_path / "saved").glob("*.jsonl"))) == 2
     assert _tool_names(cloned) == ["tool_search"]
+
+
+def test_a_reload_with_a_tool_filter_keeps_a_loaded_tool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # TSR-10 (goal check r4, U1): with `--exclude-tools bash` the selection
+    # is derived from the filter again on `/reload`; Pi's `reload` keeps every
+    # active name the filters allow, the tool `tool_search` loaded too.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_extension(tmp_path)
+    provider = _StubProvider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall(
+                        "c1", "tool_search", '{"query":"search the docs","limit":1}'
+                    ),
+                )
+            ),
+            _result(final_text="loaded"),
+            _result(final_text="after the reload"),
+        ]
+    )
+
+    result = _session_run(
+        tmp_path,
+        provider,
+        "find a docs tool\n/reload\nuse it\n",
+        default_tools=["tool_search"],
+        tool_filter_options=ToolFilterOptions(exclude=("bash",)),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second, third = provider.requests
+    assert _tool_names(first) == ["tool_search"]
+    assert _tool_names(second) == ["tool_search", "docs_search"]
+    assert _tool_names(third) == ["tool_search", "docs_search"]

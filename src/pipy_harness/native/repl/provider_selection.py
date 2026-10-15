@@ -747,6 +747,15 @@ class ProviderMutationEffects:
     ) -> bool:
         """Restrict future tools only for the context's live generation."""
 
+        if "codemode" in tool_names:
+            # The built-in is registered with the selection, after a runtime
+            # probe (a child process) that must not run under the generation
+            # lock, which is the session's state lock. A retired context
+            # neither probes nor registers anything.
+            with self.ctl.generation_ref.lock:
+                if not self._generation_admitted_locked(generation_id):
+                    return False
+            self.tool_capabilities.probe_codemode()
         with self.ctl.generation_ref.lock:
             if not self._generation_admitted_locked(generation_id):
                 return False

@@ -471,6 +471,55 @@ def test_a_changed_list_adds_withdraws_and_restores_tools(
     assert session.port("mcp__docs__fetch").definition.exposure == "deferred"
 
 
+def test_withdrawn_and_disabled_tools_stay_listed_as_hidden(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # Pi `registerTools` and `hideTools` register such a tool again `hidden`,
+    # because a tool cannot be unregistered, and `getAllTools` keeps listing
+    # it. It is neither declared nor callable, and `/mcp` does not count it.
+    server = _Server(tools=[_tool("search"), _tool("fetch")])
+    session = _Session(tmp_path, {"docs": server}, [_entry("docs", exposure="direct")])
+    sessions.append(session)
+    session.start()
+
+    def listed() -> list[tuple[str, str]]:
+        return [(tool.name, tool.exposure) for tool in session.tools.all_tools()]
+
+    server.tools = [_tool("search")]
+    server.notify("notifications/tools/list_changed")
+    _wait_until(lambda: session.mcp_names() == ("mcp__docs__search",))
+
+    assert listed() == [
+        ("read", "direct"),
+        ("mcp__docs__search", "direct"),
+        ("mcp__docs__fetch", "hidden"),
+    ]
+    assert session.declared() == ("read", "mcp__docs__search")
+    assert "mcp__docs__fetch" not in session.callable_names()
+    assert session.call("mcp__docs__fetch") == "unknown tool: mcp__docs__fetch"
+    assert describe_state(_status_of(session, "docs")) == "connected · 1 tool"
+
+    assert session.manager.set_enabled("docs", False) is None
+
+    assert listed() == [
+        ("read", "direct"),
+        ("mcp__docs__fetch", "hidden"),
+        ("mcp__docs__search", "hidden"),
+    ]
+    assert session.declared() == ("read",)
+    assert session.callable_names() == {"read"}
+
+    session.servers["docs"] = _Server(tools=[_tool("search"), _tool("fetch")])
+    assert session.manager.set_enabled("docs", True) is None
+
+    # Offered again: listed once, with the configured exposure.
+    assert listed() == [
+        ("read", "direct"),
+        ("mcp__docs__search", "direct"),
+        ("mcp__docs__fetch", "direct"),
+    ]
+
+
 def test_a_colliding_tool_renames_both_and_its_removal_restores_the_name(
     tmp_path: Path, sessions: list[_Session]
 ) -> None:
