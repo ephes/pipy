@@ -239,6 +239,8 @@ class ToolRowState:
     ended_at: float | None = None
     correlation_id: str | None = None
     nested_lines: tuple[NestedToolLine, ...] = ()
+    # Live nested calls the row no longer keeps: it keeps the latest 256.
+    nested_dropped: int = 0
     # What an extension's renderers returned the last time, by phase
     # (`call`, `result`): the next render's `last_component`.
     last_components: dict[str, object | None] = field(default_factory=dict)
@@ -1449,14 +1451,16 @@ def render_tool_row(
         bg = "error" if result is not None and result.is_error else "success"
     rows: list[RowLine] = [RowLine("", bg), *_call_rows(state, inputs, bg)]
     if state.nested_lines:
+        # Pi's codemode renderer: the latest 8 calls, all of them expanded.
         shown = state.nested_lines if inputs.expanded else state.nested_lines[-8:]
-        if len(shown) < len(state.nested_lines):
-            rows.append(
-                RowLine(
-                    f"... ({len(state.nested_lines) - len(shown)} earlier calls, ctrl+o to expand)",
-                    bg,
-                )
+        hidden = state.nested_dropped + len(state.nested_lines) - len(shown)
+        if hidden:
+            hint = (
+                "not kept"
+                if len(shown) == len(state.nested_lines)
+                else "ctrl+o to expand"
             )
+            rows.append(RowLine(f"... ({hidden} earlier calls, {hint})", bg))
         for line in shown:
             rows.append(RowLine(nested_line_text(line, expanded=inputs.expanded), bg))
             if inputs.expanded and line.error:

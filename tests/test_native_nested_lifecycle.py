@@ -288,10 +288,13 @@ def test_live_status_args_bounds_sanitize_and_parent_mismatch(tmp_path: Path) ->
         not any(ord(c) < 32 or 127 <= ord(c) < 160 for c in line.arguments + line.error)
         for line in retained
     )
+    # The 257th call pushed out the oldest one (call 1, ok).
+    assert state.nested_dropped == 1
+    assert retained[0].call_id == "parent/2"
     assert [line.status for line in retained[:3]] == [
-        "ok",
         "error",
         "cancelled",
+        "ok",
     ]
     assert all(line.duration_seconds == 0.125 for line in retained)
     live.transcript.set_tools_expanded(True)
@@ -312,6 +315,46 @@ def test_live_status_args_bounds_sanitize_and_parent_mismatch(tmp_path: Path) ->
         live.transcript.pending_tool is not None
         and live.transcript.pending_tool.nested_lines == ()
     )
+
+
+def test_the_live_row_keeps_the_latest_calls_past_the_record_bound(
+    tmp_path: Path,
+) -> None:
+    """Pi keeps every live call and shows the latest; the row keeps the latest
+    256, dropping the oldest finished call first, and counts the rest."""
+
+    live = _Live(tmp_path)
+    adapter = RenderingAgentEventAdapter(live.renderer)
+    parent = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    adapter.emit(ToolCallStarted(0, parent))
+    state = live.transcript.pending_tool
+    assert state is not None
+    # Call 1 keeps running while 299 more start and end.
+    slow = _child(n=1, args='{"path":"slow"}')
+    adapter.emit(NestedToolCallStarted(0, "parent", slow))
+    for n in range(2, 301):
+        call = _child(n=n, args=f'{{"path":"f{n}"}}')
+        adapter.emit(NestedToolCallStarted(0, "parent", call))
+        adapter.emit(_end(call, error=n == 300))
+    assert len(state.nested_lines) == 256
+    assert state.nested_dropped == 44
+    # The running call stayed, the oldest finished ones went.
+    assert [line.call_id for line in state.nested_lines[:2]] == [
+        "parent/1",
+        "parent/46",
+    ]
+    collapsed = _plain(live.transcript.pending_tool_lines)
+    assert "... (292 earlier calls, ctrl+o to expand)" in collapsed
+    # The latest calls and the latest failure are visible.
+    assert any('✗ read {"path":"f300"}' in line for line in collapsed)
+    assert any('✓ read {"path":"f299"}' in line for line in collapsed)
+    adapter.emit(_end(slow))
+    assert state.nested_lines[0].status == "ok"
+    live.transcript.set_tools_expanded(True)
+    expanded = _plain(live.transcript.pending_tool_lines)
+    assert "... (44 earlier calls, not kept)" in expanded
+    assert any('read {"path":"f46"}' in line for line in expanded)
+    assert not any('read {"path":"f45"}' in line for line in expanded)
 
 
 def test_automation_unknown_rejected_and_plain_children_indented() -> None:

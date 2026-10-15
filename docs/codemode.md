@@ -583,7 +583,13 @@ not be saved, publish no path and preserve the primary outcome and nested record
 
 ## Nested evidence and availability
 
-Live children appear inside the parent row; Ctrl+O expands retained evidence.
+Live children appear inside the parent row, as in Pi's codemode renderer:
+collapsed, the latest eight calls after `... (N earlier calls, ctrl+o to
+expand)`; Ctrl+O shows every call the row keeps. Pi keeps every call; the
+row keeps the latest 256 while the script runs. Past that it lets the
+oldest finished call go for each new one (a call still running stays) and
+an expanded row starts with `... (N earlier calls, not kept)`. So the
+latest calls and failures stay visible however many calls a script makes.
 Below them the row shows the script's output as Pi's codemode renderer does:
 without the `Script completed`, `Wall time` and `Output:` lines, nothing while
 the script runs, and collapsed only the first five lines as wrapped at the

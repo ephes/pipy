@@ -223,3 +223,28 @@ drop any "8.0 is refused".
   "`renderShell` is not ported."
 
 **Audit test references:** none changed.
+
+### D6: the nested live window keeps the latest calls
+
+**Changelog (Unreleased, Fixed):**
+
+- A codemode row no longer freezes after 256 nested calls: the live row
+  keeps the latest 256 (past that the oldest finished call goes for each
+  new one; a running call stays), so the latest calls and failures stay
+  visible, as Pi's renderer shows the latest of every call. The collapsed
+  `... (N earlier calls, ctrl+o to expand)` counts every call left out, and
+  an expanded row starts with `... (N earlier calls, not kept)` when calls
+  were let go. Before, later calls were not shown at all. The `nestedCalls`
+  record in the result is unchanged (the first 256 calls, `complete: false`
+  past that).
+
+**Plan:** CMD-26 note: "the bound is the durable record's; the live row
+keeps the latest 256 calls, where Pi keeps every call (r3 D6)". No DEV row
+records the live cap, so none changes.
+
+**Acceptance (CMD-26 row, add test):** `test_native_nested_lifecycle.py`:
+`test_the_live_row_keeps_the_latest_calls_past_the_record_bound`;
+`test_live_status_args_bounds_sanitize_and_parent_mismatch` now asserts the
+rolling window (r3 D6).
+
+**Audit test references:** none changed.
