@@ -510,23 +510,26 @@ class ToolExecutor:
         if isinstance(arguments, ToolExecutionOutcome):
             return arguments
         assert tool is not None  # an unknown tool is a malformed outcome
+        request = ToolRequest(
+            tool_request_id=make_tool_request_id(),
+            tool_name=call.tool_name,
+            arguments=arguments,
+            provider_correlation_id=call.provider_correlation_id,
+        )
+        began = monotonic()
+        if started is not None:
+            started.append(began)
         try:
-            request = ToolRequest(
-                tool_request_id=make_tool_request_id(),
-                tool_name=call.tool_name,
-                arguments=arguments,
-                provider_correlation_id=call.provider_correlation_id,
-            )
-            began = monotonic()
-            if started is not None:
-                started.append(began)
             execution_result = tool.invoke(request, context)
-            ran = monotonic() - began
         except ToolArgumentError as exc:
+            # The tool ran and refused its arguments (Pi: `execute()` threw),
+            # so the outcome keeps how long it ran.
             return ToolExecutionOutcome(
                 self.error_result(call, str(exc)),
                 malformed_arguments=True,
+                execution_seconds=monotonic() - began,
             )
+        ran = monotonic() - began
         if not isinstance(execution_result, ToolExecutionResult):
             raise TypeError(
                 f"tool {call.tool_name!r} returned non-ToolExecutionResult value"

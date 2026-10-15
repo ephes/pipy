@@ -865,6 +865,29 @@ def test_execution_time_covers_the_tool_only_when_it_ran(tmp_path: Path) -> None
     assert worker.execution_seconds is not None and worker.execution_seconds >= 0.05
 
 
+@pytest.mark.parametrize("interruptible", [False, True])
+def test_a_tool_that_refuses_its_arguments_while_running_keeps_its_time(
+    tmp_path: Path, interruptible: bool
+) -> None:
+    # A tool that ran and then refused its arguments is Pi's `execute()`
+    # throwing: the error result still carries how long the tool ran.
+    def refusing(request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        time.sleep(0.05)
+        raise ToolArgumentError("echo", "pattern must not be empty")
+
+    outcome = ToolExecutor({"echo": _FixtureTool(refusing)}).execute(
+        _call(),
+        _context(tmp_path),
+        (lambda done, cancel: (done.wait(5), ToolExecutionInterruption.SETTLED)[1])
+        if interruptible
+        else None,
+    )
+
+    assert outcome.malformed_arguments and outcome.result.is_error
+    assert outcome.execution_seconds is not None
+    assert outcome.execution_seconds >= 0.05
+
+
 def test_a_cancelled_tool_counts_its_cleanup_as_execution_time(
     tmp_path: Path,
 ) -> None:
