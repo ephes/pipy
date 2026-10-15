@@ -12,6 +12,7 @@ extension command runs it at once, also during a run (``prompt``); and
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -270,3 +271,199 @@ def test_get_commands_lists_commands_templates_and_skills(
     # Pi lists them in this order: extension commands, templates, skills.
     sources = [command["source"] for command in commands]
     assert sources == sorted(sources, key=["extension", "prompt", "skill"].index)
+
+
+# -- R3 (goal check r2, S6, S7): the `input` hooks of queued input ----------
+
+_QUEUE_HOOKS = """from pathlib import Path
+from pipy_harness.extensions import InputHandled, InputTransform
+
+
+def activate(api):
+    @api.on('input')
+    def hook(event, ctx):
+        with open(Path(__file__).with_name('seen.txt'), 'a') as f:
+            f.write(event.text + '\\n')
+        if event.text == 'skip':
+            return InputHandled()
+        if event.text == 'secret':
+            return InputTransform(text='/review the redacted diff')
+        if event.text == 'ask':
+            answer = ctx.ui.confirm('Queue it?', 'really')
+            return InputTransform(text='asked ' + repr(answer))
+"""
+
+
+@pytest.mark.parametrize("kind", ["steer", "follow_up", "prompt"])
+def test_queued_input_meets_the_input_hooks_before_expansion(
+    tmp_path: Path, connect, kind: str
+) -> None:
+    # Pi `_queueUserInput` and `prompt`: the hooks see the text as sent, a
+    # hook may handle it, and what the hooks return is expanded and queued;
+    # the hooks do not run again when the message runs.
+    workspace = tmp_path / "work"
+    directory = _extension(workspace, "hooks", _QUEUE_HOOKS)
+    _resource(
+        workspace / ".pipy" / "templates", "review", "Please review $ARGUMENTS.\n"
+    )
+    provider, entered, release = _holding_provider(
+        _result(final_text="one"), _result(final_text="two")
+    )
+    client = connect(provider)
+
+    client.send(id="run", type="prompt", message="first")
+    client.response("run")
+    assert entered.wait(10.0)
+    client.send(id="handled", type=kind, message="skip")
+    assert client.response("handled")["data"] == {"disposition": "handled"}
+    client.send(id="q", type=kind, message="secret")
+    assert client.response("q")["data"] == {"disposition": "queued"}
+    release.set()
+    client.until(lambda record: record.get("type") == "agent_settled")
+    rest = client.close()
+
+    assert client.errors.getvalue() == ""
+    assert [record for record in rest if record.get("success") is False] == []
+    sent = [request.user_prompt.strip() for request in provider.requests]
+    assert len(sent) == 2
+    assert sent[-1] == "Please review the redacted diff."
+    assert "skip" not in " ".join(sent)
+    assert (directory / "seen.txt").read_text().splitlines() == [
+        "first",
+        "skip",
+        "secret",
+    ]
+
+
+def test_a_dialog_of_a_queued_input_hook_gets_its_answer(
+    tmp_path: Path, connect
+) -> None:
+    # The hooks of queued input run beside the command thread, which goes on
+    # reading the client's lines: the answer reaches the dialog.
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _QUEUE_HOOKS)
+    provider, entered, release = _holding_provider(
+        _result(final_text="one"), _result(final_text="two")
+    )
+    client = connect(provider)
+
+    client.send(id="run", type="prompt", message="first")
+    client.response("run")
+    assert entered.wait(10.0)
+    client.send(id="s", type="steer", message="ask")
+    request = client.until(lambda record: record.get("method") == "confirm")[-1]
+    client.send(type="extension_ui_response", id=request["id"], confirmed=True)
+    assert client.response("s")["data"] == {"disposition": "queued"}
+    release.set()
+    client.until(lambda record: record.get("type") == "agent_settled")
+    client.close()
+
+    assert client.errors.getvalue() == ""
+    assert provider.requests[-1].user_prompt.strip() == "asked True"
+
+
+def test_input_after_a_message_that_meets_the_hooks_waits_for_it(
+    tmp_path: Path, connect
+) -> None:
+    # While a queued message's hook waits for a dialog, a later prompt does
+    # not overtake it, and a session transition waits until it is queued.
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _QUEUE_HOOKS)
+    provider, entered, release = _holding_provider(
+        _result(final_text="one"), _result(final_text="two"), _result(final_text="3")
+    )
+    client = connect(provider)
+
+    client.send(id="run", type="prompt", message="first")
+    client.response("run")
+    assert entered.wait(10.0)
+    client.send(id="f", type="follow_up", message="ask")
+    request = client.until(lambda record: record.get("method") == "confirm")[-1]
+    release.set()
+    client.until(lambda record: record.get("type") == "agent_settled")
+    client.send(id="n", type="new_session")
+    client.send(id="p", type="prompt", message="later")
+    client.send(type="extension_ui_response", id=request["id"], confirmed=True)
+    records = client.until(lambda record: record.get("id") == "p")
+    client.until(lambda record: record.get("type") == "agent_settled")
+    client.close()
+
+    answered = [record["id"] for record in records if record.get("type") == "response"]
+    assert answered.index("f") < answered.index("n")
+    assert [request.user_prompt.strip() for request in provider.requests] == [
+        "first",
+        "asked True",
+        "later",
+    ]
+
+
+def test_a_prompt_admitted_as_the_run_ends_is_expanded_once(
+    tmp_path: Path, connect, monkeypatch
+) -> None:
+    # S7: the run ends between the prompt's queueing and its admission, so
+    # the prompt runs at once; it was expanded when it was queued and is not
+    # expanded (or shown to the hooks) again.
+    workspace = tmp_path / "work"
+    directory = _extension(workspace, "hooks", _QUEUE_HOOKS)
+    _resource(workspace / ".pipy" / "templates", "outer", "/inner $ARGUMENTS\n")
+    _resource(workspace / ".pipy" / "templates", "inner", "Inner $ARGUMENTS.\n")
+    provider, entered, release = _holding_provider(
+        _result(final_text="one"), _result(final_text="two")
+    )
+    client = connect(provider)
+    client.send(id="run", type="prompt", message="first")
+    client.response("run")
+    assert entered.wait(10.0)
+    bridge_type = type(client._server._bridge)
+    admit = bridge_type.admit_follow_up
+
+    def admit_after_the_run_ended(self, content):  # type: ignore[no-untyped-def]
+        release.set()
+        deadline = time.monotonic() + 10.0
+        while self.snapshot().reservation is not None:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        return admit(self, content)
+
+    monkeypatch.setattr(bridge_type, "admit_follow_up", admit_after_the_run_ended)
+    client.send(id="p", type="prompt", message="/outer x")
+    assert client.response("p")["data"] == {"disposition": "queued"}
+    client.until(lambda record: record.get("type") == "agent_settled")
+    monkeypatch.undo()
+    client.close()
+
+    assert provider.requests[-1].user_prompt.strip() == "/inner x"
+    assert (directory / "seen.txt").read_text().splitlines() == [
+        "first",
+        "/outer x",
+    ]
+
+
+def test_a_command_prompt_does_not_wait_for_a_queued_message_s_hooks(
+    tmp_path: Path, connect
+) -> None:
+    # Pi `prompt` runs an extension command at once, also while a queued
+    # message's hook waits for a dialog.
+    workspace = tmp_path / "work"
+    _extension(workspace, "hooks", _QUEUE_HOOKS)
+    directory = _extension(workspace, "commands", _COMMANDS)
+    provider, entered, release = _holding_provider(
+        _result(final_text="one"), _result(final_text="two")
+    )
+    client = connect(provider)
+
+    client.send(id="run", type="prompt", message="first")
+    client.response("run")
+    assert entered.wait(10.0)
+    client.send(id="f", type="follow_up", message="ask")
+    request = client.until(lambda record: record.get("method") == "confirm")[-1]
+    client.send(id="c", type="prompt", message="/note meanwhile")
+    assert client.response("c")["data"] == {"disposition": "handled"}
+    assert (directory / "note.txt").read_text() == repr("meanwhile")
+    client.send(type="extension_ui_response", id=request["id"], confirmed=False)
+    assert client.response("f")["data"] == {"disposition": "queued"}
+    release.set()
+    client.until(lambda record: record.get("type") == "agent_settled")
+    client.close()
+
+    assert client.errors.getvalue() == ""

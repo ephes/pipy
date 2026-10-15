@@ -1925,6 +1925,8 @@ def _compose_collaborators(
             resources=lambda: ctl.workspace_resources,
             run_command=collaborators.dispatch_extension_effect,
             report_error=extension.extension_error,
+            input_hooks=extension_operations.dispatch_input,
+            has_input_hooks=extension_operations.has_input_hooks,
         ),
     )
     transition = SessionTransitionCoordinator(

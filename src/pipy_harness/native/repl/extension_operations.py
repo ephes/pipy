@@ -165,6 +165,12 @@ class SessionExtensionOperations:
             project_trusted=self.project_trusted,
         )
 
+    def has_input_hooks(self) -> bool:
+        """Whether a loaded extension handles ``input``."""
+
+        projection = self.generation_ref.snapshot().generation.projection
+        return projection is not None and bool(projection.hooks.input)
+
     def dispatch_input(self, text: str) -> str | None:
         projection, ui_driver, generation_id = self._projection()
         return dispatch_input_hooks(

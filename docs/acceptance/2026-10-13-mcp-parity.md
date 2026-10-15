@@ -2,8 +2,8 @@
 
 Status: **implemented on `feat/mcp-parity`, not merged.** Of the 292
 checklist rows of the
-[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 179 are
-closed with a test and 113 are closed with a recorded limit or
+[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 180 are
+closed with a test and 112 are closed with a recorded limit or
 deviation; no row is open. The official MCP
 client conformance suite gives the same result for pipy as for Pi. Live use
 with a real server and a real model (plan section 6.5) has **not** been
@@ -14,7 +14,7 @@ implemented the slice, from the tests and documents in the repository: a
 first pass on 2026-10-13 and a second one on 2026-10-14 that checked the
 first. It is evidence for the owner's final judgement, not that judgement.
 
-The 113 rows that are closed with a limit count as closed only if the
+The 112 rows that are closed with a limit count as closed only if the
 judgement accepts the deviation or limit each one names (plan section 3).
 The owner accepted the DEV rows that plan section 7, Q11, names
 (2026-10-15).
@@ -86,7 +86,7 @@ Pi sources the plan cites.
 
 No row is open. The two rows the audit left open were built afterwards:
 SLH-13 (commands and expansion in queued RPC input) in N2, with the limits
-of DEV-65, and the hyperlink part of MGR-09 in N3.
+of DEV-65, which R3 removed, and the hyperlink part of MGR-09 in N3.
 
 ## Deviations
 
@@ -103,10 +103,8 @@ is `closed, with limits`. The ones a user is most likely to meet:
   arise** (DEV-15; SES-04, EXT-10): one that arises during a run is shown
   after it, and the `mcp_servers_change` hooks still run before the next
   prompt.
-- **A session switch restarts only the MCP tools** (DEV-16; SES-20): the
-  rest of the tool selection is kept, and extensions get no
-  `session_start` on a switch.
-- **Queued RPC input skips the `input` hooks** (DEV-65; SLH-13).
+- **A refused `/reload` keeps the running MCP servers** (DEV-16; SES-20);
+  Pi restarts them in every case.
 - **`auth.provider` differs in details** (DEV-52; OAU-36): no ambient cloud
   credentials.
 - **Nested calls have no session-wide sequential mode** (DEV-48;
@@ -518,11 +516,11 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | SLH-06 | S21 | closed, with limits | `test_native_mcp_commands.py`: `test_too_many_arguments_or_an_unknown_action_prints_the_usage` | DEV-38. |
 | SLH-07 | X1, N2 | closed | `test_native_automation_prompt_dispatch.py`: `test_print_mode_runs_mcp_and_starts_no_run`, `test_an_extension_command_runs_with_its_arguments`, `test_a_failing_extension_command_is_still_handled`; `test_native_automation_rpc_prompt_dispatch.py`: `test_mcp_is_handled_and_starts_no_run`, `test_a_failing_command_is_handled_too`; `test_native_extension_mcp_servers.py`: `test_an_unconnected_server_is_an_extension_error_of_print_mode`; `test_native_extension_dispatch.py`: `test_an_exception_whose_text_raises_is_still_bounded`; `test_native_coding_session_controller.py`: `test_prompt_reports_a_failed_extension_command_and_starts_no_run` |  |
 | SLH-08 | X1 | closed | `test_native_automation_prompt_dispatch.py`: `test_other_slash_texts_are_the_prompt`, `test_json_mode_sends_an_unknown_slash_name_to_the_model`; `test_native_automation_rpc_prompt_dispatch.py`: `test_other_slash_texts_start_a_run` |  |
-| SLH-09 | X1 | closed, with limits | `test_native_automation_prompt_dispatch.py`: `test_a_prompt_template_and_a_skill_are_expanded`, `test_an_extension_command_comes_before_a_template_of_its_name`; `test_native_automation_rpc_prompt_dispatch.py`: `test_a_prompt_template_is_expanded`; `test_native_automation_prompt_dispatch.py`: `test_input_hooks_run_before_expansion`, `test_a_template_named_like_a_builtin_command_is_expanded`; `test_native_coding_session_controller.py`: `test_prompt_input_hooks_see_the_unexpanded_text` (N2) | Custom commands expand like templates, an unknown skill is reported on stderr, and for a typed line a resource turn skips the `input` hooks. DEV-40. |
+| SLH-09 | X1 | closed, with limits | `test_native_automation_prompt_dispatch.py`: `test_a_prompt_template_and_a_skill_are_expanded`, `test_an_extension_command_comes_before_a_template_of_its_name`; `test_native_automation_rpc_prompt_dispatch.py`: `test_a_prompt_template_is_expanded`; `test_native_automation_prompt_dispatch.py`: `test_input_hooks_run_before_expansion`, `test_a_template_named_like_a_builtin_command_is_expanded`; `test_native_coding_session_controller.py`: `test_prompt_input_hooks_see_the_unexpanded_text` (N2); `test_native_coding_session_controller.py`: `test_a_typed_template_line_meets_the_input_hooks_before_expansion`, `test_a_typed_template_line_a_hook_handled_starts_no_run`, `test_a_typed_template_line_the_hooks_turn_into_text_is_that_text`; `test_native_typed_input_hooks.py`: `test_a_typed_template_line_meets_the_input_hooks` (R3) | Custom commands expand like templates, an unknown skill is reported on stderr, and a typed line that names no skill or template meets the `input` hooks when its turn is prepared. DEV-40. |
 | SLH-10 | X1, N2 | closed | `test_native_automation_prompt_dispatch.py`: `test_print_mode_runs_mcp_and_starts_no_run`, `test_json_mode_runs_mcp_and_emits_only_the_header`, `test_a_prompt_an_input_hook_handled_starts_no_run`; `test_native_automation_rpc_prompt_dispatch.py`: `test_mcp_is_handled_and_starts_no_run`, `test_a_prompt_behind_a_run_is_queued`, `test_a_queued_prompt_is_never_answered_as_started`, `test_a_prompt_an_input_hook_handled_is_answered_handled`; `test_native_extension_input_hooks.py`: `test_a_handled_input_ends_the_chain`, `test_a_typed_line_an_input_hook_handled_starts_no_run` |  |
 | SLH-11 | X1 | closed, with limits | `test_native_automation_rpc_ui.py`: `test_notify_writes_one_request_and_waits_for_nothing`, `test_select_returns_the_value_of_its_response`, `test_mcp_asks_the_client_which_server_to_reconnect`; `test_native_automation_prompt_dispatch.py`: `test_mcp_subcommand_runs_from_a_prompt`; `test_native_automation_rpc_extension_ui.py`: `test_an_extension_command_uses_the_client_as_its_ui`, `test_a_session_start_hook_has_the_client_as_its_ui`, `test_a_dialog_timeout_ends_it_with_its_default`, `test_dialogs_of_startup_and_transition_hooks_get_their_answers` (N2) | A dialog has no `signal` option and the terminal ignores `timeout`; startup keeps its 120 s limit. DEV-41. |
 | SLH-12 | X1 | closed | `test_native_automation_rpc_ui.py`: `test_mcp_login_takes_the_pasted_redirect_url`, `test_mcp_login_through_the_browser_ends_the_input_request`, `test_mcp_login_is_cancelled_by_the_client_or_the_end_of_input` |  |
-| SLH-13 | X1, N2 | closed, with limits | `test_native_automation_rpc_queued_commands.py`: `test_queued_input_that_names_an_extension_command_is_refused`, `test_a_prompt_that_names_a_command_runs_at_once_during_a_run`, `test_a_failing_command_during_a_run_is_an_extension_error`, `test_queued_skills_and_templates_are_expanded`, `test_queued_text_with_a_leading_space_is_not_expanded`, `test_a_command_run_during_a_run_is_answered_before_the_session_ends`; `test_native_automation_rpc_prompt_dispatch.py`: `test_an_idle_queued_message_a_hook_handled_frees_the_session` | The `input` hooks do not run when a message is queued. DEV-65. |
+| SLH-13 | X1, N2, R3 | closed | `test_native_automation_rpc_queued_commands.py`: `test_queued_input_that_names_an_extension_command_is_refused`, `test_a_prompt_that_names_a_command_runs_at_once_during_a_run`, `test_a_failing_command_during_a_run_is_an_extension_error`, `test_queued_skills_and_templates_are_expanded`, `test_queued_text_with_a_leading_space_is_not_expanded`, `test_a_command_run_during_a_run_is_answered_before_the_session_ends`; `test_native_automation_rpc_prompt_dispatch.py`: `test_an_idle_queued_message_a_hook_handled_frees_the_session`; `test_native_automation_rpc_queued_commands.py`: `test_queued_input_meets_the_input_hooks_before_expansion`, `test_a_dialog_of_a_queued_input_hook_gets_its_answer`, `test_a_prompt_admitted_as_the_run_ends_is_expanded_once` (R3) |  |
 
 ### Interactive `/mcp` manager (MGR)
 

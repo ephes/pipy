@@ -2,8 +2,8 @@
 
 Pi's ``AgentSession`` checks queued input for extension commands
 (``_throwIfExtensionCommand``), runs an extension command a ``prompt`` names
-at once also during a run (``prompt``), expands skills and templates when it
-queues a message (``_queueUserInput``), and RPC ``get_commands`` lists the
+at once also during a run (``prompt``), runs the ``input`` hooks and then
+expands skills and templates when it queues a message (``_queueUserInput``), and RPC ``get_commands`` lists the
 extension commands, prompt templates and skills (``modes/rpc/rpc-mode.ts``).
 The RPC server's command thread asks this port for those; everything it
 reads is published for other threads (the extension generation, the
@@ -25,6 +25,8 @@ class SessionCommandPort:
 
     __slots__ = (
         "_extension_commands",
+        "_has_input_hooks",
+        "_input_hooks",
         "_report_error",
         "_resources",
         "_run_command",
@@ -39,12 +41,27 @@ class SessionCommandPort:
         resources: Callable[[], WorkspaceResources],
         run_command: Callable[[str], ExtensionDispatchResolution | None],
         report_error: Callable[[str, str, str], None],
+        input_hooks: Callable[[str], str | None] = lambda text: text,
+        has_input_hooks: Callable[[], bool] = lambda: False,
     ) -> None:
         self._extension_commands = extension_commands
         self._session_commands = session_commands
         self._resources = resources
         self._run_command = run_command
         self._report_error = report_error
+        self._input_hooks = input_hooks
+        self._has_input_hooks = has_input_hooks
+
+    def has_input_hooks(self) -> bool:
+        """Whether a loaded extension handles ``input``."""
+
+        return self._has_input_hooks()
+
+    def run_input_hooks(self, text: str) -> str | None:
+        """The ``input`` hooks' text for ``text``, or ``None`` when one of
+        them handled it (Pi ``_runInputHandlers``)."""
+
+        return self._input_hooks(text)
 
     def command_name(self, text: str) -> str | None:
         """The name of the extension command ``text`` names (``/mcp`` is

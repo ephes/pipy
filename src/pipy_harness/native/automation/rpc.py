@@ -25,6 +25,7 @@ import json
 import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, Protocol, TextIO
@@ -275,6 +276,10 @@ class _SessionCommands(Protocol):
 
     def expand(self, text: str) -> str: ...
 
+    def has_input_hooks(self) -> bool: ...
+
+    def run_input_hooks(self, text: str) -> str | None: ...
+
     def commands(self) -> list[dict[str, Any]]: ...
 
 
@@ -353,6 +358,17 @@ class NativeRpcServer:
         self._bash_threads: list[threading.Thread] = []
         # Extension commands a `prompt` runs at once during a run.
         self._command_threads: list[threading.Thread] = []
+        # Queued input that meets the `input` hooks, in the order it came:
+        # a hook may open a dialog, whose answer this thread has to read.
+        self._input_jobs: queue.Queue[Callable[[], None] | None] = queue.Queue()
+        self._input_thread: threading.Thread | None = None
+        # Jobs submitted and not finished: while one is pending, later input
+        # waits behind it, and a session transition waits for it, so the
+        # message stays with the session it was sent to. Their own lock (it
+        # also guards `_input_thread`): the drain at the end of input holds
+        # `_lock` while it waits for the control gate.
+        self._input_jobs_pending = 0
+        self._input_jobs_done = threading.Condition(threading.Lock())
         self._worker: threading.Thread | None = None
         # Prompts whose response the worker writes, by the identity of their
         # content: Pi answers a prompt when it knows what became of it
@@ -515,10 +531,7 @@ class NativeRpcServer:
             # against the live session, so the session waits for it as it
             # waits for a command on its own thread; its dialogs have ended.
             if not ending:
-                with self._lock:
-                    pending_commands = list(self._command_threads)
-                for thread in pending_commands:
-                    thread.join()
+                self._join_command_threads()
             # Drain the active turn and any queued steer/follow-up BEFORE
             # signalling channel EOF. The channel is FIFO, so signalling EOF
             # while work is still queued/in-flight would let the worker read the
@@ -777,6 +790,8 @@ class NativeRpcServer:
         *,
         fork: bool = False,
     ) -> None:
+        # A message sent before the transition stays with this session.
+        self._wait_for_input_jobs()
         try:
             result = invoke()
         except _NativeTransitionControlError:
@@ -850,32 +865,56 @@ class NativeRpcServer:
         if not isinstance(message, str) or not message:
             self._respond_error(cid, "prompt", "prompt requires a non-empty message")
             return
+        steer = command.get("streamingBehavior") == "steer"
         commands = self._commands
-        busy = self._bridge.snapshot().reservation is not None
-        if busy and commands is not None:
+        if commands is not None and self._input_jobs_waiting():
             if commands.command_name(message) is not None:
-                # Pi runs an extension command at once, also during a run.
+                # Pi runs an extension command at once, whatever waits.
                 self._run_command_at_once(cid, commands, message)
                 return
-            # A prompt that waits behind the run is expanded now, as Pi
-            # expands what it queues.
-            message = commands.expand(message)
+            # Queued input still meets the hooks: the prompt comes after it.
+
+            def handle_later() -> None:
+                try:
+                    self._handle_prompt(cid, message, steer=steer, inline=True)
+                except Exception as error:  # noqa: BLE001 - becomes the prompt's error
+                    self._respond_error(
+                        cid, "prompt", f"{type(error).__name__}: {error}"
+                    )
+
+            self._submit_input_job(handle_later)
+            return
+        self._handle_prompt(cid, message, steer=steer, inline=False)
+
+    def _handle_prompt(
+        self, cid: str | None, message: str, *, steer: bool, inline: bool
+    ) -> None:
+        """``inline``: this runs as a job of the queued-input thread."""
+
+        commands = self._commands
         content = ProductContent(message)
+        snapshot: _NativeControlSnapshot | None = None
+        next_to_run = False
         with self._prompt_lock:
             ended = self._worker_ended
             if ended is None:
-                snapshot = self._bridge.admit_prompt(
-                    content,
-                    steer_active=command.get("streamingBehavior") == "steer",
+                snapshot, next_to_run = self._admit_prompt_locked(
+                    cid, content, steer=steer, dispatched=commands is not None
                 )
-                reservation = snapshot.reservation
-                # A prompt that is next to run is answered by the worker,
-                # with `started` or `handled`.
-                next_to_run = reservation is not None and reservation.content is content
-                if next_to_run:
-                    self._owed_prompts[id(content)] = (content, cid)
         if ended is not None:
             self._respond_error(cid, "prompt", ended)
+            return
+        if snapshot is None:
+            # A run is in flight or input waits for one. Pi runs an extension
+            # command at once, and queues other text after the `input` hooks
+            # and its expansion.
+            assert commands is not None
+            if commands.command_name(message) is not None:
+                self._run_command_at_once(cid, commands, message)
+                return
+            self._queue_user_input(
+                cid, "prompt", commands, message, steer=steer, inline=inline
+            )
             return
         if not next_to_run:
             # Behind the run in flight.
@@ -885,19 +924,135 @@ class NativeRpcServer:
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
             self._channel.wake()
 
-    def _queued_message(self, cid: str | None, kind: str, message: str) -> str | None:
-        """What a ``steer`` or ``follow_up`` queues (Pi ``_queueUserInput``):
-        ``None`` when it names an extension command, which is refused;
-        otherwise the text with a skill or template expanded."""
+    def _admit_prompt_locked(
+        self,
+        cid: str | None,
+        content: ProductContent,
+        *,
+        steer: bool,
+        dispatched: bool,
+    ) -> tuple[_NativeControlSnapshot | None, bool]:
+        """Admit a prompt under the prompt lock; the snapshot (``None`` when
+        nothing was admitted) and whether the prompt runs next.
 
-        commands = self._commands
-        if commands is None:
-            return message
+        With the session's commands (``dispatched``) the prompt is admitted
+        only when it runs next; the session then dispatches it (Pi
+        ``prompt``). The decision and the admission are one step, so a
+        prompt is never both queued here and dispatched there. A prompt
+        that runs next is answered by the worker, with ``started`` or
+        ``handled``.
+        """
+
+        snapshot = (
+            self._bridge.admit_prompt_if_idle(content)
+            if dispatched
+            else self._bridge.admit_prompt(content, steer_active=steer)
+        )
+        if snapshot is None:
+            return None, False
+        reservation = snapshot.reservation
+        next_to_run = reservation is not None and reservation.content is content
+        if next_to_run:
+            self._owed_prompts[id(content)] = (content, cid)
+        return snapshot, next_to_run
+
+    def _queue_user_input(
+        self,
+        cid: str | None,
+        kind: str,
+        commands: _SessionCommands,
+        message: str,
+        *,
+        steer: bool,
+        inline: bool = False,
+    ) -> None:
+        """Pi ``_queueUserInput``: the `input` hooks see the text, a hook
+        may handle it (answered ``handled``, nothing is queued), and the
+        hooks' text is queued with a skill or template expanded. The session
+        does not run the hooks or expand it again when it runs. With hooks,
+        or behind input that meets them, it happens on the queued-input
+        thread, in order; ``inline`` is a job of that thread already."""
+
+        admit = self._bridge.admit_steering if steer else self._bridge.admit_follow_up
+
+        def queue_it() -> None:
+            try:
+                text = commands.run_input_hooks(message)
+                if text is None:
+                    self._respond(cid, kind, {"disposition": "handled"})
+                    return
+                snapshot = admit(ProductContent(commands.expand(text)))
+            except Exception as error:  # noqa: BLE001 - becomes the command's error
+                self._respond_error(cid, kind, f"{type(error).__name__}: {error}")
+                return
+            self._respond(cid, kind, {"disposition": "queued"})
+            if not self._manual_compaction_active(snapshot):
+                self._emit_queue_update(snapshot)
+            if snapshot.reservation is not None and not snapshot.reservation.claimed:
+                self._channel.wake()
+
+        if inline or not (commands.has_input_hooks() or self._input_jobs_waiting()):
+            queue_it()
+            return
+        self._submit_input_job(queue_it)
+
+    def _input_jobs_waiting(self) -> bool:
+        with self._input_jobs_done:
+            return self._input_jobs_pending > 0
+
+    def _submit_input_job(self, job: Callable[[], None]) -> None:
+        with self._input_jobs_done:
+            self._input_jobs_pending += 1
+            if self._input_thread is None:
+                self._input_thread = threading.Thread(
+                    target=self._run_input_jobs, name="pipy-rpc-input", daemon=True
+                )
+                self._input_thread.start()
+        self._input_jobs.put(job)
+
+    def _wait_for_input_jobs(self) -> None:
+        """Until the queued input that meets the hooks is queued (or
+        handled). Answers to their dialogs arrive on the stdin thread."""
+
+        with self._input_jobs_done:
+            while self._input_jobs_pending:
+                self._input_jobs_done.wait()
+
+    def _join_command_threads(self) -> None:
+        """Wait for the queued input that meets the hooks, then for the
+        commands a prompt ran at once."""
+
+        with self._input_jobs_done:
+            input_thread = self._input_thread
+        if input_thread is not None:
+            self._input_jobs.put(None)
+            input_thread.join()
+        with self._lock:
+            pending_commands = list(self._command_threads)
+        for thread in pending_commands:
+            thread.join()
+
+    def _run_input_jobs(self) -> None:
+        while (job := self._input_jobs.get()) is not None:
+            try:
+                job()
+            finally:
+                with self._input_jobs_done:
+                    self._input_jobs_pending -= 1
+                    if not self._input_jobs_pending:
+                        self._input_jobs_done.notify_all()
+
+    def _queued_command_refused(
+        self, cid: str | None, kind: str, commands: _SessionCommands, message: str
+    ) -> bool:
+        """Pi ``_throwIfExtensionCommand``: a queued text that names an
+        extension command is refused."""
+
         name = commands.command_name(message)
-        if name is not None:
-            self._respond_error(cid, kind, _queued_command_error(name))
-            return None
-        return commands.expand(message)
+        if name is None:
+            return False
+        self._respond_error(cid, kind, _queued_command_error(name))
+        return True
 
     def _run_command_at_once(
         self, cid: str | None, commands: _SessionCommands, message: str
@@ -921,32 +1076,32 @@ class NativeRpcServer:
         thread.start()
 
     def _cmd_steer(self, cid: str | None, command: dict[str, Any]) -> None:
-        message = command.get("message")
-        if not isinstance(message, str) or not message:
-            self._respond_error(cid, "steer", "steer requires a non-empty message")
-            return
-        queued = self._queued_message(cid, "steer", message)
-        if queued is None:
-            return
-        snapshot = self._bridge.admit_steering(ProductContent(queued))
-        self._respond(cid, "steer", {"disposition": "queued"})
-        if not self._manual_compaction_active(snapshot):
-            self._emit_queue_update(snapshot)
-        if snapshot.reservation is not None and not snapshot.reservation.claimed:
-            self._channel.wake()
+        self._queue_command(cid, "steer", command)
 
     def _cmd_follow_up(self, cid: str | None, command: dict[str, Any]) -> None:
+        self._queue_command(cid, "follow_up", command)
+
+    def _queue_command(
+        self, cid: str | None, kind: str, command: dict[str, Any]
+    ) -> None:
         message = command.get("message")
         if not isinstance(message, str) or not message:
-            self._respond_error(
-                cid, "follow_up", "follow_up requires a non-empty message"
-            )
+            self._respond_error(cid, kind, f"{kind} requires a non-empty message")
             return
-        queued = self._queued_message(cid, "follow_up", message)
-        if queued is None:
+        commands = self._commands
+        if commands is not None:
+            if not self._queued_command_refused(cid, kind, commands, message):
+                self._queue_user_input(
+                    cid, kind, commands, message, steer=kind == "steer"
+                )
             return
-        snapshot = self._bridge.admit_follow_up(ProductContent(queued))
-        self._respond(cid, "follow_up", {"disposition": "queued"})
+        content = ProductContent(message)
+        snapshot = (
+            self._bridge.admit_steering(content)
+            if kind == "steer"
+            else self._bridge.admit_follow_up(content)
+        )
+        self._respond(cid, kind, {"disposition": "queued"})
         if not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:

@@ -45,11 +45,16 @@ class CodingInputSelection:
     content: ProductContent
     source: CodingInputSource
     queued_input: AgentQueuedInput | None = None
+    # The ``input`` hooks already saw the text, and a skill or template in it
+    # is expanded: an RPC client's queued message meets them when it is
+    # queued (Pi ``_queueUserInput``), not again when it runs.
+    input_hooks_ran: bool = False
 
     def __post_init__(self) -> None:
         _require_content(self.content, "content")
         if type(self.source) is not CodingInputSource:
             raise TypeError("source must be an exact CodingInputSource")
+        _require_hooks_flag(self)
         if self.queued_input is not None:
             _require_queued_input(self.queued_input, "queued_input")
             if self.queued_input.content is not self.content:
@@ -68,6 +73,16 @@ class CodingInputSelection:
         """Whether the selection must be sent to the provider verbatim."""
 
         return self.source not in _LOCAL_DISPATCH_SOURCES
+
+
+def _require_hooks_flag(selection: CodingInputSelection) -> None:
+    if type(selection.input_hooks_ran) is not bool:
+        raise TypeError("input_hooks_ran must be an exact bool")
+    if (
+        selection.input_hooks_ran
+        and selection.source is not CodingInputSource.EXTERNAL_QUEUE
+    ):
+        raise ValueError("only an external queued input may have met the hooks")
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -371,6 +386,18 @@ class _NativeSessionControl:
                 self._queue._admit_external(content, steer_active=steer_active)
             )
 
+    def _bridge_admit_prompt_if_idle(
+        self, content: ProductContent, verify_authorized: Callable[[], None]
+    ) -> _NativeControlSnapshot | None:
+        """Admit a prompt to run next, or nothing when the session is busy."""
+
+        if not callable(verify_authorized):
+            raise TypeError("verify_authorized must be callable")
+        with self._gate:
+            verify_authorized()
+            snapshot = self._queue._admit_external_if_idle(content)
+            return None if snapshot is None else _native_control_snapshot(snapshot)
+
     def _bridge_admit_queued(
         self,
         content: ProductContent,
@@ -650,6 +677,22 @@ class CodingInputQueue:
                 else self._external_follow_ups
             )
             lane.append(content)
+        return self._external_snapshot()
+
+    @_guarded_queue_api
+    def _admit_external_if_idle(
+        self, content: ProductContent
+    ) -> _ExternalAdmissionSnapshot | None:
+        """Reserve one ordinary prompt only while nothing runs or waits."""
+
+        _require_content(content, "content")
+        if (
+            self._external_active_slot is not None
+            or self._external_steering
+            or self._external_follow_ups
+        ):
+            return None
+        self._reserve_external(content, None)
         return self._external_snapshot()
 
     @_guarded_queue_api
@@ -1025,6 +1068,9 @@ class CodingInputQueue:
                 )
         if line:
             raise RuntimeError("native external wake must not carry line content")
+        # What the bridge holds with a queued kind is an RPC client's queued
+        # message, which met the `input` hooks and its expansion when the
+        # client sent it.
         return CodingInputSelection(
             content,
             (
@@ -1033,6 +1079,7 @@ class CodingInputQueue:
                 else CodingInputSource.EXTERNAL_PROMPT
             ),
             queued_input,
+            input_hooks_ran=queued_input is not None,
         )
 
     @_guarded_queue_api

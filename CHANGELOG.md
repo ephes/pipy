@@ -8,6 +8,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Extension `input` hooks see all input Pi shows them. An RPC `steer`,
+  `follow_up`, or `prompt` sent during a run meets the hooks when it is
+  queued, before its skill or template is expanded, as Pi's
+  `_queueUserInput` does; a hook may handle it (`disposition: "handled"`,
+  nothing queued), and the hooks do not see it again when it runs. A
+  skill or template line typed into a session meets them before its
+  expansion too. Before, both skipped the hooks, so a redacting or
+  filtering extension was bypassed. A `prompt` sent as a run ends is
+  expanded once (it could be expanded twice). See
+  [commands in a prompt](docs/automation-rpc.md#commands-in-a-prompt) and
+  [event hooks](docs/extension-api.md#event-hooks).
 - Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
   `/import`, and the RPC and SDK operations that do the same) is a new
   session for the extensions and the tools, as in Pi: the extensions get
@@ -1063,7 +1074,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 113 of them
+  that pin it and where pipy differs from Pi. All are closed, 112 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a

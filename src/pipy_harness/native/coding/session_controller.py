@@ -494,6 +494,16 @@ class _NativeSessionControlBridge:
             discard_follow_ups=discard_follow_ups
         )
 
+    def admit_prompt_if_idle(
+        self, content: ProductContent
+    ) -> _NativeControlSnapshot | None:
+        """Admit ``content`` to run next when nothing runs or waits; ``None``
+        (and nothing admitted) otherwise."""
+
+        return self._ready().control._bridge_admit_prompt_if_idle(
+            content, self._require_authorized
+        )
+
     def admit_steering(self, content: ProductContent) -> _NativeControlSnapshot:
         return self._ready().control._bridge_admit_steering(
             content, self._require_authorized
@@ -782,6 +792,9 @@ class CodingLoopStep:
     # The content is a prompt a transport client sent (RPC ``prompt``), as
     # opposed to a queued message, a seed or an extension's message.
     external_prompt: bool = False
+    # The queued content already met the `input` hooks and was expanded
+    # (an RPC client's queued message, ``CodingInputSelection``).
+    input_hooks_ran: bool = False
 
     def __post_init__(self) -> None:
         _require_exact_coding_loop_step_fields(self)
@@ -804,6 +817,7 @@ class CodingLoopStep:
         settle_pending: bool,
         *,
         external_prompt: bool = False,
+        input_hooks_ran: bool = False,
     ) -> CodingLoopStep:
         return cls(
             CodingLoopStepKind.PROVIDER_CONTENT,
@@ -812,6 +826,7 @@ class CodingLoopStep:
             selected_provider_content=content,
             queued_input=queued_input,
             external_prompt=external_prompt,
+            input_hooks_ran=input_hooks_ran,
         )
 
     @classmethod
@@ -1285,6 +1300,7 @@ class CodingSessionController:
             settle_pending,
             external_prompt=selection.source
             in (CodingInputSource.EXTERNAL_PROMPT, CodingInputSource.SUBMITTED_PROMPT),
+            input_hooks_ran=selection.input_hooks_ran,
         )
 
     def dispatch_command(
@@ -1334,7 +1350,7 @@ class CodingSessionController:
             return builtin
 
         resource, resource_provider_text = _dispatch_resource_command(
-            command_text, effects
+            command_text, user_input, effects
         )
         if resource is not None:
             return resource
@@ -1393,6 +1409,7 @@ class CodingSessionController:
             user_input=text,
             resource_provider_text=provider_text,
             selected_provider_content=selected_provider_content,
+            input_hooks_ran=True,
         )
 
     def settle_handled_prompt(self) -> None:
@@ -1418,6 +1435,7 @@ class CodingSessionController:
             wake.queued_input,
             settle_pending,
             external_prompt=wake.source is CodingInputSource.EXTERNAL_PROMPT,
+            input_hooks_ran=wake.input_hooks_ran,
         )
 
 
@@ -1573,6 +1591,10 @@ def _require_exact_coding_loop_step_fields(step: CodingLoopStep) -> None:
         raise TypeError("keyboard_interrupt must be an exact bool")
     if type(step.external_prompt) is not bool:
         raise TypeError("external_prompt must be an exact bool")
+    if type(step.input_hooks_ran) is not bool:
+        raise TypeError("input_hooks_ran must be an exact bool")
+    if step.input_hooks_ran and step.queued_input is None:
+        raise ValueError("only queued provider content may have met the hooks")
 
 
 def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
@@ -1668,15 +1690,41 @@ def _dispatch_builtin_command(
 
 def _dispatch_resource_command(
     command_text: str,
+    user_input: str,
     effects: CodingCommandEffects,
 ) -> tuple[CommandDispatchResolution | None, str | None]:
-    """Route REJECT locally and return RUN's provider-visible text."""
+    """Route REJECT locally and return RUN's provider-visible text.
+
+    A line that runs a skill or template meets the ``input`` hooks first, as
+    Pi ``prompt`` runs them before ``_expandSkillCommand`` and
+    ``expandPromptTemplate``: a hook that handles it ends the line, and a
+    line the hooks changed is dispatched again; when it no longer names a
+    skill or template it is the prompt as it stands.
+    """
 
     resource = effects.dispatch_resource(command_text)
     if resource is None:
         return None, None
     if type(resource) is not ResourceDispatchResolution:
         raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+    if resource.kind is ResourceDispatchKind.RUN:
+        text = effects.run_input_hooks(user_input)
+        if text is None:
+            effects.refresh_footer()
+            return CommandDispatchResolution.continue_loop(), None
+        if text != user_input:
+            resource = effects.dispatch_resource(text.strip())
+            if resource is None:
+                return CommandDispatchResolution.proceed_to_run(
+                    user_input=text,
+                    resource_provider_text=None,
+                    selected_provider_content=None,
+                    input_hooks_ran=True,
+                ), None
+            if type(resource) is not ResourceDispatchResolution:
+                raise TypeError(
+                    "dispatch_resource must return a ResourceDispatchResolution"
+                )
     if resource.kind is ResourceDispatchKind.REJECT:
         effects.emit_diagnostic(resource.message)
         effects.refresh_footer()

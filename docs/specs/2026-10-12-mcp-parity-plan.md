@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(113 of them with a recorded limit or deviation); see section 3.2 and the
+(112 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -548,7 +548,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21 |
 | DEV-38 | SLH-01, SLH-02, SLH-06 | For a line typed into a session the order is built-in command, prompt template or custom command, extension command, `/mcp`, so a template or custom command named `mcp` takes the command's place; in Pi only an extension command does. For a prompt of print, JSON and RPC mode the order is Pi's. An unknown action prints the usage without waiting for the startup connections. | other form | Decided in S21, X1 |
 | DEV-39 (closed by N2) | SLH-07 | Was: a failing command was a `pipy: extension command /<name> failed (<error>)` line on stderr in every mode. Since N2 it is Pi's extension error: `Extension error (command:<name>): <message>` on stderr in print and JSON mode and an `extension_error` object in RPC mode. | closed | Decided in X1, N2 |
-| DEV-40 | SLH-09 | Custom commands (`.pipy/commands`) expand like templates; an unknown or unreadable skill is reported on stderr before the text goes to the model; for a line typed into a session a skill or template turn skips the `input` hooks (pipy's typed order, DEV-38), and a typed line a hook handled stays in the transcript, because the terminal drew it before the hooks ran. Prompts of print, JSON and RPC mode run the hooks first, as Pi does (since N2). | other form | Decided in X1, N2 |
+| DEV-40 | SLH-09 | Custom commands (`.pipy/commands`) expand like templates; an unknown or unreadable skill is reported on stderr before the text goes to the model; a typed line a hook handled stays in the transcript, because the terminal drew it before the hooks ran; a typed line that names no skill or template meets the hooks when its turn is prepared (pipy's typed order, DEV-38), so a skill or template the hooks' text names is not expanded and the transcript keeps the typed text. A typed skill or template line meets the hooks before its expansion, as in Pi (since R3); prompts of print, JSON and RPC mode run the hooks first, as Pi does (since N2). | other form | Decided in X1, N2, R3 |
 | DEV-41 | SLH-11 | Every extension has the RPC client as its UI (since N2), with two differences: a dialog has no `signal` option, so an RPC `abort` does not end an extension's dialog, and the terminal ignores a dialog's `timeout` (Pi counts down). Startup still has the 120 s readiness limit, also while a `session_start` dialog waits. | narrower | Decided in X1, N2 |
 | DEV-42 (closed by N2) | none | Was: `get_commands` answered an empty list. Since N2 it lists the extension commands (with `/mcp`), prompt templates (with pipy's custom commands) and skills; `sourceInfo` has only `path`. | closed | Decided in X1, N2 |
 | DEV-43 | MGR-09 | The manager view: titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal shows the text above its controls through a window that PageUp/PageDown scroll, where Pi's output scrolls with the terminal; `app.message.copy` is used only on the sign-in screen (Pi also copies a `/tree` message and the last assistant message with it); a URL that is not printable ASCII up to 4096 characters stays plain text without the click hint (Pi links every URL), and the click and copy hints are part of the scrolled text; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34, N3; `docs/mcp.md` "The `/mcp` manager" |
@@ -573,7 +573,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-62 | none (DEV-12) | The conformance runner checks `--mode` in its argument parser (exit status 2), reports a missing `npx` and a temporary directory with a space in its path before anything runs, and fails the `runner` check for a `checks.json` it cannot read. | other form | Decided in S40 (part 1) |
 | DEV-63 | none | Ended by SIGTERM or SIGHUP, pipy exits with status 143 or 129 in every mode; Pi's interactive mode exits with 0. A second signal during the shutdown is ignored in every mode; Pi's RPC mode exits at once on it. The exit hook for server processes that are still running sends SIGKILL to a group that is not gone when its close timeout is over and waits until the servers are reaped (at most a second after the last SIGKILL); Pi's hook sends SIGTERM and returns. | other form | Decided in X2 |
 | DEV-64 | none | A `tool_call` handler's change to the arguments is validated again before the tool runs: a change the schema refuses is the validation error (not a malformed call), and a value that is not JSON blocks the call. Pi runs the changed arguments as they are. | stricter | Decided in G6 |
-| DEV-65 | SLH-13 | Queued RPC input (since N2): the `input` hooks do not run when a message is queued (Pi runs them in `_queueUserInput` and `prompt`); a queued message that later runs while idle meets them before its run, after expansion, and one taken by the run in flight does not. The expansion of queued input records no resource invocation. A `prompt` admitted just as the run ends may be expanded twice when its expansion starts with `/` and names another template. | narrower | Decided in X1, N2 |
+| DEV-65 (closed by R3) | SLH-13 | Was: the `input` hooks did not run when an RPC message was queued, a queued message that later ran while idle met them after its expansion, and a `prompt` admitted just as the run ended could be expanded twice. Since R3 `steer`, `follow_up` and a `prompt` sent during a run meet the hooks when they are queued, before the expansion, and not again when they run (Pi `_queueUserInput`, `prompt`); a `prompt` is admitted to run next only in the same step that finds the session idle, so it is expanded once. (The expansion of queued input still records no resource invocation, a pipy counter Pi does not have.) | closed | Decided in X1, N2, R3 |
 | DEV-66 | RND-04 | A codemode call is still the generic `codemode code="…"` row, not Pi's highlighted script preview of ten visual lines; there is no `Model calls:` cost line, and nested calls are drawn between the call and the output without Pi's spacer. The HTML export shows a cancelled nested call as `⊘` (Pi's page prints `?`), rounds durations to whole milliseconds and does not draw codemode calls ahead (no codemode call renderer). | other form | Decided in S35, N3 |
 | DEV-67 | OAU-37 | The HTTP transport's `fetch` option is not JavaScript's `fetch`: it takes one request object and returns a response object, with a `CancelToken` where Pi passes an `AbortSignal`, and an auth provider is not handed the transport's fetch (`UnauthorizedContext` has none), so `adapt_oauth_provider` sends its flow through the OAuth library's fetch or the one passed to it. A `Location` is resolved with `urljoin`, not a WHATWG parser, and one with user info is refused; a name lookup cannot be interrupted (no socket is opened after it). The OAuth fetch and (since R6) the transport's default fetch ask for `gzip, deflate` only and decode those codings; Node also asks for `br` and `zstd` over `https`. | other form | Decided in L1, L2, R6 |
 | DEV-68 | TLS-20 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. | narrower | Decided in G7; `docs/providers.md`; `images.blockImages` part closed by R4 |
@@ -603,8 +603,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 179 | see the note |
-| Closed with a limit or deviation | 113 | each names its DEV rows or its limit in the note |
+| Closed with a test | 180 | see the note |
+| Closed with a limit or deviation | 112 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -614,7 +614,9 @@ TSR-12, OAU-37) and the two rows the audit left open are closed. Updated
 again after the triage of the second goal check (2026-10-15): DEV-69 to
 DEV-78 set five more rows (OAU-02, OAU-03, OAU-11, OAU-15, STD-01) to
 closed with a limit. R4 closed TLS-21 without a limit, since
-`images.blockImages` now also covers the `@image` attachments. The 113 rows
+`images.blockImages` now also covers the `@image` attachments, and R3 closed
+SLH-13 without a limit, since queued RPC input meets the `input` hooks
+(DEV-65 closed). The 112 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
 accepts the DEV rows it names. Not rows, and still outstanding: the
@@ -2363,7 +2365,8 @@ Decided in X1 (prompts of the automation modes;
   Pi's does; a queued prompt is expanded before admission. The server joins
   those command threads at the end of input (not on SIGTERM/SIGHUP) after
   closing the UI and before the drain. `get_commands` lists the commands,
-  templates and skills. Remaining differences: DEV-65.
+  templates and skills. Remaining differences: DEV-65 (closed by R3, which
+  runs the `input` hooks when a message is queued).
 - Different from Pi, in `docs/automation-rpc.md`: for a line typed into a
   session the typed order stays (DEV-38, DEV-40).
 - Not changed: the terminal UI, the plain REPL and piped standard input

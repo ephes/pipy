@@ -370,7 +370,9 @@ def test_a_queued_prompt_is_never_answered_as_started(connect, monkeypatch) -> N
     assert client.response("p1")["data"] == {"disposition": "started"}
     assert entered.wait(10.0)
     bridge_type = type(client._server._bridge)
-    admit = bridge_type.admit_prompt
+    # A prompt sent during a run is queued as a follow-up (Pi `prompt` with
+    # `streamingBehavior` "followUp" or none).
+    admit = bridge_type.admit_follow_up
 
     def admit_then_let_the_run_end(self: Any, *args: Any, **kwargs: Any) -> Any:
         snapshot = admit(self, *args, **kwargs)
@@ -379,7 +381,7 @@ def test_a_queued_prompt_is_never_answered_as_started(connect, monkeypatch) -> N
         threading.Event().wait(0.3)
         return snapshot
 
-    monkeypatch.setattr(bridge_type, "admit_prompt", admit_then_let_the_run_end)
+    monkeypatch.setattr(bridge_type, "admit_follow_up", admit_then_let_the_run_end)
     client.send(id="p2", type="prompt", message="second")
     records = client.until(lambda record: record.get("id") == "p2")
     monkeypatch.undo()

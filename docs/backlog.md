@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 179 are closed with a
-test and 113 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 180 are closed with a
+test and 112 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -518,10 +518,6 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   `inputLimits` are not read.
 - **Missing RPC commands:** `clear_queue` (`a79b37334`) and
   `get_tree`/`get_entries` (`7ba1b6bfe`).
-- **Queued RPC input and `input` hooks:** commands in queued input are
-  refused or run and templates are expanded since MCP1 N2; the `input`
-  hooks still do not run when a message is queued (plan DEV-65). See
-  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
 - **Extension events** that Pi's `core/extensions/types.ts` has and pipy's
   `extensions/activation.py` lacks.
 - **`before_agent_start` breadth** (MCP1 goal check r2, finding S24; plan

@@ -169,6 +169,8 @@ class _TurnInput:
     # A prompt of an automation mode: dispatched as Pi's `prompt` does, with
     # no command of the typed line (`command_text` is empty).
     prompt: bool = False
+    # Queued content that met the `input` hooks when it was queued.
+    input_hooks_ran: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -645,6 +647,7 @@ def _phase_b_intake(
         stripped=stripped,
         command_text="" if selected is not None or prompt else stripped,
         prompt=prompt,
+        input_hooks_ran=step.input_hooks_ran,
     )
 
 
@@ -806,8 +809,14 @@ def _phase_e_accepted_input(
     effects = _AcceptedInputEffects(turn_input.turn)
     run_prompt = _RunSystemPrompt(turn_input.turn)
     accepted_turn = CodingAcceptedInputPreparer(
-        # A prompt met the `input` hooks in its dispatch, before expansion.
-        transform_input=_unchanged if turn_input.prompt else effects.transform_input,
+        # A prompt, and a typed skill or template line, met the `input` hooks
+        # in its dispatch, before expansion; an RPC client's queued message
+        # met them when it was queued.
+        transform_input=(
+            _unchanged
+            if resolution.input_hooks_ran or turn_input.input_hooks_ran
+            else effects.transform_input
+        ),
         resolve_file_references=effects.resolve_file_references,
         resolve_image_attachments=effects.resolve_image_attachments,
         system_prompt_suffix=run_prompt.suffix,

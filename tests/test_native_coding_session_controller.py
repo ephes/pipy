@@ -2316,3 +2316,91 @@ def test_bridge_transition_operation_is_idle_only_and_settles_exact_claim() -> N
     successor = bridge.admit_transition_operation()
     assert successor is not None
     assert bridge.settle_transition_operation(successor).reservation is None
+
+
+# -- R3 (goal check r2, S9): a typed skill or template line meets the hooks --
+
+
+class _TemplateEffects(_FakeCommandEffects):
+    """Runs a resource only for a line that starts with ``/review``."""
+
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
+        super().dispatch_resource(command_text, prompt=prompt)
+        if command_text.startswith("/review"):
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.RUN, "", f"expanded {command_text}"
+            )
+        return None
+
+
+def test_a_typed_template_line_meets_the_input_hooks_before_expansion() -> None:
+    # Pi `prompt`: the `input` handlers see the line as typed, then the
+    # template their text names is expanded; the turn does not run them again.
+    effects = _TemplateEffects(input_hooks=lambda text: text + " carefully")
+
+    resolution = _dispatch(
+        command_text="/review the diff", user_input="/review the diff", effects=effects
+    )
+
+    assert effects.input_hook_texts == ["/review the diff"]
+    assert effects.resource_dispatches == [
+        "/review the diff",
+        "/review the diff carefully",
+    ]
+    assert effects.resource_invocations == 1
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.resource_provider_text == "expanded /review the diff carefully"
+
+
+def test_a_typed_template_line_the_hooks_leave_is_expanded_once() -> None:
+    effects = _TemplateEffects()
+
+    resolution = _dispatch(
+        command_text="/review it", user_input="/review it", effects=effects
+    )
+
+    assert effects.input_hook_texts == ["/review it"]
+    assert effects.resource_dispatches == ["/review it"]
+    assert effects.resource_invocations == 1
+    assert resolution.resource_provider_text == "expanded /review it"
+
+
+def test_a_typed_template_line_a_hook_handled_starts_no_run() -> None:
+    effects = _TemplateEffects(input_hooks=lambda text: None)
+
+    resolution = _dispatch(
+        command_text="/review it", user_input="/review it", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.resource_invocations == 0
+    assert effects.extension_dispatches == []
+
+
+def test_a_typed_template_line_the_hooks_turn_into_text_is_that_text() -> None:
+    effects = _TemplateEffects(input_hooks=lambda text: "just this")
+
+    resolution = _dispatch(
+        command_text="/review it", user_input="/review it", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "just this"
+    assert resolution.resource_provider_text is None
+    assert resolution.input_hooks_ran is True
+    assert effects.resource_invocations == 0
+
+
+def test_a_rejected_resource_line_does_not_meet_the_hooks() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.REJECT, "nope", None)
+    )
+
+    resolution = _dispatch(
+        command_text="/skill:gone", user_input="/skill:gone", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.input_hook_texts == []

@@ -1111,8 +1111,14 @@ Input queued while a run is in flight follows the same rules, as in Pi:
 - A `prompt` that names an extension command runs it at once, while the run
   goes on, and is answered `handled` when the command returned; a failure
   is an [`extension_error`](#extension-errors) before that response.
-- Otherwise a skill command or prompt template is expanded when the message
-  is queued, so `queue_update` and the run see the expanded text.
+- Otherwise the `input` hooks see the text when the message is queued, as
+  in Pi's `_queueUserInput`: a hook that handles it ends it (the response's
+  `data.disposition` is `"handled"` and nothing is queued), and in the text
+  the hooks left a skill command or prompt template is expanded, so
+  `queue_update` and the run see the expanded text. The hooks do not see
+  the message again when it runs. The response is written once the hooks
+  have returned; while they run (a dialog of theirs gets its answer) later
+  commands are read and handled, and queued messages keep their order.
 
 What a handled prompt (case 1, or a hook that handled it) looks like:
 
@@ -1139,9 +1145,6 @@ A line typed into a session keeps pipy's report
 
 Different from Pi:
 
-- The `input` hooks do not see a `steer`, `follow_up` or `prompt` that is
-  queued behind a run when it is queued; Pi runs them then. One that runs
-  when the session is idle meets them before its run, after its expansion.
 - A skill that is unknown or cannot be read, and a template that expands to
   nothing, say so on stderr; the text then goes to the model unchanged.
   Custom commands (`.pipy/commands`) expand like templates.
