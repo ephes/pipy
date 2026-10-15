@@ -141,7 +141,11 @@ except ToolError as error:
 
 What a call returns depends on the tool:
 
-- A tool that declares an output schema returns its structured content as a
+- An MCP tool returns its whole `CallToolResult` as a `dict`, as in Pi:
+  `content` (the list of blocks), and `structuredContent` and `isError`
+  when the server sends them. A result with `isError` is returned, not
+  raised, so check it; see [what a script sees](mcp.md#what-a-script-sees).
+- Any other tool that declares an output schema returns its structured content as a
   Python value (`dict`, `list`, `str`, number, `bool`, or `None` for a
   structured `null`), not as text. It
   returns it for a failure too, when the failed result carries structured
@@ -265,7 +269,8 @@ no tool call:
 
 ```python
 cursor = load("issues_cursor")
-page = tools.mcp__tracker__list_issues(cursor=cursor) if cursor else tools.mcp__tracker__list_issues()
+result = tools.mcp__tracker__list_issues(cursor=cursor) if cursor else tools.mcp__tracker__list_issues()
+page = result["structuredContent"]
 store("issues_cursor", page["next"])
 text([issue["title"] for issue in page["issues"]])
 ```
@@ -335,8 +340,8 @@ terminal can draw them, see
 [images in tool results](tui-workflow.md#images-in-tool-results).
 
 A tool's own images do not reach the model through a script: a tool without
-an output schema returns its text, an MCP tool returns its result with the
-image blocks in `content`, and `read` returns an image block. Only what the
+an output schema returns its text, an MCP tool returns its `CallToolResult`
+with the image blocks in `content`, and `read` returns an image block. Only what the
 script passes to `image()` is attached:
 
 ```python

@@ -159,7 +159,7 @@ settings layers as other preferences and is not discovered provider capability.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `packages` | array | Installed local-path or managed-git package sources, or objects with resource filters. |
-| `extensions` | string array | Extension path patterns. The built-in extensions are `builtin:codemode`, `builtin:tool-search` and `builtin:mcp`; `-builtin:mcp` turns the built-in MCP support off, `-builtin:codemode` and `-builtin:tool-search` remove those tools. As in Pi, `-builtin:<name>` and `+builtin:<name>` name one exactly, and a `!pattern` glob such as `!builtin:*` turns off every built-in extension it matches; in one array `-` wins over `+`, which wins over `!`. A matching `!`, `+` or `-` entry in project settings decides over the user-level ones, the last such entry winning. See [turning MCP off](mcp.md#turning-mcp-off). |
+| `extensions` | string array | Extension path patterns. The built-in extensions are `builtin:codemode`, `builtin:tool-search` and `builtin:mcp`; `-builtin:mcp` turns the built-in MCP support off, `-builtin:codemode` and `-builtin:tool-search` remove those tools. As in Pi, `-builtin:<name>` and `+builtin:<name>` name one exactly, and a `!pattern` glob such as `!builtin:*` or `!**/builtin:mcp` (a `**/` also matches no directory, as in Pi) turns off every built-in extension it matches; in one array `-` wins over `+`, which wins over `!`. A matching `!`, `+` or `-` entry in project settings decides over the user-level ones, the last such entry winning. See [turning MCP off](mcp.md#turning-mcp-off). |
 | `skills` | string array | Skill path patterns. |
 | `prompts` | string array | Prompt-template path patterns. |
 | `themes` | string array | Theme path patterns. |

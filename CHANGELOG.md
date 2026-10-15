@@ -8,6 +8,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A `!` glob in the `extensions`, `skills`, `prompts` or `themes` settings
+  matches as Pi's minimatch does for `**/`, which also matches no directory:
+  `"extensions": ["!**/builtin:mcp"]` now turns MCP off, where before it
+  matched nothing and the servers still started. See
+  [turning MCP off](docs/mcp.md#turning-mcp-off).
+- An unknown `--extension builtin:<name>`, Pi's `builtin:llama.cpp`
+  included, ends the startup as in Pi: `Error: Failed to load extension
+  "builtin:<name>": Unknown built-in extension: builtin:<name>`, the hint
+  `Hint: Start without extensions using "pipy -ne".` and status 1 (before:
+  `pipy: Unknown built-in extension: ...` and status 2). `--list-models`
+  ignores it, as Pi's does.
+- The codemode page's `store()`/`load()` example reads the page of an MCP
+  call from `structuredContent`, and the page says that an MCP tool returns
+  its whole `CallToolResult` (`content`, `structuredContent`, `isError`), as
+  Pi's documents it. Before, the example read the fields off the envelope
+  and would raise `KeyError`. See [codemode](docs/codemode.md).
 - An HTTP MCP server that takes longer than 30 seconds to accept
   `notifications/initialized`, or another notification or response pipy
   sends it, no longer fails: as Pi does, pipy waits for that acceptance

@@ -62,9 +62,11 @@ listing of `codemode` in `get_all_tools()`). The owner accepted the DEV
 rows plan section 7, Q13, names. The fix slices of that triage (V1 to V3)
 change the rows they fix when they land.
 
-Updated in V1 (2026-10-15): CLT-01, CFG-25 and CMDL-14 name their new
-tests (r4 P1, F1, F2), and DEV-55 no longer says that a refresh holding the
-lock for 25 s makes a sign-out fail. No row changes its state.
+Updated in V1 (2026-10-15): CLT-01, CFG-25, CMDL-14, EXP-12, EXP-13 and
+DOC-03 name their new tests (r4 P1, F1, F2, U4, U5, F3). DEV-55 no longer
+says that a refresh holding the lock for 25 s makes a sign-out fail, and
+DEV-32 no longer records the `**/` glob or an unknown `builtin:` name as
+differences. No row changes its state.
 
 ## Reference
 
@@ -416,8 +418,8 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | EXP-09 | S10 | closed | `test_native_tool_filter_patterns.py`: `test_removes_mcp_tools_matching_exclude_tools_patterns`, `test_excluding_the_mcp_prefix_removes_every_server_tool`, `test_removes_mcp_tools_with_no_tools`; `test_native_tool_capabilities_mcp.py`: `test_an_allowlist_after_no_tools_declares_tool_search`, `test_no_builtin_tools_keeps_builtins_registered_and_inactive`, `test_modifiers_after_no_builtin_tools_start_from_nothing` (G8) |  |
 | EXP-10 | S23 | closed | `test_native_tool_filter_patterns.py`: `test_server_tools_and_resource_tools_count_as_mcp_tools`; `test_native_mcp_manager_resources.py`: `test_an_allowlist_with_mcp_entries_filters_the_resource_tools_too`, `test_the_resource_tools_are_excluded_by_name` |  |
 | EXP-11 | S19 | closed | `test_native_mcp_session.py`: `test_no_mcp_reads_no_file_and_starts_no_process`; `test_native_mcp_session_command.py`: `test_there_is_no_mcp_command_when_mcp_is_off` |  |
-| EXP-12 | S19 | closed, with limits | `test_native_mcp_session.py`: `test_the_builtin_mcp_entry_turns_mcp_off_and_on`; `test_native_mcp_discovery.py`: `test_settings_read_the_builtin_entry_per_scope`, `test_config_command_lists_and_toggles_the_builtin_mcp_entry`, `test_run_options_decide_whether_mcp_is_on`; `test_native_mcp_discovery.py`: `test_builtin_extension_enablement`, `test_config_command_replaces_every_exact_entry_of_the_builtin` (r3 F1, which also extends `test_settings_read_the_builtin_entry_per_scope`) | The Built-in list is `pipy config list` and `pipy config enable\|disable builtin mcp`; pipy has no interactive config list. DEV-32. |
-| EXP-13 | G8 | closed, with limits | `test_native_mcp_session.py`: `test_the_builtin_tool_search_entry_turns_tool_search_off_and_on`, `test_the_builtin_codemode_entry_turns_codemode_off`; `test_native_tool_capabilities_mcp.py`: `test_builtin_extensions_decide_on_codemode_and_tool_search_per_value`, `test_register_codemode_follows_a_reload_published_during_the_probe`; `test_native_mcp_discovery.py`: `test_run_options_decide_whether_codemode_is_loaded` | `pipy config list` and `pipy config enable\|disable builtin <name>` in place of an interactive list. DEV-32. |
+| EXP-12 | S19 | closed, with limits | `test_native_mcp_session.py`: `test_the_builtin_mcp_entry_turns_mcp_off_and_on`; `test_native_mcp_discovery.py`: `test_settings_read_the_builtin_entry_per_scope`, `test_config_command_lists_and_toggles_the_builtin_mcp_entry`, `test_run_options_decide_whether_mcp_is_on`; `test_native_mcp_discovery.py`: `test_builtin_extension_enablement`, `test_config_command_replaces_every_exact_entry_of_the_builtin` (r3 F1, which also extends `test_settings_read_the_builtin_entry_per_scope`); `test_native_resource_enablement.py`: `test_globstar_also_matches_no_directory` (r4 U4, which also extends the two built-in entry tests above) | The Built-in list is `pipy config list` and `pipy config enable\|disable builtin mcp`; pipy has no interactive config list. DEV-32. |
+| EXP-13 | G8 | closed, with limits | `test_native_mcp_session.py`: `test_the_builtin_tool_search_entry_turns_tool_search_off_and_on`, `test_the_builtin_codemode_entry_turns_codemode_off`; `test_native_tool_capabilities_mcp.py`: `test_builtin_extensions_decide_on_codemode_and_tool_search_per_value`, `test_register_codemode_follows_a_reload_published_during_the_probe`; `test_native_mcp_discovery.py`: `test_run_options_decide_whether_codemode_is_loaded`, `test_an_unknown_builtin_extension_is_a_load_error`, `test_an_unknown_builtin_extension_ends_the_startup_as_in_pi` (r4 U5) | `pipy config list` and `pipy config enable\|disable builtin <name>` in place of an interactive list. DEV-32. |
 
 ### `tool_search` (TSR)
 
@@ -625,7 +627,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | --- | --- | --- | --- | --- |
 | DOC-01 | each slice; S40 | closed | `test_mcp_parity_audit.py`: `test_the_user_page_has_a_section_for_every_topic_of_doc_01` |  |
 | DOC-02 | S10, S19, S20a | closed | `test_mcp_parity_audit.py`: `test_the_cli_reference_covers_what_doc_02_names` |  |
-| DOC-03 | S04, S07, S08 | closed | `test_mcp_parity_audit.py`: `test_the_codemode_page_covers_what_doc_03_names` |  |
+| DOC-03 | S04, S07, S08, V1 | closed | `test_mcp_parity_audit.py`: `test_the_codemode_page_covers_what_doc_03_names` (r4 F3: the result of an MCP call) |  |
 | DOC-04 | S02, S36, S37 | closed | `test_mcp_parity_audit.py`: `test_the_extension_api_reference_covers_what_doc_04_names` |  |
 | DOC-05 | each slice | closed, with limits | `test_mcp_parity_audit.py`: `test_the_changelog_names_the_user_visible_parts` | Checked by key terms; whether each entry is complete was read, not tested. |
 

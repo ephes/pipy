@@ -577,7 +577,8 @@ Different from Pi:
   connects and there are no MCP tools.
 - `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
   until you remove the entry; so does a `!` glob that matches it, such as
-  `!builtin:*`, unless a `+builtin:mcp` entry turns it on again. A
+  `!builtin:*` or Pi's `!**/builtin:mcp` (a `**/` also matches no
+  directory), unless a `+builtin:mcp` entry turns it on again. A
   `+builtin:mcp`, `-builtin:mcp` or matching `!` entry in the settings of a
   trusted project decides over the user-level entries.
   `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
@@ -602,9 +603,11 @@ MCP cannot turn it on for `deferred` servers (pipy then warns that their
 tools cannot be called), and `--no-extensions` removes both tools unless
 `--extension builtin:codemode` or `--extension builtin:tool-search` loads
 them again. `--no-mcp` concerns MCP alone. `/reload` reads these entries
-again as well. Pi's `builtin:llama.cpp` has no counterpart in pipy; an
-unknown `builtin:` name after `--extension` is an error at startup, where Pi
-reports a load error.
+again as well. Pi's `builtin:llama.cpp` has no counterpart in pipy. An
+unknown `builtin:` name after `--extension`, `builtin:llama.cpp` included,
+ends the startup as in Pi with `Error: Failed to load extension
+"builtin:<name>": Unknown built-in extension: builtin:<name>`, a hint and
+status 1; `--list-models` ignores it.
 
 ### Diagnose connection problems
 

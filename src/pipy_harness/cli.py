@@ -1083,7 +1083,7 @@ def _main(argv: list[str] | None) -> int:
             return _cmd_product_export(args.export)
         if getattr(args, "list_models", None) is not None:
             cwd = getattr(args, "cwd", Path.cwd()).expanduser().resolve()
-            options = _resource_options_from_args(args)
+            options = _resource_options_from_args(args, report_load_errors=False)
             trust_resolution, pretrust_extensions = (
                 _resolve_runtime_project_trust_startup(
                     args,
@@ -1391,6 +1391,10 @@ def _main(argv: list[str] | None) -> int:
         # Declined the cross-project fork prompt (Pi prints "Aborted." / exit 0).
         print("pipy: aborted.", file=sys.stderr)
         return 0
+    except ExtensionLoadError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(_EXTENSION_LOAD_FAILURE_HINT, file=sys.stderr)
+        return 1
     except ValueError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 2
@@ -2699,8 +2703,31 @@ def _run_repl_automation(
     )
 
 
-def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
-    """Resolve Pi-shaped source-loading flags for one REPL run."""
+class ExtensionLoadError(ValueError):
+    """An extension named on the command line that cannot be loaded.
+
+    As in Pi (``main.ts``), it ends the startup with status 1:
+    ``Error: Failed to load extension "<path>": <error>`` and a hint.
+    """
+
+    def __init__(self, path: str, error: str) -> None:
+        super().__init__(f'Failed to load extension "{path}": {error}')
+
+
+_EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pipy -ne".'
+
+
+def _resource_options_from_args(
+    args: Any, *, report_load_errors: bool = True
+) -> RuntimeResourceOptions:
+    """Resolve Pi-shaped source-loading flags for one REPL run.
+
+    An unknown ``builtin:<name>`` is an :class:`ExtensionLoadError`, as Pi's
+    resource loader reports it (``Unknown built-in extension: <path>``).
+    pipy has no ``builtin:llama.cpp``, so that one is unknown here too.
+    Without ``report_load_errors`` it is left out instead, as
+    ``--list-models`` in Pi ignores the load errors.
+    """
 
     from pipy_harness.native.resource_enablement import (
         BUILTIN_EXTENSIONS,
@@ -2715,7 +2742,8 @@ def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
         if name is None:
             extension_paths.append(value)
         elif name not in BUILTIN_EXTENSIONS:
-            raise ValueError(f"Unknown built-in extension: {value}")
+            if report_load_errors:
+                raise ExtensionLoadError(value, f"Unknown built-in extension: {value}")
         elif name not in builtin_extensions:
             builtin_extensions.append(name)
     return RuntimeResourceOptions(

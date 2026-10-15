@@ -428,6 +428,9 @@ def test_the_codemode_page_covers_what_doc_03_names() -> None:
     ):
         assert helper in _section("codemode.md", "## Globals"), helper
     assert "structured content" in page and "`ToolError`" in page
+    # Goal check r4 F3: an MCP call returns its `CallToolResult`, and the
+    # example unwraps `structuredContent`.
+    assert "`CallToolResult`" in page and 'result["structuredContent"]' in page
     assert "`image(value)`" in page
     told = _section("codemode.md", "## What the model is told")
     assert "Nested tools:" in told

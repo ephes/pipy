@@ -9,6 +9,8 @@ paths. Default is enabled; the last matching directive wins. Bare entries
 
 from __future__ import annotations
 
+import time
+
 from pipy_harness.native.resource_enablement import (
     disable_entry,
     enable_entry,
@@ -37,6 +39,28 @@ def test_redisabled_by_later_minus_pattern() -> None:
 def test_glob_disable() -> None:
     assert is_resource_enabled("draft-pr", ["-draft-*"]) is False
     assert is_resource_enabled("review", ["-draft-*"]) is True
+
+
+def test_globstar_also_matches_no_directory() -> None:
+    # Goal check r4 U4: as in Pi's minimatch, `**/` matches zero or more
+    # directories, at the start of a pattern and after a `/`.
+    assert is_resource_enabled("draft-pr", ["-**/draft-*"]) is False
+    assert is_resource_enabled("team/draft-pr", ["-**/draft-*"]) is False
+    assert is_resource_enabled("team/draft-pr", ["-team/**/draft-*"]) is False
+    assert is_resource_enabled("team/a/b/draft-pr", ["-team/**/draft-*"]) is False
+    assert is_resource_enabled("x/team/draft", ["-**/team/**/draft"]) is False
+    assert is_resource_enabled("review", ["-**/draft-*"]) is True
+    # Only a whole `**` segment is a globstar.
+    assert is_resource_enabled("draft-pr", ["-x**/draft-*"]) is True
+    # Many globstars do not multiply the work.
+    many = "/".join(f"**/part{index}" for index in range(18)) + "/**/nope"
+    started = time.monotonic()
+    assert is_resource_enabled("a/" * 100 + "nope", [f"-{many}"]) is True
+    assert is_resource_enabled("builtin:mcp", [f"-{many}"]) is True
+    assert time.monotonic() - started < 5
+    # Nor do they nest: far more globstars than the recursion limit.
+    assert is_resource_enabled("other", ["-" + "**/" * 2000 + "other"]) is False
+    assert is_resource_enabled("mcp", ["-" + "**/" * 2000 + "other"]) is True
 
 
 def test_bare_source_entry_is_ignored_for_enablement() -> None:

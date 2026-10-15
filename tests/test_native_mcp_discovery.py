@@ -16,7 +16,12 @@ import pytest
 from test_native_tool_filter_patterns import _Tool
 from test_native_tool_search_tool import _capabilities, _declared
 
-from pipy_harness.cli import _resource_options_from_args, build_parser, main
+from pipy_harness.cli import (
+    ExtensionLoadError,
+    _resource_options_from_args,
+    build_parser,
+    main,
+)
 from pipy_harness.native.codemode import selftest
 from pipy_harness.native.mcp.discovery import McpDiscovery, unreachable_warning
 from pipy_harness.native.resource_enablement import is_builtin_extension_enabled
@@ -463,6 +468,12 @@ def test_activate_tools_ignores_unknown_names_and_keeps_an_unset_selection(
         (["+builtin:mcp", "!builtin:*"], [], True),
         (["-builtin:mcp", "+builtin:mcp"], [], False),
         (["+./builtin:mcp", "!builtin:*"], [], True),
+        # Goal check r4 U4, minimatch: a leading `**/` also matches no
+        # directory, so Pi's `!**/builtin:mcp` turns MCP off.
+        (["!**/builtin:mcp"], [], False),
+        (["!**/builtin:*"], [], False),
+        (["!**/builtin:codemode"], [], True),
+        ([], ["!**/builtin:mcp"], False),
         # Pi applyAutoloadDisabledPatterns: a matching project `!`, `+` or
         # `-` entry decides over the user array, the last one winning.
         ([], ["!builtin:*"], False),
@@ -512,6 +523,10 @@ def test_settings_read_the_builtin_entry_per_scope(tmp_path: Path) -> None:
     project_path.write_text('{"extensions": ["!builtin:*"]}')
     assert not enabled(trusted=True)
     assert enabled(trusted=False)
+    # Goal check r4 U4: Pi's globstar form.
+    project_path.write_text('{"extensions": []}')
+    global_path.write_text('{"extensions": ["!**/builtin:mcp"]}')
+    assert not enabled(trusted=True)
 
 
 @pytest.mark.parametrize(
@@ -579,13 +594,38 @@ def test_cli_flags_parse_to_run_options(tmp_path: Path) -> None:
     assert not plain.no_mcp and plain.builtin_extensions == ()
 
 
-def test_an_unknown_builtin_extension_is_an_error(tmp_path: Path) -> None:
+def test_an_unknown_builtin_extension_is_a_load_error(tmp_path: Path) -> None:
     args = build_parser().parse_args(
-        ["repl", "--cwd", str(tmp_path), "-e", "builtin:nope"]
+        ["repl", "--cwd", str(tmp_path), "-e", "builtin:nope", "-e", "builtin:mcp"]
     )
 
-    with pytest.raises(ValueError, match="Unknown built-in extension: builtin:nope"):
+    with pytest.raises(ExtensionLoadError) as raised:
         _resource_options_from_args(args)
+    assert str(raised.value) == (
+        'Failed to load extension "builtin:nope": '
+        "Unknown built-in extension: builtin:nope"
+    )
+    # `--list-models` ignores it, as Pi's does.
+    options = _resource_options_from_args(args, report_load_errors=False)
+    assert options.builtin_extensions == ("mcp",)
+
+
+@pytest.mark.parametrize("value", ["builtin:llama.cpp", "builtin:nope"])
+def test_an_unknown_builtin_extension_ends_the_startup_as_in_pi(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], value: str
+) -> None:
+    # Goal check r4 U5. Pi's resource loader records the load error and its
+    # main.ts reports it and exits with status 1; pipy has no `llama.cpp`
+    # built-in, so that name is unknown here as well.
+    capfd.readouterr()
+
+    assert main(["--cwd", str(tmp_path), "-e", value, "-p", "hello"]) == 1
+
+    assert capfd.readouterr().err.splitlines() == [
+        f'Error: Failed to load extension "{value}": '
+        f"Unknown built-in extension: {value}",
+        'Hint: Start without extensions using "pipy -ne".',
+    ]
 
 
 # -- EXP-12: the config command -----------------------------------------------
