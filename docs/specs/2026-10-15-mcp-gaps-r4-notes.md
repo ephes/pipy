@@ -62,6 +62,62 @@ passing (Q11 still names DEV-79, and the closed row's source column says
 longer names DEV-79, it belongs next to
 `test_the_fixes_of_the_third_triage_left_the_limits`.
 
+### D2: `render_call` knows a failed call
+
+**Changelog (Unreleased, Fixed):**
+
+- A tool renderer's call context has `is_error` set once the call failed,
+  as Pi takes `isError` from the call's current result for both phases, so
+  a custom `render_call` drawn again after the result in the terminal
+  (Ctrl+O, a resize, `invalidate()`) can mark the failure. Before, the call
+  context always said `False`. The HTML export draws a call before its
+  result, with `is_error` false, as Pi's export does. See
+  [tool rendering](../extension-api.md#tool-rendering).
+
+**Plan:** RND-01 / EXT-15 notes need no change; no DEV row named this.
+
+**Acceptance (EXT-15 row, add tests):** `test_native_tool_render_context.py`:
+`test_the_call_drawn_again_after_a_failure_knows_it_failed`;
+`test_native_export_tool_rows.py`:
+`test_an_exported_call_is_drawn_before_its_result` (RND-03: the export's
+call context, as Pi's).
+
+**Audit test references:** none changed.
+
+### D3: a resolver can wrap codemode's rows
+
+**Changelog (Unreleased, Fixed):**
+
+- A tool renderer resolver's `next()` gives renderers for the calls to
+  `codemode`, as Pi's codemode tool brings its `codemodeRenderers`: they
+  draw the rows pipy draws for codemode (in the terminal and the HTML
+  export the script output without the `Script completed` header), so a
+  resolver can wrap them there and in captured output. Before, `next()` gave `None`
+  for `codemode`, and a resolver that returned `None` without `next()` left
+  codemode's own result rows in place instead of the generic row. An
+  extension tool named `codemode` that has renderers keeps them. See
+  [tool rendering](../extension-api.md#tool-rendering).
+
+**Plan:**
+
+- DEV-45: after "pipy's own rows are callable renderers a resolver can wrap
+  (since G9)" add "(also `codemode`'s since goal check r4, D3)". Add at the
+  end: "An extension tool named `codemode` without renderers gets pipy's
+  codemode rows from `next()` and without a resolver; Pi draws it with the
+  generic rows."
+
+**Acceptance (EXT-15 row, add tests):**
+`test_native_extension_tool_renderer_resolver.py`:
+`test_next_gives_codemodes_own_rows`, `test_a_resolver_wraps_codemodes_rows`,
+`test_a_resolver_that_chooses_nothing_for_codemode_gets_the_generic_row`,
+`test_the_line_renderer_lets_a_resolver_wrap_codemodes_rows`;
+`test_native_export_tool_rows.py`:
+`test_a_resolver_wraps_codemodes_rows_in_the_export`. The row note keeps
+ending with "`renderShell` is not ported. DEV-45." (the audit test
+`test_the_fixes_of_the_third_triage_left_the_limits` checks that ending).
+
+**Audit test references:** none changed.
+
 ### S5: `send_user_message` options (doc sentence)
 
 **Changelog:** none (documentation of an accepted deviation).

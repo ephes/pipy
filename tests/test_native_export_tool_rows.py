@@ -554,3 +554,67 @@ def test_export_renderers_are_told_each_calls_id(tmp_path: Path) -> None:
 
     assert {ctx.tool_call_id for ctx in seen} == {"c1", "c2"}
     assert all(ctx.execution_started is False for ctx in seen)
+
+
+def test_a_resolver_wraps_codemodes_rows_in_the_export(tmp_path: Path) -> None:
+    # Goal check r4, D3: `next()` gives codemode's own rows (Pi
+    # `codemodeRenderers`), which draw the output without the script header.
+    def wrapping(name: str, following: Any) -> object | None:
+        inner = following()
+        if inner is None:
+            return None
+
+        def result(ctx: ToolRenderContext) -> object:
+            component = inner.render_result(ctx)
+            lines = [] if component is None else list(component.render(ctx.width))
+            return lines_component(["[wrapped]", *lines])
+
+        return ToolRenderers(render_call=inner.render_call, render_result=result)
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(_call("c1", "codemode", '{"code": "print(1)"}'),),
+        ),
+        _result(
+            "c1", "codemode", "Script completed\nWall time 0.1 seconds\nOutput:\n1"
+        ),
+    )
+
+    rendered = _rendered(tree, ToolRendererLookup(resolvers=(wrapping,)))
+
+    assert _text(rendered["c1"]["callHtml"]) == ['codemode code="print(1)"']
+    # Pi's codemode result starts with a spacer.
+    assert _text(rendered["c1"]["resultHtmlExpanded"]) == ["[wrapped]", "", "1"]
+    # Without a resolver the page draws codemode's call itself, as before.
+    assert _rendered(tree) == {}
+
+
+def test_an_exported_call_is_drawn_before_its_result(tmp_path: Path) -> None:
+    # Pi `createToolHtmlRenderer.renderCall`: the call's context is partial
+    # and not an error, also for a call that failed; the result's says so.
+    seen: list[ToolRenderContext] = []
+
+    def draw(ctx: ToolRenderContext) -> object:
+        seen.append(ctx)
+        return lines_component([f"{ctx.is_result} error={ctx.is_error}"])
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""), tool_calls=(_call("c1", "deploy", "{}"),)
+        ),
+        _result("c1", "deploy", "boom", is_error=True),
+    )
+    lookup = ToolRendererLookup(
+        resolvers=(
+            lambda name, following: ToolRenderers(render_call=draw, render_result=draw),
+        )
+    )
+
+    rendered = _rendered(tree, lookup)
+
+    assert _text(rendered["c1"]["callHtml"]) == ["False error=False"]
+    assert _text(rendered["c1"]["resultHtmlExpanded"]) == ["True error=True"]
+    assert seen[0].is_partial is True

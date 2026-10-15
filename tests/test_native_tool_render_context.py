@@ -322,3 +322,25 @@ def test_a_changed_show_images_setting_draws_a_pending_row_again(
     assert live.repaints == repaints + 1
     live.transcript.set_image_options(None, show=False, width_cells=40)
     assert live.repaints == repaints + 1  # nothing a renderer is told changed
+
+
+def test_the_call_drawn_again_after_a_failure_knows_it_failed(
+    tmp_path: Path,
+) -> None:
+    # Pi `getRenderContext`: `isError` comes from the call's current result
+    # for both phases (goal check r4, D2).
+    recorder = _Recorder()
+    live = _Live(tmp_path, recorder)
+    live.call()
+    assert recorder.seen[-1].is_error is False
+
+    live.renderer.render_tool_result(output_text="boom", is_error=True)
+    calls = [ctx for ctx in recorder.seen if not ctx.is_result]
+    results = [ctx for ctx in recorder.seen if ctx.is_result]
+    assert calls[-1].is_error is True and results[-1].is_error is True
+
+    # Ctrl+O draws both phases again, still from the failed result.
+    seen = len(recorder.seen)
+    live.transcript.set_tools_expanded(True)
+    assert recorder.seen[seen:]
+    assert all(ctx.is_error for ctx in recorder.seen[seen:])

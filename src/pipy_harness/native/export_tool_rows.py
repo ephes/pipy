@@ -31,6 +31,7 @@ from pipy_harness.native.tool_renderers import build_tool_render_theme
 from pipy_harness.native.tool_result_display import tool_result_display_text
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
+    OWN_ROWS_TOOLS,
     RowLine,
     RowRenderers,
     RowRenderInputs,
@@ -182,7 +183,7 @@ def _row_state(
 
     if name in BUILTIN_RENDERED_TOOLS:
         return None
-    resolved = lookup.resolve(name)
+    resolved = lookup.resolve(name, builtin=name in OWN_ROWS_TOOLS)
     if resolved is None or isinstance(resolved, BuiltinToolRows):
         return None
     if isinstance(resolved, McpToolRows):

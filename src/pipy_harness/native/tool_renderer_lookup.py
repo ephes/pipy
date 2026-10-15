@@ -9,8 +9,8 @@ drawn as an MCP tool's call, so a resumed session shows such calls the same
 way before their server connected, and when it never does. Here that rule is
 part of what the tool itself has.
 
-pipy draws the rows of its built-in tools and of MCP tools itself
-(``tool_rows``). What a lookup answers for them is a marker the rows
+pipy draws the rows of its built-in tools, of ``codemode`` and of MCP tools
+itself (``tool_rows``). What a lookup answers for them is a marker the rows
 recognise, and also real renderers a resolver can call and wrap: they draw
 pipy's own rows of the call through the context's row.
 """
@@ -44,7 +44,7 @@ def _own_rows(ctx: ToolRenderContext, phase: str, label: str | None) -> object:
 
 @dataclass(frozen=True, slots=True)
 class BuiltinToolRows:
-    """pipy's own rows for the calls to a built-in tool.
+    """pipy's own rows for the calls to a built-in tool or ``codemode``.
 
     A resolver gets this from ``next()``. Like Pi's built-in renderers, its
     ``render_call`` and ``render_result`` can be called and wrapped: they
@@ -92,11 +92,12 @@ class ToolRendererLookup:
         """What draws a call to ``name``; None for pipy's generic row.
 
         ``builtin`` says that ``name`` is a tool pipy has rows of its own
-        for. The answer is a ``BuiltinToolRows``, a ``McpToolRows``, or an
-        object with ``render_call`` and ``render_result`` (an extension
-        tool, or what a resolver returned). None is the generic row for a
-        built-in tool too: a resolver chose it by returning None without
-        ``next()``, as in Pi.
+        for (``tool_rows.OWN_ROWS_TOOLS``). The answer is a
+        ``BuiltinToolRows``, a ``McpToolRows``, or an object with
+        ``render_call`` and ``render_result`` (an extension tool, or what a
+        resolver returned). None is the generic row for a built-in tool
+        too: a resolver chose it by returning None without ``next()``, as
+        in Pi.
         """
 
         return self._resolve(tuple(self.resolvers), name, 0, builtin)
@@ -129,13 +130,17 @@ class ToolRendererLookup:
         return chosen if valid else next_renderers()
 
     def _own(self, name: str, builtin: bool) -> object | None:
-        """What the tool itself has (Pi: the registered tool's renderers)."""
+        """What the tool itself has (Pi: the registered tool's renderers).
 
-        if builtin:
-            return BuiltinToolRows()
+        An extension tool's renderers come first: an extension may replace
+        ``codemode`` (the names of the other built-in tools are reserved).
+        """
+
         tool = self.tools.get(name)
         if tool is not None:
             return tool
+        if builtin:
+            return BuiltinToolRows()
         label = self.mcp_labels.get(name) or mcp_tool_label_from_name(name)
         return None if label is None else McpToolRows(_printable(label))
 

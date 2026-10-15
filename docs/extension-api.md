@@ -1476,7 +1476,10 @@ one that an extension of an earlier session had, or one the model made up.
 
 Besides `tool_name`, `args`, `is_result`, `is_error`, `content`, `details`,
 `expanded`, `width`, `theme` and `state`, a renderer's `ToolRenderContext`
-has Pi's fields:
+has Pi's fields. As in Pi, `is_error` comes from the call's current result
+in both phases: once the call failed, `render_call` is told so too when the
+row is drawn again in the terminal. The HTML export draws a call before its
+result, so there its `is_error` is false, as in Pi's export.
 
 - `tool_call_id`: the call's id, the same for its call and result renders.
 - `cwd`: the session's directory.
@@ -1528,7 +1531,7 @@ def activate(api):
   that tool, a built-in tool's included, and returning `None` without it
   gives the tool pipy's generic row.
 - What the tool itself has: for an extension tool that has a renderer, the
-  `ExtensionTool`; for a built-in tool and for a call to
+  `ExtensionTool`; for a built-in tool, for `codemode` and for a call to
   `mcp__<server>__<tool>` (whether such a tool is registered or not), an
   object that stands for pipy's own rows. Return it to keep pipy's rows, or
   call its `render_call(ctx)` and `render_result(ctx)` inside your own
@@ -1540,8 +1543,12 @@ def activate(api):
   `Elapsed` every second while it runs (pipy draws the row again, so
   `render_call` and `render_result` are called again; `render_result` is
   called from the start, with empty `content`, as Pi's bash tool sends an
-  empty update first). Called with a context pipy did not make, they
-  return `None`. For every other name it is `None`.
+  empty update first). For `codemode` the result part is, in the terminal
+  and the HTML export, the script's output without the `Script completed`
+  header, as Pi's codemode renderer draws it; the nested calls stay in the
+  row between the two parts. Called
+  with a context pipy did not make, they return `None`. For every other
+  name it is `None`.
 
   ```python
   def resolve(tool_name, next):
@@ -1582,6 +1589,8 @@ Different from Pi:
 
 - In Pi `next()` returns a registered tool's definition also when it has no
   renderers; pipy returns `None` for an extension tool without renderers.
+  An extension tool named `codemode` without renderers is the exception: it
+  gets pipy's codemode rows, where Pi draws its calls with the generic rows.
 - pipy's own rows keep what is outside the two parts when a resolver wraps
   them only as long as the object itself is returned: a wrapped `edit` row
   is drawn in the usual box, not in the edit box with its own background
