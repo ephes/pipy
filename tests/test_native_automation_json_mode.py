@@ -273,9 +273,14 @@ def test_json_mode_tool_events_carry_pi_result_objects(tmp_path: Path) -> None:
         and [b["type"] for b in u["partialResult"]["content"]] == ["text"]
         for u in updates
     )
-    assert "".join(u["partialResult"]["content"][0]["text"] for u in updates) == (
-        "hi\n"
+    # Pi's `bash` sends the output so far: each update's text extends the
+    # one before, and the last is the whole output.
+    texts = [u["partialResult"]["content"][0]["text"] for u in updates]
+    assert all(
+        later.startswith(earlier)
+        for earlier, later in zip(texts, texts[1:], strict=False)
     )
+    assert texts[-1] == "hi\n"
     assert end["toolName"] == "bash" and end["isError"] is False
     assert end["result"]["content"] == [{"type": "text", "text": "hi\n"}]
     assert type(end["durationMs"]) is int and end["durationMs"] >= 0

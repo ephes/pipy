@@ -344,13 +344,17 @@ def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
         return (state, (RenderToolCall(event.call),))
     if isinstance(event, ToolCallUpdated):
         update = event.update
-        # The row appends live output; a partial result (MCP progress) is
-        # appended as a line of its own, so the row shows the latest one.
-        text = (
-            f"{update.content}\n"
-            if isinstance(update, ToolPartialResult)
-            else update.value
-        )
+        # The row appends live output: what a streaming tool's (``bash``)
+        # update added, or a partial result that only replaces (MCP
+        # progress) as a line of its own, so the row shows the latest one.
+        if isinstance(update, ToolPartialResult):
+            text = (
+                update.appended
+                if update.appended is not None
+                else f"{update.content}\n"
+            )
+        else:
+            text = update.value
         return (state, (StreamToolOutput(text),))
     if isinstance(event, ToolCallCompleted):
         return (

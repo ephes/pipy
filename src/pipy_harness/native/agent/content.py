@@ -62,27 +62,37 @@ class ToolPartialResult:
 
     Pi's ``{content: [{type: "text", text}], details}``: ``content`` is the
     text, ``details`` a JSON object or None. Each one replaces the previous
-    partial result of the call, as an MCP tool's progress does. A tool that
-    streams its output (``bash``) writes plain text chunks to the sink
-    instead, each continuing the text before it.
+    partial result of the call, as an MCP tool's progress does.
+
+    A tool that streams its output (``bash``) reports the output so far as
+    ``content``, its tail bounded as Pi's ``truncateTail`` bounds it, and
+    sets ``appended`` to the text this update added: a live row that shows
+    the output as it grows appends that, where every other consumer
+    replaces the previous partial result. ``appended`` is ``None`` for a
+    partial result that only replaces.
     """
 
     content: str
     details: Mapping[str, Any] | None = None
+    appended: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, str):
             raise TypeError("ToolPartialResult.content must be a string")
         if self.details is not None and not isinstance(self.details, Mapping):
             raise TypeError("ToolPartialResult.details must be a mapping or None")
+        if self.appended is not None and not isinstance(self.appended, str):
+            raise TypeError("ToolPartialResult.appended must be a string or None")
 
     def __repr__(self) -> str:
         return "ToolPartialResult(<redacted>)"
 
 
 ToolOutput = str | ToolPartialResult
-"""What a running tool writes to its output sink: a chunk of streamed text, or
-a :class:`ToolPartialResult` that replaces the previous one."""
+"""What a running tool writes to its output sink: a :class:`ToolPartialResult`
+that replaces the previous one, or a bare chunk of text that continues the
+text before it (a live row appends it; built-in tools send partial
+results)."""
 
 
 REDACTED_THINKING_TEXT = "[Reasoning redacted]"

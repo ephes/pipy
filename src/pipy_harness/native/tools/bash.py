@@ -12,8 +12,11 @@ runs in the workspace root with the inherited environment.
 
 Like Pi, output is *streamed* as it is produced: when the loop supplies a
 :attr:`~pipy_harness.native.tools.base.ToolContext.output_sink`, the tool emits
-incremental chunks (throttled) so the live UI shows e.g. pytest dots scrolling
-in real time. Streaming uses a single-thread ``selectors`` poll loop on the
+partial results (throttled) so the live UI shows e.g. pytest dots scrolling
+in real time. Each is Pi's ``onUpdate`` value: the output so far, cut like the
+result (the last 2000 lines or 50 KB), with ``details`` holding the
+``truncation`` once it is cut and the ``fullOutputPath`` of the temp file;
+its ``appended`` is the text the update added, which a live row appends. Streaming uses a single-thread ``selectors`` poll loop on the
 calling thread (no reader thread): it reads whatever the process has flushed,
 emits it, and enforces the timeout from one monotonic deadline — so the
 timeout/kill path stays free of thread-join races. The truncated output is
@@ -62,11 +65,13 @@ from typing import Protocol
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
     NoStructuredContent,
+    ToolPartialResult,
 )
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolOutputSink,
     ToolRequest,
 )
 from pipy_harness.native.tools.bash_executor import ExecutorOutput
@@ -198,9 +203,11 @@ class BashTool:
         accumulator = OutputAccumulator(temp_file_prefix="pipy-bash")
         timed_out, cancelled = _stream_output(
             proc,
-            sink=context.output_sink,
+            sink=_partial_results(context.output_sink, accumulator),
             timeout=timeout,
             store=accumulator,
+            # The last update holds the output's end, decoded in full.
+            finish_store=accumulator.finish,
             cancel_event=context.cancel_event,
         )
         accumulator.finish()
@@ -417,12 +424,15 @@ def _stream_output(
     store: _OutputStore,
     cancel_event: "threading.Event | None" = None,
     sanitize: Callable[[str], str] | None = None,
+    finish_store: Callable[[], None] | None = None,
 ) -> tuple[bool, bool]:
     """Drain stdout into ``store``, stream chunks, and enforce one deadline.
 
     ``store`` bounds what is kept while the optional live sink receives all
     decoded chunks in order. Timeout and cancellation kill the process group and
     drain bytes already available from the pipe before final decoder flush.
+    ``finish_store``, when given, finishes ``store`` before the last
+    emission, so a sink that reads the store sees all of the output.
     Returns ``(timed_out, cancelled)``.
     """
 
@@ -449,6 +459,8 @@ def _stream_output(
         _drain_nonblocking(selector, fd, state)
 
     state.finish_decoder()
+    if finish_store is not None:
+        finish_store()
     state.emit(force=True)
     selector.close()
     try:
@@ -545,6 +557,33 @@ def run_local_command(
         started=True,
         full_output_path=result.full_output_path,
     )
+
+
+def _partial_results(
+    sink: ToolOutputSink | None, accumulator: OutputAccumulator
+) -> Callable[[str], None] | None:
+    """Pi ``emitOutputUpdate``: each streamed piece becomes a partial result
+    with the output so far (the accumulator's tail snapshot, the temp file
+    kept once it is cut) and the piece as its ``appended`` text."""
+
+    if sink is None:
+        return None
+
+    def publish(chunk: str) -> None:
+        snapshot = accumulator.snapshot(persist_if_truncated=True)
+        if snapshot.full_output_path is not None:
+            # The file the update names holds the output so far; a failed
+            # write drops it, and the update then names none.
+            accumulator.flush_temp_file()
+            snapshot = accumulator.snapshot()
+        details: dict[str, object] = {}
+        if snapshot.truncation.truncated:
+            details["truncation"] = snapshot.truncation.to_details()
+        if snapshot.full_output_path is not None:
+            details["fullOutputPath"] = snapshot.full_output_path
+        sink(ToolPartialResult(snapshot.content, details, appended=chunk))
+
+    return publish
 
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:

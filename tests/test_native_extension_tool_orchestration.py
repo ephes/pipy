@@ -506,8 +506,8 @@ def activate(api):
             'bash', {'command': 'sleep 20'}, signal=stop)
         return ToolResult(content=' | '.join([
             outcome.result.content.strip(),
-            ''.join(c.content for c in chunks
-                    if isinstance(c, ToolResult)).strip(),
+            '/'.join(c.content for c in chunks
+                     if isinstance(c, ToolResult)),
             stopped.result.content, str(ctx.signal is not None)]))
 
     api.register_tool(ExtensionTool(
@@ -539,7 +539,9 @@ def test_a_nested_call_has_a_signal_and_updates(tmp_path, monkeypatch) -> None:
     (parent,) = _tool_results(provider.requests[1])
     output, chunks, stopped, has_signal = parent.content.value.split(" | ")
     assert "one" in output and "two" in output
-    assert "one" in chunks and "two" in chunks
+    # Pi's `bash` partial result is the output so far, not the next chunk.
+    partials = chunks.split("/")
+    assert partials[0] == "one" and partials[-1] == "onetwo"
     assert stopped == "tool cancelled by its caller"
     assert has_signal == "True"
     updates = [e for e in sink.events if isinstance(e, NestedToolCallUpdated)]

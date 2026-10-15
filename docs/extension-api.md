@@ -1234,8 +1234,10 @@ def read_all(ctx, params):
   (Pi `onUpdate`), on the thread that produced it; what it raises is
   ignored. An MCP tool's progress is a partial result with the progress text
   as `content` and `{server, tool}` as `details`, which replaces the one
-  before it; for `bash` each partial result's `content` is the next chunk of
-  output, with no `details`. The call passes argument validation and the
+  before it; for `bash` each partial result's `content` is the output so
+  far, as in Pi: the last 2000 lines or 50 KB, with `details` holding the
+  `truncation` once it is cut and the `fullOutputPath` of the file with all
+  of it, and `{}` before that. The call passes argument validation and the
   `tool_call` and `tool_result` handlers like a call the model made, and it
   counts against the tool budget of the turn.
 - It never raises for a failure of the tool. A name that is not callable
@@ -1250,7 +1252,7 @@ def read_all(ctx, params):
   the calling tool, which reports them in its own result. They have the ids
   `<calling id>/<n>` (`p1/2/1` is the first call of the second call of
   `p1`), and the session emits a start and an end event for
-  each, and an update event for each chunk of its live output, with the id of
+  each, and an update event for each partial result, with the id of
   the calling call (`parentToolCallId` in
   [JSON mode](json.md) and [RPC mode](rpc.md)). The result of the calling
   tool the model called keeps a bounded record of them, at every depth, as
@@ -1270,10 +1272,10 @@ caller until it ended. A call of a tool registered with
 asked for before it ended, in the order they were asked for, as Pi's
 exclusive queue does; calls of other tools run beside them, and a call made
 inside the running sequential call, at any depth, does not wait for it. A
-waiting call has its id and its place in the record at once; its
-`tool_call` handlers and its start event come when its turn comes. If its
+waiting call has its id, its place in the record and its start event at
+once, as in Pi; its `tool_call` handlers come when its turn comes. If its
 calling tool returns first, it does not run and ends with
-`tool cancelled by its caller`. The handler runs on a worker thread, and the session
+`tool cancelled by its caller`, with its end event. The handler runs on a worker thread, and the session
 thread runs the pipeline of each call (validation, handlers, budget) while
 the tools themselves run on threads of their own. When the tool the model
 called returned, the nested calls still running are cancelled with the
@@ -1296,18 +1298,14 @@ Different from Pi:
   tool calls sequentially (`toolExecution`, set through its SDK). pipy's
   agent loop has the same rule (`AgentLoop(tool_execution="sequential")`),
   but no setting or SDK option selects it, so nested calls follow only the
-  tools' `execution_mode`. Pi emits the start event of a call that waits
-  for its turn at once; pipy emits it when the call's turn comes, and a
-  waiting call whose caller ended has no events, only its place in the
-  record.
+  tools' `execution_mode`.
 - Pi lets a nested call still running when its calling tool returned go on;
   pipy cancels it when its calling tool returned.
 - In the outcome, `result.content` is the result's text and `result.blocks`
   its ordered text and image blocks when it has an image; Pi's
   `result.content` is always the block list. A partial result's `content`
-  is its text in the same way. A `bash` partial result is the next chunk of
-  output where Pi's is the output so far. A pipy tool handler reports no
-  partial results of its own.
+  is its text in the same way. A pipy tool handler reports no partial
+  results of its own.
 - Pi adds the usage that nested results report to the calling tool's
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record

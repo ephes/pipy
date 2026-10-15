@@ -19,7 +19,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ToolOutput
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ToolOutput,
+    ToolPartialResult,
+)
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolOutputSink,
@@ -262,11 +266,12 @@ def test_streams_output_incrementally_before_process_exits(tmp_path: Path) -> No
     # command is still running, not all at once at the end. The command prints
     # AAA, sleeps, then prints BBB — so a streaming reader sees AAA ~0.6s before
     # the process finishes, while a buffer-until-exit reader would not.
-    received: list[tuple[float, str]] = []
+    received: list[tuple[float, ToolPartialResult]] = []
 
-    def sink(chunk: ToolOutput) -> None:
-        assert isinstance(chunk, str)  # bash streams text chunks
-        received.append((time.monotonic(), chunk))
+    def sink(update: ToolOutput) -> None:
+        # Pi ``emitOutputUpdate``: each update is the output so far.
+        assert isinstance(update, ToolPartialResult)
+        received.append((time.monotonic(), update))
 
     ctx = _ctx(tmp_path, output_sink=sink)
     result = BashTool().invoke(
@@ -275,12 +280,84 @@ def test_streams_output_incrementally_before_process_exits(tmp_path: Path) -> No
     finished_at = time.monotonic()
 
     assert result.is_error is False
-    streamed = "".join(chunk for _, chunk in received)
-    assert "AAA" in streamed
-    assert "BBB" in streamed
+    updates = [update for _, update in received]
+    assert updates[0].content == "AAA"
+    assert updates[-1].content == "AAABBB"
+    assert all(update.details == {} for update in updates)
+    # A live row appends what each update added.
+    assert "".join(update.appended or "" for update in updates) == "AAABBB"
     # The first emission (AAA) landed well before the command finished.
     first_emit_at = received[0][0]
     assert finished_at - first_emit_at >= 0.4
+
+
+def test_streamed_updates_are_the_tail_with_truncation_details(
+    tmp_path: Path,
+) -> None:
+    # Pi: past 2000 lines an update holds the last 2000, ``details`` the
+    # truncation and the temp file with the full output.
+    updates: list[ToolPartialResult] = []
+
+    def sink(update: ToolOutput) -> None:
+        assert isinstance(update, ToolPartialResult)
+        updates.append(update)
+
+    result = BashTool().invoke(
+        _request({"command": "seq 1 2500"}), _ctx(tmp_path, output_sink=sink)
+    )
+
+    assert result.is_error is False
+    last = updates[-1]
+    lines = last.content.splitlines()
+    assert len(lines) == 2000
+    assert lines[0] == "501" and lines[-1] == "2500"
+    assert last.details is not None
+    truncation = last.details["truncation"]
+    assert truncation["truncated"] is True
+    assert truncation["truncatedBy"] == "lines"
+    assert truncation["totalLines"] == 2500
+    path = Path(last.details["fullOutputPath"])
+    assert path.read_text().splitlines()[0] == "1"
+    assert "".join(update.appended or "" for update in updates).splitlines() == [
+        str(n) for n in range(1, 2501)
+    ]
+
+
+def test_the_last_update_holds_the_whole_decoded_output(tmp_path: Path) -> None:
+    # An incomplete UTF-8 sequence at the end is decoded before the last
+    # update, as in the result.
+    updates: list[ToolPartialResult] = []
+
+    def sink(update: ToolOutput) -> None:
+        assert isinstance(update, ToolPartialResult)
+        updates.append(update)
+
+    result = BashTool().invoke(
+        _request({"command": "printf 'ok\\342'"}), _ctx(tmp_path, output_sink=sink)
+    )
+
+    assert result.output_text == "ok\ufffd"
+    assert updates[-1].content == "ok\ufffd"
+
+
+def test_the_file_an_update_names_holds_the_output_so_far(tmp_path: Path) -> None:
+    # A consumer may read the full output while the command still runs.
+    seen: list[str] = []
+
+    def sink(update: ToolOutput) -> None:
+        assert isinstance(update, ToolPartialResult)
+        details = update.details or {}
+        if "fullOutputPath" in details and not seen:
+            seen.append(Path(details["fullOutputPath"]).read_text())
+
+    BashTool().invoke(
+        _request({"command": "seq 1 2001; sleep 0.5; echo done"}),
+        _ctx(tmp_path, output_sink=sink),
+    )
+
+    assert seen and seen[0].splitlines()[:1] == ["1"]
+    assert "2001" in seen[0].splitlines()
+    assert "done" not in seen[0]
 
 
 def test_timeout_enforced_when_stdout_closed_early(tmp_path: Path) -> None:

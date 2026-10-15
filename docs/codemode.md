@@ -240,8 +240,9 @@ The calls start in the order the script submits them: their ids, their place
 in the tool budget, the `tool_call` hooks and the nested-call record follow
 that order, whichever call finishes first. Calls of a tool registered with
 `execution_mode="sequential"` run one at a time, in that order, as in Pi;
-such a call waits for its turn before its budget place and its
-`tool_call` hooks, and one still waiting when the script ends does not run
+such a call starts at once (its row and its start event) and waits for its
+turn before its budget place and its `tool_call` hooks, and one still
+waiting when the script ends does not run and ends as `cancelled`
 ([running other tools](extension-api.md#running-other-tools)). A call still running when the
 script ends, because the script did not ask for its result or because the
 script failed, is cancelled and recorded as `cancelled`; a call submitted just

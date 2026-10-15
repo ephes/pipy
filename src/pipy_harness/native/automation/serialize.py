@@ -78,10 +78,11 @@ def partial_result_json(update: ProductContent | ToolPartialResult) -> dict[str,
     """Pi's partial ``AgentToolResult`` (``tool_execution_update``
     ``partialResult``).
 
-    A partial result (an MCP tool's progress) keeps its ``details`` and
-    replaces the previous one. A chunk of streamed output (``bash``) is a
-    partial result with that chunk as its text and empty ``details``; its
-    text continues the previous chunk's.
+    A partial result keeps its ``details`` and replaces the previous one:
+    an MCP tool's progress, or ``bash``'s output so far (Pi's
+    ``emitOutputUpdate``). A bare chunk of text, which no built-in tool
+    sends, is a partial result with that chunk as its text and empty
+    ``details``.
     """
 
     if isinstance(update, ToolPartialResult):

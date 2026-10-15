@@ -170,6 +170,24 @@ class PendingNestedCall:
 
 NestedSettle = Callable[[AgentToolCall], "NestedToolCallOutcome | PendingNestedCall"]
 
+
+class NestedQueueEvents(Protocol):
+    """The events of a call that waits in the exclusive queue, emitted
+    outside its pipeline (Pi ``NestedToolCallRunner.execute`` emits
+    ``tool_execution_start`` before it awaits the queue).
+
+    ``queued`` is the start event of a call put in the queue; the pipeline
+    that runs the call once its turn comes emits no second one.
+    ``withdrawn`` is the end event of a queued call whose turn never came.
+    Both run on the session thread; what they raise is the pipeline's
+    failure.
+    """
+
+    def queued(self, call: AgentToolCall, /) -> None: ...
+
+    def withdrawn(self, outcome: NestedToolCallOutcome, /) -> None: ...
+
+
 # How often a waiting thread looks whether it was stopped.
 _POLL_SECONDS: Final = 0.05
 
@@ -305,10 +323,19 @@ class _Turn:
     ``started``, ``waiter`` and ``ended`` are what the ``serve``, the batch
     or the ``call`` that asked for it waits with, as ``_start`` takes them;
     ``open_caller`` says whether its caller must still be open when its turn
-    comes (a call asked for through ``nested_tools``).
+    comes (a call asked for through ``nested_tools``). ``queued_at`` is when
+    it was put in the queue, which is its start.
     """
 
-    __slots__ = ("call", "ended", "open_caller", "request", "started", "waiter")
+    __slots__ = (
+        "call",
+        "ended",
+        "open_caller",
+        "queued_at",
+        "request",
+        "started",
+        "waiter",
+    )
 
     def __init__(
         self,
@@ -326,6 +353,7 @@ class _Turn:
         self.waiter = waiter
         self.ended = ended
         self.open_caller = open_caller
+        self.queued_at = monotonic()
 
 
 def _until_ended(
@@ -460,9 +488,10 @@ class NestedToolCallService:
     tool's ``execution_mode`` is ``"sequential"``, unless it is made inside
     the call that holds the exclusive queue (at any depth). Exclusive calls
     run one at a time, in the order they were asked for; the others run
-    beside them. A call that waits for its turn has its id and its place in
-    the record, and runs its pipeline (the start event, the ``tool_call``
-    hooks) when its turn comes.
+    beside them. A call that waits for its turn has its id, its place in
+    the record and its start event (``queue_events``), and runs its pipeline
+    (the ``tool_call`` hooks, the budget) when its turn comes; one whose
+    turn never comes ends with its end event.
 
     Records are transient observations, capped at 256 calls, 8 KiB arguments
     per call and 32 KiB total. Oversized arguments are replaced by their byte
@@ -485,6 +514,7 @@ class NestedToolCallService:
         callable_tools: tuple[ToolDefinition, ...] = (),
         session_waiter: ToolInterruptWaiter | None = None,
         sequential: Callable[[], bool] | None = None,
+        queue_events: NestedQueueEvents | None = None,
     ) -> None:
         self._parent_id = parent.provider_correlation_id
         self._thread = threading.current_thread()
@@ -499,6 +529,7 @@ class NestedToolCallService:
             tool.name for tool in self._tools if tool.output_schema is not None
         )
         self._sequential = sequential
+        self._queue_events = queue_events
         self._sequential_names = frozenset(
             tool.name for tool in self._tools if tool.execution_mode == "sequential"
         )
@@ -827,8 +858,8 @@ class NestedToolCallService:
         update on the session thread while the tool runs.
 
         ``on_update`` gets a partial result for every piece, as Pi's
-        ``onUpdate`` does: a chunk of streamed text becomes one with that
-        chunk as its text."""
+        ``onUpdate`` does: ``bash`` sends its output so far; a bare chunk
+        of text becomes a partial result with that chunk as its text."""
         publish = pending.update
 
         def sink(output: ToolOutput) -> None:
@@ -900,8 +931,16 @@ class NestedToolCallService:
 
     def _enqueue(self, turn: _Turn) -> None:
         """Session thread: put an exclusive call in the queue; it keeps its
-        place in the record from now, as Pi records a call as it starts."""
+        place in the record and emits its start event from now, as Pi
+        records a call and emits its start before it awaits the queue."""
         self._open_slot(turn.call)
+        if self._queue_events is not None:
+            try:
+                self._queue_events.queued(turn.call)
+            except BaseException as exc:
+                self._fail(turn.call, turn.queued_at, exc)
+                self._answer_failed(turn.request)
+                raise
         turn.started.add(turn.call.provider_correlation_id)
         self._turns.append(turn)
 
@@ -984,27 +1023,42 @@ class NestedToolCallService:
         if failure is not None:
             raise failure
 
+    @staticmethod
+    def _answer_failed(request: _Request) -> None:
+        """Answer the caller of a call whose queue event failed; the
+        event's failure is the one raised."""
+        try:
+            request.answer(unavailable_result(request.caller_id))
+        except BaseException:  # noqa: BLE001 - the event's failure is raised
+            pass
+
     def _withdraw_turn(
         self, turn: _Turn, reason: ToolExecutionInterruption
     ) -> NestedToolCallOutcome:
         """Session thread: a queued call whose turn never came ends as
-        ``reason`` cancels a call, without its pipeline; it is kept in the
-        record and its caller is answered."""
+        ``reason`` cancels a call, without its pipeline; it emits its end
+        event, is kept in the record and its caller is answered. Its
+        duration runs from when it was queued, its start."""
         cancelled = cancelled_tool_outcome(self._error_result, turn.call, reason)
         interrupted = cancelled.interruption in {
             ToolExecutionInterruption.OPERATOR_ABORT,
             ToolExecutionInterruption.LOCAL_COMMAND,
         }
-        outcome = self._keep(
-            NestedToolCallOutcome(
-                turn.call,
-                cancelled.result,
-                NestedCallStatus.INTERRUPTED
-                if interrupted
-                else NestedCallStatus.CANCELLED,
-                cancelled.interruption if interrupted else None,
-            )
+        outcome = NestedToolCallOutcome(
+            turn.call,
+            cancelled.result,
+            NestedCallStatus.INTERRUPTED if interrupted else NestedCallStatus.CANCELLED,
+            cancelled.interruption if interrupted else None,
+            duration_seconds=monotonic() - turn.queued_at,
         )
+        if self._queue_events is not None:
+            try:
+                self._queue_events.withdrawn(outcome)
+            except BaseException as exc:
+                self._fail(turn.call, turn.queued_at, exc)
+                self._answer_failed(turn.request)
+                raise
+        self._keep(outcome)
         turn.request.answer(nested_tool_result(outcome), outcome)
         return outcome
 

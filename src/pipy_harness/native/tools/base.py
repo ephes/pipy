@@ -638,8 +638,8 @@ class NestedToolCalls(Protocol):
         ``signal`` cancels this call alone when it is set (Pi
         ``ExecuteToolOptions.signal``). ``on_update`` receives each partial
         result of the tool, on the thread that produced it (Pi ``onUpdate``):
-        a chunk of streamed output comes as a partial result with that
-        chunk as its text."""
+        for ``bash`` its output so far, tail-bounded, as Pi's ``bash``
+        reports it."""
         ...
 
 
@@ -648,10 +648,11 @@ class ToolContext:
     """Environment passed to one tool invocation.
 
     `output_sink` is an optional callable that long-running tools use to
-    report live output while they run (Pi ``onUpdate``): `bash` writes each
-    chunk of command output as a string, an MCP tool each progress
-    notification as a `ToolPartialResult` that replaces the previous one. The
-    loop turns both into `tool_execution_update` events. The default is
+    report live output while they run (Pi ``onUpdate``), as a
+    `ToolPartialResult` that replaces the previous one: `bash` its output so
+    far (the last 2000 lines or 50 KB, with the text the update added as
+    `appended`), an MCP tool each progress notification. The loop turns them
+    into `tool_execution_update` events. The default is
     `None`, in which case the tool still returns its full bounded result but
     emits nothing mid-run. The archive boundary is unrelated; streamed output
     never crosses it.

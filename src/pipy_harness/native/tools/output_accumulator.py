@@ -124,6 +124,17 @@ class OutputAccumulator:
             full_output_path=self._temp_file_path,
         )
 
+    def flush_temp_file(self) -> None:
+        """Write what the temp file buffers, so the file a running command's
+        update names already holds the output so far."""
+
+        if self._temp_file is None:
+            return
+        try:
+            self._temp_file.flush()
+        except OSError:
+            self._abandon_temp_file()
+
     def close_temp_file(self) -> None:
         if self._temp_file is None:
             return

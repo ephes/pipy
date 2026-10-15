@@ -8,6 +8,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A nested call that waits for its turn behind a `sequential` tool's call
+  starts at once, as in Pi: its start event (JSON and RPC
+  `tool_execution_start` with `parentToolCallId`) and its live row come when
+  it is asked for, not when its turn comes, and one that never runs because
+  its calling tool or script ended gets its end event too. Before, such a
+  call was missing from the live rows and the event streams while it
+  waited, and a withdrawn one had no events at all. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+- `bash` reports its live output as Pi does: each partial result is the
+  output so far (the last 2000 lines or 50 KB, with `truncation` and
+  `fullOutputPath` in its `details` once it is cut), for JSON and RPC
+  `tool_execution_update` and for an `on_update` callback of
+  `ctx.execute_tool`. Before, each update carried only the next chunk, so a
+  consumer that replaces the previous partial result, as Pi's clients do,
+  lost the output before it. See
+  [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
 - Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
   `/import`) no longer keeps what the extensions registered after they
   loaded: the tools, tool renderer resolvers and MCP servers registered

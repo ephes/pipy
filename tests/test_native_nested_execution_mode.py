@@ -26,7 +26,11 @@ from test_native_extension_tool_orchestration import (
 )
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.agent import NestedToolCallStarted, ToolCallCompleted
+from pipy_harness.native.agent import (
+    NestedToolCallCompleted,
+    NestedToolCallStarted,
+    ToolCallCompleted,
+)
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall
 from pipy_harness.native.agent.nested_calls import (
@@ -39,13 +43,16 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
 )
+from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.tools import ToolDefinition
 from pipy_harness.native.tools.registry import production_tool_registry
 
 
-def _service(settle, modes, *, sequential=None) -> NestedToolCallService:
+def _service(
+    settle, modes, *, sequential=None, queue_events=None
+) -> NestedToolCallService:
     parent = AgentToolCall("p", "parent", ProductContent("{}"))
     tools = tuple(
         ToolDefinition(
@@ -63,7 +70,27 @@ def _service(settle, modes, *, sequential=None) -> NestedToolCallService:
         lambda call, text: _message(call, text, error=True),
         callable_tools=tools,
         sequential=sequential,
+        queue_events=queue_events,
     )
+
+
+class _QueueEvents:
+    """Records the start and end events of queued calls."""
+
+    def __init__(self, *, fail_on: str | None = None) -> None:
+        self.events: list[tuple[str, str, NestedToolCallOutcome | None]] = []
+        self._fail_on = fail_on
+
+    def queued(self, call) -> None:
+        if self._fail_on == "queued":
+            raise RuntimeError("start event failed")
+        self.events.append(("queued", call.provider_correlation_id, None))
+
+    def withdrawn(self, outcome) -> None:
+        if self._fail_on == "withdrawn":
+            raise RuntimeError("end event failed")
+        call_id = outcome.nested_call.provider_correlation_id
+        self.events.append(("withdrawn", call_id, outcome))
 
 
 class _Active:
@@ -648,3 +675,244 @@ def test_a_failing_fallback_answer_does_not_stop_the_others() -> None:
     release.set()
 
     assert len(answered) == 1
+
+
+def test_a_queued_call_emits_its_start_when_queued_and_its_end_when_withdrawn() -> None:
+    # Pi nested-tool-calls.ts emits `tool_execution_start` before it awaits
+    # the exclusive queue. A queued call whose turn never comes (pipy
+    # cancels it when its caller returns) ends with its end event.
+    release = threading.Event()
+    ran: list[str] = []
+    events = _QueueEvents()
+    service = _service(
+        _blocking_settle(release, ran),
+        {"sequential": "sequential"},
+        queue_events=events,
+    )
+    stop = threading.Event()
+    batch = service.batch(_wait, stop)
+    for _ in range(2):
+        batch.start("sequential", "{}", lambda result, outcome: None)
+
+    # The first runs; the second waits and has started already.
+    assert ran == ["p/1"]
+    assert [(kind, call_id) for kind, call_id, _ in events.events] == [
+        ("queued", "p/2")
+    ]
+    time.sleep(0.05)
+    stop.set()
+    batch.end(ToolExecutionInterruption.SCRIPT_STOP)
+    release.set()
+
+    assert [(kind, call_id) for kind, call_id, _ in events.events] == [
+        ("queued", "p/2"),
+        ("withdrawn", "p/2"),
+    ]
+    withdrawn = events.events[1][2]
+    assert withdrawn is not None
+    assert withdrawn.status is NestedCallStatus.CANCELLED
+    # Its duration runs from its start, when it was queued.
+    assert withdrawn.duration_seconds >= 0.05
+    (record,) = [
+        r for r in service.records() if r.nested_call.provider_correlation_id == "p/2"
+    ]
+    assert record.duration_seconds == withdrawn.duration_seconds
+
+
+def test_a_queued_call_whose_turn_comes_has_no_second_queue_event() -> None:
+    events = _QueueEvents()
+    active = _Active()
+    service = _service(
+        _running_settle(active.run), {"sequential": "sequential"}, queue_events=events
+    )
+
+    outcome = _run_parent(_fan_out(["sequential"] * 2), service, _wait)
+
+    assert outcome.result.content.value == "ok,ok"
+    assert [(kind, call_id) for kind, call_id, _ in events.events] == [
+        ("queued", "p/2")
+    ]
+
+
+@pytest.mark.parametrize("fail_on", ["queued", "withdrawn"])
+def test_a_failing_queue_event_fails_the_pipeline_and_answers_the_caller(
+    fail_on: str,
+) -> None:
+    release = threading.Event()
+    ran: list[str] = []
+    service = _service(
+        _blocking_settle(release, ran),
+        {"sequential": "sequential"},
+        queue_events=_QueueEvents(fail_on=fail_on),
+    )
+    batch = service.batch(_wait, threading.Event())
+    answers: list[str] = []
+    batch.start("sequential", "{}", lambda result, outcome: None)
+
+    with pytest.raises(RuntimeError, match="event failed"):
+        batch.start(
+            "sequential",
+            "{}",
+            lambda result, outcome: answers.append(result.content),
+        )
+        batch.end(ToolExecutionInterruption.SCRIPT_STOP)
+    release.set()
+
+    assert answers == ["Nested tool calls are not available in this context"]
+    with pytest.raises(RuntimeError, match="event failed"):
+        service.raise_pipeline_failure()
+    assert service.durable_record()["complete"] is False
+
+
+_QUEUE_EXTENSION = """import threading
+import time
+from pipy_harness.extensions import ExtensionTool, ToolResult
+
+_NONE = {'type': 'object', 'properties': {}, 'additionalProperties': False}
+_RUNNING = threading.Event()
+_RELEASE = threading.Event()
+
+
+def _gate(ctx, params):
+    _RUNNING.set()
+    while not _RELEASE.wait(0.01):
+        if ctx.signal is not None and ctx.signal.is_set():
+            return ToolResult(content='stopped')
+    return ToolResult(content='passed')
+
+
+def _two(ctx, params, *, wait):
+    _RUNNING.clear()
+    _RELEASE.clear()
+    results = []
+    first = threading.Thread(
+        target=lambda: results.append(ctx.execute_tool('gate', {}).result.content))
+    second = threading.Thread(
+        target=lambda: results.append(ctx.execute_tool('gate', {}).result.content))
+    first.start()
+    _RUNNING.wait(5)
+    second.start()
+    time.sleep(0.3)  # the second call is queued behind the first
+    if not wait:
+        return ToolResult(content='left')
+    _RELEASE.set()
+    first.join(10)
+    second.join(10)
+    return ToolResult(content=','.join(results))
+
+
+def activate(api):
+    api.register_tool(ExtensionTool(
+        name='gate', description='Waits.', input_schema=_NONE,
+        exposure='codemode', execution_mode='sequential', handler=_gate))
+    api.register_tool(ExtensionTool(
+        name='both', description='Runs gate twice.', input_schema=_NONE,
+        handler=lambda ctx, params: _two(ctx, params, wait=True)))
+    api.register_tool(ExtensionTool(
+        name='leave', description='Leaves gate queued.', input_schema=_NONE,
+        handler=lambda ctx, params: _two(ctx, params, wait=False)))
+"""
+
+
+def _queue_session(tmp_path: Path, monkeypatch, tool: str):
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True)
+    (directory / "queue.py").write_text(_QUEUE_EXTENSION, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(tool_calls=(ProviderToolCall("p1", tool, "{}"),)),
+            _result(final_text="done"),
+        ]
+    )
+    sink = _CollectingAgentEventSink()
+    session = CodingSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+        tool_budget=20,
+        agent_event_sink=sink,
+    )
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("go\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert result.status is HarnessStatus.SUCCEEDED
+    lifecycle = [
+        ("start" if isinstance(e, NestedToolCallStarted) else "end", e)
+        for e in sink.events
+        if isinstance(e, (NestedToolCallStarted, NestedToolCallCompleted))
+    ]
+    return provider, sink, lifecycle
+
+
+def _order(lifecycle) -> list[tuple[str, str]]:
+    return [(kind, e.call.provider_correlation_id) for kind, e in lifecycle]
+
+
+def test_a_queued_call_starts_before_the_call_ahead_of_it_ends(
+    tmp_path: Path, monkeypatch
+) -> None:
+    provider, _, lifecycle = _queue_session(tmp_path, monkeypatch, "both")
+
+    (parent,) = _tool_results(provider.requests[1])
+    assert parent.content.value == "passed,passed"
+    # One start and one end for each call; the second, queued, starts at once.
+    assert _order(lifecycle) == [
+        ("start", "p1/1"),
+        ("start", "p1/2"),
+        ("end", "p1/1"),
+        ("end", "p1/2"),
+    ]
+    ends = {e.call.provider_correlation_id: e for kind, e in lifecycle if kind == "end"}
+    # Its record's duration includes the wait for its turn, as Pi's does.
+    assert ends["p1/2"].duration_seconds >= ends["p1/2"].execution_seconds
+    assert ends["p1/2"].duration_seconds >= 0.3
+
+
+def test_a_withdrawn_queued_call_has_a_start_and_an_end(
+    tmp_path: Path, monkeypatch
+) -> None:
+    provider, sink, lifecycle = _queue_session(tmp_path, monkeypatch, "leave")
+
+    (parent,) = _tool_results(provider.requests[1])
+    assert parent.content.value == "left"
+    order = _order(lifecycle)
+    assert sorted(order) == [
+        ("end", "p1/1"),
+        ("end", "p1/2"),
+        ("start", "p1/1"),
+        ("start", "p1/2"),
+    ]
+    assert order.index(("start", "p1/2")) < order.index(("end", "p1/2"))
+    assert order.index(("start", "p1/2")) < order.index(("end", "p1/1"))
+    (withdrawn,) = [
+        e
+        for kind, e in lifecycle
+        if kind == "end" and e.call.provider_correlation_id == "p1/2"
+    ]
+    assert withdrawn.status is NestedCallStatus.CANCELLED
+    assert withdrawn.execution_seconds is None
+    assert withdrawn.result.content.value == "tool cancelled by its caller"
+    # JSON and RPC modes: a start and an end, without `durationMs` for a
+    # call that never ran.
+    projected: list[dict[str, object]] = []
+
+    class _Sink:
+        def emit(self, event) -> None:
+            projected.append(event)
+
+    adapter = AutomationAgentEventAdapter(_Sink())  # type: ignore[arg-type]
+    for event in sink.events:
+        adapter.emit(event)
+    queued = [e for e in projected if e.get("toolCallId") == "p1/2"]
+    assert [e["type"] for e in queued] == ["tool_execution_start", "tool_execution_end"]
+    assert queued[1]["isError"] is True and "durationMs" not in queued[1]
+    completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
+    assert completed.details is not None
+    calls = completed.details["nestedCalls"]["calls"]
+    assert [(c["id"], c["status"]) for c in calls] == [
+        ("p1/1", "cancelled"),
+        ("p1/2", "cancelled"),
+    ]

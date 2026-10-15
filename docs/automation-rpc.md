@@ -174,9 +174,10 @@ carry the id of the calling call as `parentToolCallId`, as in Pi.
 - `partialResult` has `content` with one text block and, when the tool gave
   them, `details`. An MCP tool's progress is a partial result with
   `details: {server, tool}` that replaces the previous one. `bash` streams
-  its output: each update's text is the next chunk, which continues the
-  text before it, and its `details` are `{}`. Pi's `bash` sends the output
-  so far instead.
+  its output as Pi's does: each update's text is the output so far, the
+  last 2000 lines or 50 KB, and its `details` are `{}` until the output is
+  cut, then `truncation` and the `fullOutputPath` of the file with all of
+  it.
 
 ```json
 {"type":"tool_execution_update","toolCallId":"call_1","toolName":"mcp__docs__search","args":{"q":"radius"},"partialResult":{"content":[{"type":"text","text":"Progress 1/2"}],"details":{"server":"docs","tool":"search"}}}

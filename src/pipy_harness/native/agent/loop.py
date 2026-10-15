@@ -1298,6 +1298,7 @@ class AgentLoop:
             ),
             session_waiter=self._tool_waiter,
             sequential=lambda: self.tool_execution == "sequential",
+            queue_events=pipeline,
         )
         started_at = datetime.now(UTC)
         terminal_emit_attempted = False
@@ -1596,7 +1597,11 @@ class _NestedPipeline:
     Every method runs on the session thread except a pending call's
     ``execute``. ``pending`` counts the calls admitted to run that have not
     settled: each takes a place in the budget, since calls asked for on
-    several threads run at the same time.
+    several threads run at the same time. A call that waits in the
+    exclusive queue emits its start event when it is queued (``queued``,
+    as Pi does before it awaits the queue), and ``settle`` emits none for
+    it when its turn comes; one whose turn never comes ends in
+    ``withdrawn``.
     """
 
     def __init__(
@@ -1617,17 +1622,45 @@ class _NestedPipeline:
         self._eligible = eligible
         self._publish = publish
         self._pending = 0
+        # The queued calls, by id, with when each was queued (its start).
+        self._queued: dict[str, float] = {}
+
+    def queued(self, child: AgentToolCall) -> None:
+        """A call waits for its turn in the exclusive queue: its start."""
+        self._loop._events.emit(
+            NestedToolCallStarted(self._turn_index, _caller_id(child), child)
+        )
+        self._queued[child.provider_correlation_id] = monotonic()
+
+    def withdrawn(self, outcome: NestedToolCallOutcome) -> None:
+        """A queued call whose turn never came: its end, with no run time."""
+        child = outcome.nested_call
+        self._queued.pop(child.provider_correlation_id, None)
+        self._loop._events.emit(
+            NestedToolCallCompleted(
+                self._turn_index,
+                _caller_id(child),
+                child,
+                outcome.result,
+                outcome.status,
+                outcome.duration_seconds,
+            )
+        )
 
     def settle(
         self, child: AgentToolCall, waiter: ToolInterruptWaiter | None = None
     ) -> NestedToolCallOutcome | PendingNestedCall:
         """The pipeline up to the tool; a call that runs is settled by its
-        ``finish``."""
+        ``finish``. A queued call started when it was queued."""
         loop = self._loop
-        started = monotonic()
-        loop._events.emit(
-            NestedToolCallStarted(self._turn_index, _caller_id(child), child)
-        )
+        queued_at = self._queued.pop(child.provider_correlation_id, None)
+        if queued_at is not None:
+            started = queued_at
+        else:
+            started = monotonic()
+            loop._events.emit(
+                NestedToolCallStarted(self._turn_index, _caller_id(child), child)
+            )
         tools = self._callable_tools
         before = loop._admit_nested(
             self._state,
