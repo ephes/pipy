@@ -10,6 +10,7 @@ covered by `tests/test_native_explicit_file_excerpt_tool.py`).
 from __future__ import annotations
 
 import base64
+import io
 import zlib
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     ToolRequest,
     make_tool_request_id,
+    read_image,
 )
 from pipy_harness.native.tools.read import READ_OUTPUT_SCHEMA, ReadTool
 
@@ -576,10 +578,17 @@ def _replace_chunk(png: bytes, kind: bytes, body: bytes) -> bytes:
     return png[:start] + _chunk(kind, body) + png[end:]
 
 
+@pytest.fixture
+def without_pillow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``read`` tool as it works when the ``images`` extra is missing."""
+
+    monkeypatch.setattr(read_image, "pillow_available", lambda: False)
+
+
 @pytest.mark.parametrize(
     ("data", "mime"),
     [
-        # Over 2000 pixels: Pi resizes it, pipy has no codec.
+        # Over 2000 pixels: Pi resizes it; without Pillow pipy cannot.
         (_png_of(2001, 1), "image/png"),
         (_with_size(_JPEG, "image/jpeg", 10, 2001), "image/jpeg"),
         (_with_size(_WEBP_ANIMATED, "image/webp", 4000, 3000), "image/webp"),
@@ -623,7 +632,7 @@ def _replace_chunk(png: bytes, kind: bytes, body: bytes) -> bytes:
     ],
 )
 def test_read_tool_omits_an_image_it_would_have_to_resize(
-    tmp_path: Path, data: bytes, mime: str
+    tmp_path: Path, data: bytes, mime: str, without_pillow: None
 ):
     (tmp_path / "pic").write_bytes(data)
 
@@ -639,7 +648,9 @@ def test_read_tool_omits_an_image_it_would_have_to_resize(
     assert result.structured_content == note
 
 
-def test_read_tool_omits_a_bmp_it_would_have_to_convert(tmp_path: Path):
+def test_read_tool_omits_a_bmp_it_would_have_to_convert(
+    tmp_path: Path, without_pillow: None
+):
     (tmp_path / "pic_bmp").write_bytes(_bmp())
 
     result = _read(tmp_path, "pic_bmp")
@@ -649,6 +660,137 @@ def test_read_tool_omits_a_bmp_it_would_have_to_convert(tmp_path: Path):
         "a supported inline image format.]"
     )
     assert (result.is_error, result.output_text) == (False, note)
+    assert result.structured_content == note
+
+
+def _pillow_image(width: int, height: int, image_format: str) -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 30, 30)).save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+def _decoded_size(data: str) -> tuple[int, int]:
+    from PIL import Image
+
+    with Image.open(io.BytesIO(base64.b64decode(data))) as image:
+        return image.size
+
+
+def test_read_tool_resizes_a_large_image_with_pillow(tmp_path: Path):
+    # Goal-check r3 D2, Pi read.ts + processImage: a large image is resized
+    # to fit 2000 x 2000 and the note says how coordinates map back.
+    pytest.importorskip("PIL")
+    (tmp_path / "wide.png").write_bytes(_pillow_image(3000, 100, "PNG"))
+
+    result = _read(tmp_path, "wide.png")
+
+    note = (
+        "Read image file [image/png]\n[Image: original 3000x100, displayed at "
+        "2000x67. Multiply coordinates by 1.50 to map to original image.]"
+    )
+    assert (result.is_error, result.output_text) == (False, note)
+    assert len(result.blocks) == 2
+    assert result.blocks[0] == TextContent(note)
+    image = result.blocks[1]
+    assert isinstance(image, ImageContent)
+    assert image.mime_type == "image/png"
+    assert _decoded_size(image.data) == (2000, 67)
+    assert result.structured_content == {
+        "type": "image",
+        "data": image.data,
+        "mimeType": "image/png",
+        "note": note,
+    }
+
+
+def test_read_tool_converts_a_bmp_to_png_with_pillow(tmp_path: Path):
+    pytest.importorskip("PIL")
+    (tmp_path / "pic.bmp").write_bytes(_pillow_image(4, 3, "BMP"))
+
+    result = _read(tmp_path, "pic.bmp")
+
+    note = "Read image file [image/png]\n[Image converted from image/bmp to image/png.]"
+    assert (result.is_error, result.output_text) == (False, note)
+    image = result.blocks[1]
+    assert isinstance(image, ImageContent)
+    assert image.mime_type == "image/png"
+    assert _decoded_size(image.data) == (4, 3)
+
+
+def test_read_tool_keeps_the_size_when_auto_resize_is_off(tmp_path: Path):
+    # Pi passes images.autoResize to read: off, a fitting type is attached
+    # as it is and a BMP is still converted.
+    pytest.importorskip("PIL")
+    wide = _pillow_image(3000, 100, "PNG")
+    (tmp_path / "wide.png").write_bytes(wide)
+    (tmp_path / "pic.bmp").write_bytes(_pillow_image(4, 3, "BMP"))
+    tool = ReadTool(auto_resize_images=lambda: False)
+    context = ToolContext(workspace_root=tmp_path)
+
+    png = tool.invoke(_make_request({"path": "wide.png"}), context)
+    bmp = tool.invoke(_make_request({"path": "pic.bmp"}), context)
+
+    assert png.blocks == (
+        TextContent("Read image file [image/png]"),
+        ImageContent(base64.b64encode(wide).decode("ascii"), "image/png"),
+    )
+    assert bmp.output_text == (
+        "Read image file [image/png]\n[Image converted from image/bmp to image/png.]"
+    )
+
+
+def test_without_pillow_auto_resize_off_attaches_a_fitting_type_as_it_is(
+    tmp_path: Path, without_pillow: None
+):
+    # Pi without autoResizeImages does not decode a PNG, JPEG, GIF or WebP;
+    # a BMP still needs the codec.
+    wide = _png_of(2001, 1)
+    (tmp_path / "wide").write_bytes(wide)
+    (tmp_path / "pic_bmp").write_bytes(_bmp())
+    tool = ReadTool(auto_resize_images=lambda: False)
+    context = ToolContext(workspace_root=tmp_path)
+
+    png = tool.invoke(_make_request({"path": "wide"}), context)
+    bmp = tool.invoke(_make_request({"path": "pic_bmp"}), context)
+
+    assert png.blocks == (
+        TextContent("Read image file [image/png]"),
+        ImageContent(base64.b64encode(wide).decode("ascii"), "image/png"),
+    )
+    assert bmp.output_text == (
+        "Read image file [image/bmp]\n[Image omitted: could not be converted to "
+        "a supported inline image format.]"
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "mime", "reason"),
+    [
+        (
+            _PNG[:33],
+            "image/png",
+            "[Image omitted: could not be resized below the inline image size limit.]",
+        ),
+        (
+            _bmp(),
+            "image/bmp",
+            "[Image omitted: could not be converted to a supported inline image "
+            "format.]",
+        ),
+    ],
+)
+def test_read_tool_omits_an_image_pillow_cannot_decode(
+    tmp_path: Path, data: bytes, mime: str, reason: str
+):
+    pytest.importorskip("PIL")
+    (tmp_path / "pic").write_bytes(data)
+
+    result = _read(tmp_path, "pic")
+
+    note = f"Read image file [{mime}]\n{reason}"
+    assert (result.is_error, result.output_text, result.blocks) == (False, note, ())
     assert result.structured_content == note
 
 

@@ -501,10 +501,19 @@ call a script or another tool made as well:
 - An image that cannot be decoded or made small enough is kept as the tool
   returned it.
 
+The built-in `read` tool processes an image file the same way before it
+returns it, as Pi's `read` does: a BMP is converted to PNG and, with
+`images.autoResize`, a larger image is resized, and the hint lines follow its
+`Read image file [<type>]` line. An image file it cannot convert or resize is
+not attached; `read` returns that line and Pi's text for it, such as
+`[Image omitted: could not be resized below the inline image size limit.]`.
+
 This needs Pillow, from the `images` extra (`uv sync --extra images` in a
 checkout, `uv tool install '.[images]'` as a tool). Without it every image
 is kept as the tool returned it, which is also what Pi does when its image
-library cannot load.
+library cannot load. `read` then attaches a PNG, JPEG, GIF or WebP file that
+already fits the limits (with `images.autoResize` off, any such file) and
+returns Pi's `[Image omitted: ...]` text for a larger one or a BMP.
 
 With `images.blockImages` set to `true`, no tool result image is sent: each
 image becomes the text `Image reading is disabled.`, and of several such

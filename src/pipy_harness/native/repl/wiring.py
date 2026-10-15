@@ -236,6 +236,7 @@ from pipy_harness.native.tool_renderers import (
 )
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tools.prompts import prompt_guidelines, prompt_snippets
+from pipy_harness.native.tools.registry import with_image_auto_resize
 from pipy_harness.native.tui import TerminalUi, _LiveExtensionUiDriver
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.components.custom_entry_renderer import (
@@ -951,7 +952,7 @@ def _compose_extension_phase(
         ui_driver = transport_ui.extension_driver()
     builtins = startup.resource_options.builtins
     tool_capabilities = NativeToolCapabilities(
-        inputs.tool_registry,
+        with_image_auto_resize(inputs.tool_registry, settings.get_image_auto_resize),
         {},
         workspace_root=cwd,
         filter_options=inputs.tool_filter_options,

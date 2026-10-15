@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import functools
 import io
 import math
 import warnings
@@ -37,6 +38,14 @@ if TYPE_CHECKING:
 
 DEFAULT_MAX_IMAGE_BYTES = int(4.5 * 1024 * 1024)
 """Pi ``DEFAULT_MAX_BYTES``: 4.5 MB of base64, below Anthropic's 5 MB limit."""
+
+# Pi ``processImage`` texts for an image it cannot process.
+CONVERT_FAILED = (
+    "[Image omitted: could not be converted to a supported inline image format.]"
+)
+RESIZE_FAILED = (
+    "[Image omitted: could not be resized below the inline image size limit.]"
+)
 
 # The decoders Photon's ``image`` crate has; Pillow names them so.
 _DECODER_FORMATS = (
@@ -141,24 +150,53 @@ def process_image(
     or made small enough, or Pillow is not installed.
     """
 
+    result = process_image_or_omission(
+        raw, mime_type, auto_resize=auto_resize, options=options
+    )
+    return result if isinstance(result, ProcessedImage) else None
+
+
+def process_image_or_omission(
+    raw: bytes,
+    mime_type: str,
+    *,
+    auto_resize: bool = True,
+    options: ImageResizeOptions | None = None,
+) -> ProcessedImage | str:
+    """:func:`process_image` with Pi's text for an image it cannot process:
+    :data:`CONVERT_FAILED` when the type cannot be converted to an inline
+    one, :data:`RESIZE_FAILED` when the image cannot be decoded or made to
+    fit (Pi ``ProcessImageResult.message``)."""
+
     normalized = _SUPPORTED_MIME_TYPES.get(_base_mime_type(mime_type))
     converted_from: str | None = None
     if normalized is None:
         png = _convert_to_png(raw)
         if png is None:
-            return None
+            return CONVERT_FAILED
         raw, normalized, converted_from = png, "image/png", _base_mime_type(mime_type)
     if not auto_resize:
         hints = _conversion_hint(converted_from, normalized)
         return ProcessedImage(_encode(raw), normalized, hints)
     resized = resize_image(raw, normalized, options)
     if resized is None:
-        return None
+        return RESIZE_FAILED
     hints = _conversion_hint(converted_from, resized.mime_type)
     note = format_dimension_note(resized)
     return ProcessedImage(
         resized.data, resized.mime_type, hints + ((note,) if note else ())
     )
+
+
+@functools.cache
+def pillow_available() -> bool:
+    """Whether Pillow (the ``images`` extra) can be imported."""
+
+    try:
+        import PIL.Image  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _conversion_hint(converted_from: str | None, to: str) -> tuple[str, ...]:

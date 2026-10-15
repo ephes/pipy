@@ -160,10 +160,14 @@ What a call returns depends on the tool:
 - `read` returns the file's text, or for an image it attaches an image block
   `{"type": "image", "data": ..., "mimeType": ..., "note": ...}` that
   `image()` shows; `data` is the base64 image the model would see and `note`
-  its text (`Read image file [image/png]`). An image over 2000 x 2000 pixels
-  or 4.5 MB of base64, a BMP, or a file that is cut short is not attached, because pipy does not
-  resize or convert images as Pi does: `read` returns its text with the
-  reason (`[Image omitted: ...]`) instead.
+  its text (`Read image file [image/png]`, then any hint lines such as
+  `[Image converted from image/bmp to image/png.]` or the original size of
+  a resized image). As in Pi, a BMP is converted to PNG and an image over
+  2000 x 2000 pixels or 4.5 MB of base64 is resized (with
+  `images.autoResize`, see [providers](providers.md#size-of-tool-result-images-and-images-settings)); this needs Pillow,
+  the `images` extra. An image that cannot be converted or resized, and
+  without Pillow a BMP or an image over those limits, is not attached:
+  `read` returns its text with the reason (`[Image omitted: ...]`) instead.
 - Every other call returns the tool's text as one `str`. That includes a tool
   that declares an output schema when a result carries no structured content.
 - A call that fails without structured content raises `ToolError` with the
