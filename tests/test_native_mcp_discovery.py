@@ -446,12 +446,31 @@ def test_activate_tools_ignores_unknown_names_and_keeps_an_unset_selection(
     [
         ([], [], True),
         (["-builtin:mcp"], [], False),
-        (["-builtin:mcp", "+builtin:mcp"], [], True),
         (["-builtin:mcp"], ["+builtin:mcp"], True),
         ([], ["-builtin:mcp"], False),
         (["-builtin:mcp"], ["-other", "ext.py"], False),
-        (["-builtin:*"], [], False),
         (["-mcp", "builtin:mcp", 3], [], True),
+        # Goal check r3 F1, Pi isEnabledByOverrides: `!` is a glob that
+        # turns it off, `+` and `-` name it exactly; `-` beats `+` beats `!`
+        # in the user array, whatever the order.
+        (["!builtin:mcp"], [], False),
+        (["!builtin:*"], [], False),
+        (["!builtin:m?p"], [], False),
+        (["!builtin:codemode"], [], True),
+        (["-builtin:*"], [], True),
+        (["+builtin:*", "!builtin:mcp"], [], False),
+        (["!builtin:*", "+builtin:mcp"], [], True),
+        (["+builtin:mcp", "!builtin:*"], [], True),
+        (["-builtin:mcp", "+builtin:mcp"], [], False),
+        (["+./builtin:mcp", "!builtin:*"], [], True),
+        # Pi applyAutoloadDisabledPatterns: a matching project `!`, `+` or
+        # `-` entry decides over the user array, the last one winning.
+        ([], ["!builtin:*"], False),
+        (["!builtin:*"], ["+builtin:mcp"], True),
+        ([], ["+builtin:mcp", "!builtin:*"], False),
+        ([], ["!builtin:*", "+builtin:mcp"], True),
+        (["-builtin:mcp"], ["-builtin:*"], False),
+        (["!builtin:mcp"], ["!builtin:codemode"], False),
     ],
 )
 def test_builtin_extension_enablement(
@@ -485,6 +504,14 @@ def test_settings_read_the_builtin_entry_per_scope(tmp_path: Path) -> None:
     assert enabled(trusted=True)
     # An untrusted project's settings are not read.
     assert not enabled(trusted=False)
+    # Pi's `!` exclusions, user-level and in the project.
+    global_path.write_text('{"extensions": ["!builtin:mcp"]}')
+    project_path.write_text('{"extensions": []}')
+    assert not enabled(trusted=True)
+    global_path.write_text('{"extensions": []}')
+    project_path.write_text('{"extensions": ["!builtin:*"]}')
+    assert not enabled(trusted=True)
+    assert enabled(trusted=False)
 
 
 @pytest.mark.parametrize(
@@ -570,10 +597,10 @@ def _builtin_report(capfd: pytest.CaptureFixture[str], workspace: Path) -> objec
     return json.loads(capfd.readouterr().out)["builtin"]
 
 
-def _builtins(*, mcp: bool) -> list[dict[str, object]]:
+def _builtins(*, mcp: bool = True, tool_search: bool = True) -> list[dict[str, object]]:
     return [
         {"name": "builtin:codemode", "enabled": True},
-        {"name": "builtin:tool-search", "enabled": True},
+        {"name": "builtin:tool-search", "enabled": tool_search},
         {"name": "builtin:mcp", "enabled": mcp},
     ]
 
@@ -616,6 +643,42 @@ def test_config_command_lists_and_toggles_the_builtin_mcp_entry(
         "  built-in:\n    builtin:codemode [enabled]\n"
         "    builtin:tool-search [enabled]\n    builtin:mcp [enabled]\n"
     ) in listing
+
+
+def test_config_command_replaces_every_exact_entry_of_the_builtin(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pi matches `-./builtin:mcp` exactly too, and `-` wins over `+` in the
+    # user array, so enabling must drop every exact entry for it.
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    user_file = config_home / "settings.json"
+    user_file.write_text(
+        '{"extensions": ["-./builtin:mcp", "!builtin:*", "+builtin:codemode"]}'
+    )
+    cwd = ["--cwd", str(workspace)]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=False, tool_search=False)
+
+    assert main(["config", "enable", "builtin", "mcp", *cwd]) == 0
+
+    assert json.loads(user_file.read_text())["extensions"] == [
+        "!builtin:*",
+        "+builtin:codemode",
+        "+builtin:mcp",
+    ]
+    assert _builtin_report(capfd, workspace) == _builtins(tool_search=False)
+
+    assert main(["config", "disable", "builtin", "mcp", *cwd]) == 0
+
+    assert json.loads(user_file.read_text())["extensions"] == [
+        "!builtin:*",
+        "+builtin:codemode",
+        "-builtin:mcp",
+    ]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=False, tool_search=False)
 
 
 def test_config_command_refuses_an_unknown_builtin(

@@ -577,8 +577,10 @@ Different from Pi:
 - `pipy --no-mcp` turns MCP off for one run: no `mcp.json` is read, no server
   connects and there are no MCP tools.
 - `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
-  until you remove the entry. A `+builtin:mcp` or `-builtin:mcp` entry in the
-  settings of a trusted project decides over the user-level entry.
+  until you remove the entry; so does a `!` glob that matches it, such as
+  `!builtin:*`, unless a `+builtin:mcp` entry turns it on again. A
+  `+builtin:mcp`, `-builtin:mcp` or matching `!` entry in the settings of a
+  trusted project decides over the user-level entries.
   `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
   write the entry (with `--scope project` into the project's settings), and
   `pipy config list` shows the state under `built-in`.

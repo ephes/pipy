@@ -1832,6 +1832,7 @@ def _cmd_config(args: Any) -> int:
         disable_entry,
         enable_entry,
         is_resource_enabled,
+        set_builtin_extension_entry,
     )
     from pipy_harness.native.resources import WorkspaceResources
     from pipy_harness.native.settings import SCOPE_GLOBAL, SCOPE_PROJECT
@@ -1977,7 +1978,6 @@ def _cmd_config(args: Any) -> int:
                 file=sys.stderr,
             )
             return 2
-        name = BUILTIN_EXTENSION_PREFIX + builtin
         scope_value = manager.raw_scope(scope).get("extensions")
         scope_patterns = [
             entry
@@ -1987,9 +1987,9 @@ def _cmd_config(args: Any) -> int:
         try:
             manager.set_resource_patterns(
                 "extensions",
-                enable_entry(scope_patterns, name)
-                if action == "enable"
-                else disable_entry(scope_patterns, name),
+                set_builtin_extension_entry(
+                    scope_patterns, builtin, enabled=action == "enable"
+                ),
                 scope=scope,
             )
         except (RuntimeError, ValueError) as exc:

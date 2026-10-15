@@ -61,3 +61,39 @@ images` note is not added."
 processes image files the same way (r3 D2)."
 
 **Audit test references:** none changed.
+
+### F1: `!pattern` exclusions for `builtin:` extensions
+
+**Changelog (Unreleased, Fixed):**
+
+- A built-in extension's `extensions` entries follow Pi's override rules
+  (`isEnabledByOverrides`, `applyAutoloadDisabledPatterns`): a `!pattern`
+  glob such as `!builtin:mcp` or `!builtin:*` turns it off, which was ignored
+  before, so MCP stayed on and its servers launched. `+builtin:<name>` and
+  `-builtin:<name>` now name one exactly (before they were globs, so
+  `-builtin:*` turned all three off; in Pi it matches none). In the user
+  array a `-` entry wins over a `+` entry, which wins over a `!` entry,
+  whatever their order (before, the last matching entry won). A matching
+  `!`, `+` or `-` entry in a trusted project's array decides, the last one
+  winning (before only `+` and `-` entries counted there).
+  `pipy config enable|disable builtin <name>` replaces every `+` or `-`
+  entry that names the built-in exactly (also `./builtin:<name>`), so an
+  earlier `-` entry cannot keep it off.
+
+**Plan:**
+
+- DEV-32: replace "A `builtin:` directive follows pipy's pattern rules for
+  the `extensions` array (last matching directive wins, `fnmatch`)." with "A
+  `builtin:` entry follows Pi's override rules since goal check r3 (F1); a
+  `!` glob is matched with `fnmatch` against `builtin:<name>`, where Pi's
+  minimatch also tries the path relative to the settings directory (so
+  `**/builtin:mcp` matches in Pi and not in pipy)."
+- EXP-12 note: the settings entries include Pi's `!pattern` exclusions.
+
+**Acceptance (EXP-12 row, add test):**
+`test_native_mcp_discovery.py`: `test_builtin_extension_enablement` (the r3
+F1 cases), `test_settings_read_the_builtin_entry_per_scope` (now also `!`
+user-level and project entries) and
+`test_config_command_replaces_every_exact_entry_of_the_builtin`.
+
+**Audit test references:** none changed.
