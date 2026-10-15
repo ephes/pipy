@@ -1216,8 +1216,9 @@ Pi lists them; they are listed only, never declared or callable. Each entry has
 is available in command, shortcut, hook and tool handler contexts of a
 session and raises `ExtensionCapabilityError` where no session backs the
 context. In Pi this is `pi.getAllTools()`; pipy puts it on the context, next
-to `ctx.set_active_tools(...)`. A permission hook can decide by the
-annotations:
+to `ctx.set_active_tools(...)`. Pi's entries also carry `sourceInfo`, which
+says which built-in, extension or SDK call registered the tool; pipy's have
+no such field. A permission hook can decide by the annotations:
 
 ```python
 @api.on("tool_call")

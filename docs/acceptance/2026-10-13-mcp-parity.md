@@ -2,8 +2,8 @@
 
 Status: **implemented on `feat/mcp-parity`, not merged.** Of the 292
 checklist rows of the
-[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 170 are
-closed with a test and 122 are closed with a recorded limit or
+[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 169 are
+closed with a test and 123 are closed with a recorded limit or
 deviation; no row is open. The official MCP
 client conformance suite gives the same result for pipy as for Pi. Live use
 with a real server and a real model (plan section 6.5) has **not** been
@@ -14,10 +14,10 @@ implemented the slice, from the tests and documents in the repository: a
 first pass on 2026-10-13 and a second one on 2026-10-14 that checked the
 first. It is evidence for the owner's final judgement, not that judgement.
 
-The 122 rows that are closed with a limit count as closed only if the
+The 123 rows that are closed with a limit count as closed only if the
 judgement accepts the deviation or limit each one names (plan section 3).
-The owner accepted the DEV rows that plan section 7, Q11, Q12 and Q13,
-name (2026-10-15).
+The owner accepted the DEV rows that plan section 7, Q11, Q12, Q13 and
+Q14, name (2026-10-15).
 
 Updated on 2026-10-15 (INT3), when the goal-check tracks L and N were merged:
 five rows were added (TLS-20, TLS-21, EXP-13, TSR-12, OAU-37), SLH-13 and the
@@ -79,6 +79,13 @@ longer names the error text of a raising `prepare_arguments` and keeps its
 limit through DEV-85; RND-03 says that `/share` draws with the session's
 renderers, and DEV-44 and DEV-45 say what V3 changed. No row changes its
 state.
+
+Updated again on 2026-10-15 after the triage of the fifth goal check: the
+owner accepted the DEV rows plan section 7, Q14, names (DEV-25, DEV-55,
+DEV-57). DEV-57 now also names CMDL-06, which is `closed, with limits`
+with the test of an `add --local` that a trust store it cannot read stops
+before it writes (r5 F2). The fix slices of that triage (X1 to X3) change
+the rows they fix when they land.
 
 ## Reference
 
@@ -170,9 +177,10 @@ The owner accepted the DEV rows that plan section 7, Q11, names
 (2026-10-15), among them DEV-69 to DEV-79; DEV-79 and the `duration_ms`
 part of DEV-48 were added the same day under the same triage decision.
 Q12 (2026-10-15, the third goal check) accepts the DEV rows it names,
-among them DEV-80 to DEV-85, DEV-59 and DEV-66, and Q13 (2026-10-15, the
+among them DEV-80 to DEV-85, DEV-59 and DEV-66, Q13 (2026-10-15, the
 fourth goal check) among them DEV-86 to DEV-93 and the listing part of
-DEV-33. The
+DEV-33, and Q14 (2026-10-15, the fifth goal check) DEV-55, DEV-57 and,
+again, DEV-25. The
 others of DEV-15 to DEV-68, except the closed DEV-39, DEV-42 and DEV-65, are
 still proposals for the final judgement. DEV-06, DEV-07 and DEV-09 are owner decisions since 2026-10-14
 (plan section 7, Q1 and Q7).
@@ -551,7 +559,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMDL-03 | S20a | closed | `test_native_mcp_shell_cli.py`: `test_adds_stdio_servers_and_passes_options_after_the_command_through`, `test_adds_http_servers_and_keeps_other_content_of_the_file`, `test_rejects_invalid_add_invocations_without_writing` |  |
 | CMDL-04 | S20a | closed, with limits | `test_native_mcp_shell_cli.py`: `test_adds_stdio_servers_and_passes_options_after_the_command_through`, `test_adds_http_servers_and_keeps_other_content_of_the_file`, `test_rejects_invalid_add_invocations_without_writing` | DEV-57. |
 | CMDL-05 | S20a | closed | `test_native_mcp_shell_cli.py`: `test_rejects_invalid_add_invocations_without_writing` |  |
-| CMDL-06 | S20a | closed | `test_native_mcp_shell_cli.py`: `test_adds_and_removes_project_servers`, `test_adds_http_servers_and_keeps_other_content_of_the_file`, `test_adds_stdio_servers_and_passes_options_after_the_command_through` |  |
+| CMDL-06 | S20a | closed, with limits | `test_native_mcp_shell_cli.py`: `test_adds_and_removes_project_servers`, `test_adds_http_servers_and_keeps_other_content_of_the_file`, `test_adds_stdio_servers_and_passes_options_after_the_command_through`, `test_a_trust_store_that_cannot_be_read_fails_without_writing` | A trust store that cannot be read ends `add --local` before it writes; Pi writes the entry first. DEV-57. |
 | CMDL-07 | S20a | closed | `test_native_mcp_shell_cli.py`: `test_removes_global_servers`, `test_adds_and_removes_project_servers`, `test_rejects_invalid_remove_invocations` |  |
 | CMDL-08 | S20a, S23, S26 | closed | `test_native_mcp_shell_cli.py`: `test_lists_servers_with_state_tools_and_errors_and_fails_while_anything_is_wrong`, `test_list_marks_tools_whose_exposure_differs_and_names_the_override`, `test_list_counts_resources_and_templates_of_a_server_that_offers_them`, `test_list_connects_to_http_servers`, `test_list_reports_an_oauth_server_that_wants_a_sign_in` |  |
 | CMDL-09 | S20a, S23, S26 | closed | `test_native_mcp_shell_cli.py`: `test_prints_json_for_scripts`, `test_json_reports_failures_errors_and_the_ignored_project_file`, `test_list_counts_resources_and_templates_of_a_server_that_offers_them` |  |
@@ -669,7 +677,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 1. The merge of `feat/mcp-parity` to `main` (Q5).
 2. The live evidence of plan section 6.5.
-3. Which of the DEV rows of plan section 3.1 that Q11, Q12 and Q13 do not name
+3. Which of the DEV rows of plan section 3.1 that Q11 to Q14 do not name
    are accepted. Until then the rows that name one are closed on that
    condition.
 
@@ -679,7 +687,8 @@ the parity goal (Q7), inline terminal images are in scope (Q8, built in N4),
 and Pillow stays an optional extra (Q10). Decided 2026-10-15: the
 findings of the second goal check that its triage neither fixes nor
 refutes are accepted as the DEV rows Q11 names, those of the third
-goal check as the DEV rows Q12 names, and those of the fourth goal check
-as the DEV rows Q13 names. SLH-13 and the hyperlink
+goal check as the DEV rows Q12 names, those of the fourth goal check
+as the DEV rows Q13 names, and those of the fifth goal check as the DEV
+rows Q14 names. SLH-13 and the hyperlink
 part of MGR-09 were built (N2, N3), and the startup report is shown behind the
 `/mcp` manager as it arises (N1).

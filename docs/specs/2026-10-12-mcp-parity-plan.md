@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(122 of them with a recorded limit or deviation); see section 3.2 and the
+(123 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -514,7 +514,7 @@ has one list. DEV-69 to DEV-78 were added by the triage of the second goal
 check (2026-10-15), DEV-79 when R2 was merged (INT4; closed by V3), DEV-80 to DEV-85 by
 the triage of the third goal check (2026-10-15), DEV-86 to DEV-93 by the
 triage of the fourth goal check (2026-10-15). A row that section 7, Q11,
-Q12 or Q13, names is accepted by the owner; every other row is still a
+Q12, Q13 or Q14, names is accepted by the owner; every other row is still a
 proposal.
 
 "Rows" names the checklist rows whose behaviour a difference changes, or
@@ -536,7 +536,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-22 | CMD-25 | A `tool_result` transform cannot replace usage: pipy counts no usage of tools (DEV-13). Since G6 it is shown the whole result (blocks, details, the arguments and the call ids) and replaces the content, images included, the error flag and the details as Pi's does. | narrower | Decided in S04, S39 (part 1), G6 |
 | DEV-23 | CMD-22 | With `codemode.mode: "only"` a direct model call to a tool whose declaration is left out is an unknown tool; Pi would run it. `codemode.mode` and `codemode.inlineBudget` are read at session start and on `/reload`, not before every prompt. | other form | Decided in S08 |
 | DEV-24 | CMD-27 | The codemode system prompt contribution has two guideline lines. The second comes from the codemode adherence slice and predates this plan. | other form | Decided in S08 |
-| DEV-25 | EXT-03 | `get_all_tools()` is a method of the handler context (`ctx.get_all_tools()`), not of the activation API, and reports no `sourceInfo`. (Extension tools have `prompt_guidelines` and `get_all_tools()` reports them since G9.) | narrower | Decided in S02, S07, S08, G9 |
+| DEV-25 | EXT-03 | `get_all_tools()` is a method of the handler context (`ctx.get_all_tools()`), not of the activation API, and reports no `sourceInfo`: an extension cannot tell which built-in, extension path or SDK call registered a tool, where Pi's every entry says so (goal check r5, U3; extension-API backlog). (Extension tools have `prompt_guidelines` and `get_all_tools()` reports them since G9.) | narrower | Decided in S02, S07, S08, G9; accepted in Q11 (r2 S15), the `sourceInfo` part again in Q14 (r5 U3) |
 | DEV-26 | EXT-04 | A tool whose last registration is `hidden` is registered and never declared. Since G9 `register_tool` also works while the session runs the extension and takes effect at once, as in Pi, and `register_tool_renderer` too (goal check r2, S27); the other `register_*` methods stay closed after loading. | other form | Decided in S02, G9 |
 | DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
@@ -566,9 +566,9 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key; a stored `!command` key runs for every MCP request. | narrower | Decided in S33, L4; H1 gives `--api-key` to the starting model's provider only and refreshes every stored login as Pi does |
 | DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
 | DEV-54 | CFG-13, CFG-17, CFG-18, CFG-20, OAU-26, OAU-31, OAU-34 | URLs are read as Node's WHATWG URL parser reads `http` and `https` (since L3), with its IDNA processing since H2 (UTS #46 ToASCII, nontransitional, through the `idna` package, so `faß.de` is `xn--fa-hia.de` and `bücher.de` matches `xn--bcher-kva.de`); the Unicode tables are the `idna` package's and Python's, not Node's, and a non-ASCII host longer than 1024 characters is refused; `HttpUrl.path` keeps characters WHATWG percent-encodes (its consumers encode them); an `oauth.callbackUrl` path is compared as written, not percent-encoded, so a non-ASCII callback path must be written percent-encoded. The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | other form | Decided in S11 to S14, S32, L2, L3, H2 ([IDNA decision](../decisions/2026-10-15-idna-hosts.md)); `docs/mcp.md` "Configuration rules" |
-| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; when a refresh holds that lock for the whole wait (25 s), they are deleted without it, as in Pi. A file that cannot be read is reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2 |
+| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; when a refresh holds that lock for the whole wait (25 s), they are deleted without it, as in Pi. So `pipy mcp logout` waits for a running refresh, at most those 25 s, where Pi deletes at once under the file lock (goal check r5, F3). A file that cannot be read is reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2; goal check r5 (F3), accepted in Q14 |
 | DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15 | Connections: a failed refresh of the tool list is recorded only for the current connection. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Redirects are followed as Node's fetch follows them (since L1 and L2; the differences are DEV-67). `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26, L1; `docs/mcp.md` "Server connections" |
-| DEV-57 | CMDL-01, CMDL-04, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error (a leading byte order mark is read past since R6, as Pi's `stripBom` does). When the question for the redirect URL ends without an answer, pipy ends its line. (`--oauth-callback-port` and `--timeout` read JavaScript's `Number()` spellings since L3.) | other form | Decided in S20a, S31, L3; `docs/mcp.md` "Differences from Pi" |
+| DEV-57 | CMDL-01, CMDL-04, CMDL-06, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error (a leading byte order mark is read past since R6, as Pi's `stripBom` does); Pi's `add` writes the entry first and then stops with an uncaught error when it reads the store for its note (goal check r5, F2). When the question for the redirect URL ends without an answer, pipy ends its line. (`--oauth-callback-port` and `--timeout` read JavaScript's `Number()` spellings since L3.) | other form | Decided in S20a, S31, L3; `docs/mcp.md` "Differences from Pi"; goal check r5 (F2), accepted in Q14 |
 | DEV-58 | RES-04, RES-07, RES-08, RES-10 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. Tools and resources are listed again independently (since L1), but one listing of a kind runs at a time and lists once more when a change arrived meanwhile, where Pi starts one per notification and the last answer wins. | other form | Decided in S23, L1 |
 | DEV-59 | CMD-03, CMD-04, EXT-02 | A reply to a script over 16 MiB as UTF-8 JSON, or one that is not JSON, is a `ToolError` that names the tool and the size; a call's arguments over 16 MiB as JSON raise `ValueError` in the script and the call is not made. Pi bounds neither. A JSON `null` structured result reaches the script as `None` (G5; a result without structured content carries `NO_STRUCTURED_CONTENT`). Until R1 a reply counted a non-ASCII character as its 6-byte `\uXXXX` escape, and a call line was held to the 1 MiB line limit. | narrower | Decided in S04; R1 |
 | DEV-60 | TLS-12, TLS-15 | Results of MCP tools: a resource link without `uri` or `name` is shown as `[unsupported MCP content resource_link]`; the message of a failed call is cut to 20 KB like a result and nothing is saved for it; a lone surrogate in a server's text reaches the model as U+FFFD. | other form | `docs/mcp.md` "Differences from Pi in tools" |
@@ -621,8 +621,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 170 | see the note |
-| Closed with a limit or deviation | 122 | each names its DEV rows or its limit in the note |
+| Closed with a test | 169 | see the note |
+| Closed with a limit or deviation | 123 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -651,10 +651,14 @@ limit, and DEV-33 now also names EXT-03 (the listing of `codemode` in
 The fix slices V1 to V3 of that triage narrowed DEV-32, DEV-33, DEV-44,
 DEV-45 and DEV-55, and V3 (merged in INT6) closed DEV-79 (goal check r4,
 S7); EXT-01 keeps its limit through DEV-85, so no row changed its state.
-The 122 rows
+Updated after the triage of the fifth goal check (2026-10-15): DEV-57 now
+also names CMDL-06 (`add --local` with a trust store that cannot be read,
+r5 F2), which sets it to closed with a limit; DEV-25 and DEV-55 say what r5
+U3 and F3 found.
+The 123 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
-Q12 and Q13, accept the DEV rows they name. Not rows, and still outstanding: the
+Q12, Q13 and Q14, accept the DEV rows they name. Not rows, and still outstanding: the
 live evidence of section 6.5, which needs the owner's provider login and an
 account at an OAuth MCP server.
 
@@ -4816,5 +4820,14 @@ DEV-44, DEV-45, DEV-55, DEV-79) as they land.
 | --- | --- | --- |
 | Q13 | Goal-check round 4 (goal-r4.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decided 2026-10-15 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. They are general extension-API, agent-loop and prompt-handling items, not MCP-specific: D1 (DEV-86; backlog); S2 (DEV-87; the standing "parallel tools" deferral in `docs/backlog.md`); S3 (DEV-88; backlog); S4 (DEV-89; backlog); S5 (DEV-90; backlog); S6 (DEV-91; backlog); S8 (DEV-92; backlog); S9 (DEV-93; backlog); U2 (DEV-33, the `get_all_tools()` listing of `codemode` before something registers it only). Refuted, not a gap: S1. The callable snapshot that is fixed for the life of the parent (DEV-48's first sentence) is section 4.3's rule, which Q6 accepted. Fixed by the slices V1 to V3: D2, D3, D4, F1, F2, F3, P1, S7, U1, U2 (activation by `set_active_tools`), U3, U4, U5. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts are fixed by V1 to V3 or stay proposals. |
 
-A DEV row of section 3 or 3.1 that Q11, Q12 or Q13 names is accepted. One
-none of them names stays a proposal for the final judgement.
+Recorded 2026-10-15, after the fifth goal check (`goal-r5.md`) and its
+triage, through the campaign coordinator. The fix slices X1 to X3 of that
+triage change the DEV rows and the design text whose parts they fix (DEV-32
+among them) as they land.
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| Q14 | Goal-check round 5 (goal-r5.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decided 2026-10-15 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. Two are recorded differences where pipy's outcome is the safer one, and one is general extension-API metadata, not MCP: F2 (DEV-57, `add --local` with a trust store that cannot be read writes nothing, where Pi writes the entry and then stops with an uncaught error); F3 (DEV-55 as it stands after V1, a sign-out waiting for a running refresh, at most 25 s, so that a refresh that ends in that time cannot store the tokens again; one still running after the wait can, as in Pi); U3 (DEV-25, the missing `sourceInfo` of `get_all_tools()`, which Q11 already accepted as r2 S15; backlog). Fixed by the slices X1 to X3: P1, P2, F1, U1, U2, S1. Every DEV row named here counts as accepted. |
+
+A DEV row of section 3 or 3.1 that Q11, Q12, Q13 or Q14 names is accepted.
+One none of them names stays a proposal for the final judgement.

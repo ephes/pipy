@@ -847,12 +847,17 @@ server again, see [sign-in with OAuth](#sign-in-with-oauth).
 
 - `logout` reports a credentials file it cannot read as `Could not update
   <path>: <reason>` with status 1.
+- `logout` waits for a token refresh that is running for the server, at
+  most 25 s, so that a refresh that ends in that time cannot store the
+  tokens again after the sign-out; Pi deletes them at once. A refresh that
+  is still running after 25 s can, as in Pi.
 - When the question for the redirect URL ends without an answer, pipy ends
   its line, so the next output starts on a new one.
 - The usage text and the hint are plain text; Pi prints parts of them bold
   or dim.
 - A trust store that cannot be read ends `list`, and `add` to a project file
-  before it writes, with the store's error and status 1.
+  before it writes, with the store's error and status 1. Pi's `add` writes
+  the entry first and then stops with that error.
 - Error texts of the operating system and of the JSON parser are Python's.
 
 ## Authenticate with OAuth

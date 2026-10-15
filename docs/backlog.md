@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 170 are closed with a
-test and 122 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 169 are closed with a
+test and 123 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -129,12 +129,13 @@ MCP conformance suite gives the same result for pipy as for Pi
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
   differences from Pi (plan section 3.1, DEV-15 to DEV-93) that plan
-  section 7, Q11, Q12 and Q13, do not name are accepted. Q11 (2026-10-15)
+  section 7, Q11 to Q14, do not name are accepted. Q11 (2026-10-15)
   accepts the findings of the second goal check that its triage neither
-  fixes nor refutes; Q12 and Q13 (2026-10-15) do the same for the third and
-  fourth goal checks. The fix slices T1 to T6 of the third triage are on
-  `feat/mcp-parity` (T3, T4 and T6 merged in INT5), and so are the fix
-  slices V1 to V3 of the fourth triage (V3 merged in INT6).
+  fixes nor refutes; Q12, Q13 and Q14 (2026-10-15) do the same for the
+  third, fourth and fifth goal checks. The fix slices T1 to T6 of the third
+  triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5), and so
+  are the fix slices V1 to V3 of the fourth triage (V3 merged in INT6); the
+  fix slices X1 to X3 of the fifth triage are the rest of MCP1.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -563,6 +564,11 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   `input`, `before_agent_start`, `tool_result` or observer handler raises,
   as Pi's `emitError`, while keeping the fail-safe behaviour. Extension-API
   track.
+- **Tool source metadata** (MCP1 goal check r5, finding U3; plan DEV-25):
+  `source_info` on `ToolInfo` and in `ctx.get_all_tools()`, as Pi's
+  `sourceInfo` (`path`, `source`, `scope`, `origin`, `base_dir`), so an
+  extension can tell which built-in, extension path or SDK call registered a
+  tool. Extension-API track.
 - **Proxy support, pipy-wide** (MCP1 goal check r3, finding F2; plan
   DEV-82): Pi's `httpProxy` setting (global only) applied as
   `HTTP_PROXY`/`HTTPS_PROXY`, honoured by the MCP HTTP transport and the

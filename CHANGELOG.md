@@ -1340,7 +1340,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 122 of them
+  that pin it and where pipy differs from Pi. All are closed, 123 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
@@ -1401,6 +1401,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `prepare_arguments`) is closed, and the rows they touch name their new
   tests. EXT-01 keeps its limit through DEV-85, so no row changes its state:
   170 rows are closed with a test and 122 with a limit.
+
+- The MCP parity plan records the decision on the fifth goal check
+  (section 7, Q14): the findings its triage neither fixes nor refutes are
+  accepted as the deviations it names. `pipy mcp add --local` with a trust
+  store that cannot be read writes nothing, where Pi writes the entry and
+  then stops with an error (DEV-57, which now also names CMDL-06);
+  `pipy mcp logout` waits for a running token refresh, at most 25 s, so that
+  a refresh that ends in that time cannot store the tokens again (DEV-55); `ctx.get_all_tools()`
+  has no `sourceInfo` (DEV-25). 169 rows are closed with a test and 123 with
+  a limit. The [backlog](docs/backlog.md) has tool source metadata as an
+  extension-API follow-on.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

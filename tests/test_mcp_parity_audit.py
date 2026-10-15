@@ -321,6 +321,40 @@ def test_q13_accepts_the_rows_of_the_fourth_triage() -> None:
         assert f"DEV-{number}" in backlog, number
 
 
+def test_q14_accepts_the_rows_of_the_fifth_triage() -> None:
+    q14 = _decision("Q14")
+    accepted = set(re.findall(r"DEV-\d{2}", q14))
+
+    assert accepted == {"DEV-25", "DEV-55", "DEV-57"}
+    # U3 restates r2 S15, which Q11 accepted with all of DEV-25.
+    assert "U3 (DEV-25, the missing `sourceInfo`" in q14
+    assert "DEV-25" in set(re.findall(r"DEV-\d{2}", _q11()))
+    fixed = q14.split("Fixed by the slices X1 to X3: ")[1].split(". ")[0]
+    assert set(fixed.split(", ")) == {"P1", "P2", "F1", "U1", "U2", "S1"}
+    recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
+    recorded = recorded.split("### 3.2 Audit result")[0]
+    for deviation, source in re.findall(
+        r"^\| (DEV-\d{2}) \|.*\| ([^|]*) \|$", recorded, flags=re.MULTILINE
+    ):
+        if "in Q14" in source:
+            assert deviation in accepted, deviation
+        if deviation in accepted:
+            assert "in Q14" in source, deviation
+            assert "proposal" not in source, deviation
+    # F2 is `add --local` (CMDL-06), which DEV-57 names since this triage.
+    assert "| DEV-57 | CMDL-01, CMDL-04, CMDL-06, CMDL-11, CMDL-13 |" in recorded
+    cmdl06 = next(
+        line for line in _NOTE.read_text().splitlines() if "| CMDL-06 |" in line
+    )
+    assert "`test_a_trust_store_that_cannot_be_read_fails_without_writing`" in cmdl06
+    assert cmdl06.endswith("DEV-57. |")
+    # The backlog carries the extension-API follow-on of U3.
+    backlog = (_DOCS / "backlog.md").read_text()
+    assert "finding U3; plan DEV-25" in backlog
+    assert "`source_info` on `ToolInfo`" in backlog
+    assert "Q11, Q12, Q13 or Q14 names is accepted." in _PLAN.read_text()
+
+
 def _rows_of(cell: str) -> list[str]:
     """The rows a "Rows" cell names: ``A-01, B-02 to B-04``."""
 
