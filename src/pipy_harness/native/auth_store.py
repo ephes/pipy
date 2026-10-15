@@ -46,7 +46,8 @@ OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
 
 _read_command_output = os.read
 _COMMAND_TIMEOUT = 10.0
-_COMMAND_OUTPUT_LIMIT = 64 * 1024
+# Node's default `maxBuffer` of `execSync`, which Pi runs the command with.
+_COMMAND_OUTPUT_LIMIT = 1024 * 1024
 _COMMAND_CLEANUP_GRACE = 0.2
 _COMMAND_CLEANUP_POLL = 0.01
 # Bound separately so cleanup keeps real time when the lookup clock is replaced.
@@ -93,29 +94,27 @@ def _stop_command(process: subprocess.Popen[bytes]) -> None:
 
 
 def _capture_command(process: subprocess.Popen[bytes], deadline: float) -> bytes | None:
-    assert process.stdout is not None and process.stderr is not None
+    """The command's stdout; ``None`` past the deadline or the output limit."""
+
+    assert process.stdout is not None
     output = bytearray()
-    total = 0
     with selectors.DefaultSelector() as selector:
-        for stream in (process.stdout, process.stderr):
-            os.set_blocking(stream.fileno(), False)
-            selector.register(stream, selectors.EVENT_READ)
+        os.set_blocking(process.stdout.fileno(), False)
+        selector.register(process.stdout, selectors.EVENT_READ)
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
             for key, _ in selector.select(remaining):
                 chunk = _read_command_output(
-                    key.fd, min(8192, _COMMAND_OUTPUT_LIMIT - total + 1)
+                    key.fd, min(65536, _COMMAND_OUTPUT_LIMIT - len(output) + 1)
                 )
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
-                total += len(chunk)
-                if total > _COMMAND_OUTPUT_LIMIT:
+                output.extend(chunk)
+                if len(output) > _COMMAND_OUTPUT_LIMIT:
                     return None
-                if key.fileobj is process.stdout:
-                    output.extend(chunk)
     return bytes(output)
 
 
@@ -125,7 +124,8 @@ def _default_run_command(command: str) -> str | None:
             command,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            # As Pi: stderr is not read, so it does not count toward the limit.
+            stderr=subprocess.DEVNULL,
             process_group=0,
         )
     except (OSError, subprocess.SubprocessError):
@@ -155,8 +155,6 @@ def _default_run_command(command: str) -> str | None:
                 pass
         if process.stdout is not None:
             process.stdout.close()
-        if process.stderr is not None:
-            process.stderr.close()
 
 
 def resolve_config_value(

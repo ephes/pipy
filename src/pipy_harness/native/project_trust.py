@@ -247,7 +247,8 @@ def _read_store(path: Path) -> dict[str, bool | None]:
     except OSError as exc:
         raise ProjectTrustError(f"failed to read trust store {path}: {exc}") from exc
     try:
-        parsed = json.loads(text)
+        # A leading byte order mark is dropped, as Pi's `stripBom` does.
+        parsed = json.loads(text.removeprefix("\ufeff"))
     except (json.JSONDecodeError, UnicodeError) as exc:
         raise ProjectTrustError(f"failed to read trust store {path}: {exc}") from exc
     if not isinstance(parsed, dict):

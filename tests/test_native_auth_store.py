@@ -449,7 +449,6 @@ def test_command_timeout_owns_descendant_group(monkeypatch):
     selector.select.assert_called_once_with(10.0)
     process.wait.assert_called_with(timeout=auth_store._COMMAND_CLEANUP_GRACE)
     process.stdout.close.assert_called_once()
-    process.stderr.close.assert_called_once()
 
 
 def test_command_output_is_bounded(monkeypatch):
@@ -535,12 +534,26 @@ def test_completed_command_does_not_terminate_group(monkeypatch):
     assert signals == []
 
 
-def test_command_stderr_budget_and_exact_limit(monkeypatch):
+def test_command_exact_limit_and_ignored_stderr(monkeypatch):
     from pipy_harness.native import auth_store
 
     monkeypatch.setattr(auth_store, "_COMMAND_OUTPUT_LIMIT", 8)
     assert resolve_config_value("!printf 12345678", env={}) == "12345678"
-    assert resolve_config_value("!printf 12345678; printf x >&2", env={}) is None
+    assert resolve_config_value("!printf 123456789", env={}) is None
+    # As Pi (`stdio: [..., "pipe", "ignore"]`), stderr is not read and does
+    # not count toward the limit.
+    assert resolve_config_value("!printf 12345678; printf x >&2", env={}) == "12345678"
+
+
+def test_command_output_limit_is_node_max_buffer():
+    # Pi runs the command with `execSync` and Node's default `maxBuffer`.
+    mib = 1024 * 1024
+    big_stderr = "head -c 200000 /dev/zero | tr '\\0' e >&2"
+    assert resolve_config_value(f"!{big_stderr}; printf key", env={}) == "key"
+    exact = resolve_config_value(f"!head -c {mib} /dev/zero | tr '\\0' k", env={})
+    assert exact == "k" * mib
+    over = f"!head -c {mib + 1} /dev/zero | tr '\\0' k"
+    assert resolve_config_value(over, env={}) is None
 
 
 def test_command_cleanup_reaps_even_if_group_signal_fails(monkeypatch):

@@ -308,7 +308,8 @@ Project-local settings and resources are now gated by the first runtime slice
 of the reviewed
 [project-trust design](specs/2026-07-15-project-trust-design.md)
 for the final runtime cwd before `.pipy/settings.json` is read. Decisions use a
-closest-ancestor boolean entry in global `<config>/trust.json`; global-only
+closest-ancestor boolean entry in global `<config>/trust.json` (read past a
+leading UTF-8 byte order mark, as Pi's `stripBom` does); global-only
 `defaultProjectTrust: "ask"|"always"|"never"` (default `"ask"`); and per-run
 `--approve`/`--no-approve` override without persistence. An untrusted settings
 manager exposes an empty project scope and refuses project writes while global,

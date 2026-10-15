@@ -39,17 +39,10 @@ fetch standard's HTTP-redirect fetch, and undici's addition to it):
   (a code, a refresh token, a ``client_secret``) reach the other origin, as
   with ``fetch``.
 
-A compressed answer is decoded as ``fetch`` decodes it. A request asks for
-``Accept-Encoding: gzip, deflate`` unless the caller set that header. The
-codings of the answer's ``Content-Encoding`` are undone, the last one
-first: ``gzip`` and ``x-gzip``, and ``deflate`` with or without the zlib
-wrapper. A compressed body that ends early gives what it held up to there; after a
-gzip member comes another one or zero bytes, after a deflate stream
-anything.
-A list with another coding leaves the body as it arrived. The answer of a
-HEAD request, of the statuses 101, 204, 205 and 304 and of a redirect that
-is followed is not decoded. Data that is not what the coding says, and more
-than five codings, are network failures.
+A compressed answer is decoded as ``fetch`` decodes it, by the rules of
+``content_coding``: a request asks for ``Accept-Encoding: gzip, deflate``
+unless the caller set that header, and ``gzip`` and ``deflate`` are undone.
+The answer of a redirect that is followed is not decoded.
 
 Where the default fetch differs from JavaScript's ``fetch``:
 
@@ -79,6 +72,11 @@ from typing import Final, NoReturn, Protocol
 
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.mcp.config import parse_http_url
+from pipy_harness.native.mcp.content_coding import (
+    Inflater,
+    asking_for_codings,
+    content_codings,
+)
 from pipy_harness.native.mcp.protocol import (
     McpAbortError,
     McpProtocolError,
@@ -100,15 +98,6 @@ _BODY_HEADERS: Final = frozenset(
 _ORIGIN_BOUND_HEADERS: Final = frozenset(
     {"authorization", "proxy-authorization", "cookie", "host"}
 )
-ACCEPT_ENCODING: Final = "gzip, deflate"
-MAX_CONTENT_ENCODINGS: Final = 5
-# Statuses whose answer has no body to decode (the fetch standard's null
-# body statuses).
-_NULL_BODY_STATUSES: Final = frozenset({101, 204, 205, 304})
-# `wbits` of zlib: a gzip member, a zlib stream, a raw deflate stream.
-_GZIP_WBITS: Final = 16 + zlib.MAX_WBITS
-_ZLIB_WBITS: Final = zlib.MAX_WBITS
-_RAW_WBITS: Final = -zlib.MAX_WBITS
 
 
 def _reject_constant(name: str) -> NoReturn:
@@ -215,55 +204,25 @@ def _too_large(limit: int) -> McpProtocolError:
     return McpProtocolError(f"OAuth response exceeds {limit} bytes")
 
 
-def _inflate(data: bytes, wbits: int, limit: int) -> bytes:
-    """``data`` decompressed. A stream that ends early gives what it held."""
-
-    out = b""
-    while True:
-        decoder = zlib.decompressobj(wbits)
-        out += decoder.decompress(data, limit + 1 - len(out))
-        if len(out) > limit:
-            raise _too_large(limit)
-        # A gzip body may be several members, one after the other. As in
-        # Node's zlib, data after a member is the next member unless it
-        # starts with a zero byte, which ends the body as padding. Deflate
-        # ignores data after its stream.
-        data = decoder.unused_data
-        if wbits != _GZIP_WBITS or not data or data[0] == 0:
-            return out
-
-
-def _decode(coding: str, data: bytes, limit: int) -> bytes:
-    if coding == "deflate":
-        # As undici tells the two forms apart: by the first byte.
-        zlib_wrapped = bool(data) and data[0] & 0x0F == 0x08
-        return _inflate(data, _ZLIB_WBITS if zlib_wrapped else _RAW_WBITS, limit)
-    return _inflate(data, _GZIP_WBITS, limit)
-
-
 def _decoded(
     response: OAuthResponse, method: str, url: str, limit: int
 ) -> OAuthResponse:
     """``response`` with the codings of its ``Content-Encoding`` undone."""
 
     encoding = response.header("content-encoding")
-    if (
-        not encoding
-        or method.upper() in ("HEAD", "CONNECT")
-        or response.status in _NULL_BODY_STATUSES
-    ):
-        return response
-    codings = [coding.strip() for coding in encoding.lower().split(",")]
-    if len(codings) > MAX_CONTENT_ENCODINGS:
-        raise http.client.HTTPException(
-            f"Too many content encodings in the response of {url}: {len(codings)}"
-        )
-    if any(coding not in ("gzip", "x-gzip", "deflate") for coding in codings):
+    codings = content_codings(encoding, method, response.status, url)
+    if codings is None:
         return response
     body = response.body
     try:
+        # One coding after the other, so the limit holds after each.
         for coding in reversed(codings):
-            body = _decode(coding, body, limit)
+            decoded = bytearray()
+            for piece in Inflater(coding).feed(body):
+                decoded += piece
+                if len(decoded) > limit:
+                    raise _too_large(limit)
+            body = bytes(decoded)
     except zlib.error as error:
         raise http.client.HTTPException(
             f"Cannot decode the {encoding} response of {url}: {error}"
@@ -298,8 +257,7 @@ def _send(
     """One request on a connection of its own. The body of the answer is as
     it arrived."""
 
-    if not any(name.lower() == "accept-encoding" for name in headers):
-        headers = {**headers, "Accept-Encoding": ACCEPT_ENCODING}
+    headers = asking_for_codings(headers)
     timeout = CONNECT_TIMEOUT_MS / 1000
     connection: http.client.HTTPConnection
     if target.secure:

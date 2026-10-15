@@ -93,6 +93,23 @@ def test_store_rejects_invalid_schema_without_overwriting(
     assert path.read_bytes() == before
 
 
+def test_store_reads_a_file_with_a_byte_order_mark(tmp_path: Path) -> None:
+    # Pi reads the trust file through `stripBom`; a write leaves the mark out.
+    path = tmp_path / "config" / "trust.json"
+    path.parent.mkdir(parents=True)
+    body = json.dumps({str(tmp_path.resolve()): True})
+    path.write_text("﻿" + body, encoding="utf-8")
+    store = ProjectTrustStore(path)
+    assert store.get(tmp_path) is True
+    store.set(tmp_path / "other", False)
+    assert not path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert store.get(tmp_path) is True
+    # Only one mark is dropped, as with `stripBom`.
+    path.write_text("﻿﻿" + body, encoding="utf-8")
+    with pytest.raises(ProjectTrustError):
+        store.get(tmp_path)
+
+
 def test_store_accepts_null_and_writes_sorted_private_json(tmp_path: Path) -> None:
     path = tmp_path / "config" / "trust.json"
     _write_json(path, {str(tmp_path / "unused"): None})

@@ -180,7 +180,8 @@ when a server is connected is described under
   be combined with `clientId` or `clientName` and requires
   `clientMetadataBaseUrl`, an `https` URL without query or fragment; a
   `callbackUrl` set with it must be on `localhost` or `127.0.0.1` with path
-  `/callback`. What the settings do is described under
+  `/callback` once dot segments are removed, as in Pi (`/a/../callback` and
+  `/%2e/callback` are that path). What the settings do is described under
   [OAuth settings](#oauth-settings).
 - `auth` needs a non-empty `provider` and a server URL that is `https`, or
   `http` on a loopback host. What it does is described under
@@ -2050,7 +2051,8 @@ below.
 | `client` | `McpClient`: the `initialize` handshake, requests with timeouts, progress and cancellation, answers to `ping` and `roots/list`, notifications, and paginated `tools/list`, `resources/list`, `resources/templates/list`, `tools/call` and `resources/read`. |
 | `stdio` | Starts a server process in its own process group and exchanges newline-delimited JSON with it. It keeps the last 64 KiB of stderr and, on close, closes stdin, then sends SIGTERM and SIGKILL to the group until the server exited and its stdout and stderr closed. POSIX only. |
 | `sse`, `http` | The streamable HTTP transport: POST per message with JSON or SSE answers, the session id, the server-to-client GET stream, and resumption of a broken response stream with `Last-Event-ID`. A transport that is given an auth provider sends its token, and hands it a request the server rejected, as described under [the credentials file](#the-credentials-file). A JSON answer is read whatever its size; the message limit (`max_message_bytes`, 16 MiB) is for one event of a stream. |
-| `http_fetch` | How the HTTP transport sends a request. `StreamableHttpTransportOptions(fetch=...)` takes a function that is called with every request of the transport (`McpHttpRequest`: method, URL, headers, body, the request's cancel token and the time limit for connecting) and returns the answer (`McpHttpResponse`) before its body is read. Pass one for a proxy, another TLS setup or a network of your own; it follows redirects itself. The module text says what such a function has to do. Without the option the transport uses `create_default_fetch()`. |
+| `http_fetch` | How the HTTP transport sends a request. `StreamableHttpTransportOptions(fetch=...)` takes a function that is called with every request of the transport (`McpHttpRequest`: method, URL, headers, body, the request's cancel token and the time limit for connecting) and returns the answer (`McpHttpResponse`) before its body is read. Pass one for a proxy, another TLS setup or a network of your own; it follows redirects itself. The module text says what such a function has to do. Without the option the transport uses `create_default_fetch()`, which asks for `gzip` and `deflate` and decodes them. |
+| `content_coding` | Decoding of `gzip` and `deflate` answers by the rules of Node's `fetch`, shared by the transport's default fetch (bodies decoded as they are read) and the OAuth fetch (whole bodies). |
 | `config` | Validation, loading and editing of `mcp.json`, as described under [configure servers](#configure-servers). |
 | `config_values` | `${NAME}` and `!command` in config values. |
 | `connection` | `McpServerConnection`: one configured server with its state, tools, resources and instructions, as described under [server connections](#server-connections), its `provider_token` function for a server with [`auth`](#a-providers-token), and the resource requests (`read_resource`, `resources_page`, `all_resources` and the two for templates). |
@@ -2248,9 +2250,10 @@ an OAuth server is given. It never opens a browser:
 Where the library differs from Pi's `@earendil-works/pi-mcp`, for those who
 build on it:
 
-- The HTTP transport's default fetch has no proxy support and does not
-  decompress responses. A transport that needs one of these is given a
-  `fetch`, as in Pi. Redirects are followed by the rules of Node's `fetch`:
+- The HTTP transport's default fetch has no proxy support. It asks for
+  `gzip` and `deflate` and decodes an answer in those codings, an event
+  stream as it arrives; unlike Node's `fetch` it does not ask for or decode
+  `br` and `zstd`. A transport that needs more is given a `fetch`, as in Pi. Redirects are followed by the rules of Node's `fetch`:
   to any origin, at most 20, with `Authorization`, `Proxy-Authorization`,
   `Cookie` and `Host` dropped for good at the first change of origin. A
   `Location` that Python's URL functions read differently from a browser

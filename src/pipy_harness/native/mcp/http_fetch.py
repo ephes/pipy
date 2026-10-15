@@ -28,7 +28,12 @@ What a fetch has to do:
   the request with anything else that is raised.
 
 The default fetch opens one connection per request with ``http.client``. It
-has no proxy support and does not decompress responses.
+has no proxy support. It asks for ``Accept-Encoding: gzip, deflate`` unless
+the request names that header, and decodes an answer in those codings as
+its body is read, also an event stream piece by piece (``content_coding``
+has the rules); ``br`` and ``zstd`` are not asked for and are left as they
+arrived. Data that is not in the coding is a network failure while the body
+is read.
 
 Connecting. The TCP connect and the TLS handshake wait for the socket
 together with the request's cancellation, so giving the request up, or
@@ -69,12 +74,18 @@ import ssl
 import threading
 import time
 import urllib.parse
+import zlib
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Final, Protocol
 
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.mcp.config import parse_http_url
+from pipy_harness.native.mcp.content_coding import (
+    ContentDecoder,
+    asking_for_codings,
+    content_codings,
+)
 
 MAX_REDIRECTS: Final = 20
 _READ_BYTES: Final = 64 * 1024
@@ -212,7 +223,8 @@ class _HttpResponse:
     """A response of ``http.client`` whose body has not been read, and its
     connection.
 
-    ``on_close`` runs once, when the response is closed.
+    ``on_close`` runs once, when the response is closed. With ``codings``
+    the body is decoded as it is read (``content_coding``).
     """
 
     def __init__(
@@ -225,16 +237,55 @@ class _HttpResponse:
         self._response = response
         self._on_close: Callable[[], None] | None = on_close
         self.status: int = response.status
+        self._decoded: Iterator[bytes] | None = None
+        # Decoded bytes that a `read` with a limit did not return.
+        self._pending = b""
+
+    def decode(self, codings: tuple[str, ...], url: str) -> None:
+        """Decode the body from ``codings`` from now on."""
+
+        self._decoded = self._decode(ContentDecoder(codings), url)
+
+    def _decode(self, decoder: ContentDecoder, url: str) -> Iterator[bytes]:
+        while raw := self._response.read1(_READ_BYTES):
+            try:
+                yield from decoder.feed(raw)
+            except zlib.error as error:
+                encoding = self.header("content-encoding")
+                raise http.client.HTTPException(
+                    f"Cannot decode the {encoding} response of {url}: {error}"
+                ) from error
+        left = self._response.length
+        if left:
+            raise http.client.IncompleteRead(b"", left)
 
     def header(self, name: str) -> str | None:
         return self._response.getheader(name)
 
     def read(self, limit: int | None = None) -> bytes:
-        return self._response.read(limit)
+        if self._decoded is None:
+            return self._response.read(limit)
+        body = bytearray(self._pending)
+        while limit is None or len(body) < limit:
+            piece = next(self._decoded, None)
+            if piece is None:
+                break
+            body += piece
+        if limit is None:
+            self._pending = b""
+            return bytes(body)
+        self._pending = bytes(body[limit:])
+        return bytes(body[:limit])
 
     def chunks(self) -> Iterator[bytes]:
-        while chunk := self._response.read1(_READ_BYTES):
-            yield chunk
+        if self._decoded is None:
+            while chunk := self._response.read1(_READ_BYTES):
+                yield chunk
+            return
+        if self._pending:
+            pending, self._pending = self._pending, b""
+            yield pending
+        yield from self._decoded
 
     def close(self) -> None:
         on_close, self._on_close = self._on_close, None
@@ -484,6 +535,23 @@ def _redirect_target(response: _HttpResponse, target: HttpTarget) -> HttpTarget 
     return redirected
 
 
+def _decoding(
+    response: _HttpResponse, method: str, target: HttpTarget
+) -> _HttpResponse:
+    """``response``, set to decode its body when it has a content coding."""
+
+    try:
+        codings = content_codings(
+            response.header("content-encoding"), method, response.status, target.url
+        )
+    except BaseException:
+        response.close()
+        raise
+    if codings is not None:
+        response.decode(codings, target.url)
+    return response
+
+
 def _without(headers: Mapping[str, str], names: frozenset[str]) -> dict[str, str]:
     return {name: value for name, value in headers.items() if name.lower() not in names}
 
@@ -512,7 +580,7 @@ def create_default_fetch() -> McpFetch:
             raise http.client.InvalidURL(f"Cannot request {request.url}")
         method = request.method
         body = request.body
-        headers = dict(request.headers)
+        headers = asking_for_codings(request.headers)
         timeout = timeout_seconds(request.connect_timeout_ms)
         for _hop in range(MAX_REDIRECTS + 1):
             response = _send(
@@ -524,7 +592,7 @@ def create_default_fetch() -> McpFetch:
                 response.close()
                 raise
             if redirected is None:
-                return response
+                return _decoding(response, method, target)
             response.close()
             if (response.status == 303 and method not in ("GET", "HEAD")) or (
                 response.status in (301, 302) and method == "POST"

@@ -8,6 +8,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- MCP over HTTP: compressed answers work, as with Pi's `fetch`. The
+  transport's default fetch asks for `gzip` and `deflate` and decodes an
+  answer in those codings, a JSON body as a whole and an event stream as
+  it arrives. Before, a server or proxy that compressed its answer (or a
+  configured `Accept-Encoding` header) made every request fail. See
+  [what exists as a library](docs/mcp.md#what-exists-as-a-library).
+- MCP config: with `"clientRegistration": "cimd"` a `callbackUrl` whose
+  path is `/callback` once dot segments are removed (`/a/../callback`) is
+  accepted, as in Pi. See [configure servers](docs/mcp.md#configure-servers).
+- `!command` config values (provider keys, MCP `env` and `headers`) discard
+  the command's stderr and accept up to 1 MiB of stdout, as Pi does. Before,
+  stderr counted toward a 64 KiB limit, so a helper that logged a lot
+  resolved as unavailable. See
+  [credential command helpers](docs/providers.md#credential-command-helpers).
+- Project trust: a `trust.json` that starts with a UTF-8 byte order mark is
+  read, as Pi reads it, instead of failing as unreadable.
+
 - Codemode: a script's output is laid out as Pi lays it out, so the model
   can tell where one item ends and the next begins. With more than one
   `text()` item, each starts with a `==> text N/M <==` line, and what the

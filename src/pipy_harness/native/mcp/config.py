@@ -771,7 +771,7 @@ def _check_client_registration(oauth: dict[str, Any]) -> str | None:
     # Runs after the callback URL check, so a URL that is present parses.
     callback = parse_http_url(oauth.get("callbackUrl"))
     if callback is not None and (
-        callback.hostname == "[::1]" or callback.path != "/callback"
+        callback.hostname == "[::1]" or callback.pathname != "/callback"
     ):
         return (
             'oauth.clientRegistration "cimd" requires oauth.callbackUrl on '

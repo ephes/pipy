@@ -318,6 +318,17 @@ VALID_ENTRIES: list[dict[str, Any]] = [
         callbackUrl="http://127.0.0.1:7000/callback",
         callbackPort=7000,
     ),
+    # The path is compared without dot segments, as Pi's `URL.pathname`.
+    oauth(
+        clientRegistration="cimd",
+        clientMetadataBaseUrl="https://id.example/oauth/",
+        callbackUrl="http://localhost/cb/../callback",
+    ),
+    oauth(
+        clientRegistration="cimd",
+        clientMetadataBaseUrl="https://id.example/oauth/",
+        callbackUrl="http://localhost/%2e/callback",
+    ),
     oauth(authServerMetadataUrl="http://localhost:9000/.well-known/x"),
     oauth(authServerMetadataUrl="http://[::1]/m"),
     {"url": "http://127.0.0.1:8788/mcp", "auth": {"provider": "p"}},
