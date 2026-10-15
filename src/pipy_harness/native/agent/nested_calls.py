@@ -291,6 +291,37 @@ class _Finished:
         self.execution = execution
 
 
+class _Turn:
+    """A call that waits for its turn in the exclusive queue (Pi
+    ``NestedToolCallRunner`` ``queueTail``): it has its id and its place in
+    the record, and runs once the calls ahead of it ended.
+
+    ``started``, ``waiter`` and ``ended`` are what the ``serve``, the batch
+    or the ``call`` that asked for it waits with, as ``_start`` takes them;
+    ``open_caller`` says whether its caller must still be open when its turn
+    comes (a call asked for through ``nested_tools``).
+    """
+
+    __slots__ = ("call", "ended", "open_caller", "request", "started", "waiter")
+
+    def __init__(
+        self,
+        request: _Request,
+        call: AgentToolCall,
+        started: set[str],
+        waiter: ToolInterruptWaiter,
+        ended: threading.Event,
+        *,
+        open_caller: bool = True,
+    ) -> None:
+        self.request = request
+        self.call = call
+        self.started = started
+        self.waiter = waiter
+        self.ended = ended
+        self.open_caller = open_caller
+
+
 def _until_ended(
     waiter: ToolInterruptWaiter,
     ends: tuple[threading.Event, ...],
@@ -418,6 +449,15 @@ class NestedToolCallService:
     from several threads therefore run at the same time, as Pi's do. The lock
     guards the queue, the wake event and the callers that may still call.
 
+    A call is exclusive, as in Pi's ``NestedToolCallRunner``, when
+    ``sequential()`` says so for the session (Pi ``isSequential()``) or its
+    tool's ``execution_mode`` is ``"sequential"``, unless it is made inside
+    the call that holds the exclusive queue (at any depth). Exclusive calls
+    run one at a time, in the order they were asked for; the others run
+    beside them. A call that waits for its turn has its id and its place in
+    the record, and runs its pipeline (the start event, the ``tool_call``
+    hooks) when its turn comes.
+
     Records are transient observations, capped at 256 calls, 8 KiB arguments
     per call and 32 KiB total. Oversized arguments are replaced by their byte
     count; excess calls are dropped. Wrong-thread refusal reads no mutable
@@ -438,6 +478,7 @@ class NestedToolCallService:
         *,
         callable_tools: tuple[ToolDefinition, ...] = (),
         session_waiter: ToolInterruptWaiter | None = None,
+        sequential: Callable[[], bool] | None = None,
     ) -> None:
         self._parent_id = parent.provider_correlation_id
         self._thread = threading.current_thread()
@@ -451,6 +492,14 @@ class NestedToolCallService:
         self._output_schema_names = frozenset(
             tool.name for tool in self._tools if tool.output_schema is not None
         )
+        self._sequential = sequential
+        self._sequential_names = frozenset(
+            tool.name for tool in self._tools if tool.execution_mode == "sequential"
+        )
+        # Session thread: the call that holds the exclusive queue, and the
+        # exclusive calls waiting for their turn, in the order asked for.
+        self._holder: str | None = None
+        self._turns: deque[_Turn] = deque()
         self._settle = settle
         self._settle_with_waiter = settle_with_waiter
         self._error_result = error_result
@@ -506,6 +555,11 @@ class NestedToolCallService:
             self._jobs = deque(job for job in self._jobs if isinstance(job, _Finished))
         for request in waiting:
             request.answer(unavailable_result(request.caller_id))
+        # The queued calls end as the interruption that closed it, if one did.
+        self._withdraw(
+            lambda turn: True,
+            self._interruption or ToolExecutionInterruption.CALLER_STOP,
+        )
 
     def records(self) -> tuple[NestedToolCallOutcome, ...]:
         """The kept calls in the order they began; a call still running has
@@ -581,6 +635,10 @@ class NestedToolCallService:
                 self._jobs.remove(request)
         for request in waiting:
             request.answer(unavailable_result(caller_id))
+        self._withdraw(
+            lambda turn: turn.request.caller_id == caller_id,
+            ToolExecutionInterruption.CALLER_STOP,
+        )
 
     def _request(
         self,
@@ -653,57 +711,104 @@ class NestedToolCallService:
         # The tool always runs under ``serve``, so the calls and the live
         # output of other threads reach the session thread. A ``signal``
         # ends the readiness wait and the tool's wait.
-        base = waiter or self._session_waiter or _until_done
-        if signal is not None:
-            base = _until_ended(base, (signal,))
-        began = self._begin(
-            caller_id or self._parent_id,
-            tool_name,
-            arguments_json,
-            unknown_tool_error,
-            base
-            if waiter is not None
-            or (signal is not None and self._settle_with_waiter is not None)
-            else None,
-        )
-        if isinstance(began, NestedToolCallOutcome):
-            return began
-        pending, started = began
-        if signal is not None and signal.is_set():
-            # Cancelled while it was admitted: it does not run.
-            return self._finish(
-                pending,
-                started,
-                cancelled_tool_outcome(
-                    self._error_result,
-                    pending.call,
-                    ToolExecutionInterruption.CALLER_STOP,
-                ),
-            )
-        child_id = pending.call.provider_correlation_id
-        tools = self.nested_tools(child_id)
-        sink = self._output_sink(child_id, pending, on_update)
-        self._live[child_id] = (pending, started)
-        serve_base = base
-
-        def served(
-            done_event: threading.Event, cancel_event: threading.Event, /
-        ) -> ToolExecutionInterruption:
-            return self.serve(serve_base, done_event, cancel_event)
-
+        plain = waiter or self._session_waiter or _until_done
+        base = plain if signal is None else _until_ended(plain, (signal,))
+        caller = caller_id or self._parent_id
+        call = self._new_call(caller, tool_name, arguments_json)
+        exclusive = self._exclusive(caller, tool_name)
+        if exclusive and self._queue_busy():
+            return self._call_in_turn(caller, call, plain, signal, on_update)
+        call_id = call.provider_correlation_id
+        if exclusive:
+            self._holder = call_id
         try:
-            try:
-                execution = pending.execute(
-                    wait_for_interrupt=served, nested_tools=tools, output_sink=sink
+            began = self._begin(
+                call,
+                unknown_tool_error,
+                base
+                if waiter is not None
+                or (signal is not None and self._settle_with_waiter is not None)
+                else None,
+            )
+            if isinstance(began, NestedToolCallOutcome):
+                return began
+            pending, started = began
+            if signal is not None and signal.is_set():
+                # Cancelled while it was admitted: it does not run.
+                return self._finish(
+                    pending,
+                    started,
+                    cancelled_tool_outcome(
+                        self._error_result,
+                        pending.call,
+                        ToolExecutionInterruption.CALLER_STOP,
+                    ),
                 )
-            except BaseException as exc:
-                self._fail(pending.call, started, exc)
-                raise
+            tools = self.nested_tools(call_id)
+            sink = self._output_sink(call_id, pending, on_update)
+            self._live[call_id] = (pending, started)
+            serve_base = base
+
+            def served(
+                done_event: threading.Event, cancel_event: threading.Event, /
+            ) -> ToolExecutionInterruption:
+                return self.serve(serve_base, done_event, cancel_event)
+
+            try:
+                try:
+                    execution = pending.execute(
+                        wait_for_interrupt=served, nested_tools=tools, output_sink=sink
+                    )
+                except BaseException as exc:
+                    self._fail(pending.call, started, exc)
+                    raise
+                finally:
+                    self._live.pop(call_id, None)
+                return self._finish(pending, started, execution)
             finally:
-                self._live.pop(child_id, None)
-            return self._finish(pending, started, execution)
+                self.end_caller(call_id)
         finally:
-            self.end_caller(child_id)
+            self._release(call_id)
+
+    def _call_in_turn(
+        self,
+        caller_id: str,
+        call: AgentToolCall,
+        waiter: ToolInterruptWaiter,
+        signal: threading.Event | None,
+        on_update: Callable[[str], None] | None,
+    ) -> NestedToolCallOutcome:
+        """Session thread: an exclusive ``call`` that must wait for its
+        turn. It waits in the queue like a call asked for on another thread,
+        while this thread serves the calls of the others; its tool then runs
+        on a thread of its own."""
+        settled: list[NestedToolCallOutcome | None] = []
+        request = _Request(
+            caller_id,
+            call.tool_name,
+            call.arguments_json.value,
+            signal,
+            on_update,
+            settled=lambda result, outcome: settled.append(outcome),
+        )
+        mine: set[str] = set()
+        gone = threading.Event()
+        self._enqueue(_Turn(request, call, mine, waiter, gone, open_caller=False))
+        try:
+            interruption = self.serve(waiter, request.ready, threading.Event())
+            if not request.ready.is_set():
+                self._end_running(
+                    mine,
+                    ToolExecutionInterruption.CALLER_STOP
+                    if interruption is ToolExecutionInterruption.SETTLED
+                    else interruption,
+                )
+        finally:
+            gone.set()
+        outcome = settled[0] if settled else None
+        if outcome is None:  # answered without an outcome only on a failure
+            return self._refuse(call, None)
+        return outcome
 
     def _output_sink(
         self,
@@ -747,21 +852,157 @@ class NestedToolCallService:
             self._fail(pending.call, started, exc)
             raise
 
+    def _new_call(
+        self, caller_id: str, tool_name: str, arguments_json: str
+    ) -> AgentToolCall:
+        """Session thread: the next call of ``caller_id``, with its id."""
+        number = self._next.get(caller_id, 0) + 1
+        self._next[caller_id] = number
+        return AgentToolCall(
+            f"{caller_id}/{number}", tool_name, ProductContent(arguments_json)
+        )
+
+    def _exclusive(self, caller_id: str, tool_name: str) -> bool:
+        """Whether a call must hold the exclusive queue to run (Pi
+        ``NestedToolCallRunner.execute``): the session is sequential or the
+        tool's ``execution_mode`` is ``"sequential"``, and the call is not
+        made inside the call that holds the queue. A call that is refused
+        anyway is not."""
+        if self._closed or self._in_pipeline or tool_name not in self._eligible:
+            return False
+        holder = self._holder
+        if holder is not None and (
+            caller_id == holder or caller_id.startswith(holder + "/")
+        ):
+            return False
+        if tool_name in self._sequential_names:
+            return True
+        return self._sequential is not None and bool(self._sequential())
+
+    def _queue_busy(self) -> bool:
+        """Whether an exclusive call must wait: the queue is held, or calls
+        wait ahead of it."""
+        return self._holder is not None or bool(self._turns)
+
+    def _enqueue(self, turn: _Turn) -> None:
+        """Session thread: put an exclusive call in the queue; it keeps its
+        place in the record from now, as Pi records a call as it starts."""
+        self._open_slot(turn.call)
+        turn.started.add(turn.call.provider_correlation_id)
+        self._turns.append(turn)
+
+    def _release(self, call_id: str) -> None:
+        """Session thread: the call ``call_id`` ended; if it held the
+        exclusive queue, the next call in it may run. The wake lets a
+        ``serve`` start it."""
+        if self._holder != call_id:
+            return
+        self._holder = None
+        if self._turns:
+            with self._lock:
+                self._wake.set()
+
+    def _advance(self, ending: set[str] | None) -> ToolExecutionInterruption | None:
+        """Session thread: start the calls in the exclusive queue while it
+        is free, in order; those of ``ending`` (calls about to be ended)
+        are left for their end. Returns the interruption of a call, if one
+        was interrupted."""
+        interrupted: ToolExecutionInterruption | None = None
+        while self._holder is None:
+            turn = next(
+                (
+                    turn
+                    for turn in self._turns
+                    if ending is None or turn.call.provider_correlation_id not in ending
+                ),
+                None,
+            )
+            if turn is None:
+                break
+            self._turns.remove(turn)
+            outcome = self._run_turn(turn)
+            if (
+                outcome is not None
+                and outcome.interruption is not None
+                and interrupted is None
+            ):
+                interrupted = outcome.interruption
+        return interrupted
+
+    def _run_turn(self, turn: _Turn) -> NestedToolCallOutcome | None:
+        """Session thread: the turn of a queued call came. It runs unless
+        its caller ended meanwhile."""
+        request = turn.request
+        caller = self._running.get(request.caller_id)
+        caller_ends = (turn.ended,) if caller is None else (turn.ended, caller.ended)
+        open_caller = True
+        if turn.open_caller:
+            with self._lock:
+                open_caller = request.caller_id in self._callers
+        if self._closed or not open_caller or any(end.is_set() for end in caller_ends):
+            return self._withdraw_turn(turn, request.stop_reason)
+        return self._proceed(
+            request, turn.call, turn.started, turn.waiter, turn.ended, exclusive=True
+        )
+
+    def _withdraw(
+        self, chosen: Callable[[_Turn], bool], reason: ToolExecutionInterruption
+    ) -> None:
+        """Session thread: cancel the queued calls ``chosen`` picks. Each is
+        answered even when settling another raised; the first failure is
+        raised once all are."""
+        turns = [turn for turn in self._turns if chosen(turn)]
+        for turn in turns:
+            self._turns.remove(turn)
+        failure: BaseException | None = None
+        for turn in turns:
+            try:
+                self._withdraw_turn(turn, reason)
+            except BaseException as exc:  # noqa: BLE001 - raised after the others are answered
+                if failure is None:
+                    failure = exc
+                if not turn.request.ready.is_set():
+                    try:
+                        turn.request.answer(unavailable_result(turn.request.caller_id))
+                    except BaseException:  # noqa: BLE001 - the first failure is raised
+                        # ``answer`` sets the request ready before its callback.
+                        pass
+        if failure is not None:
+            raise failure
+
+    def _withdraw_turn(
+        self, turn: _Turn, reason: ToolExecutionInterruption
+    ) -> NestedToolCallOutcome:
+        """Session thread: a queued call whose turn never came ends as
+        ``reason`` cancels a call, without its pipeline; it is kept in the
+        record and its caller is answered."""
+        cancelled = cancelled_tool_outcome(self._error_result, turn.call, reason)
+        interrupted = cancelled.interruption in {
+            ToolExecutionInterruption.OPERATOR_ABORT,
+            ToolExecutionInterruption.LOCAL_COMMAND,
+        }
+        outcome = self._keep(
+            NestedToolCallOutcome(
+                turn.call,
+                cancelled.result,
+                NestedCallStatus.INTERRUPTED
+                if interrupted
+                else NestedCallStatus.CANCELLED,
+                cancelled.interruption if interrupted else None,
+            )
+        )
+        turn.request.answer(nested_tool_result(outcome), outcome)
+        return outcome
+
     def _begin(
         self,
-        caller_id: str,
-        tool_name: str,
-        arguments_json: str,
+        call: AgentToolCall,
         unknown_tool_error: str | None,
         waiter: ToolInterruptWaiter | None,
     ) -> NestedToolCallOutcome | tuple[PendingNestedCall, float]:
-        """Session thread: give the call its id and run the pipeline up to
-        the tool. A call that does not run is settled and kept here."""
-        number = self._next.get(caller_id, 0) + 1
-        self._next[caller_id] = number
-        call = AgentToolCall(
-            f"{caller_id}/{number}", tool_name, ProductContent(arguments_json)
-        )
+        """Session thread: run the pipeline of ``call`` up to the tool. A
+        call that does not run is settled and kept here."""
+        tool_name = call.tool_name
         if self._closed or self._in_pipeline or tool_name not in self._eligible:
             return self._refuse(
                 call,
@@ -941,7 +1182,9 @@ class NestedToolCallService:
                 and interrupted is None
             ):
                 interrupted = outcome.interruption
-        return interrupted
+        # The calls that ended may have freed the exclusive queue.
+        advanced = self._advance(None if accept else started)
+        return interrupted if interrupted is not None else advanced
 
     def _start(
         self,
@@ -958,18 +1201,43 @@ class NestedToolCallService:
         caller, which then cancel the call as the end of its caller does."""
         caller = self._running.get(request.caller_id)
         caller_ends = (ended,) if caller is None else (ended, caller.ended)
-        # The call's own signal ends it too, once it has an id.
-        ends = caller_ends if request.signal is None else (*caller_ends, request.signal)
         with self._lock:
             open_caller = request.caller_id in self._callers
         if not open_caller or any(end.is_set() for end in caller_ends):
             request.answer(unavailable_result(request.caller_id))
             return None
+        call = self._new_call(
+            request.caller_id, request.tool_name, request.arguments_json
+        )
+        exclusive = self._exclusive(request.caller_id, request.tool_name)
+        if exclusive and self._queue_busy():
+            self._enqueue(_Turn(request, call, started, waiter, ended))
+            return None
+        return self._proceed(request, call, started, waiter, ended, exclusive=exclusive)
+
+    def _proceed(
+        self,
+        request: _Request,
+        call: AgentToolCall,
+        started: set[str],
+        waiter: ToolInterruptWaiter,
+        ended: threading.Event,
+        *,
+        exclusive: bool,
+    ) -> NestedToolCallOutcome | None:
+        """Session thread: run the pipeline of a requested call that may run
+        now and start its tool, as ``_start`` describes. An ``exclusive``
+        call holds the queue until it ended."""
+        caller = self._running.get(request.caller_id)
+        caller_ends = (ended,) if caller is None else (ended, caller.ended)
+        # The call's own signal ends it too, once it has an id.
+        ends = caller_ends if request.signal is None else (*caller_ends, request.signal)
+        call_id = call.provider_correlation_id
+        if exclusive:
+            self._holder = call_id
         try:
             began = self._begin(
-                request.caller_id,
-                request.tool_name,
-                request.arguments_json,
+                call,
                 f"Tool {request.tool_name} not found",
                 _until_ended(waiter, ends, request.stop_reason)
                 if self._settle_with_waiter is not None
@@ -988,13 +1256,14 @@ class NestedToolCallService:
                     ),
                 )
         except BaseException:
+            self._release(call_id)
             request.answer(unavailable_result(request.caller_id))
             raise
         if isinstance(began, NestedToolCallOutcome):
+            self._release(call_id)
             request.answer(nested_tool_result(began), began)
             return began
         pending, at = began
-        call_id = pending.call.provider_correlation_id
         running = _Running(pending, at, request)
         self._running[call_id] = running
         started.add(call_id)
@@ -1023,6 +1292,7 @@ class NestedToolCallService:
         """Settle a call whose thread ended and answer its caller."""
         running = self._running.pop(finished.call_id, None)
         self._live.pop(finished.call_id, None)
+        self._release(finished.call_id)
         self.end_caller(finished.call_id)
         # Its own calls still running end with it, as ``serve`` ends the
         # calls of the tool it waits for.
@@ -1046,7 +1316,11 @@ class NestedToolCallService:
     def _end_running(
         self, started: set[str], reason: ToolExecutionInterruption
     ) -> None:
-        """End the calls ``started`` that still run, and settle them."""
+        """End the calls ``started`` that still run, and settle them; those
+        still waiting for their turn are cancelled without running."""
+        self._withdraw(
+            lambda turn: turn.call.provider_correlation_id in started, reason
+        )
         for call_id in started:
             running = self._running.get(call_id)
             if running is not None:
@@ -1062,6 +1336,7 @@ class NestedToolCallService:
         for call_id in started:
             running = self._running.pop(call_id, None)
             self._live.pop(call_id, None)
+            self._release(call_id)
             if running is not None:
                 running.end(ToolExecutionInterruption.CALLER_STOP)
                 self._keep_unfinished(running.pending.call, running.started)

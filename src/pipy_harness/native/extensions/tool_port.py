@@ -89,6 +89,7 @@ class _ExtensionToolPort:
             prepare_loadout=tool.prepare_loadout,
             prompt_snippet=tool.prompt_snippet,
             prompt_guidelines=tuple(tool.prompt_guidelines),
+            execution_mode=tool.execution_mode,
         )
 
     @property

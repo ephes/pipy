@@ -52,6 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
         NestedToolCalls,
         ReachesTools,
         ToolAnnotations,
+        ToolExecutionMode,
         ToolExposure,
         ToolInfo,
         ToolNamespace,
@@ -1007,6 +1008,10 @@ class ExtensionTool:
     - `prompt_guidelines`: bullets added to the default system prompt's
       rules while the tool is declared; scripts see them with the tool's
       declaration (Pi `promptGuidelines`).
+    - `execution_mode`: `"sequential"` makes the calls other tools make of
+      this tool (`ctx.execute_tool`, codemode scripts) run one at a time
+      with the other such calls (Pi `executionMode`); `None` or
+      `"parallel"` lets them run at the same time.
     """
 
     name: str
@@ -1026,6 +1031,7 @@ class ExtensionTool:
     )
     prompt_snippet: str | None = field(default=None, kw_only=True)
     prompt_guidelines: Sequence[str] = field(default=(), kw_only=True)
+    execution_mode: "ToolExecutionMode | None" = field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)

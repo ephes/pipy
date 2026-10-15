@@ -134,7 +134,12 @@ from pipy_harness.native.models import (
     ProviderResult,
     ProviderToolCall,
 )
-from pipy_harness.native.tools.base import NestedToolCalls, ToolDefinition
+from pipy_harness.native.tools.base import (
+    TOOL_EXECUTION_MODES,
+    NestedToolCalls,
+    ToolDefinition,
+    ToolExecutionMode,
+)
 from pipy_harness.status import HarnessStatus
 
 
@@ -419,6 +424,7 @@ class AgentLoop:
         | None = None,
         normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
         | None = None,
+        tool_execution: ToolExecutionMode = "parallel",
     ) -> None:
         """``composite_runner`` runs the built-in ``codemode``.
         ``parent_runner`` is asked for every other admitted call the model
@@ -426,7 +432,11 @@ class AgentLoop:
         which may then call other tools; ``None`` runs it as a plain call.
         ``normalize_result`` sees every result after the ``tool_result``
         hooks, nested ones included, before it is shown or stored (Pi
-        ``_afterToolCall`` normalizes the images there)."""
+        ``_afterToolCall`` normalizes the images there).
+        ``tool_execution`` is the public ``tool_execution`` attribute (Pi
+        ``Agent.toolExecution``), read at each nested call: with
+        ``"sequential"`` the calls tools make of other tools run one at a
+        time. The calls the model makes run one at a time in any case."""
         _require_protocol(request_source, AgentLoopRequestSource, "request_source")
         _require_protocol(provider_turn, AgentLoopProviderTurn, "provider_turn")
         _require_protocol(tool_capabilities, AgentToolCapabilities, "tool_capabilities")
@@ -449,6 +459,9 @@ class AgentLoop:
             raise TypeError("parent_runner must be callable or None")
         if normalize_result is not None and not callable(normalize_result):
             raise TypeError("normalize_result must be callable or None")
+        if tool_execution not in TOOL_EXECUTION_MODES:
+            raise ValueError(f"tool_execution must be one of {TOOL_EXECUTION_MODES}")
+        self.tool_execution: ToolExecutionMode = tool_execution
         self._parent_runner = parent_runner
         self._normalize_result = normalize_result
         self._request_source = request_source
@@ -1276,6 +1289,7 @@ class AgentLoop:
                 callable_tools.callable_tools() if callable_tools is not None else ()
             ),
             session_waiter=self._tool_waiter,
+            sequential=lambda: self.tool_execution == "sequential",
         )
         started_at = datetime.now(UTC)
         terminal_emit_attempted = False

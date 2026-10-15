@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Extension tools: calls that tools make of other tools
+  (`ctx.execute_tool`, codemode scripts and their `submit()`) now follow
+  Pi's execution mode. A tool registered with
+  `ExtensionTool(..., execution_mode="sequential")` (Pi `executionMode`)
+  has its calls run one at a time, in the order they were asked for, while
+  other calls run beside them; a call made inside the running sequential
+  call does not wait for it. Before, every nested call ran at the same
+  time, so two calls of a tool with shared state could overlap. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+
 - Security: the key given with `--api-key` is no longer sent to an MCP
   server whose `"auth": {"provider": "<provider>"}` names another provider
   than the one of the model the session starts with. Such a server gets

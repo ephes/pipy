@@ -28,9 +28,8 @@ def _normalize_extension_tool(
     The values are held to the native `ToolDefinition` rules: the input schema
     to pipy's strict subset, and the metadata (`exposure`, `namespace`,
     `annotations`, `output_schema`, `reaches_tools`, `default_active`,
-    `prepare_loadout`, `prompt_snippet`, `prompt_guidelines`) to the shapes
-    that
-    definition accepts.
+    `prepare_loadout`, `prompt_snippet`, `prompt_guidelines`,
+    `execution_mode`) to the shapes that definition accepts.
     """
 
     description = tool.description
@@ -66,6 +65,7 @@ def _normalize_extension_tool(
             prepare_loadout=tool.prepare_loadout,
             prompt_snippet=tool.prompt_snippet,
             prompt_guidelines=cast(tuple[str, ...], tool.prompt_guidelines),
+            execution_mode=tool.execution_mode,
         )
     except (ValueError, TypeError) as exc:
         raise _ActivationError(REASON_INVALID_TOOL, _safe_diagnostic(exc)) from None
@@ -83,5 +83,6 @@ def _normalize_extension_tool(
         prepare_loadout=definition.prepare_loadout,
         prompt_snippet=definition.prompt_snippet,
         prompt_guidelines=definition.prompt_guidelines,
+        execution_mode=definition.execution_mode,
     )
     return RegisteredTool(tool=normalized, extension=extension)

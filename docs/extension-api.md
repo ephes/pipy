@@ -1034,6 +1034,12 @@ def activate(api):
   `describe_tool()` and the `codemode` description, since the prompt lists
   them for declared tools only. A custom system prompt (`--system-prompt`,
   `SYSTEM.md`) has no tool list or rules, so neither field shows there.
+- `execution_mode="sequential"` (Pi `executionMode`) runs the calls other
+  tools make of this tool one at a time; see
+  [running other tools](#running-other-tools). Use it when the tool keeps
+  mutable state in memory. `None` (the default) and `"parallel"` let them
+  run at the same time. The calls the model makes run one at a time in
+  any case.
 
 **Results.** A handler that returns data declares an `output_schema` and
 returns the data as `ToolResult(structured_content=...)` next to `content`. It
@@ -1218,7 +1224,15 @@ def read_all(ctx, params):
 
 `execute_tool` may be called from any thread the handler starts, and calls
 made from several threads run at the same time, as in Pi; each blocks its
-caller until it ended. The handler runs on a worker thread, and the session
+caller until it ended. A call of a tool registered with
+`execution_mode="sequential"` waits instead until the sequential calls
+asked for before it ended, in the order they were asked for, as Pi's
+exclusive queue does; calls of other tools run beside them, and a call made
+inside the running sequential call, at any depth, does not wait for it. A
+waiting call has its id and its place in the record at once; its
+`tool_call` handlers and its start event come when its turn comes. If its
+calling tool returns first, it does not run and ends with
+`tool cancelled by its caller`. The handler runs on a worker thread, and the session
 thread runs the pipeline of each call (validation, handlers, budget) while
 the tools themselves run on threads of their own. When the tool the model
 called returned, the nested calls still running are cancelled with the
@@ -1237,9 +1251,14 @@ Different from Pi:
 - `ctx.tools` and what `execute_tool` reaches, at every depth, are fixed when
   the tool the model called starts, after its `tool_call` handlers ran. Pi
   looks the callable tools up again for every call.
-- Nested calls always run concurrently. Pi runs them one at a time when the
-  agent executes tool calls sequentially or the tool's `executionMode` is
-  `sequential`; pipy has neither setting.
+- Pi also runs every nested call one at a time when its agent executes
+  tool calls sequentially (`toolExecution`, set through its SDK). pipy's
+  agent loop has the same rule (`AgentLoop(tool_execution="sequential")`),
+  but no setting or SDK option selects it, so nested calls follow only the
+  tools' `execution_mode`. Pi emits the start event of a call that waits
+  for its turn at once; pipy emits it when the call's turn comes, and a
+  waiting call whose caller ended has no events, only its place in the
+  record.
 - Pi lets a nested call still running when its calling tool returned go on;
   pipy cancels it when its calling tool returned.
 - In the outcome, `result.content` is the result's text and `result.blocks`

@@ -162,6 +162,7 @@ from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.provider_construction import build_extension_provider_port
 from pipy_harness.native.tools.base import (
     ToolAnnotations,
+    ToolExecutionMode,
     ToolExposure,
     ToolInfo,
     ToolNamespace,
@@ -279,6 +280,7 @@ __all__ = [
     "safe_extension_metadata",
     "apply_provider_headers",
     "ToolAnnotations",
+    "ToolExecutionMode",
     "ToolExposure",
     "ToolInfo",
     "ToolNamespace",

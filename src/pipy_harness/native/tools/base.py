@@ -88,6 +88,11 @@ TOOL_EXPOSURES: tuple[str, ...] = get_args(ToolExposure)
 ToolSchemaMode = Literal["strict", "foreign"]
 TOOL_SCHEMA_MODES: tuple[str, ...] = get_args(ToolSchemaMode)
 
+# Pi ``ToolExecutionMode``: ``sequential`` runs a tool's calls one at a time
+# with the other calls; ``parallel`` lets them run at the same time.
+ToolExecutionMode = Literal["sequential", "parallel"]
+TOOL_EXECUTION_MODES: tuple[str, ...] = get_args(ToolExecutionMode)
+
 # Pi ``reachesTools``: which tools a call with this input may reach. ``"all"``,
 # or the words of the input that may name them (a word refers to a tool or
 # namespace whose name it contains, so words may over-match).
@@ -255,6 +260,9 @@ class ToolDefinition:
     - `prompt_guidelines`: bullets for the system prompt's rules while the
       tool is declared, which scripts see with its declaration (Pi
       `promptGuidelines`; `native/tools/prompts.py`).
+    - `execution_mode`: `"sequential"` makes the tool's calls by other tools
+      wait for each other (Pi `executionMode`); `None` or `"parallel"` leaves
+      the session's mode (`native/agent/nested_calls.py`).
     """
 
     name: str
@@ -270,6 +278,7 @@ class ToolDefinition:
     schema_mode: ToolSchemaMode = field(default="strict", kw_only=True)
     prompt_snippet: str | None = field(default=None, kw_only=True)
     prompt_guidelines: tuple[str, ...] = field(default=(), kw_only=True)
+    execution_mode: ToolExecutionMode | None = field(default=None, kw_only=True)
 
     NAME_MAX_LENGTH: ClassVar[int] = 64
     DESCRIPTION_MAX_LENGTH: ClassVar[int] = 4 * 1024
@@ -328,6 +337,14 @@ class ToolDefinition:
             raise ValueError("ToolDefinition.default_active must be a bool")
         if self.prepare_loadout is not None and not callable(self.prepare_loadout):
             raise ValueError("ToolDefinition.prepare_loadout must be callable or None")
+        if self.execution_mode is not None and (
+            type(self.execution_mode) is not str
+            or self.execution_mode not in TOOL_EXECUTION_MODES
+        ):
+            raise ValueError(
+                "ToolDefinition.execution_mode must be one of "
+                f"{TOOL_EXECUTION_MODES} or None"
+            )
 
     def _validate_prompts(self) -> None:
         if self.prompt_snippet is not None and not isinstance(self.prompt_snippet, str):
