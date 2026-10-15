@@ -25,7 +25,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, BinaryIO, TypeVar
 
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.http import urlopen_read_cancellable
@@ -38,14 +38,29 @@ from pipy_harness.native.session_tree import (
 if TYPE_CHECKING:
     from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 
-_SENSITIVE_KEY_RE = r"api[_-]?key|apikey|secret|token|password|credential"
-_JSON_SECRET_FIELD_RE = re.compile(
-    rf"(?i)(?P<prefix>(?P<quote>['\"])(?:{_SENSITIVE_KEY_RE})(?P=quote)\s*:\s*)"
-    r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,}\]]+)"
+# Text keys containing a marker are candidates; ``_key_is_sensitive`` then
+# decides, so token-count fields such as ``totalTokens`` survive.
+_SENSITIVE_KEY_MARKERS = r"api[_-]?key|token|secret|password|passwd|credential"
+_SENSITIVE_KEY_CANDIDATE_RE = (
+    rf"[A-Za-z0-9_.-]*?(?:{_SENSITIVE_KEY_MARKERS})[A-Za-z0-9_.-]*"
 )
-_SECRET_ASSIGN_RE = re.compile(
-    rf"(?i)\b({_SENSITIVE_KEY_RE})\b"
-    r"\s*([:=])\s*(?:\"[^\"]*\"|'[^']*'|[^\s<>'\"]+)"
+# A key prefix is matched first; its value is consumed only when the key is
+# sensitive, so a skipped key's value is still scanned for nested secrets.
+_JSON_SECRET_KEY_RE = re.compile(
+    rf"(?i)(?P<quote>['\"])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})(?P=quote)\s*:\s*"
+)
+_JSON_SECRET_VALUE_RE = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,}\]]+")
+_SECRET_ASSIGN_KEY_RE = re.compile(
+    rf"(?i)(?<![A-Za-z0-9_.-])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})"
+    r"\s*(?P<sep>[:=])\s*"
+)
+_SECRET_ASSIGN_VALUE_RE = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s<>'\"]+")
+_SECRET_KEY_MARKER_RE = re.compile(r"api_?key|secret|password|passwd|credential")
+# ``token`` marks a credential unless it is token accounting: the plural
+# (``totalTokens``, ``tokensBefore``) or a count-shaped suffix
+# (``totalTokenCount``, ``promptTokenDetails``).
+_TOKEN_KEY_MARKER_RE = re.compile(
+    r"token(?!s|_?(?:count|details|start|end|limit|usage|budget))"
 )
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}")
 _COMMON_TOKEN_RE = re.compile(
@@ -59,6 +74,10 @@ _MappingKeyT = TypeVar("_MappingKeyT")
 
 class NativeExportError(RuntimeError):
     """Raised for user-facing native export/import/share failures."""
+
+
+class InvalidSessionCwdError(NativeExportError):
+    """An imported cwd requires explicit directory replacement."""
 
 
 class ShareCancelled(NativeExportError):
@@ -129,27 +148,128 @@ def _is_image_block(value: Mapping[Any, object]) -> bool:
 
 
 def _key_is_sensitive(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    return any(
-        marker in normalized
-        for marker in ("api_key", "apikey", "secret", "token", "password", "credential")
+    """Return whether ``key`` names a credential rather than a token count.
+
+    ``OPENAI_API_KEY``, ``accessToken``, ``GITHUB_TOKEN`` and ``client_secret``
+    are sensitive; ``totalTokens``, ``tokensBefore`` and ``totalTokenCount``
+    are not.
+    """
+
+    normalized = key.lower().replace("-", "_").replace(".", "_")
+    return bool(
+        _SECRET_KEY_MARKER_RE.search(normalized)
+        or _TOKEN_KEY_MARKER_RE.search(normalized)
     )
 
 
 def _redact_text(value: str) -> str:
-    value = _JSON_SECRET_FIELD_RE.sub(_redact_json_secret_field, value)
-    value = _SECRET_ASSIGN_RE.sub(
-        lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", value
+    value = _redact_keyed_values(
+        value, _JSON_SECRET_KEY_RE, _JSON_SECRET_VALUE_RE, _redact_json_secret_field
+    )
+    value = _redact_keyed_values(
+        value,
+        _SECRET_ASSIGN_KEY_RE,
+        _SECRET_ASSIGN_VALUE_RE,
+        _redact_secret_assignment,
     )
     value = _BEARER_RE.sub("Bearer [REDACTED]", value)
     return _COMMON_TOKEN_RE.sub("[REDACTED]", value)
 
 
-def _redact_json_secret_field(match: re.Match[str]) -> str:
-    raw_value = match.group("value")
+def _redact_keyed_values(
+    text: str,
+    key_re: re.Pattern[str],
+    value_re: re.Pattern[str],
+    render: Callable[[re.Match[str], str], str],
+) -> str:
+    """Replace the value after each sensitive key matched by ``key_re``.
+
+    A non-sensitive key such as ``tokenUsage`` or ``max_tokens`` is skipped
+    without consuming its value, so secrets nested in or following that value
+    are still found.
+    """
+
+    parts: list[str] = []
+    position = 0
+    while (key_match := key_re.search(text, position)) is not None:
+        value_end = (
+            _secret_value_end(text, key_match.end(), value_re)
+            if _key_is_sensitive(key_match.group("key"))
+            else None
+        )
+        if value_end is None:
+            parts.append(text[position : key_match.end()])
+            position = key_match.end()
+            continue
+        parts.append(text[position : key_match.start()])
+        parts.append(render(key_match, text[key_match.end() : value_end]))
+        position = value_end
+    parts.append(text[position:])
+    return "".join(parts)
+
+
+def _secret_value_end(text: str, start: int, value_re: re.Pattern[str]) -> int | None:
+    """Return where the value starting at ``start`` ends, or ``None``.
+
+    An object or array value is consumed through its matching bracket
+    (quote-aware), or to the end of the text when it is unbalanced, so no part
+    of a structured secret survives.
+    """
+
+    if text[start : start + 1] not in _CONTAINER_CLOSERS:
+        value_match = value_re.match(text, start)
+        return None if value_match is None else value_match.end()
+    return _container_end(text, start)
+
+
+_CONTAINER_CLOSERS = {"{": "}", "[": "]"}
+
+
+def _container_end(text: str, start: int) -> int:
+    """End of the bracketed value at ``start``; end of text if mismatched."""
+
+    closers: list[str] = []
+    index = start
+    while index < len(text):
+        char = text[index]
+        if char in {'"', "'"}:
+            index = _quoted_end(text, index)
+            continue
+        if char in _CONTAINER_CLOSERS:
+            closers.append(_CONTAINER_CLOSERS[char])
+        elif char in {"}", "]"}:
+            if char != closers.pop():
+                return len(text)
+            if not closers:
+                return index + 1
+        index += 1
+    return len(text)
+
+
+def _quoted_end(text: str, start: int) -> int:
+    """Index after the quoted string opening at ``start`` (or end of text)."""
+
+    quote = text[start]
+    index = start + 1
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+        elif text[index] == quote:
+            return index + 1
+        else:
+            index += 1
+    return len(text)
+
+
+def _redact_json_secret_field(key_match: re.Match[str], raw_value: str) -> str:
     quote = raw_value[0] if raw_value[:1] in {"'", '"'} else ""
     redacted = f"{quote}[REDACTED]{quote}" if quote else "[REDACTED]"
-    return f"{match.group('prefix')}{redacted}"
+    return f"{key_match.group(0)}{redacted}"
+
+
+def _redact_secret_assignment(key_match: re.Match[str], raw_value: str) -> str:
+    del raw_value
+    return f"{key_match.group('key')}{key_match.group('sep')}[REDACTED]"
 
 
 def parse_command_path_argument(argument: str) -> str:
@@ -255,7 +375,6 @@ def export_native_session_to_html(
     if not tree.get_entries():
         raise NativeExportError("Nothing to export yet.")
     output = Path(output_path).expanduser()
-    output.parent.mkdir(parents=True, exist_ok=True)
     html = generate_session_html(
         session_export_payload(
             tree,
@@ -264,8 +383,34 @@ def export_native_session_to_html(
             tool_renderers=tool_renderers,
         )
     )
-    output.write_text(html, encoding="utf-8")
+    _write_export(tree.path, output, html)
     return output
+
+
+def _write_export(source: Path | None, output: Path, text: str) -> None:
+    if source is not None and (
+        source.resolve() == output.resolve()
+        or (source.exists() and output.exists() and source.samefile(output))
+    ):
+        raise NativeExportError("Export destination identifies the backing session.")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=".pipy-export-",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _linearized_entry_dicts(tree: NativeSessionTree) -> list[dict[str, Any]]:
@@ -283,7 +428,6 @@ def export_native_branch_to_jsonl(tree: NativeSessionTree, output_path: Path) ->
     if not tree.get_entries():
         raise NativeExportError("Nothing to export yet.")
     output = Path(output_path).expanduser()
-    output.parent.mkdir(parents=True, exist_ok=True)
     header = redact_export_value(
         {
             "type": "session",
@@ -297,7 +441,7 @@ def export_native_branch_to_jsonl(tree: NativeSessionTree, output_path: Path) ->
     lines.extend(
         json.dumps(entry, sort_keys=True) for entry in _linearized_entry_dicts(tree)
     )
-    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _write_export(tree.path, output, "\n".join(lines) + "\n")
     return output
 
 
@@ -314,10 +458,7 @@ def export_from_file(session_path: Path, output_path: Path | None = None) -> Pat
     # Standalone CLI export is allowed from a file opened persist=False.
     if not tree.get_entries():
         raise NativeExportError("Nothing to export yet.")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        generate_session_html(session_export_payload(tree)), encoding="utf-8"
-    )
+    _write_export(source, output, generate_session_html(session_export_payload(tree)))
     return output
 
 
@@ -332,8 +473,11 @@ def import_native_session_jsonl(
         raise NativeExportError(f"not a valid native session file: {source}")
     cwd = Path(header.cwd).expanduser()
     replacement_cwd = Path(missing_cwd).expanduser().resolve() if missing_cwd else None
-    if header.cwd and not cwd.exists() and replacement_cwd is None:
-        raise NativeExportError(f"imported session cwd does not exist: {header.cwd}")
+    if header.cwd and not cwd.is_dir() and replacement_cwd is None:
+        reason = "does not exist" if not cwd.exists() else "is not a directory"
+        raise InvalidSessionCwdError(
+            f"imported session cwd {reason}: {_redact_text(header.cwd)}"
+        )
     if replacement_cwd is not None and not replacement_cwd.is_dir():
         raise NativeExportError(
             f"replacement cwd is not a directory: {replacement_cwd}"
@@ -344,39 +488,63 @@ def import_native_session_jsonl(
         destination_dir.chmod(0o700)
     except OSError:
         pass
-    destination = _unique_import_destination(destination_dir / source.name)
-    shutil.copyfile(source, destination)
-    if header.cwd and not cwd.exists() and replacement_cwd is not None:
-        _rewrite_session_header_cwd(destination, replacement_cwd)
+    destination, handle = _reserve_import_destination(destination_dir / source.name)
     try:
-        destination.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
-    imported = NativeSessionTree.open(destination)
-    if entries:
-        imported.set_leaf(entries[-1].id)
-    return imported
+        with handle, source.open("rb") as source_handle:
+            shutil.copyfileobj(source_handle, handle)
+            if header.cwd and not cwd.is_dir() and replacement_cwd is not None:
+                handle.seek(0)
+                rewritten = _rewrite_import_cwd(handle.read(), replacement_cwd)
+                handle.seek(0)
+                handle.write(rewritten)
+                handle.truncate()
+            handle.flush()
+            os.fsync(handle.fileno())
+        imported = NativeSessionTree.open(destination)
+        if entries:
+            imported.set_leaf(entries[-1].id)
+        return imported
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
 
 
-def _unique_import_destination(path: Path) -> Path:
-    if not path.exists():
-        return path
-    for index in range(1, 10_000):
-        candidate = path.with_name(f"{path.stem}-{index}{path.suffix}")
-        if not candidate.exists():
-            return candidate
+def _rewrite_import_cwd(content: bytes, cwd: Path) -> bytes:
+    lines = content.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        try:
+            body = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            isinstance(body, dict)
+            and body.get("type") == "session"
+            and isinstance(body.get("id"), str)
+        ):
+            body["cwd"] = str(cwd)
+            ending = (
+                b"\r\n"
+                if line.endswith(b"\r\n")
+                else b"\n"
+                if line.endswith(b"\n")
+                else b""
+            )
+            lines[index] = json.dumps(body, sort_keys=True).encode("utf-8") + ending
+            break
+    return b"".join(lines)
+
+
+def _reserve_import_destination(path: Path) -> tuple[Path, BinaryIO]:
+    for index in range(10_000):
+        candidate = (
+            path if index == 0 else path.with_name(f"{path.stem}-{index}{path.suffix}")
+        )
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        except FileExistsError:
+            continue
+        return candidate, os.fdopen(fd, "w+b")
     raise NativeExportError(f"could not choose a unique import path for {path}")
-
-
-def _rewrite_session_header_cwd(path: Path, cwd: Path) -> None:
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if not lines:
-        return
-    header = json.loads(lines[0])
-    if isinstance(header, dict) and header.get("type") == "session":
-        header["cwd"] = str(cwd)
-        lines[0] = json.dumps(header, sort_keys=True)
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def resolve_github_token(

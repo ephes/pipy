@@ -256,11 +256,14 @@ def _system_sections_source(
 
     A template renders for the live active tool names and the session's
     current skills, so an extension `set_active_tools` or a `/reload` changes
-    the next run's `tools`/`rules`/`skills` sections (Pi `_rebuildSystemPrompt`);
-    fixed sections (a caller that passed only a prompt) stay as given.
+    the next run's `tools`/`rules`/`skills` sections (Pi `_rebuildSystemPrompt`).
+    The live template also carries reloaded project and replace/append inputs.
+    Initialize that holder once; fixed sections stay as given.
     """
 
     if isinstance(source, SystemPromptTemplate):
+        with ctl.coding_effects.lock:
+            ctl.prompt_template = source
 
         def render_sections() -> SystemPromptSections:
             snapshot = NativeToolCapabilitySnapshot(
@@ -274,9 +277,13 @@ def _system_sections_source(
             registered = tuple(
                 port.definition for port in snapshot.state.registry.values()
             )
+            with ctl.coding_effects.lock:
+                template = ctl.prompt_template
+                skills = ctl.workspace_resources.skills
+            assert template is not None
             return replace(
-                source,
-                skills=ctl.workspace_resources.skills,
+                template,
+                skills=skills,
                 tool_snippets=prompt_snippets(registered),
                 tool_guidelines=prompt_guidelines(registered),
             ).sections(

@@ -1499,6 +1499,11 @@ counters. Correcting those public adapter/archive metadata values requires a
 dedicated compatibility slice with JSON, adapter, and archive contract coverage;
 the coding-session state extraction does not change them.
 
+Image attachment limits apply during I/O: each opened descriptor is checked for
+a regular file and read up to the remaining per-image/aggregate budget plus
+one rejection byte. File growth cannot trigger an unbounded read. Explicit
+outside-workspace image paths retain the read tool policy.
+
 ### Native Explicit Multi-File Context Budget
 
 The boundary raises the successful explicit file-excerpt budget from one to two
@@ -3093,7 +3098,8 @@ D6c9 adopts replacement ownership. The adapter retains exact path parsing,
 standalone case-sensitive `--yes`, both raw confirmation prompts, the expanded
 but noncanonical source spelling used for display and the detailed switch hook,
 permissive import validation, missing-cwd recovery, collision naming, sanitized
-diagnostics and current partial-artifact behavior. A veto occurs before source
+diagnostics. Native-store copy/open failures now remove the reserved import
+file; failures after import adoption retain their existing live-state behavior. A veto occurs before source
 validation or copying. No queue, lease or coding-effects lock spans confirmation,
 the hook or file I/O.
 
@@ -3233,8 +3239,9 @@ unless `--yes`, switch
 gate, import, optional second missing-cwd confirmation and retry, history
 rebuild, extension-input clear, success diagnostic, then one standard footer.
 Usage, cancellation, veto, and controlled `NativeExportError` paths retain
-their existing diagnostic/footer cutoffs. Uncontrolled failure and partial
-filesystem or live-state behavior is unchanged; no rollback is added.
+their existing diagnostic/footer cutoffs. Uncontrolled failures still propagate. Copy/open failure removes the newly
+reserved native-store file; later adoption failures retain the completed copy
+and existing live-state behavior.
 
 The action/path and imported JSONL remain private full-content product data.
 They are not serialized by the command kernel or projected into the metadata-

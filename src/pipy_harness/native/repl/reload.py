@@ -251,6 +251,19 @@ class ReloadCommandEffects:
             enable_skill_commands=self.settings.get_enable_skill_commands(),
         )
 
+        with self.ctl.coding_effects.lock:
+            template = self.ctl.prompt_template
+        if template is not None and template.reload_inputs is not None:
+            try:
+                refreshed = template.reload_inputs(
+                    template, self.settings.project_trusted, self.diag
+                )
+            except (OSError, UnicodeError) as error:
+                self.diag(f"pipy: keeping previous prompt inputs after reload: {error}")
+            else:
+                with self.ctl.coding_effects.lock:
+                    self.ctl.prompt_template = refreshed
+
     def _reload_extensions(self, candidate: _ExtensionCandidate) -> bool:
         """Activate one candidate, then delegate its complete attachment."""
 

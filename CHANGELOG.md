@@ -6,6 +6,46 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep token-count fields such as `totalTokens` and `tokensBefore` in native
+  HTML/JSONL exports instead of redacting them, so exported sessions re-import
+  with every assistant message and compaction. Prefixed secret keys such as
+  `access_token`, `OPENAI_API_KEY=` and `GITHUB_TOKEN=` inside text are now
+  redacted too.
+
+- Reject malformed scalar metadata in workflow archive exports before it can
+  leak nested payloads or be stringified into labels; keep errors field-only.
+
+- Serialize automatic capture starts per platform session and clean up owned
+  files when mapping publication fails.
+
+- Escape terminal controls in all human workflow catalog fields and summaries,
+  preserving stored records and JSON output.
+
+- Refresh context files and system-prompt replace/append inputs on `/reload`,
+  removing stale text after edits or deletion while retaining explicit prompt
+  precedence, project trust filtering and conversation history.
+
+- Refuse native session export paths that alias the backing session and publish
+  exports atomically, preserving existing output on failure. Exports are now
+  owner-only (0600) and replace destination symlinks rather than their targets.
+- Require imported session cwd paths to be directories, supporting copied-only
+  replacement for non-directory paths.
+- Reserve private import destinations exclusively so concurrent imports and
+  dangling symlink collisions cannot overwrite sessions; clean up failed copies.
+
+- Treat invalid UTF-8 auth-command output as unavailable without exposing it.
+- Bound auth-command capture and terminate the owned process group on timeout.
+
+- Enforce image attachment byte budgets during descriptor reads, including file growth.
+
+- Kill and reap clipboard image helpers that hang after stdout closes; reject
+  unfinished execution and clean up the owned POSIX process group.
+
+- Treat invalid UTF-8 release notes as unavailable so startup and `/changelog`
+  remain usable without modifying the changelog file.
+
 ### Added
 
 - TUI: images in tool results (MCP screenshots, codemode `image()`,

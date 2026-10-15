@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import sys
 import threading
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TextIO
 
@@ -425,9 +426,34 @@ class CodingSessionAdapter:
             resume_block = compose_resume_system_block(self.resume_context)
             if self.resume_branch_label:
                 resume_block += f" Branch: {self.resume_branch_label}."
-        # Pi's tagged sections, rebuilt for each run's active tools; the
-        # prompt is their rendering (here for the built-ins before extensions
-        # load).
+
+        def reload_prompt_inputs(
+            current: SystemPromptTemplate,
+            project_trusted: bool,
+            warn: Callable[[str], None],
+        ) -> SystemPromptTemplate:
+            refreshed_prompt = resolve_system_prompt(
+                DEFAULT_PREAMBLE,
+                cwd=cwd,
+                config_home=resolve_config_home(),
+                system_prompt_source=self.system_prompt_source,
+                append_sources=self.append_system_prompt_sources,
+                include_project_defaults=project_trusted,
+                warn=warn,
+            )
+            return replace(
+                current,
+                custom_preamble=(
+                    refreshed_prompt.preamble if refreshed_prompt.replaced else None
+                ),
+                addendum=refreshed_prompt.addendum,
+                project_context=render_project_context_body(
+                    self.instruction_loader(cwd)
+                ),
+            )
+
+        # Tagged sections render for each run's active tools. File inputs are
+        # refreshed only at the explicit reload boundary.
         template = SystemPromptTemplate(
             cwd=str(cwd),
             custom_preamble=(
@@ -437,6 +463,7 @@ class CodingSessionAdapter:
             project_context=render_project_context_body(discovery),
             skills=skills,
             resume=resume_block,
+            reload_inputs=reload_prompt_inputs,
         )
         sections = template.sections(
             tuple(name for name in self.tool_registry if name in visible)

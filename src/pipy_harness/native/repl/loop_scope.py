@@ -81,6 +81,7 @@ from pipy_harness.native.session_generation import (
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.system_prompt_sections import SystemPromptTemplate
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
@@ -117,6 +118,7 @@ class RunControlState:
     generation_ref: SessionGenerationRef
     agent_settled_pending: bool
     extension_in_agent_turn: bool
+    prompt_template: SystemPromptTemplate | None = None
     compaction_active: bool = False
     # ``line`` is (re)assigned by ``_ReplLoopStep.step_once`` before any read every
     # iteration;

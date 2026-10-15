@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -554,7 +555,9 @@ def format_session_inspection(inspection: FinalizedSessionInspection) -> str:
         lines.append(f"  {_table_cell(event_type)}: {count}")
 
     if inspection.summary_text is not None:
-        lines.extend(["summary_text:", inspection.summary_text.rstrip("\n")])
+        lines.extend(
+            ["summary_text:", _terminal_text(inspection.summary_text).rstrip("\n")]
+        )
 
     return "\n".join(lines)
 
@@ -571,10 +574,10 @@ def format_archive_verification(verification: SessionArchiveVerification) -> str
         lines.append(
             "\t".join(
                 [
-                    issue.severity,
-                    issue.kind,
-                    str(issue.path),
-                    issue.detail,
+                    _table_cell(issue.severity),
+                    _table_cell(issue.kind),
+                    _table_cell(str(issue.path)),
+                    _table_cell(issue.detail),
                 ]
             )
         )
@@ -795,8 +798,23 @@ def _search_match_label(match: FinalizedSessionSearchMatch) -> str:
     return match.field
 
 
+def _terminal_text(value: str) -> str:
+    """Escape terminal controls while preserving Unicode and summary layout."""
+    return "".join(
+        f"\\u{ord(char):04x}"
+        if (
+            unicodedata.category(char) in {"Cc", "Cs"}
+            or char
+            in "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+        )
+        and char not in "\n\t"
+        else char
+        for char in value
+    )
+
+
 def _table_cell(value: str) -> str:
-    return " ".join(value.split())
+    return _terminal_text(" ".join(value.split()))
 
 
 def _read_finalized_inspection(
@@ -879,8 +897,8 @@ def _safe_lineage_label(value: Any) -> str | None:
     A finalized record may be forged or foreign, so lineage labels printed by
     the human ``list``/``inspect`` output must not carry control bytes (e.g. an
     embedded ``ESC[2J`` clear-screen), secret-shaped content, or unbounded
-    length. Whitespace collapse in ``_table_cell`` does not strip control
-    bytes, so they are dropped here.
+    length. JSON/export projections also expose these labels, so unsafe
+    labels are dropped before human rendering.
     """
 
     if not isinstance(value, str) or not value:

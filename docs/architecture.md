@@ -1139,7 +1139,8 @@ permissive staging, missing-workspace recovery and diagnostics; the coordinator
 claims the staged durable copy before guarded publication, publishes the slot,
 retires the source claim and invokes the existing history/input rebuild owners.
 Persistent and ephemeral sources therefore converge on one claimed persistent
-target without changing import recovery or partial-artifact behavior.
+target. Import copy/open failures remove the newly reserved file; failures
+after adoption can retain the completed copy and existing live-state effects.
 
 D6c2 fixed the first terminal adoption boundary without adding an owner. D6c3
 binds one canonical lease slot to the stream-driven terminal controller after

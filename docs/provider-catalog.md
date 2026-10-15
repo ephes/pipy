@@ -1163,7 +1163,7 @@ resolver. Only if that returns nothing does the registry fall back to the
 provider's `models.json` `apiKey` from `providerRequestConfigs`. In other words
 the `models.json` key is resolved by the registry after the auth-storage path,
 not via the `AuthStorage` fallback resolver. `models.json` `apiKey` values may
-be literal keys, env-var names, or `!command` values (resolved at request time,
+be literal keys, env-var names, or `!command` values (resolved at request time (see [credential command limits](providers.md#credential-command-helpers)),
 never archived). The built-in OAuth registry
 (`oauth.ts`) holds three providers, each implementing
 `login`/`refreshToken`/`getApiKey`/optional `modifyModels`:

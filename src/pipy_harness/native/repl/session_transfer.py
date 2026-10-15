@@ -29,6 +29,7 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.export_distribution import (
+    InvalidSessionCwdError,
     NativeExportError,
     ShareCancelled,
     ShareResult,
@@ -137,7 +138,7 @@ def stage_import_session(
             session_dir=current_session_dir(),
         )
     except NativeExportError as exc:
-        if "imported session cwd does not exist:" not in str(exc):
+        if not isinstance(exc, InvalidSessionCwdError):
             diagnostic(f"pipy: {exc}")
             return None
         use_current = _confirm_import_prompt(

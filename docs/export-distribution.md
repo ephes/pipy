@@ -45,6 +45,19 @@ Shipped user-facing surfaces:
 - Startup "newer version available" notices remain future polish; explicit
   `pipy update` version checks and opt-out handling are shipped.
 
+Exports refuse the backing session path, including symlink and hardlink aliases.
+Legitimate exports use a private sibling temporary file and atomic replacement;
+write or replacement failure preserves an existing destination. Outputs are
+owner-only (0600), replacing a destination symlink itself rather than its target.
+Atomic publication requires a writable parent directory and a regular-file
+destination; special files are not supported.
+Imports require the recorded cwd to be a directory; a missing or non-directory
+cwd can use the existing replacement option, which rewrites only the copied
+header. Import names are reserved with exclusive creation (including collisions
+with dangling symlinks), and copied through an owner-only handle. Concurrent
+imports receive distinct suffix names. Failed copies remove only their newly
+reserved incomplete file; the source and other imports remain unchanged.
+
 Phase 3.1d.4c is an ownership-only migration of the shipped `/export` surface.
 The headless command kernel classifies bare and literal-space forms into one
 exact full-content `SESSION_EXPORT` action carrying an exact `ProductContent`
@@ -202,6 +215,20 @@ prompts are masked. This token withholding is a pipy choice, not Pi behavior. No
 other transcript content is dropped: privacy is not a reason to reduce exported
 content; the artifact is the user's own session and is exported in full minus
 auth tokens.
+
+Redaction decides by key name. A mapping key, a quoted JSON key inside text, or
+a `KEY=value` / `key: value` assignment is withheld when its key contains
+`api_key`/`apikey`, `secret`, `password`, `passwd`, `credential`, or a singular
+`token` (so `access_token`, `OPENAI_API_KEY`, `GITHUB_TOKEN` and
+`client_secret` are withheld). Token-accounting fields are kept: the plural
+`tokens` (`totalTokens`, `tokensBefore`, `max_tokens`) and a `token` followed
+by `count`, `details`, `start`, `end`, `limit`, `usage` or `budget`
+(`totalTokenCount`). This keeps usage and compaction integers intact so an
+exported JSONL session re-imports with every entry. In text, an object or
+array value under a sensitive key is withheld whole, and a skipped key's value
+is still scanned for nested secrets. Bearer values and common
+token prefixes (`sk-`, `ghp_`, `github_pat_`, `ya29.`, `xoxb-`/`xoxp-`) are
+withheld wherever they appear.
 
 ### Artifact shape
 

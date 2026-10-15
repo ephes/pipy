@@ -483,9 +483,6 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     `prompt_snippet`/`prompt_guidelines` since the MCP parity slice G9;
   - Pi also refreshes the sections before each turn inside a run; pipy
     rebuilds them per run;
-  - `/reload` rebuilds the `skills` section, but the `project_context` and
-    `addendum` sections keep the session-start files (Pi's
-    `_rebuildSystemPrompt` re-reads both);
   - package extensions and themes still load at the lowest precedence (Pi
     resolves package resources before the auto roots for every kind);
   - settings `skills`/`prompts` path entries; the wheel does not ship the

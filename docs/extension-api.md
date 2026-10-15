@@ -734,7 +734,8 @@ validation, copy or missing-workspace recovery. A denial therefore creates no
 import artifact. Once allowed, the terminal stages and permissively opens a
 persistent copy; the native coordinator claims and publishes that copy through
 the current terminal lease slot. Missing-workspace confirmation, controlled
-import errors and partial-artifact behavior remain terminal import concerns.
+import errors remain terminal import concerns. Copy/open failures remove the
+reserved import file; later adoption failures may retain the completed copy.
 
 The first implementation should still start small. `tool_call` should be the
 first policy hook because it enables high-value workflows such as protected

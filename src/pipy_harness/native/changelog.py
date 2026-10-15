@@ -47,12 +47,12 @@ def default_changelog_path() -> Path:
 
 
 def read_changelog_entries(path: Path | None = None) -> list[ChangelogEntry]:
-    """Read and parse the shipped CHANGELOG.md; empty list when unreadable."""
+    """Read and parse the shipped CHANGELOG.md; empty list when missing, unreadable or invalid UTF-8."""
 
     target = path if path is not None else default_changelog_path()
     try:
         text = target.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
     return parse_changelog(text)
 

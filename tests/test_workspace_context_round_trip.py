@@ -583,3 +583,243 @@ def test_session_with_no_instructions_records_empty_metadata_block(
     payload = session_started[0]["payload"]
     assert payload.get("workspace_instruction_files") == []
     assert payload.get("workspace_instruction_total_byte_cap_reached") is False
+
+
+@pytest.mark.parametrize("trusted", [True, False])
+@pytest.mark.parametrize(
+    ("overrides", "file_override"), [(False, False), (True, False), (True, True)]
+)
+def test_reload_refreshes_prompt_files_and_preserves_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    trusted: bool,
+    overrides: bool,
+    file_override: bool,
+) -> None:
+    from pipy_harness.native.settings import SettingsManager
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    config = tmp_path / "config"
+    config.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    monkeypatch.setenv("PIPY_NATIVE_SESSIONS_ROOT", str(tmp_path / "native-sessions"))
+    project = workspace / ".pipy"
+    project.mkdir()
+    agents = workspace / "AGENTS.md"
+    agents.write_text("OLD_CONTEXT")
+    append = project / "APPEND_SYSTEM.md"
+    append.write_text("OLD_PROJECT_APPEND")
+    system = project / "SYSTEM.md"
+    system.write_text("OLD_PROJECT_BASE")
+    global_append = config / "APPEND_SYSTEM.md"
+    global_append.write_text("OLD_GLOBAL_APPEND")
+    global_base = config / "SYSTEM.md"
+    global_base.write_text("OLD_GLOBAL_BASE")
+    explicit_append = workspace / "explicit-append.md"
+    explicit_append.write_text("OLD_EXPLICIT_APPEND")
+    explicit_base = workspace / "explicit-base.md"
+    explicit_base.write_text("EXPLICIT_BASE")
+
+    class EditingProvider(_CapturingToolFakeProvider):
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
+            result = super().complete(request, **kwargs)
+            if len(self.captured_requests) == 1:
+                agents.write_text("NEW_CONTEXT")
+                append.write_text("NEW_PROJECT_APPEND")
+                system.write_text("NEW_PROJECT_BASE")
+                global_append.write_text("NEW_GLOBAL_APPEND")
+                global_base.write_text("NEW_GLOBAL_BASE")
+                explicit_append.write_text("NEW_EXPLICIT_APPEND")
+                explicit_base.write_text("NEW_EXPLICIT_BASE")
+            if len(self.captured_requests) == 2:
+                # Deletion must remove stale text and restore discovery fallback.
+                agents.unlink()
+                append.unlink()
+                system.unlink()
+                if not trusted:
+                    global_append.unlink()
+                    global_base.unlink()
+                if file_override:
+                    explicit_base.unlink()
+            return result
+
+    provider = EditingProvider()
+    adapter = CodingSessionAdapter(
+        provider=provider,
+        input_stream=io.StringIO("first\n/reload\nsecond\n/reload \nthird\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        instruction_loader=_hermetic_loader,
+        settings_manager=SettingsManager.for_workspace(
+            workspace, project_trusted=trusted
+        ),
+        system_prompt_source=(str(explicit_base) if file_override else "EXPLICIT_BASE")
+        if overrides
+        else None,
+        append_system_prompt_sources=[str(explicit_append), "EXPLICIT_LITERAL"]
+        if overrides
+        else None,
+    )
+    context = adapter.prepare_session_context(workspace)
+    session = adapter.build_session(context)
+    result = session.run(
+        workspace_root=workspace,
+        input_stream=adapter.input_stream,
+        output_stream=adapter.output_stream,
+        error_stream=adapter.error_stream,
+        system_prompt=context.system_prompt,
+    )
+    assert result.exit_code == 0
+    assert len(provider.captured_requests) == 3
+    first, second, third = [r.system_prompt for r in provider.captured_requests]
+    assert "OLD_CONTEXT" in first
+    assert "NEW_CONTEXT" in second
+    assert "OLD_CONTEXT" not in second
+    assert "NEW_CONTEXT" not in third
+    scope = "EXPLICIT" if overrides else "PROJECT" if trusted else "GLOBAL"
+    assert f"OLD_{scope}_APPEND" in first
+    assert f"NEW_{scope}_APPEND" in second
+    assert "OLD_" not in second
+    if overrides:
+        if file_override:
+            assert "NEW_EXPLICIT_BASE" in second
+            assert "NEW_EXPLICIT_BASE" not in third
+            assert str(explicit_base) in third
+        else:
+            assert all("EXPLICIT_BASE" in prompt for prompt in (first, second, third))
+        assert "NEW_EXPLICIT_APPEND" in third
+        assert "EXPLICIT_LITERAL" in second
+        assert "PROJECT_APPEND" not in second
+    else:
+        assert f"NEW_{scope}_BASE" in second
+        if trusted:
+            assert "NEW_GLOBAL_BASE" in third
+            assert "NEW_GLOBAL_APPEND" in third
+        else:
+            assert "NEW_" not in third
+    if not trusted:
+        assert "PROJECT_APPEND" not in second
+        assert "PROJECT_BASE" not in second
+    # The request still carries the previous conversation after both reloads.
+    from pipy_harness.native.agent import AgentUserMessage
+
+    history = [
+        message.content.value
+        for message in provider.captured_requests[-1].messages
+        if isinstance(message, AgentUserMessage)
+    ]
+    assert "first" in history
+    assert "second" in history
+
+
+@pytest.mark.parametrize("failure", ["decode", "unreadable", "loader"])
+def test_reload_prompt_read_failure_uses_session_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from pipy_harness.native.settings import SettingsManager
+
+    config = tmp_path / "config"
+    config.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    monkeypatch.setenv("PIPY_NATIVE_SESSIONS_ROOT", str(tmp_path / "native"))
+    append = config / "APPEND_SYSTEM.md"
+    append.write_text("ORIGINAL_APPEND")
+    read_text = Path.read_text
+
+    def fail_read(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path == append:
+            raise OSError("synthetic read failure")
+        return read_text(path, *args, **kwargs)
+
+    loader_calls = 0
+
+    def load_instructions(cwd: Path) -> WorkspaceInstructionDiscovery:
+        nonlocal loader_calls
+        loader_calls += 1
+        if failure == "loader" and loader_calls == 2:
+            raise OSError("synthetic instruction-loader failure")
+        return _hermetic_loader(cwd)
+
+    class EditingProvider(_CapturingToolFakeProvider):
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
+            result = super().complete(request, **kwargs)
+            if len(self.captured_requests) == 1:
+                if failure == "decode":
+                    append.write_bytes(b"\xff")
+                elif failure == "unreadable":
+                    monkeypatch.setattr(Path, "read_text", fail_read)
+                else:
+                    append.write_text("NEW_APPEND")
+            return result
+
+    provider = EditingProvider()
+    errors = io.StringIO()
+    adapter = CodingSessionAdapter(
+        provider=provider,
+        instruction_loader=load_instructions,
+        settings_manager=SettingsManager.for_workspace(tmp_path, project_trusted=True),
+    )
+    context = adapter.prepare_session_context(tmp_path)
+    result = adapter.build_session(context).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("first\n/reload\nsecond\n"),
+        output_stream=io.StringIO(),
+        error_stream=errors,
+        system_prompt=context.system_prompt,
+    )
+    assert result.exit_code == 0
+    assert len(provider.captured_requests) == 2
+    if failure in {"decode", "loader"}:
+        assert "ORIGINAL_APPEND" in provider.captured_requests[1].system_prompt
+        assert "keeping previous prompt inputs" in errors.getvalue()
+        assert "reloaded settings, keybindings, and resources" in errors.getvalue()
+        assert loader_calls == {"decode": 1, "loader": 2}[failure]
+    else:
+        # Preserve the existing unreadable explicit/discovered input fallback.
+        assert str(append) in provider.captured_requests[1].system_prompt
+        assert "synthetic read failure" in errors.getvalue()
+
+
+@pytest.mark.parametrize("fixed_template", [False, True])
+def test_reload_preserves_disabled_context_or_fixed_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_template: bool
+) -> None:
+    from dataclasses import replace
+
+    from pipy_harness.native.system_prompt_sections import SystemPromptTemplate
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("PIPY_NATIVE_SESSIONS_ROOT", str(tmp_path / "native"))
+    (tmp_path / "AGENTS.md").write_text("EXCLUDED_CONTEXT")
+    provider = _CapturingToolFakeProvider()
+    # Default adapter loader is empty, like --no-context-files.
+    adapter = CodingSessionAdapter(provider=provider)
+    context = adapter.prepare_session_context(tmp_path)
+    if fixed_template:
+        context = replace(
+            context,
+            system_prompt_sections=SystemPromptTemplate(
+                cwd=str(tmp_path),
+                project_context="FIXED_CONTEXT",
+                addendum="FIXED_APPEND",
+            ),
+        )
+    result = adapter.build_session(context).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("first\n/reload\nsecond\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        system_prompt=context.system_prompt,
+    )
+    assert result.exit_code == 0
+    first, second = provider.captured_requests
+    assert first.system_prompt == second.system_prompt
+    assert "EXCLUDED_CONTEXT" not in second.system_prompt
+    if fixed_template:
+        assert "FIXED_CONTEXT" in second.system_prompt
+        assert "FIXED_APPEND" in second.system_prompt
