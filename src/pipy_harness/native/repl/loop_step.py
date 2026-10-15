@@ -8,9 +8,11 @@ single shared ``scope.ctl`` instance; no phase snapshots or copies it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
+from pathlib import Path
 from typing import cast
 
 from pipy_harness.models import HarnessStatus
@@ -82,6 +84,7 @@ from pipy_harness.native.coding.state import CodingRunContext, CodingSessionStat
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.coding.tool_parent_runner import parent_runner_for
 from pipy_harness.native.diagnostics import emit_diagnostic
+from pipy_harness.native.extension_types import LifecycleEvent
 from pipy_harness.native.extensions.activation import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
@@ -934,6 +937,46 @@ def _phase_f2_run_and_settle(
     )
 
 
+def fire_replaced_session_shutdown(
+    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
+    drain_outboxes: Callable[[], None],
+    reason: str,
+    target: Path | None,
+) -> None:
+    """Pi ``teardownCurrent`` before another session replaces this one:
+    ``session_shutdown`` names the session that follows. What the handlers
+    sent (``send_message``, ``send_user_message``) still belongs to the
+    outgoing session, so it is delivered now, before the tree changes; the
+    transition then clears the queued input of the old session."""
+
+    emitter.fire_lifecycle(
+        EVENT_SESSION_SHUTDOWN,
+        event=LifecycleEvent(
+            name=EVENT_SESSION_SHUTDOWN,
+            reason=reason,
+            target_session_file=None if target is None else str(target),
+        ),
+    )
+    drain_outboxes()
+
+
+def fire_replaced_session_start(
+    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
+    reason: str,
+    previous: Path | None,
+) -> None:
+    """The new session's ``session_start``, naming the session before."""
+
+    emitter.fire_lifecycle(
+        EVENT_SESSION_START,
+        event=LifecycleEvent(
+            name=EVENT_SESSION_START,
+            reason=reason,
+            previous_session_file=None if previous is None else str(previous),
+        ),
+    )
+
+
 class _ReplLoopStep:
     """Stateless owner of one REPL iteration and its lifecycle bookends."""
 
@@ -994,7 +1037,7 @@ class _ReplLoopStep:
     def fire_session_shutdown(
         self, *, emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
     ) -> None:
-        emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
+        emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN, reason="quit")
 
     def consume_settle_pending(self, *, ctl: RunControlState) -> bool:
         if ctl.agent_settled_pending:

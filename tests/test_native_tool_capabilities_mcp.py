@@ -22,6 +22,7 @@ from test_native_tool_filter_patterns import (
 )
 
 from pipy_harness.native.agent import AgentToolCall, ProductContent
+from pipy_harness.native.codemode import selftest
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolCapabilityState,
@@ -663,6 +664,73 @@ def test_another_session_does_not_declare_loaded_tools_again(
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
     assert _declared(tools) == ("read", "bash", "mcp__docs__search")
     assert tools.state.pending_tool_names == frozenset()
+
+
+def test_another_session_starts_from_the_configured_selection(
+    tmp_path: Path,
+) -> None:
+    # Pi builds a new runtime from the configured tools: a selection an
+    # extension made in the old session is gone.
+    tools = _session(tmp_path, extensions={"lookup": _Tool("lookup")})
+    assert tools.set_active_tools(("read",))
+
+    tools.restart_mcp_tools(keep_declared=False)
+
+    assert _declared(tools) == ("read", "bash", "lookup")
+    assert tools.state.active_selection_customized is False
+
+
+def test_another_session_does_not_keep_a_discovered_codemode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The MCP discovery registered and activated `codemode`; the new session
+    # keeps it registered, inactive, until its servers ask for it again.
+    monkeypatch.setattr(
+        selftest, "availability", lambda: selftest.Availability(True, None)
+    )
+    tools = _session(tmp_path, production=True)
+    assert tools.register_codemode()
+    tools.activate_tools(("codemode",))
+    assert "codemode" in _declared(tools)
+
+    tools.restart_mcp_tools(keep_declared=False)
+
+    assert "codemode" in tools.registered_names
+    assert _declared(tools) == ("read", "bash")
+
+
+def test_another_session_keeps_configured_default_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        selftest, "availability", lambda: selftest.Availability(True, None)
+    )
+    tools = NativeToolCapabilities(
+        ProductionToolRegistry({"read": _Tool("read"), "bash": _Tool("bash")}),
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        default_tools=lambda: ("read", "codemode"),
+    )
+    tools.publish(tools.prepare_extensions({"lookup": _Tool("lookup")}))
+    assert set(_declared(tools)) == {"read", "codemode", "lookup"}
+    assert tools.set_active_tools(("bash",))
+
+    tools.restart_mcp_tools(keep_declared=False)
+
+    assert set(_declared(tools)) == {"read", "codemode", "lookup"}
+
+
+def test_another_session_keeps_an_allowlist(tmp_path: Path) -> None:
+    tools = _session(tmp_path, ToolFilterOptions(allow=("read", "mcp__docs__*")))
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+    assert tools.set_active_tools(("mcp__docs__find",))
+
+    tools.restart_mcp_tools(keep_declared=False)
+    tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))
+
+    assert _declared(tools) == ("read", "mcp__docs__search")
 
 
 def test_a_restored_tool_that_registers_after_the_run_started_is_not_activated(

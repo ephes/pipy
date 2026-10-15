@@ -424,10 +424,15 @@ All four methods have the same thread and reentry rules as `submit()` and
 the native queue is truly idle, with no accepted, reserved, extension-delivered,
 or settling run. `cancel()` remains the only cross-thread operation. The
 current provider and validated workspace remain owned by the facade for its
-whole lifetime. Transition neither emits a new `session_start` nor a
-`session_shutdown`; those lifecycle events still occur once for construction
-and once for retirement of this facade. A completed transition does restart
-the MCP servers of a session made with `mcp` (see
+whole lifetime. A completed transition tells the loaded extensions as Pi's
+runtime does: `session_shutdown` with `reason` `new`, `resume` or `fork` and
+the new session's file as `target_session_file`, then, once the new session's
+history, settings and tools are in place, `session_start` with the same
+reason and the old session's file as `previous_session_file`. A refused
+transition sends neither. Construction sends `session_start` with `startup`
+and retirement `session_shutdown` with `quit`. A completed transition also
+starts the tool selection again from the configured tools and restarts the
+MCP servers of a session made with `mcp` (see
 [Codemode, tool search and MCP](#codemode-tool-search-and-mcp)).
 
 `fork(entry_id)` requires a persistent source. With no `entry_id`, it uses the
@@ -464,8 +469,9 @@ The gate is fail-closed. A hook veto or hook failure returns the one stable
 diagnostic string. Neither starts persistence, releases the old lease,
 publishes a tree, rebuilds state, or emits a successful-transition observation.
 For the public API, the one successful transition observation is its returned
-immutable result; it emits no new lifecycle or extension-completion event and
-has no UI subscription to rebind. RPC supplies one correlated result and one
+immutable result; besides the `session_shutdown` and `session_start` that tell
+the extensions about the replacement (see above), it emits no
+extension-completion event and has no UI subscription to rebind. RPC supplies one correlated result and one
 event/UI rebind. D6b does not add a second extension lifecycle generation or an
 event bus.
 

@@ -184,13 +184,17 @@ DF1-F3 it restores the target's model and thinking level (see
 
 Successful adoption orders effects as follows: terminal resolution; extension
 gate; candidate claim; strict load and workspace validation while claimed;
-guarded `RunControlState.session_tree` publication; slot publication and old
-claim release; one `CodingProductSessionCoordinator` history rebuild; the
-model/thinking restore; extension input clear; one active-branch transcript
-redraw; one sanitized resumed-session diagnostic; then the existing standard
-footer. Tree publication remains
-state-first and does not add `session_start`, `session_shutdown`, provider/tool
-execution, workflow-archive output, or a second lifecycle generation.
+`session_shutdown` (reason `resume`, the target's file) and delivery of what
+its handlers sent to the outgoing session; guarded
+`RunControlState.session_tree` publication; slot publication and old claim
+release; one `CodingProductSessionCoordinator` history rebuild; the
+model/thinking restore; the MCP restart and the reset of the tool selection to
+the configured tools; extension input clear; `session_start` (reason `resume`,
+the previous file); one active-branch transcript redraw; one sanitized
+resumed-session diagnostic; then the existing standard footer. Tree
+publication remains state-first and does not add provider/tool execution,
+workflow-archive output, or a second lifecycle generation: the loaded
+extensions receive both events.
 
 Expected failure before pointer publication is recoverable at this terminal
 boundary. An extension veto or candidate lease conflict returns a bounded
@@ -343,7 +347,9 @@ guarded `RunControlState.session_tree` publication, publishes the slot and
 releases the old source claim, rebuilds history once, and clears extension input
 once. Success returns to terminal presentation for the existing sanitized
 imported-session diagnostic and one footer. It performs no custom-entry redraw,
-provider/tool call, lifecycle restart or workflow capture.
+provider/tool call, extension reload or workflow capture; since R3 of the MCP
+parity plan the loaded extensions get `session_shutdown` and `session_start`
+with reason `resume`, as for `/resume`.
 
 Usage, either confirmation cancellation, an extension veto, and a controlled
 `NativeExportError` keep their current bounded diagnostic and footer behavior.

@@ -8,6 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+  `/import`, and the RPC and SDK operations that do the same) is a new
+  session for the extensions and the tools, as in Pi: the extensions get
+  `session_shutdown` and then `session_start`, with `reason` `new`,
+  `resume` or `fork` and the file of the session that follows or came
+  before, and the tool selection starts again from the configured tools,
+  so a selection an extension made, a tool `tool_search` loaded and a
+  `codemode` that MCP servers turned on are gone. Before, extensions got
+  neither event and every tool but the MCP ones stayed as it was. The
+  `session_shutdown` at exit has `reason` `quit`. See
+  [reloading](docs/mcp.md#reloading) and
+  [event hooks](docs/extension-api.md#event-hooks).
 - Tool selection follows Pi: a name in `--tools`, `--exclude-tools` or the
   `defaultTools` setting that no tool has is ignored with a notice instead of
   stopping startup, so a global `defaultTools` that names one project's

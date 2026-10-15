@@ -242,7 +242,8 @@ def test_dialogs_of_startup_and_transition_hooks_get_their_answers(
     tmp_path: Path,
 ) -> None:
     # The answers are read while `session_start` runs, before the session is
-    # ready, and while a transition hook runs on the thread of the commands.
+    # ready, and while a transition hook runs on the thread of the commands:
+    # the gate and the new session's `session_start` (reason "new").
     extension = tmp_path / ".pipy" / "extensions" / "hooks.py"
     extension.parent.mkdir(parents=True)
     extension.write_text(_STARTUP_CONFIRM, encoding="utf-8")
@@ -255,12 +256,14 @@ def test_dialogs_of_startup_and_transition_hooks_get_their_answers(
         _answer_next_confirm(client, "Start?", True)
         client.send({"id": "n", "type": "new_session"})
         _answer_next_confirm(client, "Switch?", False)
+        assert (extension.parent / "start.txt").read_text() == "True"
+        _answer_next_confirm(client, "Start?", False)
         response = client.wait_for(lambda record: record.get("id") == "n")
     finally:
         client.close()
 
     assert response["success"] is True, response
-    assert (extension.parent / "start.txt").read_text() == "True"
+    assert (extension.parent / "start.txt").read_text() == "False"
     assert (extension.parent / "switch.txt").read_text() == "False"
 
 

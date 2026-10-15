@@ -490,30 +490,38 @@ class CustomEntryRenderer:
     def drain_extension_outboxes(self) -> None:
         """Move one coherent generation's scheduled messages into session queues."""
 
+        self._drain_outboxes(self._deliver_extension_outbox_batch)
+
+    def settle_extension_outboxes(self) -> None:
+        """Deliver what the extensions scheduled, then drop what that
+        delivery scheduled in turn (a message renderer may send while it
+        draws). Runs before another session replaces this one: nothing the
+        outgoing session's extensions sent may reach the next session."""
+
+        self.drain_extension_outboxes()
+        self._drain_outboxes(_drop_outbox_batch)
+
+    def _drain_outboxes(
+        self,
+        deliver: Callable[
+            [tuple[QueuedUserMessage, ...], tuple[QueuedCustomMessage, ...]], None
+        ],
+    ) -> None:
         if self.generation_snapshot is None:
-            self._drain_extension_outboxes_direct(
-                self.ctl.extension_message_outbox,
-                self.ctl.extension_custom_message_outbox,
+            deliver(
+                tuple(drain_user_messages(self.ctl.extension_message_outbox)),
+                tuple(drain_custom_messages(self.ctl.extension_custom_message_outbox)),
             )
             return
         snapshot = self._snapshot()
         if snapshot is None or (projection := snapshot.generation.projection) is None:
             raise RuntimeError("published extension generation has no projection")
         queues = projection.queues
-        if queues.message_routing.route_drain(self._deliver_extension_outbox_batch):
+        if queues.message_routing.route_drain(deliver):
             return
-        self._drain_extension_outboxes_direct(
-            queues.user.storage, queues.custom.storage
-        )
-
-    def _drain_extension_outboxes_direct(
-        self,
-        user_outbox: list[QueuedUserMessage],
-        custom_outbox: list[QueuedCustomMessage],
-    ) -> None:
-        self._deliver_extension_outbox_batch(
-            tuple(drain_user_messages(user_outbox)),
-            tuple(drain_custom_messages(custom_outbox)),
+        deliver(
+            tuple(drain_user_messages(queues.user.storage)),
+            tuple(drain_custom_messages(queues.custom.storage)),
         )
 
     def _deliver_extension_outbox_batch(
@@ -527,3 +535,10 @@ class CustomEntryRenderer:
             )
         for custom_message in custom_messages:
             self._deliver_custom_message(custom_message)
+
+
+def _drop_outbox_batch(
+    _user_messages: tuple[QueuedUserMessage, ...],
+    _custom_messages: tuple[QueuedCustomMessage, ...],
+) -> None:
+    """Deliver nothing: the messages are dropped."""

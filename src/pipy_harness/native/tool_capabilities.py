@@ -1106,9 +1106,11 @@ class NativeToolCapabilities:
         (the reload that restarts the servers kept what was declared before
         it, see :meth:`publish`). A pending name is active again when its
         tool registers before the next run starts (Pi ``reload``). Without it
-        (another session replaced this one) nothing is pending: a new Pi
-        session starts from the configured tools, so a tool that
-        ``tool_search`` loaded has to be loaded again. Every name of an MCP
+        (another session replaced this one) nothing is pending and the
+        selection is the configured one again (:meth:`_configured_selection`):
+        a new Pi session starts from the configured tools, so a tool that
+        ``tool_search`` loaded, a ``codemode`` that MCP discovery activated
+        and a selection an extension made are gone. Every name of an MCP
         tool leaves the selection, so a tool that registers later is treated
         as a new one. One critical section: no publication of a server can
         fall between reading what is declared and unregistering the tools.
@@ -1120,8 +1122,13 @@ class NativeToolCapabilities:
                 {}, cancel_join_timeout_seconds=self._cancel_join_timeout_seconds
             )
             if not keep_declared:
-                state = replace(state, pending_tool_names=frozenset())
-                declared = frozenset()
+                self._state = replace(
+                    state,
+                    active_tool_names=self._configured_selection(state),
+                    active_selection_customized=False,
+                    pending_tool_names=frozenset(),
+                )
+                return
             active = state.active_tool_names
             if active is not None:
                 gone = frozenset(
@@ -1136,6 +1143,48 @@ class NativeToolCapabilities:
                     | _unregistered_mcp_names(state, declared),
                 )
             self._state = state
+
+    def _configured_selection(
+        self, state: ToolCapabilityState
+    ) -> frozenset[str] | None:
+        """The selection a session starts with over the tools of ``state``.
+
+        What :meth:`prepare_extensions` and :meth:`publish` give a session at
+        its start: the tools an allowlist names or matches; else the
+        configured default tools (``defaultTools``, the modifiers, ``--no-
+        builtin-tools``) with what registration activates; else what
+        registration activates. An optional built-in tool that nothing
+        configured (a ``codemode`` the MCP discovery registered) is not part
+        of it, as it was not registered when the session started; ``None``
+        means "as registration left it". Pure; the caller holds the lock.
+        """
+
+        options = state.filter_options
+        registry = state.registry
+        if options.allow:
+            kept = options.provider_visible_names(registered_names=registry)
+            return frozenset(
+                name for name in kept & declarable(registry) if options.allows(name)
+            )
+        if state.default_tool_names is not None:
+            active = (
+                state.default_tool_names
+                | activated_on_registration(state.extension_registry)
+                | activated_on_registration(
+                    _accepted_mcp_tools(registry, state.mcp_registry)
+                )
+            )
+            return active & options.provider_visible_names(registered_names=registry)
+        unnamed = frozenset(
+            name
+            for name, port in state.builtin_registry.items()
+            if name not in self._base_registry and registry.get(name) is port
+        )
+        activated = activated_on_registration(registry)
+        if options != ToolFilterOptions.empty():
+            kept = options.provider_visible_names(registered_names=registry)
+            return (kept & activated) - unnamed
+        return activated - unnamed if activated & unnamed else None
 
     def drop_pending_tools(self) -> None:
         """A run starts: restored tools that did not register by now stay

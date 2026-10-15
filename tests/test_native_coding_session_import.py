@@ -38,7 +38,7 @@ from pipy_harness.native.export_distribution import (
 from pipy_harness.native.extension_hooks import (
     _ExtensionLifecycleAgentEventAdapter,
 )
-from pipy_harness.native.extension_types import SessionDecision
+from pipy_harness.native.extension_types import LifecycleEvent, SessionDecision
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseRegistry,
@@ -895,9 +895,13 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
         trace.append(f"footer:{footer_count}")
 
     def fire_lifecycle(
-        _emitter: object, name: str, *, reason: str | None = None
+        _emitter: object,
+        name: str,
+        *,
+        reason: str | None = None,
+        event: LifecycleEvent | None = None,
     ) -> None:
-        lifecycle.append((name, reason))
+        lifecycle.append((name, reason if event is None else event.reason))
 
     monkeypatch.setattr(transfer_module, "import_native_session_jsonl", import_session)
     monkeypatch.setattr(
@@ -942,9 +946,12 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     assert len(provider.requests) == 1
     assert _user_texts(provider.requests[0]) == [_TRANSCRIPT_MARKER, "next prompt"]
     assert "old history" not in repr(provider.requests[0].messages)
+    # Pi ``importFromJsonl`` replaces the runtime with reason "resume".
     assert [item for item in lifecycle if item[0].startswith("session_")] == [
         ("session_start", "startup"),
-        ("session_shutdown", None),
+        ("session_shutdown", "resume"),
+        ("session_start", "resume"),
+        ("session_shutdown", "quit"),
     ]
 
 

@@ -755,6 +755,8 @@ def test_session_loads_a_deferred_tool_and_keeps_it_declared_on_the_branch(
     before, after, cloned = navigated.requests
     assert _tool_names(before) == ["tool_search"]
     assert _tool_names(after) == ["tool_search", "docs_search"]
-    # A clone of the branch is a new session file with the same loadout.
+    # A clone of the branch is a new session file, which starts from the
+    # configured tools as a new Pi runtime does (`createAgentSession` passes
+    # `initialActiveToolNames`, so the transcript's loadout is not restored).
     assert len(list((tmp_path / "saved").glob("*.jsonl"))) == 2
-    assert _tool_names(cloned) == ["tool_search", "docs_search"]
+    assert _tool_names(cloned) == ["tool_search"]

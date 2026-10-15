@@ -738,13 +738,21 @@ class ProjectTrustDispatchResult:
 class LifecycleEvent:
     """An observe-only lifecycle event passed to `@api.on(<event>)` hooks.
 
-    `name` is the event (for example `session_start`). `reason` is the
-    session-start reason (`"startup"`, `"reload"`, ...) where applicable,
-    and `None` otherwise. The event carries only safe metadata.
+    `name` is the event (for example `session_start`). `reason` is why a
+    session starts (`"startup"`, `"reload"`, `"new"`, `"resume"`, `"fork"`)
+    or shuts down (`"quit"`, `"new"`, `"resume"`, `"fork"`), and `None` for
+    the other events. When another session replaces this one,
+    `session_shutdown` has the file of the session that follows as
+    `target_session_file` and `session_start` the file of the one before as
+    `previous_session_file` (Pi `targetSessionFile`, `previousSessionFile`);
+    a session that is not saved has none. The event carries only safe
+    metadata.
     """
 
     name: str
     reason: str | None = None
+    previous_session_file: str | None = None
+    target_session_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

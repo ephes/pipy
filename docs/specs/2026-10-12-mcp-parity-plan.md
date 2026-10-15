@@ -524,7 +524,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | ID | Rows | pipy differs from Pi in | Kind | Recorded in |
 | --- | --- | --- | --- | --- |
 | DEV-15 | SES-04, EXT-06, EXT-10 | A notice is shown while the session waits for input (the terminal's editor and modal key loops, an RPC `notify` while no command runs), not at the moment it arises, so one that arises during a run is shown after it; that holds for the startup report and the report for a server an extension registered later (since N1). The `mcp_servers_change` hooks, and the activation of `codemode` or `tool_search` for a server registered later, still run where the session drains its notices, before the next prompt and when a turn starts. Plain non-TTY input, one-shot runs and SDK product sessions show notices at the next step. | other form | Decided in S19, S34, S36, N1 |
-| DEV-16 | SES-20 | Another session in the same run restarts the MCP servers and reads `mcp.json` again, as Pi does (since N1), but only the MCP tools restart: the rest of the tool selection, including a `codemode` or `tool_search` that discovery turned on, is kept, where Pi builds a new runtime from the configured tools. Extensions get no `session_shutdown`/`session_start` on such a switch (not specific to MCP). `/reload` is transactional: a reload that keeps the previous extensions keeps the running servers, where Pi restarts them in every case. | narrower | Decided in S17, S22, N1; `docs/mcp.md` "Reloading" |
+| DEV-16 | SES-20 | `/reload` is transactional: a reload that keeps the previous extensions keeps the running servers, where Pi restarts them in every case. (Another session in the same run restarts the MCP servers and reads `mcp.json` again (since N1), starts from the configured tool selection and sends the extensions `session_shutdown` and `session_start` with Pi's reasons (since R3), as Pi does.) | narrower | Decided in S17, S22, N1, R3; `docs/mcp.md` "Reloading" |
 | DEV-17 | SES-05, SES-10, SLH-02, SLH-03, CON-11 | pipy's waits can be interrupted where Pi's cannot: the first prompt's wait (Escape or an abort ends the wait and the prompt goes on), the waits of `/mcp` and its subcommands, the reconnects at a turn's start, and the 250 ms before a resource request is made again. | other form | Decided in S18, S21, S26, S31 |
 | DEV-18 | TLS-10, RND-02 | Progress of a running call is appended to the call's live output line by line, and the row shows the last line. Pi replaces the preliminary result, which also carries `{server, tool}` details. | other form | Decided in S16, S35 |
 | DEV-19 | TLS-11, RES-09 | An image is drawn in the terminal when it speaks the Kitty or iTerm2 protocol and `terminal.showImages` is on (since N4); otherwise the row shows `[Image: [<mime>] <w>x<h>]`. Narrower than pi-tui: no `CSI 16 t` cell-size query (9x18 pixel cells are assumed); Kitty gets PNG, so another type is converted with Pillow, which needs the optional `images` extra (Q10); without it, or for an image that does not decode, the line below the box is shown (since R4; before, every other type showed the line); data that is not plain base64 shows the line; an iTerm2 image gets `height=<reserved rows>` instead of `auto`; an image is at most as tall as the terminal; `/settings` has no "Show images" or "Image width" rows, and a change applies on `/reload`. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4), N4; narrowed by R4 |
@@ -1306,8 +1306,18 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   is reset (Pi's runner reports once per runtime). The transition's thread
   runs it: the session thread in the terminal, the RPC reader thread under
   the native control claim, the construction thread in the SDK. Until N1
-  the manager was kept over such a switch. The rest of the tool selection
-  is kept and extensions get no `session_start` (DEV-16).
+  the manager was kept over such a switch. Since R3 (goal check r2, S2,
+  S3) `restart_mcp_tools(keep_declared=False)` also sets the selection to
+  the configured one (`_configured_selection`: the allowlist, else the
+  configured default tools, else what registration activates, without an
+  optional built-in such as a discovered `codemode` that nothing
+  configured), and the coordinator sends `session_shutdown` (reason and
+  `target_session_file`) just before it publishes the tree and
+  `session_start` (reason and `previous_session_file`) after the rebuild,
+  with Pi's reasons: `new`, `resume` for a switch and an import, `fork` for
+  a fork and a clone. A refused gate sends neither. The extensions stay
+  loaded, so the same instances get both events; `/reload` still sends no
+  `session_shutdown`.
 - TSR-10: `ToolCapabilityState.pending_tool_names` (Pi `_pendingToolNames`).
   Names enter it in three places: `publish` on reload keeps the declared
   MCP tools of the live value (a configured filter derives the selection
@@ -3435,7 +3445,8 @@ after the new generation is published. A reload that fails before the swap
 leaves the old manager running. Another session in the same run (since
 N1) is a restart without pending names: the servers are closed, the
 configuration is read again and the MCP tools are unregistered with
-`restart_mcp_tools(keep_declared=False)`.
+`restart_mcp_tools(keep_declared=False)`, which since R3 also sets the
+tool selection to the configured one.
 
 Tools that `tool_search` loaded are active names in the transcript. After
 `/tree` the names are restored through

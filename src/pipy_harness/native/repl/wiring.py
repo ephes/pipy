@@ -181,6 +181,7 @@ from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseSlot,
     ProductSessionTransitionResult,
     SessionTransitionCoordinator,
+    rebuild_replaced_session,
 )
 from pipy_harness.native.repl.turn_leaves import (
     CANCEL_JOIN_TIMEOUT_SECONDS,
@@ -1667,25 +1668,6 @@ def _show_compaction(
     )
 
 
-def _rebuild_replaced_session(
-    rebuild_history: Callable[[], None],
-    sync_settings: Callable[[], None],
-    replace_mcp: Callable[[], None],
-) -> None:
-    """A published session replacement: history, model and thinking, then
-    the MCP servers.
-
-    Pi creates a whole runtime for ``/resume``, ``/fork``, ``/clone``,
-    ``/new`` and import, which restores the session's model and level
-    (``core/sdk.ts``) and closes and starts its MCP servers again; the
-    transition coordinator runs this after publishing.
-    """
-
-    rebuild_history()
-    sync_settings()
-    replace_mcp()
-
-
 def _start_chrome(
     inputs: SessionWiringInput,
     startup: _StartupPhase,
@@ -1960,12 +1942,20 @@ def _compose_collaborators(
             ).allow
         ),
         rebuild=partial(
-            _rebuild_replaced_session,
+            rebuild_replaced_session,
             product_session.rebuild_active_history,
             provider_mutation.sync_session_settings,
             extension.mcp.replace_session,
         ),
         clear_extension_inputs=coding_input_queue.clear_extension_inputs,
+        session_shutdown=partial(
+            _repl_loop_step.fire_replaced_session_shutdown,
+            runtime.emitter,
+            runtime.custom_renderer.settle_extension_outboxes,
+        ),
+        session_start=partial(
+            _repl_loop_step.fire_replaced_session_start, runtime.emitter
+        ),
     )
     bridge = _control_bridge(inputs)
     terminal_transition_leases: CanonicalSessionLeaseSlot | None = None

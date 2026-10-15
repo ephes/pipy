@@ -159,9 +159,54 @@ def target_for(tree: NativeSessionTree) -> ProductSessionTarget:
     return ProductSessionTarget(tree.header.id, tree.path, tree.leaf_id)
 
 
+SessionLifecycleReason = Literal["new", "resume", "fork"]
+
+_REASONS: dict[str, SessionLifecycleReason] = {
+    "new": "new",
+    "switch": "resume",
+    "import": "resume",
+    "fork": "fork",
+    "clone": "fork",
+}
+
+
+def _no_lifecycle(_reason: SessionLifecycleReason, _path: Path | None) -> None:
+    return None
+
+
+def rebuild_replaced_session(
+    rebuild_history: Callable[[], None],
+    sync_settings: Callable[[], None],
+    replace_mcp: Callable[[], None],
+) -> None:
+    """A published session replacement: history, model and thinking, then
+    the MCP servers.
+
+    Pi creates a whole runtime for ``/resume``, ``/fork``, ``/clone``,
+    ``/new`` and import, which restores the session's model and level
+    (``core/sdk.ts``) and closes and starts its MCP servers again; the
+    transition coordinator runs this after publishing.
+    """
+
+    rebuild_history()
+    sync_settings()
+    replace_mcp()
+
+
 @dataclass(frozen=True, slots=True)
 class SessionTransitionCoordinator:
-    """Typed true-idle transition port, composed from existing owners."""
+    """Typed true-idle transition port, composed from existing owners.
+
+    A replacement that passed its gates tells the extensions as Pi's
+    ``AgentSessionRuntime`` does: ``session_shutdown`` with the reason and
+    the file of the session that follows, just before the tree is
+    published (the callback also delivers what the handlers sent to the
+    outgoing session), and ``session_start`` with the reason and the file of the
+    session before, once the history, settings and tools of the new session
+    are in place (``session_shutdown(reason, target)``,
+    ``session_start(reason, previous)``). A refused or failed gate sends
+    neither.
+    """
 
     workspace: Path
     get_tree: Callable[[], NativeSessionTree]
@@ -170,6 +215,31 @@ class SessionTransitionCoordinator:
     session_before_switch: Callable[[str], bool]
     rebuild: Callable[[], None]
     clear_extension_inputs: Callable[[], None]
+    session_shutdown: Callable[[SessionLifecycleReason, Path | None], None] = (
+        _no_lifecycle
+    )
+    session_start: Callable[[SessionLifecycleReason, Path | None], None] = _no_lifecycle
+
+    def _replace_tree(
+        self,
+        operation: Literal["fork", "clone", "import", "new", "switch"],
+        candidate: NativeSessionTree,
+    ) -> None:
+        """``session_shutdown``, then the candidate becomes the session."""
+
+        self.session_shutdown(_REASONS[operation], candidate.path)
+        self.set_tree(candidate)
+
+    def _rebuild(
+        self,
+        operation: Literal["fork", "clone", "import", "new", "switch"],
+        previous: ProductSessionTarget,
+    ) -> None:
+        """The new session's state, then ``session_start``."""
+
+        self.rebuild()
+        self.clear_extension_inputs()
+        self.session_start(_REASONS[operation], previous.session_path)
 
     def new_external(
         self, *, leases: CanonicalSessionLeaseSlot
@@ -344,7 +414,7 @@ class SessionTransitionCoordinator:
         translate_failures: bool,
     ) -> None:
         try:
-            self.set_tree(candidate)
+            self._replace_tree("new", candidate)
         except BaseException:  # noqa: BLE001 - preserve terminal failure
             if not translate_failures:
                 raise
@@ -352,8 +422,7 @@ class SessionTransitionCoordinator:
                 ProductSessionTransitionFailure("new", previous, "publish", False)
             ) from None
         try:
-            self.rebuild()
-            self.clear_extension_inputs()
+            self._rebuild("new", previous)
         except BaseException:  # noqa: BLE001 - preserve terminal failure
             if not translate_failures:
                 raise
@@ -546,7 +615,7 @@ class SessionTransitionCoordinator:
         translate_failures: bool = True,
     ) -> None:
         try:
-            self.set_tree(candidate)
+            self._replace_tree(operation, candidate)
         except BaseException:  # noqa: BLE001 - preserve terminal failure
             handoff.abort()
             if not translate_failures:
@@ -556,8 +625,7 @@ class SessionTransitionCoordinator:
             ) from None
         handoff.publish()
         try:
-            self.rebuild()
-            self.clear_extension_inputs()
+            self._rebuild(operation, previous)
         except BaseException:  # noqa: BLE001 - preserve terminal failure
             if not translate_failures:
                 raise
@@ -714,7 +782,7 @@ class SessionTransitionCoordinator:
                     )
                     return
                 try:
-                    self.set_tree(child)
+                    self._replace_tree(operation, child)
                 except BaseException:  # noqa: BLE001 - translated at public boundary
                     handoff.abort()
                     if not translate_failures:
@@ -726,8 +794,7 @@ class SessionTransitionCoordinator:
                     ) from None
                 handoff.publish()
                 try:
-                    self.rebuild()
-                    self.clear_extension_inputs()
+                    self._rebuild(operation, previous)
                 except BaseException:  # noqa: BLE001 - translated at public boundary
                     if not translate_failures:
                         raise

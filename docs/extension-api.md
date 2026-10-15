@@ -586,8 +586,8 @@ target vocabulary includes:
 | Event | Purpose | Allowed return |
 | --- | --- | --- |
 | `project_trust` | Let pre-trust global/CLI extensions decide whether protected project inputs may load. **Shipped.** | `{trusted: "yes"|"no"|"undecided", remember?: bool}` |
-| `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
-| `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
+| `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. `event.reason` is `"startup"`, `"reload"`, `"new"`, `"resume"` (also `/import`) or `"fork"` (also `/clone`); after another session replaced this one `event.previous_session_file` is the file of the session before (Pi `SessionStartEvent`). | None |
+| `session_shutdown` | Cleanup local extension state before exit or session switch. `event.reason` is `"quit"`, `"new"`, `"resume"` or `"fork"`; on a switch `event.target_session_file` is the file of the session that follows (Pi `SessionShutdownEvent`). | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
 | `input` | Observe or transform submitted user input before a provider turn, or handle it so that no turn starts (`InputHandled`, Pi's `{action: "handled"}`; later hooks then do not run). A prompt of print, JSON or RPC mode reaches the hooks before skill and template expansion, as in Pi; a line typed into a session reaches them only when it is not a skill or template. | None, `InputTransform` or `InputHandled` |
 | `user_bash` | Observe or gate a user-run bash command entered via Pi's `!`/`!!` prefix, including whether it is excluded from model context. | None or `UserBashDecision` |
@@ -717,10 +717,16 @@ including a hook failure, returns the one stable public `extension_refusal` and
 the RPC cancelled projection. No adapter infers a hook crash from diagnostic
 text. Neither case writes a child/fresh session, publishes a candidate tree, or
 emits a completed transition observation. A successful
-transition's public observation is its one immutable result. It does not send
-`session_shutdown` followed by `session_start`, a new extension completion
-event, or a UI rebind: those bookends continue to occur once when the
-encompassing facade starts and retires. D6b3 owns the single RPC event/UI rebind
+transition's public observation is its one immutable result. As in Pi's
+`AgentSessionRuntime`, it sends `session_shutdown` (with the transition's
+reason and `target_session_file`) just before the new tree is published, and
+delivers what its handlers sent with `send_message` to the outgoing session (a
+`send_user_message` there starts no run in the new session, and what a message
+renderer sends during that delivery is dropped), and
+`session_start` (with the reason and `previous_session_file`) after the new
+session's history, settings, tool selection and MCP servers are in place; it
+sends no new extension completion event and no UI rebind. The extensions stay
+loaded: the same extension instances receive both events. D6b3 owns the single RPC event/UI rebind
 after an accepted native transition; refusal and same-target no-op do not
 rebind. The state-first tree/context rebuild
 boundary is not an atomic transaction; a post-publication rebuild error retires

@@ -831,7 +831,10 @@ D6b3 routes `switch_session`, `fork`, `clone`, and `new_session` through the
 already-reviewed native transition owner. RPC calls the composed native
 `SessionTransitionCoordinator` port composed in wiring; RPC may parse paths and
 project correlation, but does not load/create trees, own the canonical registry
-or lease handoff, fire lifecycle, or retain a parallel active tree.
+or lease handoff, fire lifecycle, or retain a parallel active tree. The native
+owner sends the extensions `session_shutdown` and `session_start` for a
+completed transition, as Pi does, with `reason` `new`, `resume` or `fork`
+([event hooks](extension-api.md#event-hooks)).
 `new_session`, `switch_session`,
 `fork`, and `clone` map respectively to native fresh replacement, strict
 existing replacement, entry-selected fork, and current-leaf clone.

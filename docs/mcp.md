@@ -544,9 +544,15 @@ or `/import` (and the RPC and SDK operations that do the same), closes the
 servers and starts them again from the `mcp.json` files in the same way.
 What differs from `/reload`:
 
-- No tool of a server is declared again for the new session: a tool that
-  `tool_search` loaded has to be loaded again, a `direct` tool is declared
-  once its server has connected.
+- The new session starts from the configured tools (`--tools`,
+  `--exclude-tools`, `defaultTools`), as a new Pi session does. No tool of a
+  server is declared again for it: a tool that `tool_search` loaded has to
+  be loaded again, a `direct` tool is declared once its server has
+  connected, and `codemode` or `tool_search` is on again only when the
+  configuration or the new servers ask for it. A selection an extension
+  made is gone as well.
+- The extensions get `session_shutdown` and then `session_start`, with
+  `reason` `new`, `resume` (also `/import`) or `fork` (also `/clone`).
 - A change made in [`/mcp`](#the-mcp-command) to a server an extension
   registered applied to the old session only; the new one starts from the
   registration.
@@ -554,12 +560,6 @@ What differs from `/reload`:
   extension refuses keeps the servers.
 
 Different from Pi:
-
-- Pi builds a new runtime for another session, so the whole tool selection
-  starts again from the configured tools. pipy does this for the MCP tools
-  only: the other tools stay as they were, also a `codemode` or
-  `tool_search` that was turned on for servers the new configuration no
-  longer has.
 
 - Pi's reload is not undone when an extension fails to load, so its servers
   restart in every case.
