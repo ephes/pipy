@@ -221,7 +221,8 @@ def _stored_entry(auth_path: Path, provider: str) -> Mapping[str, object] | None
     exists and cannot be read as a JSON object."""
 
     try:
-        body = json.loads(auth_path.read_text(encoding="utf-8"))
+        # Pi ``stripBom``: a leading byte order mark is not part of the JSON.
+        body = json.loads(auth_path.read_text(encoding="utf-8").removeprefix("\ufeff"))
     except FileNotFoundError:
         return None
     if not isinstance(body, dict):

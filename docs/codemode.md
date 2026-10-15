@@ -437,8 +437,9 @@ its aliases refer to it, each as written or as the same identifier:
 by `describe_namespace`; they are part of no tool description.
 
 Wrong arguments raise `ValueError`: `search_tools() expects a query string`,
-`search_tools() limit must be a positive integer` (an `int`; `None` means the
-default), `search_tools() namespace must be a string`, `describe_tool() expects
+`search_tools() limit must be a positive integer` (an `int` or a whole
+`float` such as `8.0`, as JavaScript's `Number.isInteger` accepts; `None` means
+the default), `search_tools() namespace must be a string`, `describe_tool() expects
 a tool name` and `describe_namespace() expects a namespace name`. An argument
 that is not JSON raises `TypeError`.
 

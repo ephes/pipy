@@ -534,6 +534,18 @@ def test_a_stored_api_key_is_the_token(tmp_path: Path) -> None:
     assert logins.token("other") is None
 
 
+def test_an_auth_file_with_a_byte_order_mark_is_read(tmp_path: Path) -> None:
+    # Goal check r3 Q4, Pi `JSON.parse(stripBom(...))` in auth-storage.ts.
+    logins = _Logins(tmp_path)
+    logins.path.write_text(
+        "\ufeff" + json.dumps({"radius": {"type": "api_key", "key": "tok"}}),
+        encoding="utf-8",
+    )
+
+    assert logins.token("radius") == "tok"
+    assert AuthStore(logins.path).get("radius") == {"type": "api_key", "key": "tok"}
+
+
 def test_a_login_or_logout_made_meanwhile_applies_to_the_next_request(
     tmp_path: Path,
 ) -> None:

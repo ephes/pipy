@@ -624,6 +624,11 @@ def test_search_tools_ranks_callable_tools_and_returns_all_tools_entries() -> No
         discovery, "search_tools", query="docs"
     )
     assert _value(discovery, "search_tools", query="zebra") == []
+    # Goal check r3 D8, Pi `Number.isInteger`: a whole float is a limit.
+    assert _value(discovery, "search_tools", query="docs", limit=1.0) == _value(
+        discovery, "search_tools", query="docs", limit=1
+    )
+    assert len(_value(discovery, "search_tools", query="docs", limit=1.0)) == 1
     # The namespace description is searched with each of its tools.
     assert [
         entry["name"] for entry in _value(discovery, "search_tools", query="product")
@@ -776,7 +781,7 @@ def test_discovery_argument_errors_use_pis_messages() -> None:
             "search_tools() expects a query string"
         )
     assert _error(discovery, "search_tools") == "search_tools() expects a query string"
-    for limit in (0, -1, 2.0, "3", True, [1]):
+    for limit in (0, -1, 0.0, 2.5, float("inf"), float("nan"), "3", True, [1]):
         assert _error(discovery, "search_tools", query="q", limit=limit) == (
             "search_tools() limit must be a positive integer"
         )

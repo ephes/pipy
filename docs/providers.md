@@ -565,9 +565,11 @@ and custom models (which cost nothing unless they set `cost`).
 
 ## Credential command helpers
 
-Configured auth `!command` helpers require strict UTF-8 stdout. Invalid encoding,
-nonzero exits, timeouts and stdout above 1 MiB (Node's `maxBuffer`, as in Pi)
-quietly resolve as unavailable, without logging output. As in Pi, a helper's
+Configured auth `!command` helpers print the value on stdout, read as UTF-8
+with invalid bytes replaced by U+FFFD and trimmed as JavaScript's `trim()`
+trims (which also drops a byte order mark), as in Pi. Nonzero exits, timeouts,
+empty output and stdout above 1 MiB (Node's `maxBuffer`, as in Pi) quietly
+resolve as unavailable, without logging output. As in Pi, a helper's
 stderr is discarded and does not count toward that limit. Helpers run in an owned POSIX
 process group with a ten-second deadline; cleanup sends TERM, waits up to
 0.2 seconds for the whole group (even when the direct child already exited),

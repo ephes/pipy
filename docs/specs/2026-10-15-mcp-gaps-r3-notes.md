@@ -97,3 +97,85 @@ user-level and project entries) and
 `test_config_command_replaces_every_exact_entry_of_the_builtin`.
 
 **Audit test references:** none changed.
+
+### F3: `!command` output trimmed like JavaScript `trim()`
+
+**Changelog (Unreleased, Fixed):**
+
+- A `!command` value (auth `api_key`, `models.json` keys, MCP `env` and
+  `headers` values) is read as Pi reads it: the output is decoded with
+  invalid UTF-8 replaced by U+FFFD (before, it made the value unavailable)
+  and trimmed with JavaScript's `trim()` whitespace set, so a byte order mark
+  or U+3000 around the value is dropped while U+001C to U+001F and U+0085,
+  which Python's `strip()` removed, are kept.
+
+**Plan:** CFG-25 note, if it describes the trim: "trimmed as JavaScript's
+`trim()` (goal check r3, F3)". No DEV row changes.
+
+**Acceptance (CFG-25 row, add tests):** `test_native_auth_store.py`:
+`test_resolve_config_value_command_runs_and_strips`,
+`test_command_unicode_success_and_nonzero` (the r3 F3 cases),
+`test_command_invalid_utf8_is_replaced` (renamed from
+`test_command_invalid_utf8_is_unavailable`, which no shared file names).
+
+**Audit test references:** none changed.
+
+### Q4: `auth.json` with a UTF-8 byte order mark
+
+**Changelog (Unreleased, Fixed):**
+
+- An `auth.json` that starts with a UTF-8 byte order mark is read (Pi
+  `stripBom`), by the auth store and by the provider token an
+  `auth.provider` MCP server sends. Before, such a file read as empty, so a
+  stored login was ignored and the server asked for sign-in.
+
+**Plan:** OAU-36 note: "a leading byte order mark is skipped (r3 Q4)". No DEV
+row changes.
+
+**Acceptance (OAU-36 row, add test):** `test_native_mcp_provider_auth.py`:
+`test_an_auth_file_with_a_byte_order_mark_is_read`.
+
+**Audit test references:** none changed.
+
+### U2: `set_active_tools` drops names the allowlist does not activate
+
+**Changelog (Unreleased, Fixed):**
+
+- With a `--tools` allowlist, `set_active_tools` (and adding tools to the
+  selection) drops an MCP-named tool the allowlist does not let be
+  activated, as Pi's `_applyToolLoadout` does, instead of keeping it in the
+  selection. Before, a later re-registration of such a tool as `deferred`
+  declared it without any activation or `tool_search` load.
+
+**Plan:** EXP-06 note: "the selection drops a name `_isActivatable` refuses
+when it is set (r3 U2); it is still narrowed when read, for reloads". No DEV
+row changes.
+
+**Acceptance (EXP-06 row, add test):** `test_native_tool_capabilities_mcp.py`:
+`test_a_selection_drops_an_mcp_tool_the_allowlist_does_not_activate`.
+
+**Audit test references:** none changed.
+
+### D8: `search_tools()` accepts a whole float `limit`
+
+**Changelog (Unreleased, Changed):**
+
+- `search_tools(query, limit=8.0)` in a codemode script is accepted as
+  `limit=8`, as Pi's `Number.isInteger` accepts it; `2.5`, `inf`, `nan`,
+  `True` and strings still fail with `search_tools() limit must be a positive
+  integer`.
+
+**Plan:**
+
+- DEV-27: drop "`limit` must be an `int` (`8.0` is refused)."
+- Section 2.11 text near l.3343 ("`limit` must be an `int` (not `bool`, not
+  a float such as `8.0`, which JavaScript cannot tell from `8`)"): replace
+  with "`limit` must be an `int` or a whole `float` (Pi `Number.isInteger`;
+  not `bool`); since goal check r3 (D8) `8.0` counts as `8`".
+
+**Acceptance (CMD-07 row):** the tests named there
+(`test_search_tools_ranks_callable_tools_and_returns_all_tools_entries`,
+`test_discovery_argument_errors_use_pis_messages`) now cover it; row note:
+drop any "8.0 is refused".
+
+**Audit test references:** none changed.

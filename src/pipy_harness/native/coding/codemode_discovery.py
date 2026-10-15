@@ -180,6 +180,9 @@ class CodemodeDiscovery:
         limit = arguments.get("limit")
         if limit is None:
             limit = DEFAULT_SEARCH_LIMIT
+        # Pi ``Number.isInteger``: an integral float such as 8.0 is a limit.
+        if type(limit) is float and limit.is_integer():
+            limit = int(limit)
         if type(limit) is not int or limit <= 0:
             return DiscoveryResult(
                 error="search_tools() limit must be a positive integer"

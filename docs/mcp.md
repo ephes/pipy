@@ -1669,7 +1669,8 @@ no signal handlers, as in Pi; the program that embeds it closes the session.
 - Each `env` value of a stdio server and each `headers` value of an HTTP
   server may refer to environment variables with `${NAME}` or
   `$NAME`; `$$` is a literal `$` and `$!` a literal `!`. A value that starts
-  with `!` is a shell command, and its trimmed standard output is the value.
+  with `!` is a shell command, and its standard output, trimmed as
+  JavaScript's `trim()` trims (a byte order mark too), is the value.
   The command runs on every connect, with a limit of 10 seconds. A variable
   that is unset or empty, or a command that fails or prints nothing, fails
   the connect with a message naming the server and the key or the header,

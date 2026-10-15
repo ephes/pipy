@@ -355,6 +355,37 @@ def test_an_allowlist_after_no_tools_declares_tool_search(tmp_path: Path) -> Non
     ]
 
 
+@pytest.mark.parametrize("activate", ["set_active_tools", "activate_tools"])
+def test_a_selection_drops_an_mcp_tool_the_allowlist_does_not_activate(
+    tmp_path: Path, activate: str
+) -> None:
+    # Goal check r3 U2, Pi _applyToolLoadout: a name _isActivatable refuses
+    # is dropped when the selection is set, so a later exposure change does
+    # not declare it without an activation.
+    direct: dict[str, ToolPort] = {"mcp__custom__lookup": _Tool("mcp__custom__lookup")}
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(allow=("tool_search",)),
+        extensions=direct,
+        production=True,
+    )
+    getattr(tools, activate)(("tool_search", "mcp__custom__lookup"))
+    assert _declared(tools) == ("tool_search",)
+
+    # The extension registers it again while the session runs.
+    deferred: dict[str, ToolPort] = {
+        "mcp__custom__lookup": _Tool("mcp__custom__lookup", "deferred")
+    }
+    assert tools.publish_extension_tools(
+        lambda: deferred, extension_generation=tools.state.extension_generation
+    )
+
+    assert _declared(tools) == ("tool_search",)
+    assert [definition.name for definition in tools.loadable_tools()] == [
+        "mcp__custom__lookup"
+    ]
+
+
 def test_no_builtin_tools_keeps_builtins_registered_and_inactive(
     tmp_path: Path,
 ) -> None:
