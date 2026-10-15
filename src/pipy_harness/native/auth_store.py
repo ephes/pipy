@@ -35,6 +35,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 
+from pipy_harness.native.fuzzy import js_trim
+
 CommandRunner = Callable[[str], str | None]
 OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
 
@@ -143,7 +145,9 @@ def _default_run_command(command: str) -> str | None:
         completed = True
         if returncode != 0:
             return None
-        value = output.decode("utf-8", errors="strict").strip()
+        # Node's execSync decodes with replacement characters and Pi trims
+        # with String.prototype.trim, which also drops U+FEFF.
+        value = js_trim(output.decode("utf-8", errors="replace"))
         return value or None
     except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
@@ -173,7 +177,7 @@ def resolve_config_value(
         result = runner(value[1:])
         if result is None:
             return None
-        stripped = result.strip()
+        stripped = js_trim(result)
         return stripped or None
     return env.get(value) or value
 
@@ -494,7 +498,8 @@ def auth_file_lock(path: Path) -> Iterator[None]:
 
 def _read_auth_file(path: Path) -> dict[str, object]:
     try:
-        body = json.loads(path.read_text(encoding="utf-8"))
+        # Pi ``stripBom``: a leading byte order mark is not part of the JSON.
+        body = json.loads(path.read_text(encoding="utf-8").removeprefix("\ufeff"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return {}
     return _detach_auth_data(body) if isinstance(body, dict) else {}

@@ -577,8 +577,10 @@ Different from Pi:
 - `pipy --no-mcp` turns MCP off for one run: no `mcp.json` is read, no server
   connects and there are no MCP tools.
 - `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
-  until you remove the entry. A `+builtin:mcp` or `-builtin:mcp` entry in the
-  settings of a trusted project decides over the user-level entry.
+  until you remove the entry; so does a `!` glob that matches it, such as
+  `!builtin:*`, unless a `+builtin:mcp` entry turns it on again. A
+  `+builtin:mcp`, `-builtin:mcp` or matching `!` entry in the settings of a
+  trusted project decides over the user-level entries.
   `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
   write the entry (with `--scope project` into the project's settings), and
   `pipy config list` shows the state under `built-in`.
@@ -1643,12 +1645,12 @@ they are gone. What is left of a server's group after the server exited,
 such as a child that ignores SIGTERM, is sent SIGKILL.
 
 Both the close and the exit hook reach a server's group after the server
-exited only while pipy can keep the exited server unreaped, which needs
-`os.waitid` (Linux and macOS have it). On a platform without it, or when
-SIGCHLD is ignored so the system reaps the server itself, the group is not
-signalled once the server is gone, so a child that outlives the server is
-not ended by pipy: its process id could already belong to an unrelated
-process.
+exited only while pipy keeps the exited server unreaped, so its process id
+cannot belong to an unrelated process yet. pipy waits for the exit with
+`os.waitid`, or with a kqueue where Python has no `os.waitid` (macOS before
+Python 3.13), and both leave the server unreaped. When SIGCHLD is ignored so
+the system reaps the server itself, the group is not signalled once the
+server is gone, so a child that outlives the server is not ended by pipy.
 
 Nothing can be done when pipy is killed with SIGKILL. A server then ends
 when it notices that its stdin closed, as a server should; one that does
@@ -1667,7 +1669,8 @@ no signal handlers, as in Pi; the program that embeds it closes the session.
 - Each `env` value of a stdio server and each `headers` value of an HTTP
   server may refer to environment variables with `${NAME}` or
   `$NAME`; `$$` is a literal `$` and `$!` a literal `!`. A value that starts
-  with `!` is a shell command, and its trimmed standard output is the value.
+  with `!` is a shell command, and its standard output, trimmed as
+  JavaScript's `trim()` trims (a byte order mark too), is the value.
   The command runs on every connect, with a limit of 10 seconds. A variable
   that is unset or empty, or a command that fails or prints nothing, fails
   the connect with a message naming the server and the key or the header,

@@ -536,12 +536,12 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-24 | CMD-27 | The codemode system prompt contribution has two guideline lines. The second comes from the codemode adherence slice and predates this plan. | other form | Decided in S08 |
 | DEV-25 | EXT-03 | `get_all_tools()` is a method of the handler context (`ctx.get_all_tools()`), not of the activation API, and reports no `sourceInfo`. (Extension tools have `prompt_guidelines` and `get_all_tools()` reports them since G9.) | narrower | Decided in S02, S07, S08, G9 |
 | DEV-26 | EXT-04 | A tool whose last registration is `hidden` is registered and never declared. Since G9 `register_tool` also works while the session runs the extension and takes effect at once, as in Pi, and `register_tool_renderer` too (goal check r2, S27); the other `register_*` methods stay closed after loading. | other form | Decided in S02, G9 |
-| DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. `limit` must be an `int` (`8.0` is refused). When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
+| DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
-| DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 |
-| DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). An unknown `builtin:` name is a startup error, where Pi reports a load error. | other form | Decided in S19, G8 |
+| DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. Since goal check r3 (U2) a selection that is set drops a name the `--tools` allowlist does not let be activated, as Pi's `_applyToolLoadout` does; what is kept is narrowed when read, so a reload that changes an exposure takes a tool out. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 and T3 |
+| DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` entry follows Pi's override rules since goal check r3 (F1); a `!` glob is matched with `fnmatch` against `builtin:<name>`, where Pi's minimatch also tries the path relative to the settings directory (so `**/builtin:mcp` matches in Pi and not in pipy). An unknown `builtin:` name is a startup error, where Pi reports a load error. | other form | Decided in S19, G8, T3 |
 | DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
 | DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built, and its result has only `append_system_prompt`: Pi's `systemPrompt` (replace the whole prompt) and `message` (a custom message for the run) are not built (an extension-API item in `docs/backlog.md`). `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
@@ -554,7 +554,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-42 (closed by N2) | none | Was: `get_commands` answered an empty list. Since N2 it lists the extension commands (with `/mcp`), prompt templates (with pipy's custom commands) and skills; `sourceInfo` has only `path`. | closed | Decided in X1, N2 |
 | DEV-43 | MGR-09 | The manager view: titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal shows the text above its controls through a window that PageUp/PageDown scroll, where Pi's output scrolls with the terminal; `app.message.copy` is used only on the sign-in screen (Pi also copies a `/tree` message and the last assistant message with it); a URL that is not printable ASCII up to 4096 characters stays plain text without the click hint (Pi links every URL), and the click and copy hints are part of the scrolled text; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34, N3; `docs/mcp.md` "The `/mcp` manager" |
 | DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` and `/share` run no extension code. | other form | Decided in S35, S39 (part 3) |
-| DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9), but a wrapped `edit` row has no live preview and a wrapped `bash` row no ticking time while it runs. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9 |
+| DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9), with the live `edit` preview and the ticking `bash` time (since goal check r3, S11). `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9, T4 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
 | DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls run concurrently, except that calls of a tool with `execution_mode="sequential"` (Pi `executionMode`) run one at a time through Pi's exclusive queue (H3), a waiting call emitting its start event at once as in Pi (T1); no setting selects Pi's session-wide sequential mode. Those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result reaches `on_update` as a `ToolResult` whose `content` is its text (a `bash` partial result is the output so far, as in Pi, since T1). The outcome's `duration_ms` runs from the nested call's start to its outcome, hooks included; Pi's `durationMs` is the tool's `execute()` alone (the JSON/RPC `durationMs` follows Pi since R5). No event is emitted for a name that is not callable. An exception raised by a nested caller's `on_update` is ignored; Pi fails the nested call. Usage is DEV-13. | narrower | Decided in S37 |
@@ -577,7 +577,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-65 (closed by R3) | SLH-13 | Was: the `input` hooks did not run when an RPC message was queued, a queued message that later ran while idle met them after its expansion, and a `prompt` admitted just as the run ended could be expanded twice. Since R3 `steer`, `follow_up` and a `prompt` sent during a run meet the hooks when they are queued, before the expansion, and not again when they run (Pi `_queueUserInput`, `prompt`); a `prompt` is admitted to run next only in the same step that finds the session idle, so it is expanded once. (The expansion of queued input still records no resource invocation, a pipy counter Pi does not have.) | closed | Decided in X1, N2, R3 |
 | DEV-66 | RND-04 | A codemode call is still the generic `codemode code="…"` row, not Pi's highlighted script preview of ten visual lines; there is no `Model calls:` cost line, and nested calls are drawn between the call and the output without Pi's spacer. The HTML export shows a cancelled nested call as `⊘` (Pi's page prints `?`), rounds durations to whole milliseconds and does not draw codemode calls ahead (no codemode call renderer). | other form | Decided in S35, N3 |
 | DEV-67 | OAU-37 | The HTTP transport's `fetch` option is not JavaScript's `fetch`: it takes one request object and returns a response object, with a `CancelToken` where Pi passes an `AbortSignal`, and an auth provider is not handed the transport's fetch or the response (`UnauthorizedContext` has no fetch and no response: the status, `WWW-Authenticate`, the server URL and the token only), so `adapt_oauth_provider` sends its flow through the OAuth library's fetch or the one passed to it. A `Location` is resolved with `urljoin`, not a WHATWG parser, and one with user info is refused; a name lookup cannot be interrupted (no socket is opened after it). The OAuth fetch and (since R6) the transport's default fetch ask for `gzip, deflate` only and decode those codings; Node also asks for `br` and `zstd` over `https`. | other form | Decided in L1, L2, R6 |
-| DEV-68 | TLS-20 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. | narrower | Decided in G7; `docs/providers.md`; `images.blockImages` part closed by R4 |
+| DEV-68 | TLS-20 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. `read` uses the same processor for image files since goal check r3 (D2); without Pillow it attaches a fitting PNG, JPEG, GIF or WebP and omits a larger image or a BMP with Pi's text. | narrower | Decided in G7, T3; `docs/providers.md`; `images.blockImages` part closed by R4 |
 | DEV-69 | OAU-15, OAU-18 | A server URL's fragment is not part of its credential key or of the server URL its auth provider compares stored values with: two servers with the same name in different `mcp.json` files whose URLs differ only in the fragment share their sign-in. A fragment never reaches the server. | other form | Goal check r2 (Q6), accepted in Q11 |
 | DEV-70 | OAU-11 | `expires_in` is accepted as a JSON number or a decimal string; Pi's `Number()` also accepts hex (`"0xe10"`) and whitespace-only strings. RFC 6749 defines it as a number. | stricter | Goal check r2 (Q9), accepted in Q11 |
 | DEV-71 | STD-01 | The stdio transport has no `stderr: "inherit"` option; a server's stderr is always piped and handed to `on_stderr` (bounded). Pi's MCP extension does not use `inherit` either; only direct users of the transport could. | narrower | Goal check r2 (P5), accepted in Q11 |
@@ -631,6 +631,9 @@ each new session of a run from DEV-45 (EXT-15).
 Updated after the triage of the third goal check (2026-10-15): DEV-80 to
 DEV-85 set four more rows (CFG-23, CFG-24, HTP-01, SES-01) to closed with a
 limit, and DEV-54 now also names OAU-26 and OAU-31 (the callback path).
+INT5 merged the fix slices T3, T4 and T6 of that triage: DEV-27,
+DEV-31, DEV-32, DEV-45 and DEV-68 got narrower, and no row changed its
+state.
 The 119 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11 and
@@ -3350,8 +3353,9 @@ Decided in S07 (discovery, `codemode/prelude.py`, `codemode/host.py`,
   budget. A helper name other than the three is a protocol violation.
 - Arguments are checked on the host only, as in Pi, because the guest is
   untrusted: the answers are Pi's messages with the Python names, raised in
-  the script as `ValueError`. `limit` must be an `int` (not `bool`, not a
-  float such as `8.0`, which JavaScript cannot tell from `8`); `None` means
+  the script as `ValueError`. `limit` must be an `int` or a whole `float`
+  (Pi `Number.isInteger`; not `bool`); since goal check r3 (D8) `8.0` counts
+  as `8`; `None` means
   the default 8 (Pi `??`). An empty `namespace` is no filter (Pi `&&`). An
   argument that is not JSON raises `TypeError` in the guest before anything
   is sent.
@@ -3891,19 +3895,34 @@ it also does so when the server had exited before `close()` (Pi's `close()`
 then returns at once without signals). Limits: after its SIGKILL `close()`
 no longer waits for a holder that left the group (Pi waits without end);
 `close()` from a reader's listener does not wait for that reader's pipe.
-Without `os.waitid` (and when the system reaps the server itself because
-SIGCHLD is ignored) the server is reaped in the same locked step that
-untracks it, and its group is not signalled after that, also not with the
-one SIGTERM after the exit that the earlier code sent; children that outlive
-the server are then not ended. Tests in `test_native_mcp_stdio.py`:
+The watcher waits without reaping by `os.waitid` with `WNOWAIT`, or, where
+Python has no `os.waitid` (macOS before Python 3.13), by a kqueue
+`NOTE_EXIT` filter (added after goal check r3, finding P1). Only when the
+system reaps the server itself because SIGCHLD is ignored, or on a
+platform with neither, is the server reaped in the same locked step that
+untracks it; its group is not signalled after that, also not with the one
+SIGTERM after the exit, so children that outlive the server are then not
+ended. Tests in `test_native_mcp_stdio.py`:
 `test_a_reaped_server_is_untracked_and_its_group_not_signalled`,
 `test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm`,
 `test_close_after_the_server_exited_kills_a_child_that_holds_its_output`,
 `test_close_does_not_wait_for_a_child_that_left_the_process_group`,
-`test_close_without_waitid_does_not_wait_for_a_child_that_holds_the_output`,
-`test_without_waitid_a_reaped_server_is_not_tracked_while_a_child_holds_its_output`,
+`test_a_server_reaped_by_polling_is_not_tracked_while_a_child_holds_its_output`,
 `test_close_from_a_message_listener_does_not_wait_for_its_own_stream`,
-`test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server`.
+`test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server`,
+`test_an_exited_child_is_waited_for_without_reaping_it`,
+`test_a_child_the_system_reaped_is_not_waited_for` (with SIGCHLD ignored a
+kqueue exit is not trusted, since the id may already be reused). The tests
+`test_close_terminates_children_that_outlive_a_server_that_exited`,
+`test_close_kills_a_child_that_holds_the_server_output_and_ignores_sigterm`,
+`test_close_after_the_server_exited_kills_a_child_that_holds_its_output`,
+`test_the_exit_hook_kills_a_child_that_holds_the_output_of_an_exited_server`
+and the two new ones run once per wait (`[waitid]`, `[kqueue]`, through the
+`unreaped_wait` fixture); a variant the platform cannot run is skipped: on
+macOS with Python 3.13+ both run (the `kqueue` variant removes `os.waitid`),
+on Linux only `waitid`, on macOS with Python 3.11/3.12 only `kqueue`. The
+`polling` case of `test_a_reaped_server_is_untracked_and_its_group_not_signalled`
+stands for a platform with neither.
 
 **G2 Nested tool calls.** Added after the goal check (findings M1, M2,
 M12, E2 to E5), in several commits. Async handlers (M1): an extension
@@ -4137,6 +4156,13 @@ is complete but whose coded data is corrupt is still attached, as MCP
 images and `image()` images are. A larger image, one that is cut short or
 malformed, and a BMP get Pi's `[Image omitted: could not be resized ...]` /
 `[... could not be converted ...]` text as a result that is not an error.
+Since goal check r3 (D2), with Pillow `read` goes through
+`image_process.process_image_or_omission` (the TLS-20 processor): a BMP is
+converted, a larger image resized, with Pi's hint lines in the note, and
+`images.autoResize` is passed to `read` (`tools/registry.py`
+`with_image_auto_resize`, as Pi's `agent-session.ts` passes
+`autoResizeImages`). The structure checks above are what `read` does
+without Pillow.
 EXIF orientation is not applied (it cannot change the outcome with equal
 limits), and the non-vision note is not added (the tool does not know the
 model; the provider request leaves the image out). An `@file` reference
@@ -4552,6 +4578,24 @@ Tests: `test_native_mcp_manager_view.py`, `test_native_frame_hyperlinks.py`,
 
 **N4 Inline terminal images.** Finding M21 (owner decision Q8), in three
 commits. See "Decided in N4".
+
+**T3, T4, T6 Edges of the third goal check.** Findings of goal check r3,
+built on a parallel track and folded in INT5. T3: `read` resizes and
+converts images with Pillow (D2, DEV-68, TLS-20); a `builtin:` entry
+follows Pi's `isEnabledByOverrides` and project override rules, `!` globs
+included (F1, DEV-32, EXP-12: the settings entries include Pi's `!pattern`
+exclusions); a `!command` value is decoded with invalid UTF-8 replaced and
+trimmed as JavaScript's `trim()` (F3, CFG-25); an `auth.json` with a UTF-8
+byte order mark is read (Q4, OAU-36: a leading byte order mark is
+skipped); a selection drops a name `_isActivatable` refuses when it is set,
+and is still narrowed when read, for reloads (U2, EXP-06, DEV-31);
+`search_tools(limit=8.0)` is accepted (D8, DEV-27, CMD-07). T4: a resolver
+that wraps pipy's own `edit` or `bash` rows keeps the live preview and the
+ticking time (S11, DEV-45, EXT-15); the live codemode row keeps the latest
+256 calls, where Pi keeps every call, and the bound of 256 is the durable
+record's (D6, CMD-26). T6: the stdio transport waits for an exited server
+with a kqueue where Python has no `os.waitid` (P1, STD-05; see G1). The
+tests are named in the acceptance note's rows.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

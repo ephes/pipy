@@ -1,12 +1,16 @@
-"""Images for the ``read`` tool: Pi's ``processImage`` without a resizer.
+"""Images for the ``read`` tool: Pi's ``processImage``.
 
 Pi (``utils/image-process.ts``, ``image-resize-core.ts``) normalizes the
 type, converts BMP to PNG and resizes an image so it fits 2000 x 2000 pixels
-and 4.5 MB of base64, with Photon. pipy has no image codec, so it does what
-Pi does where no pixels change: an image within those limits is returned as
-it is, and one that would need converting or resizing gets Pi's text for an
-image it could not process. No pixels are decoded: the file's structure is
-checked and its dimensions read (:func:`image_size`).
+and 4.5 MB of base64, with Photon. With Pillow (the ``images`` extra) pipy
+does the same through :func:`pipy_harness.native.image_process.process_image_or_omission`,
+with Pi's hint lines for a conversion and for the original size.
+
+Without Pillow pipy has no image codec, so it does what Pi does where no
+pixels change: an image within those limits is returned as it is, and one
+that would need converting or resizing gets Pi's text for an image it could
+not process. No pixels are decoded: the file's structure is checked and its
+dimensions read (:func:`image_size`).
 """
 
 from __future__ import annotations
@@ -14,7 +18,14 @@ from __future__ import annotations
 import base64
 import zlib
 from collections.abc import Iterator
-from dataclasses import dataclass
+
+from pipy_harness.native.image_process import (
+    CONVERT_FAILED,
+    RESIZE_FAILED,
+    ProcessedImage,
+    pillow_available,
+    process_image_or_omission,
+)
 
 # Pi ``DEFAULT_OPTIONS`` of ``image-resize-core.ts``.
 MAX_IMAGE_WIDTH = 2000
@@ -22,33 +33,40 @@ MAX_IMAGE_HEIGHT = 2000
 # 4.5 MB of base64 payload, below Anthropic's 5 MB limit.
 MAX_IMAGE_BASE64_BYTES = int(4.5 * 1024 * 1024)
 
-# Pi ``processImage`` texts.
-CONVERT_FAILED = (
-    "[Image omitted: could not be converted to a supported inline image format.]"
-)
-RESIZE_FAILED = (
-    "[Image omitted: could not be resized below the inline image size limit.]"
-)
+__all__ = [
+    "CONVERT_FAILED",
+    "RESIZE_FAILED",
+    "ProcessedImage",
+    "image_size",
+    "process_image",
+]
 
 _INLINE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 # JPEG start-of-frame markers: every SOFn but DHT (C4), JPG (C8) and DAC (CC).
 _JPEG_SOF = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
 
 
-@dataclass(frozen=True, slots=True)
-class ProcessedImage:
-    """An image to attach: base64 ``data`` of type ``mime_type``."""
+def process_image(
+    data: bytes, mime_type: str, *, auto_resize: bool = True
+) -> ProcessedImage | str:
+    """The image to attach, with its hint lines, or Pi's text for one that
+    cannot be attached.
 
-    data: str
-    mime_type: str
+    ``auto_resize`` is Pi's ``autoResizeImages`` (the ``images.autoResize``
+    setting): without it a PNG, JPEG, GIF or WebP is attached as it is, and
+    another type is still converted. Without Pillow nothing is converted or
+    resized.
+    """
 
-
-def process_image(data: bytes, mime_type: str) -> ProcessedImage | str:
-    """The image to attach, or Pi's text for one that cannot be attached."""
-
+    if pillow_available():
+        return process_image_or_omission(data, mime_type, auto_resize=auto_resize)
     if mime_type not in _INLINE_TYPES:
         # Pi converts other types (BMP) to PNG with Photon.
         return CONVERT_FAILED
+    encoded = base64.b64encode(data).decode("ascii")
+    if not auto_resize:
+        # Pi attaches a fitting type as it is, without decoding it.
+        return ProcessedImage(encoded, mime_type, ())
     size = image_size(data, mime_type)
     if size is None:
         # Pi: an image Photon cannot decode is not resized.
@@ -64,7 +82,7 @@ def process_image(data: bytes, mime_type: str) -> ProcessedImage | str:
         return RESIZE_FAILED
     if mime_type == "image/png" and not _png_pixels_complete(data):
         return RESIZE_FAILED
-    return ProcessedImage(base64.b64encode(data).decode("ascii"), mime_type)
+    return ProcessedImage(encoded, mime_type, ())
 
 
 def image_size(data: bytes, mime_type: str) -> tuple[int, int] | None:

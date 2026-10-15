@@ -61,6 +61,7 @@ from pipy_harness.native.tool_rows import (
     ToolRowResult,
     ToolRowState,
     compute_edit_preview,
+    is_builtin_edit,
     parse_arguments,
 )
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
@@ -428,7 +429,6 @@ class TuiToolLoopRenderer:
                 extension = cast(RowRenderers, resolved)
             elif builtin:
                 extension = ToolRenderers()
-            builtin = False
         state = ToolRowState(
             tool_name=name,
             correlation_id=call.provider_correlation_id,
@@ -442,7 +442,9 @@ class TuiToolLoopRenderer:
         )
         self._transcript.start_tool(state)
         self._preview_thread = None
-        if builtin and name == "edit" and not replay:
+        # Also for a row a resolver's renderers draw: they can wrap pipy's
+        # edit rows, preview included (Pi's edit renderer computes it).
+        if is_builtin_edit(state) and not replay:
             thread = threading.Thread(
                 target=self._compute_edit_preview,
                 args=(state,),

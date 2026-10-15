@@ -501,10 +501,19 @@ call a script or another tool made as well:
 - An image that cannot be decoded or made small enough is kept as the tool
   returned it.
 
+The built-in `read` tool processes an image file the same way before it
+returns it, as Pi's `read` does: a BMP is converted to PNG and, with
+`images.autoResize`, a larger image is resized, and the hint lines follow its
+`Read image file [<type>]` line. An image file it cannot convert or resize is
+not attached; `read` returns that line and Pi's text for it, such as
+`[Image omitted: could not be resized below the inline image size limit.]`.
+
 This needs Pillow, from the `images` extra (`uv sync --extra images` in a
 checkout, `uv tool install '.[images]'` as a tool). Without it every image
 is kept as the tool returned it, which is also what Pi does when its image
-library cannot load.
+library cannot load. `read` then attaches a PNG, JPEG, GIF or WebP file that
+already fits the limits (with `images.autoResize` off, any such file) and
+returns Pi's `[Image omitted: ...]` text for a larger one or a BMP.
 
 With `images.blockImages` set to `true`, no tool result image is sent: each
 image becomes the text `Image reading is disabled.`, and of several such
@@ -556,9 +565,11 @@ and custom models (which cost nothing unless they set `cost`).
 
 ## Credential command helpers
 
-Configured auth `!command` helpers require strict UTF-8 stdout. Invalid encoding,
-nonzero exits, timeouts and stdout above 1 MiB (Node's `maxBuffer`, as in Pi)
-quietly resolve as unavailable, without logging output. As in Pi, a helper's
+Configured auth `!command` helpers print the value on stdout, read as UTF-8
+with invalid bytes replaced by U+FFFD and trimmed as JavaScript's `trim()`
+trims (which also drops a byte order mark), as in Pi. Nonzero exits, timeouts,
+empty output and stdout above 1 MiB (Node's `maxBuffer`, as in Pi) quietly
+resolve as unavailable, without logging output. As in Pi, a helper's
 stderr is discarded and does not count toward that limit. Helpers run in an owned POSIX
 process group with a ten-second deadline; cleanup sends TERM, waits up to
 0.2 seconds for the whole group (even when the direct child already exited),

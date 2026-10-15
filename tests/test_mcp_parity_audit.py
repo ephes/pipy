@@ -240,6 +240,33 @@ def test_q12_accepts_the_rows_of_the_third_triage() -> None:
             assert "proposal" not in source, deviation
 
 
+def _deviation(number: int) -> str:
+    """The line of plan section 3.1 with ``DEV-<number>``."""
+
+    match = re.search(
+        rf"^\| DEV-{number:02d} \|.*$", _PLAN.read_text(), flags=re.MULTILINE
+    )
+    assert match is not None
+    return match.group(0)
+
+
+def test_the_fixes_of_the_third_triage_left_the_limits() -> None:
+    # INT5 folded T3, T4 and T6 (docs/specs/2026-10-15-mcp-gaps-r3-notes.md).
+    assert "8.0" not in _deviation(27)
+    assert "Since goal check r3 (U2)" in _deviation(31)
+    assert "`!` glob" in _deviation(32) and "last matching" not in _deviation(32)
+    assert "no live preview" not in _deviation(45)
+    assert "`read` uses the same processor" in _deviation(68)
+    ext15 = next(
+        line for line in _NOTE.read_text().splitlines() if "| EXT-15 |" in line
+    )
+    assert ext15.endswith("| `renderShell` is not ported. DEV-45. |")
+    assert "no live preview" not in _NOTE.read_text()
+    assert "test_without_waitid" not in _PLAN.read_text()
+    notes = (_DOCS / "specs" / "2026-10-15-mcp-gaps-r3-notes.md").read_text()
+    assert "**Folded in INT5 (2026-10-15).**" in notes
+
+
 def _rows_of(cell: str) -> list[str]:
     """The rows a "Rows" cell names: ``A-01, B-02 to B-04``."""
 

@@ -910,8 +910,9 @@ class SettingsManager:
     def builtin_extension_enabled(self, name: str) -> bool:
         """Whether ``extensions`` leaves the built-in extension ``name`` on.
 
-        The user-level array decides unless the project array has a
-        directive for ``builtin:<name>``, for example ``-builtin:mcp``.
+        The user-level array decides unless a ``!``, ``+`` or ``-`` entry of
+        the project array matches ``builtin:<name>``, for example
+        ``-builtin:mcp`` or ``!builtin:*`` (Pi's override rules).
         """
 
         from pipy_harness.native.resource_enablement import (

@@ -14,7 +14,10 @@ Built-in extensions are parts of pipy that can be turned off like an
 extension (Pi's built-in extensions). One is named ``builtin:<name>`` in the
 ``extensions`` array and on the command line: ``mcp``, ``codemode`` (the
 ``codemode`` tool) and ``tool-search`` (the ``tool_search`` tool). Pi's
-``llama.cpp`` has no counterpart.
+``llama.cpp`` has no counterpart. Their entries follow Pi's override rules
+rather than the ones above: ``!pattern`` is a glob that turns them off,
+``+builtin:<name>`` and ``-builtin:<name>`` name one exactly
+(:func:`is_builtin_extension_enabled`).
 """
 
 from __future__ import annotations
@@ -99,17 +102,87 @@ def is_builtin_extension_enabled(
 ) -> bool:
     """Whether the ``extensions`` settings leave a built-in extension on.
 
-    Enabled unless the user-level array turns ``builtin:<name>`` off. A
-    directive in the project array that matches it decides instead (Pi
-    ``resolve`` in ``package-manager.ts``).
+    Pi ``resolve`` in ``package-manager.ts``: the project array decides when
+    one of its ``!``, ``+`` or ``-`` entries matches ``builtin:<name>``, the
+    last matching entry winning (``applyAutoloadDisabledPatterns``).
+    Otherwise the user-level array decides (``isEnabledByOverrides``).
     """
 
     resource = BUILTIN_EXTENSION_PREFIX + name
-    project = [entry for entry in project_patterns if isinstance(entry, str)]
-    if any(
-        entry[:1] in ("+", "-") and _matches(resource, entry[1:]) for entry in project
-    ):
-        return is_resource_enabled(resource, project)
-    return is_resource_enabled(
-        resource, [entry for entry in user_patterns if isinstance(entry, str)]
-    )
+    decided = _last_matching_override(resource, project_patterns)
+    if decided is not None:
+        return decided
+    return _enabled_by_overrides(resource, user_patterns)
+
+
+def _override_entries(patterns: Sequence[object]) -> list[str]:
+    """Pi ``getOverridePatterns``: the ``!``, ``+`` and ``-`` entries."""
+
+    return [
+        entry
+        for entry in patterns
+        if isinstance(entry, str) and entry[:1] in ("!", "+", "-")
+    ]
+
+
+def _matches_exactly(resource: str, target: str) -> bool:
+    """Pi ``matchesAnyExactPattern`` for a built-in extension's path: the
+    target as written, without a leading ``./``."""
+
+    if target.startswith(("./", ".\\")):
+        target = target[2:]
+    return target == resource
+
+
+def set_builtin_extension_entry(
+    patterns: list[str], name: str, *, enabled: bool
+) -> list[str]:
+    """``patterns`` with ``+builtin:<name>`` (or ``-``) appended in place of
+    every ``+`` or ``-`` entry that names it exactly, also as ``./builtin:<name>``.
+
+    Removing those keeps an earlier ``-`` entry from winning over the new
+    ``+`` one in the user array (:func:`is_builtin_extension_enabled`).
+    """
+
+    resource = BUILTIN_EXTENSION_PREFIX + name
+    result = [
+        entry
+        for entry in patterns
+        if not (entry[:1] in ("+", "-") and _matches_exactly(resource, entry[1:]))
+    ]
+    result.append(("+" if enabled else "-") + resource)
+    return result
+
+
+def _override_matches(resource: str, entry: str) -> bool:
+    """A ``!`` entry is a glob, a ``+`` or ``-`` entry an exact name (Pi)."""
+
+    target = entry[1:]
+    if entry[0] == "!":
+        return _matches(resource, target)
+    return _matches_exactly(resource, target)
+
+
+def _last_matching_override(resource: str, patterns: Sequence[object]) -> bool | None:
+    """Pi ``applyAutoloadDisabledPatterns``: the last matching entry decides,
+    ``+`` turning on and ``!`` or ``-`` off; ``None`` when none matches."""
+
+    decided: bool | None = None
+    for entry in _override_entries(patterns):
+        if _override_matches(resource, entry):
+            decided = entry[0] == "+"
+    return decided
+
+
+def _enabled_by_overrides(resource: str, patterns: Sequence[object]) -> bool:
+    """Pi ``isEnabledByOverrides``: a ``-`` entry turns it off over a ``+``
+    entry, which turns it on over a ``!`` entry, whatever their order."""
+
+    signs = {
+        entry[0]
+        for entry in _override_entries(patterns)
+        if _override_matches(resource, entry)
+    }
+    if "-" in signs:
+        return False
+    return "+" in signs or "!" not in signs

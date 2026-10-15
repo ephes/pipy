@@ -13,21 +13,26 @@ The path resolves like Pi's ``resolveReadPath`` (READ2, see
 directory, ``~`` expanded, a leading ``@`` stripped, the macOS screenshot
 name variants tried, and no deny list, so any readable file can be read.
 
-A supported image (JPEG, PNG, GIF, WebP; BMP is detected) is returned as an
-image attachment after a ``Read image file [<type>]`` line, like Pi's
-``processImage`` (:mod:`pipy_harness.native.tools.read_image`). Every result
+A supported image (JPEG, PNG, GIF, WebP, BMP) is returned as an image
+attachment after a ``Read image file [<type>]`` line, like Pi's
+``processImage`` (:mod:`pipy_harness.native.tools.read_image`): with Pillow
+(the ``images`` extra) a BMP is converted to PNG and an image over 2000 x 2000
+pixels or 4.5 MB of base64 is resized, with Pi's hint lines. Every result
 also carries Pi's structured content for programmatic callers such as
 codemode scripts (``READ_OUTPUT_SCHEMA``): the text, or for an attached image
 ``{"type": "image", "data", "mimeType", "note"}``.
 
 Deviations from Pi, each tracked in ``docs/backlog.md``:
 
-- pipy has no image codec: an image over 2000 x 2000 pixels or 4.5 MB of
-  base64, or a BMP, is not resized or converted but omitted with Pi's text
-  for an image it could not process, and EXIF orientation is not applied.
-  The file's structure is checked instead of decoding it, so a cut or
-  malformed file is omitted the same way.
-  The ``Current model does not support images`` note is not added (the tool
+- Without Pillow pipy has no image codec: an image over 2000 x 2000 pixels
+  or 4.5 MB of base64, or a BMP, is not resized or converted but omitted
+  with Pi's text for an image it could not process, and EXIF orientation is
+  not applied. The file's structure is checked instead of decoding it, so a
+  cut or malformed file is omitted the same way.
+- With Pillow, the image process's deviations (DEV-68): the bytes of a
+  resized image are not Photon's, and the limits are Pi's defaults; Pi
+  takes them from the model's catalog row.
+- The ``Current model does not support images`` note is not added (the tool
   does not know the model; the provider request leaves the image out).
 - ``offset``/``limit`` are ``integer`` in pipy's schema subset, which has no
   ``number`` type.
@@ -39,6 +44,7 @@ this module.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -109,9 +115,14 @@ class ReadTool:
     ``attach_images=False`` is for a reader whose result is used as text
     only (``@file`` references): an image is then an error that points to
     ``@image:`` instead of a result whose image would be lost.
+
+    ``auto_resize_images`` is asked at each image read whether to resize it
+    (Pi ``autoResizeImages``, the ``images.autoResize`` setting); without it
+    images are resized.
     """
 
     attach_images: bool = True
+    auto_resize_images: Callable[[], bool] | None = None
 
     @property
     def definition(self) -> ToolDefinition:
@@ -171,7 +182,8 @@ class ReadTool:
         if mime_type is not None:
             if not self.attach_images:
                 return self._error(request, _not_text_message(mime_type))
-            return self._image(request, raw, mime_type)
+            auto_resize = self.auto_resize_images() if self.auto_resize_images else True
+            return self._image(request, raw, mime_type, auto_resize=auto_resize)
 
         output = _format_text(
             raw.decode("utf-8", errors="replace"),
@@ -191,11 +203,13 @@ class ReadTool:
         )
 
     @staticmethod
-    def _image(request: ToolRequest, raw: bytes, mime_type: str) -> ToolExecutionResult:
-        """Pi's image branch: a ``Read image file`` line and the image, or
-        the line and the reason it could not be attached."""
+    def _image(
+        request: ToolRequest, raw: bytes, mime_type: str, *, auto_resize: bool
+    ) -> ToolExecutionResult:
+        """Pi's image branch: a ``Read image file`` line, its hint lines and
+        the image, or the line and the reason it could not be attached."""
 
-        processed = process_image(raw, mime_type)
+        processed = process_image(raw, mime_type, auto_resize=auto_resize)
         if isinstance(processed, str):
             note = f"Read image file [{mime_type}]\n{processed}"
             return ToolExecutionResult(
@@ -204,7 +218,7 @@ class ReadTool:
                 provider_correlation_id=request.provider_correlation_id,
                 structured_content=note,
             )
-        note = f"Read image file [{processed.mime_type}]"
+        note = "\n".join((f"Read image file [{processed.mime_type}]", *processed.hints))
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=note,

@@ -881,9 +881,12 @@ class NativeToolCapabilities:
     def set_active_tools(self, names: Sequence[str]) -> bool:
         """Atomically replace the provider-visible tool-name selection.
 
-        Pi ``setActiveToolsByName``: unknown and ``hidden`` names are
-        ignored and the others become the selection, so the call always
-        applies and returns ``True``. Filtering and assignment share one
+        Pi ``setActiveToolsByName``: unknown and ``hidden`` names, and names
+        that the ``--tools`` allowlist does not let be activated (Pi
+        ``_isActivatable`` in ``_applyToolLoadout``), are ignored and the
+        others become the selection, so the call always applies and returns
+        ``True``. A dropped name stays inactive when a later exposure change
+        would make it activatable. Filtering and assignment share one
         critical section, so a concurrent publication can neither be undone
         by a selection derived from the superseded registry nor slip a name
         past the registry check.
@@ -896,10 +899,11 @@ class NativeToolCapabilities:
         with self._state_lock:
             state = self._state
             hidden = _hidden_names(state.registry)
+            admits = _loadout_admits(state)
             normalized = frozenset(
                 name
                 for name in requested
-                if name in state.registry and name not in hidden
+                if name in state.registry and name not in hidden and admits(name)
             )
             # What counts is what was declared: a name the filters hide was
             # not active for the model, so dropping it deactivates nothing.
@@ -958,7 +962,9 @@ class NativeToolCapabilities:
 
         Like :meth:`load_tools` the names are added to the selection that is
         live now, and adding does not count as a selection an extension made.
-        Unlike it, any registered tool can be named. A selection that already
+        Unlike it, any registered tool can be named, except one the
+        ``--tools`` allowlist does not let be activated (as for
+        :meth:`set_active_tools`). A selection that already
         has the names, also the unset one that means "as registration left
         it", is not replaced.
         """
@@ -966,7 +972,10 @@ class NativeToolCapabilities:
         with self._state_lock:
             state = self._state
             current = _active_names(state)
-            added = frozenset(name for name in names if name in state.registry)
+            admits = _loadout_admits(state)
+            added = frozenset(
+                name for name in names if name in state.registry and admits(name)
+            )
             if not added <= current:
                 self._state = replace(
                     state,
@@ -1647,13 +1656,29 @@ def _is_activatable(
     )
 
 
+def _loadout_admits(state: ToolCapabilityState) -> Callable[[str], bool]:
+    """Whether a registered name may join the active selection. Pure.
+
+    Pi ``_applyToolLoadout`` keeps only names its registry has (which
+    excludes what the ``--tools``/``--exclude-tools`` filter does not keep)
+    and that are activatable when the selection is set; a dropped name is
+    not stored for later.
+    """
+
+    if not state.filter_configured:
+        return lambda name: True
+    kept = _kept_names(state)
+    return lambda name: name in kept and _is_activatable(state, name, kept)
+
+
 def _declared_names(state: ToolCapabilityState) -> frozenset[str]:
     """The active names that the filters let be declared. Pure.
 
     Pi drops such names when it applies a loadout, whoever named them: a
-    selection, a restored transcript or an extension. Here the active set is
-    kept as it was given and narrowed whenever it is read, so a reload that
-    changes an exposure needs no second bookkeeping.
+    selection, a restored transcript or an extension. Here a selection drops
+    them when it is set (:func:`_loadout_admits`), and the active set is
+    narrowed again whenever it is read, so a reload that changes an exposure
+    takes a tool out without a second bookkeeping.
     """
 
     active = _active_names(state)

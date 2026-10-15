@@ -8,6 +8,62 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Closing a stdio MCP server on macOS with Python 3.11 or 3.12 now ends a
+  child of the server that outlives it and keeps its stdout or stderr open:
+  the transport waits for the server's exit with a kqueue there (Python has
+  no `os.waitid` on macOS before 3.13), so the exited server stays unreaped
+  and its process group keeps getting the SIGTERM and SIGKILL of the close,
+  and of the exit hook, until the pipes close, as with Pi. Before, the
+  server was reaped at once and such a child was never signalled. See
+  [MCP](docs/mcp.md).
+- A codemode row no longer freezes after 256 nested calls: the live row
+  keeps the latest 256 (past that the oldest finished call goes for each
+  new one), so the latest calls and failures stay visible, as Pi's renderer
+  shows the latest of every call. The collapsed
+  `... (N earlier calls, ctrl+o to expand)` counts every call left out, and
+  an expanded row starts with `... (N earlier calls, not kept)` when calls
+  were let go. Before, later calls were not shown at all. The `nestedCalls`
+  record in the result is unchanged (the first 256 calls, `complete: false`
+  past that). See [codemode](docs/codemode.md#nested-evidence-and-availability).
+- A tool renderer resolver that wraps the renderers `next()` gives for a
+  built-in tool keeps the row's live parts, as a wrapper of Pi's built-in
+  renderers does: a wrapped `edit` row shows the diff preview while the
+  call runs, and a wrapped `bash` row shows `Elapsed` from the start and
+  ticks it every second until the result, with the output so far above it.
+  Before, both were missing until the result arrived. A resolver that
+  leaves the row to the generic renderers (returns `None`, or renderers
+  without callables) still gets neither, as in Pi. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- With a `--tools` allowlist, `set_active_tools` (and adding tools to the
+  selection) drops an MCP-named tool the allowlist does not let be
+  activated, as Pi's `_applyToolLoadout` does, instead of keeping it in the
+  selection. Before, a later re-registration of such a tool as `deferred`
+  declared it without any activation or `tool_search` load.
+- An `auth.json` that starts with a UTF-8 byte order mark is read (Pi
+  `stripBom`), by the auth store and by the provider token an
+  `auth.provider` MCP server sends. Before, such a file read as empty, so a
+  stored login was ignored and the server asked for sign-in.
+- A `!command` value (auth `api_key`, `models.json` keys, MCP `env` and
+  `headers` values) is read as Pi reads it: the output is decoded with
+  invalid UTF-8 replaced by U+FFFD (before, it made the value unavailable)
+  and trimmed with JavaScript's `trim()` whitespace set, so a byte order mark
+  or U+3000 around the value is dropped while U+001C to U+001F and U+0085,
+  which Python's `strip()` removed, are kept.
+- A built-in extension's `extensions` entries follow Pi's override rules
+  (`isEnabledByOverrides`, `applyAutoloadDisabledPatterns`): a `!pattern`
+  glob such as `!builtin:mcp` or `!builtin:*` turns it off, which was ignored
+  before, so MCP stayed on and its servers launched. `+builtin:<name>` and
+  `-builtin:<name>` now name one exactly (before they were globs, so
+  `-builtin:*` turned all three off; in Pi it matches none). In the user
+  array a `-` entry wins over a `+` entry, which wins over a `!` entry,
+  whatever their order (before, the last matching entry won). A matching
+  `!`, `+` or `-` entry in a trusted project's array decides, the last one
+  winning (before only `+` and `-` entries counted there).
+  `pipy config enable|disable builtin <name>` replaces every `+` or `-`
+  entry that names the built-in exactly (also `./builtin:<name>`), so an
+  earlier `-` entry cannot keep it off. See
+  [turning MCP off](docs/mcp.md#turning-mcp-off).
+
 - A typed `/skill:<name>` line whose skill does not exist or cannot be read
   goes to the model as typed, as in Pi, after pipy reports why; and a typed
   skill, template or custom command line meets the `input` hooks before it
@@ -754,6 +810,22 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The built-in `read` tool processes an image file as Pi's `read` does when
+  Pillow (the `images` extra) is installed: a BMP is converted to PNG and an
+  image over 2000 x 2000 pixels or 4.5 MB of base64 is resized, with Pi's
+  hint lines (`[Image converted from image/bmp to image/png.]`, `[Image:
+  original WxH, displayed at wxh. ...]`) after `Read image file [<type>]`, in
+  direct use and for `image(tools.read(...))` in a script. Before, such an
+  image was omitted with `[Image omitted: ...]` even with Pillow. `read`
+  follows `images.autoResize`: off, a PNG, JPEG, GIF or WebP file is attached
+  as it is and a BMP is still converted. Without Pillow nothing changes: a
+  fitting PNG, JPEG, GIF or WebP is attached and a larger image or a BMP gets
+  Pi's omission text. See [codemode](docs/codemode.md).
+- `search_tools(query, limit=8.0)` in a codemode script is accepted as
+  `limit=8`, as Pi's `Number.isInteger` accepts it; `2.5`, `inf`, `nan`,
+  `True` and strings still fail with `search_tools() limit must be a positive
+  integer`.
+
 - JSON and RPC tool events follow Pi's documented contract (`docs/json.md`):
   `tool_execution_end.result` and `tool_execution_update.partialResult` are
   now `{content, details}` objects instead of strings. `result.content` has
@@ -1221,6 +1293,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   test and 119 with a limit. [MCP](docs/mcp.md) lists the missing proxy
   support, and the [backlog](docs/backlog.md) has proxy support, Pi's
   `auth.json` config values and `constrained_sampling` as follow-ons.
+
+- The MCP parity plan, its acceptance note and the backlog hold the fix
+  slices T3, T4 and T6 of the third goal check: DEV-27, DEV-31, DEV-32,
+  DEV-45 and DEV-68 say what they changed, the rows they touch name their
+  new tests, and the backlog's READ-IMG item is left with what `read` does
+  without Pillow. No row changes its state: 173 rows are closed with a test
+  and 119 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

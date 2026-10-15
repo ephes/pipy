@@ -36,6 +36,11 @@ def test_resolve_config_value_command_runs_and_strips():
 
     assert resolve_config_value("!echo hi", env={}, run_command=runner) == "cmd-secret"
     assert calls == ["echo hi"]
+    # JavaScript trim(), as Pi.
+    assert (
+        resolve_config_value("!x", env={}, run_command=lambda c: "\ufeffkey\u3000")
+        == "key"
+    )
 
 
 # ---- env credential detection ----------------------------------------------
@@ -390,14 +395,15 @@ def test_resolve_request_auth_stored_oauth_via_resolver(tmp_path):
     assert resolved.ok and resolved.api_key == "tok"
 
 
-def test_command_invalid_utf8_is_unavailable(capsys):
+def test_command_invalid_utf8_is_replaced(capsys):
+    # Goal check r3 F3: Node's execSync decodes with U+FFFD.
     import shlex
     import sys
 
     command = shlex.join(
         [sys.executable, "-c", "import os; os.write(1, b'fake-marker\\xff')"]
     )
-    assert resolve_config_value("!" + command, env={}) is None
+    assert resolve_config_value("!" + command, env={}) == "fake-marker\ufffd"
     captured = capsys.readouterr()
     assert "fake-marker" not in captured.out + captured.err
 
@@ -408,6 +414,11 @@ def test_command_unicode_success_and_nonzero():
 
     for script, expected in [
         ("import os; os.write(1, '  clé  '.encode('utf-8'))", "clé"),
+        # Goal check r3 F3, JavaScript trim(): U+FEFF and U+00A0 go, while
+        # U+001C and U+0085, which Python's strip() removes, stay.
+        ("import os; os.write(1, '\\ufefftoken\\n'.encode('utf-8'))", "token"),
+        ("import os; os.write(1, '\\xa0tok\\x1c'.encode('utf-8'))", "tok\x1c"),
+        ("import os; os.write(1, '\\x85tok'.encode('utf-8'))", "\x85tok"),
         ("print('invented'); raise SystemExit(1)", None),
     ]:
         command = shlex.join([sys.executable, "-c", script])

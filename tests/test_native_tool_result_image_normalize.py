@@ -69,8 +69,10 @@ from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolPort,
     ToolRequest,
 )
+from pipy_harness.native.tools.read import ReadTool
 
 
 def _image_bytes(
@@ -345,6 +347,7 @@ def _session_requests(
     monkeypatch: pytest.MonkeyPatch,
     settings: dict[str, object],
     prompt: str = "look",
+    tool: tuple[str, ToolPort, str] | None = None,
 ) -> list[ProviderRequest]:
     from dataclasses import replace
 
@@ -360,6 +363,7 @@ def _session_requests(
     )
     provider = provider_state.current_provider()
     requests: list[ProviderRequest] = []
+    name, port, arguments = tool or ("shot", _WideShotTool(), "{}")
 
     def complete(self: Any, request: ProviderRequest, **kwargs: Any) -> Any:
         requests.append(request)
@@ -368,7 +372,7 @@ def _session_requests(
             provider_result("" if first else "done"),
             provider_name=request.provider_name,
             model_id=request.model_id,
-            tool_calls=(ProviderToolCall("call-1", "shot", "{}"),) if first else (),
+            tool_calls=(ProviderToolCall("call-1", name, arguments),) if first else (),
         )
 
     monkeypatch.setattr(type(provider), "complete", complete)
@@ -377,7 +381,7 @@ def _session_requests(
     CodingSession(
         provider=provider,
         provider_state=provider_state,
-        tool_registry={"shot": _WideShotTool()},
+        tool_registry={name: port},
         settings_manager=SettingsManager(global_path=path, env={}),
     ).run(
         workspace_root=tmp_path,
@@ -399,6 +403,31 @@ def test_a_session_sends_the_resized_tool_result_image(
     assert first == TextContent("saved") and note == TextContent(WIDE_NOTE)
     assert isinstance(image, ImageContent) and _size(image) == (2000, 667)
     assert sent.content.value == f"saved\n{WIDE_NOTE}"
+
+
+@pytest.mark.parametrize("auto_resize", [True, False])
+def test_the_read_tool_follows_the_auto_resize_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auto_resize: bool
+) -> None:
+    # Pi passes images.autoResize to read (agent-session.ts): on, read
+    # resizes and notes it; off, read attaches the image as it is.
+    (tmp_path / "wide.png").write_bytes(_image_bytes(3000, 1000))
+    requests = _session_requests(
+        tmp_path,
+        monkeypatch,
+        {"images": {"autoResize": auto_resize}},
+        tool=("read", ReadTool(), '{"path": "wide.png"}'),
+    )
+    sent = requests[1].messages[-1]
+    assert isinstance(sent, AgentToolResultMessage)
+    first, image = sent.blocks
+    assert isinstance(image, ImageContent)
+    if auto_resize:
+        assert first == TextContent(f"Read image file [image/png]\n{WIDE_NOTE}")
+        assert _size(image) == (2000, 667)
+    else:
+        assert first == TextContent("Read image file [image/png]")
+        assert _size(image) == (3000, 1000)
 
 
 def test_a_session_with_blocked_images_sends_the_text_instead(

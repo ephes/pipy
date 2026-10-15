@@ -42,6 +42,11 @@ from functools import partial
 from typing import Self, cast
 
 from pipy_harness.native.agent import NestedToolCallCompleted, NestedToolCallStarted
+from pipy_harness.native.agent.nested_record import (
+    MAX_ARGUMENT_BYTES,
+    MAX_CALLS,
+    MAX_TOTAL_ARGUMENT_BYTES,
+)
 from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.chrome import chrome_style_for
 from pipy_harness.native.extensions.contracts import (
@@ -586,16 +591,35 @@ class TranscriptComponent:
                 None,
             )
             if isinstance(event, NestedToolCallStarted):
-                if index is not None or len(state.nested_lines) >= 256:
+                if index is not None:
                     return
-                remaining = 32768 - sum(
+                if len(state.nested_lines) >= MAX_CALLS:
+                    # Pi keeps every call (cm/execute.ts) and shows the latest;
+                    # the row keeps the latest calls and counts the others.
+                    # The oldest finished call goes first, so a call still
+                    # running can settle in place.
+                    drop = next(
+                        (
+                            i
+                            for i, line in enumerate(state.nested_lines)
+                            if line.status != "unfinished"
+                        ),
+                        0,
+                    )
+                    state.nested_lines = (
+                        *state.nested_lines[:drop],
+                        *state.nested_lines[drop + 1 :],
+                    )
+                    state.nested_dropped += 1
+                remaining = MAX_TOTAL_ARGUMENT_BYTES - sum(
                     len(line.arguments.encode("utf-8")) for line in state.nested_lines
                 )
                 line = NestedToolLine(
                     event.call.provider_correlation_id,
                     bounded_nested_text(event.call.tool_name, 80),
                     bounded_nested_text(
-                        event.call.arguments_json.value, min(8192, remaining)
+                        event.call.arguments_json.value,
+                        min(MAX_ARGUMENT_BYTES, remaining),
                     ),
                 )
                 state.nested_lines += (line,)

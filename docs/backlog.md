@@ -132,7 +132,8 @@ MCP conformance suite gives the same result for pipy as for Pi
   section 7, Q11 and Q12, do not name are accepted. Q11 (2026-10-15) accepts
   the findings of the second goal check that its triage neither fixes nor
   refutes; Q12 (2026-10-15) does the same for the third goal check. The fix
-  slices T1 to T6 of the third triage are the rest of MCP1.
+  slices T1 to T6 of the third triage are on `feat/mcp-parity` (T3, T4 and
+  T6 merged in INT5).
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -279,11 +280,11 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
 - **READ-IMG, images from `read`:** `read` attaches JPEG, PNG, GIF and
-  WebP files (MCP parity plan S39 and G5). What is left is Pi's image codec
-  (Photon): pipy does not resize an image over 2000 x 2000 pixels or 4.5 MB
-  of base64, convert a BMP to PNG or apply EXIF orientation; such an image
-  is omitted with Pi's text. The `Current model does not support images`
-  note is not added.
+  WebP files (MCP parity plan S39 and G5). Without Pillow (the `images`
+  extra) `read` does not resize an image over 2000 x 2000 pixels or 4.5 MB
+  of base64 or convert a BMP; such an image is omitted with Pi's text. With
+  Pillow it does (goal check r3, D2). The `Current model does not support
+  images` note is not added.
 - **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
   - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
     OSC 8 file links (DF1-F7 added the ticking `Elapsed`);
