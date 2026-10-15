@@ -75,7 +75,7 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.base import ToolDefinition, ToolOutputSink
 from pipy_harness.status import HarnessStatus
 
 _TOOL = ToolDefinition(
@@ -286,7 +286,7 @@ class _Tools:
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         arguments: Any = None,
     ) -> ToolExecutionOutcome:
@@ -2171,7 +2171,7 @@ def test_invalid_executed_tool_result_stops_before_completion_and_effect(
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             arguments: Any = None,
         ) -> ToolExecutionOutcome:
@@ -2615,6 +2615,7 @@ def test_settle_seam_returns_result_and_transition_without_recording(
             if action is AgentToolPolicyAction.INTERRUPTED
             else ToolExecutionInterruption.SETTLED
         ),
+        execution_seconds=0.25,
     )
     status = _StatusPolicy(order)
     policy = _ToolPolicy(order, blocked=action is AgentToolPolicyAction.BLOCKED)
@@ -2664,6 +2665,9 @@ def test_settle_seam_returns_result_and_transition_without_recording(
     completed = events.events[-1]
     assert isinstance(completed, ToolCallCompleted)
     assert (completed.duration_seconds is not None) is executed
+    # Pi's durationMs is the tool's own run as the executor measured it,
+    # without the hooks around it; absent when the tool never ran.
+    assert completed.execution_seconds == (0.25 if executed else None)
     assert ("policy:transform:child" in order) is executed
     assert policy.before_calls == int(
         action

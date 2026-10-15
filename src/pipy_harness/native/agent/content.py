@@ -20,10 +20,10 @@ message share one definition.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Final
+from typing import Any, Final
 
 
 class NoStructuredContent(Enum):
@@ -54,6 +54,35 @@ class ProductContent:
         """Keep full-content payloads out of diagnostics and assertion diffs."""
 
         return "ProductContent(<redacted>)"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolPartialResult:
+    """A partial result a running tool reports (Pi ``onUpdate(partialResult)``).
+
+    Pi's ``{content: [{type: "text", text}], details}``: ``content`` is the
+    text, ``details`` a JSON object or None. Each one replaces the previous
+    partial result of the call, as an MCP tool's progress does. A tool that
+    streams its output (``bash``) writes plain text chunks to the sink
+    instead, each continuing the text before it.
+    """
+
+    content: str
+    details: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.content, str):
+            raise TypeError("ToolPartialResult.content must be a string")
+        if self.details is not None and not isinstance(self.details, Mapping):
+            raise TypeError("ToolPartialResult.details must be a mapping or None")
+
+    def __repr__(self) -> str:
+        return "ToolPartialResult(<redacted>)"
+
+
+ToolOutput = str | ToolPartialResult
+"""What a running tool writes to its output sink: a chunk of streamed text, or
+a :class:`ToolPartialResult` that replaces the previous one."""
 
 
 REDACTED_THINKING_TEXT = "[Reasoning redacted]"

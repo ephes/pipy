@@ -24,7 +24,13 @@ from pipy_harness.native.agent import (
     AgentTranscriptMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ProductContent,
+    TextContent,
+    ThinkingContent,
+    ToolPartialResult,
+)
 from pipy_harness.native.agent.messages import AgentContentBlock
 from pipy_harness.native.agent.system_messages import system_message_to_json
 from pipy_harness.native.agent.usage_json import usage_to_json
@@ -44,6 +50,57 @@ def codemode_parent_details(message: AgentToolResultMessage) -> dict[str, Any]:
     ):
         return {"details": dict(details)}
     return {}
+
+
+def tool_result_content(message: AgentToolResultMessage) -> list[dict[str, Any]]:
+    """Pi's ``content`` of a tool result: one text block, or the ordered
+    text and image blocks when the result has an image."""
+
+    return tool_result_blocks_to_json(message.blocks) or [
+        {"type": "text", "text": message.content.value}
+    ]
+
+
+def tool_result_json(message: AgentToolResultMessage) -> dict[str, Any]:
+    """Pi's ``AgentToolResult`` of a finished call (``tool_execution_end``
+    ``result``): ``content``, ``details`` when the result has them, and the
+    tool's ``structuredContent`` when it gave one."""
+
+    result: dict[str, Any] = {"content": tool_result_content(message)}
+    if message.details is not None:
+        result["details"] = dict(message.details)
+    if message.structured_content is not NO_STRUCTURED_CONTENT:
+        result["structuredContent"] = message.structured_content
+    return result
+
+
+def partial_result_json(update: ProductContent | ToolPartialResult) -> dict[str, Any]:
+    """Pi's partial ``AgentToolResult`` (``tool_execution_update``
+    ``partialResult``).
+
+    A partial result (an MCP tool's progress) keeps its ``details`` and
+    replaces the previous one. A chunk of streamed output (``bash``) is a
+    partial result with that chunk as its text and empty ``details``; its
+    text continues the previous chunk's.
+    """
+
+    if isinstance(update, ToolPartialResult):
+        partial: dict[str, Any] = {
+            "content": [{"type": "text", "text": update.content}]
+        }
+        if update.details is not None:
+            partial["details"] = dict(update.details)
+        return partial
+    return {"content": [{"type": "text", "text": update.value}], "details": {}}
+
+
+def duration_ms(execution_seconds: float | None) -> dict[str, int]:
+    """Pi's ``durationMs`` field: how long the tool ran, in whole
+    milliseconds; absent when it never started."""
+
+    if execution_seconds is None:
+        return {}
+    return {"durationMs": round(execution_seconds * 1000)}
 
 
 def parse_tool_arguments(arguments_json: str) -> Any:
@@ -142,8 +199,7 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
             "role": "toolResult",
             "toolCallId": message.provider_correlation_id,
             # Pi's ordered text and image blocks when the result has an image.
-            "content": tool_result_blocks_to_json(message.blocks)
-            or [{"type": "text", "text": message.content.value}],
+            "content": tool_result_content(message),
             "isError": message.is_error,
         }
     raise TypeError(f"unserializable loop message: {type(message)!r}")

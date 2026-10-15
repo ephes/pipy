@@ -5,17 +5,20 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from math import isfinite
+from time import monotonic
 from typing import Any, Protocol, runtime_checkable
 
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import ProductContent, ToolOutput
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolOutputSink,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
@@ -49,6 +52,11 @@ class ToolExecutionOutcome:
     interruption: ToolExecutionInterruption = ToolExecutionInterruption.SETTLED
     # Execution evidence, independent of policy/operator interruption ownership.
     cancelled: bool = False
+    # How long the tool itself ran (Pi ``durationMs`` around ``execute()``),
+    # on a monotonic clock; None when the tool never started (unknown tool,
+    # invalid arguments, cancelled before it ran). Timing evidence, so it
+    # takes no part in equality.
+    execution_seconds: float | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.result, AgentToolResultMessage):
@@ -64,6 +72,17 @@ class ToolExecutionOutcome:
         if not isinstance(self.interruption, ToolExecutionInterruption):
             raise TypeError(
                 "ToolExecutionOutcome.interruption must be ToolExecutionInterruption"
+            )
+        seconds = self.execution_seconds
+        if seconds is not None and (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not isfinite(seconds)
+            or seconds < 0
+        ):
+            raise ValueError(
+                "ToolExecutionOutcome.execution_seconds must be finite, "
+                "nonnegative or None"
             )
 
 
@@ -109,7 +128,7 @@ class AgentToolCapabilities(Protocol):
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
@@ -134,6 +153,11 @@ class AgentToolCapabilities(Protocol):
         See :meth:`ToolExecutor.validated_arguments`.
         """
         ...
+
+
+def _seconds_since(started: list[float]) -> float | None:
+    """How long ago the tool started, or None when it did not."""
+    return monotonic() - started[0] if started else None
 
 
 def cancelled_tool_outcome(
@@ -168,21 +192,21 @@ def cancelled_tool_outcome(
 class _InvocationOutputGate:
     """Keep one invocation's live-output callback within its execution lifetime."""
 
-    def __init__(self, sink: Callable[[str], None] | None) -> None:
+    def __init__(self, sink: ToolOutputSink | None) -> None:
         self._sink = sink
         self._active = True
         self._lock = threading.Lock()
 
     @property
-    def sink(self) -> Callable[[str], None] | None:
+    def sink(self) -> ToolOutputSink | None:
         return self.emit if self._sink is not None else None
 
-    def emit(self, chunk: str) -> None:
+    def emit(self, output: ToolOutput) -> None:
         with self._lock:
             if not self._active or self._sink is None:
                 return
             sink = self._sink
-        sink(chunk)
+        sink(output)
 
     def deactivate(self) -> None:
         with self._lock:
@@ -367,12 +391,15 @@ class ToolExecutor:
         done_event = threading.Event()
         result_holder: list[ToolExecutionOutcome] = []
         error_holder: list[BaseException] = []
+        # When the tool itself started, so a call cancelled while it runs
+        # still reports how long it ran.
+        started: list[float] = []
         cancellable_context = replace(context, cancel_event=cancel_event)
 
         def _worker() -> None:
             try:
                 result_holder.append(
-                    self._execute_once(call, cancellable_context, arguments)
+                    self._execute_once(call, cancellable_context, arguments, started)
                 )
             # re-raised by the caller
             except BaseException as exc:  # pragma: no cover  # noqa: BLE001
@@ -398,7 +425,18 @@ class ToolExecutor:
             output_gate.deactivate()
             if not completion_preceded_interruption:
                 worker.join(timeout=self._cancel_join_timeout_seconds)
-                return self._cancellation_outcome(call, interruption)
+                # A tool that finished its cleanup during the join ran that
+                # long (Pi times execute() until it settles); one still
+                # running ran at least until now.
+                ran = (
+                    result_holder[0].execution_seconds
+                    if result_holder
+                    else _seconds_since(started)
+                )
+                return replace(
+                    self._cancellation_outcome(call, interruption),
+                    execution_seconds=ran,
+                )
             worker.join(timeout=self._cancel_join_timeout_seconds)
         worker.join()
         if error_holder:
@@ -417,6 +455,7 @@ class ToolExecutor:
                     }
                     else interruption
                 ),
+                execution_seconds=outcome.execution_seconds,
             )
         if interruption is ToolExecutionInterruption.SETTLED:
             return ToolExecutionOutcome(self.error_result(call, "tool cancelled"))
@@ -461,6 +500,7 @@ class ToolExecutor:
         call: AgentToolCall,
         context: ToolContext,
         given: dict[str, Any] | None = None,
+        started: list[float] | None = None,
     ) -> ToolExecutionOutcome:
         tool = self._registry.get(call.tool_name)
         if given is None or tool is None:
@@ -477,7 +517,11 @@ class ToolExecutor:
                 arguments=arguments,
                 provider_correlation_id=call.provider_correlation_id,
             )
+            began = monotonic()
+            if started is not None:
+                started.append(began)
             execution_result = tool.invoke(request, context)
+            ran = monotonic() - began
         except ToolArgumentError as exc:
             return ToolExecutionOutcome(
                 self.error_result(call, str(exc)),
@@ -500,5 +544,6 @@ class ToolExecutor:
                 details=execution_result.details,
                 structured_content=execution_result.structured_content,
                 blocks=execution_result.blocks,
-            )
+            ),
+            execution_seconds=ran,
         )

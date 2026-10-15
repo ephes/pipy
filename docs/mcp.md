@@ -1864,8 +1864,12 @@ as `_`), which also answers to the server's name. It carries the configured
 - A call that fails before there is a result (the server cannot be
   connected, the request times out, is cancelled or is answered with an
   error) is an error with that message.
-- A progress notification of a running call is shown as a line of live
-  output: its message, else `Progress <p>` or `Progress <p>/<total>`.
+- A progress notification of a running call is a partial result, as in Pi:
+  its text is the message, else `Progress <p>` or `Progress <p>/<total>`,
+  and its details are `{server, tool}`. Each one replaces the previous one.
+  JSON and RPC clients get it as the `partialResult` of
+  `tool_execution_update`, an extension's `ctx.execute_tool` caller through
+  `on_update`; the call's row shows it as a line of live output.
 
 Text of more than 20 KB (all text of the result, joined by newlines, in
 UTF-8) is replaced by its first and last 10 KB, cut between characters, with
@@ -1977,9 +1981,10 @@ Differences from Pi in tools:
   `hostname`, `idn-hostname`, `idn-email`, `iri`, `iri-reference`, `url` and
   `regex`, and its patterns are Python regular expressions; the server
   remains the authority for those.
-- Progress is added to the call's live output line by line; Pi replaces the
-  call's preliminary result. The call's row shows the last line, so a
-  progress message of several lines shows only its last one.
+- In the terminal, progress is added to the call's live output line by
+  line; Pi's row replaces the call's preliminary result. The call's row
+  shows the last line, so a progress message of several lines shows only
+  its last one. JSON, RPC and `on_update` get Pi's partial result.
 - The row of a call is drawn by pipy itself, and a call to
   `mcp__<server>__<tool>` gets it also with MCP turned off. In Pi the MCP
   extension's renderers do it, so with `--no-mcp` such a call in a resumed

@@ -21,6 +21,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from pipy_harness.native.agent.content import ToolPartialResult
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
@@ -171,7 +172,8 @@ class ExtensionToolContext(CommandContext, Protocol):
     returns its ``ToolCallOutcome``: the call, the result with its image
     blocks, ``is_error`` and the duration. ``signal`` cancels that call
     alone (default: ``signal``, the tool's own), and ``on_update`` receives
-    the chunks of its live output. It never raises for a tool failure: a tool that is
+    its partial results as ``ToolResult`` values (Pi ``onUpdate``). It never
+    raises for a tool failure: a tool that is
     not callable, invalid arguments, a blocked call and a failed tool come
     back as a result with ``is_error``.
 
@@ -193,7 +195,7 @@ class ExtensionToolContext(CommandContext, Protocol):
         arguments: Mapping[str, object] | None = None,
         *,
         signal: "threading.Event | None" = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolResult], None] | None = None,
     ) -> ToolCallOutcome: ...
 
     def executeTool(  # noqa: N802 - Pi-shaped alias
@@ -202,6 +204,18 @@ class ExtensionToolContext(CommandContext, Protocol):
         arguments: Mapping[str, object] | None = None,
         options: Mapping[str, object] | None = None,
     ) -> ToolCallOutcome: ...
+
+
+def _partial_results(
+    on_update: Callable[[ToolResult], None],
+) -> Callable[[ToolPartialResult], None]:
+    """Hand each partial result to an extension as Pi's result object."""
+
+    def update(partial: ToolPartialResult) -> None:
+        details = None if partial.details is None else dict(partial.details)
+        on_update(ToolResult(content=partial.content, details=details))
+
+    return update
 
 
 class _CommandContext:
@@ -277,7 +291,7 @@ class _CommandContext:
         arguments: Mapping[str, object] | None = None,
         *,
         signal: "threading.Event | None" = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolResult], None] | None = None,
     ) -> ToolCallOutcome:
         nested = self._model_runtime.nested_tools
         name = str(name)
@@ -288,7 +302,7 @@ class _CommandContext:
                 name,
                 arguments,
                 signal=self._model_runtime.tool_signal if signal is None else signal,
-                on_update=on_update,
+                on_update=None if on_update is None else _partial_results(on_update),
             )
         return ToolCallOutcome(
             tool_call=ToolCallInfo(result.tool_call_id, name, result.arguments),

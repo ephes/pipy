@@ -24,7 +24,7 @@ from pipy_harness.native.automation.run_modes import (
     run_json_mode,
     run_print_mode,
 )
-from pipy_harness.native.fake import FakeNativeProvider
+from pipy_harness.native.fake import AutomationFakeProvider, FakeNativeProvider
 from pipy_harness.native.session_tree import NativeSessionTree
 
 
@@ -242,3 +242,40 @@ def test_run_print_mode_emits_only_final_assistant_text(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert stdout.getvalue().strip() == "SEEN:ROOT"
+
+
+def test_json_mode_tool_events_carry_pi_result_objects(tmp_path: Path) -> None:
+    # Pi docs/json.md: `partialResult` and `result` are AgentToolResult
+    # objects, and `tool_execution_end` has the call's `durationMs`. The
+    # automation fake asks for one `bash` call (`echo hi`) on `TOOLCALL`.
+    adapter = CodingSessionAdapter(provider=AutomationFakeProvider())
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    stdout = io.BytesIO()
+
+    exit_code = run_json_mode(
+        adapter=adapter,
+        prompt="TOOLCALL",
+        cwd=tmp_path,
+        native_session=tree,
+        stdout_buffer=stdout,
+        error_stream=io.StringIO(),
+    )
+
+    assert exit_code == 0
+    records = [
+        json.loads(line) for line in stdout.getvalue().decode("utf-8").splitlines()
+    ]
+    updates = [r for r in records if r["type"] == "tool_execution_update"]
+    (end,) = [r for r in records if r["type"] == "tool_execution_end"]
+    assert updates
+    assert all(
+        u["partialResult"]["details"] == {}
+        and [b["type"] for b in u["partialResult"]["content"]] == ["text"]
+        for u in updates
+    )
+    assert "".join(u["partialResult"]["content"][0]["text"] for u in updates) == (
+        "hi\n"
+    )
+    assert end["toolName"] == "bash" and end["isError"] is False
+    assert end["result"]["content"] == [{"type": "text", "text": "hi\n"}]
+    assert type(end["durationMs"]) is int and end["durationMs"] >= 0

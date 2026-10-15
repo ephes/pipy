@@ -1211,9 +1211,12 @@ def read_all(ctx, params):
   call alone when it is set: it ends with the error
   `tool cancelled by its caller`. Without it the call uses `ctx.signal`, the
   calling tool's own cancellation signal (`None` where it has none).
-  `on_update` receives each chunk of the tool's live output (a `bash`
-  command's output, an MCP server's progress), on the thread that produced
-  it; what it raises is ignored. The call passes argument validation and the
+  `on_update` receives each partial result of the tool as a `ToolResult`
+  (Pi `onUpdate`), on the thread that produced it; what it raises is
+  ignored. An MCP tool's progress is a partial result with the progress text
+  as `content` and `{server, tool}` as `details`, which replaces the one
+  before it; for `bash` each partial result's `content` is the next chunk of
+  output, with no `details`. The call passes argument validation and the
   `tool_call` and `tool_result` handlers like a call the model made, and it
   counts against the tool budget of the turn.
 - It never raises for a failure of the tool. A name that is not callable
@@ -1282,9 +1285,10 @@ Different from Pi:
   pipy cancels it when its calling tool returned.
 - In the outcome, `result.content` is the result's text and `result.blocks`
   its ordered text and image blocks when it has an image; Pi's
-  `result.content` is always the block list. A partial result is a chunk of
-  text, as in pipy's own `tool_execution_update`; Pi's is a result object.
-  A pipy tool handler reports no partial results of its own.
+  `result.content` is always the block list. A partial result's `content`
+  is its text in the same way. A `bash` partial result is the next chunk of
+  output where Pi's is the output so far. A pipy tool handler reports no
+  partial results of its own.
 - Pi adds the usage that nested results report to the calling tool's
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record

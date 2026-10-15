@@ -30,7 +30,7 @@ from pipy_harness.native.agent import (
     NestedToolCallStarted,
     ToolCallCompleted,
 )
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import ProductContent, ToolPartialResult
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
     NestedToolCallOutcome,
@@ -505,7 +505,9 @@ def activate(api):
         stopped = ctx.execute_tool(
             'bash', {'command': 'sleep 20'}, signal=stop)
         return ToolResult(content=' | '.join([
-            outcome.result.content.strip(), ''.join(chunks).strip(),
+            outcome.result.content.strip(),
+            ''.join(c.content for c in chunks
+                    if isinstance(c, ToolResult)).strip(),
             stopped.result.content, str(ctx.signal is not None)]))
 
     api.register_tool(ExtensionTool(
@@ -1064,8 +1066,9 @@ def test_a_signal_ends_the_readiness_wait_of_a_call() -> None:
 
 def test_live_output_of_another_thread_is_published_on_the_session_thread() -> None:
     session = threading.current_thread()
-    published: list[str] = []
-    received: list[str] = []
+    published: list[object] = []
+    received: list[ToolPartialResult] = []
+    partial = ToolPartialResult("half", {"server": "s", "tool": "t"})
 
     def settle(call, waiter=None):
         def run(*, wait_for_interrupt, nested_tools, output_sink=None):
@@ -1074,6 +1077,7 @@ def test_live_output_of_another_thread_is_published_on_the_session_thread() -> N
             def tool() -> None:
                 assert output_sink is not None
                 output_sink("progress")
+                output_sink(partial)
                 done.set()
 
             threading.Thread(target=tool).start()
@@ -1095,7 +1099,10 @@ def test_live_output_of_another_thread_is_published_on_the_session_thread() -> N
     outcome = _waiting_service(settle).call("child", "{}", on_update=received.append)
 
     assert outcome.result.content.value == "ran"
-    assert published == received == ["progress"]
+    # The pipeline publishes what the tool wrote; the caller's on_update gets
+    # a partial result for each, the chunk as its text (Pi onUpdate).
+    assert published == ["progress", partial]
+    assert received == [ToolPartialResult("progress"), partial]
 
 
 def test_a_failure_to_publish_live_output_is_the_pipelines() -> None:

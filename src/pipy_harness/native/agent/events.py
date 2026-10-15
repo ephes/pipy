@@ -9,7 +9,7 @@ from pipy_harness.native.agent._validation import (
     require_bool,
     require_non_negative_int,
 )
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import ProductContent, ToolPartialResult
 from pipy_harness.native.agent.messages import (
     _AGENT_TRANSCRIPT_MESSAGE_TYPES,
     AgentAssistantMessage,
@@ -115,18 +115,22 @@ class ToolCallStarted:
 
 @dataclass(frozen=True, slots=True)
 class ToolCallUpdated:
-    """A live full-content update from a running tool."""
+    """A live full-content update from a running tool: a chunk of streamed
+    text (``ProductContent``) or a partial result that replaces the previous
+    one (``ToolPartialResult``)."""
 
     turn_index: int
     call: AgentToolCall
-    update: ProductContent
+    update: ProductContent | ToolPartialResult
 
     def __post_init__(self) -> None:
         require_non_negative_int(self.turn_index, "ToolCallUpdated.turn_index")
         if not isinstance(self.call, AgentToolCall):
             raise TypeError("ToolCallUpdated.call must be AgentToolCall")
-        if not isinstance(self.update, ProductContent):
-            raise TypeError("ToolCallUpdated.update must be ProductContent")
+        if not isinstance(self.update, (ProductContent, ToolPartialResult)):
+            raise TypeError(
+                "ToolCallUpdated.update must be ProductContent or ToolPartialResult"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,10 +139,18 @@ class ToolCallCompleted:
 
     turn_index: int
     result: AgentToolResultMessage
+    # From the call's start to its settled result, hooks included (the row's
+    # ``Took``).
     duration_seconds: float | None = None
+    # How long the tool itself ran (Pi ``durationMs``); None when it never
+    # started.
+    execution_seconds: float | None = None
 
     def __post_init__(self) -> None:
         require_non_negative_int(self.turn_index, "ToolCallCompleted.turn_index")
+        _require_optional_seconds(
+            self.execution_seconds, "ToolCallCompleted.execution_seconds"
+        )
         if not isinstance(self.result, AgentToolResultMessage):
             raise TypeError("ToolCallCompleted.result must be AgentToolResultMessage")
         if self.duration_seconds is not None:
@@ -184,17 +196,21 @@ class NestedToolCallStarted:
 @dataclass(frozen=True, slots=True)
 class NestedToolCallUpdated:
     """Live output of a running nested call (Pi ``tool_execution_update``
-    with ``parentToolCallId``); like ``ToolCallUpdated``, one chunk."""
+    with ``parentToolCallId``); as in ``ToolCallUpdated``, a chunk or a
+    partial result."""
 
     turn_index: int
     parent_correlation_id: str
     call: AgentToolCall
-    update: ProductContent
+    update: ProductContent | ToolPartialResult
 
     def __post_init__(self) -> None:
         NestedToolCallStarted(self.turn_index, self.parent_correlation_id, self.call)
-        if not isinstance(self.update, ProductContent):
-            raise TypeError("NestedToolCallUpdated.update must be ProductContent")
+        if not isinstance(self.update, (ProductContent, ToolPartialResult)):
+            raise TypeError(
+                "NestedToolCallUpdated.update must be ProductContent or "
+                "ToolPartialResult"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +222,11 @@ class NestedToolCallCompleted:
     call: AgentToolCall
     result: AgentToolResultMessage
     status: NestedCallStatus
+    # From the call's start to its outcome (the nested record's duration).
     duration_seconds: float
+    # How long the tool itself ran (Pi ``durationMs``); None when it never
+    # started.
+    execution_seconds: float | None = None
 
     def __post_init__(self) -> None:
         NestedToolCallStarted(self.turn_index, self.parent_correlation_id, self.call)
@@ -233,6 +253,18 @@ class NestedToolCallCompleted:
             raise TypeError("duration_seconds must be numeric")
         if not isfinite(self.duration_seconds) or self.duration_seconds < 0:
             raise ValueError("duration_seconds must be finite and nonnegative")
+        _require_optional_seconds(
+            self.execution_seconds, "NestedToolCallCompleted.execution_seconds"
+        )
+
+
+def _require_optional_seconds(value: object, field_name: str) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{field_name} must be numeric or None")
+    if not isfinite(value) or value < 0:
+        raise ValueError(f"{field_name} must be finite and nonnegative")
 
 
 @dataclass(frozen=True, slots=True)

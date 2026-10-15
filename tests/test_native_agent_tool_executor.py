@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,7 @@ from pipy_harness.native.agent import (
     AgentToolCall,
     ProductContent,
 )
+from pipy_harness.native.agent.content import ToolOutput
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -119,7 +121,7 @@ def test_execute_normalizes_output_and_provider_correlation(
     returned_correlation_id: str | None,
     expected_correlation_id: str,
 ) -> None:
-    chunks: list[str] = []
+    chunks: list[ToolOutput] = []
 
     def invoke(request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         assert context.output_sink is not None
@@ -235,7 +237,7 @@ def test_output_sink_exception_propagates_on_synchronous_path(tmp_path: Path) ->
         context.output_sink("live output")
         return ToolExecutionResult(request.tool_request_id, "unreachable")
 
-    def failing_sink(chunk: str) -> None:
+    def failing_sink(chunk: ToolOutput) -> None:
         assert chunk == "live output"
         raise RuntimeError("sink failed")
 
@@ -253,7 +255,7 @@ def test_active_output_sink_exception_propagates_from_worker(tmp_path: Path) -> 
         context.output_sink("worker output")
         return ToolExecutionResult(request.tool_request_id, "unreachable")
 
-    def failing_sink(chunk: str) -> None:
+    def failing_sink(chunk: ToolOutput) -> None:
         assert chunk == "worker output"
         raise RuntimeError("worker sink failed")
 
@@ -592,9 +594,9 @@ def test_abandoned_invocation_cannot_emit_into_the_next_call(tmp_path: Path) -> 
     release_first = threading.Event()
     first_finished = threading.Event()
     active_call = ["A"]
-    delivered: list[tuple[str, str]] = []
+    delivered: list[tuple[str, ToolOutput]] = []
 
-    def shared_sink(chunk: str) -> None:
+    def shared_sink(chunk: ToolOutput) -> None:
         delivered.append((active_call[0], chunk))
 
     def invoke(request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -644,11 +646,11 @@ def test_cancellation_does_not_wait_for_an_admitted_backpressured_sink(
     release_sink = threading.Event()
     worker_finished = threading.Event()
     execution_finished = threading.Event()
-    delivered: list[str] = []
+    delivered: list[ToolOutput] = []
     outcomes: list[ToolExecutionOutcome] = []
     errors: list[BaseException] = []
 
-    def blocking_sink(chunk: str) -> None:
+    def blocking_sink(chunk: ToolOutput) -> None:
         sink_admitted.set()
         assert release_sink.wait(timeout=1)
         delivered.append(chunk)
@@ -760,7 +762,7 @@ def test_external_abort_rejects_late_success_and_output_after_retirement(
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
-    output: list[str] = []
+    output: list[ToolOutput] = []
 
     def uncooperative(
         request: ToolRequest, context: ToolContext
@@ -790,6 +792,8 @@ def test_external_abort_rejects_late_success_and_output_after_retirement(
         )
         assert outcome.interruption is ToolExecutionInterruption.OPERATOR_ABORT
         assert outcome.result.is_error
+        # The tool had started: the outcome says how long it ran.
+        assert outcome.execution_seconds is not None
         release.set()
         assert finished.wait(5)
         assert output == []
@@ -836,3 +840,52 @@ def test_given_arguments_are_validated_but_not_prepared_again(
     invalid = executor.execute(_call(), _context(tmp_path), arguments={"text": 3})
     assert invalid.malformed_arguments and invalid.result.is_error
     assert len(tool.requests) == 1 and len(tool.prepared) == 1
+
+
+def test_execution_time_covers_the_tool_only_when_it_ran(tmp_path: Path) -> None:
+    # Pi times `execute()` alone and omits `durationMs` when it never ran.
+    def slow(request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        time.sleep(0.05)
+        return _echo_result(request, context)
+
+    executor = ToolExecutor({"echo": _FixtureTool(slow)})
+    ran = executor.execute(_call(), _context(tmp_path))
+    assert ran.execution_seconds is not None and ran.execution_seconds >= 0.05
+    for call in (_call(tool_name="missing"), _call('{"text": 3}'), _call("{")):
+        outcome = executor.execute(call, _context(tmp_path))
+        assert outcome.malformed_arguments and outcome.execution_seconds is None
+    worker = executor.execute(
+        _call(),
+        _context(tmp_path),
+        wait_for_interrupt=lambda done, cancel: (
+            done.wait(5),
+            ToolExecutionInterruption.SETTLED,
+        )[1],
+    )
+    assert worker.execution_seconds is not None and worker.execution_seconds >= 0.05
+
+
+def test_a_cancelled_tool_counts_its_cleanup_as_execution_time(
+    tmp_path: Path,
+) -> None:
+    # Pi's durationMs runs until execute() settles, cleanup after the abort
+    # included.
+    def cooperative(request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        assert context.cancel_event is not None
+        assert context.cancel_event.wait(5)
+        time.sleep(0.1)  # cleanup after the cancellation
+        return _echo_result(request, context)
+
+    outcome = ToolExecutor(
+        {"echo": _FixtureTool(cooperative)}, cancel_join_timeout_seconds=5
+    ).execute(
+        _call(),
+        _context(tmp_path),
+        wait_for_interrupt=lambda done, cancel: (
+            ToolExecutionInterruption.OPERATOR_ABORT
+        ),
+    )
+
+    assert outcome.interruption is ToolExecutionInterruption.OPERATOR_ABORT
+    assert outcome.result.is_error
+    assert outcome.execution_seconds is not None and outcome.execution_seconds >= 0.1

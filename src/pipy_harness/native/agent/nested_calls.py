@@ -10,7 +10,12 @@ from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Any, Final, Protocol, runtime_checkable
 
-from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ProductContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ProductContent,
+    ToolOutput,
+    ToolPartialResult,
+)
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_record import bounded_arguments, finite_duration
 from pipy_harness.native.agent.nested_status import NestedCallStatus as NestedCallStatus
@@ -30,6 +35,7 @@ from pipy_harness.native.tools.base import (
     NestedToolResult,
     ToolDefinition,
     ToolInfo,
+    ToolOutputSink,
     tool_info,
 )
 
@@ -96,7 +102,7 @@ class NestedCallableTools(Protocol):
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: NestedToolCalls | None = None,
         arguments: dict[str, Any] | None = None,
@@ -158,8 +164,8 @@ class PendingNestedCall:
     call: AgentToolCall
     execute: Callable[..., ToolExecutionOutcome]
     finish: Callable[[ToolExecutionOutcome], NestedToolCallOutcome]
-    # Session thread: publish one chunk of the tool's live output.
-    update: Callable[[str], None] | None = None
+    # Session thread: publish one piece of the tool's live output.
+    update: Callable[[ToolOutput], None] | None = None
 
 
 NestedSettle = Callable[[AgentToolCall], "NestedToolCallOutcome | PendingNestedCall"]
@@ -199,7 +205,7 @@ class _Request:
         tool_name: str,
         arguments_json: str,
         signal: threading.Event | None = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolPartialResult], None] | None = None,
         *,
         stop_reason: ToolExecutionInterruption = ToolExecutionInterruption.CALLER_STOP,
         settled: Settled | None = None,
@@ -270,13 +276,13 @@ class _Slot:
 
 
 class _Update:
-    """One chunk of a running call's live output, for the session thread."""
+    """One piece of a running call's live output, for the session thread."""
 
-    __slots__ = ("call_id", "chunk")
+    __slots__ = ("call_id", "output")
 
-    def __init__(self, call_id: str, chunk: str) -> None:
+    def __init__(self, call_id: str, output: ToolOutput) -> None:
         self.call_id = call_id
-        self.chunk = chunk
+        self.output = output
 
 
 class _Finished:
@@ -418,7 +424,7 @@ class _CallerTools:
         /,
         *,
         signal: threading.Event | None = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolPartialResult], None] | None = None,
     ) -> NestedToolResult:
         name = str(tool_name)
         if arguments is None:
@@ -646,7 +652,7 @@ class NestedToolCallService:
         tool_name: str,
         arguments_json: str,
         signal: threading.Event | None = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolPartialResult], None] | None = None,
     ) -> NestedToolResult:
         """Any thread: run one call for ``caller_id`` and wait for it."""
         if threading.current_thread() is self._thread:
@@ -682,7 +688,7 @@ class NestedToolCallService:
         unknown_tool_error: str | None = None,
         caller_id: str | None = None,
         signal: threading.Event | None = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolPartialResult], None] | None = None,
     ) -> NestedToolCallOutcome:
         """Run one call on the session thread and wait for it.
 
@@ -693,7 +699,7 @@ class NestedToolCallService:
         ``executeTool`` was asked for). Without it such a refusal leaves no
         record. While the tool runs, the calls it asks for on other threads
         are served. ``signal`` cancels this call alone; ``on_update``
-        receives the chunks of its live output.
+        receives its partial results.
         """
         if threading.current_thread() is not self._thread:
             call = AgentToolCall(
@@ -776,7 +782,7 @@ class NestedToolCallService:
         call: AgentToolCall,
         waiter: ToolInterruptWaiter,
         signal: threading.Event | None,
-        on_update: Callable[[str], None] | None,
+        on_update: Callable[[ToolPartialResult], None] | None,
     ) -> NestedToolCallOutcome:
         """Session thread: an exclusive ``call`` that must wait for its
         turn. It waits in the queue like a call asked for on another thread,
@@ -814,31 +820,39 @@ class NestedToolCallService:
         self,
         call_id: str,
         pending: PendingNestedCall,
-        on_update: Callable[[str], None] | None,
-    ) -> Callable[[str], None]:
+        on_update: Callable[[ToolPartialResult], None] | None,
+    ) -> ToolOutputSink:
         """Where the tool of ``call_id`` writes its live output: the
         caller's ``on_update`` on the writing thread, and the pipeline's
-        update on the session thread while the tool runs."""
+        update on the session thread while the tool runs.
+
+        ``on_update`` gets a partial result for every piece, as Pi's
+        ``onUpdate`` does: a chunk of streamed text becomes one with that
+        chunk as its text."""
         publish = pending.update
 
-        def sink(chunk: str) -> None:
+        def sink(output: ToolOutput) -> None:
             if on_update is not None:
                 try:
-                    on_update(chunk)
+                    on_update(
+                        output
+                        if isinstance(output, ToolPartialResult)
+                        else ToolPartialResult(output)
+                    )
                 except Exception:  # noqa: BLE001 - the caller's callback does not end the call
                     pass
             if publish is None:
                 return
             if threading.current_thread() is self._thread:
-                self._publish(call_id, chunk)
+                self._publish(call_id, output)
                 return
             with self._lock:
-                self._post(_Update(call_id, chunk))
+                self._post(_Update(call_id, output))
 
         return sink
 
-    def _publish(self, call_id: str, chunk: str) -> None:
-        """Session thread: publish a chunk of a live call's output; dropped
+    def _publish(self, call_id: str, output: ToolOutput) -> None:
+        """Session thread: publish a piece of a live call's output; dropped
         once the call ended. A failure to publish is the pipeline's."""
         live = self._live.get(call_id)
         if live is None:
@@ -847,7 +861,7 @@ class NestedToolCallService:
         if pending.update is None:
             return
         try:
-            pending.update(chunk)
+            pending.update(output)
         except BaseException as exc:
             self._fail(pending.call, started, exc)
             raise
@@ -1156,7 +1170,7 @@ class NestedToolCallService:
         for index, job in enumerate(jobs):
             try:
                 if isinstance(job, _Update):
-                    self._publish(job.call_id, job.chunk)
+                    self._publish(job.call_id, job.output)
                     outcome = None
                 elif isinstance(job, _Finished):
                     outcome = self._settle_finished(job)

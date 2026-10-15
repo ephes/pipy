@@ -54,7 +54,7 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.agent_adapters import SynchronousAgentEventComposite
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.base import ToolDefinition, ToolOutputSink
 
 
 class _NestedTools(_Tools):
@@ -95,7 +95,7 @@ class _NestedTools(_Tools):
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: object = None,
         arguments: Any = None,
@@ -441,7 +441,7 @@ def test_nested_waiter_validation_and_callback_threads() -> None:
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,
@@ -487,7 +487,7 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,
@@ -697,7 +697,7 @@ def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,

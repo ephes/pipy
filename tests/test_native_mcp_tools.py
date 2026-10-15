@@ -24,6 +24,8 @@ from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
     ImageContent,
     TextContent,
+    ToolOutput,
+    ToolPartialResult,
 )
 from pipy_harness.native.agent.tools import ToolExecutor
 from pipy_harness.native.codemode.declarations import (
@@ -59,6 +61,7 @@ from pipy_harness.native.tools.base import (
     ToolContext,
     ToolExecutionResult,
     ToolNamespace,
+    ToolOutputSink,
     ToolRequest,
     make_tool_request_id,
 )
@@ -840,7 +843,7 @@ def _invoke(
     port: McpToolPort,
     arguments: dict[str, Any],
     *,
-    sink: Callable[[str], None] | None = None,
+    sink: ToolOutputSink | None = None,
     cancel_event: threading.Event | None = None,
 ) -> ToolExecutionResult:
     return port.invoke(
@@ -887,13 +890,16 @@ def test_progress_notifications_become_live_updates() -> None:
         )
         return {"content": []}
 
-    updates: list[str] = []
+    updates: list[ToolOutput] = []
     _invoke(_port(_Caller(answer)), {"id": 1}, sink=updates.append)
+    # Pi onUpdate: each progress is a partial result that replaces the
+    # previous one, with the server and tool as its details.
+    details = {"server": "docs", "tool": "get.item"}
     assert updates == [
-        "Progress 1\n",
-        "Progress 2/4\n",
-        "Progress 0.5/1.5\n",
-        "indexing\n",
+        ToolPartialResult("Progress 1", details),
+        ToolPartialResult("Progress 2/4", details),
+        ToolPartialResult("Progress 0.5/1.5", details),
+        ToolPartialResult("indexing", details),
     ]
     # Without a place to show them, updates are dropped.
     assert _invoke(_port(_Caller(answer)), {"id": 1}).output_text == ""
@@ -1095,14 +1101,16 @@ def test_a_tool_of_a_connected_server_is_called_through_its_port() -> None:
         assert definition.name == "mcp__docs__search"
         assert definition.exposure == "deferred"
         assert definition.annotations == ToolAnnotations(read_only_hint=True)
-        updates: list[str] = []
+        updates: list[ToolOutput] = []
         result = _invoke(port, {"q": "radius"}, sink=updates.append)
         assert result.output_text == "found"
         assert result.structured_content == {
             "content": [{"type": "text", "text": "found"}],
             "structuredContent": {"hits": ["radius"]},
         }
-        assert updates == ["Progress 1/2\n"]
+        assert updates == [
+            ToolPartialResult("Progress 1/2", {"server": "docs", "tool": "search"})
+        ]
         params: Any = server.calls[0]["params"]
         assert (params["name"], params["arguments"]) == ("search", {"q": "radius"})
     finally:
@@ -1115,16 +1123,18 @@ def test_cancelling_a_call_ends_it_and_tells_the_server() -> None:
     connection, port = _connected_port(server)
     try:
         cancel_event = threading.Event()
-        updates: list[str] = []
+        updates: list[ToolOutput] = []
 
-        def sink(chunk: str) -> None:
-            updates.append(chunk)
+        def sink(output: ToolOutput) -> None:
+            updates.append(output)
             cancel_event.set()
 
         result = _invoke(port, {"q": "radius"}, sink=sink, cancel_event=cancel_event)
         assert result.is_error is True
         assert result.output_text == "MCP request aborted"
         assert server.cancelled.wait(10)
-        assert updates == ["Progress 1/2\n"]
+        assert updates == [
+            ToolPartialResult("Progress 1/2", {"server": "docs", "tool": "search"})
+        ]
     finally:
         connection.close()

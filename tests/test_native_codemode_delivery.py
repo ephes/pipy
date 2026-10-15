@@ -354,7 +354,7 @@ def test_cli_modes_real_delivery(tmp_path, monkeypatch, capfd, runtime, mode):
         for e in events
         if e["type"] == "tool_execution_end" and e["toolCallId"] == "parent"
     )
-    assert len(end["details"]["nestedCalls"]["calls"]) == 3
+    assert len(end["result"]["details"]["nestedCalls"]["calls"]) == 3
     messages = next(e["messages"] for e in events if e["type"] == "agent_end")
     assert [m["toolCallId"] for m in messages if m["role"] == "toolResult"] == [
         "parent"
@@ -548,9 +548,10 @@ def test_rpc_live_abort_reaps_and_next_turn_succeeds(
             for e in records
             if e["type"] == "tool_execution_end" and e["toolCallId"] == "parent"
         )
-        assert parent["isError"] and "Script aborted" in parent["result"]
+        assert parent["isError"]
+        assert "Script aborted" in parent["result"]["content"][0]["text"]
         assert all(group_is_gone(pid) for pid in runtime)
-        calls = parent["details"]["nestedCalls"]["calls"]
+        calls = parent["result"]["details"]["nestedCalls"]["calls"]
         assert [c["status"] for c in calls] == (
             ["cancelled"] if phase == "bash" else []
         )
@@ -561,7 +562,8 @@ def test_rpc_live_abort_reaps_and_next_turn_succeeds(
             for e in fresh
             if e["type"] == "tool_execution_end" and e["toolCallId"] == "fresh"
         )
-        assert not end["isError"] and "cherry" in end["result"]
+        assert not end["isError"]
+        assert "cherry" in end["result"]["content"][0]["text"]
         saved = [json.loads(line) for line in client.tree.path.read_text().splitlines()]
         results = [
             e["message"]
@@ -569,6 +571,6 @@ def test_rpc_live_abort_reaps_and_next_turn_succeeds(
             if e.get("type") == "message" and e["message"]["role"] == "tool"
         ]
         assert [r["provider_correlation_id"] for r in results] == ["parent", "fresh"]
-        assert results[0]["details"] == parent["details"]
+        assert results[0]["details"] == parent["result"]["details"]
     finally:
         client.close()

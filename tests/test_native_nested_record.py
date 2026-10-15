@@ -401,7 +401,7 @@ def test_pipeline_original_failure_survives_secondary_evidence_fault(
 
 
 @pytest.mark.parametrize("name", ["bash", "extension", "codemode"])
-def test_ordinary_result_details_keep_legacy_message_and_event_shape(name: str) -> None:
+def test_result_details_reach_events_and_only_codemode_messages(name: str) -> None:
     from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 
     ordinary = replace(
@@ -412,7 +412,10 @@ def test_ordinary_result_details_keep_legacy_message_and_event_shape(name: str) 
     event = AutomationAgentEventAdapter._project_tool_execution(
         ToolCallCompleted(1, ordinary)
     )
+    # Pi's tool_execution_end carries the details inside `result` only.
     assert "details" not in event
+    result = event["result"]
+    assert isinstance(result, dict) and result["details"] == ordinary.details
     parent = replace(
         ordinary,
         tool_name="codemode",
@@ -422,12 +425,13 @@ def test_ordinary_result_details_keep_legacy_message_and_event_shape(name: str) 
         },
     )
     assert serialize_message(parent)["details"] == parent.details
-    assert (
-        AutomationAgentEventAdapter._project_tool_execution(
-            ToolCallCompleted(1, parent)
-        )["details"]
-        == parent.details
+    parent_event = AutomationAgentEventAdapter._project_tool_execution(
+        ToolCallCompleted(1, parent)
     )
+    assert "details" not in parent_event
+    parent_result = parent_event["result"]
+    assert isinstance(parent_result, dict)
+    assert parent_result["details"] == parent.details
 
 
 @pytest.mark.parametrize("final_instruction", [False, True])

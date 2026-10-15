@@ -34,6 +34,7 @@ from urllib.parse import urlsplit
 from pipy_harness.native.agent.content import (
     ImageContent,
     TextContent,
+    ToolPartialResult,
     ToolResultBlock,
     tool_result_images,
     tool_result_text,
@@ -768,7 +769,13 @@ class McpToolPort:
 
         def on_progress(progress: JsonObject) -> None:
             if sink is not None:
-                sink(f"{node_encodable_text(_progress_text(progress))}\n")
+                # Pi: a partial result that replaces the previous one.
+                sink(
+                    ToolPartialResult(
+                        node_encodable_text(_progress_text(progress)),
+                        {"server": self._server, "tool": self._tool},
+                    )
+                )
 
         result = self._get_caller().call_tool(
             self._tool,

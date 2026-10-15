@@ -338,6 +338,18 @@ raise RuntimeError('after effect')
     ]
     assert completed[0].result.content.value == "alpha transformed"
     assert all(event.duration_seconds >= 0 for event in completed)
+    # Pi's durationMs: only the calls whose tool ran have an execution time;
+    # the malformed and the over-budget call never started.
+    assert [event.execution_seconds is not None for event in completed] == [
+        True,
+        True,
+        False,
+        True,
+        False,
+    ]
+    parent_end = lifecycle[-1]
+    assert isinstance(parent_end, ToolCallCompleted)
+    assert parent_end.execution_seconds is not None  # the script ran
     assert len(pids) == 1
 
 
@@ -567,9 +579,12 @@ def test_disabled_or_extension_codemode_retains_direct_behavior(
 def test_parent_schema_uses_normal_malformed_semantics(
     tmp_path: Path, pids: list[int], arguments: str
 ) -> None:
-    loop, _, _ = _loop(tmp_path, "", arguments=arguments)
+    loop, _, events = _loop(tmp_path, "", arguments=arguments)
     outcome = loop.run(_run_input())
     assert _parent(outcome).is_error
+    # The script never started: no execution time (Pi omits durationMs).
+    (end,) = [e for e in events.events if isinstance(e, ToolCallCompleted)]
+    assert end.execution_seconds is None
     assert outcome.final_tool_state.malformed_argument_count == 1
     assert outcome.final_tool_state.tool_invocation_count == 0
     assert not outcome.final_tool_state.reserved_parent_slot

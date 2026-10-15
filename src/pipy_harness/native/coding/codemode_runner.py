@@ -9,6 +9,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from time import monotonic
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
@@ -317,6 +318,21 @@ class CodemodeCompositeRunner:
         return limits, source.max_output_tokens
 
     def execute(
+        self,
+        call: AgentToolCall,
+        service: NestedToolCallService,
+        tool_waiter: ToolInterruptWaiter | None,
+        /,
+    ) -> ToolExecutionOutcome:
+        """Run the script; the outcome says how long it ran (Pi times the
+        codemode tool's ``execute()``), unless its arguments were invalid."""
+        began = monotonic()
+        outcome = self._run(call, service, tool_waiter)
+        if outcome.malformed_arguments:
+            return outcome
+        return replace(outcome, execution_seconds=monotonic() - began)
+
+    def _run(
         self,
         call: AgentToolCall,
         service: NestedToolCallService,

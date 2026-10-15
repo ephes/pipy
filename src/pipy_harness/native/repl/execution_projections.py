@@ -51,7 +51,7 @@ from pipy_harness.native.tool_capabilities import (
 )
 from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 from pipy_harness.native.tools import ToolDefinition, ToolPort
-from pipy_harness.native.tools.base import NestedToolCalls
+from pipy_harness.native.tools.base import NestedToolCalls, ToolOutputSink
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +82,7 @@ class ExecutionCallableSnapshot:
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: NestedToolCalls | None = None,
         arguments: dict[str, Any] | None = None,
@@ -196,7 +196,7 @@ class SessionExecutionProjections:
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:
