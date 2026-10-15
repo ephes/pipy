@@ -194,7 +194,7 @@ def test_activation_accepts_every_metadata_field(tmp_path: Path) -> None:
     assert definition.annotations == tool.annotations
     assert definition.output_schema == tool.output_schema
     assert definition.reaches_tools is tool.reaches_tools
-    assert definition.schema_mode == "strict"
+    assert definition.schema_mode == "foreign"
 
 
 def test_metadata_defaults_describe_a_plain_tool(tmp_path: Path) -> None:

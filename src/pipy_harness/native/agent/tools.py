@@ -301,8 +301,9 @@ class ToolExecutor:
         """Pi ``prepareToolCall`` up to the hooks: the call's arguments
         parsed, put through the tool's ``prepare_arguments`` and validated
         against its schema, as a detached copy the ``tool_call`` hooks may
-        change. An unknown tool, arguments that are not JSON and arguments the
-        schema refuses give the malformed outcome the call settles with
+        change. An unknown tool, arguments that are not JSON, a
+        ``prepare_arguments`` that raises ``ToolArgumentError`` and arguments
+        the schema refuses give the malformed outcome the call settles with
         instead.
         """
 
@@ -319,10 +320,17 @@ class ToolExecutor:
                 self.error_result(call, f"invalid arguments JSON: {exc.msg}"),
                 malformed_arguments=True,
             )
-        # Pi's `prepareArguments` runs before schema validation.
+        # Pi's `prepareArguments` runs before schema validation; what it
+        # raises settles the call as an error, as validation errors do.
         prepare = getattr(tool, "prepare_arguments", None)
         if callable(prepare):
-            raw_arguments = prepare(raw_arguments)
+            try:
+                raw_arguments = prepare(raw_arguments)
+            except ToolArgumentError as exc:
+                return ToolExecutionOutcome(
+                    self.error_result(call, str(exc)),
+                    malformed_arguments=True,
+                )
         return self._checked_arguments(call, tool, raw_arguments)
 
     def _checked_arguments(

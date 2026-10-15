@@ -137,7 +137,7 @@ def test_arguments_that_fail_validation_reach_no_hook(tmp_path, monkeypatch) -> 
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     log = _write(tmp_path)
 
-    provider = _run(tmp_path, ProviderToolCall("p1", "echo", '{"text": 3}'))
+    provider = _run(tmp_path, ProviderToolCall("p1", "echo", '{"text": [3]}'))
 
     (result,) = _tool_results(provider.requests[1])
     assert result.is_error

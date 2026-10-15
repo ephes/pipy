@@ -978,8 +978,10 @@ class ToolCallOutcome:
 class ExtensionTool:
     """A model-visible tool an extension registers via `api.register_tool`.
 
-    `input_schema` is a JSON-schema dict in pipy's supported subset
-    (validated at registration). `handler(ctx, input)` receives a
+    `input_schema` is any JSON Schema object with `type: "object"` (Pi's
+    `parameters`): `number`, `null`, unions (`anyOf`, a list of types) and
+    `$ref` work, and arguments are checked as an MCP tool's are
+    (`tools/foreign_schema.py`). `handler(ctx, input)` receives a
     mode-aware context and the validated input mapping and returns a
     `ToolResult`. `render_call` and `render_result` are optional callables
     that receive a `ToolRenderContext` and return a `ToolRenderComponent`
@@ -1012,6 +1014,11 @@ class ExtensionTool:
       this tool (`ctx.execute_tool`, codemode scripts) run one at a time
       with the other such calls (Pi `executionMode`); `None` or
       `"parallel"` lets them run at the same time.
+    - `prepare_arguments(arguments)`: gets a call's parsed arguments before
+      they are validated and returns the arguments to validate instead
+      (Pi `prepareArguments`), for example to accept an older argument
+      shape. If it raises, the call ends with the error result
+      `<name>: prepare_arguments raised <exception type>`.
     """
 
     name: str
@@ -1032,6 +1039,9 @@ class ExtensionTool:
     prompt_snippet: str | None = field(default=None, kw_only=True)
     prompt_guidelines: Sequence[str] = field(default=(), kw_only=True)
     execution_mode: "ToolExecutionMode | None" = field(default=None, kw_only=True)
+    prepare_arguments: Callable[[object], object] | None = field(
+        default=None, kw_only=True
+    )
 
 
 @dataclass(frozen=True, slots=True)

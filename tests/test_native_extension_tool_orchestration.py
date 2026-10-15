@@ -79,7 +79,7 @@ def activate(api):
         echo = ctx.executeTool('echo', {'text': 'hi'})
         own = ctx.execute_tool('run_tools', {})
         blocked = ctx.execute_tool('echo', {'text': 'forbidden'})
-        invalid = ctx.execute_tool('echo', {'text': 3})
+        invalid = ctx.execute_tool('echo', {'text': [3]})
         _log('flags', [r.is_error for r in (helper, echo, own, blocked, invalid)])
         _log('errors', blocked.result.content, invalid.result.content)
         _log('calls', [[r.tool_call.id, r.tool_call.name, r.tool_call.arguments,
@@ -190,7 +190,7 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
         ["p1/2", "echo", {"text": "hi"}, True],
         ["p1/3", "run_tools", {}, False],
         ["p1/4", "echo", {"text": "forbidden"}, True],
-        ["p1/5", "echo", {"text": 3}, True],
+        ["p1/5", "echo", {"text": [3]}, True],
     ]
     errors = next(row for row in rows if row[0] == "errors")
     assert "forbidden text" in errors[1]
@@ -601,14 +601,15 @@ class _Parent:
 def _run_parent(handler, service, waiter) -> ToolExecutionOutcome:
     executor = ToolExecutor({"parent": _Parent(handler)}, 0.2)
 
-    def execute_parent(call, /, *, wait_for_interrupt, nested_tools):
+    def execute_parent(call, /, *, wait_for_interrupt, nested_tools, arguments):
         return executor.execute(
             call,
             ToolContext(workspace_root=Path.cwd(), nested_tools=nested_tools),
             wait_for_interrupt,
+            arguments=arguments,
         )
 
-    return ToolParentRunner(execute_parent).execute(
+    return ToolParentRunner(execute_parent, {}).execute(
         AgentToolCall("p", "parent", ProductContent("{}")), service, waiter
     )
 

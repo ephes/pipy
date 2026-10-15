@@ -181,7 +181,7 @@ try:
 except ToolError as error:
     blocked = str(error)
 try:
-    tools.lookup(key=3)
+    tools.lookup(key=[3])
 except ToolError as error:
     invalid = str(error)
 text({'found': found, 'blocked': blocked, 'invalid': invalid,
@@ -219,7 +219,7 @@ text({'found': found, 'blocked': blocked, 'invalid': invalid,
     ] == [
         ("parent/1", "lookup", {"key": "alpha"}, "ok"),
         ("parent/2", "lookup", {"key": "forbidden"}, "error"),
-        ("parent/3", "lookup", {"key": 3}, "error"),
+        ("parent/3", "lookup", {"key": [3]}, "error"),
         ("parent/4", "lookup", {"key": "secret"}, "ok"),
         ("parent/5", "archive", {"key": "a"}, "ok"),
         ("parent/6", "echo", {"key": "direct"}, "ok"),

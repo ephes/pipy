@@ -20,6 +20,7 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extensions.command_context import make_extension_context
 from pipy_harness.native.tools.base import (
+    ToolArgumentError,
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
@@ -90,11 +91,31 @@ class _ExtensionToolPort:
             prompt_snippet=tool.prompt_snippet,
             prompt_guidelines=tuple(tool.prompt_guidelines),
             execution_mode=tool.execution_mode,
+            schema_mode="foreign",
         )
 
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
+
+    def prepare_arguments(self, arguments: object) -> object:
+        """The tool's ``prepare_arguments`` (Pi ``prepareArguments``), which
+        the executor runs on the parsed arguments before validation. A
+        callback that raises makes the call an argument error (Pi reports
+        what ``prepareToolCall`` catches as the call's error result)."""
+
+        prepare = self._registered.tool.prepare_arguments
+        if prepare is None:
+            return arguments
+        try:
+            return prepare(arguments)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as err:  # noqa: BLE001 - bound a bad callback
+            raise ToolArgumentError(
+                self._definition.name,
+                f"prepare_arguments raised {type(err).__name__}",
+            ) from None
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         generation_id = context.extension_generation_id

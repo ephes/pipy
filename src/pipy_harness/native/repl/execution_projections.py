@@ -222,14 +222,17 @@ class SessionExecutionProjections:
         *,
         wait_for_interrupt: ToolInterruptWaiter | None,
         nested_tools: NestedToolCalls,
+        arguments: dict[str, Any],
     ) -> ToolExecutionOutcome:
-        """Run such a call on this provider turn's tools, like ``execute``."""
+        """Run such a call on this provider turn's tools, like ``execute``,
+        on the arguments the loop prepared, which are not prepared again."""
         active = self._require_active()
         return active.tools.execute(
             call,
             wait_for_interrupt=wait_for_interrupt,
             extension_generation_id=active.generation_id,
             nested_tools=nested_tools,
+            arguments=arguments,
         )
 
     def error_result(

@@ -28,7 +28,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from pipy_harness.native.agent.messages import AgentToolCall
 from pipy_harness.native.agent.nested_calls import NestedToolCallService
@@ -62,7 +62,10 @@ class _UntilDone:
 
 
 class ParentToolExecution(Protocol):
-    """Runs the parent itself, with what it calls other tools through."""
+    """Runs the parent itself, with what it calls other tools through, on
+    ``arguments``: those the loop prepared and validated and the
+    ``tool_call`` hooks left, which are validated again but not prepared
+    again (a tool's ``prepare_arguments`` runs once per call)."""
 
     def __call__(
         self,
@@ -71,6 +74,7 @@ class ParentToolExecution(Protocol):
         *,
         wait_for_interrupt: ToolInterruptWaiter | None,
         nested_tools: NestedToolCalls,
+        arguments: dict[str, Any],
     ) -> ToolExecutionOutcome: ...
 
 
@@ -84,6 +88,8 @@ class ToolParentRunner:
     """
 
     execute_parent: ParentToolExecution
+    # The arguments the call runs with (``ParentToolExecution``).
+    arguments: dict[str, Any]
     records_always: bool = False
     reaches_itself: bool = True
 
@@ -110,7 +116,10 @@ class ToolParentRunner:
 
         try:
             outcome = self.execute_parent(
-                call, wait_for_interrupt=waiter, nested_tools=nested_tools
+                call,
+                wait_for_interrupt=waiter,
+                nested_tools=nested_tools,
+                arguments=self.arguments,
             )
         finally:
             service.end_caller(caller_id)
@@ -121,12 +130,14 @@ class ToolParentRunner:
 
 def parent_runner_for(
     is_parent: Callable[[str], bool], execute_parent: ParentToolExecution
-) -> Callable[[AgentToolCall], ToolParentRunner | None]:
+) -> Callable[[AgentToolCall, dict[str, Any]], ToolParentRunner | None]:
     """What the agent loop asks for each admitted call (``parent_runner``)."""
 
-    runner = ToolParentRunner(execute_parent)
-
-    def select(call: AgentToolCall) -> ToolParentRunner | None:
-        return runner if is_parent(call.tool_name) else None
+    def select(
+        call: AgentToolCall, arguments: dict[str, Any]
+    ) -> ToolParentRunner | None:
+        if not is_parent(call.tool_name):
+            return None
+        return ToolParentRunner(execute_parent, arguments)
 
     return select

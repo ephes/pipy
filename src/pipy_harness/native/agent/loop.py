@@ -420,7 +420,9 @@ class AgentLoop:
         nested_eligibility: NestedToolEligibility | None = None,
         tool_readiness: ToolReadinessWaiter | None = None,
         before_turn: TurnStartHook | None = None,
-        parent_runner: Callable[[AgentToolCall], AgentCompositeToolRunner | None]
+        parent_runner: Callable[
+            [AgentToolCall, dict[str, Any]], AgentCompositeToolRunner | None
+        ]
         | None = None,
         normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
         | None = None,
@@ -428,8 +430,10 @@ class AgentLoop:
     ) -> None:
         """``composite_runner`` runs the built-in ``codemode``.
         ``parent_runner`` is asked for every other admitted call the model
-        made: the runner it returns runs that call as a composite parent,
-        which may then call other tools; ``None`` runs it as a plain call.
+        made, with the arguments the call runs with (prepared, validated and
+        left by the ``tool_call`` hooks): the runner it returns runs that
+        call with those arguments as a composite parent, which may then call
+        other tools; ``None`` runs it as a plain call.
         ``normalize_result`` sees every result after the ``tool_result``
         hooks, nested ones included, before it is shown or stored (Pi
         ``_afterToolCall`` normalizes the images there).
@@ -996,7 +1000,7 @@ class AgentLoop:
         ):
             runner = self._composite_runner
         elif self._parent_runner is not None:
-            runner = self._parent_runner(call)
+            runner = self._parent_runner(call, arguments)
         if runner is None:
             return None
         return self._execute_composite(
