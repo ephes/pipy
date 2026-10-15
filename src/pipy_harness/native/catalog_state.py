@@ -162,6 +162,11 @@ class ProviderCatalogState:
     env: Mapping[str, str] | None = None
     openai_codex_auth_path: Path | None = None
     runtime_api_key: str | None = None
+    # The provider ``--api-key`` belongs to: that of the model the session
+    # started with (Pi ``main.ts`` sets the key as that provider's runtime
+    # key). Set once the startup model is known; ``None`` gives the key to no
+    # provider outside model requests.
+    runtime_api_key_provider: str | None = None
     extension_providers: tuple[RegisteredProvider, ...] = ()
     extension_unregistered_providers: tuple[str, ...] = ()
     extension_oauth_provider_map: Mapping[str, RegisteredProvider] = field(
@@ -366,6 +371,19 @@ class ProviderCatalogState:
 
     def extension_provider_for(self, provider: str) -> RegisteredProvider | None:
         return self._extension_provider_map.get(provider.lower())
+
+    def runtime_api_key_for(self, provider: str) -> str | None:
+        """The session's ``--api-key`` when it belongs to ``provider``.
+
+        Pi gives the key to the starting model's provider alone
+        (``setRuntimeApiKey``), so a credential sent for another provider
+        (an MCP server's ``auth.provider``) is never the key.
+        """
+
+        key = self.runtime_api_key
+        if key and provider == self.runtime_api_key_provider:
+            return key
+        return None
 
     def extension_default_model(self, provider: str) -> str | None:
         registered = self.extension_provider_for(provider)

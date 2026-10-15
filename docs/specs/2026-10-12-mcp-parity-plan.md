@@ -558,7 +558,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-49 | EXT-12 | The function is called once per capability value and its result kept (since G9); Pi also calls it again before each request with unchanged tools. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37, G9 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session has no UI, so `/mcp` without a subcommand opens no manager view and its status is a notice for the `diagnostic_sink`, where Pi's SDK session without UI drops it; `update_config` is used only by a manager change the embedder makes. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38, N2; `docs/sdk.md` |
-| DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; `--api-key` applies to every provider (Pi: the starting model's provider only), as for pipy's model requests; a login pipy does not refresh for its own requests is sent as stored; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key; a stored `!command` key runs for every MCP request. | narrower | Decided in S33, L4 |
+| DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key; a stored `!command` key runs for every MCP request. | narrower | Decided in S33, L4; H1 gives `--api-key` to the starting model's provider only and refreshes every stored login as Pi does |
 | DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
 | DEV-54 | CFG-13, CFG-17, CFG-18, CFG-20, OAU-34 | URLs are read as the WHATWG URL parser reads `http` and `https` (since L3), without IDNA: a non-ASCII host is kept lower-cased, where Pi writes punycode or rejects it, so `bücher.de` and `xn--bcher-kva.de` do not match when a protected resource is compared; `HttpUrl.path` keeps characters WHATWG percent-encodes (its consumers encode them). The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | other form | Decided in S11 to S14, S32, L2, L3; `docs/mcp.md` "Configuration rules" |
 | DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; a lock held for 25 s, and a file that cannot be read, are reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2 |
@@ -1697,8 +1697,10 @@ Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
   It reads the file with its own few lines and not with `AuthStore`, which
   reads a damaged file as empty: the environment's key would then be sent
   in place of a stored login.
-- Which providers an extension registered (`replaced`), the `--api-key`
-  (`runtime_api_key`), the `models.json` request settings
+- The provider an extension registered under the name
+  (`extension_provider`), the `--api-key` of the provider asked about
+  (`runtime_api_key`, `ProviderCatalogState.runtime_api_key_for`), the
+  `models.json` request settings
   (`models_json_key`) and the Codex login (`codex_login`) are functions
   asked at each call and read from the live catalog, whose attributes are
   replaced by assignment (`ModelCatalog.refresh` no longer empties
@@ -1710,10 +1712,22 @@ Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
   last, waits for the calls that are running, since one may be refreshing
   a login whose rotated credentials still have to be saved.
 - Narrower than Pi, documented in `docs/mcp.md` (DEV-52): ambient cloud
-  credentials, `--api-key` for every provider, no refresh of a login pipy
-  does not refresh for its own requests (extension providers: pipy never
-  calls their `refresh_token`/`get_api_key`), and a `!command` key run for
-  every MCP request (Pi caches command results per process).
+  credentials, and a `!command` key run for every MCP request (Pi caches
+  command results per process).
+- Since H1 (goal-check round 2, Q1 and Q2): `--api-key` is the token of the
+  provider of the model the session starts with only
+  (`ProviderCatalogState.runtime_api_key_provider`, set by the REPL startup
+  once the startup model is known; unset, the key goes to no MCP server),
+  as Pi `main.ts` sets it with `setRuntimeApiKey(model.provider, …)`. Every
+  stored OAuth login with an OAuth provider is refreshed when it expires
+  within five minutes (Pi `resolveStoredOAuth`): `github-copilot` and
+  `openai` through the session's `OAuthCredentialCache`, other built-in
+  logins and those of extension providers through
+  `OAuthCredentialCache.fresh_stored`, which refreshes under the
+  `auth.json` lock and saves the result. An extension provider's login is
+  refreshed with its `oauth.refresh_token` and its token is
+  `oauth.get_api_key` of it (Pi `adaptOAuth`). A stored login of a provider
+  without an OAuth provider is no token.
 - A function `provider_token` that raises fails the request with that
   error, as a rejected `providerToken` promise does in Pi.
 - No reconnect is triggered by `/login <provider>`: as in Pi, the server

@@ -1755,7 +1755,12 @@ OAuth-backed extension providers, `/login <provider>` calls `login(callbacks)`
 with deterministic stdio callbacks (`onAuth`, `onDeviceCode`, `onPrompt`,
 `onSelect`, `onProgress`, plus snake_case aliases), then stores the returned
 mapping as `{"type": "oauth", ...credentials}` in pipy's `AuthStore` under the
-provider name. `/logout <provider>` removes that stored entry. OAuth-backed
+provider name. `/logout <provider>` removes that stored entry. An MCP server whose `auth.provider` names the provider is sent
+`get_api_key(credentials)` of that entry, after `refresh_token(credentials)`
+refreshed it (and pipy saved the result as the new entry) when it expires within
+five minutes, as Pi does; both are then called on the thread that sends the MCP
+request and must return a mapping and a string, not an awaitable
+([a provider's token](mcp.md#a-providers-token)). OAuth-backed
 extension provider rows are unavailable with `login-required` until that entry is
 present; non-OAuth extension providers remain factory-owned and available as
 before. The declarative API-backed provider config

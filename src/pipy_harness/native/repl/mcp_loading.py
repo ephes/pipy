@@ -11,6 +11,7 @@ import os
 from functools import partial
 from pathlib import Path
 
+from pipy_harness.native.extension_types import ExtensionProvider
 from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
 from pipy_harness.native.mcp.connection import ProviderToken, create_default_transport
 from pipy_harness.native.mcp.credentials import (
@@ -140,8 +141,9 @@ def provider_token(
     and the Codex login file, and not the catalog's auth store, which belongs
     to the session thread. Of the catalog it reads three things there, each
     an attribute the session thread replaces by assignment and does not
-    change in place: whether an extension registered the provider, the
-    ``--api-key`` and the ``models.json`` request settings. A snapshot taken
+    change in place: the provider an extension registered under the name,
+    the ``--api-key`` with the provider it belongs to, and the
+    ``models.json`` request settings. A snapshot taken
     here would be the one before a reload's new extensions and
     ``models.json``, because the servers are loaded first.
     """
@@ -163,13 +165,17 @@ def provider_token(
         config = catalog.catalog.provider_request_configs.get(provider)
         return config.api_key if config is not None else None
 
+    def extension_provider(provider: str) -> ExtensionProvider | None:
+        registered = catalog.extension_provider_for(provider)
+        return registered.provider if registered is not None else None
+
     return partial(
         provider_login_token,
         auth_path=auth_store.path,
         env=catalog.env if catalog.env is not None else os.environ,
         oauth_credentials=catalog.oauth_credentials,
-        replaced=lambda provider: catalog.extension_provider_for(provider) is not None,
-        runtime_api_key=lambda: catalog.runtime_api_key,
+        extension_provider=extension_provider,
+        runtime_api_key=catalog.runtime_api_key_for,
         models_json_key=models_json_key,
         codex_login=codex.get_credentials,
     )

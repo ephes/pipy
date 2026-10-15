@@ -2407,6 +2407,9 @@ def _tool_repl_adapter_for(
     provider_state.thinking_level = provider_state.clamp_thinking_level(
         provider_state.selection, provider_state.thinking_level
     )
+    # Pi main.ts: `--api-key` is the runtime key of the startup model's
+    # provider, so a credential sent for another provider is never the key.
+    catalog_state.runtime_api_key_provider = provider_state.selection.provider_name
     return CodingSessionAdapter(
         provider_state=provider_state,
         tool_budget=tool_budget,

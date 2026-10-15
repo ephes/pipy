@@ -1062,24 +1062,35 @@ For such a server, name the provider in the user-level `mcp.json`:
       that cannot be read or refreshed is no token. Where such a model
       uses a stored key while there is a Codex login, the server is still
       sent the login: the token is the provider's, not a model's.
-    - The key given with `--api-key`. As for a model request, it is the key
-      of every provider.
+    - The key given with `--api-key`, for the provider of the model the
+      session starts with only, as in Pi. A server whose `auth.provider`
+      names another provider is never sent this key; it gets that
+      provider's own token from the sources below, or none.
     - What is stored for the provider in the auth store, `auth.json`, where
       `/login <provider>` puts a login: an API key entry (the name of a set
       environment variable is that variable's value, `!command` is the
-      output of the command, which then runs for every request), or the
-      access token of a stored OAuth login. A `github-copilot` or `openai`
-      login is refreshed first when it expires within five minutes, as
-      before a model request. A stored entry that has no token, such as an
-      OAuth login without an access token, is no token: the sources below
-      are not asked.
+      output of the command, which then runs for every request), or a
+      stored OAuth login. A login is refreshed first when it expires
+      within five minutes, as Pi refreshes every login before a request:
+      `github-copilot` and `openai` as before a model request, any other
+      built-in login (`anthropic`, for example) under the lock of
+      `auth.json`, where the refreshed login is saved. A login that cannot
+      be refreshed is no token. A stored entry that has no token, such as
+      an OAuth login without an access token or the login of a provider
+      that has no OAuth sign-in, is no token: the sources below are not
+      asked.
     - The provider's API-key environment variable.
     - The `apiKey` that `models.json` configures for the provider, resolved
       like a stored key.
 
     A provider that an extension registered is answered from `auth.json`
-    (a login is sent as stored) and its API-key environment variable only,
-    since model requests leave its credentials to the extension. A
+    and its API-key environment variable only, since model requests leave
+    its credentials to the extension. Its stored login is refreshed through
+    the extension's `oauth.refresh_token` when it expires within five
+    minutes and saved, and the token is the extension's `oauth.get_api_key`
+    of it, as in Pi; these callbacks then run on the thread that sends the
+    MCP request. The login of an extension provider without `oauth` is no
+    token. A
     provider without any of these has no token, and the request carries
     none. The same holds when `auth.json` exists and cannot be read: no
     later source is used in its place.
@@ -1097,12 +1108,8 @@ For such a server, name the provider in the user-level `mcp.json`:
 
 Differences from Pi:
 
-- Pi gives the `--api-key` key only to the provider of the model the
-  session starts with; pipy, as for its model requests, to every provider.
 - Ambient cloud credentials (an AWS profile, Google application default
   credentials) are no token for an MCP server.
-- An OAuth login that pipy does not refresh before its own model requests
-  (a provider an extension registered, for example) is sent as stored.
 - `pipy mcp list` knows no provider logins, as `pi mcp list` does not: it
   sends such a server no token, reports `needs sign-in` when the server
   wants one, and then prints `sign in with: pipy mcp login <name>`, which

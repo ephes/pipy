@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Security: the key given with `--api-key` is no longer sent to an MCP
+  server whose `"auth": {"provider": "<provider>"}` names another provider
+  than the one of the model the session starts with. Such a server gets
+  that provider's own token, or none, as in Pi; before, it was sent the
+  `--api-key` key of any provider. See
+  [a provider's token](docs/mcp.md#a-providers-token).
+
 - Keep token-count fields such as `totalTokens` and `tokensBefore` in native
   HTML/JSONL exports instead of redacting them, so exported sessions re-import
   with every assistant message and compaction. Prefixed secret keys such as
@@ -670,9 +677,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   their number as Pi does with JavaScript's `Number()`, so `0x50`, `0o17`,
   `0b1` and `1e3` are numbers.
 - An MCP server with `"auth": {"provider": "<provider>"}` is also sent the
-  `openai-codex` login, the key given with `--api-key` and the `apiKey`
-  that `models.json` configures for the provider, as a model request to
-  that provider would use them; these sources sent no token before.
+  `openai-codex` login, the key given with `--api-key` (when the provider is
+  that of the model the session starts with) and the `apiKey` that
+  `models.json` configures for the provider, as a model request to that
+  provider would use them; these sources sent no token before.
+- An MCP server with `"auth": {"provider": "<provider>"}` is sent a stored
+  login refreshed first when it expires within five minutes, for every
+  provider Pi refreshes: `anthropic` and `openai-codex` logins in
+  `auth.json` are refreshed and saved under the lock of `auth.json`, and a
+  provider an extension registered is refreshed through its
+  `oauth.refresh_token` and sent its `oauth.get_api_key` token. Before,
+  such logins were sent as stored, expired or not. The stored login of a
+  provider without an OAuth sign-in is no token, as in Pi.
 - OAuth credentials that an older Pi stored in `mcp-auth.json` under the
   server URL alone are used: the first server with that URL takes them
   over, and `/mcp logout` deletes them. Before, they were ignored.

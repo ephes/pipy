@@ -1361,6 +1361,51 @@ class OAuthCredentialCache:
                     self._rotated_from[provider_id] = snapshot.get("refresh")
             return dict(refreshed)
 
+    def oauth_provider(self, provider_id: str) -> OAuthProvider | None:
+        """The built-in OAuth provider of ``provider_id``, if there is one."""
+
+        return self._providers(provider_id)
+
+    def fresh_stored(
+        self,
+        auth_path: Path,
+        provider_id: str,
+        stored: Mapping[str, object],
+        provider: OAuthProvider,
+    ) -> dict[str, object] | None:
+        """Pi ``resolveStoredOAuth`` for a login no per-request cache keeps.
+
+        ``stored`` is the entry ``auth.json`` holds for ``provider_id``. When
+        it expires within five minutes it is refreshed through ``provider``
+        under the auth-file lock and the refreshed credential is saved there,
+        unless the entry found under the lock is valid by then (another
+        request or process refreshed it). ``None`` when the login was removed
+        meanwhile. Raises :class:`OAuthError` when the refresh fails.
+        """
+
+        from pipy_harness.native.auth_store import modify_stored_credential
+
+        def expires_soon(credential: Mapping[str, object]) -> bool:
+            return self._now_ms() + _MIN_VALIDITY_MS >= _expires(credential)
+
+        if not expires_soon(stored):
+            return dict(stored)
+
+        def modify(current: dict[str, object] | None) -> dict[str, object] | None:
+            if current is None or current.get("type") != "oauth":
+                return None  # logged out meanwhile
+            if not expires_soon(current):
+                return None  # another request or process refreshed it
+            return {**_refresh_with(provider_id, provider, current), "type": "oauth"}
+
+        try:
+            post = modify_stored_credential(auth_path, provider_id, modify)
+        except OSError as exc:
+            raise OAuthError(
+                f"Credential store modify failed for {provider_id}"
+            ) from exc
+        return post if post is not None and post.get("type") == "oauth" else None
+
     def _persisted_refresh(
         self, provider_id: str, provider: OAuthProvider
     ) -> dict[str, object]:

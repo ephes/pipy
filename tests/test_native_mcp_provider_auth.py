@@ -34,6 +34,7 @@ from pipy_harness.native.coding.session import (
     production_tool_registry,
 )
 from pipy_harness.native.extension_types import (
+    ExtensionOAuthConfig,
     ExtensionProvider,
     RegisteredProvider,
 )
@@ -51,7 +52,11 @@ from pipy_harness.native.mcp.credentials import (
 from pipy_harness.native.mcp.manager import McpManager
 from pipy_harness.native.mcp.protocol import McpConnectionClosedError
 from pipy_harness.native.mcp.shell_cli import McpCommandOptions, run_mcp_command
-from pipy_harness.native.oauth_providers import OAuthCredentialCache, OAuthError
+from pipy_harness.native.oauth_providers import (
+    OAuthCredentialCache,
+    OAuthError,
+    get_oauth_provider_ids,
+)
 from pipy_harness.native.openai_codex_provider import (
     FileOpenAICodexCredentialStore,
     OAuthTokenResponse,
@@ -424,6 +429,8 @@ def test_pipy_mcp_list_sends_no_provider_token(
 class _Refreshing:
     """An OAuth provider whose refresh answers ``<access>+``."""
 
+    id = "refreshing"
+
     def __init__(self) -> None:
         self.refreshed: list[str] = []
 
@@ -461,18 +468,40 @@ class _Logins:
         self.path = tmp_path / "auth.json"
         self.env = env or {}
         self.oauth = _Refreshing()
+        # The built-in OAuth providers, each refreshing through `oauth`.
         self.cache = OAuthCredentialCache(
-            providers=lambda provider: self.oauth,  # type: ignore[arg-type,return-value]
+            providers=lambda provider: (
+                self.oauth if provider in get_oauth_provider_ids() else None
+            ),
             now_ms=lambda: _NOW_MS,
         )
-        self.extension_providers: set[str] = set()
+        self.extension_providers: dict[str, ExtensionProvider] = {}
         self.runtime_api_key: str | None = None
+        # The provider of the model the session started with.
+        self.runtime_api_key_provider: str | None = None
         self.models_json: dict[str, str] = {}
         self.codex: OpenAICodexCredentials | None = None
         self.codex_asked = 0
 
     def store(self, provider: str, entry: dict[str, object]) -> None:
         AuthStore(self.path).set(provider, entry)
+
+    def runtime_key_for(self, provider: str) -> str | None:
+        if provider == self.runtime_api_key_provider:
+            return self.runtime_api_key
+        return None
+
+    def register(self, name: str, oauth: ExtensionOAuthConfig | None = None) -> None:
+        self.extension_providers[name] = ExtensionProvider(
+            name=name,
+            default_model="m",
+            models=("m",),
+            factory=lambda ctx: None,
+            oauth=oauth,
+        )
+
+    def stored(self, provider: str) -> object:
+        return json.loads(self.path.read_text(encoding="utf-8")).get(provider)
 
     def codex_login(self) -> OpenAICodexCredentials | None:
         self.codex_asked += 1
@@ -484,8 +513,8 @@ class _Logins:
             auth_path=self.path,
             env=self.env,
             oauth_credentials=self.cache,
-            replaced=lambda provider: provider in self.extension_providers,
-            runtime_api_key=lambda: self.runtime_api_key,
+            extension_provider=self.extension_providers.get,
+            runtime_api_key=self.runtime_key_for,
             models_json_key=self.models_json.get,
             codex_login=self.codex_login,
         )
@@ -521,16 +550,107 @@ def test_a_login_or_logout_made_meanwhile_applies_to_the_next_request(
     assert logins.token("radius") is None
 
 
-def test_a_stored_oauth_login_is_sent_as_stored(tmp_path: Path) -> None:
-    # Any provider pipy does not refresh before its own requests.
+def test_a_valid_stored_login_is_the_token_and_one_without_an_oauth_provider_none(
+    tmp_path: Path,
+) -> None:
     logins = _Logins(tmp_path)
+    logins.store(
+        "anthropic",
+        {"type": "oauth", "access": "at", "refresh": "rt", "expires": _NOW_MS * 2},
+    )
+    logins.store("openai", {"type": "oauth", "refresh": "rt", "expires": _NOW_MS * 2})
+    # Pi: a stored login of a provider without `oauth` auth is no token.
     logins.store(
         "radius", {"type": "oauth", "access": "at", "refresh": "rt", "expires": 1}
     )
-    logins.store("broken", {"type": "oauth", "refresh": "rt"})
 
-    assert logins.token("radius") == "at"
-    assert logins.token("broken") is None
+    assert logins.token("anthropic") == "at"
+    assert logins.token("openai") is None
+    assert logins.token("radius") is None
+    # An access token that is no string is no token, not its text.
+    for access in (None, 123, {"a": 1}, ""):
+        logins.store(
+            "github-copilot",
+            {
+                "type": "oauth",
+                "access": access,
+                "refresh": "rt",
+                "expires": _NOW_MS * 2,
+            },
+        )
+        assert logins.token("github-copilot") is None
+        logins.store(
+            "anthropic",
+            {
+                "type": "oauth",
+                "access": access,
+                "refresh": "rt",
+                "expires": _NOW_MS * 2,
+            },
+        )
+        assert logins.token("anthropic") is None
+    assert logins.oauth.refreshed == []
+
+
+def test_every_built_in_login_is_refreshed_and_saved_once_it_expires_soon(
+    tmp_path: Path,
+) -> None:
+    # Pi refreshes every stored login before network access
+    # (`resolveStoredOAuth`) and saves it under the credential-store lock.
+    logins = _Logins(tmp_path)
+    for provider in ("anthropic", "openai-codex"):
+        logins.store(
+            provider,
+            {
+                "type": "oauth",
+                "access": f"{provider}-at",
+                "refresh": "rt",
+                "expires": _NOW_MS + 60_000,
+            },
+        )
+
+    assert logins.token("anthropic") == "anthropic-at+"
+    assert logins.token("openai-codex") == "openai-codex-at+"
+    assert logins.stored("anthropic") == {
+        "type": "oauth",
+        "access": "anthropic-at+",
+        "refresh": "rt",
+        "expires": _NOW_MS + 3_600_000,
+    }
+    # The saved login is valid now: no second refresh.
+    assert logins.token("anthropic") == "anthropic-at+"
+    assert logins.oauth.refreshed == ["anthropic-at", "openai-codex-at"]
+
+
+def test_a_login_another_process_refreshed_meanwhile_is_not_refreshed_again(
+    tmp_path: Path,
+) -> None:
+    logins = _Logins(tmp_path)
+    expiring = {"type": "oauth", "access": "old", "refresh": "rt1", "expires": 1}
+    valid = {"type": "oauth", "access": "new", "refresh": "rt2", "expires": _NOW_MS * 2}
+    logins.store("anthropic", valid)
+
+    # The entry read before the lock expires; the one under the lock does not.
+    fresh = logins.cache.fresh_stored(
+        logins.path,
+        "anthropic",
+        expiring,
+        logins.oauth,  # type: ignore[arg-type]
+    )
+    assert fresh == valid
+    assert logins.oauth.refreshed == []
+
+    # A login removed meanwhile is no login.
+    AuthStore(logins.path).remove("anthropic")
+    assert (
+        logins.cache.fresh_stored(
+            logins.path,
+            "anthropic",
+            expiring,
+            logins.oauth,  # type: ignore[arg-type]
+        )
+        is None
+    )
     assert logins.oauth.refreshed == []
 
 
@@ -556,18 +676,27 @@ def test_a_login_pipy_refreshes_per_request_is_refreshed_once_it_expires_soon(
 
 
 def test_a_refresh_that_fails_is_no_token(tmp_path: Path) -> None:
-    logins = _Logins(tmp_path)
+    logins = _Logins(tmp_path, {"ANTHROPIC_API_KEY": "env-key"})
 
     def refuse(credentials: Mapping[str, object]) -> dict[str, object]:
         raise OAuthError("refused")
 
     logins.oauth.refresh_token = refuse  # type: ignore[method-assign]
-    logins.store(
-        "github-copilot",
-        {"type": "oauth", "access": "at", "refresh": "rt", "expires": 1},
-    )
+    for provider in ("github-copilot", "anthropic"):
+        logins.store(
+            provider,
+            {"type": "oauth", "access": "at", "refresh": "rt", "expires": 1},
+        )
 
     assert logins.token("github-copilot") is None
+    # Neither the expired token nor the environment's key goes out instead.
+    assert logins.token("anthropic") is None
+    assert logins.stored("anthropic") == {
+        "type": "oauth",
+        "access": "at",
+        "refresh": "rt",
+        "expires": 1,
+    }
 
 
 def test_the_environment_is_asked_only_when_nothing_is_stored(tmp_path: Path) -> None:
@@ -584,11 +713,12 @@ def test_the_environment_is_asked_only_when_nothing_is_stored(tmp_path: Path) ->
     assert logins.token("openrouter") is None
 
 
-def test_the_api_key_given_to_the_session_comes_before_every_stored_login(
+def test_the_api_key_given_to_the_session_is_the_token_of_its_provider_only(
     tmp_path: Path,
 ) -> None:
-    # As for a model request, `--api-key` is the key of any provider, and a
-    # stored login is not refreshed then.
+    # Pi main.ts: `--api-key` is the runtime key of the starting model's
+    # provider; it comes before that provider's stored login, which is not
+    # refreshed then.
     logins = _Logins(tmp_path, {"OPENROUTER_API_KEY": "env-key"})
     logins.store("radius", {"type": "api_key", "key": "stored"})
     logins.store(
@@ -597,15 +727,43 @@ def test_the_api_key_given_to_the_session_comes_before_every_stored_login(
     )
     logins.models_json["radius"] = "configured"
     logins.runtime_api_key = "runtime"
+    logins.runtime_api_key_provider = "github-copilot"
 
-    assert logins.token("radius") == "runtime"
-    assert logins.token("openrouter") == "runtime"
     assert logins.token("github-copilot") == "runtime"
     assert logins.oauth.refreshed == []
 
     # Read at each call.
     logins.runtime_api_key = None
+    assert logins.token("github-copilot") == "at+"
+
+
+def test_the_api_key_given_to_the_session_is_never_sent_for_another_provider(
+    tmp_path: Path,
+) -> None:
+    # A server configured with `auth.provider` for another provider is sent
+    # that provider's own credential, or nothing; never the session's key.
+    logins = _Logins(tmp_path, {"OPENROUTER_API_KEY": "env-key"})
+    logins.store("radius", {"type": "api_key", "key": "stored"})
+    logins.store(
+        "github-copilot",
+        {"type": "oauth", "access": "at", "refresh": "rt", "expires": _NOW_MS * 2},
+    )
+    logins.models_json["configured"] = "from-models-json"
+    logins.runtime_api_key = "runtime"
+    logins.runtime_api_key_provider = "openai"
+
+    assert logins.token("openai") == "runtime"
     assert logins.token("radius") == "stored"
+    assert logins.token("github-copilot") == "at"
+    assert logins.token("openrouter") == "env-key"
+    assert logins.token("configured") == "from-models-json"
+    assert logins.token("anthropic") is None
+    assert logins.token("OpenAI") is None
+    assert logins.token("openai-codex") is None
+
+    # A key whose provider is not known belongs to no provider.
+    logins.runtime_api_key_provider = None
+    assert logins.token("openai") is None
 
 
 def test_the_models_json_key_is_the_token_when_no_other_source_has_one(
@@ -634,6 +792,7 @@ def test_the_codex_login_is_the_token_of_openai_codex(tmp_path: Path) -> None:
     logins = _Logins(tmp_path)
     logins.store("openai-codex", {"type": "api_key", "key": "stored"})
     logins.runtime_api_key = "runtime"
+    logins.runtime_api_key_provider = "openai-codex"
     logins.models_json["openai-codex"] = "configured"
     logins.codex = _codex("codex-at")
 
@@ -659,10 +818,12 @@ def test_a_provider_an_extension_registered_is_answered_from_its_login_only(
     tmp_path: Path,
 ) -> None:
     # pipy's model requests leave its credentials to the extension: no
-    # `--api-key`, no models.json key, no Codex login and no refresh.
+    # `--api-key`, no models.json key and no Codex login.
     logins = _Logins(tmp_path, {"OPENROUTER_API_KEY": "env-key"})
-    logins.extension_providers.update({"radius", "openrouter", "openai-codex"})
+    for name in ("radius", "openrouter", "openai-codex"):
+        logins.register(name)
     logins.runtime_api_key = "runtime"
+    logins.runtime_api_key_provider = "radius"
     logins.models_json["radius"] = "configured"
     logins.codex = _codex("codex-at")
 
@@ -671,15 +832,95 @@ def test_a_provider_an_extension_registered_is_answered_from_its_login_only(
     assert logins.token("openai-codex") is None
     assert logins.codex_asked == 0
 
-    logins.extension_providers.add("github-copilot")
+    # A stored login of an extension provider without `oauth` is no token
+    # (Pi: no `oauth` auth), also for a built-in name it replaces.
+    logins.register("github-copilot")
     logins.store(
         "github-copilot",
-        {"type": "oauth", "access": "old", "refresh": "rt", "expires": 1},
+        {"type": "oauth", "access": "old", "refresh": "rt", "expires": _NOW_MS * 2},
     )
     logins.store("openai-codex", {"type": "api_key", "key": "stored"})
-    assert logins.token("github-copilot") == "old"
+    assert logins.token("github-copilot") is None
     assert logins.token("openai-codex") == "stored"
     assert logins.oauth.refreshed == []
+
+
+def test_an_extension_login_is_refreshed_and_saved_through_the_extension(
+    tmp_path: Path,
+) -> None:
+    # Pi `adaptOAuth`: the extension's `refreshToken` result is the saved
+    # login, and its `getApiKey` is the token.
+    refreshed: list[dict[str, object]] = []
+
+    def refresh(credentials: Mapping[str, object]) -> dict[str, object]:
+        refreshed.append(dict(credentials))
+        return {"access": "new", "refresh": "rt2", "expires": _NOW_MS * 2}
+
+    logins = _Logins(tmp_path)
+    logins.register(
+        "radius",
+        ExtensionOAuthConfig(
+            name="Radius",
+            login=lambda callbacks: {},
+            refresh_token=refresh,
+            get_api_key=lambda credentials: f"key-{credentials['access']}",
+        ),
+    )
+    logins.store(
+        "radius", {"type": "oauth", "access": "old", "refresh": "rt1", "expires": 1}
+    )
+
+    assert logins.token("radius") == "key-new"
+    assert refreshed == [
+        {"type": "oauth", "access": "old", "refresh": "rt1", "expires": 1}
+    ]
+    assert logins.stored("radius") == {
+        "type": "oauth",
+        "access": "new",
+        "refresh": "rt2",
+        "expires": _NOW_MS * 2,
+    }
+    assert logins.token("radius") == "key-new"
+    assert len(refreshed) == 1
+    # The built-in OAuth providers are not asked for an extension's login.
+    assert logins.oauth.refreshed == []
+
+
+def test_an_extension_login_that_cannot_be_refreshed_or_read_is_no_token(
+    tmp_path: Path,
+) -> None:
+    logins = _Logins(tmp_path)
+
+    async def later(credentials: Mapping[str, object]) -> dict[str, object]:
+        return {}
+
+    def refuse(credentials: Mapping[str, object]) -> dict[str, object]:
+        raise RuntimeError("refused")
+
+    expired = {"type": "oauth", "access": "old", "refresh": "rt", "expires": 1}
+    valid = {**expired, "expires": _NOW_MS * 2}
+    cases: list[
+        tuple[Callable[..., object], Callable[..., object], dict[str, object]]
+    ] = [
+        (refuse, lambda credentials: "key", expired),
+        (later, lambda credentials: "key", expired),
+        (lambda credentials: "not a mapping", lambda credentials: "key", expired),
+        (refuse, lambda credentials: None, valid),
+        (refuse, lambda credentials: "", valid),
+    ]
+    for refresh, get_api_key, stored in cases:
+        logins.register(
+            "radius",
+            ExtensionOAuthConfig(
+                name="Radius",
+                login=lambda callbacks: {},
+                refresh_token=refresh,
+                get_api_key=get_api_key,
+            ),
+        )
+        logins.store("radius", stored)
+        assert logins.token("radius") is None
+        assert logins.stored("radius") == stored
 
 
 def test_an_auth_file_that_cannot_be_read_is_no_token_also_not_from_the_environment(
@@ -715,6 +956,7 @@ def _provider_state(
     env: dict[str, str],
     *,
     runtime_api_key: str | None = None,
+    runtime_api_key_provider: str | None = None,
 ) -> NativeReplProviderState:
     return NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
@@ -725,6 +967,7 @@ def _provider_state(
                 env=env,
                 openai_codex_auth_path=tmp_path / "codex.json",
                 runtime_api_key=runtime_api_key,
+                runtime_api_key_provider=runtime_api_key_provider,
             )
         ),
         persist_defaults=False,
@@ -864,17 +1107,23 @@ def test_the_session_sends_its_api_key_and_the_models_json_key(
     assert token("radius") == "configured"
     assert token("other") is None
 
-    state = _provider_state(tmp_path, {}, runtime_api_key="runtime")
+    state = _provider_state(
+        tmp_path, {}, runtime_api_key="runtime", runtime_api_key_provider="other"
+    )
     token = _provider_token(state)
     assert token is not None
-    assert token("radius") == "runtime"
     assert token("other") == "runtime"
+    # Not the key of another provider.
+    assert token("radius") == "configured"
+    assert token("openai") is None
 
 
 def test_the_session_reads_which_providers_extensions_registered_at_each_call(
     tmp_path: Path,
 ) -> None:
-    state = _provider_state(tmp_path, {}, runtime_api_key="runtime")
+    state = _provider_state(
+        tmp_path, {}, runtime_api_key="runtime", runtime_api_key_provider="openai"
+    )
     catalog = state.model_runtime.catalog
     token = _provider_token(state)
     assert token is not None
@@ -897,7 +1146,38 @@ def test_the_session_reads_which_providers_extensions_registered_at_each_call(
         (),
     )
     assert token("openai") is None
-    assert token("github-copilot") == "runtime"
+
+
+def test_the_session_api_key_belongs_to_the_provider_the_session_starts_with(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pipy_harness.cli import _tool_repl_adapter_for
+
+    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "defaults.json"))
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "codex.json",
+        runtime_api_key="sk-anthropic",
+    )
+    adapter = _tool_repl_adapter_for(
+        "anthropic",
+        "claude-opus-4-8",
+        cwd=tmp_path,
+        tool_budget=5,
+        api_key="sk-anthropic",
+        catalog_state=catalog,
+    )
+    state = adapter.provider_state
+    assert isinstance(state, NativeReplProviderState)
+    token = _provider_token(state)
+    assert token is not None
+
+    assert token("anthropic") == "sk-anthropic"
+    for other in ("github-copilot", "openai", "openai-codex", "radius"):
+        assert token(other) is None
 
 
 def test_a_session_with_an_injected_provider_has_no_token_function() -> None:
