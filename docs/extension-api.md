@@ -1471,6 +1471,10 @@ replaceable).
   `default_active=False`.
 - Before a call of a tool that declares `reaches_tools`, pipy waits for the
   servers the call may reach; a replacement without it is called at once.
+- A replacement's calls are drawn with its own renderers, or with the
+  generic rows, partial results included, when it has none: only the
+  built-in `codemode` has the codemode rows, as in Pi only the built-in
+  codemode tool brings its renderers (see [Tool rendering](#tool-rendering)).
 
 An extension that registers the `/mcp` command replaces the built-in MCP
 support; see [MCP](mcp.md#replace-the-built-in-mcp-support).
@@ -1535,11 +1539,20 @@ def activate(api):
 - `next()` returns what the resolvers registered after this one, then the
   tool itself, would use. Resolvers are asked in extension load order, and in
   the order one extension registered them. `next() or mine` therefore only
-  fills in; returning `mine` without calling `next()` replaces the rows of
-  that tool, a built-in tool's included, and returning `None` without it
-  gives the tool pipy's generic row.
-- What the tool itself has: for an extension tool that has a renderer, the
-  `ExtensionTool`; for a built-in tool, for `codemode` and for a call to
+  fills in (as in Pi, not for a registered extension tool without
+  renderers, which `next()` returns); returning `mine` without calling
+  `next()` replaces the rows of that tool, a built-in tool's included, and
+  returning `None` without it gives the tool pipy's generic row.
+- What the tool itself has: for a registered extension tool, the
+  `ExtensionTool`, also when it has no renderers (as Pi's registered
+  definition): its `render_call` and `render_result` are then `None` and
+  its calls get the generic row, partial results included. That holds for
+  an extension tool that replaces `codemode` too: only the built-in
+  `codemode` has pipy's codemode rows, as in Pi only the built-in codemode
+  tool brings its renderers. The names of the other built-in tools are
+  reserved, so their calls keep pipy's rows (in Pi a replacement of them
+  without renderers keeps the built-in renderers). For a built-in tool, for
+  the built-in `codemode` and for a call to
   `mcp__<server>__<tool>` (whether such a tool is registered or not), an
   object that stands for pipy's own rows. Return it to keep pipy's rows, or
   call its `render_call(ctx)` and `render_result(ctx)` inside your own
@@ -1595,10 +1608,6 @@ def activate(api):
 
 Different from Pi:
 
-- In Pi `next()` returns a registered tool's definition also when it has no
-  renderers; pipy returns `None` for an extension tool without renderers.
-  An extension tool named `codemode` without renderers is the exception: it
-  gets pipy's codemode rows, where Pi draws its calls with the generic rows.
 - pipy's own rows keep what is outside the two parts when a resolver wraps
   them only as long as the object itself is returned: a wrapped `edit` row
   is drawn in the usual box, not in the edit box with its own background

@@ -75,8 +75,12 @@ def test_the_renderers_follow_the_latest_registration() -> None:
     registry.register(_registered("a"))
     registry.register(_registered("b", render_result=draw))
 
-    assert dict(renderers) == {"b": registry.tools()[1].tool}
-    assert "a" not in renderers
+    # A tool registered again without renderers stays, without them (Pi
+    # `getToolDefinition` returns the definition whatever renderers it has).
+    a, b = (item.tool for item in registry.tools())
+    assert dict(renderers) == {"a": a, "b": b}
+    assert renderers["a"].render_call is None
+    assert renderers["a"].render_result is None
 
 
 class _Port:

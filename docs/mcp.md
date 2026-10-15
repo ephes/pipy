@@ -1336,8 +1336,18 @@ back is available again with its configured exposure. As in Pi,
 `ctx.get_all_tools()` still lists a removed tool, and the tools of a server
 you disabled, with exposure `hidden` (see
 [listing tools](extension-api.md#extension-tool-metadata)); `/mcp` does not count
-them. `/reload` starts the servers again and the list with them. A call that was
-already on its way fails with one of these messages:
+them. `/reload` starts the servers again and the list with them.
+
+A server's tools keep the order they were registered in, as Pi keeps the
+place of a tool it registers again: a new list that orders them another
+way, or drops a tool and offers it again later, leaves them where they
+were, and a new tool comes after the server's others. So of two tools that
+match a [`tool_search`](#tool-search) query equally well, the same one
+comes first before and after the change. The servers follow each other in
+the order of the configuration; in Pi it is the order in which they
+connected.
+
+A call that was already on its way fails with one of these messages:
 
 | Message | When |
 | --- | --- |

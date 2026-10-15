@@ -422,6 +422,14 @@ class McpManager:
         self._started = False
         self._closed = False
         self._names = McpToolNames()
+        # Every tool name a server's tools were published under, in the
+        # order of its first publication, also once its tool is gone: a
+        # server's tools keep these positions in its tool lists to come (Pi
+        # registers each tool in the MCP extension's tool ``Map``, where a
+        # name set again keeps its place, and never removes one). A name
+        # never changes its server (``McpToolNames``). Guarded by the
+        # manager lock.
+        self._order: dict[str, None] = {}
         # The three resource tools and the MCP exposure they were built
         # with; ``None`` until a server has resources. Guarded by the manager
         # lock and changed only by a thread that holds the publication lock.
@@ -1511,13 +1519,21 @@ class McpManager:
         )
 
     def _merged_ports(self) -> dict[str, ToolPort]:
-        """The tools of all servers and the resource tools. The manager lock
-        is held."""
+        """The tools of all servers, in configuration order, and then the
+        resource tools. A server's tools are in the order their names were
+        first published (``_order``): a tool list that orders them another
+        way leaves their order, and so the ties of ``tool_search``'s
+        ranking, as it was, and a new tool comes after the server's others.
+        The manager lock is held."""
 
+        for server in self._servers:
+            for name in server.ports:
+                self._order.setdefault(name, None)
+        position = {name: index for index, name in enumerate(self._order)}
         merged: dict[str, ToolPort] = {
-            name: port
+            name: server.ports[name]
             for server in self._servers
-            for name, port in server.ports.items()
+            for name in sorted(server.ports, key=position.__getitem__)
         }
         merged.update(self._resource_ports)
         return merged

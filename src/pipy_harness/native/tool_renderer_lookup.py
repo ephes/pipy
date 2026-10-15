@@ -77,7 +77,8 @@ class McpToolRows:
 class ToolRendererLookup:
     """The renderers of one extension generation and one set of MCP tools.
 
-    ``tools`` are the extension tools that have a renderer, by name;
+    ``tools`` are the registered extension tools, by name, also those
+    without renderers (Pi ``getToolDefinition``);
     ``mcp_labels`` the titles of the registered MCP server tools, by name;
     ``resolvers`` what extensions registered, in load order; it may be a
     view that changes while the session runs (an extension registers a
@@ -130,10 +131,15 @@ class ToolRendererLookup:
         return chosen if valid else next_renderers()
 
     def _own(self, name: str, builtin: bool) -> object | None:
-        """What the tool itself has (Pi: the registered tool's renderers).
+        """What the tool itself has (Pi: the registered tool's definition).
 
-        An extension tool's renderers come first: an extension may replace
-        ``codemode`` (the names of the other built-in tools are reserved).
+        A registered extension tool comes first, also one without renderers:
+        an extension may replace ``codemode``, and a replacement without
+        renderers gets the generic rows as in Pi, where only the built-in
+        codemode tool brings ``codemodeRenderers``. The names of the other
+        built-in tools are reserved, so their calls always keep pipy's rows,
+        which is what Pi's ``withBuiltInRenderers`` gives a replacement of
+        them without renderers.
         """
 
         tool = self.tools.get(name)

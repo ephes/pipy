@@ -725,6 +725,91 @@ def test_next_gives_codemodes_own_rows() -> None:
     )
 
 
+def _rendererless(name: str) -> ExtensionTool:
+    return ExtensionTool(
+        name=name,
+        description="d",
+        input_schema={"type": "object"},
+        handler=lambda ctx, params: "",
+    )
+
+
+def test_a_codemode_replacement_without_renderers_gets_the_generic_rows(
+    tmp_path: Path,
+) -> None:
+    # Goal check r5, S1. Pi: `getRegisteredToolDefinition` resolves the
+    # registered definition, which has no renderers, and only the built-in
+    # codemode tool brings `codemodeRenderers`; `ToolExecutionComponent`
+    # then draws the generic rows, partial results included.
+    from pipy_harness.native.extension_types import RegisteredTool
+    from pipy_harness.native.extensions.live_tools import (
+        LiveToolRegistry,
+        LiveToolRenderers,
+    )
+
+    replacement = _rendererless("codemode")
+    seen: list[object | None] = []
+
+    def fill_in(name: str, following: Any) -> object | None:
+        seen.append(following())
+        return following() or _renderers("mine")
+
+    lookup = ToolRendererLookup(
+        tools=LiveToolRenderers(
+            LiveToolRegistry([RegisteredTool(replacement, "mine")])
+        ),
+        resolvers=(fill_in,),
+    )
+
+    # `next()` is the registered tool, so `next() or mine` keeps it, as in Pi.
+    assert lookup.resolve("codemode", builtin=True) is replacement
+    assert seen == [replacement]
+
+    for tools, partial_shown in (({}, False), (lookup.tools, True)):
+        live = _Live(tmp_path)
+        live.width = 100
+        live.renderer.refresh_tool_renderers(ToolRendererLookup(tools=tools))
+        live.call("codemode", {"code": "print(1)"})
+        live.transcript.append_tool_output("step 1\n")
+        # The built-in codemode's rows show no partial result; the generic
+        # rows of its replacement do.
+        assert ("step 1" in _plain(live.transcript.pending_tool_lines)) is (
+            partial_shown
+        )
+        live.renderer.render_tool_result(output_text=_SCRIPT + "1", is_error=False)
+        (row,) = live.rows()
+        assert row[0] == 'codemode code="print(1)"'
+        if partial_shown:
+            # The generic result: the text as it is, header included.
+            assert row[1:] == [
+                "Script completed",
+                "Wall time 0.4 seconds",
+                "Output:",
+                "1",
+            ]
+        else:
+            assert row[1:] == ["1"]
+
+
+def test_the_line_renderer_draws_a_rendererless_codemode_replacement_generically() -> (
+    None
+):
+    stream = io.StringIO()
+    renderer = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+    renderer.refresh_tool_renderers(
+        ToolRendererLookup(tools={"codemode": _rendererless("codemode")})
+    )
+
+    renderer.render_tool_call(
+        AgentToolCall("c1", "codemode", ProductContent('{"code": "x"}'))
+    )
+    renderer.render_tool_result(output_text=_SCRIPT + "done", is_error=False)
+
+    lines = [line.strip() for line in stream.getvalue().splitlines() if line.strip()]
+    assert lines[0] == 'codemode(code="x")'
+    assert "Script completed" in lines and "done" in lines
+
+
 def test_a_resolver_wraps_codemodes_rows(tmp_path: Path) -> None:
     live = _Live(tmp_path)
     live.width = 100
