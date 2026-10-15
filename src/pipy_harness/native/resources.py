@@ -86,6 +86,7 @@ DISPATCH_SKILL_RUN = "skill_run"
 DISPATCH_TEMPLATE_RUN = "template_run"
 DISPATCH_COMMAND_RUN = "command_run"
 DISPATCH_REJECT = "reject"
+DISPATCH_PASS_THROUGH = "pass_through"
 
 _RUN_KINDS = frozenset(
     {DISPATCH_SKILL_RUN, DISPATCH_TEMPLATE_RUN, DISPATCH_COMMAND_RUN}
@@ -120,6 +121,9 @@ class ResourceDispatch:
     - ``kind == DISPATCH_REJECT``: print ``message`` locally and fail
       closed; no provider turn. ``safe_metadata`` may carry the
       attempted resource name/label for the audit trail.
+    - ``kind == DISPATCH_PASS_THROUGH``: a skill that cannot run (unknown
+      or unreadable). Print ``message`` and send the line to the model as
+      it stands, as Pi ``_expandSkillCommand`` passes it through.
     """
 
     kind: str
@@ -135,6 +139,10 @@ class ResourceDispatch:
     @property
     def is_reject(self) -> bool:
         return self.kind == DISPATCH_REJECT
+
+    @property
+    def is_pass_through(self) -> bool:
+        return self.kind == DISPATCH_PASS_THROUGH
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,20 +435,22 @@ def _dispatch_skill_command(
     """Pi ``/skill:<name> [args]``: send the skill file as a ``<skill>`` block.
 
     Like Pi, the file is read again at invocation and its frontmatter
-    stripped; the block runs whether or not skill commands are listed.
+    stripped; the block runs whether or not skill commands are listed. An
+    unknown or unreadable skill passes the line through unchanged, as Pi
+    does; pipy also says why.
     """
 
     skill = find_skill_by_name(resources.skills, name)
     if skill is None:
         return ResourceDispatch(
-            kind=DISPATCH_REJECT,
+            kind=DISPATCH_PASS_THROUGH,
             message=f"pipy: no skill named {name!r}.",
             resource_label=f"skill:{name}",
         )
     body = read_resource_body(skill.absolute_path)
     if body is None:
         return ResourceDispatch(
-            kind=DISPATCH_REJECT,
+            kind=DISPATCH_PASS_THROUGH,
             message=f"pipy: could not read skill {skill.name!r}.",
             safe_metadata=_skill_metadata(skill),
             resource_label=f"skill:{skill.name}",

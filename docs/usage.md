@@ -86,7 +86,7 @@ are invoked as their own `/<template-name>` commands.
 | `/mcp`, `/mcp login [server]`, `/mcp logout [server]`, `/mcp reconnect [server]` | Open the [MCP manager](mcp.md#the-mcp-manager) to see the servers and sign in, reconnect, enable, disable or change the exposure of one; the subcommands sign in to, sign out of or reconnect a server directly (not available with MCP turned off); see [MCP](mcp.md#the-mcp-command) |
 | `/hotkeys` | Show keyboard shortcuts |
 | `/changelog` | Display version history |
-| `/skill:<name> [args]` | Run a discovered skill (the text after the name follows it) |
+| `/skill:<name> [args]` | Run a discovered skill (the text after the name follows it); for a name that is not a skill pipy says so and sends the line as typed, as Pi does |
 | `/quit`, `/exit` | Quit pipy |
 
 Pipy intentionally removed earlier pipy-only command wrappers such as `/clear`,

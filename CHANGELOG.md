@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A typed `/skill:<name>` line whose skill does not exist or cannot be read
+  goes to the model as typed, as in Pi, after pipy reports why; and a typed
+  skill, template or custom command line meets the `input` hooks before it
+  is expanded or refused, also when it cannot run. Before, such a skill line
+  was refused locally before the hooks ran and reached neither the hooks nor
+  the model. An empty template or custom command still sends nothing. See
+  [event hooks](docs/extension-api.md#event-hooks).
 - The calls a tool makes, from a codemode script or with
   `ctx.execute_tool`, no longer count against the per-turn tool budget
   (`--tool-budget`, default 50), as Pi has no limit on them. Before, one

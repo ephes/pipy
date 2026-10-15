@@ -1695,11 +1695,13 @@ def _dispatch_resource_command(
 ) -> tuple[CommandDispatchResolution | None, str | None]:
     """Route REJECT locally and return RUN's provider-visible text.
 
-    A line that runs a skill or template meets the ``input`` hooks first, as
-    Pi ``prompt`` runs them before ``_expandSkillCommand`` and
-    ``expandPromptTemplate``: a hook that handles it ends the line, and a
-    line the hooks changed is dispatched again; when it no longer names a
-    skill or template it is the prompt as it stands.
+    A line that names a skill, template or custom command meets the
+    ``input`` hooks first, as Pi ``prompt`` runs them before
+    ``_expandSkillCommand`` and ``expandPromptTemplate``: a hook that
+    handles it ends the line, and a line the hooks changed is dispatched
+    again; when it no longer names one it is the prompt as it stands. A
+    skill that cannot run (unknown or unreadable) is reported and the line
+    goes to the model as it stands, as Pi passes it through.
     """
 
     resource = effects.dispatch_resource(command_text)
@@ -1707,24 +1709,31 @@ def _dispatch_resource_command(
         return None, None
     if type(resource) is not ResourceDispatchResolution:
         raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
-    if resource.kind is ResourceDispatchKind.RUN:
-        text = effects.run_input_hooks(user_input)
-        if text is None:
-            effects.refresh_footer()
-            return CommandDispatchResolution.continue_loop(), None
-        if text != user_input:
-            resource = effects.dispatch_resource(text.strip())
-            if resource is None:
-                return CommandDispatchResolution.proceed_to_run(
-                    user_input=text,
-                    resource_provider_text=None,
-                    selected_provider_content=None,
-                    input_hooks_ran=True,
-                ), None
-            if type(resource) is not ResourceDispatchResolution:
-                raise TypeError(
-                    "dispatch_resource must return a ResourceDispatchResolution"
-                )
+    text = effects.run_input_hooks(user_input)
+    if text is None:
+        effects.refresh_footer()
+        return CommandDispatchResolution.continue_loop(), None
+    if text != user_input:
+        resource = effects.dispatch_resource(text.strip())
+        if resource is None:
+            return CommandDispatchResolution.proceed_to_run(
+                user_input=text,
+                resource_provider_text=None,
+                selected_provider_content=None,
+                input_hooks_ran=True,
+            ), None
+        if type(resource) is not ResourceDispatchResolution:
+            raise TypeError(
+                "dispatch_resource must return a ResourceDispatchResolution"
+            )
+    if resource.kind is ResourceDispatchKind.PASS_THROUGH:
+        effects.emit_diagnostic(resource.message)
+        return CommandDispatchResolution.proceed_to_run(
+            user_input=text,
+            resource_provider_text=None,
+            selected_provider_content=None,
+            input_hooks_ran=True,
+        ), None
     if resource.kind is ResourceDispatchKind.REJECT:
         effects.emit_diagnostic(resource.message)
         effects.refresh_footer()
@@ -1753,7 +1762,7 @@ def _expand_prompt_resource(
         raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
     if resource.message:
         effects.emit_diagnostic(resource.message)
-    if resource.kind is ResourceDispatchKind.REJECT:
+    if resource.kind is not ResourceDispatchKind.RUN:
         return None
     effects.record_resource_invocation()
     return resource.provider_text or ""

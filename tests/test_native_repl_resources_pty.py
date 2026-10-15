@@ -223,15 +223,18 @@ def test_pty_slash_menu_discovers_and_runs_custom_command(
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 @pytest.mark.parametrize(("columns", "rows"), [(80, 24), (100, 40)])
-def test_pty_unsafe_resource_is_rejected_without_provider_turn(
+def test_pty_empty_resource_is_rejected_without_provider_turn(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, columns: int, rows: int
 ):
     _seed_command(tmp_path)
+    (tmp_path / ".pipy" / "commands" / "blank.md").write_text(
+        "---\nname: blank\ndescription: Blank\n---\n\n", encoding="utf-8"
+    )
 
     def interact(in_master: int, err_chunks: list[bytes]) -> None:
-        os.write(in_master, b"/skill:nope\n")
+        os.write(in_master, b"/blank\n")
         assert (
-            wait_for_input_ready_after(err_chunks, "no skill named 'nope'") is not None
+            wait_for_input_ready_after(err_chunks, "expanded to empty text") is not None
         ), "rejection did not return to ready input"
 
     provider, captured, result = _drive_session(
@@ -241,6 +244,34 @@ def test_pty_unsafe_resource_is_rejected_without_provider_turn(
     assert result is not None
     assert getattr(result, "status") == HarnessStatus.SUCCEEDED
     assert "\x1b[?1049h" not in captured
-    # Fail closed: the unknown resource issued no provider turn at all.
+    # Fail closed: the empty expansion issued no provider turn at all.
     assert provider.requests == []
+    assert getattr(result, "resource_invocation_count") == 0
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+@pytest.mark.parametrize(("columns", "rows"), [(80, 24), (100, 40)])
+def test_pty_unknown_skill_goes_to_the_model_as_typed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, columns: int, rows: int
+):
+    # Pi passes an unknown skill through unchanged (`_expandSkillCommand`);
+    # pipy also says why.
+    _seed_command(tmp_path)
+
+    def interact(in_master: int, err_chunks: list[bytes]) -> None:
+        os.write(in_master, b"/skill:nope now\n")
+        assert _wait_for(err_chunks, "no skill named 'nope'"), "no diagnostic"
+        assert (
+            wait_for_input_ready_after(err_chunks, "RESPONSE_MARKER_DONE") is not None
+        ), "provider turn did not return to ready input"
+
+    provider, captured, result = _drive_session(
+        tmp_path, monkeypatch, columns, rows, interact
+    )
+
+    assert result is not None
+    assert getattr(result, "status") == HarnessStatus.SUCCEEDED
+    assert "\x1b[?1049h" not in captured
+    assert len(provider.requests) == 1
+    assert provider.requests[0].user_prompt.strip() == "/skill:nope now"
     assert getattr(result, "resource_invocation_count") == 0

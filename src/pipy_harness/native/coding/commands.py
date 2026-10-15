@@ -150,11 +150,14 @@ class ResourceDispatchKind(StrEnum):
 
     The composition root maps a concrete resource dispatch onto exactly one of
     these before the headless controller interprets the precedence: ``REJECT``
-    is consumed locally (diagnostic + footer), while ``RUN`` records the
+    is consumed locally (diagnostic + footer), ``PASS_THROUGH`` (a skill that
+    cannot run, Pi passes it through) reports its diagnostic and leaves the
+    line to go to the model as it stands, while ``RUN`` records the
     invocation counter and carries the bounded provider-visible text.
     """
 
     REJECT = "reject"
+    PASS_THROUGH = "pass_through"
     RUN = "run"
 
 

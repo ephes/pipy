@@ -740,6 +740,10 @@ class SessionCollaborators:
             return ResourceDispatchResolution(
                 ResourceDispatchKind.REJECT, resource_dispatch.message
             )
+        if resource_dispatch.is_pass_through:
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.PASS_THROUGH, resource_dispatch.message
+            )
         if resource_dispatch.is_run:
             return ResourceDispatchResolution(
                 ResourceDispatchKind.RUN,

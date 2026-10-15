@@ -59,3 +59,22 @@ def test_a_typed_template_line_meets_the_input_hooks(
     assert prompts[0] == "Please review this."
     assert prompts[1].startswith('<skill name="lint"')
     assert len(prompts) == 2
+
+
+def test_a_typed_unknown_skill_meets_the_hooks_and_goes_to_the_model(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Goal check r3 S3. Pi: the `input` handlers see the line, then
+    # `_expandSkillCommand` passes an unknown skill through unchanged.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    workspace = tmp_path / "work"
+    directory = _extension(workspace, "hooks", _HOOKS)
+    provider = _StubProvider([_result(final_text="one")])
+
+    status = _run(workspace, provider, "/skill:missing now\n")
+
+    assert status is HarnessStatus.SUCCEEDED
+    assert (directory / "seen.txt").read_text().splitlines() == ["/skill:missing now"]
+    assert [request.user_prompt.strip() for request in provider.requests] == [
+        "/skill:missing now"
+    ]

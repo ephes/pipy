@@ -2393,14 +2393,84 @@ def test_a_typed_template_line_the_hooks_turn_into_text_is_that_text() -> None:
     assert effects.resource_invocations == 0
 
 
-def test_a_rejected_resource_line_does_not_meet_the_hooks() -> None:
+def test_a_rejected_resource_line_meets_the_hooks_first() -> None:
+    # Pi `prompt` runs the `input` handlers before any expansion; an empty
+    # template or custom command then still fails closed in pipy.
     effects = _FakeCommandEffects(
         resource=ResourceDispatchResolution(ResourceDispatchKind.REJECT, "nope", None)
     )
 
+    resolution = _dispatch(command_text="/blank", user_input="/blank", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.input_hook_texts == ["/blank"]
+    assert effects.diagnostics == ["nope"]
+    assert effects.footer_calls == 1
+
+
+def test_a_typed_unknown_skill_meets_the_hooks_and_goes_to_the_model() -> None:
+    # Goal check r3 S3. Pi: the `input` handlers run first, then
+    # `_expandSkillCommand` passes an unknown skill through unchanged.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.PASS_THROUGH, "pipy: no skill named 'missing'."
+        )
+    )
+
     resolution = _dispatch(
-        command_text="/skill:gone", user_input="/skill:gone", effects=effects
+        command_text="/skill:missing now",
+        user_input="/skill:missing now",
+        effects=effects,
+    )
+
+    assert effects.input_hook_texts == ["/skill:missing now"]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/skill:missing now"
+    assert resolution.resource_provider_text is None
+    assert resolution.input_hooks_ran is True
+    assert effects.diagnostics == ["pipy: no skill named 'missing'."]
+    assert effects.resource_invocations == 0
+    assert effects.extension_dispatches == []
+
+
+def test_a_typed_unknown_skill_a_hook_handled_starts_no_run() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.PASS_THROUGH, "pipy: no skill named 'missing'."
+        ),
+        input_hooks=lambda text: None,
+    )
+
+    resolution = _dispatch(
+        command_text="/skill:missing", user_input="/skill:missing", effects=effects
     )
 
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
-    assert effects.input_hook_texts == []
+    assert effects.diagnostics == []
+
+
+def test_a_typed_line_a_hook_rewrites_into_an_unknown_skill_goes_as_rewritten() -> None:
+    class Effects(_FakeCommandEffects):
+        def dispatch_resource(
+            self, command_text: str, *, prompt: bool = False
+        ) -> ResourceDispatchResolution | None:
+            super().dispatch_resource(command_text, prompt=prompt)
+            if command_text.startswith("/skill:"):
+                return ResourceDispatchResolution(
+                    ResourceDispatchKind.PASS_THROUGH, "pipy: no skill named 'x'."
+                )
+            return ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "exp")
+
+    effects = Effects(input_hooks=lambda text: "/skill:x go")
+
+    resolution = _dispatch(
+        command_text="/review", user_input="/review", effects=effects
+    )
+
+    assert effects.resource_dispatches == ["/review", "/skill:x go"]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/skill:x go"
+    assert resolution.resource_provider_text is None
+    assert resolution.input_hooks_ran is True
+    assert effects.resource_invocations == 0
+    assert effects.diagnostics == ["pipy: no skill named 'x'."]

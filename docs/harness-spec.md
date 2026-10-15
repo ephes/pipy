@@ -581,8 +581,11 @@ discovery). Outcomes:
   arguments; a placeholder-free body with arguments appends them as inserted
   prompt text). Each becomes one bounded provider-visible message through the
   same provider boundary as a genuine prompt.
-- Unknown or unreadable skills, and unsafe or empty templates and commands,
-  fail closed: a diagnostic is printed and no provider turn is issued.
+- An unknown or unreadable skill is reported with a diagnostic and the line
+  goes to the model as it stands, as Pi's `_expandSkillCommand` passes it
+  through. Empty templates and commands fail closed: a diagnostic is printed
+  and no provider turn is issued. A typed skill, template or command line
+  meets the `input` hooks before either, as in Pi.
 
 Privacy: the resource body, expanded prompt, and command text are never
 archived. Resource lifecycle metadata is limited to safe fields
