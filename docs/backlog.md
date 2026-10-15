@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 180 are closed with a
-test and 112 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 179 are closed with a
+test and 113 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,7 +128,7 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-78) that plan
+  differences from Pi (plan section 3.1, DEV-15 to DEV-79) that plan
   section 7, Q11, does not name are accepted. Q11 (2026-10-15) accepts the
   findings of the second goal check that its triage neither fixes nor
   refutes; the fix slices R1 to R6 of that triage are the rest of MCP1.
@@ -286,8 +286,10 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
   - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
     OSC 8 file links (DF1-F7 added the ticking `Elapsed`);
-  - JSON/RPC `toolResult` messages and `tool_execution_end` carry no
-    `details`; Pi's thrown tool errors store `details: {}`, pipy stores none;
+  - JSON/RPC `toolResult` messages carry `details` only for codemode
+    parents (`tool_execution_end.result` carries them for every tool since
+    MCP1 goal check r2); Pi's thrown tool errors store `details: {}`, pipy
+    stores none;
   - `edit` stores no `details.patch` (jsdiff `createTwoFilesPatch`);
   - a hallucinated tool name gets the generic `name key=value` row where Pi,
     knowing no definition, prints the arguments as JSON;

@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A model call to an extension tool prepares its arguments once: such a call
+  runs as a parent that may call other tools, and that path prepared the
+  call's arguments a second time instead of running those the `tool_call`
+  hooks saw. The agent loop now hands the parent runner the prepared,
+  hook-checked arguments, as the direct path does.
 - An extension dialog's `timeout` counts down in the terminal, as in Pi:
   `ctx.ui.select`, `input` and `confirm` show the seconds left in their
   title and are cancelled when they run out (`None`, or `False` for
@@ -153,6 +158,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `ExtensionTool(prepare_arguments=...)` (Pi `prepareArguments`): a callback
+  that receives a call's parsed arguments before validation and returns the
+  arguments to validate and run. If it raises, the call ends with the error
+  result `<name>: prepare_arguments raised <exception type>`. See
+  [extension tools](docs/extension-api.md).
+- The automation fake provider (`--native-provider fake --native-model
+  fake-tools`) asks for one `bash` call (`echo hi`) when the prompt starts
+  with `TOOLCALL`; the RPC conformance gate checks the tool events of that
+  call (`json_mode_tool_events`).
 - TUI: images in tool results (MCP screenshots, codemode `image()`,
   extension tools) are drawn inline after the tool row in terminals that
   speak the Kitty graphics protocol (kitty, Ghostty, WezTerm, Warp, Herdr)
@@ -686,6 +700,45 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- JSON and RPC tool events follow Pi's documented contract (`docs/json.md`):
+  `tool_execution_end.result` and `tool_execution_update.partialResult` are
+  now `{content, details}` objects instead of strings. `result.content` has
+  the result's text and image blocks, as in the `toolResult` message,
+  `result.details` the result's details when it has them, and
+  `result.structuredContent` the tool's machine-readable output when it gave
+  one. `tool_execution_end` carries `durationMs`, how long the tool itself
+  ran (Pi times `execute()` alone, without the hooks), for nested calls
+  (`parentToolCallId`) too; it is absent when the tool never started. A
+  codemode call's `nestedCalls` record moved from a top-level `details` field
+  of `tool_execution_end` into `result.details`. Clients that read `result`
+  or `partialResult` as a string must read `content[].text` instead. See
+  [automation and RPC](docs/automation-rpc.md).
+- An MCP tool's progress is a partial result `{content: [{type: "text",
+  text}], details: {server, tool}}` that replaces the previous one, as in Pi;
+  it was a `"<text>\n"` chunk. `bash` output updates are
+  `{content: [{type: "text", text: <chunk>}], details: {}}`, each chunk
+  continuing the text before it. The terminal row is unchanged (progress
+  lines are appended, plan DEV-18).
+- `ctx.execute_tool(..., on_update=)` gives the callback a `ToolResult` per
+  partial result (Pi `onUpdate`) instead of a text chunk: the MCP progress
+  text with `details={server, tool}`, or the next chunk of `bash` output.
+- An extension tool's input schema is now held to the rules of an MCP
+  server's tool (`schema_mode="foreign"`) instead of pipy's strict subset, as
+  Pi accepts any TypeBox schema: `number`, `null`, unions and `$ref` no longer
+  disable the extension with `invalid_tool`. Arguments are converted and
+  checked as an MCP tool's are; properties the schema does not declare are
+  kept unless `additionalProperties` forbids them.
+- When two extensions register the same tool name, the one that loaded first
+  keeps it and the other extension stays enabled with its other
+  contributions, as in Pi's `getAllRegisteredTools`; it was disabled with
+  `duplicate_tool`, which is gone. This holds while the session runs too: a
+  later-loaded extension's `register_tool` of that name is left out silently
+  (it raised `ExtensionCapabilityError`), an earlier-loaded one's takes the
+  name over.
+- `api.register_tool_renderer` works while the session runs the extension
+  (from `session_start`, a command, a hook or a tool), as Pi allows; it
+  raised once loading had finished. The resolver joins its extension's other
+  resolvers in load order and is asked for rows drawn from then on.
 - MCP: another session in the same run (`/new`, `/resume`, `/fork`,
   `/clone`, `/import`, and the RPC and SDK `new_session`, `switch_session`,
   `fork`, `clone`) closes the MCP servers and starts them again from the
@@ -1080,7 +1133,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 112 of them
+  that pin it and where pipy differs from Pi. All are closed, 113 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
@@ -1094,6 +1147,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   (Pi's `createAgentSession` passes the initial tool names, as its CLI
   does). The missing `before_agent_start` result fields (`systemPrompt`,
   `message`) are an extension-API item in the [backlog](docs/backlog.md).
+  Since R2 and R5 were merged, the plan records the error text of a raising
+  `prepare_arguments` as the proposal DEV-79 (EXT-01 is closed with that
+  limit, so 179 rows are closed with a test and 113 with a limit), and
+  DEV-10, DEV-18, DEV-26, DEV-45, DEV-48 and DEV-59 say what R2 and R5
+  changed, including that a resolver a `session_start` handler registers
+  is added again in each new session of the run.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

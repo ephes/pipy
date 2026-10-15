@@ -1,5 +1,12 @@
 # MCP parity gaps, goal check r2: notes for the shared files
 
+**Folded in INT4 (2026-10-15).** The merge of R2 and R5 into
+`feat/mcp-parity` put this text into `CHANGELOG.md`, `docs/backlog.md`, the
+plan, the acceptance note and `tests/test_mcp_parity_audit.py`. The proposed
+row for a raising `prepare_arguments` is DEV-79, and the candidate text on
+`ToolCallOutcome.duration_ms` went into DEV-48. This file stays as a record;
+the shared files are the source of truth.
+
 Slices of `handoff/triage-r2.md` ran on a parallel track that does not edit `CHANGELOG.md`, `docs/backlog.md`, the plan
 (`docs/specs/2026-10-12-mcp-parity-plan.md`), the acceptance note
 (`docs/acceptance/2026-10-13-mcp-parity.md`) or

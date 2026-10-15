@@ -1517,6 +1517,11 @@ Different from Pi:
   runs, and the HTML export draws built-in tools itself.
 - Pi's `renderShell` is not part of `ToolRenderers`, and the render
   context has no `outputPad`.
+- Another session in the same run (`/new`, `/resume`, `/fork`) keeps the
+  loaded extensions and the resolvers they registered, where Pi loads the
+  extensions again. A `session_start` handler that calls
+  `register_tool_renderer` therefore adds its resolver once more for each
+  new session; register resolvers in `activate(api)`, or only once.
 
 `/export` to HTML draws the calls with the same renderers and stores the
 rows in the file (see `docs/export-distribution.md` "Artifact shape"): an
