@@ -52,7 +52,6 @@ from pathlib import Path
 from typing import Final, Protocol, cast
 
 from pipy_harness.native.mcp.config import MCP_EXPOSURES, McpExposure
-from pipy_harness.native.mcp.credentials import McpRefreshLockTimeoutError
 from pipy_harness.native.mcp.manager import (
     SIGN_IN_CANCELLED,
     McpManager,
@@ -340,7 +339,7 @@ class McpManagerFlow:
     def _sign_out(self, name: str) -> str | None:
         try:
             self._manager.sign_out(name)
-        except (ValueError, OSError, McpRefreshLockTimeoutError) as error:
+        except (ValueError, OSError) as error:
             return f'Could not sign out of MCP server "{name}": {error}'
         return None
 

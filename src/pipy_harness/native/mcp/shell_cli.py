@@ -71,7 +71,6 @@ from pipy_harness.native.mcp.connection import (
 )
 from pipy_harness.native.mcp.credentials import (
     McpOAuthCredentialStore,
-    McpRefreshLockTimeoutError,
     mcp_auth_path,
 )
 from pipy_harness.native.mcp.log import McpServerLog, mcp_log_path
@@ -746,7 +745,7 @@ def _login_or_logout(
     if command == "logout":
         try:
             removed = credentials.remove(name, url)
-        except (ValueError, OSError, McpRefreshLockTimeoutError) as exc:
+        except (ValueError, OSError) as exc:
             error(f"Could not update {path}: {exc}")
             return 1
         log(

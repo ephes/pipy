@@ -125,6 +125,10 @@ def _default_run_command(command: str) -> str | None:
         process = subprocess.Popen(  # noqa: S602 - explicit user-configured command
             command,
             shell=True,
+            # As Pi (`stdio: ["ignore", "pipe", "ignore"]`): the command gets
+            # no stdin, so it can neither take a piped prompt or RPC input
+            # nor wait for the terminal.
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             # As Pi: stderr is not read, so it does not count toward the limit.
             stderr=subprocess.DEVNULL,

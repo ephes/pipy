@@ -19,7 +19,9 @@ network read happens on a thread that waits for a result.
   fails, only that request fails.
 - ``send`` of a notification or a response returns when the server accepted
   the POST (status and headers received and checked) and raises when it
-  failed. It waits at most ``send_timeout_ms``.
+  failed. It waits at most ``send_timeout_ms``; the connections to
+  configured servers set no bound there, as Pi has none, and ``close()``
+  ends the wait.
 - ``send`` of ``notifications/cancelled`` ends the I/O thread of the request
   it names by cancelling its token, which shuts its socket down or ends its
   connection attempt, starts the POST of the notice and

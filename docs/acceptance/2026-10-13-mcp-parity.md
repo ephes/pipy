@@ -62,6 +62,10 @@ listing of `codemode` in `get_all_tools()`). The owner accepted the DEV
 rows plan section 7, Q13, names. The fix slices of that triage (V1 to V3)
 change the rows they fix when they land.
 
+Updated in V1 (2026-10-15): CLT-01, CFG-25 and CMDL-14 name their new
+tests (r4 P1, F1, F2), and DEV-55 no longer says that a refresh holding the
+lock for 25 s makes a sign-out fail. No row changes its state.
+
 ## Reference
 
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
@@ -261,14 +265,14 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CFG-22 | S14 | closed | `test_native_mcp_config.py`: `test_disabled_servers_stay_in_the_loaded_list` |  |
 | CFG-23 | S14 | closed, with limits | `test_native_mcp_config.py`: `test_update_keeps_other_content_and_four_space_indentation`, `test_update_writes_defaults_in_an_override_entry`, `test_update_with_override_creates_a_missing_entry`, `test_update_of_a_server_the_file_does_not_define` | A file holding a number JSON cannot write back (`1e999`) is not rewritten; the edit fails. DEV-81. |
 | CFG-24 | S14 | closed, with limits | `test_native_mcp_config.py`: `test_add_creates_the_file_and_its_directory`, `test_add_replaces_an_entry_and_reports_it`, `test_remove_reports_whether_the_entry_existed` | A file holding a number JSON cannot write back (`1e999`) is not rewritten; the edit fails. DEV-81. |
-| CFG-25 | S15 | closed | `test_native_mcp_config_values.py`: `test_templates_replace_environment_references`, `test_a_command_value_is_its_trimmed_output`, `test_headers_are_resolved_and_named_in_errors`; `test_native_mcp_connection.py`: `test_env_values_are_resolved_and_an_unresolved_one_names_server_and_key`; `test_native_auth_store.py`: `test_resolve_config_value_command_runs_and_strips`, `test_command_unicode_success_and_nonzero`, `test_command_invalid_utf8_is_replaced` (r3 F3) |  |
+| CFG-25 | S15 | closed | `test_native_mcp_config_values.py`: `test_templates_replace_environment_references`, `test_a_command_value_is_its_trimmed_output`, `test_headers_are_resolved_and_named_in_errors`; `test_native_mcp_connection.py`: `test_env_values_are_resolved_and_an_unresolved_one_names_server_and_key`; `test_native_auth_store.py`: `test_resolve_config_value_command_runs_and_strips`, `test_command_unicode_success_and_nonzero`, `test_command_invalid_utf8_is_replaced` (r3 F3), `test_command_gets_no_stdin` (r4 F1) |  |
 | CFG-26 | S15 | closed | `test_native_mcp_connection.py`: `test_home_is_expanded_in_command_arguments_and_cwd`, `test_a_relative_cwd_resolves_against_the_session_directory` |  |
 
 ### Protocol client (CLT)
 
 | Row | Slice | State | Tests | Limits and deviations |
 | --- | --- | --- | --- | --- |
-| CLT-01 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_initialize_announces_roots_title_and_configured_capabilities`, `test_client_is_not_usable_before_the_handshake_completes` |  |
+| CLT-01 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_initialize_announces_roots_title_and_configured_capabilities`, `test_client_is_not_usable_before_the_handshake_completes`; `test_native_mcp_http.py`: `test_without_a_send_bound_a_slow_acknowledgment_connects_and_close_ends_a_send` (r4 P1); `test_native_mcp_connection_http.py`: `test_the_default_transport_of_a_url_entry_is_streamable_http` (r4 P1) |  |
 | CLT-02 | S11 | closed | `test_native_mcp_client.py`: `test_accepts_servers_that_answer_with_an_older_protocol_version`, `test_rejects_an_unsupported_protocol_version_and_closes_the_transport` |  |
 | CLT-03 | S11 | closed | `test_native_mcp_client.py`: `test_rejects_an_invalid_initialize_result` |  |
 | CLT-04 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_rejects_an_unsupported_protocol_version_and_closes_the_transport` |  |
@@ -541,7 +545,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMDL-11 | S20a | closed, with limits | `test_native_mcp_shell_cli.py`: `test_list_reads_the_project_file_only_in_a_trusted_project`, `test_login_and_logout_name_the_ignored_project_file_and_no_servers`, `test_the_trust_decision_is_read_from_the_commands_config_home` | DEV-57. |
 | CMDL-12 | S31 | closed | `test_native_mcp_shell_cli.py`: `test_rejects_unknown_servers_and_servers_without_oauth_for_login_and_logout`, `test_login_reports_a_server_that_fails_for_another_reason`, `test_list_connects_to_an_oauth_server_with_the_stored_token` |  |
 | CMDL-13 | S31 | closed, with limits | `test_native_mcp_shell_cli.py`: `test_signs_in_through_the_browser_and_out_again`, `test_reads_the_pasted_redirect_url_from_a_terminal`, `test_the_login_timeout_must_be_a_positive_number`, `test_gives_up_on_login_after_the_timeout_also_while_the_server_hangs` | DEV-57. |
-| CMDL-14 | S31 | closed, with limits | `test_native_mcp_shell_cli.py`: `test_signs_in_through_the_browser_and_out_again`, `test_logout_reports_a_credentials_file_it_cannot_read` | DEV-55. |
+| CMDL-14 | S31 | closed, with limits | `test_native_mcp_shell_cli.py`: `test_signs_in_through_the_browser_and_out_again`, `test_logout_reports_a_credentials_file_it_cannot_read`; `test_native_mcp_credentials.py`: `test_remove_deletes_anyway_when_a_refresh_holds_the_lock_too_long` (r4 F2) | DEV-55. |
 
 ### `/mcp` in a session (SLH)
 

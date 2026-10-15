@@ -473,9 +473,8 @@ Different from Pi in the manager:
 - In Pi the cancel key does nothing while the server is connected again
   after the tokens were stored; in pipy it ends the waiting.
 - A `Sign out` that cannot delete the credentials (the credentials file
-  cannot be read, or a token refresh holds the server's lock for 25 seconds)
-  is shown in the server's menu as `Could not sign out of MCP server
-  "<name>": <reason>`.
+  cannot be read or written) is shown in the server's menu as `Could not
+  sign out of MCP server "<name>": <reason>`.
 
 ### Startup report
 
@@ -639,6 +638,15 @@ reports a load error.
   `/mcp reconnect <server>` does so at once.
 - **A request takes too long.** `timeout` is the time one request may
   take, 60 seconds by default.
+- **An HTTP server stays `connecting`.** As in Pi, pipy waits for an HTTP
+  server to accept a notification, `notifications/initialized` after the
+  handshake included, with no deadline. A server that never accepts it stays
+  `connecting` until the session ends. The `/mcp` subcommands first wait
+  for the servers still connecting from the start of the session, and
+  `/mcp reconnect` and `/mcp logout` then wait for a connect of their server
+  as well. Escape ends either wait: a subcommand stopped in the first is not
+  run, a logout stopped in the second has already deleted the credentials.
+  `pipy mcp logout` deletes them without connecting.
 - **The server connects and the model does not use its tools.** With the
   default exposure the tools are called from codemode scripts, which needs
   the [codemode runtime](codemode.md#installing); see
@@ -2229,7 +2237,10 @@ its own.
 created with; `tokens(name, url)` reads a server's tokens and
 `remove(name, url)` deletes its entry and says whether there was one. It
 holds the server's refresh lock (below) meanwhile, so a token refresh that
-is running does not store the tokens again after a sign-out. A
+is running does not store the tokens again after a sign-out. When a
+refresh holds that lock for the whole wait, `remove` deletes the entry
+without it, as Pi always does, so a sign-out always completes; that
+refresh may then store its tokens again. A
 write locks the file, reads it again and replaces it as a whole, so entries
 written by another process are kept. A read takes no lock and creates
 nothing: looking for the token of a server nobody signed in to leaves no
@@ -2301,8 +2312,9 @@ build on it:
   that was given up while the provider worked is not sent again.
 - The refresh lock of the credentials file is a `flock`. The lock of a
   process that died is free at once; Pi takes such a lock over after 20
-  seconds. Deleting a server's credentials holds that lock too; in Pi a
-  refresh that ends after a sign-out stores the tokens again.
+  seconds. Deleting a server's credentials waits for that lock and holds
+  it, unless the wait times out; in Pi a refresh that ends after a
+  sign-out stores the tokens again.
 - The callback server does not wait for open browser connections when it is
   closed: it gives a page that is being sent two seconds and then drops the
   connections. Registering a wait on a closed server fails at once. A

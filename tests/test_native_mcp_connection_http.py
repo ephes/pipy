@@ -11,6 +11,7 @@ against the scripted fake HTTP server.
 
 from __future__ import annotations
 
+import math
 import sys
 import threading
 import time
@@ -646,6 +647,9 @@ def test_the_default_transport_of_a_url_entry_is_streamable_http(
     assert transport.options.url == "https://example.com/mcp"
     assert transport.options.headers == {"Authorization": "Bearer secret"}
     assert transport.options.auth_provider is provider
+    # Goal check r4, P1: as in Pi, no deadline on the server's acceptance of
+    # a notification or a response; `close()` ends that wait.
+    assert transport.options.send_timeout_ms == math.inf
 
     plain = create_default_transport(_entry({"url": "http://localhost:1/mcp"}), "/")
     assert isinstance(plain, StreamableHttpTransport)

@@ -73,6 +73,7 @@ the text ends ``Run /login <provider> to sign in.`` Without
 from __future__ import annotations
 
 import http.client
+import math
 import os
 import threading
 import time
@@ -286,6 +287,11 @@ def create_default_transport(
     ``headers`` and ``env`` values are resolved here, so a value that cannot
     be resolved fails the connect with a message naming the server and the
     header or the key.
+
+    The HTTP transport waits for the server to accept a notification or a
+    response, ``notifications/initialized`` included, with no deadline, as
+    Pi's does: ``close()`` ends the wait. A request is still bounded by the
+    client's request timeout, the configured ``timeout``.
     """
 
     config = entry.config
@@ -297,6 +303,7 @@ def create_default_transport(
                     config.get("headers"), f'MCP server "{entry.name}"'
                 ),
                 auth_provider=auth_provider,
+                send_timeout_ms=math.inf,
             )
         )
     env = {

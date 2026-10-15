@@ -545,9 +545,11 @@ def test_remove_waits_for_a_refresh_that_is_running(tmp_path: Path) -> None:
     assert _lock_files(store.path.parent) == []
 
 
-def test_remove_gives_up_when_a_refresh_holds_the_lock_too_long(
+def test_remove_deletes_anyway_when_a_refresh_holds_the_lock_too_long(
     tmp_path: Path,
 ) -> None:
+    # Goal check r4, F2: a sign-out always completes, as in Pi, which deletes
+    # under the file's lock alone. Scaled: a 100 ms wait for the lock.
     store = McpOAuthCredentialStore(
         mcp_auth_path(tmp_path / "home"), lock_wait_ms=100, lock_retry_ms=10
     )
@@ -555,8 +557,10 @@ def test_remove_gives_up_when_a_refresh_holds_the_lock_too_long(
     held.save(_state("token"))
 
     with held.refresh_lock():
-        with pytest.raises(McpRefreshLockTimeoutError):
-            store.remove("work", _SERVER_URL)
-
-    # Nothing was deleted.
-    assert _access_token(held.load()) == "token"
+        started = time.monotonic()
+        assert store.remove("work", _SERVER_URL) is True
+        # It waited for the lock first.
+        assert time.monotonic() - started >= 0.1
+        assert held.load() is None
+        assert store.remove("work", _SERVER_URL) is False
+    assert _lock_files(store.path.parent) == []

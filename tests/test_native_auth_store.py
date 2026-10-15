@@ -556,6 +556,30 @@ def test_command_exact_limit_and_ignored_stderr(monkeypatch):
     assert resolve_config_value("!printf 12345678; printf x >&2", env={}) == "12345678"
 
 
+def test_command_gets_no_stdin():
+    # Goal check r4, F1: as Pi (`stdio: ["ignore", "pipe", "ignore"]`), a
+    # `!command` cannot read what is piped to pipy, such as a prompt or RPC
+    # input, and that input is still there for pipy afterwards.
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "from pipy_harness.native.auth_store import resolve_config_value\n"
+        "print(repr(resolve_config_value('!cat', env={})))\n"
+        "print(repr(sys.stdin.read()))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        input="piped prompt\n",
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    assert completed.stdout.splitlines() == ["None", "'piped prompt\\n'"]
+
+
 def test_command_output_limit_is_node_max_buffer():
     # Pi runs the command with `execSync` and Node's default `maxBuffer`.
     mib = 1024 * 1024

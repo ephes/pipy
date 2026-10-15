@@ -566,7 +566,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key; a stored `!command` key runs for every MCP request. | narrower | Decided in S33, L4; H1 gives `--api-key` to the starting model's provider only and refreshes every stored login as Pi does |
 | DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
 | DEV-54 | CFG-13, CFG-17, CFG-18, CFG-20, OAU-26, OAU-31, OAU-34 | URLs are read as Node's WHATWG URL parser reads `http` and `https` (since L3), with its IDNA processing since H2 (UTS #46 ToASCII, nontransitional, through the `idna` package, so `faß.de` is `xn--fa-hia.de` and `bücher.de` matches `xn--bcher-kva.de`); the Unicode tables are the `idna` package's and Python's, not Node's, and a non-ASCII host longer than 1024 characters is refused; `HttpUrl.path` keeps characters WHATWG percent-encodes (its consumers encode them); an `oauth.callbackUrl` path is compared as written, not percent-encoded, so a non-ASCII callback path must be written percent-encoded. The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | other form | Decided in S11 to S14, S32, L2, L3, H2 ([IDNA decision](../decisions/2026-10-15-idna-hosts.md)); `docs/mcp.md` "Configuration rules" |
-| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; a lock held for 25 s, and a file that cannot be read, are reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2 |
+| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; when a refresh holds that lock for the whole wait (25 s), they are deleted without it, as in Pi. A file that cannot be read is reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2 |
 | DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15 | Connections: a failed refresh of the tool list is recorded only for the current connection. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Redirects are followed as Node's fetch follows them (since L1 and L2; the differences are DEV-67). `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26, L1; `docs/mcp.md` "Server connections" |
 | DEV-57 | CMDL-01, CMDL-04, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error (a leading byte order mark is read past since R6, as Pi's `stripBom` does). When the question for the redirect URL ends without an answer, pipy ends its line. (`--oauth-callback-port` and `--timeout` read JavaScript's `Number()` spellings since L3.) | other form | Decided in S20a, S31, L3; `docs/mcp.md` "Differences from Pi" |
 | DEV-58 | RES-04, RES-07, RES-08, RES-10 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. Tools and resources are listed again independently (since L1), but one listing of a kind runs at a time and lists once more when a change arrived meanwhile, where Pi starts one per notification and the last answer wins. | other form | Decided in S23, L1 |
@@ -773,7 +773,9 @@ Decided in S11 to S14, S24, S25 and S27 (the client track, merged in INT1):
   transport contract has a fourth listener set, `on_request_failure`, through
   which a transport ends one pending request with a typed error.
 - HTTP: `send` waits for the POST to be accepted only for notifications and
-  responses (at most `send_timeout_ms`, default 30 s). For a request it
+  responses (at most `send_timeout_ms`, default 30 s; since goal check r4,
+  P1, the connections to configured servers pass `math.inf`, as Pi's `send`
+  has no deadline there, and `close()` ends the wait). For a request it
   starts the I/O thread and returns, and a failure reaches the caller through
   `on_request_failure`; with one writer thread, waiting for response headers
   would put every request of a client behind a slow tool call. A request's
@@ -1432,8 +1434,11 @@ Decided in S26 (HTTP servers in `connection.py`):
 
 - `create_default_transport` returns a `StreamableHttpTransport` for a `url`
   entry, with the headers resolved by `resolve_config_headers` and the auth
-  provider it is given (still `None` until S30). `send_timeout_ms` keeps its
-  default; the config's `timeout` is the client's request timeout only.
+  provider it is given (still `None` until S30). `send_timeout_ms` kept its
+  default until goal check r4 (P1) made it `math.inf`: Pi waits for the
+  acceptance of a notification or a response, `notifications/initialized`
+  included, with no deadline, and `close()` ends the wait. The config's
+  `timeout` is the client's request timeout only.
 - CON-10: `_open` runs `_connect_once` up to three times for a `url` entry,
   waiting `CONNECT_RETRY_DELAYS_MS` (250 ms, 1 s) in between; the retries
   are part of the one attempt every caller waits for, and the state stays
@@ -1691,7 +1696,9 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
   a refresh that is answered after a sign-out saves its tokens, the stored
   tokens then differ from the ones noted for the `needs-auth` server, and
   the next turn connects it again. A lock that is held for the whole wait
-  (25 s) is `McpRefreshLockTimeoutError`, reported like an unreadable file.
+  (25 s) was `McpRefreshLockTimeoutError`, reported like an unreadable file;
+  since goal check r4 (F2) the credentials are then deleted under the file's
+  lock alone, as Pi always does, so a sign-out always completes.
 - The sign-in watch has a lock of its own (`McpManager._watch`), taken with
   neither the publication lock nor the manager lock held, so the rule that
   the manager lock is never held while a connection is called stands (S17's

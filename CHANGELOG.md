@@ -8,6 +8,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An HTTP MCP server that takes longer than 30 seconds to accept
+  `notifications/initialized`, or another notification or response pipy
+  sends it, no longer fails: as Pi does, pipy waits for that acceptance
+  with no deadline, and closing the connection ends the wait. A request
+  still times out after the server's `timeout`. See [MCP](docs/mcp.md).
+- A `!command` value (an API key, or an MCP server's `env`, `headers` or
+  `oauth.clientSecret` value) runs with no stdin, as in Pi, so `!cat` or a
+  command that asks a question can no longer read a piped prompt or RPC
+  input, or wait for the terminal.
+- `pipy mcp logout` and `/mcp logout` sign out even when a token refresh
+  holds the server's refresh lock for the whole 25-second wait: the
+  credentials are then deleted anyway, as Pi deletes them, instead of the
+  sign-out failing with `Timed out waiting for another MCP OAuth token
+  refresh`. A refresh that is answered afterwards may store its tokens
+  again, as in Pi. See [MCP](docs/mcp.md#the-credentials-file).
 - Closing a stdio MCP server on macOS with Python 3.11 or 3.12 now ends a
   child of the server that outlives it and keeps its stdout or stderr open:
   the transport waits for the server's exit with a kqueue there (Python has

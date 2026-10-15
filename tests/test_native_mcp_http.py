@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import socket
 import sys
 import threading
@@ -496,6 +497,36 @@ def test_notifications_and_responses_ignore_the_response_body(fake: _Fixture) ->
     with pytest.raises(McpTimeoutError, match="after 200ms"):
         client.notify("notifications/x")
     assert time.monotonic() - started < 5
+    _wait_until(lambda: not _io_threads())
+
+
+def test_without_a_send_bound_a_slow_acknowledgment_connects_and_close_ends_a_send(
+    fake: _Fixture,
+) -> None:
+    # Goal check r4, P1: Pi waits for the server to accept a notification
+    # with no deadline, and so do pipy's connections to configured servers
+    # (`send_timeout_ms=math.inf`). Scaled: an acknowledgment of
+    # `notifications/initialized` that a 100 ms bound fails still connects
+    # without one, and `close()` ends a send that is still waiting.
+    slow = {"notifications/initialized": [{"sleep": 0.3}]}
+    bounded = fake.client()
+    with pytest.raises(McpTimeoutError, match="after 100ms"):
+        bounded.connect(fake.transport(fake.server(methods=slow), send_timeout_ms=100))
+
+    server = fake.server(methods={**slow, "notifications/x": [{"hold": True}]})
+    client = fake.connect(server, send_timeout_ms=math.inf)
+    assert client.list_tools() == [_ECHO]
+
+    thread, _results, raised = _in_thread(lambda: client.notify("notifications/x"))
+    _wait_until(lambda: bool(server.messages("notifications/x")))
+    thread.join(0.3)
+    assert thread.is_alive()
+    started = time.monotonic()
+    client.close()
+    thread.join(_WAIT_SECONDS)
+    assert not thread.is_alive()
+    assert time.monotonic() - started < 5
+    assert [type(error) for error in raised] == [McpConnectionClosedError]
     _wait_until(lambda: not _io_threads())
 
 

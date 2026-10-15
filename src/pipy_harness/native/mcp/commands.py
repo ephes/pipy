@@ -52,7 +52,6 @@ from pipy_harness.native.mcp.config import (
     McpServerEntry,
     global_mcp_config_path,
 )
-from pipy_harness.native.mcp.credentials import McpRefreshLockTimeoutError
 from pipy_harness.native.mcp.manager import (
     SIGN_IN_CANCELLED,
     McpManager,
@@ -601,7 +600,7 @@ class McpCommand:
             finished = self._run_step(
                 lambda cancel: removed.append(manager.sign_out(name))
             )
-        except (ValueError, OSError, McpRefreshLockTimeoutError) as error:
+        except (ValueError, OSError) as error:
             self._notify("error", f'Could not sign out of MCP server "{name}": {error}')
             return
         if not finished:

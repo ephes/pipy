@@ -19,7 +19,8 @@ the server has no entry of its own (Pi ``storeKeys``).
 
 ``for_server`` gives the store of one server, which is what an
 ``McpOAuthProvider`` is created with. ``remove`` deletes a server's entry
-while it holds that server's refresh lock (below). A write takes the file's lock
+after it took that server's refresh lock (below), or without it when the
+wait for that lock times out. A write takes the file's lock
 (``auth_file_lock``: a lock in the process and ``flock`` on
 ``mcp-auth.json.lock``), reads the file again under that lock and replaces
 it as a whole, so the entries of other servers and of other processes are
@@ -106,7 +107,7 @@ import os
 import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final, NoReturn, TypeVar
@@ -367,9 +368,11 @@ class McpOAuthCredentialStore:
         The server's refresh lock is held meanwhile. A token refresh that is
         running, in this process or another, has therefore saved its tokens
         before they are deleted, and one that starts afterwards finds
-        nothing to refresh: a sign-out is not undone by a refresh. Raises
-        ``McpRefreshLockTimeoutError`` when a refresh holds the lock for the
-        whole wait.
+        nothing to refresh: a sign-out is not undone by a refresh. When a
+        refresh holds the lock for the whole wait, the credentials are
+        deleted under the file's lock alone, as Pi always does, so a
+        sign-out always completes; that refresh may then store its tokens
+        again when it is answered, as in Pi.
         """
 
         key, legacy_key = _store_keys(name, server_url)
@@ -381,7 +384,13 @@ class McpOAuthCredentialStore:
             del states[stored]
             return True
 
-        with McpOAuthServerStore(self, key, legacy_key).refresh_lock():
+        with ExitStack() as held:
+            try:
+                held.enter_context(
+                    McpOAuthServerStore(self, key, legacy_key).refresh_lock()
+                )
+            except McpRefreshLockTimeoutError:
+                pass
             return self._write(change)
 
     def _read(self, read: Callable[[_States], _T]) -> _T:

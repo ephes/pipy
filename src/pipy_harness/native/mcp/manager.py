@@ -794,10 +794,11 @@ class McpManager:
 
         The credentials are deleted under the server's refresh lock, so a
         token refresh that is running has saved its tokens before and none
-        is saved afterwards. Raises ``ValueError`` or ``OSError`` when the
-        credentials file cannot be read or written, and
-        ``McpRefreshLockTimeoutError`` when a refresh held that lock for too
-        long; the connection is left alone then.
+        is saved afterwards; when a refresh holds that lock for too long they
+        are deleted without it, as in Pi
+        (``McpOAuthCredentialStore.remove``). Raises ``ValueError`` or
+        ``OSError`` when the credentials file cannot be read or written; the
+        connection is left alone then.
         """
 
         with self._lock:
