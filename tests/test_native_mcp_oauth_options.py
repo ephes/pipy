@@ -186,6 +186,7 @@ def test_the_callback_id_is_computed_over_the_server_url_without_its_fragment() 
     assert len(callback_id(url)) == 12
     # The URL is hashed as the config parser writes it.
     assert callback_id("HTTPS://MCP.Example:443") == _id("https://mcp.example/")
+    assert callback_id("https://fa\u00df.de/") == _id("https://xn--fa-hia.de/")
     assert callback_id(url) != callback_id("https://mcp.example/other")
     with pytest.raises(ValueError, match="Invalid MCP server URL"):
         callback_id("mcp.example")

@@ -26,9 +26,9 @@ Where this differs from Pi:
   the URLs built here and in the ones given (a challenge's metadata URL, a
   configured metadata document). ``select_resource`` compares the paths
   percent-encoded as a WHATWG parser writes them, so ``/café`` and
-  ``/caf%C3%A9`` are one path; the host is compared as the parser reads it,
-  without IDNA. A URL that parser does not accept (also one that is
-  not ``http`` or ``https``) raises ``http.client.InvalidURL`` where a
+  ``/caf%C3%A9`` are one path; the host is compared in the ASCII form the
+  parser gives it, as in Pi. A URL that parser does not accept (also one
+  that is not ``http`` or ``https``) raises ``http.client.InvalidURL`` where a
   request to it would be made, which counts as a network failure, and is no
   match in ``select_resource``.
 - A cancelled request always ends discovery. In Pi the abort of the first

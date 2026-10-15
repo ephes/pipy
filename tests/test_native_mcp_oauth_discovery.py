@@ -783,6 +783,9 @@ def test_no_resource_without_metadata() -> None:
         ("https://mcp.example/a/mcp", "https://mcp.example/a/x/.."),
         ("https://mcp.example/mcp", "https:mcp.example/mcp"),
         ("http://127.1:8080/mcp", "http://0x7f.0.0.1:8080/"),
+        # Hosts are compared in their ASCII form.
+        ("https://b\u00fccher.de/mcp", "https://xn--bcher-kva.de/mcp"),
+        ("https://xn--bcher-kva.de/mcp", "https://B\u00fccher.de/"),
         # Paths are compared as a WHATWG URL parser writes them: characters
         # of the path percent-encode set and non-ASCII ones are encoded.
         ("https://mcp.example/café/mcp", "https://mcp.example/caf%C3%A9"),
@@ -830,6 +833,12 @@ def test_a_resource_that_is_not_the_server_s_fails(
     assert str(raised.value).startswith(
         f"Protected resource {resource} does not match MCP server https://mcp.example"
     )
+
+
+def test_a_host_is_compared_in_its_ascii_form() -> None:
+    # faß.de is xn--fa-hia.de, a domain other than fass.de.
+    with pytest.raises(OAuthFlowError, match="does not match MCP server"):
+        select_resource("https://fa\u00df.de/mcp", {"resource": "https://fass.de/mcp"})
 
 
 def test_the_mismatch_names_the_server_url_without_its_fragment() -> None:

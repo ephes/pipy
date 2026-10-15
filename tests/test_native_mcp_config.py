@@ -460,6 +460,55 @@ def test_is_loopback_redirect_uri(value: object, expected: bool) -> None:
         ("http://a:1:2/", None),
         ("http://a:/", ("a", None, "/")),
         ("http://user@/", None),
+        # A non-ASCII host goes through UTS #46 ToASCII, nontransitional:
+        # faß.de is not fass.de.
+        ("https://fa\u00df.de/", ("xn--fa-hia.de", None, "/")),
+        ("https://B\u00fccher.DE/", ("xn--bcher-kva.de", None, "/")),
+        ("https://fa%C3%9F.de/", ("xn--fa-hia.de", None, "/")),
+        ("https://\u03c2.gr/", ("xn--3xa.gr", None, "/")),
+        ("https://bu\u0308cher.de/", ("xn--bcher-kva.de", None, "/")),
+        ("https://\u2603.net/", ("xn--n3h.net", None, "/")),
+        ("https://ex\u00adample\u3002com/", ("example.com", None, "/")),
+        ("https://\u0915\u094d\u200c.in/", ("xn--11b6iv14e.in", None, "/")),
+        ("https://1a.\u05d0\u05d1/", ("1a.xn--4dbc", None, "/")),
+        (
+            "http://\uff4c\uff4f\uff43\uff41\uff4c\uff48\uff4f\uff53\uff54/",
+            ("localhost", None, "/"),
+        ),
+        ("http://\uff11\uff12\uff17.1/", ("127.0.0.1", None, "/")),
+        ("https://xn--fa-hia.b\u00fc/", ("xn--fa-hia.xn--b-eha", None, "/")),
+        ("https://xn---bbk.b\u00fc/", ("xn---bbk.xn--b-eha", None, "/")),
+        ("https://XN--ZCA.\u00e9x/", ("xn--zca.xn--x-9fa", None, "/")),
+        # Node's joiner rule: the first joiner decides the label. One after
+        # a virama passes without the Bidi Rule; U+200C otherwise needs a
+        # left- or dual-joining character anywhere before it and a right-
+        # or dual-joining one anywhere after it.
+        ("https://\u0628\u200c1\u0628.com/", ("xn--1-0mcb426x.com", None, "/")),
+        ("https://a\u05d0\u094d\u200c.com/", ("xn--a-0hc39xrz6a.com", None, "/")),
+        ("https://\u0628\u200c1.com/", None),
+        ("https://\u0627\u200c\u0628.com/", None),
+        ("https://\u0628\u200d\u0628.com/", None),
+        # Node's joining-type table lacks U+0767, a dual-joining letter.
+        ("https://\u0767\u200c1\u0628.com/", None),
+        # Like Node, an all-ASCII host is only lower-cased.
+        ("https://XN--A.com/", ("xn--a.com", None, "/")),
+        ("https://xn--abc-.com/", ("xn--abc-.com", None, "/")),
+        # Hosts the WHATWG parser refuses.
+        ("https://ex\uff0fample.com/", None),
+        ("https://a\u200cb.com/", None),
+        ("https://a\u200d.com/", None),
+        ("https://\u0301a.com/", None),
+        ("https://\u0663.com/", None),
+        ("https://a\u05d0.com/", None),
+        ("https://\u2488.com/", None),
+        ("https://xn--a.b\u00fc/", None),
+        ("https://xn--.b\u00fc/", None),
+        ("https://xn--abc-.b\u00fc/", None),
+        ("https://xn--1ug.b\u00fc/", None),
+        ("https://xn--x-usa.b\u00fc/", None),
+        ("https://xn--ux-uub.b\u00fc/", None),
+        ("https://xn--xn---3na.b\u00fc/", None),
+        ("https://xn--\u00e0.com/", None),
     ],
 )
 def test_urls_are_read_as_a_whatwg_parser_reads_them(

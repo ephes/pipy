@@ -10,8 +10,8 @@ Where this differs from Pi:
 
 - Whether a string is a URL is decided by ``can_parse_url`` and not by a
   WHATWG URL parser: an ``http`` or ``https`` URL must pass the config
-  parser (``config.parse_http_url``), which has no IDNA processing, and any
-  other text that starts with a URL scheme counts as a URL.
+  parser (``config.parse_http_url``), and any other text that starts with
+  a URL scheme counts as a URL.
 - ``expires_in`` is a JSON number or a decimal number in a string. Pi
   converts with JavaScript's ``Number``, which also reads booleans, hex
   strings and one-element arrays.

@@ -26,13 +26,14 @@ happens when a server connects.
 
 Where this differs from Pi:
 
-- URLs are read by ``parse_http_url``, which follows the WHATWG URL
+- URLs are read by ``parse_http_url``, which follows Node's WHATWG URL
   parser for ``http`` and ``https`` URLs (slashes and backslashes after the
-  scheme, percent-decoded hosts, IPv4 addresses such as ``127.1`` or
-  ``0x7f.0.0.1``) but has no IDNA processing: a host with non-ASCII
-  characters is accepted as written, lower-cased, where Pi writes it in
-  punycode or rejects it, and is never a loopback host. ``HttpUrl.path``
-  keeps characters a WHATWG parser percent-encodes.
+  scheme, percent-decoded hosts, IDNA, IPv4 addresses such as ``127.1`` or
+  ``0x7f.0.0.1``). A host with non-ASCII characters goes through UTS #46
+  ToASCII with the ``idna`` package's tables and Python's ``unicodedata``,
+  whose Unicode versions are not Node's, so a recent character may be
+  judged differently; such a host longer than 1024 characters is refused.
+  ``HttpUrl.path`` keeps characters a WHATWG parser percent-encodes.
 - ``oauth.clientMetadataBaseUrl`` exists only in pipy and is required with
   ``oauth.clientRegistration: "cimd"``.
 - The JSON parser messages are Python's.
@@ -50,11 +51,14 @@ import copy
 import ipaddress
 import json
 import re
+import unicodedata
 import urllib.parse
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
+
+import idna
 
 from pipy_harness.native.tools.name_patterns import (
     MCP_TOOL_NAME_PREFIX,
@@ -184,7 +188,8 @@ class HttpUrl:
     """The parts of an ``http`` or ``https`` URL, as ``parse_http_url`` reads it."""
 
     scheme: str
-    # Lower case; an IPv6 address is compressed and in brackets.
+    # ASCII and lower case (punycode for a non-ASCII domain); an IPv6
+    # address is compressed and in brackets.
     hostname: str
     # None without a port and for the scheme's default port.
     port: int | None
@@ -319,6 +324,242 @@ def _serialize_ipv6(address: ipaddress.IPv6Address) -> str:
     return f"{head}::{tail}"
 
 
+_LTR_BIDI_CLASSES: Final = frozenset({"L", "EN", "ES", "CS", "ET", "ON", "BN", "NSM"})
+_RTL_BIDI_CLASSES: Final = frozenset({"R", "AL", "AN", *_LTR_BIDI_CLASSES} - {"L"})
+
+
+# Node's URL parser (ada 4.0.0, in Node 26) has its own tables of viramas
+# and of joining types for the joiner rule. They are copied here, as code
+# point ranges, because Unicode's newer and fuller tables accept labels Node
+# refuses.
+_VIRAMAS: Final[tuple[tuple[int, int], ...]] = (
+    (0x094D, 0x094D),
+    (0x09CD, 0x09CD),
+    (0x0A4D, 0x0A4D),
+    (0x0ACD, 0x0ACD),
+    (0x0B4D, 0x0B4D),
+    (0x0BCD, 0x0BCD),
+    (0x0C4D, 0x0C4D),
+    (0x0CCD, 0x0CCD),
+    (0x0D3B, 0x0D3C),
+    (0x0D4D, 0x0D4D),
+    (0x0DCA, 0x0DCA),
+    (0x0E3A, 0x0E3A),
+    (0x0EBA, 0x0EBA),
+    (0x0F84, 0x0F84),
+    (0x1039, 0x103A),
+    (0x1714, 0x1714),
+    (0x1734, 0x1734),
+    (0x17D2, 0x17D2),
+    (0x1A60, 0x1A60),
+    (0x1B44, 0x1B44),
+    (0x1BAA, 0x1BAB),
+    (0x1BF2, 0x1BF3),
+    (0x2D7F, 0x2D7F),
+    (0xA806, 0xA806),
+    (0xA82C, 0xA82C),
+    (0xA8C4, 0xA8C4),
+    (0xA953, 0xA953),
+    (0xA9C0, 0xA9C0),
+    (0xAAF6, 0xAAF6),
+    (0xABED, 0xABED),
+    (0x10A3F, 0x10A3F),
+    (0x11046, 0x11046),
+    (0x1107F, 0x1107F),
+    (0x110B9, 0x110B9),
+    (0x11133, 0x11134),
+    (0x111C0, 0x111C0),
+    (0x11235, 0x11235),
+    (0x112EA, 0x112EA),
+    (0x1134D, 0x1134D),
+    (0x11442, 0x11442),
+    (0x114C2, 0x114C2),
+    (0x115BF, 0x115BF),
+    (0x1163F, 0x1163F),
+    (0x116B6, 0x116B6),
+    (0x1172B, 0x1172B),
+    (0x11839, 0x11839),
+    (0x1193D, 0x1193E),
+    (0x119E0, 0x119E0),
+    (0x11A34, 0x11A34),
+    (0x11A47, 0x11A47),
+    (0x11A99, 0x11A99),
+    (0x11C3F, 0x11C3F),
+    (0x11D44, 0x11D45),
+    (0x11D97, 0x11D97),
+)
+_JOINING_TYPE_L_OR_D: Final[tuple[tuple[int, int], ...]] = (
+    (0x0620, 0x0620),
+    (0x0626, 0x0626),
+    (0x0628, 0x0628),
+    (0x062A, 0x062E),
+    (0x0633, 0x063F),
+    (0x0641, 0x0647),
+    (0x0649, 0x064A),
+    (0x066E, 0x066F),
+    (0x0678, 0x0687),
+    (0x069A, 0x06BF),
+    (0x06C1, 0x06C2),
+    (0x06CC, 0x06CC),
+    (0x06CE, 0x06CE),
+    (0x06D0, 0x06D1),
+    (0x06FA, 0x06FC),
+    (0x06FF, 0x06FF),
+    (0x0712, 0x0714),
+    (0x071A, 0x071D),
+    (0x071F, 0x0727),
+    (0x0729, 0x0729),
+    (0x072B, 0x072B),
+    (0x072D, 0x072E),
+    (0x074E, 0x0758),
+    (0x075C, 0x0766),
+    (0x0850, 0x0853),
+    (0x0855, 0x0855),
+    (0x08A0, 0x08A0),
+    (0x08A2, 0x08A9),
+    (0x1807, 0x1807),
+    (0x1820, 0x1877),
+    (0x1887, 0x18A8),
+    (0x18AA, 0x18AA),
+    (0xA840, 0xA872),
+)
+_JOINING_TYPE_R_OR_D: Final[tuple[tuple[int, int], ...]] = (
+    (0x0620, 0x0620),
+    (0x0622, 0x063F),
+    (0x0641, 0x064A),
+    (0x066E, 0x066F),
+    (0x0671, 0x0673),
+    (0x0675, 0x06D3),
+    (0x06D5, 0x06D5),
+    (0x06EE, 0x06EF),
+    (0x06FA, 0x06FC),
+    (0x06FF, 0x06FF),
+    (0x0710, 0x0710),
+    (0x0712, 0x072F),
+    (0x074D, 0x0766),
+    (0x0850, 0x0855),
+    (0x08A0, 0x08A0),
+    (0x08A2, 0x08AC),
+    (0x1807, 0x1807),
+    (0x1820, 0x1877),
+    (0x1887, 0x18A8),
+    (0x18AA, 0x18AA),
+    (0xA840, 0xA871),
+)
+
+
+def _in_ranges(char: str, ranges: tuple[tuple[int, int], ...]) -> bool:
+    code_point = ord(char)
+    return any(start <= code_point <= end for start, end in ranges)
+
+
+def _satisfies_bidi_rule(label: str) -> bool:
+    """RFC 5893's Bidi Rule, checked as Node's URL parser (ada) checks it:
+    only for a label with an ``R``, ``AL`` or ``AN`` character, and up to
+    the last character that is not ``NSM``. A character Python's Unicode
+    data does not know (no class) fails, since its class is unknown."""
+
+    classes = [unicodedata.bidirectional(char) for char in label]
+    if "" in classes:
+        return False
+    last = next(
+        (index for index in reversed(range(len(classes))) if classes[index] != "NSM"),
+        None,
+    )
+    if last is None:
+        return False
+    if not {"R", "AL", "AN"} & set(classes):
+        return True
+    classes = classes[: last + 1]
+    if classes[0] == "L":
+        return set(classes) <= _LTR_BIDI_CLASSES and classes[-1] in ("L", "EN")
+    return (
+        classes[0] in ("R", "AL")
+        and set(classes) <= _RTL_BIDI_CLASSES
+        and not {"EN", "AN"} <= set(classes)
+        and classes[-1] in ("R", "AL", "AN", "EN")
+    )
+
+
+def _is_valid_label(label: str) -> bool:
+    """UTS #46 validity criteria for one non-ASCII label, as Node checks them.
+
+    Node's URL parser (ada) has ``CheckHyphens`` and ``UseSTD3ASCIIRules``
+    off. Where it departs from UTS #46, its behaviour is kept: the first
+    joiner (U+200C, U+200D) decides the label, so one after a virama makes
+    it valid without the Bidi Rule, and U+200C otherwise needs a left- or
+    dual-joining character anywhere before it and a right- or dual-joining
+    one anywhere after it.
+    """
+
+    if not label:
+        return True
+    if unicodedata.category(label[0]).startswith("M"):
+        return False
+    for index, char in enumerate(label):
+        if char not in "\u200c\u200d":
+            continue
+        if index > 0 and _in_ranges(label[index - 1], _VIRAMAS):
+            return True
+        if char == "\u200d" or index in (0, len(label) - 1):
+            return False
+        return any(_in_ranges(c, _JOINING_TYPE_L_OR_D) for c in label[:index]) and any(
+            _in_ranges(c, _JOINING_TYPE_R_OR_D) for c in label[index + 1 :]
+        )
+    return _satisfies_bidi_rule(label)
+
+
+def _uts46_remap(text: str) -> str | None:
+    """UTS #46 mapping without the STD3 rules, in NFC; None for a
+    disallowed character."""
+
+    try:
+        return idna.uts46_remap(text, std3_rules=False)
+    except idna.IDNAError:
+        return None
+
+
+def _domain_to_ascii(domain: str) -> str | None:
+    """A host's domain in ASCII, or None where Node's URL parser refuses it.
+
+    UTS #46 ToASCII with nontransitional processing, as the WHATWG URL
+    parser runs it: ``faß.de`` is ``xn--fa-hia.de``, not ``fass.de``.
+    Like Node, a domain that is all ASCII is only lower-cased, so its
+    ``xn--`` labels are not checked; in any other domain an ``xn--`` label
+    must decode to a valid label and is kept as written.
+    """
+
+    if domain.isascii():
+        return domain.lower()
+    mapped = _uts46_remap(domain)
+    if mapped is None:
+        return None
+    labels: list[str] = []
+    for label in mapped.split("."):
+        if label.startswith("xn--"):
+            try:
+                decoded = label[4:].encode("ascii").decode("punycode")
+            except (UnicodeError, ValueError):
+                return None
+            # The decoded label must be one the mapping and NFC leave alone.
+            if (
+                decoded.isascii()
+                or decoded.startswith("xn--")
+                or unicodedata.normalize("NFC", decoded) != decoded
+                or _uts46_remap(decoded) != decoded
+                or not _is_valid_label(decoded)
+            ):
+                return None
+            labels.append(label)
+        elif label.isascii():
+            labels.append(label)
+        elif _is_valid_label(label):
+            labels.append("xn--" + label.encode("punycode").decode("ascii"))
+        else:
+            return None
+    return ".".join(labels)
+
+
 def _parse_host(text: str) -> str | None:
     if text.startswith("["):
         # A zone id ("%eth0") is not part of a URL host.
@@ -330,10 +571,10 @@ def _parse_host(text: str) -> str | None:
             return None
     if not text:
         return None
-    host = urllib.parse.unquote_to_bytes(text).decode("utf-8", "replace").lower()
-    # A replacement character (for bytes that are no UTF-8, or for a lone
-    # surrogate) is not allowed in a domain.
-    if not host or _FORBIDDEN_IN_HOST.search(host) or "\ufffd" in host:
+    host = _domain_to_ascii(
+        urllib.parse.unquote_to_bytes(text).decode("utf-8", "replace")
+    )
+    if not host or _FORBIDDEN_IN_HOST.search(host):
         return None
     if _ends_in_a_number(host):
         return _parse_ipv4(host)
@@ -346,7 +587,8 @@ def parse_http_url(value: object) -> HttpUrl | None:
     Read as a WHATWG URL parser reads a URL with a special scheme: any
     number of ``/`` and ``\\`` may follow the scheme, ``\\`` ends the
     authority and is a ``/`` in the path, the host is percent-decoded and
-    a host that ends in a number is an IPv4 address in any of its spellings.
+    written in ASCII (``faß.de`` is ``xn--fa-hia.de``), and a host that
+    ends in a number is an IPv4 address in any of its spellings.
     """
 
     if not isinstance(value, str):

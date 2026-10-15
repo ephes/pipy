@@ -15,6 +15,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `--api-key` key of any provider. See
   [a provider's token](docs/mcp.md#a-providers-token).
 
+- Security: an MCP server URL with a non-ASCII host is now written in
+  punycode as Pi's URL parser writes it (UTS #46, nontransitional), so
+  `https://faß.de/mcp` connects to `xn--fa-hia.de`; before, Python's
+  network code mapped it to `fass.de`, another domain, and sent it the
+  configured headers and tokens. OAuth resource checks, stored sign-ins and
+  callback ids use the same host, and a host Pi refuses makes the URL
+  invalid. pipy now depends on the `idna` package
+  ([decision](docs/decisions/2026-10-15-idna-hosts.md)).
+
 - Keep token-count fields such as `totalTokens` and `tokensBefore` in native
   HTML/JSONL exports instead of redacting them, so exported sessions re-import
   with every assistant message and compaction. Prefixed secret keys such as

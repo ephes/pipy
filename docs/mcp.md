@@ -198,10 +198,13 @@ and `exposure`.
 Differences from Pi in the configuration:
 
 - pipy reads URLs as Pi's URL parser does (`http:example.com`, backslashes,
-  percent-escapes in the host, and IPv4 addresses such as `127.1` or
-  `0x7f.0.0.1`, which are `127.0.0.1`), but without IDNA: a host with
-  non-ASCII letters is taken as written, where Pi converts it to punycode or
-  rejects it.
+  percent-escapes in the host, IPv4 addresses such as `127.1` or
+  `0x7f.0.0.1`, which are `127.0.0.1`, and hosts with non-ASCII letters,
+  which are written in punycode: `faß.de` is `xn--fa-hia.de`). The Unicode
+  tables are those of the `idna` package and of Python, not Node's, so a
+  character from a recent Unicode version may be accepted by one and
+  refused by the other. A non-ASCII host longer than 1024 characters is
+  refused.
 - `oauth.clientMetadataBaseUrl` exists only in pipy. Pi serves its Client ID
   Metadata Documents from its own site; pipy has no such document, so `cimd`
   needs the address where you host one, see

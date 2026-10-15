@@ -96,6 +96,21 @@ def test_the_key_is_the_namespace_and_the_url(store: McpOAuthCredentialStore) ->
     assert store.tokens("other", _SERVER_URL) is None
 
 
+def test_the_key_names_the_host_in_its_ascii_form(
+    store: McpOAuthCredentialStore,
+) -> None:
+    store.for_server("work", "https://fa\u00df.de/mcp").save(_state("token"))
+
+    assert list(json.loads(store.path.read_text(encoding="utf-8"))) == [
+        "mcp__work|https://xn--fa-hia.de/mcp"
+    ]
+    assert store.for_server("work", "https://fass.de/mcp").load() is None
+    assert (
+        _access_token(store.for_server("work", "https://xn--fa-hia.de/mcp").load())
+        == "token"
+    )
+
+
 def test_a_server_with_the_same_name_and_url_has_one_entry_in_every_store(
     store: McpOAuthCredentialStore,
 ) -> None:

@@ -306,6 +306,11 @@ def test_closing_cancels_the_token_a_fetch_was_handed() -> None:
         ("https://2130706433/mcp?x#f", ("https://127.0.0.1/mcp?x#f", "127.0.0.1", 443)),
         ("http:\\\\Mcp.Example\\mcp", ("http://mcp.example/mcp", "mcp.example", 80)),
         ("http://@[0::1]:81/", ("http://[::1]:81/", "::1", 81)),
+        # The request goes to the host's ASCII form, never fass.de.
+        (
+            "https://fa\u00df.de/mcp",
+            ("https://xn--fa-hia.de/mcp", "xn--fa-hia.de", 443),
+        ),
         # A lone surrogate is U+FFFD, as in a USVString.
         ("http://h/\ud800", ("http://h/\ufffd", "h", 80)),
     ],
@@ -325,7 +330,14 @@ def test_a_lone_surrogate_in_the_path_is_sent_as_a_replacement_character() -> No
 
 
 @pytest.mark.parametrize(
-    "url", ["http://user@h/", "http://:secret@h/", "http://h:0/", "http://256.1/"]
+    "url",
+    [
+        "http://user@h/",
+        "http://:secret@h/",
+        "http://h:0/",
+        "http://256.1/",
+        "http://a\u200cb.com/",
+    ],
 )
 def test_a_url_no_request_can_go_to_is_no_target(url: str) -> None:
     assert http_fetch.parse_http_target(url) is None
