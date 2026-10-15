@@ -20,7 +20,8 @@ Deviations, documented in ``docs/tui-workflow.md``: no syntax highlighting
 terminal's default colour) and no OSC 8 file links. A result's images are
 drawn after the row by the frame (``RowRenderInputs.inline_images``), or
 named in its text. A running ``bash`` row ticks ``Elapsed`` every second
-(the transcript owns the timer).
+(the transcript owns the timer), and a live ``edit`` row gets its diff
+preview, also when a resolver's renderers draw the row and wrap pipy's own.
 """
 
 from __future__ import annotations
@@ -1441,7 +1442,7 @@ def render_tool_row(
         # Pi's bash tool sends an empty update as it starts, so its row shows
         # the result part (`Elapsed`) before any output.
         result = ToolRowResult(state.partial_output, None, False)
-    if is_builtin_edit(state):
+    if state.extension is None and is_builtin_edit(state):
         return (*_edit_rows(state, inputs.theme), RowLine("", "none"))
     bg: RowBackground = "pending"
     if not partial:
@@ -1585,12 +1586,26 @@ def render_box_row(
     return render_summary_box(box, theme, expanded=expanded)
 
 
-def _bash_started(state: ToolRowState) -> bool:
+def _is_builtin_call(state: ToolRowState, name: str) -> bool:
+    """Whether the row is a call of the built-in tool ``name`` that can show
+    pipy's own rows of it: drawn by them, or by what a resolver chose, which
+    may wrap them (``next()``), as Pi's built-in renderers keep their live
+    behaviour when a wrapper calls them with its context. A row a resolver
+    left to the generic renderers (none of its own) is not.
+
+    Built-in tool names are reserved, so the name tells the tool.
+    """
+
+    if state.tool_name != name:
+        return False
+    tool = state.extension
     return (
-        state.extension is None
-        and state.tool_name == "bash"
-        and state.started_at is not None
+        tool is None or tool.render_call is not None or tool.render_result is not None
     )
+
+
+def _bash_started(state: ToolRowState) -> bool:
+    return _is_builtin_call(state, "bash") and state.started_at is not None
 
 
 def is_running_builtin_bash(state: ToolRowState) -> bool:
@@ -1600,9 +1615,11 @@ def is_running_builtin_bash(state: ToolRowState) -> bool:
 
 
 def is_builtin_edit(state: ToolRowState) -> bool:
-    """Whether the row is the built-in ``edit`` (Pi ``renderShell: "self"``)."""
+    """Whether the row is a call of the built-in ``edit`` that can show its
+    preview (see ``_is_builtin_call``). Only pipy's own rows draw the edit
+    box itself (Pi ``renderShell: "self"``)."""
 
-    return state.extension is None and state.tool_name == "edit"
+    return _is_builtin_call(state, "edit")
 
 
 def _call_rows(

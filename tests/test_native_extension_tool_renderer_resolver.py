@@ -25,7 +25,7 @@ from test_native_extension_tool_metadata import _result
 from test_native_mcp_session import _extension, _Provider, _run
 from test_native_session_history_render import _assistant, _box, _call, _Terminal
 from test_native_session_history_render import _result as _stored_result
-from test_native_tool_rows import _Live
+from test_native_tool_rows import _Live, _plain
 
 from pipy_harness.extensions import (
     ExtensionTool,
@@ -619,6 +619,28 @@ def test_a_resolver_wraps_a_built_in_tools_rows(tmp_path: Path) -> None:
     # The edit's box (title and diff) is its call; its result adds nothing.
     assert edit_row[:4] == ["[call]", "edit a.py", "-1 x = 1", "+1 x = 2"]
     assert edit_row[4:] == ["[result]"]
+
+
+def test_a_wrapped_edit_row_shows_the_live_preview(tmp_path: Path) -> None:
+    # Pi's edit renderer computes the preview for a wrapper that calls it.
+    (tmp_path / "a.py").write_text("a = 1\n")
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(_wrapping,)))
+
+    live.call(
+        "edit", {"path": "a.py", "edits": [{"oldText": "a = 1", "newText": "a = 2"}]}
+    )
+    thread = live.renderer._preview_thread
+    assert thread is not None
+    thread.join(2)
+
+    assert _plain(live.transcript.pending_tool_lines) == [
+        "[call]",
+        "edit a.py",
+        "-1 a = 1",
+        "+1 a = 2",
+    ]
 
 
 def test_a_resolver_wraps_an_mcp_tools_rows(tmp_path: Path) -> None:

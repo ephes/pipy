@@ -179,3 +179,47 @@ row changes.
 drop any "8.0 is refused".
 
 **Audit test references:** none changed.
+
+## T4: Tool rows: wrapped built-ins and the nested live window (S11, D6)
+
+### S11: a resolver wrapping a built-in row keeps its live parts
+
+**Changelog (Unreleased, Fixed):**
+
+- A tool renderer resolver that wraps the renderers `next()` gives for a
+  built-in tool keeps the row's live parts, as a wrapper of Pi's built-in
+  renderers does: a wrapped `edit` row shows the diff preview while the
+  call runs, and a wrapped `bash` row shows `Elapsed` from the start and
+  ticks it every second until the result. Before, both were missing until
+  the result arrived. A resolver that leaves the row to the generic
+  renderers (returns `None`, or renderers without callables) still gets
+  neither, as in Pi.
+
+**Plan:**
+
+- DEV-45: drop "but a wrapped `edit` row has no live preview and a wrapped
+  `bash` row no ticking time while it runs"; the row then reads "A
+  resolver's `next()` gives `None` for an extension tool without renderers.
+  pipy's own rows are callable renderers a resolver can wrap (since G9),
+  with the live `edit` preview and the ticking `bash` time (since goal check
+  r3, S11). `renderShell` is not ported. A resolver that raises, or returns
+  something that is not renderers, is left out; Pi lets the exception
+  through."
+
+**Acceptance:**
+
+- Section "Accepted deviations" bullet "Nested calls have no session-wide
+  sequential mode ... and a wrapped built-in row has no live preview or
+  ticking time (DEV-45; EXT-15)": drop ", and a wrapped built-in row has no
+  live preview or ticking time (DEV-45; EXT-15)".
+- EXT-15 row: add tests
+  `test_native_extension_tool_renderer_resolver.py`:
+  `test_a_wrapped_edit_row_shows_the_live_preview`;
+  `test_native_ui_coding_session_renderer.py`:
+  `test_a_wrapped_bash_row_ticks_elapsed_until_the_result`,
+  `test_a_bash_row_left_to_the_generic_renderers_does_not_tick` (r3 S11).
+  Limits column: replace "A wrapped `edit` row has no live preview, a
+  wrapped `bash` row no ticking time; `renderShell` is not ported." with
+  "`renderShell` is not ported."
+
+**Audit test references:** none changed.

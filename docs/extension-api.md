@@ -1480,9 +1480,14 @@ def activate(api):
   call its `render_call(ctx)` and `render_result(ctx)` inside your own
   renderers to wrap them, as Pi's built-in and MCP renderers can be: each
   returns a component with pipy's lines of that part of the row (for `edit`
-  the call is the box with its diff), drawn at `ctx.width`. Called with a
-  context pipy did not make, they return `None`. For every other name it is
-  `None`.
+  the call is the box with its diff), drawn at `ctx.width`. As with Pi's
+  built-in renderers, the live parts stay: a wrapped `edit` row shows the
+  diff preview once pipy has computed it, and a wrapped `bash` row ticks
+  `Elapsed` every second while it runs (pipy draws the row again, so
+  `render_call` and `render_result` are called again; `render_result` is
+  called from the start, with empty `content`, as Pi's bash tool sends an
+  empty update first). Called with a context pipy did not make, they
+  return `None`. For every other name it is `None`.
 
   ```python
   def resolve(tool_name, next):
@@ -1524,9 +1529,10 @@ Different from Pi:
 - In Pi `next()` returns a registered tool's definition also when it has no
   renderers; pipy returns `None` for an extension tool without renderers.
 - pipy's own rows keep what is outside the two parts when a resolver wraps
-  them only as long as the object itself is returned: a wrapped built-in
-  row has no live `edit` preview and no ticking `bash` time while the call
-  runs, and the HTML export draws built-in tools itself.
+  them only as long as the object itself is returned: a wrapped `edit` row
+  is drawn in the usual box, not in the edit box with its own background
+  (Pi's `renderShell: "self"`), and the HTML export draws built-in tools
+  itself.
 - Pi's `renderShell` is not part of `ToolRenderers`, and the render
   context has no `outputPad`.
 
