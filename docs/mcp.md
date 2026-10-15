@@ -1937,9 +1937,10 @@ collapsed arguments; the result is printed like any other tool's.
 
 An HTML export (`/export`, `pipy --export`, `/share`) shows a call to a
 server tool as the same row: the title with the collapsed arguments, and the
-result with its first 5 lines, which a click expands. `pipy --export` and
-`/share` have no session's tools, so there the title comes from the pipy
-name. See [export](export-distribution.md#artifact-shape).
+result with its first 5 lines, which a click expands. `pipy --export` has
+no session's tools, so there the title comes from the pipy name; `/export`
+and `/share` use the session's titles and renderers. See
+[export](export-distribution.md#artifact-shape).
 
 ### What a script sees
 

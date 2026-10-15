@@ -640,23 +640,50 @@ def create_secret_gist(
     return ShareResult(gist_id=gist_id, gist_url=gist_url, viewer_url=viewer_url)
 
 
+def share_session_html(
+    tree: NativeSessionTree,
+    *,
+    system_prompt: str = "",
+    tool_renderers: ToolRendererLookup | None = None,
+) -> str:
+    """The page ``/share`` uploads: the HTML export of ``tree``, with the
+    session's system prompt and the renderers ``tool_renderers`` chooses,
+    as Pi's ``/share`` uploads ``exportToHtml``'s page.
+
+    The renderers are extension code: call it on the session's thread, not
+    on the thread that uploads.
+    """
+
+    if tree.path is None:
+        raise NativeExportError("Cannot share an in-memory session.")
+    if not tree.get_entries():
+        raise NativeExportError("Nothing to share yet.")
+    return generate_session_html(
+        session_export_payload(
+            tree, system_prompt=system_prompt, tool_renderers=tool_renderers
+        )
+    )
+
+
 def share_native_session(
     tree: NativeSessionTree,
+    html: str,
     *,
     token: str,
     opener: Callable[[urllib.request.Request, float], Any] | None = None,
     cancelled: Callable[[], bool] | None = None,
     cancel_token: CancelToken | None = None,
 ) -> ShareResult:
+    """Upload ``html`` (``share_session_html``'s page of ``tree``) as a
+    secret gist. Runs no extension code."""
+
     if tree.path is None:
         raise NativeExportError("Cannot share an in-memory session.")
-    if not tree.get_entries():
-        raise NativeExportError("Nothing to share yet.")
     with tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", suffix=".html", prefix="pipy-share-", delete=False
     ) as handle:
         temp_path = Path(handle.name)
-        handle.write(generate_session_html(session_export_payload(tree)))
+        handle.write(html)
     try:
         try:
             temp_path.chmod(stat.S_IRUSR | stat.S_IWUSR)

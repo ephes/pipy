@@ -118,6 +118,38 @@ ending with "`renderShell` is not ported. DEV-45." (the audit test
 
 **Audit test references:** none changed.
 
+### D4: `/share` uploads the page `/export` writes
+
+**Changelog (Unreleased, Fixed):**
+
+- `/share` uploads the page `/export` writes, as Pi's `/share` uploads its
+  `exportToHtml` page: the session's system prompt, and the tool calls drawn
+  with the loaded extensions' renderers and resolvers and the session's MCP
+  tool titles. Before, the shared page had no system prompt and drew only MCP
+  calls, titled from their pipy names, so custom MCP renderers and resolvers
+  were lost. The page is drawn on the session's thread before the upload
+  starts, so no extension code runs on the upload's thread. `pipy --export`
+  still runs no extension code. See
+  [export](../export-distribution.md#artifact-shape).
+
+**Plan:**
+
+- DEV-44: replace "and `pipy --export` and `/share` run no extension code"
+  with "and `pipy --export` runs no extension code (`/share` draws its page
+  with the session's renderers on the session's thread before the upload,
+  since goal check r4, D4)".
+**Acceptance (RND-03 row):** in the note replace "`pipy --export` and
+`/share` run no extension code." by "`pipy --export` runs no extension code;
+`/share` draws with the session's renderers like `/export` (r4 D4)." Add tests: `test_native_export_tool_rows.py`:
+`test_the_share_command_asks_the_loaded_extensions`,
+`test_share_draws_the_page_before_the_upload_thread_starts`,
+`test_share_session_html_has_the_prompt_and_the_drawn_calls`;
+`test_native_export_distribution.py`:
+`test_tool_loop_share_command_uses_token_and_share_boundary` (now also
+checks the system prompt).
+
+**Audit test references:** none changed.
+
 ### S5: `send_user_message` options (doc sentence)
 
 **Changelog:** none (documentation of an accepted deviation).

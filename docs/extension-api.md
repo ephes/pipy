@@ -1605,8 +1605,9 @@ extension tool's `render_call` and `render_result`, and what a resolver
 chose, are called with `expanded` false and true, a `width` of 98 and
 arguments, result text and details from which credentials were removed. As
 in Pi, the export page draws the built-in tools itself, so renderers that a
-resolver chose for a built-in tool are not used there. `pipy --export` and
-`/share` do not run extension code.
+resolver chose for a built-in tool are not used there. `/share` uploads the
+same page, drawn before the upload starts, as Pi's `/share` uploads its
+`exportToHtml` page. `pipy --export` does not run extension code.
 
 <a id="mcp-servers"></a>
 ### MCP servers
