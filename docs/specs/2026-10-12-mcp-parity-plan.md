@@ -3937,9 +3937,11 @@ the session thread from the then current policy state. A request from another
 thread waits in the service's queue; `serve`, the waiter of whatever the
 session thread waits for (the parent's executor, or the executor of a call a
 script made), takes it, begins it and runs its tool on a thread of its own,
-so calls run concurrently. `decide_tool_admission(pending=)` counts the
-calls admitted and not yet settled, so concurrent calls cannot settle past
-the budget. A call the pipeline is running (from a hook) is still refused.
+so calls run concurrently. `decide_tool_admission(pending=)` counted the
+calls admitted and not yet settled, so concurrent calls could not settle past
+the budget; T5 (goal check r3, D1) took nested calls out of the tool budget,
+as Pi has no limit on the calls a tool makes, and `pending=` with them. A
+call the pipeline is running (from a hook) is still refused.
 When `serve` returns, the calls it started have ended: an interruption ends
 them as interrupted, the end of the waited-for tool cancels them with the
 new `ToolExecutionInterruption.CALLER_STOP` (`tool cancelled by its
@@ -3954,7 +3956,7 @@ there is raised again after the parent was cancelled. Tests:
 `test_a_running_nested_call_is_cancelled_when_its_parent_ends`,
 `test_without_a_waiter_the_handler_runs_on_a_worker_and_is_served`,
 `test_a_nested_call_runs_tools_through_the_same_service`,
-`test_concurrent_nested_calls_take_their_place_in_the_budget`,
+`test_concurrent_nested_calls_run_past_the_budget` (T5),
 `test_a_script_child_serves_the_calls_of_its_own_threads`,
 `test_a_call_waiting_for_readiness_ends_with_its_parent`,
 `test_a_call_waiting_for_readiness_ends_with_its_own_caller`,
@@ -4016,7 +4018,7 @@ The codemode guideline names `submit()` where Pi names
 `Promise.allSettled`. Pi's exclusive queue was not ported here; H3 added it (DEV-48). Tests:
 `test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order`
 (Pi "runs nested calls in parallel and returns only the script result"),
-`test_submitted_calls_take_the_budget_in_the_order_they_were_made`,
+`test_a_script_makes_more_calls_than_the_tool_budget_has_places` (T5),
 `test_a_call_still_running_when_the_script_ends_is_cancelled`,
 `test_an_interruption_cancels_every_running_call`,
 `test_a_call_a_script_call_made_ends_when_that_call_returns` in

@@ -4,8 +4,9 @@ The agent loop runs such a tool as a composite parent, the way it runs
 ``codemode``: after the parent's admission and ``tool_call`` hooks it takes
 the callable snapshot, reserves the parent's place in the tool budget and
 hands a ``NestedToolCallService`` to a runner. Every call the service runs
-passes the same admission, hooks and budget as a call the model made, and
-the service belongs to the session thread.
+passes the same admission and hooks as a call the model made but takes no
+place in the tool budget (Pi has none), and the service belongs to the
+session thread.
 
 The parent's handler runs on a worker thread of the executor, and it asks
 for nested calls there, from that thread or from threads it starts. While it

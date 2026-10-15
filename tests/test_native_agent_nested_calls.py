@@ -199,7 +199,7 @@ def _setup(
     return loop, tools, events, order
 
 
-def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
+def test_nested_pipeline_statuses_unbudgeted_and_parent_only_records() -> None:
     seen = []
 
     def run(
@@ -220,20 +220,24 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
 
     runner = _Runner(run)
     loop, tools, events, order = _setup(runner)
-    outcome = loop.run(_run_input(tool_budget=7, malformed_count=2, malformed_streak=2))
+    # The parent takes the only place in the budget; its nested calls take
+    # none, as Pi has no limit on the calls a tool makes.
+    outcome = loop.run(_run_input(tool_budget=1, malformed_count=2, malformed_streak=2))
     assert [item.status for item in seen] == [
         NestedCallStatus.SETTLED,
         NestedCallStatus.BLOCKED,
         NestedCallStatus.SETTLED,
         *[NestedCallStatus.MALFORMED] * 3,
-        NestedCallStatus.BUDGET_EXHAUSTED,
-        NestedCallStatus.BUDGET_EXHAUSTED,
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.SETTLED,
     ]
     assert seen[0].result.content.value.endswith(" transformed")
     # Malformed arguments fail validation before the hooks and the tool.
     assert [call.provider_correlation_id for call in tools.executed] == [
         "parent0/1",
         "parent0/3",
+        "parent0/7",
+        "parent0/8",
     ]
     state = outcome.final_tool_state
     assert (
@@ -243,7 +247,7 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
         state.invocations_this_turn,
         state.consecutive_malformed_streak,
         state.reserved_parent_slot,
-    ) == (3, 3, 2, 7, 0, False)
+    ) == (5, 3, 0, 1, 0, False)
     assert [
         m.provider_correlation_id
         for m in outcome.final_history
@@ -293,8 +297,9 @@ def test_parent_uses_latest_child_state_and_releases(kind: str) -> None:
     assert state.tool_invocation_count == (
         1 if kind in {"malformed", "interrupt"} else 2
     )
+    # Only the parent takes a place in the budget.
     assert state.invocations_this_turn == (
-        2 if kind in {"malformed", "interrupt"} else 3
+        0 if kind in {"malformed", "interrupt"} else 1
     )
     assert not state.reserved_parent_slot
     assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
@@ -323,8 +328,9 @@ def test_thread_refusal_record_bounds_and_fresh_parent() -> None:
     runner = _Runner(run)
     loop, _, _, _ = _setup(runner, parents=2)
     loop.run(_run_input(tool_budget=4))
-    # Exhaustion means the second provider parent is not dispatched.
-    assert len(runner.services) == 1
+    # The 300 nested calls take no place in the budget, so the second
+    # provider parent is dispatched too, with a fresh service.
+    assert len(runner.services) == 2
     runner = _Runner(lambda call, service: ToolExecutionOutcome(_tool_result(call)))
     loop, _, _, _ = _setup(runner, parents=2)
     loop.run(_run_input(tool_budget=4))
@@ -553,11 +559,12 @@ def test_child_interruption_closes_service_and_preserves_prior_counters() -> Non
     loop, _, events, _ = _setup(runner, tools=tools)
     outcome = loop.run(_run_input())
     state = outcome.final_tool_state
+    # The interrupted parent never settled into the budget.
     assert (
         state.tool_invocation_count,
         state.invocations_this_turn,
         state.reserved_parent_slot,
-    ) == (1, 1, False)
+    ) == (1, 0, False)
     assert len([e for e in events.events if isinstance(e, ToolCallCompleted)]) == 1
 
 
@@ -811,7 +818,7 @@ def test_parent_preserves_child_interruption_ignored_by_runner(
         state.tool_invocation_count,
         state.invocations_this_turn,
         state.reserved_parent_slot,
-    ) == (1, 1, False)
+    ) == (1, 0, False)
     assert status.tool_states[-1] == state
     assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
 
@@ -905,18 +912,16 @@ def test_child_counters_published_before_later_canonical_hook_failure() -> None:
     published = status.tool_states[-1]
     assert (
         published.tool_invocation_count,
-        published.budget_exhausted_count,
+        published.invocations_this_turn,
         published.reserved_parent_slot,
-    ) == (2, 1, False)
+    ) == (3, 1, False)
     assert any(
-        s.tool_invocation_count == 1
-        and s.budget_exhausted_count == 1
-        and s.reserved_parent_slot
+        s.tool_invocation_count == 2 and s.reserved_parent_slot
         for s in status.tool_states
     )
 
     snapshot = product_state.result_snapshot()
-    assert (snapshot.tool_invocation_count, snapshot.budget_exhausted_count) == (2, 1)
+    assert (snapshot.tool_invocation_count, snapshot.budget_exhausted_count) == (3, 0)
 
 
 def test_child_status_failure_propagates_instead_of_runner_error() -> None:
@@ -1231,13 +1236,13 @@ def _parent_execution(handler):
     return execute_parent
 
 
-def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
-    # Two calls run while a third is asked for: the budget counts the two
-    # that have not settled yet, so the third is refused rather than
-    # settling past the budget.
+def test_concurrent_nested_calls_run_past_the_budget() -> None:
+    # Three calls run at the same time under a parent that holds the only
+    # place in the budget: none is refused, as Pi has no limit on the calls
+    # a tool makes.
     from pipy_harness.native.coding.tool_parent_runner import ToolParentRunner
 
-    release = threading.Event()
+    running = threading.Barrier(3, timeout=5)
 
     class Blocking(_NestedTools):
         def execute(
@@ -1249,7 +1254,7 @@ def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
             nested_tools=None,
             arguments=None,
         ):
-            release.wait(5)
+            running.wait()
             return super().execute(call)
 
     def handler(nested_tools) -> str:
@@ -1257,7 +1262,6 @@ def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
 
         def call() -> None:
             results.append(nested_tools.execute("read", {}).content)
-            release.set()
 
         threads = [threading.Thread(target=call) for _ in range(3)]
         for thread in threads:
@@ -1270,14 +1274,16 @@ def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
         ToolParentRunner(_parent_execution(handler), {}),  # type: ignore[arg-type]
         tools=Blocking([]),
     )
-    outcome = loop.run(_run_input(tool_budget=3))
+    outcome = loop.run(_run_input(tool_budget=1))
 
     parent = next(
         m for m in outcome.final_history if isinstance(m, AgentToolResultMessage)
     )
-    assert parent.content.value.count("tool budget exhausted (limit 3)") == 1
-    assert len(tools.executed) == 2
-    assert outcome.final_tool_state.invocations_this_turn == 3
+    assert "budget" not in parent.content.value
+    assert len(tools.executed) == 3
+    assert not running.broken
+    state = outcome.final_tool_state
+    assert (state.invocations_this_turn, state.tool_invocation_count) == (1, 4)
 
 
 def test_a_script_child_serves_the_calls_of_its_own_threads() -> None:

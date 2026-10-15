@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- The calls a tool makes, from a codemode script or with
+  `ctx.execute_tool`, no longer count against the per-turn tool budget
+  (`--tool-budget`, default 50), as Pi has no limit on them. Before, one
+  script with about 50 calls spent the whole turn's budget: its later calls
+  failed with `tool budget exhausted` and the model could call no further
+  tool that turn. The budget now counts only the calls the model makes. See
+  [running other tools](docs/extension-api.md#running-other-tools).
 - An extension tool's `ToolResult(terminate=True)` works as in Pi: when
   every result of the tool calls of one model response asks for it, the run
   ends after those results without the automatic follow-up provider turn. A

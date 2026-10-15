@@ -268,19 +268,19 @@ try:
 except ToolError as exc:
     text('malformed: ' + str(exc))
 text(tools.write(path='effect', content='retained'))
-try:
-    tools.read(path='a')
-except ToolError as exc:
-    text('budget: ' + str(exc))
+text('past the budget: ' + tools.read(path='a'))
 raise RuntimeError('after effect')
 """
     loop, status, events = _loop(tmp_path, code, paths=paths, policy=policy)
-    outcome = loop.run(_run_input(tool_budget=5))
+    # The parent holds the only place in the budget; the script's calls take
+    # none, as Pi has no limit on the calls a tool makes.
+    outcome = loop.run(_run_input(tool_budget=1))
     parent = _parent(outcome)
     assert parent.provider_correlation_id == "parent" and parent.tool_name == "codemode"
     assert parent.is_error
     assert "alpha transformed/beta transformed" in parent.content.value
-    assert "malformed:" in parent.content.value and "budget:" in parent.content.value
+    assert "malformed:" in parent.content.value
+    assert "past the budget: alpha transformed" in parent.content.value
     assert "after effect" in parent.content.value
     assert parent.details is not None
     record = parent.details["nestedCalls"]
@@ -289,7 +289,7 @@ raise RuntimeError('after effect')
         "ok",
         "error",
         "ok",
-        "error",
+        "ok",
     ]
     assert record["complete"] is True
     assert record["calls"][3]["arguments"]["path"] == "effect"
@@ -300,13 +300,14 @@ raise RuntimeError('after effect')
         state.invocations_this_turn,
         state.nested_malformed_count,
         state.budget_exhausted_count,
-    ) == (4, 5, 1, 1)
+    ) == (5, 1, 1, 0)
     assert not state.reserved_parent_slot
     # parent/3's arguments fail validation, so it reaches no hook (Pi).
     assert [call.provider_correlation_id for call in policy.children] == [
         "parent/1",
         "parent/2",
         "parent/4",
+        "parent/5",
     ]
     lifecycle = [
         event
@@ -334,18 +335,18 @@ raise RuntimeError('after effect')
         NestedCallStatus.SETTLED,
         NestedCallStatus.MALFORMED,
         NestedCallStatus.SETTLED,
-        NestedCallStatus.BUDGET_EXHAUSTED,
+        NestedCallStatus.SETTLED,
     ]
     assert completed[0].result.content.value == "alpha transformed"
     assert all(event.duration_seconds >= 0 for event in completed)
     # Pi's durationMs: only the calls whose tool ran have an execution time;
-    # the malformed and the over-budget call never started.
+    # the malformed call never started.
     assert [event.execution_seconds is not None for event in completed] == [
         True,
         True,
         False,
         True,
-        False,
+        True,
     ]
     parent_end = lifecycle[-1]
     assert isinstance(parent_end, ToolCallCompleted)
@@ -677,7 +678,8 @@ def test_policy_rejection_is_catchable_guest_error(
     )
     assert not (tmp_path / "denied").exists()
     assert outcome.final_tool_state.tool_invocation_count == 1
-    assert outcome.final_tool_state.invocations_this_turn == 2
+    # The blocked nested call takes no place in the budget; the parent does.
+    assert outcome.final_tool_state.invocations_this_turn == 1
 
 
 def test_activity_callback_failure_reaps_and_is_parent_error(
@@ -1145,13 +1147,15 @@ text({"a": a.result(), "b": b.result(), "again": a.result()})
     ]
     assert len(results) == 1
     state = outcome.final_tool_state
-    assert (state.tool_invocation_count, state.invocations_this_turn) == (4, 4)
+    assert (state.tool_invocation_count, state.invocations_this_turn) == (4, 1)
     assert not state.reserved_parent_slot
 
 
-def test_submitted_calls_take_the_budget_in_the_order_they_were_made(
+def test_a_script_makes_more_calls_than_the_tool_budget_has_places(
     tmp_path: Path, paths: CodemodePaths, pids: list[int]
 ) -> None:
+    # Goal check r3 D1: Pi has no limit on the calls a tool makes, so a
+    # script's calls, submitted or not, take no place in the tool budget.
     release = threading.Event()
 
     def slow(request: ToolRequest, context: ToolContext) -> str:
@@ -1165,10 +1169,9 @@ def test_submitted_calls_take_the_budget_in_the_order_they_were_made(
     code = """
 calls = [tools.slow.submit(n=1), tools.fast.submit(n=2), tools.slow.submit(n=3)]
 for call in calls:
-    try:
-        text(call.result())
-    except ToolError as exc:
-        text("error: " + str(exc))
+    text(call.result())
+for n in range(4, 9):
+    text(tools.fast(n=n))
 """
     loop, _, _ = _loop(
         tmp_path,
@@ -1179,24 +1182,21 @@ for call in calls:
             "fast": _Answering("fast", fast, {"n": {"type": "integer"}}),
         },
     )
-    # The parent's place and two calls: the third call is over the budget,
-    # although the first is still running when it is made.
-    outcome = loop.run(_run_input(tool_budget=3))
+    outcome = loop.run(_run_input(tool_budget=2))
     parent = _parent(outcome)
-    assert (
-        "==> text 1/3 <==\ndone 1\n==> text 2/3 <==\ndone 2\n"
-        "==> text 3/3 <==\nerror: tool budget exhausted (limit 3)"
-    ) in parent.content.value
+    assert not parent.is_error, parent.content.value
+    assert "budget" not in parent.content.value
+    for n in range(1, 9):
+        assert f"==> text {n}/8 <==\ndone {n}" in parent.content.value
     assert parent.details is not None
-    assert [
-        (c["id"], c["name"], c["status"])
-        for c in parent.details["nestedCalls"]["calls"]
-    ] == [
-        ("parent/1", "slow", "ok"),
-        ("parent/2", "fast", "ok"),
-        ("parent/3", "slow", "error"),
-    ]
-    assert outcome.final_tool_state.budget_exhausted_count == 1
+    calls = parent.details["nestedCalls"]["calls"]
+    assert [c["status"] for c in calls] == ["ok"] * 8
+    state = outcome.final_tool_state
+    assert (
+        state.invocations_this_turn,
+        state.tool_invocation_count,
+        state.budget_exhausted_count,
+    ) == (1, 9, 0)
 
 
 def test_a_call_still_running_when_the_script_ends_is_cancelled(

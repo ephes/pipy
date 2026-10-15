@@ -491,7 +491,7 @@ class NestedToolCallService:
     run one at a time, in the order they were asked for; the others run
     beside them. A call that waits for its turn has its id, its place in
     the record and its start event (``queue_events``), and runs its pipeline
-    (the ``tool_call`` hooks, the budget) when its turn comes; one whose
+    (the ``tool_call`` hooks) when its turn comes; one whose
     turn never comes ends with its end event.
 
     Records are transient observations, capped at 256 calls, 8 KiB arguments
@@ -1561,7 +1561,7 @@ class NestedCallBatch:
     """Calls the parent starts without waiting for them; session thread only.
 
     ``start`` begins each call in the order it is asked for, so admission,
-    the budget, the ids and the record follow that order, and runs its tool
+    the ids and the record follow that order, and runs its tool
     on a thread of its own. ``pump`` settles the calls whose tools returned,
     and serves the calls those tools ask for, while it waits for something
     else. ``end`` ends the calls still running and settles them. A set

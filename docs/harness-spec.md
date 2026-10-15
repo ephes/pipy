@@ -2667,7 +2667,10 @@ frozen `AgentToolPolicyState` and pure transitions own tool-budget precedence,
 request-snapshot authorization, product-policy admission, session-wide
 malformed accounting/fatal-after-three, settled invocation accounting, and
 interruption precedence. Tool-budget exhaustion remains an ordinary error tool
-result and never becomes a terminal run or turn outcome. A tool batch whose
+result and never becomes a terminal run or turn outcome. Only the calls the
+model makes count against the budget: nested calls (codemode scripts,
+`ctx.execute_tool`) are admitted without it and consume no slot, as Pi has
+no limit on the calls a tool makes. A tool batch whose
 results all carry Pi's `terminate` hint (`AgentToolResultMessage.terminate`,
 from an extension tool's result or a blocking `tool_call` hook) ends the run
 after those results, without the automatic follow-up provider turn (Pi

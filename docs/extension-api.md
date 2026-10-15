@@ -1284,16 +1284,18 @@ def read_all(ctx, params):
   far, as in Pi: the last 2000 lines or 50 KB, with `details` holding the
   `truncation` once it is cut and the `fullOutputPath` of the file with all
   of it, and `{}` before that. The call passes argument validation and the
-  `tool_call` and `tool_result` handlers like a call the model made, and it
-  counts against the tool budget of the turn.
+  `tool_call` and `tool_result` handlers like a call the model made, but it
+  takes no place in the tool budget of the turn (`--tool-budget` counts the
+  calls the model makes; Pi has no limit on the calls a tool makes).
 - It never raises for a failure of the tool. A name that is not callable
   gives `Tool <name> not found`; invalid arguments, a call a `tool_call`
-  handler blocked, a failed tool and an exhausted tool budget give the same
-  error results the model would get. All of them have `is_error=True`.
+  handler blocked and a failed tool give the same error results the model
+  would get. All of them have `is_error=True`.
 - A tool called this way gets `ctx.tools` and `ctx.execute_tool` too, so a
   nested tool can run tools itself, at any depth, also a tool that calls
-  itself; the tool budget bounds the depth. A tool a codemode script called
-  can run tools the same way.
+  itself. As in Pi, nothing bounds the number of these calls or their
+  depth, so a tool that calls itself must stop on its own. A tool a
+  codemode script called can run tools the same way.
 - The nested calls do not appear in the transcript: their results only reach
   the calling tool, which reports them in its own result. They have the ids
   `<calling id>/<n>` (`p1/2/1` is the first call of the second call of

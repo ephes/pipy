@@ -450,7 +450,12 @@ text(tools.read(path='alpha.txt'))
         assert parents[-1].details is None
 
 
-def test_public_malformed_and_budget_errors_are_catchable(tmp_path, runtime):
+def test_public_malformed_errors_are_catchable_and_calls_take_no_budget(
+    tmp_path, runtime
+):
+    # The parent holds the only place of a budget of 1; the script's calls
+    # take none, as Pi has no limit on the calls a tool makes (goal check
+    # r3 D1).
     (tmp_path / "alpha.txt").write_text("kept")
     sink = _CollectingAgentEventSink()
     code = """for i in range(3):
@@ -458,16 +463,13 @@ def test_public_malformed_and_budget_errors_are_catchable(tmp_path, runtime):
         tools.read(path=42)
     except ToolError:
         text('malformed caught')
-text(tools.read(path='alpha.txt'))
-try:
-    tools.read(path='alpha.txt')
-except ToolError:
-    text('budget caught')
+for i in range(5):
+    text(tools.read(path='alpha.txt'))
 text('continued')
 """
     result = CodingSession(
         provider=provider(code),
-        tool_budget=5,
+        tool_budget=1,
         settings_manager=settings(tmp_path),
         agent_event_sink=sink,
     ).run(
@@ -479,13 +481,14 @@ text('continued')
     parent = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
     assert not parent.is_error
     assert parent.content.value.count("malformed caught") == 3
-    assert (
-        "budget caught" in parent.content.value and "continued" in parent.content.value
-    )
+    assert parent.content.value.count("kept") == 5
+    assert "continued" in parent.content.value
+    assert "budget" not in parent.content.value
     assert [c["status"] for c in parent.details["nestedCalls"]["calls"]] == [
         "error"
-    ] * 3 + ["ok", "error"]
-    assert result.tool_invocation_count == 2
+    ] * 3 + ["ok"] * 5
+    assert result.tool_invocation_count == 6
+    assert result.budget_exhausted_count == 0
 
 
 @pytest.mark.parametrize("phase", ["bash", "compute"])

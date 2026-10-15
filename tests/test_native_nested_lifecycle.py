@@ -426,7 +426,8 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         ],
     )
     loop, _, events, _ = _setup(_Runner(body), tools=tools)
-    loop.run(_run_input(tool_budget=5))
+    # The parent holds the only place in the budget: nested calls take none.
+    loop.run(_run_input(tool_budget=1))
     lifecycle = [
         event
         for event in events.events
@@ -453,10 +454,15 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         NestedCallStatus.SETTLED,
         NestedCallStatus.BLOCKED,
         NestedCallStatus.MALFORMED,
-        NestedCallStatus.BUDGET_EXHAUSTED,
+        NestedCallStatus.SETTLED,
     ]
-    assert not completed[0].result.is_error
-    assert all(event.result.is_error for event in completed[1:])
+    assert [event.result.is_error for event in completed] == [
+        False,
+        True,
+        True,
+        True,
+        False,
+    ]
     assert all(
         event.call.provider_correlation_id == f"parent0/{i}"
         for i, event in enumerate(completed, 1)

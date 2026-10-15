@@ -179,8 +179,8 @@ class ExtensionToolContext(CommandContext, Protocol):
     ``direct`` tools and every registered ``codemode`` or ``deferred`` tool,
     as they were when this tool was called. ``execute_tool(name, arguments)``
     runs one of them through the same argument validation, ``tool_call`` and
-    ``tool_result`` hooks and tool budget as a call the model made, and
-    returns its ``ToolCallOutcome``: the call, the result with its image
+    ``tool_result`` hooks as a call the model made (outside the tool
+    budget, as Pi has none), and returns its ``ToolCallOutcome``: the call, the result with its image
     blocks, ``is_error`` and the duration. ``signal`` cancels that call
     alone (default: ``signal``, the tool's own), and ``on_update`` receives
     its partial results as ``ToolResult`` values (Pi ``onUpdate``). It never

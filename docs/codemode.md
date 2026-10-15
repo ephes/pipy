@@ -168,8 +168,8 @@ What a call returns depends on the tool:
   that declares an output schema when a result carries no structured content.
 - A call that fails without structured content raises `ToolError` with the
   tool's error text, or `Tool "<name>" failed` when the tool gave none. So do
-  a call that a `tool_call` hook blocked, a call whose arguments do not fit
-  the tool's schema and a call that the tool budget refused.
+  a call that a `tool_call` hook blocked and a call whose arguments do not fit
+  the tool's schema.
 
 A `tool_result` hook sees the result before the script does. A hook that
 replaces the content decides the structured content with it: the script
@@ -236,12 +236,14 @@ for call in calls:
         texts.append(f"failed: {error}")
 ```
 
-The calls start in the order the script submits them: their ids, their place
-in the tool budget, the `tool_call` hooks and the nested-call record follow
-that order, whichever call finishes first. Calls of a tool registered with
+The calls start in the order the script submits them: their ids, the
+`tool_call` hooks and the nested-call record follow that order, whichever
+call finishes first. A script's calls take no place in the per-turn tool
+budget (`--tool-budget`), which counts only the calls the model makes; as in
+Pi, a script may make any number of calls. Calls of a tool registered with
 `execution_mode="sequential"` run one at a time, in that order, as in Pi;
 such a call starts at once (its row and its start event) and waits for its
-turn before its budget place and its `tool_call` hooks, and one still
+turn before its `tool_call` hooks, and one still
 waiting when the script ends does not run and ends as `cancelled`
 ([running other tools](extension-api.md#running-other-tools)). A call still running when the
 script ends, because the script did not ask for its result or because the

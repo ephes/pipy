@@ -368,15 +368,14 @@ def decide_tool_admission(
     *,
     mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
     callable_names: frozenset[str] | None = None,
-    pending: int = 0,
 ) -> AgentToolPolicyTransition:
     """Apply the core budget and authorization gates in order.
 
     A direct call is authorized by the request that declared the tool. A
     nested call may pass ``callable_names``, its parent's callable snapshot,
     which then authorizes it instead: a script reaches tools that no request
-    declares. ``pending`` counts the nested calls that were admitted and have
-    not settled yet; each of them will take a place in the budget.
+    declares. Only a direct call meets the budget: nested calls take no
+    place in it, as Pi has no limit on the calls a tool makes.
     """
 
     _validate_invocation_state(state, mode)
@@ -387,17 +386,14 @@ def decide_tool_admission(
             raise ValueError("callable_names authorize nested calls only")
         if type(callable_names) is not frozenset:
             raise TypeError("callable_names must be an exact frozenset or None")
-    require_non_negative_int(pending, "pending")
-    if pending and mode is not AgentToolInvocationMode.NESTED:
-        raise ValueError("only nested calls can be pending")
     if type(snapshot) is not AgentProviderRequestSnapshot:
         raise TypeError("snapshot must be AgentProviderRequestSnapshot")
     if type(call) is not AgentToolCall:
         raise TypeError("call must be AgentToolCall")
     validate_agent_tool_call(call)
     if (
-        state.invocations_this_turn + pending + state.reserved_parent_slot
-        >= state.tool_budget
+        mode is AgentToolInvocationMode.DIRECT
+        and state.invocations_this_turn >= state.tool_budget
     ):
         return AgentToolPolicyTransition(
             AgentToolPolicyAction.BUDGET_EXHAUSTED,
@@ -412,7 +408,9 @@ def decide_tool_admission(
         else call.tool_name in callable_names
     )
     if not authorized:
-        return _consume_without_execution(state, AgentToolPolicyAction.UNAUTHORIZED)
+        return _consume_without_execution(
+            state, AgentToolPolicyAction.UNAUTHORIZED, mode
+        )
     return AgentToolPolicyTransition(AgentToolPolicyAction.EXECUTE, state)
 
 
@@ -431,7 +429,7 @@ def apply_tool_policy_decision(
         raise TypeError("policy_decision must be AgentToolPolicyDecision")
     validate_agent_tool_policy_decision(policy_decision)
     if policy_decision.blocked_reason is not None:
-        return _consume_without_execution(state, AgentToolPolicyAction.BLOCKED)
+        return _consume_without_execution(state, AgentToolPolicyAction.BLOCKED, mode)
     return AgentToolPolicyTransition(AgentToolPolicyAction.EXECUTE, state)
 
 
@@ -456,20 +454,19 @@ def settle_tool_execution(
             interruption=outcome.interruption,
         )
     if mode is AgentToolInvocationMode.NESTED:
-        if (
-            state.invocations_this_turn + 1 + state.reserved_parent_slot
-            > state.tool_budget
-        ):
-            raise ValueError("nested settlement cannot exceed tool_budget")
+        # A nested call takes no place in the budget (Pi has none).
         if outcome.malformed_arguments:
             return AgentToolPolicyTransition(
                 AgentToolPolicyAction.NESTED_MALFORMED,
                 replace(
                     state,
-                    invocations_this_turn=state.invocations_this_turn + 1,
                     nested_malformed_count=state.nested_malformed_count + 1,
                 ),
             )
+        return AgentToolPolicyTransition(
+            AgentToolPolicyAction.SETTLED,
+            replace(state, tool_invocation_count=state.tool_invocation_count + 1),
+        )
     if outcome.malformed_arguments:
         malformed_count = state.malformed_argument_count + 1
         malformed_streak = state.consecutive_malformed_streak + 1
@@ -494,11 +491,7 @@ def settle_tool_execution(
             state,
             invocations_this_turn=state.invocations_this_turn + 1,
             tool_invocation_count=state.tool_invocation_count + 1,
-            consecutive_malformed_streak=(
-                state.consecutive_malformed_streak
-                if mode is AgentToolInvocationMode.NESTED
-                else 0
-            ),
+            consecutive_malformed_streak=0,
         ),
     )
 
@@ -506,7 +499,12 @@ def settle_tool_execution(
 def _consume_without_execution(
     state: AgentToolPolicyState,
     action: AgentToolPolicyAction,
+    mode: AgentToolInvocationMode,
 ) -> AgentToolPolicyTransition:
+    """A refused call: a direct one spends its place in the budget, a
+    nested one takes none."""
+    if mode is AgentToolInvocationMode.NESTED:
+        return AgentToolPolicyTransition(action, state)
     return AgentToolPolicyTransition(
         action,
         replace(state, invocations_this_turn=state.invocations_this_turn + 1),

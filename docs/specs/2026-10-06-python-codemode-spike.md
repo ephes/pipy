@@ -398,7 +398,10 @@ inspected end-to-end/tmux evidence.
   unauthorized, blocked and malformed calls each consume one slot; only
   success/tool error increments the execution count. Interrupted calls consume
   neither and retain the reservation. Exhaustion increments only the exhaustion
-  counter and carries no fatal failure.
+  counter and carries no fatal failure. MCP parity plan T5 (goal check r3, D1)
+  changed this to match Pi, which has no limit on the calls a tool makes:
+  nested calls are admitted without the budget check and consume no slot, so
+  only the reservation and the direct calls count against `tool_budget`.
 - Parent settlement releases the reservation before applying unchanged direct
   accounting: success/tool error consumes the slot and resets the direct malformed
   streak; malformed increments the direct count/streak without consuming a slot
@@ -435,7 +438,7 @@ inspected end-to-end/tmux evidence.
 | Total output | 16 Mi characters of text and image data, or 100 000 `text()`, `image()` and print calls (Pi's limits; 1 MiB of text before MCP parity plan G5) | Host kills the worker and returns a script error with Pi's guidance to print a summary or write large data to a file with a tool |
 | Model-visible output | 10 000 tokens (chars/4); a script's `max_output_tokens` option sets it, at most what fits the 64 KiB result text | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
 | Diagnostic stderr | 64 KiB | Captured, never parsed |
-| Nested calls | Turn tool budget | §4.4 |
+| Nested calls | None, as in Pi (the turn tool budget before MCP parity plan T5) | §4.4 |
 
 Pi's default wall limit is effectively unlimited. pipy first set a finite
 one (120 s); since MCP parity plan G5 it follows Pi: no deadline unless the

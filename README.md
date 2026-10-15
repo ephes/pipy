@@ -382,8 +382,9 @@ touches `pipy-session` records).
 `pipy` and `pipy repl` start the interactive native shell with default slug
 `native-repl`. There is one product REPL: the bounded model-driven tool loop.
 The model drives `read`, `ls`, `grep`, `find`, `write`, `edit`, and `bash`.
-`--tool-budget` (default 50, max 200) caps invocations per user
-turn. Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
+`--tool-budget` (default 50, max 200) caps the tool calls the model makes per
+user turn; the calls a tool makes itself, such as a codemode script's, are
+not counted, as Pi has no limit on them. Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
 targets. Read excerpts, shell output, and provider-visible tool results retain
 independent automatic output bounds.
 

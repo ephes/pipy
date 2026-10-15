@@ -1208,14 +1208,13 @@ class AgentLoop:
         call: AgentToolCall,
         tools: NestedCallableTools | None,
         eligible: frozenset[str],
-        pending: int,
         waiter: ToolInterruptWaiter | None,
-        publish: Callable[[AgentToolPolicyState], None],
     ) -> _SettledToolCall | tuple[AgentToolCall, dict[str, Any]]:
         """Session thread: a nested call's admission, argument validation,
         ``tool_call`` hooks and readiness wait, on the current state. The
         call to run and its arguments when it may run; otherwise how it
-        settled without running."""
+        settled without running. Nested calls take no place in the tool
+        budget, as Pi has no limit on the calls a tool makes."""
         mode = AgentToolInvocationMode.NESTED
         admission = decide_tool_admission(
             state.tool_state,
@@ -1223,16 +1222,7 @@ class AgentLoop:
             call,
             mode=mode,
             callable_names=eligible,
-            pending=pending,
         )
-        if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
-            publish(admission.state)
-            result = self._tools.error_result(
-                call,
-                f"tool budget exhausted (limit {admission.state.tool_budget})",
-            )
-            _validate_tool_result_for_call(result, call)
-            return _SettledToolCall(result, admission)
         if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
             result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
             _validate_tool_result_for_call(result, call)
@@ -1607,13 +1597,11 @@ class _NestedPipeline:
     """The pipeline of the nested calls under one composite parent.
 
     Every method runs on the session thread except a pending call's
-    ``execute``. ``pending`` counts the calls admitted to run that have not
-    settled: each takes a place in the budget, since calls asked for on
-    several threads run at the same time. A call that waits in the
-    exclusive queue emits its start event when it is queued (``queued``,
-    as Pi does before it awaits the queue), and ``settle`` emits none for
-    it when its turn comes; one whose turn never comes ends in
-    ``withdrawn``.
+    ``execute``. Its calls take no place in the tool budget. A call that
+    waits in the exclusive queue emits its start event when it is queued
+    (``queued``, as Pi does before it awaits the queue), and ``settle``
+    emits none for it when its turn comes; one whose turn never comes ends
+    in ``withdrawn``.
     """
 
     def __init__(
@@ -1633,7 +1621,6 @@ class _NestedPipeline:
         self._callable_tools = callable_tools
         self._eligible = eligible
         self._publish = publish
-        self._pending = 0
         # The queued calls, by id, with when each was queued (its start).
         self._queued: dict[str, float] = {}
 
@@ -1680,15 +1667,12 @@ class _NestedPipeline:
             child,
             tools,
             self._eligible,
-            self._pending,
             waiter,
-            self._publish,
         )
         if isinstance(before, _SettledToolCall):
             return self._outcome(child, before, started)
         assert tools is not None
         run_child, arguments = before
-        self._pending += 1
         finished = False
 
         def execute(
@@ -1714,7 +1698,6 @@ class _NestedPipeline:
             if finished:
                 raise RuntimeError("nested call settled twice")
             finished = True
-            self._pending -= 1
             settled = loop._settle_execution(
                 self._state.tool_state,
                 child,
@@ -1742,8 +1725,7 @@ class _NestedPipeline:
         execution_seconds: float | None = None,
     ) -> NestedToolCallOutcome:
         action = settled.transition.action
-        if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
-            self._publish(settled.transition.state)
+        self._publish(settled.transition.state)
         status = NestedCallStatus(
             "malformed"
             if action is AgentToolPolicyAction.NESTED_MALFORMED
