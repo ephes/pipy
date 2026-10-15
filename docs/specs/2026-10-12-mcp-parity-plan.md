@@ -4,9 +4,10 @@ Status: plan, 2026-10-12. Work item `pipy-mcp-codemode-parity`, backlog ID MCP1.
 No product code is changed by this document.
 
 Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
-`feat/mcp-parity`, not merged. Of the 287 rows of section 2, 285 are closed
-(106 of them with a recorded limit or deviation), MGR-09 is closed in part
-and SLH-13 is open; see section 3.2 and the
+`feat/mcp-parity`, not merged. The goal check that followed added the slices
+G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
+Of the 292 rows of section 2, 292 are closed
+(109 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -193,12 +194,14 @@ are closed.
 | TLS-17 | Result details are `{server, tool, fullOutputPath?}`. | `ext/tools.ts` `McpToolDetails`, `convertMcpResult` | S16 |
 | TLS-18 | Scripts receive the whole `CallToolResult` without `_meta`: `content` blocks as the server sent them, `structuredContent`, `isError`, never truncated. | `ext/tools.ts` `convertMcpResult` | S16 |
 | TLS-19 | A call to a tool of a disabled server fails with `MCP server "<n>" is disabled.`; of a server without a connection yet with `MCP server "<n>" is still starting.`; of a tool that is now hidden or no longer offered with `MCP tool "<server>/<tool>" is no longer available.` The server is resolved when the call runs, so a call prepared before a disable and enable uses the new connection. | `ext/index.ts` `registerTools` (`getClient`) | S17 |
+| TLS-20 | Tool result images, nested ones included, are processed after the `tool_result` hooks: other types become PNG, an image over the model's limits (2000x2000 pixels, 4.5 MB of base64) is scaled down with a dimension note, and a failure keeps the image. `images.autoResize: false` turns the scaling off. | `utils/tool-result-images.ts` `normalizeToolResultImages`; `core/agent-session.ts` `_afterToolCall` | G7 |
+| TLS-21 | With `images.blockImages` every tool result image in a provider request is replaced by the text `Image reading is disabled.`, consecutive ones once. | `core/sdk.ts` `convertToLlmWithBlockImages` | G7 |
 
 ### 2.7 Session integration (SES)
 
 | ID | Behaviour | Pi source | Slice |
 | --- | --- | --- | --- |
-| SES-01 | When a session starts, the servers are the valid `mcp.json` entries followed by extension-registered servers whose name (compared as namespace) no `mcp.json` entry uses. Every enabled server starts connecting in the background; startup does not wait. | `ext/index.ts` `session_start` handler, `registeredServers` | S17 |
+| SES-01 | When a session starts (also one that replaces the session of the run: `/new`, `/resume`, `/fork`, `/clone`, `/import` and their RPC and SDK forms), the servers are the valid `mcp.json` entries followed by extension-registered servers whose name (compared as namespace) no `mcp.json` entry uses. Every enabled server starts connecting in the background; startup does not wait. | `ext/index.ts` `session_start` handler, `registeredServers` | S17 |
 | SES-02 | A server's tools become available when it connects. Tools of a server are registered with the exposure `toolExposure` resolves for each. | `ext/index.ts` `registerTools` | S17 |
 | SES-03 | When a server announces a changed list, new tools are added, and withdrawn tools become unreachable; a tool that comes back is reachable again with its configured exposure. | `ext/index.ts` `registerTools` (previous/current) | S17 |
 | SES-04 | Problems found at startup are reported once, as one warning: `MCP servers need attention:` then one indented line per config error (`config: <error>`) and per server that needs sign-in or failed (`<name>: needs sign-in` or `<name>: failed: <first error line>`), then `Run /mcp to fix.` Nothing is reported when there is nothing to report. | `ext/index.ts` `reportProblems`, `describeState` | S19 |
@@ -214,10 +217,10 @@ are closed.
 | SES-14 | Disabling a server in a session closes its connection (also one that is still connecting) and makes its tools unreachable; enabling connects it after the previous connection finished closing. | `ext/index.ts` `setEnabled`, `hideTools` | S21 |
 | SES-15 | Changing a server's exposure in a session re-registers its tools with the new exposure, and tools that are no longer `direct` leave the declared set. | `ext/index.ts` `setExposure` | S21 |
 | SES-16 | A config change from the session is saved to the override file when the server has one, else to the file that defines it. Servers registered by extensions change for the session only. A failed save reports `Could not update <path>: <reason>` and changes nothing. | `ext/index.ts` `saveConfig` | S21 |
-| SES-17 | When the session ends, every connection is closed and running sign-ins are cancelled before shutdown completes; a server that is still connecting is closed too. | `ext/index.ts` `session_shutdown` handler | S17 |
+| SES-17 | When the session ends, or another session replaces it, every connection is closed and running sign-ins are cancelled before shutdown completes; a server that is still connecting is closed too. | `ext/index.ts` `session_shutdown` handler | S17 |
 | SES-18 | A sign-in done by another process (for example `pipy mcp login` run through `bash`) is picked up at the next turn: servers in `needs-auth` whose stored tokens changed reconnect. | `ext/index.ts` `turn_start` handler, `reconnectSignedIn`, `tokensAtSignIn` | S31 |
 | SES-19 | Every MCP call, direct or nested, passes the normal tool pipeline: `tool_call` hooks can block it and `tool_result` hooks can change its result, for built-in resource tools as well. | `docs/mcp.md` "Permissions"; `core/agent-session.ts` tool hooks | S17 |
-| SES-20 | `/reload` reads `mcp.json` again: removed servers disconnect and their tools become unreachable, new servers connect, changed entries reconnect with the new config, and the startup report and the first-prompt wait apply again. | `ext/index.ts` `session_shutdown` and `session_start` handlers (reload) ; `docs/mcp.md` "Quick setup" | S22 |
+| SES-20 | `/reload` reads `mcp.json` again: removed servers disconnect and their tools become unreachable, new servers connect, changed entries reconnect with the new config, and the startup report and the first-prompt wait apply again. Another session in the same run does the same. | `ext/index.ts` `session_shutdown` and `session_start` handlers (reload, session switch) ; `docs/mcp.md` "Quick setup" | S22, N1 |
 
 ### 2.8 `mcp_servers` prompt section (SEC)
 
@@ -247,6 +250,7 @@ are closed.
 | EXP-10 | The three resource tools count as MCP tools for these rules. | `core/mcp-servers.ts` `isMcpToolName` | S23 |
 | EXP-11 | `--no-mcp` turns MCP off for one run: no `mcp.json` is read, no server connects, there are no MCP tools and no `/mcp` command. | `cli/args.ts` (`--no-mcp`); `main.ts` (`disabledBuiltinExtensions`) | S19 |
 | EXP-12 | MCP can be turned off in settings with `"extensions": ["-builtin:mcp"]` (project value on top of the user value), shown and toggled in the config command's Built-in list. `--no-extensions` turns it off too, and `-e builtin:mcp` turns it on again for that run. | `docs/mcp.md` "Replace the built-in MCP support"; coding-agent `CHANGELOG.md` 0.99.0 "Built-in section in pi config" | S19 |
+| EXP-13 | `codemode` and `tool_search` are the built-in extensions `builtin:codemode` and `builtin:tool-search`: `"-builtin:codemode"`, `"-builtin:tool-search"` in `extensions`, `--no-extensions` and `-e builtin:<name>` apply to them as to `mcp`, and a reload reads the entries again. | `extensions/index.ts`; `core/resource-loader.ts` (`disabledBuiltinExtensions`, `builtin:<name>`) | G8 |
 
 ### 2.10 `tool_search` (TSR)
 
@@ -263,6 +267,7 @@ are closed.
 | TSR-09 | Loaded tools are recorded in the transcript as a tool change and stay declared on that branch through `/tree`, resume and fork. | `ts/tool.ts` header; `docs/cli.md` "Tool search" | S09 |
 | TSR-10 | After resume and after `/reload`, tools that `tool_search` loaded are declared again once their server has reconnected before the next prompt starts; a tool that registers after the next prompt started is not activated by the restore. | `core/agent-session.ts` `_pendingToolNames`; `test/suite/agent-session-mcp.test.ts` "MCP tools after resume and reload" | S22 |
 | TSR-11 | When every matching tool is already declared, nothing is loaded and the result is `No matching tools found.` | `test/suite/agent-session-mcp.test.ts` "finds nothing to load when every matching tool is already declared" | S09 |
+| TSR-12 | A tool whose server is disabled or stops offering it leaves the active tools; offered again, a `codemode` or `deferred` tool that `tool_search` had loaded has to be loaded again. | `extensions/mcp/index.ts` `registerTools`, `hideTools`; `core/agent-session.ts` `_applyToolLoadout` | G8 |
 
 ### 2.11 Codemode reaching other tools (CMD)
 
@@ -338,7 +343,7 @@ name.
 | OAU-15 | The `state` parameter is 32 random bytes in hex, new for every sign-in. Stored state for another server URL is never used. | `mcp/oauth/provider.ts` `state`, `own`; `ext/oauth.ts` `signInMcpServer` | S28, S31 |
 | OAU-16 | The callback server listens on `127.0.0.1` at a free or configured port, path `/callback`. Another path gives 404; an unknown or missing `state` 400 `Invalid or expired OAuth state`; an `error` parameter fails the sign-in with its description; a missing code gives 400; a response on a path other than the expected one fails with `The authorization response arrived on another redirect URI`. It gives up after 5 minutes. | `mcp/oauth/callback.ts` `OAuthCallbackServer` | S29 |
 | OAU-17 | The browser page after the redirect is HTML: success says `Signed in to the MCP server. You may now close this page.`; failure shows the message and details. | `ext/oauth.ts` `listenForCallback` (`renderPage`) | S29 |
-| OAU-18 | Credentials are stored in `<config home>/mcp-auth.json`, readable only by the user, keyed by server namespace and URL. Servers with one URL under different names sign in separately; servers with the same name and URL in different `mcp.json` files share a sign-in. Signing out deletes the entry. | `ext/oauth.ts` `McpOAuthCredentialStore`, `storeKeys` | S30 |
+| OAU-18 | Credentials are stored in `<config home>/mcp-auth.json`, readable only by the user, keyed by server namespace and URL. Servers with one URL under different names sign in separately; servers with the same name and URL in different `mcp.json` files share a sign-in. Signing out deletes the entry. An entry an older Pi stored under the URL alone is taken over by the first server that loads it, read by `tokens` and deleted by a sign-out. | `ext/oauth.ts` `McpOAuthCredentialStore`, `storeKeys` | S30 |
 | OAU-19 | An access token within 30 s of expiry is refreshed before a request when a refresh token exists; a failed refresh sends the old token and lets the server decide. | `ext/oauth.ts` `createMcpAuthProvider` (`token`), `REFRESH_SKEW_MS` | S30 |
 | OAU-20 | Requests in one process share one refresh. Other processes are kept out by a lock per server held from reading the tokens to saving the new ones; a lock whose holder died is taken over after 20 s, and a waiter gives up after 25 s. Tokens that changed while waiting are used without refreshing. | `ext/oauth.ts` `withRefreshLock`, `createMcpAuthProvider` (`refresh`) | S30 |
 | OAU-21 | A challenge with `insufficient_scope` never refreshes; it needs a new sign-in, which requests the configured scope, the scopes granted so far and the challenged scopes together, so the new token keeps earlier access. | `ext/oauth.ts` `onUnauthorized`, `signInMcpServer`; `mcp/oauth/flow.ts` `stepUpScope` | S31 |
@@ -357,6 +362,7 @@ name.
 | OAU-34 | With CIMD, when the server sends `iss` in responses the client ID is `<base>/client.json` with redirect `http://127.0.0.1:<port>/callback`; otherwise it is `<base>/<id>/client.json` with redirect path `/callback/<id>`, where `<id>` is the URL-safe base64 of the first 9 bytes of SHA-256 over the server URL without fragment, and the response is accepted only on that path. Switching to CIMD replaces a stored registered client. | `ext/oauth.ts` `clientMetadataDocument`, `callbackId`, `signInMcpServer` | S32 |
 | OAU-35 | `oauth.authServerMetadataUrl` replaces discovery of the authorization server: the document is used as configured, its issuer is not checked against discovery, and nothing about it is cached, so a changed URL applies at once. | `mcp/oauth/discovery.ts` `discoverOAuthServerInfo`; `mcp/oauth/flow.ts` `runFlow` | S32 |
 | OAU-36 | `"auth": {"provider": "<p>"}` sends the current `/login` token of that provider as the bearer token, read on every request so provider refreshes apply; MCP stores no copy and never runs MCP OAuth for that server. | `ext/runtime.ts` `McpServerConnection` constructor (`providerToken`) | S33 |
+| OAU-37 | `adaptOAuthProvider` connects any `OAuthClientProvider` to the HTTP transport: the provider's access token; after a 401 one shared run of the flow, a retry when the token was replaced meanwhile, a step-up authorization for `insufficient_scope`; `REDIRECT` fails the request with an authorization-required error. | `mcp/oauth/flow.ts` `adaptOAuthProvider`, `stepUpScope` | L2 |
 
 ### 2.14 `pipy mcp` shell commands (CMDL)
 
@@ -462,11 +468,13 @@ Pi-shaped camelCase alias where the API already offers both).
 | DOC-04 | The extension API reference documents exposure, namespaces, annotations, output schemas, `reaches_tools`, nested execution and MCP server registration. | `docs/extensions.md` | S02, S36, S37 |
 | DOC-05 | The changelog records each user-visible change. | coding-agent `CHANGELOG.md` | each slice |
 
-Row count: 287 (CFG 26, CLT 16, STD 7, HTP 11, CON 16, TLS 19, SES 20, SEC 7,
-EXP 12, TSR 11, CMD 30, RES 10, OAU 36, CMDL 14, SLH 13, MGR 10, RND 4, EXT 16,
+Row count: 292 (CFG 26, CLT 16, STD 7, HTP 11, CON 16, TLS 21, SES 20, SEC 7,
+EXP 13, TSR 12, CMD 30, RES 10, OAU 37, CMDL 14, SLH 13, MGR 10, RND 4, EXT 16,
 SDK 4, DOC 5; the abbreviation CLT stands for the client library and CMDL for
 the shell commands). The plan had 280 rows when it was written; item X1
-added SLH-07 to SLH-13.
+added SLH-07 to SLH-13, and the goal-check slices added TLS-20 and TLS-21
+(G7), EXP-13 and TSR-12 (G8) and OAU-37 (L2), behaviour of Pi no row had
+named.
 
 ## 3. Proposed deviations
 
@@ -480,14 +488,14 @@ owner has decided.
 | DEV-01 (decided) | JavaScript script API: `searchTools`, `describeTool`, `describeNamespace`; TypeScript declarations. | Python names `search_tools`, `describe_tool`, `describe_namespace`; declarations rendered as Python-style types with `#` comment lines. Same information (CMD-11 to CMD-15). | Codemode is Python by decision. |
 | DEV-02 (decided) | Config and state under `~/.pi/agent/`, project `.pi/`. | `<config home>/mcp.json`, `mcp-auth.json`, `mcp.log`; project `.pipy/mcp.json`. | Decision. |
 | DEV-03 | Scripts run tool calls in parallel (`Promise.all`). | Ported in G3, in a Python form: `tools.<name>.submit(args)` starts a call and returns at once, its `.result()` waits for it; a plain `tools.<name>(args)` waits for its call. At most 16 requests of one script wait for their reply at once; a script that submits more first waits for one. Until G3 nested calls were sequential, as CM1 specified. | The guest has no promises or event loop; the bound keeps the host's buffer of unread replies finite, where Pi has no bound. |
-| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4), structured `bash` results, image results from `read` and the `// @options:` line (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). |
+| DEV-04 | Codemode features that are not about reaching tools: raw-source input with a grammar, `return`, `console.*`, `exit()`, the `// @options:` line, `store()`/`load()`, `models.*`, structured `bash` results, image results from `read`. | Not in this campaign, except `image()` (S39), `store()`/`load()` (G4), structured `bash` results, image results from `read` and the `// @options:` line (G5). The others remain CM1 follow-ons in the backlog. `store()`/`load()` has Pi's semantics in a Python form: `store(key, None)` deletes (Pi: `undefined`), so no top-level `null` is stored; deleting a key the session's store lacks writes no entry; sizes count Python characters; `NaN` is refused (Pi stores `null`); an early exit is `sys.exit()` or `sys.exit(0)`. | They do not change whether or how MCP and extension tools are reached. `image()` and `store()`/`load()` were ported after the goal check (finding M4 for the store). The owner excluded `models.*` (goal-check finding M5) from the parity goal on 2026-10-14 (section 7, Q7); it stays a CM1 follow-on in the backlog. |
 | DEV-05 | The client identifies as `pi` in `initialize` and in dynamic client registration. | `pipy` and pipy's version. `oauth.clientName` covers servers that accept only known client names, as in Pi. | Product name. |
-| DEV-06 | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. If the owner later names a default (section 7, Q1), the field becomes optional. | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
-| DEV-07 | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
-| DEV-08 | Credentials stored by older Pi versions under the URL alone are taken over by the first server that loads them. | Not ported. | No pipy version ever wrote that key; the no-shim rule applies. |
-| DEV-09 | Windows process handling (`taskkill`, `~\` paths, `.cmd` shims). | POSIX behaviour is ported and tested; Windows is not verified. | pipy's platform evidence is macOS and Linux (see `docs/codemode.md`). |
+| DEV-06 (decided) | CIMD documents are served from `https://pi.dev/oauth/`, built in. | The mechanism is ported in full (OAU-33, OAU-34), but there is no built-in document. `<base>` comes from a pipy-only field `oauth.clientMetadataBaseUrl` (an `https` URL) next to `clientRegistration: "cimd"`; the user hosts `client.json` and, for servers without `iss`, `<id>/client.json` there. `cimd` without that field is a config error: `server "<n>": oauth.clientRegistration "cimd" requires oauth.clientMetadataBaseUrl`. Dynamic client registration stays the default; CIMD is opt-in through that field (owner decision of 2026-10-14, section 7, Q1). | pipy has no hosted document, and identifying as Pi's document is an identity claim only the owner can make. |
+| DEV-07 (decided) | `/login` offers to configure the Radius MCP server after a Radius sign-in. | Not ported. Excluded from the parity goal by the owner on 2026-10-14 (goal-check finding O6, section 7, Q7). | pipy has no Radius provider. `auth.provider` itself is ported (OAU-36). |
+| DEV-08 (closed by L2) | Credentials stored by older Pi versions under the URL alone are taken over by the first server that loads them. | Ported in L2 (goal-check finding O7): `load` takes such an entry over under the file lock, `tokens` falls back to it and a sign-out deletes it (OAU-18). Left: the legacy key is the URL as `parse_http_url` writes it plus `#<fragment>`, not Pi's WHATWG `href` where the two differ (percent-encoding of the path, an empty fragment), so such an entry is not found. | Proposed first because no pipy version wrote the key; the goal check counted the entries an older Pi left in a shared `mcp-auth.json`. |
+| DEV-09 (decided) | Windows process handling (`taskkill`, `~\` paths, `.cmd` shims). | POSIX behaviour is ported and tested; Windows is not verified. The owner excluded stdio MCP servers on Windows (goal-check finding C7) from the parity goal on 2026-10-14 (section 7, Q7). | pipy's platform evidence is macOS and Linux (see `docs/codemode.md`). |
 | DEV-10 | Tool arguments are validated against the full JSON Schema of the tool before the call. | MCP and other foreign-schema tools are prepared as Pi's `validateToolArguments` prepares a plain JSON Schema: an optional `null` the property's schema refuses is dropped and primitives are coerced (`coerceWithJsonSchema`, with JavaScript's number reading and writing; since G6). TypeBox's `Value.Convert` pass before that is not ported; Pi's tests of plain schemas pass without it. They are then validated with a standard-library validator (S01) that enforces the keywords and formats Pi's TypeBox validator checks (since G6), except `unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`, `$recursiveRef`, a `$ref` outside the schema or under a nested `$id` and the formats `hostname`, `idn-hostname`, `idn-email`, `iri`, `iri-reference`, `url` and `regex`; patterns are Python's `re` and lengths count code points. For those the server remains the authority, and `oneOf`, `not`, `if` and `maxContains` refuse only where every keyword involved is enforced. The messages are pipy's. Native and extension tools keep pipy's strict subset, without coercion. | No JSON Schema dependency in the runtime (`pyproject.toml` keeps two dependencies). The named set is pinned by tests. |
-| DEV-11 | MCP, codemode and tool search are built-in extensions built only on the public extension API. | They are native modules. The public extension API still gains every hook Pi documents for them (section 2.18). | pipy's codemode is a native composite tool with a WASI host; rebuilding it on the extension API is an architecture change the backlog rules out. |
+| DEV-11 | MCP, codemode and tool search are built-in extensions built only on the public extension API. | They are native modules. The public extension API still gains every hook Pi documents for them (section 2.18). Since G8 the settings and flags treat all three as built-in extensions (`builtin:mcp`, `builtin:codemode`, `builtin:tool-search`, EXP-12, EXP-13); Pi's fourth, `llama.cpp`, has no counterpart. | pipy's codemode is a native composite tool with a WASI host; rebuilding it on the extension API is an architecture change the backlog rules out. |
 | DEV-12 | The official MCP conformance suite runs in CI through `npx`. | A manual `just` recipe runs the same suite against pipy's client with a committed baseline (S40); CI runs pipy's own mirrored cases (section 6). | The suite needs Node and network access; pipy's CI has neither as a requirement. |
 | DEV-13 | The token usage and cost of nested results, at every depth, is added to the calling tool's result usage and counts toward the session cost. | Not ported in this campaign. pipy tool results carry no usage field. | Nothing in scope produces tool usage: MCP tools and pipy's built-in and extension tools report none, and the only Pi producers are `models.classify()` and `models.generateImages()` (DEV-04). The field and its propagation belong to the slice that adds a usage-producing tool. |
 | DEV-14 | The refresh lock of a server's credentials is a lock directory (`proper-lockfile`): a lock its holder stopped renewing is taken over after 20 s (OAU-20). | The lock is a `flock` on a lock file. The kernel frees the lock of a holder that died at once, and no lock is ever taken from a process that is alive. The 25 s a waiter waits are kept. | pipy already locks `auth.json` with `flock`; it needs no renewing thread and cannot be lost while held, which a lock taken over by age can (Pi `onCompromised`). Added by S30. |
@@ -513,11 +521,11 @@ that is named here as `closed, with limits` and cites the DEV row.
 
 | ID | Rows | pipy differs from Pi in | Kind | Recorded in |
 | --- | --- | --- | --- | --- |
-| DEV-15 | SES-04, EXT-06, EXT-10 | A notice is shown where the session drains its notices, before the next prompt runs and when a turn starts, not at the moment it arises. That holds for the startup report, the report for a server an extension registered later, and the `mcp_servers_change` hooks; `codemode` or `tool_search` is activated for a server registered later at the same points. A session whose first action is `/mcp` therefore sees the startup report after the manager was closed. | other form | Decided in S19, S34, S36 |
-| DEV-16 | SES-20 | `/new`, `/resume` and `/fork` in one process keep the servers: `mcp.json` is not read again and the startup report and the first-prompt wait are not repeated. Pi closes the servers and reads the files again there. `/reload` is transactional: a reload that keeps the previous extensions keeps the running servers, where Pi restarts them in every case. | narrower | Decided in S17, S22; `docs/mcp.md` "Reloading" |
+| DEV-15 | SES-04, EXT-06, EXT-10 | A notice is shown while the session waits for input (the terminal's editor and modal key loops, an RPC `notify` while no command runs), not at the moment it arises, so one that arises during a run is shown after it; that holds for the startup report and the report for a server an extension registered later (since N1). The `mcp_servers_change` hooks, and the activation of `codemode` or `tool_search` for a server registered later, still run where the session drains its notices, before the next prompt and when a turn starts. Plain non-TTY input, one-shot runs and SDK product sessions show notices at the next step. | other form | Decided in S19, S34, S36, N1 |
+| DEV-16 | SES-20 | Another session in the same run restarts the MCP servers and reads `mcp.json` again, as Pi does (since N1), but only the MCP tools restart: the rest of the tool selection, including a `codemode` or `tool_search` that discovery turned on, is kept, where Pi builds a new runtime from the configured tools. Extensions get no `session_shutdown`/`session_start` on such a switch (not specific to MCP). `/reload` is transactional: a reload that keeps the previous extensions keeps the running servers, where Pi restarts them in every case. | narrower | Decided in S17, S22, N1; `docs/mcp.md` "Reloading" |
 | DEV-17 | SES-05, SES-10, SLH-02, SLH-03, CON-11 | pipy's waits can be interrupted where Pi's cannot: the first prompt's wait (Escape or an abort ends the wait and the prompt goes on), the waits of `/mcp` and its subcommands, the reconnects at a turn's start, and the 250 ms before a resource request is made again. | other form | Decided in S18, S21, S26, S31 |
 | DEV-18 | TLS-10, RND-02 | Progress of a running call is appended to the call's live output line by line, and the row shows the last line. Pi replaces the preliminary result, which also carries `{server, tool}` details. | other form | Decided in S16, S35 |
-| DEV-19 | TLS-11, RES-09 | An image is never drawn in the terminal: the row shows `[Image: [<mime>] <w>x<h>]`, which is what Pi shows without an image protocol. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4) |
+| DEV-19 | TLS-11, RES-09 | An image is drawn in the terminal when it speaks the Kitty or iTerm2 protocol and `terminal.showImages` is on (since N4); otherwise the row shows `[Image: [<mime>] <w>x<h>]`. Narrower than pi-tui: no `CSI 16 t` cell-size query (9x18 pixel cells are assumed); Kitty gets PNG only (another type shows the line below the box); data that is not plain base64 shows the line; an iTerm2 image gets `height=<reserved rows>` instead of `auto`; an image is at most as tall as the terminal; `/settings` has no "Show images" or "Image width" rows, and a change applies on `/reload`. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4), N4 |
 | DEV-20 | CMD-29, CMD-30 | Text and images share Pi's limit of 16 Mi characters (since G5; S39 had a byte cap of 16 MiB for images beside 1 MiB of text), and `image()` also raises `ValueError` once the images alone would pass it. There are no `==> text N/M <==` separators (DEV-04). A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
 | DEV-21 | TLS-11 | How a tool result's images are sent to a provider differs in three points: a text-only result is sent as before (no `(no tool output)` for an empty one); the Mistral adapter sends images as the Chat Completions family does; there is no `requiresAssistantAfterToolResult`. Images are withheld from a model without image input only when the model has a catalog row of its own, so a model without a row and a provider object passed in by an embedder are sent the images. | narrower | Decided in S39 (part 2); `docs/providers.md` |
 | DEV-22 | CMD-25 | A `tool_result` transform cannot replace usage: pipy counts no usage of tools (DEV-13). Since G6 it is shown the whole result (blocks, details, the arguments and the call ids) and replaces the content, images included, the error flag and the details as Pi's does. | narrower | Decided in S04, S39 (part 1), G6 |
@@ -530,18 +538,18 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi's CLI does the same (it always passes the initial tool names); Pi's SDK resume, which the mirrored Pi test uses, restores. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22 |
 | DEV-31 | none | An unknown name in `--tools`, `--exclude-tools` or `defaultTools` is refused at startup; Pi accepts it. An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. | stricter | Decided in S10 |
-| DEV-32 | EXP-12 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin mcp`. The `builtin:mcp` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). | other form | Decided in S19 |
+| DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). An unknown `builtin:` name is a startup error, where Pi reports a load error. | other form | Decided in S19, G8 |
 | DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
 | DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built. `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
 | DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. | stricter | Decided in S16, S17 |
 | DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21 |
 | DEV-38 | SLH-01, SLH-02, SLH-06 | For a line typed into a session the order is built-in command, prompt template or custom command, extension command, `/mcp`, so a template or custom command named `mcp` takes the command's place; in Pi only an extension command does. For a prompt of print, JSON and RPC mode the order is Pi's. An unknown action prints the usage without waiting for the startup connections. | other form | Decided in S21, X1 |
-| DEV-39 | SLH-07 | A command that fails is the line `pipy: extension command /<name> failed (<error>)` on stderr in print, JSON and RPC mode. Pi prints `Extension error (command:<name>): <message>` and, in RPC mode, sends an `extension_error` object. | other form | Decided in X1 |
-| DEV-40 | SLH-09 | pipy's rules for skills and templates stay: a template named like a built-in command is not expanded, custom commands (`.pipy/commands`) expand like templates, a skill or template turn skips the `input` hooks (Pi runs them first), and an unknown or unreadable skill is reported on stderr before the text goes to the model. | other form | Decided in X1 |
-| DEV-41 | SLH-11 | In print and JSON mode a command's notices go to stderr; Pi shows nothing there. In RPC mode only `/mcp` has the UI channel: `ctx.has_ui` stays false for extensions, their own `select`, `confirm`, `input` and `editor` return defaults without a request, and there are no `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle` or `set_editor_text` requests and no `timeout` option. | narrower | Decided in X1 |
-| DEV-42 | none | The RPC command `get_commands` answers an empty list; Pi lists the extension commands, prompt templates and skills. | narrower | Decided in X1 |
-| DEV-43 | MGR-09 | The manager view beside the open part of MGR-09: the copy key is fixed to Ctrl+X (pipy has no `app.message.copy` action); titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal is cut above its controls, where Pi's scrolls; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34; `docs/mcp.md` "The `/mcp` manager" |
+| DEV-39 (closed by N2) | SLH-07 | Was: a failing command was a `pipy: extension command /<name> failed (<error>)` line on stderr in every mode. Since N2 it is Pi's extension error: `Extension error (command:<name>): <message>` on stderr in print and JSON mode and an `extension_error` object in RPC mode. | closed | Decided in X1, N2 |
+| DEV-40 | SLH-09 | Custom commands (`.pipy/commands`) expand like templates; an unknown or unreadable skill is reported on stderr before the text goes to the model; for a line typed into a session a skill or template turn skips the `input` hooks (pipy's typed order, DEV-38), and a typed line a hook handled stays in the transcript, because the terminal drew it before the hooks ran. Prompts of print, JSON and RPC mode run the hooks first, as Pi does (since N2). | other form | Decided in X1, N2 |
+| DEV-41 | SLH-11 | Every extension has the RPC client as its UI (since N2), with two differences: a dialog has no `signal` option, so an RPC `abort` does not end an extension's dialog, and the terminal ignores a dialog's `timeout` (Pi counts down). Startup still has the 120 s readiness limit, also while a `session_start` dialog waits. | narrower | Decided in X1, N2 |
+| DEV-42 (closed by N2) | none | Was: `get_commands` answered an empty list. Since N2 it lists the extension commands (with `/mcp`), prompt templates (with pipy's custom commands) and skills; `sourceInfo` has only `path`. | closed | Decided in X1, N2 |
+| DEV-43 | MGR-09 | The manager view: titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal shows the text above its controls through a window that PageUp/PageDown scroll, where Pi's output scrolls with the terminal; `app.message.copy` is used only on the sign-in screen (Pi also copies a `/tree` message and the last assistant message with it); a URL that is not printable ASCII up to 4096 characters stays plain text without the click hint (Pi links every URL), and the click and copy hints are part of the scrolled text; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34, N3; `docs/mcp.md` "The `/mcp` manager" |
 | DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` and `/share` run no extension code. | other form | Decided in S35, S39 (part 3) |
 | DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9), but a wrapped `edit` row has no live preview and a wrapped `bash` row no ticking time while it runs. `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
@@ -549,24 +557,29 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts. Nested calls always run concurrently (no sequential mode, no `executionMode`), and those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result is a text chunk (G2). No event is emitted for a name that is not callable. Usage is DEV-13. | narrower | Decided in S37 |
 | DEV-49 | EXT-12 | The function is called once per capability value and its result kept (since G9); Pi also calls it again before each request with unchanged tools. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37, G9 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
-| DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session runs no slash command (`submit()` sends its text to the model), so `open_url` and `update_config` reach the command and the manager and nothing in a product session uses them. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38; `docs/sdk.md` |
-| DEV-52 | OAU-36 | `auth.provider` reads `auth.json` and the environment only: a `models.json` key, `--api-key`, the `openai-codex` login and ambient cloud credentials give no token, and a login pipy does not refresh for its own requests is sent as stored. A stored `!command` key runs for every MCP request. | narrower | Decided in S33 |
+| DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session has no UI, so `/mcp` without a subcommand opens no manager view and its status is a notice for the `diagnostic_sink`, where Pi's SDK session without UI drops it; `update_config` is used only by a manager change the embedder makes. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38, N2; `docs/sdk.md` |
+| DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; `--api-key` applies to every provider (Pi: the starting model's provider only), as for pipy's model requests; a login pipy does not refresh for its own requests is sent as stored; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key; a stored `!command` key runs for every MCP request. | narrower | Decided in S33, L4 |
 | DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
-| DEV-54 | CFG-02, CFG-13, CFG-17, CFG-18, CFG-20, OAU-34 | URLs are read by a strict parser that repairs nothing: a URL without `//`, with a backslash or with a shortened IPv4 address is an error, where Pi's parser accepts it. The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A file that is not UTF-8 is an error. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | stricter | Decided in S11 to S14, S32; `docs/mcp.md` "Configuration rules" |
-| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; a lock held for 25 s, and a file that cannot be read, are reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. | stricter | Decided in S30, S31 |
-| DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15 | Connections: a failed refresh of the tool list is recorded only for the current connection. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Configured headers and tokens are sent only to the server's own origin, so a redirect to another host fails, and the OAuth fetch follows a redirect only for a request without a body. `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26; `docs/mcp.md` "Server connections" |
-| DEV-57 | CMDL-01, CMDL-04, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. `--oauth-callback-port` and `--timeout` take a decimal number; Pi also reads JavaScript's other spellings. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error. When the question for the redirect URL ends without an answer, pipy ends its line. | other form | Decided in S20a, S31; `docs/mcp.md` "Differences from Pi" |
-| DEV-58 | RES-04, RES-07, RES-08, RES-10 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. A resource list change is refreshed on the thread that refreshes the tool list, one kind per round. | other form | Decided in S23 |
+| DEV-54 | CFG-13, CFG-17, CFG-18, CFG-20, OAU-34 | URLs are read as the WHATWG URL parser reads `http` and `https` (since L3), without IDNA: a non-ASCII host is kept lower-cased, where Pi writes punycode or rejects it, so `bücher.de` and `xn--bcher-kva.de` do not match when a protected resource is compared; `HttpUrl.path` keeps characters WHATWG percent-encodes (its consumers encode them). The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | other form | Decided in S11 to S14, S32, L2, L3; `docs/mcp.md` "Configuration rules" |
+| DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; a lock held for 25 s, and a file that cannot be read, are reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2 |
+| DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15 | Connections: a failed refresh of the tool list is recorded only for the current connection. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Redirects are followed as Node's fetch follows them (since L1 and L2; the differences are DEV-67). `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26, L1; `docs/mcp.md` "Server connections" |
+| DEV-57 | CMDL-01, CMDL-04, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error. When the question for the redirect URL ends without an answer, pipy ends its line. (`--oauth-callback-port` and `--timeout` read JavaScript's `Number()` spellings since L3.) | other form | Decided in S20a, S31, L3; `docs/mcp.md` "Differences from Pi" |
+| DEV-58 | RES-04, RES-07, RES-08, RES-10 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. Tools and resources are listed again independently (since L1), but one listing of a kind runs at a time and lists once more when a change arrived meanwhile, where Pi starts one per notification and the last answer wins. | other form | Decided in S23, L1 |
 | DEV-59 | CMD-03, CMD-04, EXT-02 | A tool cannot hand a script JSON `null` as its structured content; the script gets the text. A reply to a script over 16 MiB, or one that is not JSON, is a `ToolError` that names the tool and the size. The JSON and RPC event `tool_execution_end` carries no structured content. | narrower | Decided in S04 |
 | DEV-60 | TLS-12, TLS-15 | Results of MCP tools: a resource link without `uri` or `name` is shown as `[unsupported MCP content resource_link]`; the message of a failed call is cut to 20 KB like a result and nothing is saved for it; a lone surrogate in a server's text reaches the model as U+FFFD. | other form | `docs/mcp.md` "Differences from Pi in tools" |
 | DEV-61 | none | Texts that come from the platform are Python's, not Node's: errors of the operating system (a missing executable is `[Errno 2] No such file or directory: '<command>'`), messages of the JSON parser, and the reason of a failed save. A JSON number such as `1.0` in log data or a listing is written `1.0`. | other form | `docs/mcp.md` "Differences from Pi" paragraphs |
 | DEV-62 | none (DEV-12) | The conformance runner checks `--mode` in its argument parser (exit status 2), reports a missing `npx` and a temporary directory with a space in its path before anything runs, and fails the `runner` check for a `checks.json` it cannot read. | other form | Decided in S40 (part 1) |
 | DEV-63 | none | Ended by SIGTERM or SIGHUP, pipy exits with status 143 or 129 in every mode; Pi's interactive mode exits with 0. A second signal during the shutdown is ignored in every mode; Pi's RPC mode exits at once on it. The exit hook for server processes that are still running sends SIGKILL to a group that is not gone when its close timeout is over and waits until the servers are reaped (at most a second after the last SIGKILL); Pi's hook sends SIGTERM and returns. | other form | Decided in X2 |
 | DEV-64 | none | A `tool_call` handler's change to the arguments is validated again before the tool runs: a change the schema refuses is the validation error (not a malformed call), and a value that is not JSON blocks the call. Pi runs the changed arguments as they are. | stricter | Decided in G6 |
+| DEV-65 | SLH-13 | Queued RPC input (since N2): the `input` hooks do not run when a message is queued (Pi runs them in `_queueUserInput` and `prompt`); a queued message that later runs while idle meets them before its run, after expansion, and one taken by the run in flight does not. The expansion of queued input records no resource invocation. A `prompt` admitted just as the run ends may be expanded twice when its expansion starts with `/` and names another template. | narrower | Decided in X1, N2 |
+| DEV-66 | RND-04 | A codemode call is still the generic `codemode code="…"` row, not Pi's highlighted script preview of ten visual lines; there is no `Model calls:` cost line, and nested calls are drawn between the call and the output without Pi's spacer. The HTML export shows a cancelled nested call as `⊘` (Pi's page prints `?`), rounds durations to whole milliseconds and does not draw codemode calls ahead (no codemode call renderer). | other form | Decided in S35, N3 |
+| DEV-67 | OAU-37 | The HTTP transport's `fetch` option is not JavaScript's `fetch`: it takes one request object and returns a response object, with a `CancelToken` where Pi passes an `AbortSignal`, and an auth provider is not handed the transport's fetch (`UnauthorizedContext` has none), so `adapt_oauth_provider` sends its flow through the OAuth library's fetch or the one passed to it. A `Location` is resolved with `urljoin`, not a WHATWG parser, and one with user info is refused; a name lookup cannot be interrupted (no socket is opened after it). The OAuth fetch asks for `gzip, deflate` only; Node also asks for `br` and `zstd` over `https`. | other form | Decided in L1, L2 |
+| DEV-68 | TLS-20, TLS-21 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. `images.blockImages` does not touch `@image` attachments (Pi replaces user message images too). | narrower | Decided in G7; `docs/providers.md` |
 
-Two rows are open and are not deviations until the owner decides to accept
-them as such: SLH-13 (commands and expansion in queued RPC input) and the
-hyperlink part of MGR-09. Section 3.2 has the audit result.
+The two rows the audit left open were built after it: SLH-13 (commands
+and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
+N2 and N3. DEV-08, DEV-39 and DEV-42 are closed and keep their numbers so
+that the references stay stable. Section 3.2 has the audit result.
 
 ### 3.2 Audit result (S40, 2026-10-14)
 
@@ -578,15 +591,18 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 179 | see the note |
-| Closed with a limit or deviation | 106 | each names its DEV rows or its limit in the note |
-| Closed in part | 1 | MGR-09: the authorization URL is plain text, not a terminal hyperlink, and there is no "click to open" hint |
-| Open | 1 | SLH-13: `steer`, `follow_up` and a `prompt` sent during a run are queued without a look at the text |
+| Closed with a test | 183 | see the note |
+| Closed with a limit or deviation | 109 | each names its DEV rows or its limit in the note |
+| Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
+| Open | 0 | SLH-13 was open at the audit; N2 built it |
 
-The 106 rows count as closed only if the final judgement accepts the
-deviation or limit each one names. Not rows, and still outstanding: the live evidence
-of section 6.5, which needs the owner's provider login and an account at an
-OAuth MCP server, and question Q1 of section 7.
+Updated in INT3 (2026-10-15), after the goal-check slices G1 to G9, L1 to
+L4 and N1 to N4 were merged: five rows were added (TLS-20, TLS-21, EXP-13,
+TSR-12, OAU-37) and the two rows the audit left open are closed. The
+109 rows count as closed only if the final judgement accepts the
+deviation or limit each one names. Not rows, and still outstanding: the
+live evidence of section 6.5, which needs the owner's provider login and an
+account at an OAuth MCP server.
 
 ## 4. pipy design
 
@@ -601,8 +617,9 @@ New package `src/pipy_harness/native/mcp/`. Nothing in it imports the TUI.
 | `client.py` | `McpClient`: handshake, request/notify, pending map, timeouts, progress, cancellation, server requests, pagination, typed list/call/read helpers | `mcp/client.ts` |
 | `stdio.py` | `StdioTransport` | `mcp/transports/stdio.ts` |
 | `sse.py`, `http.py` | SSE parser; `StreamableHttpTransport`, HTTP error types | `mcp/transports/streamable-http.ts` |
+| `http_fetch.py` | The HTTP transport's fetch: `McpHttpRequest`, `McpHttpResponse`, `McpFetch`, `create_default_fetch()` (connect, TLS, redirects as Node's fetch), the `fetch` option of `StreamableHttpTransportOptions` (L1) | the `fetch` option of `streamable-http.ts`; undici `fetch` |
 | `oauth/` (`types.py`, `errors.py`, `fetch.py`, `discovery.py`, `flow.py`, `provider.py`, `callback.py`, `page.py`) | The OAuth client library; `fetch.py` is the HTTP fetch Pi gets from JavaScript, `page.py` the sign-in pages of Pi's `oauth-page.ts` | `mcp/oauth/*` |
-| `config.py` | Entry validation, exposure resolution, load, edit, the strict URL parser (the name matcher is in `native/tools/name_patterns.py`) | `core/mcp-servers.ts`, `ext/config.ts` |
+| `config.py` | Entry validation, exposure resolution, load, edit, the URL parser (WHATWG for `http` and `https`, without IDNA, since L3; the name matcher is in `native/tools/name_patterns.py`) | `core/mcp-servers.ts`, `ext/config.ts` |
 | `config_values.py` | `${NAME}` and `!command` resolution of config values | `core/resolve-config-value.ts` |
 | `log.py` | Server log file | `ext/log.ts` |
 | `connection.py` | `McpServerConnection`, default transport factory | `ext/runtime.ts` |
@@ -627,7 +644,11 @@ Other new modules: `native/tool_search.py` (tokenizer, BM25, document
 builder, the `tool_search` tool), `native/codemode/declarations.py`
 (schema to Python type text, tool samples) and
 `native/coding/tool_parent_runner.py` (the runner and the thread bridge of
-a tool that runs other tools, see "Decided in S37").
+a tool that runs other tools, see "Decided in S37"). The goal-check slices
+added `native/image_process.py` and `native/tool_result_images.py` (G7,
+Pi's `processImage` and `normalizeToolResultImages`), `native/terminal_image.py`
+(N4, pi-tui's image protocols), `extensions/live_tools.py` (G9) and
+`repl/session_command_port.py` and `repl/extension_reports.py` (N2).
 
 Decided in S06 (search core, `native/tool_search.py`):
 
@@ -712,14 +733,22 @@ Decided in S11 to S14, S24, S25 and S27 (the client track, merged in INT1):
   is reported to the error listeners and the stream is not reopened. What a
   session-expired error from the GET stream means for the connection is
   S26's decision.
-- Redirects, which have no checklist row: the HTTP transport follows one only
-  within the configured origin; the OAuth fetch follows one only for a
-  request without a body and drops credentials headers across origins.
+- Redirects, which have no checklist row: since L1 and L2 the HTTP
+  transport's default fetch and the OAuth fetch follow them as Node's fetch
+  does (undici `httpRedirectFetch`): 301, 302, 303, 307 and 308 with a
+  `Location`, to any origin, at most 20; 307 and 308 send method and body
+  again, a 303 (other than GET and HEAD) and a 301 or 302 for a POST become
+  a GET without body and content headers; a change of origin drops
+  `Authorization`, `Proxy-Authorization`, `Cookie` and `Host`, and other
+  headers (an API key header, `Mcp-Session-Id`) and a 307/308 body go along,
+  as in Pi. The differences are DEV-67.
 - `oauth/fetch.py` is the one HTTP client of the OAuth library:
   `create_oauth_fetch(timeout_ms=..., max_response_bytes=1 MiB)`. The 15 s
   limit of OAU-22 is a fetch made with `timeout_ms=15000`.
 - `config.py` owns the URL parser (`parse_http_url`, `HttpUrl`) that config
-  validation and OAuth discovery share. It is strict and repairs nothing.
+  validation, OAuth and the HTTP transport's default fetch share. Since L3
+  it follows the WHATWG URL parser for `http` and `https`, without IDNA
+  (DEV-54).
 - A server config is a plain dict with Pi's JSON key names; there are no
   typed config classes. `load_mcp_config(config_home=, cwd=,
   project_trusted=)` takes the trust decision from its caller.
@@ -752,7 +781,8 @@ Decided in S15 (`connection.py`, `config_values.py`, `log.py`):
   the first included, waits for it and can stop waiting through its cancel
   event. A tool list change is handled by a thread (`mcp-refresh`) that lives
   only while a refresh is wanted and lists again when changes arrived in the
-  meantime; a change announced while the first list is read is refreshed
+  meantime (since L1 resource changes have a thread of their own,
+  `mcp-refresh-resources`); a change announced while the first list is read is refreshed
   after the connection is published. This is the "connection's own worker
   thread" of 4.5.
 - `on_tools` and `on_change` say that something changed and are called on
@@ -861,7 +891,17 @@ is under 4.4):
   manager and handed to the sink on the caller's thread. The session calls it
   where it drains the extension outboxes, which is before each step is
   selected: before a prompt starts and when the session becomes idle. It is
-  not called at the start of each provider turn yet. Two notices exist: a
+  not called at the start of each provider turn yet. Since N1
+  `McpSession.deliver_idle_notices()` also hands the current manager's
+  notices to the sink while the session waits for input, and does nothing
+  else (no `mcp_servers_change` hooks, no `ensure_active`; those stay at the
+  drain points and the turn start): the terminal's `Screen` runs the work
+  installed with `Screen.set_idle_work` in `_poll_idle_sources` about ten
+  times a second while a key is waited for (the editor's `read_line` and
+  the modal key loop), and the RPC worker's `_NativeSessionControlBridge`
+  runs its bound idle work (`bind_idle_work`) whenever the wake reader
+  returns `_NATIVE_CONTROL_IDLE`, which `rpc._WakeChannel.readline` does
+  after `_IDLE_POLL_SECONDS` (0.1 s) without a wake. Two notices exist: a
   tool pipy cannot declare, and a tool whose name another tool has. Each text
   is reported once in a session.
 - TLS-19: a port's `get_caller` asks the manager, which resolves the server
@@ -1002,9 +1042,9 @@ Decided in S19 (`discovery.py`, the startup report, the switches):
   resource count (S23).
 - The report is a notice like the others, so it is shown where the session
   drains them: before the next step is selected. In a terminal that is when
-  the next prompt is sent; Pi shows it when it arises. Showing notices while
-  the session is idle needs a wake-up of the input loop, which no slice owns
-  yet (S34's view refresh is the nearest).
+  the next prompt is sent; Pi shows it when it arises. Since N1 the
+  session also shows it while it waits for input (see "Decided in S17";
+  DEV-15).
 - `McpManager.post_notice(level, message)` is the public way to queue a
   notice (each text once per session); `configured_exposures()` and
   `auto_enable_codemode` give discovery its input. `configured_exposures(entry)`
@@ -1017,8 +1057,11 @@ Decided in S19 (`discovery.py`, the startup report, the switches):
   has to evaluate the switch again on reload. Whether the `pipy mcp` shell
   commands look at the switch is S20a's to decide from Pi's `cli.ts`.
 - `builtin:<name>` is a name in the `extensions` array and after
-  `--extension`, not an extension pipy loads (DEV-11). Only `mcp` exists
-  (`resource_enablement.BUILTIN_EXTENSIONS`); an unknown name after
+  `--extension`, not an extension pipy loads (DEV-11). Only `mcp` existed
+  here; since G8 `resource_enablement.BUILTIN_EXTENSIONS` is `("codemode",
+  "tool-search", "mcp")`, Pi's order without `llama.cpp`, and
+  `RuntimeResourceOptions.builtin_extension_enabled(name, configured=)`
+  decides for each; an unknown name after
   `--extension` is a startup error (`Unknown built-in extension: <value>`,
   Pi's text, which Pi reports as a load error). The settings rule is
   `is_builtin_extension_enabled`: the user-level array decides unless the
@@ -1226,10 +1269,20 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   (`McpManager.publications_held`), so the capability value the reload was
   prepared with is the one it is accepted with. The lock order stays
   publication lock, then the capability state lock.
-- A new session in the same process (`/new`, `/resume`, `/fork`) keeps the
-  manager; only `/reload` replaces it. Pi closes and reloads there. pipy
-  fires no `session_start` for such a switch, and the servers are not bound
-  to a conversation. Documented as a difference.
+- A new session in the same process: since N1 a completed session
+  transition (`SessionTransitionCoordinator`, every terminal, RPC and SDK
+  path: `/new`, `/resume`, `/fork`, `/clone`, `/import`, `new_session`,
+  `switch_session`, `fork`, `clone`) calls `McpSession.replace_session()`
+  from `_rebuild_replaced_session`, after the history and the settings. It
+  loads the configuration again, closes the running manager (delivering
+  what it still had to say), unregisters the MCP tools with
+  `restart_mcp_tools(keep_declared=False)` (nothing pending, unlike
+  `/reload`) and starts the new manager. The unhandled-registration report
+  is reset (Pi's runner reports once per runtime). The transition's thread
+  runs it: the session thread in the terminal, the RPC reader thread under
+  the native control claim, the construction thread in the SDK. Until N1
+  the manager was kept over such a switch. The rest of the tool selection
+  is kept and extensions get no `session_start` (DEV-16).
 - TSR-10: `ToolCapabilityState.pending_tool_names` (Pi `_pendingToolNames`).
   Names enter it in three places: `publish` on reload keeps the declared
   MCP tools of the live value (a configured filter derives the selection
@@ -1247,8 +1300,8 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   the `before_agent_start` hooks, as in Pi `_startRun`).
 - On reload the names of MCP tools leave the active selection, so a tool
   that registers after the next run started is a new tool: a `direct` one is
-  activated by registration, another one is not active. A tool list change
-  of a running server keeps the S17 rule (the name stays in the selection).
+  activated by registration, another one is not active. Since G8 the same
+  holds for a tool list change of a running server (see 4.4).
 - "After resume": a resumed pipy session starts from the configured tools
   and restores nothing from the transcript, as Pi's CLI does (it always
   passes the initial tool names; Pi's resume case in
@@ -1278,9 +1331,10 @@ Decided in S23 (`resources.py`, resources in `connection.py` and
   one; `has_resources` is the presence of the `resources` key in the
   server's capabilities, as in Pi (`!== undefined`). They are kept while the
   server is disconnected and when a later connect fails.
-  `notifications/resources/list_changed` uses the refresh thread of the tool
-  list; it lists one kind per round, so a slow resource listing delays a
-  tool refresh (Pi runs them independently).
+  `notifications/resources/list_changed` is handled like a tool list
+  change, on a thread of its own (`mcp-refresh-resources`, since L1), as Pi
+  runs the two independently; one listing of a kind runs at a time
+  (DEV-58).
 - The connection has the requests the resource tools make:
   `read_resource`, `resources_page`, `resource_templates_page`,
   `all_resources`, `all_resource_templates`. Each connects first when
@@ -1353,15 +1407,20 @@ nothing in the product imports these modules before S30.
   fetch, cancel_event, skip_issuer_validation, skip_refresh))` returns
   `"AUTHORIZED"` or `"REDIRECT"`. The flow takes one `scope`; merging the
   configured scope with a challenge's (OAU-07) and `stepUpScope` (OAU-21)
-  are S31's. Pi's `adaptOAuthProvider` is not ported; S30 builds the
-  connection's provider directly.
+  are S31's. pipy's connections build their provider directly (S30);
+  `adapt_oauth_provider(provider, *, fetch=None)` in `oauth/flow.py` is the
+  library's counterpart of Pi's `adaptOAuthProvider` (L2, OAU-37): an
+  `OAuthTransportAuth` whose `on_unauthorized` shares one run of
+  `authorize_mcp` among the requests that wait for it, retries when the
+  token was replaced meanwhile (checked inside the claimed run), and asks
+  for `step_up_scope(granted, challenged)` on `insufficient_scope`.
 - `OAuthClientProvider` is a Protocol of the required members; the optional
   ones (`state`, `save_client_information`, `client_metadata_document`,
   `add_client_authentication`, `invalidate_credentials`, `discovery_state`,
   `save_discovery_state`) are looked up on the object. `OAuthDiscoveryState`
   and the state document `McpOAuthState` are dicts with Pi's keys.
 - Endpoints are read with `config.parse_http_url`; one it rejects is refused
-  as insecure. The default fetch does not follow the redirect of a POST. A
+  as insecure. A
   cancelled request always ends the flow. As in Pi, a refresh that fails
   with a time limit, a network error, an answer that is no token document or
   a failing `save_tokens` falls through to a new authorization, which S30
@@ -1483,7 +1542,8 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
 - `sign_in_mcp_server(server_url=, store=, settings=, prompt=, challenge=,
   cancel_event=, fetch=)` is Pi's `signInMcpServer`, with
   `callback_settings` (the whole of Pi's `callbackSettings`),
-  `merge_scopes`, `step_up_scope` (Pi has it in `mcp/oauth/flow.ts`),
+  `merge_scopes`, `step_up_scope` (moved to `oauth/flow.py` in L2, where
+  Pi has it),
   `response_from_redirect_url` and `McpSignInCancelledError`. It blocks its
   caller; cancelling is a `threading.Event`.
 - `McpSignInPrompt` has `show_authorization_url(url)`, called on the
@@ -1507,7 +1567,8 @@ Decided in S31 (`sign_in.py`, `pipy mcp login` and `logout` in
   asked. There is no `credentials` option: the store is always the file in
   `config_home`. `login` needs no connection for a server without OAuth and
   `logout` creates none at all. `--timeout` is parsed like
-  `--oauth-callback-port`, as a decimal number.
+  `--oauth-callback-port`, as JavaScript's `Number()` reads it (since L3,
+  `shell_cli._js_number`).
 - Fixture: `FakeOAuthMcpServer` logs `register` and has `response_iss` (the
   `iss` option of Pi's `startOAuthMcpServer`).
 - `McpManager.sign_in(name, prompt, cancel_event=None)` is Pi's `signIn`: it
@@ -1620,34 +1681,39 @@ Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
 - Pi's function is `modelRegistry.getApiKeyForProvider`. pipy has no single
   place that resolves a provider's auth, and what it has (the catalog, its
   `AuthStore`) belongs to the session thread, while the token is asked for
-  on request threads. `provider_login_token` therefore reads `auth.json`
-  itself at every call: a stored API key (resolved with
-  `resolve_config_value`), a stored OAuth login's `access` (refreshed through
-  the session's `OAuthCredentialCache` for `PER_REQUEST_OAUTH_PROVIDERS`,
-  sent as stored otherwise), and with nothing stored the provider's API-key
-  environment variable. A stored entry owns the provider, as in Pi's
+  on request threads. Since L4 `provider_login_token` answers with the key a
+  model request to the provider would carry, in pipy's model-request order:
+  for `openai-codex` the Codex login file when there is a login (refreshed
+  and saved through `OpenAICodexAuthManager.get_credentials`, which now
+  holds the process-wide `_CREDENTIALS_LOCK`); then the session's
+  `--api-key`; then `auth.json`, read at every call: a stored API key
+  (resolved with `resolve_config_value`) or a stored OAuth login's `access`
+  (refreshed through the session's `OAuthCredentialCache` for
+  `PER_REQUEST_OAUTH_PROVIDERS`, sent as stored otherwise); then the
+  provider's API-key environment variable; then the `models.json`
+  `apiKey`. A provider an extension registered is answered from `auth.json`
+  and the environment only. A stored entry owns the provider, as in Pi's
   `resolveProviderAuth`. Any failure is no token, as Pi's function catches.
   It reads the file with its own few lines and not with `AuthStore`, which
   reads a damaged file as empty: the environment's key would then be sent
   in place of a stored login.
-- Whether a login is refreshed is asked at each call (`refreshes`): a
-  per-request provider that no extension registered, the rule of
-  `ProviderCatalogState.per_request_oauth_credential`. This is the one
-  thing a request thread reads from the catalog: `extension_provider_for`,
-  one lookup in an immutable map that a reload replaces by assignment. A
+- Which providers an extension registered (`replaced`), the `--api-key`
+  (`runtime_api_key`), the `models.json` request settings
+  (`models_json_key`) and the Codex login (`codex_login`) are functions
+  asked at each call and read from the live catalog, whose attributes are
+  replaced by assignment (`ModelCatalog.refresh` no longer empties
+  `provider_request_configs` before refilling it). A
   snapshot on the session thread would be stale, because a reload loads the
   MCP servers before it activates the new extensions.
 - The auth provider follows OAU-23: after `close()` it asks for no token
   (`McpConnectionClosedError`), and `settled()`, which `close()` calls
   last, waits for the calls that are running, since one may be refreshing
   a login whose rotated credentials still have to be saved.
-- Narrower than Pi, documented in `docs/mcp.md`: a `models.json` key,
-  `--api-key`, the `openai-codex` login (its own file), ambient cloud
-  credentials, and the refresh of an OAuth login pipy does not refresh for
-  its own requests (extension providers: pipy never calls their
-  `refresh_token`/`get_api_key`). A stored `!command` key runs for every
-  MCP request; Pi caches command results per process, pipy's
-  `resolve_config_value` does not.
+- Narrower than Pi, documented in `docs/mcp.md` (DEV-52): ambient cloud
+  credentials, `--api-key` for every provider, no refresh of a login pipy
+  does not refresh for its own requests (extension providers: pipy never
+  calls their `refresh_token`/`get_api_key`), and a `!command` key run for
+  every MCP request (Pi caches command results per process).
 - A function `provider_token` that raises fails the request with that
   error, as a rejected `providerToken` promise does in Pi.
 - No reconnect is triggered by `/login <provider>`: as in Pi, the server
@@ -1719,19 +1785,18 @@ Decided in S34 (the `/mcp` manager; `manager_menus.py`, `manager_flow.py`,
   which no session is today.
 - `/mcp` in a terminal no longer waits for the startup connections
   (MGR-02); the subcommands still do.
-- Narrower than Pi, documented in `docs/mcp.md`: the authorization URL is
-  plain text, not an OSC 8 hyperlink (the frame carries only SGR
-  sequences), with no click hint; the copy key is fixed to `ctrl+x`
-  because pipy has no `app.message.copy` action; the title is not bold and
-  the copy note has no colour of its own; the input is the selectors'
-  `SearchInput`. No `overridden:` lines until S36 registers servers from
+- Narrower than Pi, documented in `docs/mcp.md` (DEV-43): the title is
+  not bold and the copy note has no colour of its own; the input is the
+  selectors' `SearchInput`. Since N3 the URL and a `Cmd+click to open` hint
+  (`Ctrl+click` outside macOS) are OSC 8 links and the copy key is the
+  user's `app.message.copy` binding (default `ctrl+x`, in
+  `ui/key_specs.USER_KEYBINDING_ACTIONS`); see "Decided in N3". No `overridden:` lines until S36 registers servers from
   extensions; `servers_menu` then takes them with the config errors.
 - Different from Pi: a sign-out that fails is the server's message instead
   of an exception.
-- Still open, not owned by a slice: notices are shown when the session
-  drains them, so the startup report of a session whose first action is
-  `/mcp` appears after the manager was closed (see "Decided in S19"). The
-  poll hook of the key loop could show them while the session is idle.
+- Closed in N1: the modal key loop runs the session's idle work, so the
+  startup report of a session whose first action is `/mcp` is shown behind
+  the manager view as it arises, not after the manager was closed.
 
 Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
 `tool_renderers.py`, `ui/components/tool_loop_renderer.py`,
@@ -1806,7 +1871,17 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
 - RND-04 needed no code: nested calls are rows of the `codemode` row under
   the tool's pipy name since CM1, and Pi's `CodemodeNestedCall.name` is the
   tool's name too. Tests pin it for an MCP tool, live, in the line renderer
-  and in a session with the fake server.
+  and in a session with the fake server. Since N3 `tool_rows._other_result_rows`
+  has a codemode branch (`_codemode_result_rows`, Pi
+  `codemodeRenderers.renderResult`, output part) after the extension and
+  MCP branches; the MCP and codemode previews share `_preview_rows` (Pi
+  `VisualLinePreview`, `keep: "start"`) and `_full_output_rows`. The export
+  page script (`export_distribution._HTML_TEMPLATE`) has `nestedCallsText`
+  and `appendNestedCalls` (Pi `renderNestedCalls` with
+  `formatExpandableOutput(text, 1)`) for every tool result with a
+  `details.nestedCalls` record, in the drawn call's box when the result is
+  drawn there and in the "Tool result" entry otherwise; a call is shown
+  only with a string `name` and `status`. DEV-66.
 - The line renderer (no terminal UI) titles the call the same way; its
   result output is unchanged.
 
@@ -2143,9 +2218,14 @@ Decided in S38 (SDK; `session_builtins.py`, `mcp/options.py`,
   builtins)` is what the capabilities call for the loadout, at the start and
   on reload as before.
 - Narrower than Pi, in `docs/sdk.md`: `open_url` and `update_config` are
-  accepted and reach the command and the manager, but a product session
-  runs no slash command, so nothing uses them there today (tested through a
-  session without a terminal that runs `/mcp`, and at the manager). No
+  accepted and reach the command and the manager. Since N2 `submit()` queues
+  its content as `CodingInputSource.SUBMITTED_PROMPT`
+  (`CodingInputQueue.enqueue_submitted_prompt`), and the controller turns
+  that source into a step with `external_prompt=True`, so the loop step runs
+  `dispatch_prompt` as for an RPC prompt: `/mcp login` reaches `open_url`.
+  Without a control bridge the handled settlement is a no-op; the product
+  operation's claim is settled when `drive()` reaches idle. A command's
+  notices and errors go to the `diagnostic_sink` (DEV-51). No
   `models` option for codemode. `load_config` gets three values instead of
   an extension context. The options are validated when made.
 - The SDK surface gained two names, `CodemodeOptions` and `McpOptions`; the
@@ -2201,28 +2281,45 @@ Decided in X1 (prompts of the automation modes;
   `steer` and `follow_up` answer `queued`. This also closes the backlog's
   "prompt disposition" entry.
 - JSON mode writes `agent_settled` only when an `agent_start` was written.
-- Different from Pi, in `docs/automation-rpc.md`:
-  - A notice of a command (`ctx.ui.notify`, the `/mcp` status) goes to
-    stderr in print and JSON mode, where pipy has always written an
-    extension's notices; Pi drops it there (SLH-11). For RPC mode see the
-    next block.
-  - A failed command is `pipy: extension command /<name> failed (<error>)`
-    on stderr in all three modes; RPC has no `extension_error` object.
-  - Not built (SLH-13): `steer`, `follow_up` and a `prompt` sent during a
-    run are queued without a look at the text. One that names an extension
-    command reaches the model as text (Pi refuses the first two and runs
-    the third at once), and a queued skill or template name is not
-    expanded. The reader thread would need the session's commands and
-    resources, which belong to the session thread.
-  - pipy's resource rules stay: a template named like a built-in command
-    is not expanded, custom commands (`.pipy/commands`) expand like
-    templates, a resource turn skips the `input` hooks (Pi runs them
-    first, on the unexpanded text), and a skill that is unknown or cannot
-    be read says so on stderr before the text goes to the model.
+- Since N2: the session's notice and error sinks are
+  `repl/extension_reports.py` `ExtensionReports` (RPC transport, prompt
+  mode, local). Print and JSON mode drop notices, as Pi has no UI there.
+  `CodingCommandEffects.report_extension_error(path, event, error)` is used
+  by `dispatch_prompt`, so a failed command is Pi's extension error
+  (`Extension error (command:<name>): <message>` on stderr, an
+  `extension_error` object in RPC mode); `ExtensionCommandDispatch.message`
+  and `ExtensionDispatchResolution.message` carry the exception's text
+  (`str(err)`, the type name if that raises); `McpSession(report_error=)`
+  reports unconnected registered servers through it. A typed line keeps
+  `pipy: extension command /<name> failed (<type>)`.
+- Since N2 `dispatch_prompt` runs the extension command, then
+  `CodingCommandEffects.run_input_hooks` (`None` is handled, which settles
+  the claim like a command), then `dispatch_resource(text, prompt=True)` on
+  the hooks' text; the resolution carries that text and the loop step
+  passes an unchanged transform to `CodingAcceptedInputPreparer`, so the
+  hooks run once. `prepare` returns `None` when a typed line's hooks
+  handled it. `dispatch_resource_command(..., prompt=True)` skips the
+  reserved-name rule, so a template named like a built-in command is
+  expanded. `InputHandled` is a public type (`pipy_harness.extensions`).
+- Since N2 queued input is checked (SLH-13): `repl/session_command_port.py`
+  `SessionCommandPort` (`command_name`, `run`, `expand`, `commands`), handed
+  to the transport by `bind_session_command_port(observer, port)` while the
+  session is composed, reads only published state (the extension
+  generation through `SessionExtensionOperations.commands()`,
+  `ctl.workspace_resources`, the MCP command view) and runs a command
+  through `SessionCollaborators.dispatch_extension_effect`. The RPC server
+  refuses `steer`/`follow_up` that name an extension command, on the
+  command thread; a `prompt` that names a command while the bridge has a
+  reservation runs on a thread of its own, concurrently with the run, as
+  Pi's does; a queued prompt is expanded before admission. The server joins
+  those command threads at the end of input (not on SIGTERM/SIGHUP) after
+  closing the UI and before the drain. `get_commands` lists the commands,
+  templates and skills. Remaining differences: DEV-65.
+- Different from Pi, in `docs/automation-rpc.md`: for a line typed into a
+  session the typed order stays (DEV-38, DEV-40).
 - Not changed: the terminal UI, the plain REPL and piped standard input
-  without `--print` (all typed lines), the product API (`submit()` still
-  sends its text to the model, see "Decided in S38"), and `get_commands`,
-  which still answers an empty list.
+  without `--print` (all typed lines). Positional seeds (`pipy "text"`)
+  still reach the model as text.
 
 Decided in X1 (RPC UI requests; `automation/rpc_ui.py`,
 `automation/events.py`, `mcp/commands.py`, `repl/wiring.py`):
@@ -2259,14 +2356,21 @@ Decided in X1 (RPC UI requests; `automation/rpc_ui.py`,
 - This closes what S31 left for a UI mode without the TUI: the pasted
   redirect URL in a session (SLH-04 second sentence, OAU-26 and OAU-27
   there). S34 had closed the terminal side with the sign-in screen.
-- Different from Pi, in `docs/automation-rpc.md`:
-  - `ctx.has_ui` stays false for extensions in RPC mode, and an
-    extension's own `select`, `confirm`, `input` and `editor` return their
-    defaults without a request. Building that means an `ExtensionUiDriver`
-    over `RpcUi` and deciding which thread may block; nothing in the MCP
-    rows needs it.
-  - No `confirm`, `editor`, `setStatus`, `setWidget`, `setTitle`,
-    `set_editor_text` requests and no `timeout` option.
+- Since N2 every extension has the client as its UI: `RpcUi` gained
+  `confirm`, `editor`, `send` (fire-and-forget) and a `timeout` on
+  `select`/`input`/`confirm`; `RpcUi.extension_driver()` returns
+  `RpcExtensionUiDriver`, an `ExtensionUiDriver` over it
+  (`dialog_timeouts = True`; terminal-only methods are no-ops;
+  `apply_theme` fails with Pi's text). The wiring's
+  `_ExtensionPhase.ui_driver` is the terminal's live driver or, without
+  one, the transport's, and is what extension contexts get.
+  `NativeRpcServer` reads stdin on its own thread from the start
+  (`_read_input`): `extension_ui_response` lines are delivered at once,
+  other lines queue for the command thread, and the end of the input
+  closes the UI, so `session_start` and transition-hook dialogs get their
+  answers. A dialog answer after its timeout is ignored.
+- Different from Pi, in `docs/automation-rpc.md` (DEV-41):
+  - No dialog `signal` option, and the terminal ignores `timeout`.
   - A `select` or `input` that the client never answers holds the session
     until the input ends; an RPC `abort` ends the waits of `/mcp` that go
     through `run_step` (the startup wait, a reconnect, a sign-in), but not
@@ -2340,8 +2444,10 @@ Decided in S39 (images, part 3: rows and export;
 `tool_result_display.py`, `ui/state.py`, `ui/components/session_history.py`,
 `export_tool_rows.py`, `export_distribution.py`):
 
-- pipy's frames carry no inline images (the frame pipeline keeps SGR only,
-  see "Decided in S34"), so a row shows what Pi shows in a terminal without
+- A row whose transcript draws images inline (since N4,
+  `RowRenderInputs.inline_images`) shows `ResultImages.text`, the result's
+  text without the image lines (Pi `getTextOutput` with `caps.images &&
+  showImages`). Otherwise a row shows what Pi shows in a terminal without
   an image protocol: after the result's text one line per image,
   `[Image: [<mime>] <w>x<h>]` (Pi `getTextOutput`, pi-tui `imageFallback`
   and `getImageDimensions`, ported for PNG, JPEG, GIF and WebP).
@@ -2355,8 +2461,7 @@ Decided in S39 (images, part 3: rows and export;
   images" entry with `<img>` elements after every result that has images,
   where Pi's page shows images for `read` only. The base64 data of an image
   block is not passed through the text redaction.
-- Not built: inline images in the terminal (Pi's `Image` component with the
-  Kitty and iTerm2 protocols, `terminal.showImages`, `imageWidthCells`).
+- Inline images in the terminal are N4's (see "Decided in N4").
 
 Decided in S39 (images, part 4: MCP image blocks and image resources;
 `mcp/tools.py`, `mcp/resources.py`):
@@ -2366,8 +2471,9 @@ Decided in S39 (images, part 4: MCP image blocks and image resources;
   server's order (TLS-11, RES-09). `convert_mcp_result`, `to_model_content`
   and `limit_mcp_content` already produced the image blocks and put them
   after a shortened text (TLS-15); nothing there changed.
-- Like Pi, pipy does not check a server's image (type, base64, size). An
-  image block with empty `data` or `mimeType` cannot be an `ImageContent`
+- Like Pi, pipy does not check a server's image (type, base64); since G7
+  an image over the size limits is scaled down and another type converted
+  (TLS-20). An image block with empty `data` or `mimeType` cannot be an `ImageContent`
   and becomes the text `[image <mime> without data omitted]`; Pi passes it
   on and the provider rejects it.
 - Tests: `test_native_mcp_session_images.py` runs a session against the
@@ -2612,6 +2718,42 @@ Decided in X2 (leaked server processes; `pipy_harness/exit_signals.py`,
   parent ended, the PTY teardown ends the servers of a killed session, and
   a suite guard fails a module that leaves a fake server behind.
 
+Decided in N4 (inline terminal images; `terminal_image.py`, `settings.py`,
+`tool_rows.py`, `ui/components/transcript.py`, `frame_renderer.py`,
+`repl/reload.py`):
+
+- `terminal_image.py` ports pi-tui `detectCapabilities` (the image part,
+  without Windows), `calculateImageCellSize`, `encodeKitty`, `encodeITerm2`,
+  `deleteKittyImage` and `Image.render` (`image_rows`).
+  `terminal_image_protocol(stream)` gives a protocol only for a TTY;
+  `PIPY_IMAGE_PROTOCOL` (Pi `PI_IMAGE_PROTOCOL`) overrides the detection.
+  `clean_base64` admits only plain base64 into an escape.
+- `SettingsManager.get_show_images()`/`get_image_width_cells()` (Pi
+  `getShowImages`/`getImageWidthCells`).
+- `RenderToolResult.images`/`ToolRowResult.images` (`ResultImages`) carry
+  the images from the completed event (the result after the G7 normaliser)
+  and from a resumed session. `TranscriptComponent.set_image_options(protocol,
+  show, width_cells)`, wired at startup and on `/reload` by
+  `repl.reload.apply_image_settings`, builds a `TerminalImage` per image
+  for the row's `HistoryBlockTuple.images` (`_tool_block`, also when a row
+  is rebuilt for a resume or an extension's `invalidate`, since INT3);
+  `ToolRowState.image_ids` keeps the Kitty ids across redraws.
+- `FrameBlock.images`: `block_lines(..., image_height=...)` draws them after
+  the box, before its closing spacer, only for committed rows
+  (`build_paint_plan`); full frames and the live region show the text line.
+  An image is `rows - 1` empty rows and an `ImageFrameLine` that moves up,
+  draws and (Kitty, `C=1`) moves down, so a frame row stays one terminal
+  row; rows are capped to the terminal height. `PaintPlan.kitty_image_ids`
+  and `ScreenState.kitty_image_ids` let `force_full_redraw` and the resize
+  repaint delete the Kitty images by id before they clear (pi-tui
+  main-screen `fullRender`).
+- The render context's `show_images` is the `terminal.showImages` setting
+  (`RowRenderInputs.show_images`, since INT3), and a changed setting draws
+  the extension rows again, as Pi's `setShowImages` does.
+- Differences: DEV-19. Tests: `test_native_terminal_image.py`,
+  `test_native_frame_images.py`, `test_native_tool_row_inline_images.py`,
+  `test_native_inline_images_pty.py`, `test_native_tool_render_context.py`.
+
 ### 4.2 Tool model
 
 Pi's MCP support rests on five properties of a tool that pipy does not have
@@ -2845,11 +2987,14 @@ Decided in S17 (the capability value, `tool_capabilities.py`):
   allowlist, every declarable MCP tool it names or matches is active after
   each publication, as after each refresh in Pi. The narrowing of S10
   (`_declared_names`) applies as to any name.
-- The name of a tool that is gone stays in the selection. Requests declare
-  only registered tools, so nothing declares it, and the tool is active
-  again when its server offers it again (SES-03). Pi keeps such a tool
-  registered as `hidden`, with the same effect. A reload drops names that
-  are not registered, as before.
+- An MCP tool that is gone leaves the selection (since G8, TSR-12): Pi
+  re-registers it `hidden`, and applying the loadout drops it from the
+  active tools. When its server offers it again it is a new tool: a
+  `direct` one is activated by registering, one `tool_search` had loaded
+  (or an extension had activated) has to be loaded again. Until G8 the name
+  stayed in the selection, which was not Pi's effect. Pending names
+  (`/reload`, a restored transcript) still become active when their tool
+  registers before the next run.
 - A reload carries the MCP tools: `prepare_extensions` builds its candidate
   with the live `mcp_registry`, and `publish` replaces a candidate's MCP
   tools with the live ones when they differ at the swap. The reload gate
@@ -2976,12 +3121,12 @@ inversion (a lock wrapper that records order in tests).
 | --- | --- |
 | Project config | Trust-gated; cannot set `auth`; overrides limited to `enabled`, `exposure`, `toolExposure`. |
 | Stdio servers | Run with the user's permissions, as `bash` does. Only configured servers start; `command` is executed without a shell. `!command` config values run a shell and come only from files the user trusts. |
-| Credentials | Sent only to the configured server URL and, for OAuth, to `https` or loopback token endpoints (OAU-10). Stored state is bound to the exact server URL (OAU-15). `iss` is checked (OAU-12). Redirects are loopback only (CFG-18). |
+| Credentials | The bearer token and a configured `Authorization`, `Proxy-Authorization`, `Cookie` or `Host` header are sent only to the origin of the configured server URL and to what it redirects to without a change of origin; other configured headers and the session id follow a redirect to another origin, as with Pi's fetch (L1). OAuth requests go to `https` or loopback token endpoints (OAU-10); a token request's body goes along on a 307 or 308 to another origin, as with Pi's fetch (L2). Stored state is bound to the exact server URL (OAU-15). `iss` is checked (OAU-12). Redirects are loopback only (CFG-18). |
 | `auth.provider` | User-level file and extensions only; `https` or loopback URL only (CFG-21). |
 | Server output | Tool results, instructions, descriptions and log messages are untrusted text. They reach the model only through the tool result path and the bounded `mcp_servers` summary (first line, 250 characters). Instructions are never placed in a tool description (CMD-10, CMD-21). |
 | Tool pipeline | Every MCP call, direct or nested, passes validation and the `tool_call`/`tool_result` hooks (SES-19). Annotations are reported, not trusted. |
 | Codemode | The guest gains no authority: discovery helpers return metadata only, and calls go through the nested service. |
-| Limits | 16 MiB per message, 64 KiB stderr, 8 KiB error body, 1000 list pages, 20 KB model-facing text, 4096-character prompt section. |
+| Limits | 16 MiB per stdio line and per event of an HTTP event stream (an HTTP JSON answer has no limit, as in Pi, since L1), 64 KiB stderr, 8 KiB error body, 1000 list pages, 20 KB model-facing text, 4096-character prompt section. |
 
 ### 4.9 Codemode protocol changes
 
@@ -3229,7 +3374,10 @@ manager like a session start (SES-20). It fits the transactional reload
 contract as an additional candidate: the new manager is constructed (config
 loaded and validated, no connections) before the swap, and connections start
 after the new generation is published. A reload that fails before the swap
-leaves the old manager running.
+leaves the old manager running. Another session in the same run (since
+N1) is a restart without pending names: the servers are closed, the
+configuration is read again and the MCP tools are unregistered with
+`restart_mcp_tools(keep_declared=False)`.
 
 Tools that `tool_search` loaded are active names in the transcript. After
 `/tree` the names are restored through
@@ -3311,6 +3459,16 @@ Slices outside these two lists are serial.
 | G5 | What a codemode script gets and may emit: a `null` structured result, structured `bash` results, images from `read`, the `// @options:` line, output over the limits truncated (goal-check findings M6, M15 to M18, DEV-04) | CMD-03 | M, several commits | G4 | no |
 | G6 | Tool hooks and argument validation as Pi has them: validation before the `tool_call` hooks, their argument changes run, call ids on the hook events, `tool_result` hooks that change `is_error`, details and images, foreign arguments validated and coerced, a record with an unfinished call is not complete (goal-check findings M8 to M11, M13, M14, E8, T6, T8) | CMD-24, CMD-25, CMD-26, SES-19, TLS-10 | M, several commits | G5 | no |
 | G9 | Extension API as Pi has it: `prepare_loadout` once per capability value, `event.system_prompt` that follows section changes, tool prompt snippets and guidelines, renderers a resolver can wrap, Pi's render context, re-registering a tool after activation (goal-check findings E1, E6, E7, E22, M7, M23, M24) | EXT-04, EXT-12, EXT-15, EXT-16, CMD-06, CMD-19 | M, several commits | G6 | no |
+| G7 | Tool result images processed as Pi's `normalizeToolResultImages` (Pillow, optional `images` extra) and `images.blockImages` (goal-check findings T4, T5, M22) | TLS-20, TLS-21 (new) | M | G6 | yes (track L) |
+| G8 | `--tools ''` and the no-tools flags as Pi's; `builtin:codemode` and `builtin:tool-search`; a withdrawn MCP tool leaves the active tools (goal-check findings T1 to T3, T7) | EXP-06, EXP-09, EXP-13 (new), TSR-12 (new) | M, three commits | G7 | yes (track L) |
+| L1 | HTTP transport: a `fetch` option, JSON answers without a size limit, interruptible connects, redirects as fetch follows them; tools and resources refreshed independently (goal-check findings C2 to C6) | HTP-03, HTP-11, CON-05, CON-09, RES-10 | M, three commits | G1 | yes (track L) |
+| L2 | OAuth fetch: redirects with a body, compressed answers; encoded resource paths; credentials under the URL alone; `adapt_oauth_provider` (goal-check findings O2 to O5, O7) | OAU-02, OAU-03, OAU-06, OAU-08, OAU-11, OAU-18, OAU-37 (new) | M, four commits | L1 | yes (track L) |
+| L3 | URLs read as the WHATWG parser reads them; non-UTF-8 config files; option numbers as JavaScript's `Number()`; the config home in the quick setup (goal-check findings K1 to K4, K7) | CFG-02, CFG-13, CFG-18, CFG-20, CFG-21, CMDL-04, CMDL-13, DOC-01 | M, two commits | L2 | yes (track L) |
+| L4 | `auth.provider` tokens from every source a model request uses (goal-check findings K5, O1) | OAU-36 | S | L3 | yes (track L) |
+| N1 | MCP servers restart on a session switch; notices while the session waits for input (goal-check findings K6, E9, E10) | SES-01, SES-04, SES-17, SES-20, EXT-10 | M, two commits | X2 | yes (track N) |
+| N2 | Automation modes and SDK as Pi's `prompt`: extension errors and dropped notices, `input` hooks before expansion and `InputHandled`, extension UI over RPC, commands in queued RPC input and `get_commands`, commands in `submit()` (goal-check findings E11 to E18) | SLH-07, SLH-09 to SLH-11, SLH-13, SDK-02 | L, five commits | N1 | yes (track N) |
+| N3 | `/mcp` manager scrolling, OSC 8 sign-in link and `app.message.copy`; codemode result rows; nested calls in the HTML export (goal-check findings E19 to E21, O8, M19, M20) | MGR-02, MGR-03, MGR-09, RND-04 | M, four commits | N2 | yes (track N) |
+| N4 | Inline terminal images through Kitty and iTerm2 (goal-check finding M21) | TLS-11, RES-09 | M, three commits | N3 | yes (track N) |
 
 Usable milestones: after S03 a script calls an extension tool; after S09
 scripts discover tools and `tool_search` works for extension tools; after S19
@@ -4096,8 +4254,9 @@ gains Pi's `get_exposure`, `get_namespace` and `get_prompt_guidelines`, and
 `test_native_extension_tool_prompts.py`.
 Part 4 (finding M24): `ToolRenderContext` gains Pi's `tool_call_id`, `cwd`,
 `execution_started`, `args_complete` (always true: pipy draws a call with
-complete arguments), `is_partial`, `show_images` (false: no terminal
-images), `duration_ms`, `invalidate` and `last_component`, keyword fields
+complete arguments), `is_partial`, `show_images` (false until INT3, which
+made it the `terminal.showImages` setting, as Pi; a changed setting draws
+extension rows again), `duration_ms`, `invalidate` and `last_component`, keyword fields
 with defaults. The terminal rows (`tool_rows._render_extension`) fill them
 from `ToolRowState`, which keeps the last component per phase and an
 `invalidate` the transcript sets in `start_tool`:
@@ -4151,6 +4310,153 @@ view, so a re-registered tool draws with its latest renderers. Tests:
 `test_a_tool_registered_in_session_start_is_kept_across_a_reload`,
 `test_a_kept_api_registers_no_tools_after_the_session_ended`,
 `test_native_extension_live_tools.py`.
+
+**Tracks L and N, and their merge.** After G6 the goal-check work went on in
+three tracks at once: G7 to G9 on this branch, track L
+(`feat/mcp-parity-gaps-lib`: L1 to L4, G7, G8) and track N
+(`feat/mcp-parity-gaps-session`: N1 to N4). The two tracks did not edit this
+plan, the changelog or the acceptance note; each kept a notes file
+(`docs/specs/2026-10-14-mcp-gaps-lib-notes.md`,
+`docs/specs/2026-10-14-mcp-gaps-session-notes.md`) with the texts for them.
+INT3 merged both tracks and folded the notes into this plan, the acceptance
+note, `docs/backlog.md` and the changelog; the notes files were then removed
+and are in the history of the INT3 commits. Each paragraph below cites the
+goal-check findings it closes; the Pi sources they were read against are
+named in the paragraphs and the module texts.
+
+**G7 Tool result images.** Every tool result image, MCP, codemode,
+extension and nested results included, is processed after the
+`tool_result` hooks as Pi's `normalizeToolResultImages` does
+(`utils/tool-result-images.ts`, `utils/image-process.ts`,
+`utils/image-resize-core.ts`; `core/agent-session.ts` `_afterToolCall`):
+another type than PNG, JPEG, GIF or WebP becomes PNG, an image over
+2000x2000 pixels or 4.5 MB of base64 is scaled down (JPEG quality 80, then
+85/70/55/40, shrinking by 0.75) with Pi's dimension note, JPEG and WebP are
+turned by their EXIF orientation, and a failure keeps the image.
+`native/image_process.py` is Pi's `processImage` with Pillow in place of
+Photon, from the optional `images` extra (`pillow>=12,<13`; Q10); without it
+every image is kept, as Pi does when Photon cannot load.
+`native/tool_result_images.py` has `normalize_tool_result` and
+`tool_result_normalizer(settings)`, which `AgentLoop(normalize_result=)`
+calls in `_after_tool_call` after the hooks and before `ToolCallCompleted`
+is emitted and the result stored (INT3: only for a call that reached its
+`tool_call` hooks, as Pi's `afterToolCall` runs only after execution).
+`images.autoResize` is read per result. `images.blockImages`
+(`agent/messages.py` `without_blocked_images`, Pi
+`convertToLlmWithBlockImages`) replaces tool result images in provider
+requests with `Image reading is disabled.`, consecutive ones once, read per
+request; the terminal still draws them, as in Pi. Differences: DEV-68.
+Tests: `test_native_tool_result_image_normalize.py`.
+
+**G8 Tool selection flags and built-in extensions.** Commit 1 (findings T1,
+T2; Pi `cli/args.ts`, `main.ts` lines 540-550, `core/sdk.ts` lines 280-293):
+`--tools ''` is the empty allowlist (`no_tools`); `--no-tools` with
+modifiers makes what they add the allowlist; `--no-builtin-tools` is Pi's
+`noTools: "builtin"`, which empties the default selection and keeps the
+built-in tools registered; `codemode` and `tool_search` are no longer
+removed by it. `ToolFilterOptions` refuses the combinations Pi folds, and
+`provider_visible_names` lost `builtin_names`. Commit 2 (finding T3):
+`codemode` and `tool_search` are the built-in extensions `builtin:codemode`
+and `builtin:tool-search` (`resource_enablement.BUILTIN_EXTENSIONS`);
+`NativeToolCapabilities(builtin_extension_enabled=)` is asked whenever a
+capability value is prepared, and `ToolCapabilityState.offered_builtins`
+holds what that value may register, so a reload reads the settings again
+(EXP-13, DEV-32). Commit 3 (finding T7): `with_mcp_registry` takes the MCP
+tools that left the merged registry out of the active selection (TSR-12;
+4.4). Tests: `test_native_tool_capabilities_mcp.py`,
+`test_harness_native_cli.py`, `test_native_mcp_session.py`,
+`test_native_mcp_discovery.py`, `test_native_mcp_manager.py`.
+
+**L1 The HTTP transport's fetch and refreshes.** Findings C2 to C6 (Pi
+`packages/mcp/src/transports/streamable-http.ts`, undici 8.10.2
+`httpRedirectFetch`, `ext/runtime.ts` `connectOnce`). New module
+`mcp/http_fetch.py`: `StreamableHttpTransportOptions(fetch=)` takes a
+function for every request of the transport (C6); `create_default_fetch()`
+connects and handshakes on a non-blocking socket that a request's
+`CancelToken` wakes, so a timeout, a cancel and `close()` end a connect in
+progress at once (C2; a name lookup still runs to its end); redirects follow
+Node's fetch (C4, see 4.1). A JSON answer is read whatever its size;
+`max_message_bytes` is for one event of a stream (C3). Tools and resources
+are listed again on threads of their own (`mcp-refresh`,
+`mcp-refresh-resources`; C5). Tests: `test_native_mcp_http_fetch.py`,
+`test_native_mcp_http.py`, `test_native_mcp_connection_resources.py`.
+
+**L2 The OAuth fetch, resource paths, legacy credentials and the adapter.**
+Findings O2 to O5 and O7 (Pi `mcp/src/oauth/flow.ts`, `discovery.ts`,
+`ext/oauth.ts` `storeKeys`; undici). The OAuth fetch follows redirects by
+the rules of L1, a 307 or 308 with the body (O2), asks for `gzip, deflate`
+and undoes those codings (O3; more than five codings and broken data are
+network failures; the 1 MiB limit holds before and after each decoding).
+`select_resource` compares both paths percent-encoded as WHATWG's
+`pathname` writes them (O4). `McpOAuthServerStore.load` takes an entry an
+older Pi stored under the URL alone over, `tokens` falls back to it and a
+sign-out deletes it (O7, OAU-18, DEV-08 closed). `adapt_oauth_provider`
+connects any `OAuthClientProvider` to the transport (O5, OAU-37; "Decided
+in S28 and S29"); `step_up_scope` moved to `oauth/flow.py`. Tests:
+`test_native_mcp_oauth_fetch.py`, `test_native_mcp_oauth_discovery.py`,
+`test_native_mcp_credentials.py`, `test_native_mcp_oauth_adapter.py`.
+
+**L3 URLs, config files and option numbers.** Findings K1 to K4 and K7 (Pi
+`core/mcp-servers.ts`, `extensions/mcp/config.ts`, `extensions/mcp/cli.ts`;
+Node 26 as the oracle). `parse_http_url` follows the WHATWG URL parser for
+`http` and `https` (any number of slashes and backslashes after the scheme,
+percent-decoded hosts, the WHATWG IPv4 forms, hex IPv6 pieces, USVString
+input), and the loopback checks and the transport's default fetch follow
+it, so `http://127.1/cb` is loopback (K1, DEV-54). A config file that is not
+UTF-8 loads with replacement characters (K2). `--oauth-callback-port` and
+`--timeout` are read as JavaScript's `Number()` (K3, `_js_number`). The
+quick setup names the real config home chain (K7). K4 was refuted by the
+goal check's verification and confirmed: Pi's
+`McpCommandOptions.credentials` is a test seam no user can reach. Tests:
+`test_native_mcp_config.py`, `test_native_mcp_shell_cli.py`.
+
+**L4 `auth.provider` tokens.** Findings K5 and O1 (Pi `extensions/mcp/index.ts`
+`providerToken`, `core/model-registry.ts` `getApiKeyForProvider`,
+`packages/ai/src/auth/resolve.ts`). See "Decided in S33" for the order of
+the sources; `OpenAICodexAuthManager.get_credentials` holds a process-wide
+lock, because model requests and MCP requests now both refresh the rotating
+Codex token. Differences: DEV-52. Tests:
+`test_native_mcp_provider_auth.py`.
+
+**N1 Session switches and idle notices.** Findings K6, E10 and E9. Commit 1:
+another session in the same run restarts the MCP servers ("Decided in S22",
+4.10; DEV-16). Commit 2: the startup report and the reports of servers an
+extension registered later reach the user while the session waits for input
+("Decided in S17"; DEV-15). Tests: `test_native_mcp_session_switch.py`,
+`test_native_mcp_idle_notices.py`,
+`test_native_tool_capabilities_mcp.py::test_another_session_does_not_declare_loaded_tools_again`.
+
+**N2 Prompts of the automation modes and the SDK.** Findings E11 to E18, in
+five commits ("Decided in X1" and "Decided in S38" record the design):
+extension errors as Pi's and no notices in print and JSON mode (E11, E12;
+DEV-39 closed); `input` hooks before expansion and `InputHandled` (E14 to
+E16; DEV-40); the RPC client as every extension's UI (E13; DEV-41); commands
+and expansion in queued RPC input and `get_commands` (E17, SLH-13; DEV-42
+closed, DEV-65); `ProductSession.submit()` as Pi's SDK `prompt()` (E18;
+DEV-51). Tests: `test_native_automation_prompt_dispatch.py`,
+`test_native_automation_rpc_prompt_dispatch.py`,
+`test_native_automation_rpc_extension_ui.py`,
+`test_native_automation_rpc_queued_commands.py`,
+`test_product_session_commands.py`.
+
+**N3 The manager view, codemode rows and the export.** Findings E19 to E21,
+O8, M19 and M20. A manager screen taller than the terminal shows its text
+through a window that PageUp and PageDown (`tui.select.pageUp`/`pageDown`)
+scroll; the scroll state belongs to the screen shown, a live menu keeps its
+window, and page keys never take a key the screen itself uses.
+`app.message.copy` (default `ctrl+x`) is a user keybinding, used by the
+sign-in screen. The sign-in URL and a click hint are OSC 8 links:
+`ansi_wrap` recognises OSC 8 (`hyperlink()`, `OSC8_CLOSE`; a link open at a
+wrap is closed and opened again, as pi-tui's `AnsiCodeTracker`),
+`frame_renderer.sanitize_custom_text`/`clip_custom_text` keep only
+`ESC ]8;;<[!-~]{0,4096}> ESC \` with `links=True`, and `LinkedFrameLine`
+marks the rows full-frame finishing keeps (MGR-09 closed; DEV-43). Codemode
+result rows and nested calls in the export: "Decided in S35" (DEV-66).
+Tests: `test_native_mcp_manager_view.py`, `test_native_frame_hyperlinks.py`,
+`test_native_tool_rows.py`, `test_native_export_nested_calls.py`.
+
+**N4 Inline terminal images.** Finding M21 (owner decision Q8), in three
+commits. See "Decided in N4".
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using
@@ -4242,8 +4548,9 @@ The slice details name them. In total the plan mirrors:
   (12).
 - `packages/coding-agent/test/`: `mcp-extension.test.ts` (all 27),
   `mcp-command.test.ts` (8), `mcp-manager-view.test.ts` (2),
-  `mcp-oauth-refresh.test.ts` (11), `mcp-oauth-store.test.ts` (1 of 3; the two
-  legacy-key cases fall under DEV-08), `tool-search.test.ts` (9),
+  `mcp-oauth-refresh.test.ts` (11), `mcp-oauth-store.test.ts` (3; the two
+  legacy-key cases since L2, in `tests/test_native_mcp_credentials.py`),
+  `tool-search.test.ts` (9),
   `suite/agent-session-mcp.test.ts` (all 48), `suite/agent-session-mcp-oauth.test.ts`
   (9), `suite/agent-session-tool-orchestration.test.ts` (3), and from
   `suite/agent-session-codemode.test.ts` the cases about reaching tools
@@ -4279,9 +4586,19 @@ Recorded 2026-10-12 through the campaign coordinator.
 
 | ID | Question | Decision |
 | --- | --- | --- |
-| Q1 | CIMD identity (DEV-06): which Client ID Metadata Documents does pipy identify with? | **Open with the owner.** Until decided, the plan ships no default document: `cimd` works only with a configured base URL (DEV-06). This keeps OAU-33 and OAU-34 closable in S32 and blocks no other slice. |
+| Q1 | CIMD identity (DEV-06): which Client ID Metadata Documents does pipy identify with? | **Decided 2026-10-14: none built in.** pipy ships no default Client ID Metadata Document. Dynamic client registration stays the default, and CIMD is opt-in through `oauth.clientMetadataBaseUrl` with documents the user hosts (request #224). Until this decision the plan shipped no default either, which kept OAU-33 and OAU-34 closable in S32. |
 | Q2 | Images in tool results (S39). | **In scope.** The owner asked for the complete feature at functionality parity. S39 stays a group of several commits. |
 | Q3 | Extension orchestration hooks (S37: `ctx.execute_tool`, `prepare_loadout`, replacing `codemode`, `tool_search` and `/mcp` from an extension). | **In scope**, for the same reason. |
 | Q4 | Client name sent to servers (DEV-05). | **`pipy`**, with `oauth.clientName` as the documented override for servers that accept only known client names. |
 | Q5 | Where slices land, given the trunk rule in `AGENTS.md`. | **On `feat/mcp-parity`, pushed per slice.** The merge to `main` is an owner approval at the end of the campaign. This is a campaign exception to the trunk rule; `AGENTS.md` is not changed. |
 | Q6 | The callable snapshot of 4.3 revises the CM1 rule that only tools advertised in the parent's frozen request snapshot are callable. | **Accepted.** S03 changes the rule in code and updates `docs/codemode.md` and the CM1 spike spec (section 4.7) in the same commit. |
+
+Recorded 2026-10-14, after the goal check of 2026-10-13, through the
+campaign coordinator.
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| Q7 | Goal-check findings C7 (stdio MCP servers on Windows), O6 (the offer to configure the Radius MCP server after a Radius login) and M5 (codemode `models.*`). | **Excluded from the parity goal.** DEV-09 and DEV-07 are decided; `models.*` stays a CM1 follow-on in `docs/backlog.md` (DEV-04). |
+| Q8 | Goal-check finding M21: inline terminal images. | **In scope.** Delivered by N4 (Kitty and iTerm2 images after a tool row, `terminal.showImages`, `terminal.imageWidthCells`); what is left is DEV-19. |
+| Q9 | Q1 again: a default OAuth Client ID Metadata Document. | **None.** See Q1: dynamic client registration stays the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl` (request #224). |
+| Q10 | Pillow for the image processing of G7. | **An optional extra.** Pillow stays the optional `images` extra (`uv sync --extra images`, `uv tool install '.[images]'`), not a default dependency; without it tool result images are sent unresized (DEV-68). |

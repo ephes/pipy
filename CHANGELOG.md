@@ -8,6 +8,53 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- TUI: images in tool results (MCP screenshots, codemode `image()`,
+  extension tools) are drawn inline after the tool row in terminals that
+  speak the Kitty graphics protocol (kitty, Ghostty, WezTerm, Warp, Herdr)
+  or iTerm2 inline images, as Pi's `ToolExecutionComponent` draws a pi-tui
+  `Image`. `terminal.showImages` (default on) and `terminal.imageWidthCells`
+  (default 60) are honoured; `PIPY_IMAGE_PROTOCOL=kitty|iterm2|none`
+  overrides the detection. Under tmux or screen, in other terminals and in
+  non-terminal output the row keeps the `[Image: [<mime>] <w>x<h>]` line.
+  See [images in tool results](docs/tui-workflow.md#images-in-tool-results).
+- Images in tool results (MCP tools and resources, codemode `image()`,
+  extension tools) are processed as Pi processes them before they are
+  stored, shown and sent: an image larger than 2000x2000 pixels or 4.5 MB
+  of base64 is scaled down, with a text that gives the original size and
+  the coordinate scale, and an image of another type than PNG, JPEG, GIF or
+  WebP is converted to PNG. `images.autoResize: false` turns the resizing
+  off. This needs the new optional extra `images` (Pillow); without it the
+  images are sent as before. See
+  [providers](docs/providers.md#size-of-tool-result-images-and-images-settings).
+- `images.blockImages: true` keeps tool result images from every provider
+  request; each becomes the text `Image reading is disabled.`. The terminal
+  still draws them, as in Pi.
+- An `input` hook can return `InputHandled` (Pi's `{action: "handled"}`):
+  later hooks do not run and no run starts. A handled prompt of `--print`
+  prints nothing, `--mode json` writes only the header, an RPC `prompt` is
+  answered with disposition `handled`; a typed line starts no run.
+- In RPC mode every extension has the client as its UI, as in Pi:
+  `ctx.has_ui` is true, `ctx.ui.select`, `confirm`, `input` and `editor` are
+  `extension_ui_request` dialogs the client answers, and `set_status`,
+  `set_widget` (lines of text), `set_title`, `set_editor_text` and
+  `paste_to_editor` are requests without an answer (`setStatus`,
+  `setWidget`, `setTitle`, `set_editor_text`). `select`, `confirm` and
+  `input` take Pi's `timeout` option (milliseconds); in RPC mode the dialog
+  then ends with its default. Before, extensions had no UI in RPC mode and
+  only `/mcp` sent requests.
+- `StreamableHttpTransportOptions(fetch=...)`: a program that builds on
+  `pipy_harness.native.mcp` can pass the function that sends the HTTP
+  requests of a transport, for a proxy or a network of its own (Pi's
+  `fetch` option). See `pipy_harness.native.mcp.http_fetch`.
+- `pipy_harness.native.mcp.oauth.flow.adapt_oauth_provider(provider)`: a
+  program that builds on pipy's MCP library can connect an HTTP MCP server
+  that wants OAuth with any OAuth client provider and a store of its own,
+  with a shared refresh after a 401 and a step-up authorization for more
+  scope (Pi's `adaptOAuthProvider`).
+- Keybindings: new action `app.message.copy` (default `ctrl+x`), which can
+  be rebound in `keybindings.json`. The sign-in screen of the `/mcp`
+  manager copies the authorization URL with it, as Pi's does; before, the
+  key was fixed to Ctrl+X.
 - A tool renderer's `ToolRenderContext` has Pi's call fields:
   `tool_call_id`, `cwd`, `execution_started`, `args_complete`,
   `is_partial`, `show_images`, `duration_ms`, `last_component` and
@@ -75,7 +122,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   model whose catalog row lists no image input gets the text `(tool image
   omitted: model does not support images)` instead. A tool row shows an
   image as `[Image: [image/png] 640x480]` after the result's text, live,
-  after a resume and in an HTML export, and the export page shows the
+  after a resume and in an HTML export, where the terminal cannot draw it, and the export page shows the
   images themselves after the result. An image an MCP tool returns and an
   image resource read with `read_mcp_resource` now reach the model as
   images, where they were the text `[image <mime> omitted]`; see
@@ -115,8 +162,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `MCP server requires authentication` before. See
   [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
 - `auth` in an MCP server entry: `"auth": {"provider": "<provider>"}` sends
-  an HTTP MCP server the token that `/login <provider>` stored for that
-  model provider, or the provider's API-key environment variable. The token
+  an HTTP MCP server the key a model request to that provider would use. The token
   is read for every request and never stored for the server, and the server
   never signs in with OAuth. When the server rejects it, the server shows as
   `needs sign-in` and calls fail with `MCP server "<name>" requires
@@ -495,6 +541,118 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- MCP: another session in the same run (`/new`, `/resume`, `/fork`,
+  `/clone`, `/import`, and the RPC and SDK `new_session`, `switch_session`,
+  `fork`, `clone`) closes the MCP servers and starts them again from the
+  `mcp.json` files, as Pi's MCP extension does on `session_shutdown` and
+  `session_start`. The startup report and the first prompt's wait apply
+  again; tools `tool_search` loaded and session-only `/mcp` changes to
+  extension-registered servers do not carry over.
+- MCP: the startup report and the report of a server an extension
+  registered later are shown while the session waits for input, in the
+  terminal editor (also behind the `/mcp` manager) and as an RPC `notify`
+  request while no command runs, instead of with the next prompt.
+- Print and JSON mode have no UI, as in Pi: the notices of extensions and of
+  MCP (`ctx.ui.notify`, the status and messages of `/mcp`, the MCP startup
+  report) are dropped there instead of written to stderr. An extension
+  command that a prompt ran and that raised is Pi's extension error with the
+  exception's text: `Extension error (command:<name>): <message>` on stderr
+  in print and JSON mode, an `extension_error` object (`extensionPath`,
+  `event`, `error`) on stdout in RPC mode; before it was `pipy: extension
+  command /<name> failed (<error type>)` on stderr in all three. The report
+  of an extension-registered MCP server that nothing connects is such an
+  error too (event `register_mcp_server`). See
+  [Extension errors](docs/automation-rpc.md#extension-errors).
+- The prompt of `--print`, `--mode json` and an RPC `prompt` reaches the
+  `input` hooks before skill and template expansion, as in Pi, so a hook
+  sees `/review x` and may turn text into a template invocation; the
+  session then stores the text the hooks left. A prompt template named like
+  a built-in command of the interactive session (`/model`, `/tree`, ...) is
+  expanded in such a prompt.
+- RPC `steer` and `follow_up` whose text names an extension command (also
+  `/mcp`) fail with Pi's `Extension command "/<name>" cannot be queued. Use
+  prompt() or execute the command when not streaming.`; a skill command or
+  prompt template in them, and in a `prompt` queued behind a run, is
+  expanded when it is queued. A `prompt` that names an extension command
+  during a run runs it at once and is answered `handled` (a failure is an
+  `extension_error`).
+- RPC `get_commands` lists the extension commands (with `/mcp`), prompt
+  templates (with pipy's custom commands) and skills (`skill:<name>`); it
+  answered an empty list before.
+- SDK: `ProductSession.submit()` handles its text as Pi's SDK
+  `session.prompt()` does: an extension command (also `/mcp`, so
+  `McpOptions.open_url` is reached by `/mcp login`) runs and starts no run,
+  the `input` hooks may change or handle the text, and skill commands and
+  prompt templates are expanded. Built-in commands of the interactive
+  session and `!` stay text for the model. Before, `submit()` sent every
+  text to the model unchanged.
+- MCP: a screen of the `/mcp` manager that is taller than the terminal
+  shows a server's details and error, a status message or the
+  authorization URL through a window that PageUp and PageDown
+  (`tui.select.pageUp`/`pageDown`) scroll, with a line such as
+  `… lines 1-9 of 26, pageup/pagedown to scroll`. Before, the text was cut
+  short and the rest could not be read.
+- MCP: the authorization URL on the `/mcp` sign-in screen and a new
+  `Cmd+click to open` hint (`Ctrl+click` outside macOS) are OSC 8
+  hyperlinks to the URL, as Pi's `AuthUrlComponent` draws them, so a
+  terminal that supports links opens a wrapped URL on a click.
+- Codemode: a codemode row shows the script's output as Pi's codemode
+  renderer does: without the `Script completed`/`Wall time`/`Output:`
+  header, collapsed to the first five wrapped lines with `... (N more
+  lines, ctrl+o to expand)`, and `Full output: <path>` when the output was
+  spilled to a file. Before, codemode had the generic result preview.
+- Export: the HTML page shows the nested calls of a tool result (a codemode
+  script's calls) as Pi's page does: `Nested calls: <n>`, and on a click one
+  line per call with its status, arguments, duration and error.
+- `ToolRenderContext.show_images` is the `terminal.showImages` setting, as
+  Pi's `showImages`; it was always false. A change of the setting draws the
+  rows of extension renderers again.
+- An HTTP MCP server that redirects to another host or port is followed, as
+  in Pi. The OAuth or provider token and a configured `Authorization`,
+  `Proxy-Authorization`, `Cookie` or `Host` header are not sent to the other
+  origin; other configured headers are. Before, such a redirect failed with
+  the redirect's status.
+- An HTTP MCP server may answer with a JSON body of any size. The 16 MiB
+  limit now applies to one event of an event stream, as in Pi; a larger
+  JSON answer failed with `MCP HTTP message exceeds <n> bytes` before.
+- A server's changed tool list is read again at once, also while the server
+  is slow to answer a listing of its resources (and the other way round).
+  Before, the two were read one after the other.
+- MCP server URLs and OAuth URLs are read as Pi reads them: shortened and
+  hex or decimal IPv4 hosts (`http://127.1:8080/mcp`), percent-escapes in
+  the host, and missing or extra slashes and backslashes after the scheme
+  are accepted, where they were configuration errors before. `127.1` and
+  the other spellings of `127.0.0.1` count as loopback hosts.
+- An `mcp.json` with bytes that are not UTF-8 inside a string loads, with
+  replacement characters there, as in Pi; the whole file was rejected
+  before.
+- `pipy mcp add --oauth-callback-port` and `pipy mcp login --timeout` read
+  their number as Pi does with JavaScript's `Number()`, so `0x50`, `0o17`,
+  `0b1` and `1e3` are numbers.
+- An MCP server with `"auth": {"provider": "<provider>"}` is also sent the
+  `openai-codex` login, the key given with `--api-key` and the `apiKey`
+  that `models.json` configures for the provider, as a model request to
+  that provider would use them; these sources sent no token before.
+- OAuth credentials that an older Pi stored in `mcp-auth.json` under the
+  server URL alone are used: the first server with that URL takes them
+  over, and `/mcp logout` deletes them. Before, they were ignored.
+- `--tools ''` disables every tool, MCP tools included, as `--no-tools`
+  does; before, an empty list was the same as no list.
+- `--no-tools` and `--no-builtin-tools` only empty the default selection,
+  as in Pi: `pipy --no-tools --tools tool_search` declares `tool_search`,
+  `--no-builtin-tools --tools read` declares `read`, and
+  `--no-builtin-tools --tools +read` activates `read` and keeps the
+  extension tools. Under `--no-builtin-tools` the built-in tools stay
+  registered (an extension can select one), and `codemode` and
+  `tool_search` stay available for MCP.
+- `codemode` and `tool_search` are the built-in extensions
+  `builtin:codemode` and `builtin:tool-search`, as in Pi:
+  `"extensions": ["-builtin:tool-search"]`, `pipy config disable builtin
+  codemode` and `--no-extensions` remove the tools, `--extension
+  builtin:<name>` loads one for a run, and `/reload` reads the entries again.
+- A tool that `tool_search` loaded is no longer declared again on its own
+  when its server is disabled and enabled again, or stops offering it and
+  offers it again; it has to be loaded again, as in Pi.
 - `api.register_tool` works while the session runs the extension, as Pi's
   `registerTool` does: a command can add a tool or register one of its
   tools again, with `exposure="hidden"` to withdraw it, and the next request
@@ -559,8 +717,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   these were left to the server.
 - The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
   as Pi's `prompt` handles them. A text that names an extension command runs
-  it and starts no run; `/mcp` is such a command and prints the server
-  status. `/skill:<name>` and prompt templates are expanded. Everything else
+  it and starts no run; `/mcp` is such a command. `/skill:<name>` and prompt
+  templates are expanded. Everything else
   goes to the model as it stands. Before, print and JSON mode read the
   prompt as a typed line, so the built-in commands (`/model`, `/exit`, ...)
   and the `!` shortcut ran there and an unknown `/name` ended with a notice
@@ -630,6 +788,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Closing an HTTP MCP server, a request timeout and a cancelled call end a
+  request that is still connecting or in its TLS handshake at once. Before,
+  its thread and socket stayed for up to 30 seconds.
+- Signing in to an MCP server works when the authorization server answers a
+  client registration or a token request with a 307 or 308 redirect: the
+  request is sent again where it moved, as in Pi. Before, it failed with the
+  redirect's status.
+- Answers of an authorization server that are compressed with gzip or
+  deflate are read. Before, such metadata, registration and token answers
+  failed as invalid JSON.
+- Signing in to an MCP server whose configured URL has a non-ASCII or
+  otherwise unencoded path character (`https://example.com/café/mcp`) works
+  when the server's protected resource metadata writes that path
+  percent-encoded. Before, the sign-in stopped with `Protected resource ...
+  does not match MCP server ...`.
 - A codemode script may emit Pi's 16,777,216 characters of output, text and
   image data together, or 100,000 `text()`, `image()` and print calls; longer
   output is cut to the result's budget and saved whole to the full-output
@@ -731,6 +904,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Documentation
 
+- The MCP parity plan, its acceptance note and the backlog now hold the
+  goal-check tracks L and N and the owner decisions of 2026-10-14: no
+  default OAuth Client ID Metadata Document (dynamic client registration
+  stays the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl`),
+  stdio servers on Windows, the Radius offer after a login and codemode
+  `models.*` outside the parity goal, inline terminal images in scope, and
+  Pillow as the optional `images` extra.
 - The [MCP page](docs/mcp.md) is in the order a user needs it: quick setup,
   configuration, migrating from another client, `/mcp` and the other ways
   to look after servers in a session, the `pipy mcp` commands, OAuth, tool
@@ -744,14 +924,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 - The MCP feature has an
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
-  the 287 behaviours of the
+  the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. 285 are closed, 106 of them
-  with a recorded limit or deviation. Two are not: commands in queued RPC
-  input, and the clickable link of the sign-in screen. The plan lists every
-  recorded difference from Pi (section 3.1) and the result (section 3.2);
-  the [backlog](docs/backlog.md) says what is open, including live use with
-  a real server and model.
+  that pin it and where pipy differs from Pi. All are closed, 109 of them
+  with a recorded limit or deviation. The plan lists every recorded
+  difference from Pi (section 3.1) and the result (section 3.2); the
+  [backlog](docs/backlog.md) says what is open, which is live use with a
+  real server and model.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

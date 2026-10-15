@@ -92,7 +92,7 @@ def test_the_plan_states_the_number_of_its_rows() -> None:
     rows = _plan_rows()
     counts = Counter(row.split("-")[0] for row in rows)
 
-    assert len(rows) == len(set(rows)) == 287
+    assert len(rows) == len(set(rows)) == 292
     stated = re.search(r"Row count: (\d+) \(([^;]+);", _PLAN.read_text())
     assert stated is not None
     assert int(stated.group(1)) == len(rows)
@@ -118,23 +118,22 @@ def test_every_test_the_audit_names_exists() -> None:
     assert missing == []
 
 
-def test_a_row_without_a_test_is_open() -> None:
+def test_every_row_names_a_test_and_none_is_open() -> None:
+    # SLH-13 and the open part of MGR-09 were built after the audit (N2, N3).
     states = {row: state for row, state, _tests in _audit()}
     without = [row for row, _state, cell in _audit() if not _named_tests(cell)]
 
     assert set(states.values()) <= set(_STATES)
-    assert without == ["SLH-13"]
-    assert [row for row, state in states.items() if state == "open"] == ["SLH-13"]
-    assert [row for row, state in states.items() if state == "part open"] == ["MGR-09"]
+    assert without == []
+    assert [row for row, state in states.items() if state == "open"] == []
+    assert [row for row, state in states.items() if state == "part open"] == []
 
 
-def test_the_note_explains_the_rows_that_are_not_closed() -> None:
+def test_the_note_lists_no_row_that_is_not_closed() -> None:
     not_closed = _NOTE.read_text().split("## Not closed")[1].split("\n## ")[0]
 
-    assert re.findall(rf"^\| ({_ROW_ID})", not_closed, flags=re.MULTILINE) == [
-        "SLH-13",
-        "MGR-09",
-    ]
+    assert re.findall(rf"^\| ({_ROW_ID})", not_closed, flags=re.MULTILINE) == []
+    assert "No row is open." in not_closed
 
 
 def test_the_summary_counts_are_those_of_the_tables() -> None:
@@ -145,7 +144,7 @@ def test_the_summary_counts_are_those_of_the_tables() -> None:
     assert (
         f"{states['closed, with limits']} are closed with a recorded limit" in summary
     )
-    assert sum(states.values()) == 287
+    assert sum(states.values()) == 292
 
 
 def _deviations() -> list[str]:
@@ -159,7 +158,11 @@ def _deviations() -> list[str]:
 def test_the_deviations_are_numbered_without_a_gap() -> None:
     deviations = _deviations()
 
-    assert deviations == [f"DEV-{number:02d}" for number in range(1, 65)]
+    assert deviations == [f"DEV-{number:02d}" for number in range(1, 69)]
+    # A closed deviation keeps its number and says so.
+    section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
+    closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
+    assert closed == ["DEV-08", "DEV-39", "DEV-42"]
 
 
 def test_every_deviation_the_note_names_is_in_the_plan() -> None:
@@ -172,7 +175,8 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    assert len(cells) == 50
+    # DEV-15 to DEV-68 without the closed DEV-39 and DEV-42.
+    assert len(cells) == 52
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
@@ -221,10 +225,10 @@ def test_the_plan_states_the_result_of_the_audit() -> None:
         f"| Closed with a limit or deviation | {states['closed, with limits']} |"
         in result
     )
-    assert "| Closed in part | 1 | MGR-09:" in result
-    assert "| Open | 1 | SLH-13:" in result
+    assert "| Closed in part | 0 |" in result
+    assert "| Open | 0 |" in result
     closed = states["closed"] + states["closed, with limits"]
-    assert f"Of the 287 rows of section 2, {closed} are closed\n" in plan
+    assert f"Of the 292 rows of section 2, {closed} are closed\n" in plan
     assert f"({states['closed, with limits']} of them with a recorded limit" in plan
 
 

@@ -1,7 +1,8 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-04, 2026-10-12 (MCP1 selected) and 2026-10-14 (MCP1 audited).
+updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited)
+and 2026-10-15 (MCP1 goal-check tracks merged).
 
 ## Status
 
@@ -92,8 +93,9 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 Owner-requested 2026-10-12: the whole Pi MCP feature at functionality parity,
 against Pi `a447ba11f`. The
 [parity plan](specs/2026-10-12-mcp-parity-plan.md) holds the acceptance
-checklist (287 rows with Pi sources), the deviations, the design, the
-ordered slices S01–S40 and X1, and the test strategy. Scope: codemode reaching
+checklist (292 rows with Pi sources), the deviations, the design, the
+ordered slices S01–S40, X1, X2 and the goal-check slices G1–G9, L1–L4 and
+N1–N4, and the test strategy. Scope: codemode reaching
 extension and MCP tools with discovery, the MCP client (stdio and streamable
 HTTP), `mcp.json` configuration and project overrides, exposure modes,
 `tool_search`, the `mcp_servers` prompt section, resources, OAuth, result
@@ -103,31 +105,30 @@ patterns, reload, and the extension and SDK hooks.
 Fixed by the owner: the synchronous native core stays (no async runtime, no
 `mcp` SDK dependency; the client is written in pipy), codemode stays Python
 on WASI with Python names, and configuration uses Pi's `mcp.json` format at
-pipy's locations under the existing project-trust rules. Nested calls stay
-sequential (plan DEV-03). Decided
+pipy's locations under the existing project-trust rules. Nested calls run
+concurrently since G3 (plan DEV-03). Decided
 2026-10-12 (plan section 7): images in tool results and the extension
 orchestration hooks are in scope, the client name is `pipy`, and slices land
 on `feat/mcp-parity`, pushed per slice, as a campaign exception to the trunk
-rule; the merge to `main` needs owner approval.
+rule; the merge to `main` needs owner approval. Decided 2026-10-14: no
+default OAuth Client ID Metadata Document (dynamic client registration stays
+the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl`); stdio
+servers on Windows, the Radius offer after a login and codemode `models.*`
+are outside the parity goal; inline terminal images are in scope; Pillow is
+the optional `images` extra.
 
-State after the closing audit (2026-10-14, plan section 3.2 and the
-[acceptance note](acceptance/2026-10-13-mcp-parity.md)): every slice is on
-`feat/mcp-parity`. Of the 287 rows, 179 are closed with a test and 106 with
-a recorded limit or deviation. The official MCP conformance suite gives the
-same result for pipy as for Pi (`just mcp-conformance`, a manual recipe).
-Open:
+State after the closing audit and the goal-check tracks (2026-10-15, plan
+section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
+every slice is on `feat/mcp-parity`. Of the 292 rows, 183 are closed with a
+test and 109 with a recorded limit or deviation; none is open. The official
+MCP conformance suite gives the same result for pipy as for Pi
+(`just mcp-conformance`, a manual recipe). Open:
 
-- **SLH-13, commands in queued RPC input:** `steer`, `follow_up` and a
-  `prompt` sent during a run are queued as they are; see
-  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
-- **MGR-09, one part:** the authorization URL of the sign-in screen is plain
-  text, not a terminal hyperlink.
 - **Live evidence** (plan section 6.5): a stdio server through `uvx` or
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-62) are accepted;
-  the default CIMD document (none is built in until decided).
+  differences from Pi (plan section 3.1, DEV-15 to DEV-68) are accepted.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -155,7 +156,8 @@ coordinator campaign report. This product index does not assert a review verdict
 Extension-tool generalization and MCP/discovery/exposure are now MCP1 above.
 Other follow-ons require separately selected slices: shared state (parallel
 calls are MCP1 slice G3; `store()`/`load()` is MCP1 slice G4), images (the tool-result part is MCP1 slice S39), and `models.*`
-(structured bash results and options lines are MCP1 slice G5). Compact-script
+(structured bash results and options lines are MCP1 slice G5; `models.*` is
+outside the MCP parity goal by the owner's decision of 2026-10-14). Compact-script
 model adherence needs further evidence; the T10 repeat is retained as a limitation.
 **CM1-A1 — adherence guidance (review closed).** The owner-selected follow-on adds
 direct string-processing guidance,
@@ -511,15 +513,14 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   decisions, not covered by the completed realignment.
 - **Strict tool schemas** (Pi 0.86.0): only once a primary provider needs
   capability-gated constraints.
-- **Per-model image input limits and resize** (Pi `f5c946480`).
+- **Per-model image input limits** (Pi `f5c946480`). Tool result images
+  are resized with Pi's default limits since MCP1 G7; per-model
+  `inputLimits` are not read.
 - **Missing RPC commands:** `clear_queue` (`a79b37334`) and
-  `get_tree`/`get_entries` (`7ba1b6bfe`). `get_commands` answers an empty
-  list.
-- **Commands in queued input:** the prompt of `--print` and `--mode json`
-  and an RPC `prompt` run extension commands (`/mcp` among them) and expand
-  skills and prompt templates as Pi's `prompt` does. Still different:
-  `steer`, `follow_up` and a `prompt` sent during a run are queued as they
-  are, and a product session's `submit()` runs no command. See
+  `get_tree`/`get_entries` (`7ba1b6bfe`).
+- **Queued RPC input and `input` hooks:** commands in queued input are
+  refused or run and templates are expanded since MCP1 N2; the `input`
+  hooks still do not run when a message is queued (plan DEV-65). See
   [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
 - **Extension events** that Pi's `core/extensions/types.ts` has and pipy's
   `extensions/activation.py` lacks.
