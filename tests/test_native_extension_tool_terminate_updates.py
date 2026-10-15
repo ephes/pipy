@@ -284,7 +284,7 @@ def test_a_partial_result_is_bounded_and_must_be_a_tool_result(tmp_path) -> None
     assert partial.details == {"n": 1}
     assert partial.appended is None
     assert result.is_error is True
-    assert result.output_text == "extension tool error: TypeError"
+    assert result.output_text == "on_update expects a ToolResult"
 
 
 def test_on_update_does_nothing_where_nothing_receives_it(tmp_path) -> None:

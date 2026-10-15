@@ -330,7 +330,9 @@ def test_extension_tool_replacement_and_failure_declare_the_tool_delta(
         ) == delta
 
 
-def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:
+def test_extension_tool_exception_fails_the_call_with_its_message(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     ext = tmp_path / ".pipy" / "extensions"
     ext.mkdir(parents=True)
@@ -364,11 +366,15 @@ def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:
         error_stream=io.StringIO(),
     )
 
-    # The run survived and the raw exception message did not leak.
+    # The run survived, and the model sees the exception's message as the
+    # call's error result, as Pi's agent loop reports `error.message`.
     assert result.status is HarnessStatus.SUCCEEDED
-    second = provider.requests[1]
-    joined = " ".join(message.content.value for message in second.messages)
-    assert "/secret" not in joined and "leak-xyz" not in joined
+    (failed,) = [
+        message
+        for message in provider.requests[1].messages
+        if isinstance(message, AgentToolResultMessage)
+    ]
+    assert (failed.is_error, failed.content.value) == (True, "/secret/leak-xyz")
 
 
 # -- Pi-style schemas and prepare_arguments (goal check r2, S18 and S19) ----
@@ -480,8 +486,9 @@ def test_the_model_calls_a_pi_style_tool_through_prepare_arguments(
     # argument before validation, and the `$ref` enum is checked.
     assert outcomes[0] == (False, 'got:{"count": 2.5, "label": null}')
     assert outcomes[2] == (False, 'got:{"count": 3, "unit": "cm"}')
-    # A callback that raises ends the call with the exception type only.
-    assert outcomes[1] == (True, "measure: prepare_arguments raised RuntimeError")
+    # A callback that raises ends the call with the exception's message, as
+    # Pi's `prepareToolCall` reports `error.message`.
+    assert outcomes[1] == (True, "secret detail")
     assert outcomes[3][0] is True and "count" in outcomes[3][1]
     assert outcomes[4][0] is True and "unit" in outcomes[4][1]
 

@@ -579,6 +579,11 @@ small reviewed slices.
 `api.on(...)` should support both direct registration and decorator style:
 `api.on("tool_call", handler)` and `@api.on("tool_call")`.
 
+`send_user_message(content, options)` accepts `options` and ignores them:
+Pi's `deliverAs` (steer, follow-up) and `expandPromptTemplates` are not
+honoured, so the message is queued as a plain prompt, without command or
+prompt-template expansion.
+
 ## Event Hooks
 
 Event names should mirror Pi where the lifecycle concept matches. The full
@@ -887,7 +892,11 @@ Rules:
 - A tool result may set `terminate=True` when it is final and no automatic
   follow-up model turn is needed; the batch ends only when every result in
   it asks, see [ending the batch](#ending-the-batch).
-- Raised exceptions become bounded tool errors, not uncaught session crashes.
+- A handler that raises fails the call, not the session: as in Pi, the
+  exception's message is the error result the model sees (the type name
+  when the message is empty), with characters that would steer a terminal
+  replaced by spaces and its length bounded. It reaches a caller through
+  `ctx.execute_tool` or a codemode script the same way.
 - Stateful tools should be able to reconstruct safe local state from prior
   result `details` or extension-owned append-only entries.
 - Tool results are bounded before returning to the model.
@@ -1072,8 +1081,8 @@ def activate(api):
   validate and run instead, for example to accept an older argument shape.
   It runs once per call, before the `tool_call` handlers, also for calls
   made by scripts and `ctx.execute_tool`. If it raises, the call ends with
-  the error result `<name>: prepare_arguments raised <exception type>` and
-  reaches no handler. A value that is not callable disables the extension with
+  the exception's message as its error result, as a raising handler's does,
+  and reaches no handler. A value that is not callable disables the extension with
   `invalid_tool`.
 
 **Results.** A handler that returns data declares an `output_schema` and

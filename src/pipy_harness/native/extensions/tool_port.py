@@ -39,6 +39,29 @@ _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
 _TRUNCATED = "\n[pipy: extension tool output truncated]"
 
 
+def _exception_text(err: BaseException, limit: int) -> str:
+    """What a raising extension callback reports, as Pi's agent loop does
+    (``error.message``): the exception's message, or its type name when the
+    message is empty or cannot be read. Characters that would steer a
+    terminal become spaces (line breaks and tabs stay), and the text is
+    bounded to ``limit`` characters."""
+
+    try:
+        message = str(err)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - an unreadable message
+        message = ""
+    if not message.strip():
+        message = type(err).__name__
+    text = "".join(
+        char if char.isprintable() or char in "\n\t" else " " for char in message
+    )
+    if len(text) > limit:
+        text = text[: max(0, limit - 64)] + _TRUNCATED
+    return text
+
+
 def _partial_update(sink: ToolOutputSink) -> Callable[[ToolResult], None]:
     """``ctx.on_update`` of a running extension tool (Pi ``onUpdate``):
     each partial ``ToolResult`` becomes a partial result that replaces the
@@ -67,8 +90,9 @@ class _ExtensionToolPort:
 
     The loop validates arguments against `definition.input_schema` before
     `invoke`, so the handler receives already-validated input. A handler
-    exception becomes a bounded tool error (never a session crash), and
-    the provider-visible output is bounded. `KeyboardInterrupt` /
+    exception becomes a tool error with the exception's message, printable
+    and bounded (Pi's agent loop reports ``error.message``; never a session
+    crash), and the provider-visible output is bounded. `KeyboardInterrupt` /
     `SystemExit` propagate.
 
     Trust model (see the extension-api spec "Local trust boundary"):
@@ -126,8 +150,9 @@ class _ExtensionToolPort:
     def prepare_arguments(self, arguments: object) -> object:
         """The tool's ``prepare_arguments`` (Pi ``prepareArguments``), which
         the executor runs on the parsed arguments before validation. A
-        callback that raises makes the call an argument error (Pi reports
-        what ``prepareToolCall`` catches as the call's error result)."""
+        callback that raises makes the call an argument error whose text is
+        the exception's message (Pi reports what ``prepareToolCall`` catches
+        as the call's error result)."""
 
         prepare = self._registered.tool.prepare_arguments
         if prepare is None:
@@ -139,7 +164,8 @@ class _ExtensionToolPort:
         except BaseException as err:  # noqa: BLE001 - bound a bad callback
             raise ToolArgumentError(
                 self._definition.name,
-                f"prepare_arguments raised {type(err).__name__}",
+                _exception_text(err, ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH),
+                qualified=False,
             ) from None
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -177,9 +203,12 @@ class _ExtensionToolPort:
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as err:  # noqa: BLE001 - bound a bad tool
+            # Pi: throwing from `execute` fails the call with the message.
             return ToolExecutionResult(
                 tool_request_id=request.tool_request_id,
-                output_text=f"extension tool error: {type(err).__name__}",
+                output_text=_exception_text(
+                    err, ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+                ),
                 is_error=True,
                 provider_correlation_id=request.provider_correlation_id,
             )

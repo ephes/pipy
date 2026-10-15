@@ -1036,8 +1036,9 @@ class ExtensionTool:
     - `prepare_arguments(arguments)`: gets a call's parsed arguments before
       they are validated and returns the arguments to validate instead
       (Pi `prepareArguments`), for example to accept an older argument
-      shape. If it raises, the call ends with the error result
-      `<name>: prepare_arguments raised <exception type>`.
+      shape. If it raises, the call ends with the exception's message as
+      its error result (Pi), or the exception's type name when the message
+      is empty.
     """
 
     name: str
