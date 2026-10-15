@@ -35,6 +35,10 @@ It proves, end to end, through the product CLI:
     event sequence ending with ``agent_end`` immediately followed by a single
     payload-free ``agent_settled`` (the true-idle boundary), exits 0, and never
     emits the ``pipy.native_output`` schema.
+13. ``--mode json "TOOLCALL"`` runs one ``bash`` call and emits Pi's tool
+    events (``docs/json.md``): ``partialResult`` and ``result`` are
+    ``{content, details}`` objects with typed content blocks, and
+    ``tool_execution_end`` carries an integer ``durationMs``.
 
 Also asserts strict LF-only framing (no ``\r``, one JSON object per line, no
 interleaved records) and that all 31 commands in pipy's shipped baseline are
@@ -538,10 +542,82 @@ def _check_json_mode_oneshot(base: Path) -> Check:
     )
 
 
+def _is_tool_result_object(value: object) -> bool:
+    """Pi's ``AgentToolResult``: typed text/image content blocks, and
+    ``details`` an object when present."""
+    if not isinstance(value, dict) or not isinstance(value.get("content"), list):
+        return False
+    blocks_ok = all(
+        isinstance(block, dict) and block.get("type") in ("text", "image")
+        for block in value["content"]
+    )
+    return blocks_ok and isinstance(value.get("details", {}), dict)
+
+
+def _check_json_mode_tool_events(base: Path) -> Check:
+    env = _env(base)
+    workspace = base / "jsontool"
+    workspace.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _BOOT,
+            "repl",
+            "--cwd",
+            str(workspace),
+            "--native-provider",
+            "fake",
+            "--native-model",
+            "fake-tools",
+            "--no-session",
+            "--mode",
+            "json",
+            "TOOLCALL",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        timeout=30.0,
+    )
+    try:
+        records = [
+            json.loads(ln) for ln in proc.stdout.decode("utf-8").splitlines() if ln
+        ]
+    except ValueError:
+        return Check("json_mode_tool_events", False, "non-JSON line on stdout")
+    tool_events = [
+        r for r in records if str(r.get("type", "")).startswith("tool_execution_")
+    ]
+    updates = [r for r in tool_events if r["type"] == "tool_execution_update"]
+    ends = [r for r in tool_events if r["type"] == "tool_execution_end"]
+    end = ends[0] if len(ends) == 1 else {}
+    text = "".join(
+        block.get("text", "") for block in (end.get("result") or {}).get("content", [])
+    )
+    ok = (
+        proc.returncode == 0
+        and [r["type"] for r in tool_events][:1] == ["tool_execution_start"]
+        and bool(updates)
+        and all(_is_tool_result_object(r.get("partialResult")) for r in updates)
+        and _is_tool_result_object(end.get("result"))
+        and end.get("isError") is False
+        and "hi" in text
+        and type(end.get("durationMs")) is int
+        and end["durationMs"] >= 0
+    )
+    return Check(
+        "json_mode_tool_events",
+        bool(ok),
+        f"rc={proc.returncode} types={[r['type'] for r in tool_events]} end={end}",
+    )
+
+
 def run_checks(base: Path) -> list[Check]:
     checks = _run_rpc_checks(base / "rpc")
     checks.append(_check_accepts_all_commands(base / "all"))
     checks.append(_check_json_mode_oneshot(base / "json"))
+    checks.append(_check_json_mode_tool_events(base / "json"))
     return checks
 
 

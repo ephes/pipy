@@ -29,7 +29,6 @@ from pipy_harness.native.extension_types import (
     REASON_DUPLICATE_MESSAGE_RENDERER,
     REASON_DUPLICATE_PROVIDER,
     REASON_DUPLICATE_SHORTCUT,
-    REASON_DUPLICATE_TOOL,
     REASON_INVALID_COMMAND_NAME,
     REASON_INVALID_ENTRY_RENDERER,
     REASON_INVALID_FLAG,
@@ -76,6 +75,7 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.extensions.contribution_names import (
     _ContributionNames,
+    _first_tools,
     _normalize_contribution_names,
     _preloaded_collision_reason,
     _prepare_contribution_names_commit,
@@ -332,7 +332,6 @@ class _ActivationApi:
         outbox: list[QueuedUserMessage],
         custom_outbox: list[QueuedCustomMessage],
         reserved_tools: frozenset[str] = frozenset(),
-        taken_tools: frozenset[str] = frozenset(),
         taken_providers: frozenset[str] = frozenset(),
         taken_shortcuts: frozenset[str] = frozenset(),
         taken_flags: frozenset[str] = frozenset(),
@@ -370,7 +369,6 @@ class _ActivationApi:
         self._reserved = reserved
         self._taken = taken
         self._reserved_tools = reserved_tools
-        self._taken_tools = taken_tools
         self._taken_providers = taken_providers
         self._taken_shortcuts = taken_shortcuts
         self._taken_flags = taken_flags
@@ -565,7 +563,13 @@ class _ActivationApi:
                 self._staged_shortcuts,
                 REASON_DUPLICATE_SHORTCUT,
             ),
-            "tool": (self._taken_tools, self._staged_tools, REASON_DUPLICATE_TOOL),
+            # Pi `getAllRegisteredTools`: a tool name another extension
+            # registered first stays that extension's, and this one's tool is
+            # left out when the extension is committed (`_first_tools`); an
+            # extension that registers one of its own names again replaces
+            # its earlier registration (`extension.tools.set`). Only a
+            # reserved name is refused, so no tool name is a duplicate.
+            "tool": ((), (), ""),
             "provider": (
                 self._taken_providers,
                 self._staged_providers,
@@ -591,11 +595,6 @@ class _ActivationApi:
         elif family == "tool" and name in self._reserved_tools:
             reserved_reason = REASON_RESERVED_TOOL
         taken, staged, duplicate_reason = registries[family]
-        if family == "tool":
-            # Pi `extension.tools.set`: an extension that registers one of its
-            # own tool names again replaces its earlier registration. Only a
-            # name another extension took is a duplicate.
-            staged = ()
         failure_reason = reserved_reason
         if failure_reason is None and (name in taken or name in staged):
             failure_reason = duplicate_reason
@@ -740,14 +739,14 @@ class _ActivationApi:
         extension's other contributions. Once the session runs it (Pi
         ``registerTool`` and ``refreshTools``), the tool is published at
         once: a new name, or one of the extension's own names again, with
-        ``exposure="hidden"`` to withdraw that tool. An invalid tool, a
-        reserved name and a name another extension registered then raise
-        ``ExtensionCapabilityError`` and change nothing."""
+        ``exposure="hidden"`` to withdraw that tool. An invalid tool and a
+        reserved name then raise ``ExtensionCapabilityError`` and change
+        nothing. Of two extensions with the same tool name the one that
+        loaded first has it (Pi ``getAllRegisteredTools``): the other's
+        registration is left out silently and its extension stays
+        enabled."""
 
-        with self._guard:
-            live = (
-                self._live_tools if self._state in ("committed", "published") else None
-            )
+        live = self._live_registry()
         if live is not None:
             self._register_live_tool(tool, live)
             return
@@ -772,13 +771,24 @@ class _ActivationApi:
             raise ExtensionCapabilityError(
                 f"tool registration refused ({err.reason}){detail}"
             ) from None
+        self._require_live()
+        live.register(registered)
+
+    def _live_registry(self) -> LiveToolRegistry | None:
+        """The generation's registry while the session runs this host."""
+
         with self._guard:
-            # A reload disposes this host; its tools are not the session's.
+            committed = self._state in ("committed", "published")
+            return self._live_tools if committed else None
+
+    def _require_live(self) -> None:
+        with self._guard:
+            # A reload disposes this host; its contributions are not the
+            # session's.
             if self._state not in ("committed", "published"):
                 raise ExtensionCapabilityError(
                     "extension contribution registration is closed"
                 )
-        live.register(registered)
 
     def _bind_live_tools(self, live: LiveToolRegistry) -> None:
         """Host-internal: let tools registered from now on reach ``live``."""
@@ -984,9 +994,21 @@ class _ActivationApi:
 
         ``resolver(tool_name, next)`` is asked for every call row, also of a
         tool that is not registered. Resolvers run in extension load order,
-        and in the order one extension registered them.
+        and in the order one extension registered them. As in Pi it also
+        works while the session runs the extension (from ``session_start``,
+        a command or a tool), and the resolver is asked from then on; a
+        value that is not callable then raises ``ExtensionCapabilityError``.
         """
 
+        live = self._live_registry()
+        if live is not None:
+            if not callable(resolver):
+                raise ExtensionCapabilityError(
+                    f"tool renderer registration refused ({REASON_INVALID_TOOL_RENDERER})"
+                )
+            self._require_live()
+            live.register_tool_renderer(self._extension_name, resolver)
+            return
         self._check_registration_open()
         if not callable(resolver):
             self._raise_registration_failure(
@@ -1213,7 +1235,6 @@ class _ActivationApi:
         self._reserved = frozenset()
         self._taken = frozenset()
         self._reserved_tools = frozenset()
-        self._taken_tools = frozenset()
         self._taken_providers = frozenset()
         self._taken_shortcuts = frozenset()
         self._taken_flags = frozenset()
@@ -1638,6 +1659,7 @@ def _finalize_preloaded_extension(
         )
     ownership_transferred = False
     try:
+        existing = replace(existing, tools=_first_tools(existing.tools, taken))
         names = _normalize_contribution_names(_activated_contribution_names(existing))
         collision = _preloaded_collision_reason(
             names,
@@ -1777,7 +1799,6 @@ def _activate_one(
         reserved=reserved,
         taken=frozenset(taken.commands),
         reserved_tools=reserved_tools,
-        taken_tools=frozenset(taken.tools),
         taken_providers=frozenset(taken.providers),
         taken_shortcuts=frozenset(taken.shortcuts),
         taken_flags=frozenset(taken.flags),
@@ -1804,6 +1825,7 @@ def _activate_one(
         if staged.failure is not None:
             failure_reason, failure_diagnostic = staged.failure
             return _disabled(descriptor, failure_reason, failure_diagnostic), taken
+        staged = replace(staged, tools=_first_tools(staged.tools, taken))
         names = _normalize_contribution_names(_staged_contribution_names(staged))
         collision = _preloaded_collision_reason(
             names,

@@ -16,13 +16,13 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ToolOutput
 from pipy_harness.native.tools.base import (
     ToolContext,
+    ToolOutputSink,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
@@ -39,7 +39,7 @@ from pipy_harness.native.tools.output_accumulator import OutputAccumulator
 def _ctx(
     workspace: Path,
     *,
-    output_sink: Callable[[str], None] | None = None,
+    output_sink: ToolOutputSink | None = None,
     cancel_event: threading.Event | None = None,
 ) -> ToolContext:
     return ToolContext(
@@ -264,7 +264,8 @@ def test_streams_output_incrementally_before_process_exits(tmp_path: Path) -> No
     # the process finishes, while a buffer-until-exit reader would not.
     received: list[tuple[float, str]] = []
 
-    def sink(chunk: str) -> None:
+    def sink(chunk: ToolOutput) -> None:
+        assert isinstance(chunk, str)  # bash streams text chunks
         received.append((time.monotonic(), chunk))
 
     ctx = _ctx(tmp_path, output_sink=sink)

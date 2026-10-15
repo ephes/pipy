@@ -112,6 +112,19 @@ def extension_tool_renderers(
     return tuple(resolvers)
 
 
+def extension_tool_renderer_groups(
+    activated: Sequence[ActivatedExtension],
+) -> tuple[tuple[str, tuple[ToolRendererResolver, ...]], ...]:
+    """Every activated extension's name, in load order, with the tool
+    renderer resolvers it registered."""
+
+    return tuple(
+        (extension.name, tuple(extension.tool_renderers))
+        for extension in activated
+        if extension.status == "activated"
+    )
+
+
 def extension_entry_renderers(
     activated: Sequence[ActivatedExtension],
 ) -> dict[str, RegisteredEntryRenderer]:

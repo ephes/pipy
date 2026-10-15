@@ -30,7 +30,7 @@ from pipy_harness.native.agent import (
     NestedToolCallStarted,
     ToolCallCompleted,
 )
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import ProductContent, ToolPartialResult
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
     NestedToolCallOutcome,
@@ -79,7 +79,7 @@ def activate(api):
         echo = ctx.executeTool('echo', {'text': 'hi'})
         own = ctx.execute_tool('run_tools', {})
         blocked = ctx.execute_tool('echo', {'text': 'forbidden'})
-        invalid = ctx.execute_tool('echo', {'text': 3})
+        invalid = ctx.execute_tool('echo', {'text': [3]})
         _log('flags', [r.is_error for r in (helper, echo, own, blocked, invalid)])
         _log('errors', blocked.result.content, invalid.result.content)
         _log('calls', [[r.tool_call.id, r.tool_call.name, r.tool_call.arguments,
@@ -190,7 +190,7 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
         ["p1/2", "echo", {"text": "hi"}, True],
         ["p1/3", "run_tools", {}, False],
         ["p1/4", "echo", {"text": "forbidden"}, True],
-        ["p1/5", "echo", {"text": 3}, True],
+        ["p1/5", "echo", {"text": [3]}, True],
     ]
     errors = next(row for row in rows if row[0] == "errors")
     assert "forbidden text" in errors[1]
@@ -505,7 +505,9 @@ def activate(api):
         stopped = ctx.execute_tool(
             'bash', {'command': 'sleep 20'}, signal=stop)
         return ToolResult(content=' | '.join([
-            outcome.result.content.strip(), ''.join(chunks).strip(),
+            outcome.result.content.strip(),
+            ''.join(c.content for c in chunks
+                    if isinstance(c, ToolResult)).strip(),
             stopped.result.content, str(ctx.signal is not None)]))
 
     api.register_tool(ExtensionTool(
@@ -601,14 +603,15 @@ class _Parent:
 def _run_parent(handler, service, waiter) -> ToolExecutionOutcome:
     executor = ToolExecutor({"parent": _Parent(handler)}, 0.2)
 
-    def execute_parent(call, /, *, wait_for_interrupt, nested_tools):
+    def execute_parent(call, /, *, wait_for_interrupt, nested_tools, arguments):
         return executor.execute(
             call,
             ToolContext(workspace_root=Path.cwd(), nested_tools=nested_tools),
             wait_for_interrupt,
+            arguments=arguments,
         )
 
-    return ToolParentRunner(execute_parent).execute(
+    return ToolParentRunner(execute_parent, {}).execute(
         AgentToolCall("p", "parent", ProductContent("{}")), service, waiter
     )
 
@@ -1063,8 +1066,9 @@ def test_a_signal_ends_the_readiness_wait_of_a_call() -> None:
 
 def test_live_output_of_another_thread_is_published_on_the_session_thread() -> None:
     session = threading.current_thread()
-    published: list[str] = []
-    received: list[str] = []
+    published: list[object] = []
+    received: list[ToolPartialResult] = []
+    partial = ToolPartialResult("half", {"server": "s", "tool": "t"})
 
     def settle(call, waiter=None):
         def run(*, wait_for_interrupt, nested_tools, output_sink=None):
@@ -1073,6 +1077,7 @@ def test_live_output_of_another_thread_is_published_on_the_session_thread() -> N
             def tool() -> None:
                 assert output_sink is not None
                 output_sink("progress")
+                output_sink(partial)
                 done.set()
 
             threading.Thread(target=tool).start()
@@ -1094,7 +1099,10 @@ def test_live_output_of_another_thread_is_published_on_the_session_thread() -> N
     outcome = _waiting_service(settle).call("child", "{}", on_update=received.append)
 
     assert outcome.result.content.value == "ran"
-    assert published == received == ["progress"]
+    # The pipeline publishes what the tool wrote; the caller's on_update gets
+    # a partial result for each, the chunk as its text (Pi onUpdate).
+    assert published == ["progress", partial]
+    assert received == [ToolPartialResult("progress"), partial]
 
 
 def test_a_failure_to_publish_live_output_is_the_pipelines() -> None:

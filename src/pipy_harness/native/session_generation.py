@@ -10,7 +10,7 @@ import inspect
 import threading
 import typing
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import copy
 from dataclasses import dataclass, replace
@@ -64,6 +64,7 @@ from pipy_harness.native.extensions.contracts import (
 )
 from pipy_harness.native.extensions.live_tools import (
     LiveToolRegistry,
+    LiveToolRendererResolvers,
     LiveToolRenderers,
 )
 from pipy_harness.native.extensions.message_routing import (
@@ -226,8 +227,9 @@ class ExtensionToolProjection:
 @dataclass(frozen=True, slots=True)
 class ExtensionRendererProjection:
     tools: Mapping[str, ExtensionTool]
-    # Resolvers of `api.register_tool_renderer`, in extension load order.
-    tool_resolvers: tuple[ToolRendererResolver, ...]
+    # Resolvers of `api.register_tool_renderer`, in extension load order: a
+    # view that also has those registered while the session runs.
+    tool_resolvers: Sequence[ToolRendererResolver]
     messages: Mapping[str, RegisteredMessageRenderer]
     entries: Mapping[str, RegisteredEntryRenderer]
 
@@ -453,7 +455,10 @@ def build_extension_projection(
         ports[port.definition.name] = port
     capability_state = build_tool_capability(ports)
     _validate_capability_projection(ports, capability_state)
-    live_tools = LiveToolRegistry(runtime.tools)
+    live_tools = LiveToolRegistry(
+        runtime.tools,
+        renderer_groups=runtime.tool_renderer_groups or (("", runtime.tool_renderers),),
+    )
     tools = ExtensionToolProjection(
         registered=_freeze_tuple(runtime.tools),
         ports=_freeze_mapping(ports),
@@ -467,7 +472,7 @@ def build_extension_projection(
         # A view: a tool registered again after loading draws with its
         # latest renderers.
         tools=LiveToolRenderers(live_tools),
-        tool_resolvers=_freeze_tuple(runtime.tool_renderers),
+        tool_resolvers=LiveToolRendererResolvers(live_tools),
         messages=_freeze_mapping(runtime.message_renderers),
         entries=_freeze_mapping(runtime.entry_renderers),
     )

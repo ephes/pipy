@@ -156,13 +156,32 @@ Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
 | `message_update` | `message: Message`, `assistantMessageEvent: AssistantMessageEvent` | Streaming delta for an assistant message (assistant only). |
 | `message_end` | `message: Message` | A message is finalized. |
 | `tool_execution_start` | `toolCallId: string`, `toolName: string`, `args: object` | A tool call begins executing. |
-| `tool_execution_update` | `toolCallId`, `toolName`, `args`, `partialResult` | Bounded progress from a running tool. |
-| `tool_execution_end` | `toolCallId`, `toolName`, `result`, `isError: boolean` | A tool call finished. |
+| `tool_execution_update` | `toolCallId`, `toolName`, `args`, `partialResult` | A running tool reported a partial result. |
+| `tool_execution_end` | `toolCallId`, `toolName`, `result`, `isError: boolean`, `durationMs?: number` | A tool call finished. `durationMs` is how long the tool itself ran, in whole milliseconds on a monotonic clock, without the `tool_call`/`tool_result` hooks; absent when the tool never started (unknown tool, invalid arguments, a call a hook blocked or one cancelled before it ran). |
 
 A call that another tool made (a codemode script, or an extension tool's
 `ctx.execute_tool`) has the id `<calling id>/<n>`, and its
 `tool_execution_start`, `tool_execution_update` and `tool_execution_end`
 carry the id of the calling call as `parentToolCallId`, as in Pi.
+
+`result` and `partialResult` are Pi's `AgentToolResult` objects
+(`docs/json.md` in Pi):
+
+- `result` has `content`, the blocks of a `toolResult` message (see below),
+  `details` when the result has them (a codemode result's `nestedCalls`
+  record among them), and `structuredContent` when the tool gave
+  machine-readable output.
+- `partialResult` has `content` with one text block and, when the tool gave
+  them, `details`. An MCP tool's progress is a partial result with
+  `details: {server, tool}` that replaces the previous one. `bash` streams
+  its output: each update's text is the next chunk, which continues the
+  text before it, and its `details` are `{}`. Pi's `bash` sends the output
+  so far instead.
+
+```json
+{"type":"tool_execution_update","toolCallId":"call_1","toolName":"mcp__docs__search","args":{"q":"radius"},"partialResult":{"content":[{"type":"text","text":"Progress 1/2"}],"details":{"server":"docs","tool":"search"}}}
+{"type":"tool_execution_end","toolCallId":"call_1","toolName":"mcp__docs__search","result":{"content":[{"type":"text","text":"found"}],"details":{"server":"docs","tool":"search"}},"isError":false,"durationMs":12}
+```
 
 Session-extension events (Pi `AgentSessionEvent`,
 `packages/coding-agent/src/core/agent-session.ts`):
@@ -202,7 +221,7 @@ exact byte-for-byte field matching with Pi is not the gate (see Verification).
 A `toolResult` message's `content` is one text block, or, when the result has
 an image, Pi's ordered blocks: `{"type":"text","text"}` and
 `{"type":"image","data","mimeType"}` with base64 data. The `result` of
-`tool_execution_end` stays the result's text.
+`tool_execution_end` has the same `content`.
 
 ### Canonical `--mode json` sequence (deterministic fake provider, no tools)
 
@@ -1405,6 +1424,10 @@ correct. It must verify:
 12. `--mode json "<prompt>"` (one-shot) emits the native session header line
     first, then the full event sequence, then exits 0; the removed metadata-only
     `pipy.native_output` schema is **not** emitted.
+13. `--mode json "TOOLCALL"` makes the fake provider ask for one `bash` call
+    (`echo hi`): `tool_execution_update.partialResult` and
+    `tool_execution_end.result` are `{content, details}` objects with typed
+    content blocks, and `tool_execution_end` carries an integer `durationMs`.
 
 `--json` prints a machine-readable pass/fail summary per check, mirroring the
 existing `scripts/parity_checks/*.py` style (e.g. `branching_behavior.py`),

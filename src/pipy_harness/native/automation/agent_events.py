@@ -42,9 +42,11 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.native.automation.serialize import (
-    codemode_parent_details,
+    duration_ms,
     parse_tool_arguments,
+    partial_result_json,
     serialize_message,
+    tool_result_json,
 )
 
 PiAutomationEvent = dict[str, object]
@@ -82,15 +84,15 @@ class AutomationAgentEventAdapter:
             return self._project_assistant_delta(event)
         if isinstance(event, NestedToolCallUpdated):
             # Pi nested-tool-calls.ts: tool_execution_update with
-            # parentToolCallId; the partial result is the chunk, as for a
-            # call the model made.
+            # parentToolCallId and the partial result, as for a call the
+            # model made.
             return {
                 "type": "tool_execution_update",
                 "toolCallId": event.call.provider_correlation_id,
                 "parentToolCallId": event.parent_correlation_id,
                 "toolName": event.call.tool_name,
                 "args": parse_tool_arguments(event.call.arguments_json.value),
-                "partialResult": event.update.value,
+                "partialResult": partial_result_json(event.update),
             }
         if isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
             projected: PiAutomationEvent = {
@@ -104,7 +106,9 @@ class AutomationAgentEventAdapter:
             }
             if isinstance(event, NestedToolCallCompleted):
                 projected.update(
-                    result=event.result.content.value, isError=event.result.is_error
+                    result=tool_result_json(event.result),
+                    isError=event.result.is_error,
+                    **duration_ms(event.execution_seconds),
                 )
             return projected
         if isinstance(event, (ToolCallStarted, ToolCallUpdated, ToolCallCompleted)):
@@ -208,16 +212,16 @@ class AutomationAgentEventAdapter:
                 "toolCallId": event.call.provider_correlation_id,
                 "toolName": event.call.tool_name,
                 "args": parse_tool_arguments(event.call.arguments_json.value),
-                "partialResult": event.update.value,
+                "partialResult": partial_result_json(event.update),
             }
         assert isinstance(event, ToolCallCompleted)
         return {
             "type": "tool_execution_end",
-            **codemode_parent_details(event.result),
             "toolCallId": event.result.provider_correlation_id,
             "toolName": event.result.tool_name,
-            "result": event.result.content.value,
+            "result": tool_result_json(event.result),
             "isError": event.result.is_error,
+            **duration_ms(event.execution_seconds),
         }
 
     @staticmethod

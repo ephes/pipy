@@ -241,7 +241,9 @@ class CodingAgentRunCoordinator:
         nested_eligibility: NestedToolEligibility | None = None,
         tool_readiness: ToolReadinessWaiter | None = None,
         before_turn: TurnStartHook | None = None,
-        parent_runner: Callable[[AgentToolCall], AgentCompositeToolRunner | None]
+        parent_runner: Callable[
+            [AgentToolCall, dict[str, object]], AgentCompositeToolRunner | None
+        ]
         | None = None,
         normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
         | None = None,

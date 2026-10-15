@@ -216,7 +216,10 @@ def test_loop_to_live_transcript_and_all_projections(
         "parentToolCallId": "parent0",
         "toolName": "read",
         "args": {},
-        "partialResult": "progress",
+        "partialResult": {
+            "content": [{"type": "text", "text": "progress"}],
+            "details": {},
+        },
     }
     assert all(e["parentToolCallId"] == "parent0" for e in children)
     assert children[0] == {
@@ -231,12 +234,21 @@ def test_loop_to_live_transcript_and_all_projections(
         for e in automation.events
         if e["type"] == "tool_execution_end" and "parentToolCallId" not in e
     )
-    parent_details = parent_end["details"]
+    assert "details" not in parent_end
+    parent_result = parent_end["result"]
+    assert isinstance(parent_result, dict)
+    parent_details = parent_result["details"]
     assert isinstance(parent_details, dict)
     assert parent_details["nestedCalls"]["calls"][0]["status"] == "ok"
-    child_text = children[1]["result"]
-    assert isinstance(child_text, str)
+    child_result = children[1]["result"]
+    assert isinstance(child_result, dict)
+    assert set(child_result) <= {"content", "details"}
+    child_text = child_result["content"][0]["text"]
     assert child_text.endswith(" transformed") and children[1]["isError"] is False
+    if interruption is None:
+        # The blocked call never ran: no execution time (Pi omits it).
+        assert children[3]["toolName"] == "write"
+        assert "durationMs" not in children[3]
     live.width = 19
     live.transcript.refresh_tool_rows()
     live.transcript.set_tools_expanded(True)

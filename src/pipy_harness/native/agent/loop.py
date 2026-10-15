@@ -25,6 +25,8 @@ from pipy_harness.native.agent.content import (
     ProductContent,
     TextContent,
     ThinkingContent,
+    ToolOutput,
+    ToolPartialResult,
     ToolResultBlock,
 )
 from pipy_harness.native.agent.events import (
@@ -139,6 +141,7 @@ from pipy_harness.native.tools.base import (
     NestedToolCalls,
     ToolDefinition,
     ToolExecutionMode,
+    ToolOutputSink,
 )
 from pipy_harness.status import HarnessStatus
 
@@ -420,7 +423,9 @@ class AgentLoop:
         nested_eligibility: NestedToolEligibility | None = None,
         tool_readiness: ToolReadinessWaiter | None = None,
         before_turn: TurnStartHook | None = None,
-        parent_runner: Callable[[AgentToolCall], AgentCompositeToolRunner | None]
+        parent_runner: Callable[
+            [AgentToolCall, dict[str, Any]], AgentCompositeToolRunner | None
+        ]
         | None = None,
         normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
         | None = None,
@@ -428,8 +433,10 @@ class AgentLoop:
     ) -> None:
         """``composite_runner`` runs the built-in ``codemode``.
         ``parent_runner`` is asked for every other admitted call the model
-        made: the runner it returns runs that call as a composite parent,
-        which may then call other tools; ``None`` runs it as a plain call.
+        made, with the arguments the call runs with (prepared, validated and
+        left by the ``tool_call`` hooks): the runner it returns runs that
+        call with those arguments as a composite parent, which may then call
+        other tools; ``None`` runs it as a plain call.
         ``normalize_result`` sees every result after the ``tool_result``
         hooks, nested ones included, before it is shown or stored (Pi
         ``_afterToolCall`` normalizes the images there).
@@ -996,7 +1003,7 @@ class AgentLoop:
         ):
             runner = self._composite_runner
         elif self._parent_runner is not None:
-            runner = self._parent_runner(call)
+            runner = self._parent_runner(call, arguments)
         if runner is None:
             return None
         return self._execute_composite(
@@ -1093,6 +1100,7 @@ class AgentLoop:
                 turn_index,
                 settled.result,
                 duration_seconds=(datetime.now(UTC) - started_at).total_seconds(),
+                execution_seconds=execution.execution_seconds,
             )
         )
         return settled
@@ -1335,6 +1343,7 @@ class AgentLoop:
                     turn_index,
                     result,
                     duration_seconds=(datetime.now(UTC) - started_at).total_seconds(),
+                    execution_seconds=execution.execution_seconds,
                 )
             )
             return _SettledToolCall(result, settlement)
@@ -1425,6 +1434,9 @@ class AgentLoop:
         runner: AgentCompositeToolRunner,
     ) -> ToolExecutionOutcome:
         try:
+            # The runner's outcome says how long the parent tool ran: the
+            # executor's time for a tool it forwards, the script's for
+            # codemode, None when the tool never started.
             execution = runner.execute(call, service, self._tool_waiter)
             if type(execution) is not ToolExecutionOutcome:
                 raise TypeError("composite runner must return ToolExecutionOutcome")
@@ -1494,9 +1506,9 @@ class AgentLoop:
         self,
         turn_index: int,
         call: AgentToolCall,
-    ) -> Callable[[str], None]:
-        def _emit(chunk: str) -> None:
-            self._events.emit(ToolCallUpdated(turn_index, call, ProductContent(chunk)))
+    ) -> ToolOutputSink:
+        def _emit(output: ToolOutput) -> None:
+            self._events.emit(ToolCallUpdated(turn_index, call, _live_update(output)))
 
         return _emit
 
@@ -1638,7 +1650,7 @@ class _NestedPipeline:
             *,
             wait_for_interrupt: ToolInterruptWaiter | None,
             nested_tools: NestedToolCalls | None,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
         ) -> ToolExecutionOutcome:
             return _hook_arguments_outcome(
                 child,
@@ -1666,19 +1678,23 @@ class _NestedPipeline:
                 arguments=arguments,
                 parent_call_id=_caller_id(child),
             )
-            return self._outcome(child, settled, started)
+            return self._outcome(child, settled, started, execution.execution_seconds)
 
-        def update(chunk: str) -> None:
+        def update(output: ToolOutput) -> None:
             loop._events.emit(
                 NestedToolCallUpdated(
-                    self._turn_index, _caller_id(child), child, ProductContent(chunk)
+                    self._turn_index, _caller_id(child), child, _live_update(output)
                 )
             )
 
         return PendingNestedCall(child, execute, finish, update)
 
     def _outcome(
-        self, child: AgentToolCall, settled: _SettledToolCall, started: float
+        self,
+        child: AgentToolCall,
+        settled: _SettledToolCall,
+        started: float,
+        execution_seconds: float | None = None,
     ) -> NestedToolCallOutcome:
         action = settled.transition.action
         if action is not AgentToolPolicyAction.BUDGET_EXHAUSTED:
@@ -1705,9 +1721,15 @@ class _NestedPipeline:
                 outcome.result,
                 outcome.status,
                 outcome.duration_seconds,
+                execution_seconds,
             )
         )
         return outcome
+
+
+def _live_update(output: ToolOutput) -> ProductContent | ToolPartialResult:
+    """The update event's value for a piece of a tool's live output."""
+    return output if isinstance(output, ToolPartialResult) else ProductContent(output)
 
 
 def _call_with_arguments(

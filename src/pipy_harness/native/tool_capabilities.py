@@ -22,7 +22,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     tool_info,
 )
-from pipy_harness.native.tools.base import NestedToolCalls
+from pipy_harness.native.tools.base import NestedToolCalls, ToolOutputSink
 from pipy_harness.native.tools.loadout import (
     PrepareToolLoadout,
     ToolLoadout,
@@ -624,7 +624,7 @@ class NativeToolCapabilitySnapshot:
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         extension_generation_id: int | None = None,
         nested_tools: NestedToolCalls | None = None,
@@ -1502,7 +1502,7 @@ class NativeToolCapabilities:
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         arguments: dict[str, Any] | None = None,
     ) -> ToolExecutionOutcome:

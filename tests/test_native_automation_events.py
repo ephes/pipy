@@ -240,7 +240,10 @@ def test_emits_tool_execution_events_in_order(tmp_path: Path) -> None:
     assert start["args"] == {"text": "hi"}
     assert end["toolCallId"] == "call-1"
     assert end["isError"] is False
-    assert "hi" in str(end["result"])
+    # Pi's AgentToolResult object and the execution's duration.
+    assert end["result"]["content"][0]["type"] == "text"
+    assert "hi" in end["result"]["content"][0]["text"]
+    assert type(end["durationMs"]) is int and end["durationMs"] >= 0
     # tool_execution_start precedes its end, and both fall between the
     # assistant message_end and the turn_end of the tool turn.
     assert types.index("tool_execution_start") < types.index("tool_execution_end")
@@ -271,7 +274,9 @@ def test_emits_tool_execution_update_for_streaming_tool(tmp_path: Path) -> None:
     assert updates[0]["toolCallId"] == "call-1"
     assert updates[0]["toolName"] == "stream"
     assert updates[0]["args"] == {"x": 1}
-    assert "partial" in updates[0]["partialResult"]
+    # Pi's partial AgentToolResult: a streamed chunk is its text.
+    assert updates[0]["partialResult"]["details"] == {}
+    assert "partial" in updates[0]["partialResult"]["content"][0]["text"]
     types = [e["type"] for e in sink.events]
     # Bounded progress falls between the tool's start and end events.
     assert (

@@ -448,6 +448,7 @@ class ExtensionTool:
     annotations: "ToolAnnotations | None" = None
     output_schema: JsonSchema | None = None
     reaches_tools: Callable[[Mapping[str, Any]], Literal["all"] | Sequence[str]] | None = None
+    prepare_arguments: Callable[[Any], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -848,10 +849,18 @@ Rules:
 - The names of the seven built-in file and shell tools are reserved. An
   extension tool named `codemode` or `tool_search` replaces the built-in
   tool of that name, see [Replacing built-in tools](#replacing-built-in-tools).
-- A tool name another extension registered is a duplicate and disables the
-  second extension. An extension that registers one of its own tool names
-  again replaces its earlier registration, as in Pi.
-- Tool schemas use the same JSON-schema subset as native tools.
+- Of two extensions that register the same tool name, the one that loaded
+  first has it, as in Pi: the other extension's tool of that name is left out
+  silently, and that extension stays enabled with its other tools, commands
+  and hooks. This also holds for registrations while the session runs: a
+  later-loaded extension cannot take the name, an earlier-loaded one takes it
+  over. An extension that registers one of its own tool names again replaces
+  its earlier registration, as in Pi.
+- An extension tool's input schema is any JSON Schema object with
+  `type: "object"`, as Pi's TypeBox `parameters` are: `number`, `null`,
+  unions and `$ref` work. pipy holds it to `schema_mode="foreign"`, as an
+  MCP server's tool (see [Tool model](#tool-model)): extra properties are
+  allowed unless `additionalProperties` forbids them.
 - Tool descriptions are model-visible; `prompt_snippet` and
   `prompt_guidelines` add the tool to the system prompt (see "Extension tool
   metadata" below).
@@ -936,7 +945,7 @@ the same with `prepare_loadout`; see
 
 `schema_mode="strict"` holds the input schema to the JSON-schema subset above
 and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy
-did not write, such as an MCP server's: the schema only has to be a JSON
+did not write, such as an MCP server's or an extension's: the schema only has to be a JSON
 object with `type: "object"`, the description has no cap, and the schema
 reaches the provider unchanged. Arguments of a foreign tool are checked by a
 standard-library validator (`native/tools/foreign_schema.py`) that enforces
@@ -1007,8 +1016,8 @@ def activate(api):
   not read-only, and may be destructive and reach an open world. pipy does not
   verify them.
 - `output_schema` is the JSON Schema of the tool's `structured_content`. It may
-  use any JSON Schema keyword (the input schema stays in pipy's subset). pipy
-  keeps a copy made at registration and does not enforce it.
+  use any JSON Schema keyword, as the input schema may. pipy keeps a copy made
+  at registration and does not enforce it.
 - `reaches_tools(input)` is for a tool that reaches other tools. It returns
   `"all"`, or the words of the input that may name the tools it reaches; a
   word refers to every tool or namespace whose name it contains, so words may
@@ -1049,6 +1058,14 @@ def activate(api):
   mutable state in memory. `None` (the default) and `"parallel"` let them
   run at the same time. The calls the model makes run one at a time in
   any case.
+- `prepare_arguments(arguments)` (Pi `prepareArguments`) receives a call's
+  parsed arguments before they are validated and returns the arguments to
+  validate and run instead, for example to accept an older argument shape.
+  It runs once per call, before the `tool_call` handlers, also for calls
+  made by scripts and `ctx.execute_tool`. If it raises, the call ends with
+  the error result `<name>: prepare_arguments raised <exception type>` and
+  reaches no handler. A value that is not callable disables the extension with
+  `invalid_tool`.
 
 **Results.** A handler that returns data declares an `output_schema` and
 returns the data as `ToolResult(structured_content=...)` next to `content`. It
@@ -1158,12 +1175,14 @@ the session runs the extension, for example from a command: the tool is
 published at once, and the next request no longer declares a withdrawn tool;
 the transcript tells the model that it was removed. Such a registration may
 add a new tool or register one of the extension's own tools again; it raises
-`ExtensionCapabilityError` and changes nothing for an invalid tool, a reserved
-name and a name another extension registered, and once `/reload` replaced the
-extensions or the session ended (an `api` kept from before). A tool registered
+`ExtensionCapabilityError` and changes nothing for an invalid tool and a
+reserved name, and once `/reload` replaced the extensions or the session ended
+(an `api` kept from before). A name another extension has goes to the one of
+the two that loaded first (see [Tools](#tools)). A tool registered
 in a `session_start` handler is kept across `/reload` that way too. A tool that becomes `direct` or
-`model-only` is activated like a new one. The other `register_*` methods stay
-closed after `activate(api)`.
+`model-only` is activated like a new one. `api.register_tool_renderer` also
+works while the session runs (see [Tool rendering](#tool-rendering)); the
+other `register_*` methods stay closed after `activate(api)`.
 
 ### Running other tools
 
@@ -1203,9 +1222,12 @@ def read_all(ctx, params):
   call alone when it is set: it ends with the error
   `tool cancelled by its caller`. Without it the call uses `ctx.signal`, the
   calling tool's own cancellation signal (`None` where it has none).
-  `on_update` receives each chunk of the tool's live output (a `bash`
-  command's output, an MCP server's progress), on the thread that produced
-  it; what it raises is ignored. The call passes argument validation and the
+  `on_update` receives each partial result of the tool as a `ToolResult`
+  (Pi `onUpdate`), on the thread that produced it; what it raises is
+  ignored. An MCP tool's progress is a partial result with the progress text
+  as `content` and `{server, tool}` as `details`, which replaces the one
+  before it; for `bash` each partial result's `content` is the next chunk of
+  output, with no `details`. The call passes argument validation and the
   `tool_call` and `tool_result` handlers like a call the model made, and it
   counts against the tool budget of the turn.
 - It never raises for a failure of the tool. A name that is not callable
@@ -1274,9 +1296,10 @@ Different from Pi:
   pipy cancels it when its calling tool returned.
 - In the outcome, `result.content` is the result's text and `result.blocks`
   its ordered text and image blocks when it has an image; Pi's
-  `result.content` is always the block list. A partial result is a chunk of
-  text, as in pipy's own `tool_execution_update`; Pi's is a result object.
-  A pipy tool handler reports no partial results of its own.
+  `result.content` is always the block list. A partial result's `content`
+  is its text in the same way. A `bash` partial result is the next chunk of
+  output where Pi's is the output so far. A pipy tool handler reports no
+  partial results of its own.
 - Pi adds the usage that nested results report to the calling tool's
   result. pipy's tool results carry no usage.
 - No event is emitted for a call to a name that is not callable; the record
@@ -1476,6 +1499,13 @@ def activate(api):
   had returned `next()`. Passing something that is not callable to
   `register_tool_renderer` disables the extension with
   `invalid_tool_renderer`.
+- As in Pi, `register_tool_renderer` also works while the session runs the
+  extension: from a `session_start` handler, a command, a hook or a tool. The
+  resolver joins the extension's others in their order (an extension that
+  loaded earlier still comes first) and is asked for every row drawn from
+  then on; rows already drawn keep what they chose. Something that is not
+  callable then raises `ExtensionCapabilityError`, as does a registration
+  once `/reload` replaced the extensions or the session ended.
 
 Different from Pi:
 

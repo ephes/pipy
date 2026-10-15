@@ -54,7 +54,7 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.agent_adapters import SynchronousAgentEventComposite
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.base import ToolDefinition, ToolOutputSink
 
 
 class _NestedTools(_Tools):
@@ -95,7 +95,7 @@ class _NestedTools(_Tools):
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         nested_tools: object = None,
         arguments: Any = None,
@@ -441,7 +441,7 @@ def test_nested_waiter_validation_and_callback_threads() -> None:
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,
@@ -487,7 +487,7 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,
@@ -697,7 +697,7 @@ def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,
@@ -1212,7 +1212,7 @@ def _parent_execution(handler):
     """``execute_parent`` of a ``ToolParentRunner``: ``handler(nested_tools)``
     runs on a thread of its own while the session thread waits."""
 
-    def execute_parent(call, /, *, wait_for_interrupt, nested_tools):
+    def execute_parent(call, /, *, wait_for_interrupt, nested_tools, arguments):
         done = threading.Event()
         text: list[str] = []
 
@@ -1265,7 +1265,7 @@ def test_concurrent_nested_calls_take_their_place_in_the_budget() -> None:
         return " | ".join(sorted(results))
 
     loop, tools, _, _ = _setup(
-        ToolParentRunner(_parent_execution(handler)),  # type: ignore[arg-type]
+        ToolParentRunner(_parent_execution(handler), {}),  # type: ignore[arg-type]
         tools=Blocking([]),
     )
     outcome = loop.run(_run_input(tool_budget=3))

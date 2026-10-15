@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent.messages import AgentToolResultMessage
 from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
@@ -121,7 +122,9 @@ def test_reserved_tool_name_disables_extension(tmp_path: Path) -> None:
     assert activated.status == "disabled"
 
 
-def test_duplicate_tool_name_disables_second(tmp_path: Path) -> None:
+def test_duplicate_tool_name_keeps_the_first_and_both_extensions(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     _write(workspace, "aaa", _ECHO_TOOL)
     _write(workspace, "bbb", _ECHO_TOOL)
@@ -130,9 +133,8 @@ def test_duplicate_tool_name_disables_second(tmp_path: Path) -> None:
     aaa = next(a for a in activated if a.name == "aaa")
     bbb = next(a for a in activated if a.name == "bbb")
 
-    assert aaa.status == "activated"
-    assert bbb.status == "disabled"
-    assert [t.tool.name for t in extension_tools(activated)] == ["echo_tool"]
+    assert (aaa.status, bbb.status) == ("activated", "activated")
+    assert [t.extension for t in extension_tools(activated)] == ["aaa"]
 
 
 # -- product path: the model calls an extension tool ----------------------
@@ -367,3 +369,183 @@ def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:
     second = provider.requests[1]
     joined = " ".join(message.content.value for message in second.messages)
     assert "/secret" not in joined and "leak-xyz" not in joined
+
+
+# -- Pi-style schemas and prepare_arguments (goal check r2, S18 and S19) ----
+
+
+_PI_STYLE_TOOL = (
+    "import json\n"
+    "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+    "def activate(api):\n"
+    "    def handler(ctx, params):\n"
+    "        return ToolResult(content='got:' + json.dumps(params, sort_keys=True))\n"
+    "    def prepare(arguments):\n"
+    "        if isinstance(arguments, dict) and 'old_count' in arguments:\n"
+    "            arguments = dict(arguments)\n"
+    "            arguments['count'] = arguments.pop('old_count')\n"
+    "        if isinstance(arguments, dict) and arguments.get('count') == 'boom':\n"
+    "            raise RuntimeError('secret detail')\n"
+    "        return arguments\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='measure',\n"
+    "        description='Measure something.',\n"
+    "        input_schema={\n"
+    "            'type': 'object',\n"
+    "            '$defs': {'unit': {'enum': ['cm', 'in']}},\n"
+    "            'properties': {\n"
+    "                'count': {'type': 'number'},\n"
+    "                'label': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},\n"
+    "                'unit': {'$ref': '#/$defs/unit'},\n"
+    "            },\n"
+    "            'required': ['count'],\n"
+    "        },\n"
+    "        handler=handler,\n"
+    "        prepare_arguments=prepare,\n"
+    "    ))\n"
+)
+
+
+def test_a_pi_style_schema_keeps_the_extension_enabled(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(workspace, "measure", _PI_STYLE_TOOL)
+
+    (activated,) = _activate(workspace)
+
+    assert (activated.status, activated.reason) == ("activated", None)
+    (registered,) = activated.tools
+    assert registered.tool.input_schema["properties"]["count"] == {"type": "number"}
+
+
+def test_a_non_callable_prepare_arguments_disables_the_extension(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "badprepare",
+        "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+        "def activate(api):\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='bad', description='x', input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, p: ToolResult(content='x'),\n"
+        "        prepare_arguments='not callable'))\n",
+    )
+
+    (activated,) = _activate(workspace)
+
+    assert (activated.status, activated.reason) == ("disabled", "invalid_tool")
+
+
+def test_the_model_calls_a_pi_style_tool_through_prepare_arguments(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(tmp_path, "measure", _PI_STYLE_TOOL)
+    calls = (
+        ProviderToolCall("c1", "measure", json.dumps({"count": 2.5, "label": None})),
+        ProviderToolCall("c3", "measure", json.dumps({"count": "boom"})),
+        ProviderToolCall("c2", "measure", json.dumps({"old_count": 3, "unit": "cm"})),
+        ProviderToolCall("c4", "measure", json.dumps({"count": [1]})),
+        ProviderToolCall("c5", "measure", json.dumps({"count": 1, "unit": "mm"})),
+    )
+    # One call per turn, a valid one between failures: three malformed calls
+    # in a row end the session.
+    provider = _StubProvider(
+        [
+            *(_result(tool_calls=(call,)) for call in calls),
+            _result(final_text="ok"),
+        ]
+    )
+    session = CodingSession(
+        provider=provider, tool_registry=production_tool_registry(), tool_budget=10
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("measure\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    results = [
+        message
+        for message in provider.requests[-1].messages
+        if isinstance(message, AgentToolResultMessage)
+        and message.tool_name == "measure"
+    ]
+    outcomes = [(message.is_error, message.content.value) for message in results]
+    # A number and a null pass the schema; the callback renames an older
+    # argument before validation, and the `$ref` enum is checked.
+    assert outcomes[0] == (False, 'got:{"count": 2.5, "label": null}')
+    assert outcomes[2] == (False, 'got:{"count": 3, "unit": "cm"}')
+    # A callback that raises ends the call with the exception type only.
+    assert outcomes[1] == (True, "measure: prepare_arguments raised RuntimeError")
+    assert outcomes[3][0] is True and "count" in outcomes[3][1]
+    assert outcomes[4][0] is True and "unit" in outcomes[4][1]
+
+
+_COUNTING_PREPARE = (
+    "import json\n"
+    "from pathlib import Path\n"
+    "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+    "LOG = Path(__file__).with_name('log.jsonl')\n"
+    "COUNT = [0]\n"
+    "def _log(*row):\n"
+    "    with LOG.open('a') as handle:\n"
+    "        handle.write(json.dumps(list(row)) + '\\n')\n"
+    "def activate(api):\n"
+    "    def prepare(arguments):\n"
+    "        COUNT[0] += 1\n"
+    "        return {'text': arguments['text'] + ':' + str(COUNT[0])}\n"
+    "    def echo(ctx, params):\n"
+    "        _log('ran', params['text'])\n"
+    "        return ToolResult(content=params['text'])\n"
+    "    def relay(ctx, params):\n"
+    "        return ToolResult(content=ctx.execute_tool(\n"
+    "            'echo', {'text': params['text']}).result.content)\n"
+    "    schema = {'type': 'object', 'properties': {'text': {'type': 'string'}}}\n"
+    "    api.register_tool(ExtensionTool(name='echo', description='Echo.',\n"
+    "        input_schema=schema, handler=echo, prepare_arguments=prepare))\n"
+    "    api.register_tool(ExtensionTool(name='relay', description='Relay.',\n"
+    "        input_schema=schema, handler=relay))\n"
+    "    @api.on('tool_call')\n"
+    "    def seen(event, ctx):\n"
+    "        _log('hook', event.tool_name, dict(event.input))\n"
+)
+
+
+def test_prepare_arguments_runs_once_per_call(tmp_path, monkeypatch) -> None:
+    # The model's call runs as a parent (it may call other tools): the
+    # handler runs with the arguments the hooks saw, prepared once.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(tmp_path, "counting", _COUNTING_PREPARE)
+    calls = (
+        ProviderToolCall("c1", "echo", json.dumps({"text": "hello"})),
+        ProviderToolCall("c2", "relay", json.dumps({"text": "nested"})),
+    )
+    provider = _StubProvider(
+        [*(_result(tool_calls=(call,)) for call in calls), _result(final_text="ok")]
+    )
+    session = CodingSession(
+        provider=provider, tool_registry=production_tool_registry(), tool_budget=10
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("echo\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    log = (tmp_path / ".pipy" / "extensions" / "log.jsonl").read_text()
+    rows = [json.loads(line) for line in log.splitlines()]
+    assert rows == [
+        ["hook", "echo", {"text": "hello:1"}],
+        ["ran", "hello:1"],
+        ["hook", "relay", {"text": "nested"}],
+        ["hook", "echo", {"text": "nested:2"}],
+        ["ran", "nested:2"],
+    ]

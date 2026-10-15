@@ -122,7 +122,7 @@ text({
     'plain_error': error(lambda: tools.plain(key='missing')),
     'silent': error(lambda: tools.silent()),
     'blocked': error(lambda: tools.stats(key='forbidden')),
-    'invalid': error(lambda: tools.stats(key=3)),
+    'invalid': error(lambda: tools.stats(key=[3])),
     'audited': tools.audited(key='a'),
     'redacted': tools.redacted(key='a'),
     'null': error(lambda: tools.nothing()),

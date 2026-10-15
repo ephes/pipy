@@ -15,6 +15,7 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.content import ToolOutput
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
     ToolExecutionOutcome,
@@ -32,7 +33,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     ToolRequest,
 )
-from pipy_harness.native.tools.base import ToolExposure
+from pipy_harness.native.tools.base import ToolExposure, ToolOutputSink
 
 _SCHEMA = {
     "type": "object",
@@ -337,7 +338,7 @@ def test_execution_forwards_product_context_live_output_and_identity_domains(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path.resolve()
-    live_chunks: list[str] = []
+    live_chunks: list[ToolOutput] = []
     tool = _RecordingTool("echo")
     capabilities = _capabilities(workspace, builtins=(tool,))
 
@@ -370,7 +371,7 @@ def test_agent_protocol_accepts_a_headless_fake_implementation() -> None:
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
             nested_tools: object = None,
             arguments: Any = None,

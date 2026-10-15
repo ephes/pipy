@@ -783,7 +783,9 @@ def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
         (
             event.turn_index,
             event.call.provider_correlation_id,
-            event.update.value,
+            event.update.value
+            if isinstance(event.update, ProductContent)
+            else event.update,
         )
         for event in updates
     ] == [

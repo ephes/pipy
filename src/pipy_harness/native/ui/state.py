@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from pipy_harness.native.agent.content import display_segments
+from pipy_harness.native.agent.content import ToolPartialResult, display_segments
 from pipy_harness.native.agent.events import (
     AgentEvent,
     AssistantReasoningDelta,
@@ -343,7 +343,15 @@ def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
     if isinstance(event, ToolCallStarted):
         return (state, (RenderToolCall(event.call),))
     if isinstance(event, ToolCallUpdated):
-        return (state, (StreamToolOutput(event.update.value),))
+        update = event.update
+        # The row appends live output; a partial result (MCP progress) is
+        # appended as a line of its own, so the row shows the latest one.
+        text = (
+            f"{update.content}\n"
+            if isinstance(update, ToolPartialResult)
+            else update.value
+        )
+        return (state, (StreamToolOutput(text),))
     if isinstance(event, ToolCallCompleted):
         return (
             state,

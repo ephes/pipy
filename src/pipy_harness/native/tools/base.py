@@ -54,10 +54,15 @@ from typing import Any, ClassVar, Literal, Protocol, get_args, runtime_checkable
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
+    ToolOutput,
+    ToolPartialResult,
     ToolResultBlock,
     normalized_tool_result_blocks,
 )
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
+
+ToolOutputSink = Callable[[ToolOutput], None]
+"""Where a running tool writes its live output (``ToolContext.output_sink``)."""
 
 _ALLOWED_TOP_LEVEL_TYPES = ("object",)
 _ALLOWED_TYPES = ("object", "string", "integer", "boolean", "array")
@@ -626,14 +631,15 @@ class NestedToolCalls(Protocol):
         /,
         *,
         signal: threading.Event | None = None,
-        on_update: Callable[[str], None] | None = None,
+        on_update: Callable[[ToolPartialResult], None] | None = None,
     ) -> NestedToolResult:
         """Run the tool and return its result. Never raises for a tool failure.
 
         ``signal`` cancels this call alone when it is set (Pi
-        ``ExecuteToolOptions.signal``). ``on_update`` receives each chunk of
-        the tool's live output, on the thread that produced it (Pi
-        ``onUpdate``)."""
+        ``ExecuteToolOptions.signal``). ``on_update`` receives each partial
+        result of the tool, on the thread that produced it (Pi ``onUpdate``):
+        a chunk of streamed output comes as a partial result with that
+        chunk as its text."""
         ...
 
 
@@ -641,9 +647,11 @@ class NestedToolCalls(Protocol):
 class ToolContext:
     """Environment passed to one tool invocation.
 
-    `output_sink` is an optional callable that long-running tools (`bash`)
-    use to stream incremental command output to the loop's live UI region as
-    it is produced, matching Pi's live tool-output rendering. The default is
+    `output_sink` is an optional callable that long-running tools use to
+    report live output while they run (Pi ``onUpdate``): `bash` writes each
+    chunk of command output as a string, an MCP tool each progress
+    notification as a `ToolPartialResult` that replaces the previous one. The
+    loop turns both into `tool_execution_update` events. The default is
     `None`, in which case the tool still returns its full bounded result but
     emits nothing mid-run. The archive boundary is unrelated; streamed output
     never crosses it.
@@ -664,7 +672,7 @@ class ToolContext:
     """
 
     workspace_root: Path
-    output_sink: Callable[[str], None] | None = field(default=None)
+    output_sink: ToolOutputSink | None = field(default=None)
     cancel_event: threading.Event | None = field(default=None)
     extension_generation_id: int | None = field(default=None)
     nested_tools: NestedToolCalls | None = field(default=None)
