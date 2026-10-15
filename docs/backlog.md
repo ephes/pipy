@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 183 are closed with a
-test and 109 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 178 are closed with a
+test and 114 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,7 +128,10 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-68) are accepted.
+  differences from Pi (plan section 3.1, DEV-15 to DEV-78) that plan
+  section 7, Q11, does not name are accepted. Q11 (2026-10-15) accepts the
+  findings of the second goal check that its triage neither fixes nor
+  refutes; the fix slices R1 to R6 of that triage are the rest of MCP1.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -521,6 +524,13 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   [Commands in a prompt](automation-rpc.md#commands-in-a-prompt).
 - **Extension events** that Pi's `core/extensions/types.ts` has and pipy's
   `extensions/activation.py` lacks.
+- **`before_agent_start` breadth** (MCP1 goal check r2, finding S24; plan
+  DEV-35): the event has no `messageType`, `prompt`, `images` or custom
+  `message`, and the result has only `append_system_prompt`. Pi's result can
+  also replace the whole system prompt (`systemPrompt`, seen by later
+  handlers) and add a custom message to the run (`message`). Anyone porting
+  a Pi extension that does either meets this; it belongs to the
+  extension-API track, not MCP.
 - **Pi's shared OAuth callback server** (`4df157433`). This is a refactor only:
   pipy already has `AnthropicOAuthProvider` (`oauth_providers.py:117`).
 - **Other deferred items:**

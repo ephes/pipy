@@ -158,7 +158,7 @@ def _deviations() -> list[str]:
 def test_the_deviations_are_numbered_without_a_gap() -> None:
     deviations = _deviations()
 
-    assert deviations == [f"DEV-{number:02d}" for number in range(1, 69)]
+    assert deviations == [f"DEV-{number:02d}" for number in range(1, 79)]
     # A closed deviation keeps its number and says so.
     section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
     closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
@@ -175,8 +175,8 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    # DEV-15 to DEV-68 without the closed DEV-39 and DEV-42.
-    assert len(cells) == 52
+    # DEV-15 to DEV-78 without the closed DEV-39 and DEV-42.
+    assert len(cells) == 62
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell

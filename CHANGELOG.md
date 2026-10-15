@@ -1001,11 +1001,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 109 of them
+  that pin it and where pipy differs from Pi. All are closed, 114 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
   real server and model.
+
+- The MCP parity plan records the owner's decision on the second goal
+  check (section 7, Q11): the findings its triage neither fixes nor
+  refutes are accepted as the deviations it names, ten of them as the new
+  rows DEV-69 to DEV-78.
+  DEV-30 no longer says that Pi's SDK restores a resumed session's tools
+  (Pi's `createAgentSession` passes the initial tool names, as its CLI
+  does). The missing `before_agent_start` result fields (`systemPrompt`,
+  `message`) are an extension-API item in the [backlog](docs/backlog.md).
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

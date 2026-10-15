@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(109 of them with a recorded limit or deviation); see section 3.2 and the
+(114 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -510,7 +510,9 @@ DEV-01 to DEV-14 were proposed before or while the slices were built. The
 slices recorded further differences from Pi in their "Decided in" blocks
 (sections 4.1 to 4.9) and in the "Different from Pi" paragraphs of the user
 documents. The closeout (S40) collected them here so that the final judgement
-has one list. None of them is an owner decision yet: each is a proposal.
+has one list. DEV-69 to DEV-78 were added by the triage of the second goal
+check (2026-10-15). A row that section 7, Q11, names is accepted by the
+owner; every other row is still a proposal.
 
 "Rows" names the checklist rows whose behaviour a difference changes, or
 `none` when it lies beside every row. "Kind" says how pipy differs:
@@ -536,12 +538,12 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-27 | CMD-02, CMD-06, CMD-07, CMD-09, CMD-10, CMD-17 | Identifiers and discovery in Python terms beyond DEV-01: a Python keyword gets a trailing `_` (`tools.class_`) and `$` is no identifier character. A tool is named everywhere by the key that reaches it, the identifier or else its own name, and a tool no key reaches is left out; Pi names every tool by its identifier, which for a tool that lost its identifier calls the winner. `limit` must be an `int` (`8.0` is refused). When Pi's two rules for close matches find none, pipy still offers its nearest-name match. | other form | Decided in S05, S07 |
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
-| DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi's CLI does the same (it always passes the initial tool names); Pi's SDK resume, which the mirrored Pi test uses, restores. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22 |
+| DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
 | DEV-31 | none | An unknown name in `--tools`, `--exclude-tools` or `defaultTools` is refused at startup; Pi accepts it. An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. | stricter | Decided in S10 |
 | DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` directive follows pipy's pattern rules for the `extensions` array (last matching directive wins, `fnmatch`). An unknown `builtin:` name is a startup error, where Pi reports a load error. | other form | Decided in S19, G8 |
 | DEV-33 | SES-11, SES-13 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure" |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
-| DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built. `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
+| DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built, and its result has only `append_system_prompt`: Pi's `systemPrompt` (replace the whole prompt) and `message` (a custom message for the run) are not built (an extension-API item in `docs/backlog.md`). `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
 | DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. | stricter | Decided in S16, S17 |
 | DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21 |
 | DEV-38 | SLH-01, SLH-02, SLH-06 | For a line typed into a session the order is built-in command, prompt template or custom command, extension command, `/mcp`, so a template or custom command named `mcp` takes the command's place; in Pi only an extension command does. For a prompt of print, JSON and RPC mode the order is Pi's. An unknown action prints the usage without waiting for the startup connections. | other form | Decided in S21, X1 |
@@ -575,6 +577,16 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-66 | RND-04 | A codemode call is still the generic `codemode code="…"` row, not Pi's highlighted script preview of ten visual lines; there is no `Model calls:` cost line, and nested calls are drawn between the call and the output without Pi's spacer. The HTML export shows a cancelled nested call as `⊘` (Pi's page prints `?`), rounds durations to whole milliseconds and does not draw codemode calls ahead (no codemode call renderer). | other form | Decided in S35, N3 |
 | DEV-67 | OAU-37 | The HTTP transport's `fetch` option is not JavaScript's `fetch`: it takes one request object and returns a response object, with a `CancelToken` where Pi passes an `AbortSignal`, and an auth provider is not handed the transport's fetch (`UnauthorizedContext` has none), so `adapt_oauth_provider` sends its flow through the OAuth library's fetch or the one passed to it. A `Location` is resolved with `urljoin`, not a WHATWG parser, and one with user info is refused; a name lookup cannot be interrupted (no socket is opened after it). The OAuth fetch asks for `gzip, deflate` only; Node also asks for `br` and `zstd` over `https`. | other form | Decided in L1, L2 |
 | DEV-68 | TLS-20, TLS-21 | Tool result images are processed with Pillow instead of Photon, and only with the optional `images` extra (owner decision, section 7, Q10); without it nothing is resized. Resized bytes differ from Pi's; an image over Pillow's `MAX_IMAGE_PIXELS` (about 89 million) is not decoded and is kept; the limits are Pi's defaults, not read per catalog row (pipy's catalog has no `inputLimits`, and every Pi row repeats the defaults); a note that would take a result's text past 64 KiB is left out; pipy resizes on the thread that runs the tool loop, Pi in a worker. `images.blockImages` does not touch `@image` attachments (Pi replaces user message images too). | narrower | Decided in G7; `docs/providers.md` |
+| DEV-69 | OAU-15, OAU-18 | A server URL's fragment is not part of its credential key or of the server URL its auth provider compares stored values with: two servers with the same name in different `mcp.json` files whose URLs differ only in the fragment share their sign-in. A fragment never reaches the server. | other form | Goal check r2 (Q6), accepted in Q11 |
+| DEV-70 | OAU-11 | `expires_in` is accepted as a JSON number or a decimal string; Pi's `Number()` also accepts hex (`"0xe10"`) and whitespace-only strings. RFC 6749 defines it as a number. | stricter | Goal check r2 (Q9), accepted in Q11 |
+| DEV-71 | STD-01 | The stdio transport has no `stderr: "inherit"` option; a server's stderr is always piped and handed to `on_stderr` (bounded). Pi's MCP extension does not use `inherit` either; only direct users of the transport could. | narrower | Goal check r2 (P5), accepted in Q11 |
+| DEV-72 | OAU-02, OAU-03, OAU-08, OAU-11 | The default OAuth fetch refuses a metadata, registration or token response over 1 MiB (before and after decoding). Pi reads them unbounded. | stricter | Goal check r2 (Q10); `mcp/oauth/fetch.py`; accepted in Q11 |
+| DEV-73 | CMD-04 | An extension tool's text result is bounded at 64 KiB (the `ToolExecutionResult` limit of every tool) before a script sees it; Pi passes the whole text. Data meant for scripts travels uncut as `structured_content`. | narrower | Goal check r2 (D4), accepted in Q11 |
+| DEV-74 | TLS-05 | An MCP tool whose `inputSchema.type` is set to anything but `"object"` (also `["object"]`) is not declared and a notice names it; Pi registers it as is and the provider then refuses the request. | stricter | Goal check r2 (U5), as DEV-36; accepted in Q11 |
+| DEV-75 | TLS-20 | Tool result images are resized with the default limits (2000x2000, 4718592 bytes); there is no per-model `inputLimits.images.resize` from `models.json`. Every built-in model uses those defaults. | narrower | Goal check r2 (U8), as DEV-68; accepted in Q11 |
+| DEV-76 | TLS-20 | When the image hints would push a result's text past its 64 KiB limit, the hints are left out and the resized images kept. | other form | Goal check r2 (U9), as DEV-68; accepted in Q11 |
+| DEV-77 | TSR-04 | `tool_search`'s result text is bounded at 64 KiB: entries that do not fit are counted as `(and N more)` instead of listed. | narrower | Goal check r2 (U12), as DEV-29; accepted in Q11 |
+| DEV-78 | EXT-16 | An invalid or reserved system prompt section name from a `before_agent_start` handler is reported and left out; Pi fails the prompt. | other form | Goal check r2 (U14), as DEV-35; accepted in Q11 |
 
 The two rows the audit left open were built after it: SLH-13 (commands
 and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
@@ -591,16 +603,19 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 183 | see the note |
-| Closed with a limit or deviation | 109 | each names its DEV rows or its limit in the note |
+| Closed with a test | 178 | see the note |
+| Closed with a limit or deviation | 114 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
 Updated in INT3 (2026-10-15), after the goal-check slices G1 to G9, L1 to
 L4 and N1 to N4 were merged: five rows were added (TLS-20, TLS-21, EXP-13,
-TSR-12, OAU-37) and the two rows the audit left open are closed. The
-109 rows count as closed only if the final judgement accepts the
-deviation or limit each one names. Not rows, and still outstanding: the
+TSR-12, OAU-37) and the two rows the audit left open are closed. Updated
+again after the triage of the second goal check (2026-10-15): DEV-69 to
+DEV-78 set five more rows (OAU-02, OAU-03, OAU-11, OAU-15, STD-01) to
+closed with a limit. The 114 rows count as closed only if the final
+judgement accepts the deviation or limit each one names; section 7, Q11,
+accepts the DEV rows it names. Not rows, and still outstanding: the
 live evidence of section 6.5, which needs the owner's provider login and an
 account at an OAuth MCP server.
 
@@ -4617,3 +4632,15 @@ campaign coordinator.
 | Q8 | Goal-check finding M21: inline terminal images. | **In scope.** Delivered by N4 (Kitty and iTerm2 images after a tool row, `terminal.showImages`, `terminal.imageWidthCells`); what is left is DEV-19. |
 | Q9 | Q1 again: a default OAuth Client ID Metadata Document. | **None.** See Q1: dynamic client registration stays the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl` (request #224). |
 | Q10 | Pillow for the image processing of G7. | **An optional extra.** Pillow stays the optional `images` extra (`uv sync --extra images`, `uv tool install '.[images]'`), not a default dependency; without it tool result images are sent unresized (DEV-68). |
+
+Recorded 2026-10-15, after the second goal check (`goal-r2.md`) and its
+triage, through the campaign coordinator. The fix slices R1 to R6 of that
+triage narrow or remove the DEV rows whose parts they fix (DEV-16, DEV-18,
+DEV-20, DEV-26, DEV-40, DEV-41, DEV-48, DEV-59, DEV-65) as they land.
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| Q11 | Goal-check round 2 (goal-r2.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decision, 2026-10-15). The following findings are settled and are not functional gaps for the parity goal: P2, P3, Q7, Q8 (DEV-67); P5 (DEV-71); Q3, Q5 (DEV-54, DEV-08); Q6 (DEV-69); Q9 (DEV-70); Q10 (DEV-72); D1 (DEV-20, the overflow of the result text with image labels only); D4 (DEV-73); D6 (DEV-03); D8, S32 (DEV-13); D9, D10 (DEV-23); D12 (DEV-04); D13 (DEV-18, the terminal row only); U4 (DEV-10, the validation of foreign schemas only); U5 (DEV-74); U7 (DEV-60); U8 (DEV-75); U9 (DEV-76); U11 (DEV-19); U12 (DEV-77); U13, S22, S23 (DEV-49); U14 (DEV-78); S5 (DEV-16, transactional reload only); S8 (DEV-38); S10, S12 (DEV-41, signal and RPC startup deadline only); S13 (DEV-34); S14, S17 (DEV-15); S15 (DEV-25); S16 (DEV-46); S21 (DEV-64); S24 (DEV-35; extension-API backlog); S25, S26 (DEV-45, renderShell and resolver errors only); S30, S31 (DEV-48, unknown-name events and cancel-on-return only); S33, S34, S35 (DEV-51); S36, S37 (DEV-50); S38 (DEV-43). Refuted, not gaps: P4, F5, U2, S4. Fixed: F1, Q1, Q2, Q4, D5, S1, plus slices R1-R6. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts are fixed by R1 to R6 or stay proposals. |
+
+A DEV row of section 3 or 3.1 that Q11 names is accepted. One it does not
+name stays a proposal for the final judgement.
