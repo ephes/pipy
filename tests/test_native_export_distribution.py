@@ -125,7 +125,10 @@ def _run_commands(tree: NativeSessionTree, cwd: Path, commands: str) -> str:
 
 
 def _decode_html_payload(path: Path) -> dict[str, Any]:
-    html = path.read_text(encoding="utf-8")
+    return _decode_html(path.read_text(encoding="utf-8"))
+
+
+def _decode_html(html: str) -> dict[str, Any]:
     marker = '<script id="pipy-session-data" type="application/pipy-session+base64">'
     encoded = html.split(marker, 1)[1].split("</script>", 1)[0]
     return json.loads(base64.b64decode(encoded).decode("utf-8"))
@@ -316,9 +319,13 @@ def test_tool_loop_share_command_uses_token_and_share_boundary(
     cwd = Path(tree.get_header().cwd)
     calls: list[str] = []
 
-    def fake_share(session_tree: NativeSessionTree, **kwargs: object) -> ShareResult:
+    def fake_share(
+        session_tree: NativeSessionTree, html: str, **kwargs: object
+    ) -> ShareResult:
         assert session_tree.session_id == tree.session_id
         assert kwargs["token"] == "ghp_UPLOAD_TOKEN_123456789"
+        # The page is the HTML export, with the session's system prompt.
+        assert _decode_html(html)["systemPrompt"] == "SHARE SYSTEM PROMPT"
         calls.append("share")
         return ShareResult(
             gist_id="gist123",
@@ -331,7 +338,15 @@ def test_tool_loop_share_command_uses_token_and_share_boundary(
         "pipy_harness.native.repl.session_transfer.share_native_session", fake_share
     )
 
-    err = _run_commands(tree, cwd, "/share\n/exit\n")
+    err_stream = io.StringIO()
+    CodingSession(provider=_NoTurnProvider(), native_session=tree).run(
+        workspace_root=cwd,
+        input_stream=io.StringIO("/share\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=err_stream,
+        system_prompt="SHARE SYSTEM PROMPT",
+    )
+    err = err_stream.getvalue()
 
     assert calls == ["share"]
     assert "gist URL: https://gist.github.com/u/gist123" in err
@@ -528,7 +543,10 @@ def test_share_gist_cancelled_before_network_post() -> None:
 
 
 def test_share_native_session_redacts_bare_tokens_in_gist_body(tmp_path: Path) -> None:
-    from pipy_harness.native.export_distribution import share_native_session
+    from pipy_harness.native.export_distribution import (
+        share_native_session,
+        share_session_html,
+    )
 
     tree = _tree(tmp_path)
     captured: dict[str, Any] = {}
@@ -545,7 +563,12 @@ def test_share_native_session_redacts_bare_tokens_in_gist_body(tmp_path: Path) -
         captured["body"] = request.data.decode("utf-8")
         return Response()
 
-    share_native_session(tree, token="ghp_UPLOAD_TOKEN_123456789", opener=opener)
+    share_native_session(
+        tree,
+        share_session_html(tree),
+        token="ghp_UPLOAD_TOKEN_123456789",
+        opener=opener,
+    )
 
     assert "ghp_BARETOKENSHOULDNOTLEAK" not in captured["body"]
     assert "github_pat_BARETOKENSHOULDNOTLEAK" not in captured["body"]
@@ -582,7 +605,9 @@ def test_tool_loop_tui_share_command_cancels_worker_with_cancel_token(
     ui = CancelUi()
     observed: list[str] = []
 
-    def fake_share(session_tree: NativeSessionTree, **kwargs: object) -> ShareResult:
+    def fake_share(
+        session_tree: NativeSessionTree, html: str, **kwargs: object
+    ) -> ShareResult:
         assert session_tree.session_id == tree.session_id
         assert kwargs["token"] == "ghp_UPLOAD_TOKEN_123456789"
         cancel_token = kwargs["cancel_token"]

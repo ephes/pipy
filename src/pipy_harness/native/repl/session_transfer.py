@@ -9,7 +9,9 @@ the active tree, which is the only one of the three that mutates anything;
 a worker thread while the active-turn interrupt watcher reads stdin, so Escape
 cancels the upload through a `CancelToken` rather than abandoning a thread. With
 no TUI there is no cancel key, so it falls back to the caller's abort event --
-which is why that arrives as a value rather than being read off a session.
+which is why that arrives as a value rather than being read off a session. The
+page it uploads is drawn first, on the calling thread: the extensions' tool
+renderers draw part of it, and extension code does not run on the worker.
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ from pipy_harness.native.export_distribution import (
     parse_command_path_argument,
     resolve_github_token,
     share_native_session,
+    share_session_html,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.session_transition import ProductSessionTransitionResult
@@ -167,12 +170,27 @@ def share_native_session_command(
     abort_event: threading.Event | _AbortCallbackSignal | None,
     terminal_ui: TerminalUi | None,
     error_stream: TextIO,
+    system_prompt: str = "",
+    tool_renderers: Callable[[], ToolRendererLookup] | None = None,
 ) -> ShareResult | None:
-    """Run ``/share`` with product cancellation when the TUI is active."""
+    """Run ``/share`` with product cancellation when the TUI is active.
 
+    The page is the HTML export ``/export`` writes (Pi's ``/share`` uploads
+    ``exportToHtml``'s page): the session's system prompt and the calls
+    drawn with ``tool_renderers``. It is drawn here, on the session's
+    thread, before the upload starts, so the renderers (extension code)
+    never run on the upload's worker thread.
+    """
+
+    html = share_session_html(
+        session_tree,
+        system_prompt=system_prompt,
+        tool_renderers=None if tool_renderers is None else tool_renderers(),
+    )
     if terminal_ui is None:
         return share_native_session(
             session_tree,
+            html,
             token=token,
             cancelled=(abort_event.is_set if abort_event is not None else None),
         )
@@ -187,6 +205,7 @@ def share_native_session_command(
             result_holder.append(
                 share_native_session(
                     session_tree,
+                    html,
                     token=token,
                     cancelled=cancel_token.event.is_set,
                     cancel_token=cancel_token,
@@ -260,8 +279,9 @@ class TransferCommandEffects:
         [str, Callable[[], NativeSessionTree | None]],
         ProductSessionTransitionResult | None,
     ]
-    # What draws the tool calls of an HTML export (the loaded extensions'
-    # renderers); without it only the calls to MCP tools are drawn.
+    # What draws the tool calls of an HTML export and of `/share`'s page (the
+    # loaded extensions' renderers); without it only the calls to MCP tools
+    # are drawn.
     tool_renderers: Callable[[], ToolRendererLookup] | None = None
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
@@ -340,6 +360,8 @@ class TransferCommandEffects:
                 abort_event=self.abort_event,
                 terminal_ui=self.terminal_ui,
                 error_stream=self.error_stream,
+                system_prompt=self.system_prompt,
+                tool_renderers=self.tool_renderers,
             )
         except NativeExportError as exc:
             self.diag(f"pipy: {exc}")

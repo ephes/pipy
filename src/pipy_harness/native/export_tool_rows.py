@@ -31,6 +31,7 @@ from pipy_harness.native.tool_renderers import build_tool_render_theme
 from pipy_harness.native.tool_result_display import tool_result_display_text
 from pipy_harness.native.tool_rows import (
     BUILTIN_RENDERED_TOOLS,
+    OWN_ROWS_TOOLS,
     RowLine,
     RowRenderers,
     RowRenderInputs,
@@ -163,8 +164,10 @@ def _call_html(state: ToolRowState, style: ChromeStyle) -> str:
 
 
 def _result_html(state: ToolRowState, style: ChromeStyle) -> tuple[str, str]:
-    _, collapsed_rows = _parts(state, style, expanded=False)
-    _, expanded_rows = _parts(state, style, expanded=True)
+    # The call was drawn before its result (`_call_html`), as Pi's export
+    # draws it; it is not drawn again here.
+    _, collapsed_rows = _parts(state, style, expanded=False, with_call=False)
+    _, expanded_rows = _parts(state, style, expanded=True, with_call=False)
     return (
         ansi_lines_to_html(_trimmed(collapsed_rows)),
         ansi_lines_to_html(_trimmed(expanded_rows)),
@@ -182,7 +185,7 @@ def _row_state(
 
     if name in BUILTIN_RENDERED_TOOLS:
         return None
-    resolved = lookup.resolve(name)
+    resolved = lookup.resolve(name, builtin=name in OWN_ROWS_TOOLS)
     if resolved is None or isinstance(resolved, BuiltinToolRows):
         return None
     if isinstance(resolved, McpToolRows):
@@ -202,7 +205,7 @@ def _row_state(
 
 
 def _parts(
-    state: ToolRowState, style: ChromeStyle, *, expanded: bool
+    state: ToolRowState, style: ChromeStyle, *, expanded: bool, with_call: bool = True
 ) -> tuple[list[str], list[str]]:
     call, result = render_tool_row_parts(
         state,
@@ -212,6 +215,7 @@ def _parts(
             theme=row_theme(style),
             extension_theme=build_tool_render_theme(style),
         ),
+        with_call=with_call,
     )
     return _texts(call), _texts(result)
 

@@ -511,7 +511,7 @@ slices recorded further differences from Pi in their "Decided in" blocks
 (sections 4.1 to 4.9) and in the "Different from Pi" paragraphs of the user
 documents. The closeout (S40) collected them here so that the final judgement
 has one list. DEV-69 to DEV-78 were added by the triage of the second goal
-check (2026-10-15), DEV-79 when R2 was merged (INT4), DEV-80 to DEV-85 by
+check (2026-10-15), DEV-79 when R2 was merged (INT4; closed by V3), DEV-80 to DEV-85 by
 the triage of the third goal check (2026-10-15), DEV-86 to DEV-93 by the
 triage of the fourth goal check (2026-10-15). A row that section 7, Q11,
 Q12 or Q13, names is accepted by the owner; every other row is still a
@@ -555,8 +555,8 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-41 | SLH-11 | Every extension has the RPC client as its UI (since N2), with one difference: a dialog has no `signal` option, so an RPC `abort` does not end an extension's dialog. Startup still has the 120 s readiness limit, also while a `session_start` dialog waits. (The terminal counts a dialog's `timeout` down as Pi does since R3.) | narrower | Decided in X1, N2, R3 |
 | DEV-42 (closed by N2) | none | Was: `get_commands` answered an empty list. Since N2 it lists the extension commands (with `/mcp`), prompt templates (with pipy's custom commands) and skills; `sourceInfo` has only `path`. | closed | Decided in X1, N2 |
 | DEV-43 | MGR-09 | The manager view: titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal shows the text above its controls through a window that PageUp/PageDown scroll, where Pi's output scrolls with the terminal; `app.message.copy` is used only on the sign-in screen (Pi also copies a `/tree` message and the last assistant message with it); a URL that is not printable ASCII up to 4096 characters stays plain text without the click hint (Pi links every URL), and the click and copy hints are part of the scrolled text; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34, N3; `docs/mcp.md` "The `/mcp` manager" |
-| DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` and `/share` run no extension code. | other form | Decided in S35, S39 (part 3) |
-| DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9), with the live `edit` preview and the ticking `bash` time (since goal check r3, S11). `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9, T4 |
+| DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` runs no extension code (`/share` draws its page with the session's renderers on the session's thread before the upload, since goal check r4, D4). | other form | Decided in S35, S39 (part 3), V3 |
+| DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9; also `codemode`'s since goal check r4, D3), with the live `edit` preview and the ticking `bash` time (since goal check r3, S11). `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. An extension tool named `codemode` without renderers gets pipy's codemode rows from `next()` and without a resolver; Pi draws it with the generic rows. | narrower | Decided in S35, G9, T4, V3 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
 | DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts (section 4.3; owner decision Q6). Nested calls run concurrently, except that calls of a tool with `execution_mode="sequential"` (Pi `executionMode`) run one at a time through Pi's exclusive queue (H3), a waiting call emitting its start event at once as in Pi (T1); no setting selects Pi's session-wide sequential mode. Those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result reaches `on_update` as a `ToolResult` whose `content` is its text (a `bash` partial result is the output so far, as in Pi, since T1). The outcome's `duration_ms` runs from the nested call's start to its outcome, hooks included; Pi's `durationMs` is the tool's `execute()` alone (the JSON/RPC `durationMs` follows Pi since R5). No event is emitted for a name that is not callable. An exception raised by a nested caller's `on_update` is ignored; Pi fails the nested call. Usage is DEV-13. | narrower | Decided in S37 |
@@ -590,7 +590,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-76 | TLS-20 | When the image hints would push a result's text past its 64 KiB limit, the hints are left out and the resized images kept. | other form | Goal check r2 (U9), as DEV-68; accepted in Q11 |
 | DEV-77 | TSR-04 | `tool_search`'s result text is bounded at 64 KiB: entries that do not fit are counted as `(and N more)` instead of listed. | narrower | Goal check r2 (U12), as DEV-29; accepted in Q11 |
 | DEV-78 | EXT-16 | An invalid or reserved system prompt section name from a `before_agent_start` handler is reported and left out; Pi fails the prompt. | other form | Goal check r2 (U14), as DEV-35; accepted in Q11 |
-| DEV-79 | EXT-01 | A `prepare_arguments` that raises gives the error result `<name>: prepare_arguments raised <exception type>`, without the exception message Pi shows, as an extension tool handler's error names only its type. | other form | Goal check r2 (S19, R2); recorded in INT4, accepted in Q11 |
+| DEV-79 (closed by V3) | EXT-01 | Was: a `prepare_arguments` that raises gave the error result `<name>: prepare_arguments raised <exception type>`, without the exception message Pi shows, as an extension tool handler's error named only its type. Since goal check r4 (S7, V3) both give the exception's message, printable and bounded (the type name when it is empty), as Pi's `createErrorToolResult(error.message)`. | closed | Goal check r2 (S19, R2); recorded in INT4, accepted in Q11; closed in V3 |
 | DEV-80 | CMD-30 | A codemode result's `max_output_tokens` is capped at 16000 (`MAX_RESULT_OUTPUT_TOKENS`), because a tool result's text is at most 64 KiB; Pi takes any budget. | narrower | Goal check r3 (D4), accepted in Q12 |
 | DEV-81 | CFG-23, CFG-24 | An `mcp.json` holding a number JSON cannot write back (such as `1e999`) is not rewritten by enable/disable or `pipy mcp add`/`remove`: the edit fails with a config error. Pi rewrites it and writes the number as `null`. | stricter | Goal check r3 (F4), accepted in Q12 |
 | DEV-82 | HTP-01, OAU-02, OAU-03, OAU-08, OAU-11 | No proxy support: the MCP HTTP transport and the OAuth fetch connect directly, ignoring `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`, and pipy has no `httpProxy` setting. Pi applies `httpProxy` to those variables and installs a proxy dispatcher for every HTTP client. A pipy-wide gap (backlog). | narrower | Goal check r3 (F2), accepted in Q12 |
@@ -608,8 +608,8 @@ that is named here as `closed, with limits` and cites the DEV row.
 
 The two rows the audit left open were built after it: SLH-13 (commands
 and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
-N2 and N3. DEV-08, DEV-39 and DEV-42 are closed and keep their numbers so
-that the references stay stable. Section 3.2 has the audit result.
+N2 and N3. DEV-08, DEV-39, DEV-42, DEV-65 and DEV-79 are closed and keep
+their numbers so that the references stay stable. Section 3.2 has the audit result.
 
 ### 3.2 Audit result (S40, 2026-10-14)
 
@@ -648,6 +648,9 @@ Updated after the triage of the fourth goal check (2026-10-15): DEV-86 to
 DEV-93 set three more rows (SLH-07, SLH-08, SLH-13) to closed with a
 limit, and DEV-33 now also names EXT-03 (the listing of `codemode` in
 `get_all_tools()`).
+The fix slices V1 to V3 of that triage narrowed DEV-32, DEV-33, DEV-44,
+DEV-45 and DEV-55, and V3 (merged in INT6) closed DEV-79 (goal check r4,
+S7); EXT-01 keeps its limit through DEV-85, so no row changed its state.
 The 122 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
@@ -1915,8 +1918,9 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   to extension renderers has six colours and none of these.
 - `tool_renderer_lookup.ToolRendererLookup.resolve(name)` is Pi's
   `resolveToolRenderers`: the resolvers of `register_tool_renderer` in load
-  order, then what the tool itself has: `BuiltinToolRows()` for a built-in
-  tool, the extension tool of that name that has a renderer, else
+  order, then what the tool itself has: the extension tool of that name
+  that has a renderer, `BuiltinToolRows()` for a built-in tool (and, since
+  goal check r4, D3, for `codemode`: `tool_rows.OWN_ROWS_TOOLS`), else
   `McpToolRows(label)`. The label of a registered
   server tool is `McpToolPort.label`, read from the capability value the
   provider turn pinned (`NativeToolCapabilitySnapshot.mcp_tool_labels`);
@@ -1963,9 +1967,12 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   one, where Pi leaves that part to its page; inputs are redacted before
   they are drawn (pipy's export withholds credentials, Pi's does not); the
   rows sit in a dark box whatever the page's colour scheme. `/export`
-  passes `SessionExecutionProjections.published_tool_renderer_lookup()`;
-  `pipy --export` and `/share` (which runs on a worker thread) use an empty
-  lookup, so no extension code runs and titles come from the name rule.
+  passes `SessionExecutionProjections.published_tool_renderer_lookup()`,
+  and so does `/share` since goal check r4 (D4): it draws its page
+  (`export_distribution.share_session_html`) on the session's thread before
+  the upload worker starts, so no extension code runs on that worker.
+  `pipy --export` uses an empty lookup, so no extension code runs and titles
+  come from the name rule.
 - The name rule is always on. Pi has it only while its MCP extension is
   loaded; with `--no-mcp` a resumed `mcp__` call has Pi's generic row.
   Recorded in `docs/mcp.md`.

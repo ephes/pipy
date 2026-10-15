@@ -162,7 +162,7 @@ def test_the_deviations_are_numbered_without_a_gap() -> None:
     # A closed deviation keeps its number and says so.
     section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
     closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
-    assert closed == ["DEV-08", "DEV-39", "DEV-42", "DEV-65"]
+    assert closed == ["DEV-08", "DEV-39", "DEV-42", "DEV-65", "DEV-79"]
 
 
 def test_every_deviation_the_note_names_is_in_the_plan() -> None:
@@ -175,8 +175,8 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    # DEV-15 to DEV-93 without the closed DEV-39, DEV-42 and DEV-65.
-    assert len(cells) == 76
+    # DEV-15 to DEV-93 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
+    assert len(cells) == 75
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
@@ -266,6 +266,32 @@ def test_the_fixes_of_the_third_triage_left_the_limits() -> None:
     assert "test_without_waitid" not in _PLAN.read_text()
     notes = (_DOCS / "specs" / "2026-10-15-mcp-gaps-r3-notes.md").read_text()
     assert "**Folded in INT5 (2026-10-15).**" in notes
+
+
+def test_the_fixes_of_the_fourth_triage_closed_dev_79() -> None:
+    # INT6 folded V3 (goal check r4: S7, D2, D3, D4 and the S5 doc sentence).
+    # V3 closed DEV-79; EXT-01 keeps its limit through DEV-85, and Q11 keeps
+    # naming DEV-79 as history.
+    closed = re.search(
+        r"^\| DEV-79 \(closed by V3\) \| EXT-01 \|.*\| closed \|.*$",
+        _PLAN.read_text(),
+        flags=re.MULTILINE,
+    )
+    assert closed is not None
+    assert "accepted in Q11; closed in V3 |" in closed.group(0)
+    assert "DEV-79 (EXT-01" in _q11()
+    ext01 = next(
+        line for line in _NOTE.read_text().splitlines() if "| EXT-01 |" in line
+    )
+    assert "DEV-79" not in ext01
+    assert ext01.endswith("| No `constrained_sampling` (DEV-85). |")
+    assert "| DEV-85 | EXT-01 |" in _PLAN.read_text()
+    assert "and `pipy --export` runs no extension code (`/share`" in _deviation(44)
+    assert "also `codemode`'s since goal check r4, D3" in _deviation(45)
+    # DEV-90's documentation: `send_user_message` options are ignored.
+    api = (_DOCS / "extension-api.md").read_text()
+    assert "`send_user_message(content, options)` accepts `options` and ignores" in api
+    assert not (_DOCS / "specs" / "2026-10-15-mcp-gaps-r4-notes.md").exists()
 
 
 def test_q13_accepts_the_rows_of_the_fourth_triage() -> None:

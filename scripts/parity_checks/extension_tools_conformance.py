@@ -6,8 +6,8 @@ from `docs/extension-api.md`:
 
 1. an extension tool registered via api.register_tool joins the bounded
    tool loop; the model can call it and its ToolResult content flows back;
-2. a tool handler exception becomes a bounded tool error (safe, no raw
-   message leak) and the run survives;
+2. a tool handler exception fails the call with the exception's message
+   (Pi's agent loop reports ``error.message``) and the run survives;
 3. a tool whose name shadows a built-in disables that extension;
 4. tool output is bounded.
 
@@ -150,18 +150,18 @@ def run_checks(base: Path) -> list[Check]:
         "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
         "def activate(api):\n"
         "    def handler(ctx, params):\n"
-        "        raise RuntimeError('/secret/leak-xyz')\n"
+        "        raise RuntimeError('Missing project id\\x1b[2J')\n"
         "    api.register_tool(ExtensionTool(name='boom_tool', description='b',\n"
         "        input_schema={'type':'object'}, handler=handler))\n",
     )
     res2, joined2 = _run(boom, _call("boom_tool", {}))
     checks.append(
         Check(
-            "tool_exception_bounded",
+            "tool_exception_message",
             res2.status is HarnessStatus.SUCCEEDED
-            and "/secret" not in joined2
-            and "leak-xyz" not in joined2,
-            "tool exception is a bounded error with no raw leak",
+            and "Missing project id [2J" in joined2
+            and "\x1b" not in joined2,
+            "tool exception fails the call with its printable message",
         )
     )
 

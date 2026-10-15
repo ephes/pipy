@@ -133,8 +133,8 @@ MCP conformance suite gives the same result for pipy as for Pi
   accepts the findings of the second goal check that its triage neither
   fixes nor refutes; Q12 and Q13 (2026-10-15) do the same for the third and
   fourth goal checks. The fix slices T1 to T6 of the third triage are on
-  `feat/mcp-parity` (T3, T4 and T6 merged in INT5); the fix slices V1 to V3
-  of the fourth triage are the rest of MCP1.
+  `feat/mcp-parity` (T3, T4 and T6 merged in INT5), and so are the fix
+  slices V1 to V3 of the fourth triage (V3 merged in INT6).
 
 ### CM1 — Python codemode (done 2026-10-09)
 

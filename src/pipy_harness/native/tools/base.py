@@ -111,6 +111,9 @@ class ToolArgumentError(ValueError):
     The error carries the originating tool name and a structured field path so
     later slices of the tool loop can format a deterministic observation that
     is returned to the model without leaking raw arguments or model output.
+    Its text is ``<tool>[.<path>]: <message>``; with ``qualified=False`` it is
+    the message alone, as Pi reports what a tool's ``prepareArguments``
+    throws.
     """
 
     def __init__(
@@ -119,6 +122,7 @@ class ToolArgumentError(ValueError):
         message: str,
         *,
         field_path: tuple[str, ...] = (),
+        qualified: bool = True,
     ) -> None:
         if not tool_name:
             raise ValueError("ToolArgumentError requires a non-empty tool_name")
@@ -127,7 +131,9 @@ class ToolArgumentError(ValueError):
         self.tool_name = tool_name
         self.field_path = tuple(str(part) for part in field_path)
         path_label = "." + ".".join(self.field_path) if self.field_path else ""
-        super().__init__(f"{tool_name}{path_label}: {message}")
+        super().__init__(
+            f"{tool_name}{path_label}: {message}" if qualified else message
+        )
 
 
 def materialize_tool_input_schema(

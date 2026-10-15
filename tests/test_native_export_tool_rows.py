@@ -9,11 +9,18 @@ the MCP renderers in an export too, whether its tool is registered or not.
 
 from __future__ import annotations
 
+import io
 import re
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from test_native_export_distribution import _decode_html_payload, _run_commands
+from test_native_export_distribution import (
+    _decode_html,
+    _decode_html_payload,
+    _run_commands,
+)
 
 from pipy_harness.extensions import (
     ExtensionTool,
@@ -30,16 +37,19 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.export_distribution import (
+    ShareResult,
     export_from_file,
     export_native_session_to_html,
     redact_export_value,
     session_export_payload,
+    share_session_html,
 )
 from pipy_harness.native.export_tool_rows import (
     ansi_lines_to_html,
     export_chrome_style,
     render_export_tools,
 )
+from pipy_harness.native.repl.session_transfer import share_native_session_command
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 
@@ -529,6 +539,135 @@ def test_the_export_command_asks_the_loaded_extensions(
     assert _text(rendered["c2"]["callHtml"]) == ["docs/search"]
 
 
+def test_the_share_command_asks_the_loaded_extensions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Goal check r4, D4: Pi's `/share` uploads `exportToHtml`'s page, which
+    # draws the calls with the session's renderers, as `/export` does.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_UPLOAD_TOKEN_123456789")
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(
+                _call("c1", "ghost", "{}"),
+                _call("c2", "mcp__docs__search", "{}"),
+            ),
+        ),
+    )
+    cwd = Path(tree.get_header().cwd)
+    extensions = cwd / ".pipy" / "extensions"
+    extensions.mkdir(parents=True)
+    (extensions / "resolver.py").write_text(_RESOLVER, encoding="utf-8")
+    pages: list[str] = []
+
+    def fake_share(session_tree: NativeSessionTree, html: str, **kwargs: object):
+        pages.append(html)
+        return ShareResult(
+            gist_id="g", gist_url="https://gist.github.com/u/g", viewer_url=None
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.repl.session_transfer.share_native_session", fake_share
+    )
+
+    err = _run_commands(tree, cwd, "/share\n/exit\n")
+
+    assert "gist URL: https://gist.github.com/u/g" in err, err
+    (page,) = pages
+    rendered = _decode_html(page)["renderedTools"]
+    assert _text(rendered["c1"]["callHtml"]) == ["GHOST CALL ghost"]
+    assert _text(rendered["c2"]["callHtml"]) == ["docs/search"]
+
+
+class _DoneUi:
+    """A terminal UI whose interrupt watcher waits for the upload to end."""
+
+    def __init__(self) -> None:
+        self.components = SimpleNamespace(transcript=self)
+
+    def add_notice(self, message: str) -> None:
+        del message
+
+    def wait_for_active_turn_interrupt(
+        self, done_event: Any, abort_event: Any, *, accept_queue: bool
+    ) -> str:
+        del abort_event, accept_queue
+        assert done_event.wait(5)
+        return "done"
+
+
+def test_share_draws_the_page_before_the_upload_thread_starts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The renderers are extension code: they run on the session's thread,
+    # and the upload's worker gets the finished page.
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""), tool_calls=(_call("c1", "ghost", "{}"),)
+        ),
+    )
+    drawn_on: list[threading.Thread] = []
+    uploaded_on: list[threading.Thread] = []
+
+    def draw(ctx: ToolRenderContext) -> object:
+        drawn_on.append(threading.current_thread())
+        return lines_component(["GHOST"])
+
+    lookup = ToolRendererLookup(
+        resolvers=(lambda name, following: ToolRenderers(render_call=draw),)
+    )
+
+    def fake_share(session_tree: NativeSessionTree, html: str, **kwargs: object):
+        uploaded_on.append(threading.current_thread())
+        assert "renderedTools" in _decode_html(html)
+        return ShareResult(
+            gist_id="g", gist_url="https://gist.github.com/u/g", viewer_url=None
+        )
+
+    monkeypatch.setattr(
+        "pipy_harness.native.repl.session_transfer.share_native_session", fake_share
+    )
+
+    result = share_native_session_command(
+        session_tree=tree,
+        token="ghp_UPLOAD_TOKEN_123456789",
+        abort_event=None,
+        terminal_ui=_DoneUi(),  # type: ignore[arg-type]
+        error_stream=io.StringIO(),
+        system_prompt="SHARED PROMPT",
+        tool_renderers=lambda: lookup,
+    )
+
+    assert result is not None and result.gist_id == "g"
+    assert drawn_on and set(drawn_on) == {threading.current_thread()}
+    assert uploaded_on and uploaded_on[0] is not threading.current_thread()
+
+
+def test_share_session_html_has_the_prompt_and_the_drawn_calls(
+    tmp_path: Path,
+) -> None:
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""), tool_calls=(_call("c1", "ghost", "{}"),)
+        ),
+    )
+    mine = ToolRenderers(render_call=lambda ctx: lines_component(["GHOST"]))
+    lookup = ToolRendererLookup(resolvers=(lambda name, following: mine,))
+
+    payload = _decode_html(
+        share_session_html(tree, system_prompt="PROMPT", tool_renderers=lookup)
+    )
+
+    assert payload["systemPrompt"] == "PROMPT"
+    assert _text(payload["renderedTools"]["c1"]["callHtml"]) == ["GHOST"]
+    # Without renderers only MCP calls are drawn, as `pipy --export` does.
+    assert "renderedTools" not in _decode_html(share_session_html(tree))
+
+
 def test_export_renderers_are_told_each_calls_id(tmp_path: Path) -> None:
     # Pi `ToolRenderContext.toolCallId`; the export draws each call once.
     seen: list[ToolRenderContext] = []
@@ -554,3 +693,74 @@ def test_export_renderers_are_told_each_calls_id(tmp_path: Path) -> None:
 
     assert {ctx.tool_call_id for ctx in seen} == {"c1", "c2"}
     assert all(ctx.execution_started is False for ctx in seen)
+
+
+def test_a_resolver_wraps_codemodes_rows_in_the_export(tmp_path: Path) -> None:
+    # Goal check r4, D3: `next()` gives codemode's own rows (Pi
+    # `codemodeRenderers`), which draw the output without the script header.
+    def wrapping(name: str, following: Any) -> object | None:
+        inner = following()
+        if inner is None:
+            return None
+
+        def result(ctx: ToolRenderContext) -> object:
+            component = inner.render_result(ctx)
+            lines = [] if component is None else list(component.render(ctx.width))
+            return lines_component(["[wrapped]", *lines])
+
+        return ToolRenderers(render_call=inner.render_call, render_result=result)
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(_call("c1", "codemode", '{"code": "print(1)"}'),),
+        ),
+        _result(
+            "c1", "codemode", "Script completed\nWall time 0.1 seconds\nOutput:\n1"
+        ),
+    )
+
+    rendered = _rendered(tree, ToolRendererLookup(resolvers=(wrapping,)))
+
+    assert _text(rendered["c1"]["callHtml"]) == ['codemode code="print(1)"']
+    # Pi's codemode result starts with a spacer.
+    assert _text(rendered["c1"]["resultHtmlExpanded"]) == ["[wrapped]", "", "1"]
+    # Without a resolver the page draws codemode's call itself, as before.
+    assert _rendered(tree) == {}
+
+
+def test_an_exported_call_is_drawn_before_its_result(tmp_path: Path) -> None:
+    # Pi `createToolHtmlRenderer.renderCall`: the call's context is partial
+    # and not an error, also for a call that failed; the result's says so.
+    seen: list[ToolRenderContext] = []
+
+    def draw(ctx: ToolRenderContext) -> object:
+        seen.append(ctx)
+        return lines_component([f"{ctx.is_result} error={ctx.is_error}"])
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""), tool_calls=(_call("c1", "deploy", "{}"),)
+        ),
+        _result("c1", "deploy", "boom", is_error=True),
+    )
+    lookup = ToolRendererLookup(
+        resolvers=(
+            lambda name, following: ToolRenderers(render_call=draw, render_result=draw),
+        )
+    )
+
+    rendered = _rendered(tree, lookup)
+
+    assert _text(rendered["c1"]["callHtml"]) == ["False error=False"]
+    assert _text(rendered["c1"]["resultHtmlExpanded"]) == ["True error=True"]
+    # The call is drawn once, before its result, and never again with the
+    # result's `is_error`; the result is drawn collapsed and expanded.
+    assert [(ctx.is_result, ctx.is_error) for ctx in seen] == [
+        (False, False),
+        (True, True),
+        (True, True),
+    ]
+    assert seen[0].is_partial is True

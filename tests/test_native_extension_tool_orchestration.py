@@ -387,7 +387,7 @@ def test_an_async_tool_handler_is_awaited(tmp_path, monkeypatch, interruptible) 
     assert result.status is HarnessStatus.SUCCEEDED
     direct, parent = _tool_results(provider.requests[1])
     assert (direct.content.value, direct.is_error) == ("awaited", False)
-    assert parent.content.value == ("awaited / extension tool error: RuntimeError")
+    assert parent.content.value == "awaited / late failure"
 
 
 _IMAGES = """from pipy_harness.extensions import (

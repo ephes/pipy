@@ -50,7 +50,7 @@ from pipy_harness.native.tool_renderer_lookup import (
 )
 from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tool_rows import (
-    BUILTIN_RENDERED_TOOLS,
+    OWN_ROWS_TOOLS,
     NestedToolLine,
     RowRenderers,
     bounded_nested_text,
@@ -784,7 +784,7 @@ class _ToolLoopRenderer:
         self._pending_render = None
         self._pending_tool = None
         resolved = self._tool_renderers.resolve(
-            call.tool_name, builtin=call.tool_name in BUILTIN_RENDERED_TOOLS
+            call.tool_name, builtin=call.tool_name in OWN_ROWS_TOOLS
         )
         mcp_label = resolved.label if isinstance(resolved, McpToolRows) else None
         # Whether the call keeps pipy's own header and edit/write preview. A

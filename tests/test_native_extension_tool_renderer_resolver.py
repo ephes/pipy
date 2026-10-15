@@ -692,3 +692,79 @@ def test_own_rows_outside_a_row_draw_nothing() -> None:
 
     assert BuiltinToolRows().render_call(ctx) is None
     assert McpToolRows("docs/search").render_result(ctx) is None
+
+
+# -- codemode's own rows (goal check r4, D3; Pi codemodeRenderers) -------------
+
+_SCRIPT = "Script completed\nWall time 0.4 seconds\nOutput:\n"
+
+
+def test_next_gives_codemodes_own_rows() -> None:
+    seen: list[object | None] = []
+
+    def fill_in(name: str, following: Any) -> object | None:
+        seen.append(following())
+        return following()
+
+    lookup = ToolRendererLookup(resolvers=(fill_in,))
+
+    assert lookup.resolve("codemode", builtin=True) == BuiltinToolRows()
+    assert seen == [BuiltinToolRows()]
+    # An extension that replaces `codemode` with renderers of its own keeps
+    # them, before and after the resolvers.
+    own = _tool("codemode")
+    assert (
+        ToolRendererLookup(tools={"codemode": own}).resolve("codemode", builtin=True)
+        is own
+    )
+    assert (
+        ToolRendererLookup(tools={"codemode": own}, resolvers=(fill_in,)).resolve(
+            "codemode", builtin=True
+        )
+        is own
+    )
+
+
+def test_a_resolver_wraps_codemodes_rows(tmp_path: Path) -> None:
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(_wrapping,)))
+
+    live.call("codemode", {"code": "print(1)"})
+    live.renderer.render_tool_result(output_text=_SCRIPT + "1\n2\n", is_error=False)
+
+    # codemode's result rows: the output without the script header.
+    assert live.rows() == [["[call]", 'codemode code="print(1)"', "[result]", "1", "2"]]
+
+
+def test_a_resolver_that_chooses_nothing_for_codemode_gets_the_generic_row(
+    tmp_path: Path,
+) -> None:
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(resolvers=(lambda name, following: None,))
+    )
+
+    live.call("codemode", {"code": "print(1)"})
+    live.renderer.render_tool_result(output_text=_SCRIPT + "1", is_error=False)
+
+    # Pi's generic result: the text as it is, header included.
+    (row,) = live.rows()
+    assert row[0] == 'codemode code="print(1)"'
+    assert row[1:] == ["Script completed", "Wall time 0.4 seconds", "Output:", "1"]
+
+
+def test_the_line_renderer_lets_a_resolver_wrap_codemodes_rows() -> None:
+    stream = io.StringIO()
+    renderer = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+    renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(_wrapping,)))
+
+    renderer.render_tool_call(
+        AgentToolCall("c1", "codemode", ProductContent('{"code": "x"}'))
+    )
+    renderer.render_tool_result(output_text="done", is_error=False)
+
+    lines = [line.strip() for line in stream.getvalue().splitlines() if line.strip()]
+    assert lines[:2] == ["[call]", 'codemode(code="x")']
+    assert "[result]" in lines and "done" in lines

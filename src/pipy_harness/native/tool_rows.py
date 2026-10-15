@@ -87,6 +87,10 @@ RowBackground = Literal["pending", "success", "error", "custom", "none"]
 BUILTIN_RENDERED_TOOLS = frozenset(
     {"read", "grep", "find", "ls", "write", "edit", "bash"}
 )
+#: Tools pipy draws with rows of its own: the built-in tools and ``codemode``
+#: (Pi's codemode tool brings ``codemodeRenderers``). A tool renderer
+#: resolver's ``next()`` gives renderers that draw these rows.
+OWN_ROWS_TOOLS = BUILTIN_RENDERED_TOOLS | {"codemode"}
 # Pi `ToolExecutionComponent` FALLBACK_PREVIEW_LINES and the renderers' limits.
 _FALLBACK_PREVIEW_LINES = 10
 _READ_PREVIEW_LINES = 10
@@ -1321,11 +1325,14 @@ def _render_extension(
         return None
     phase = "result" if result is not None else "call"
     unsettled = state.result is None
+    # Pi takes `isError` of both phases from the call's current result, so
+    # the call drawn again after a failure knows it failed.
+    current = result if result is not None else state.result
     ctx = ToolRenderContext(
         tool_name=state.tool_name,
         args=state.args,
         is_result=result is not None,
-        is_error=result.is_error if result is not None else False,
+        is_error=current is not None and current.is_error,
         content=result.content if result is not None else None,
         details=result.details if result is not None else None,
         expanded=inputs.expanded,
@@ -1473,20 +1480,22 @@ def render_tool_row(
 
 
 def render_tool_row_parts(
-    state: ToolRowState, inputs: RowRenderInputs
+    state: ToolRowState, inputs: RowRenderInputs, *, with_call: bool = True
 ) -> tuple[list[RowLine], list[RowLine]]:
     """The call and the result of a row, without its box.
 
     For a row that an extension's renderers or the MCP renderer draw: what
     the HTML export shows of a call (Pi ``createToolHtmlRenderer``). The
-    result part is empty while the call has no result.
+    result part is empty while the call has no result. ``with_call`` false
+    leaves the call part empty without drawing it, as Pi's ``renderResult``
+    draws the result alone.
     """
 
     result = state.result
     bg: RowBackground = "pending"
     if result is not None:
         bg = "error" if result.is_error else "success"
-    call = _call_rows(state, inputs, bg)
+    call = _call_rows(state, inputs, bg) if with_call else []
     if result is None:
         return call, []
     return call, _other_result_rows(state, inputs, result, bg, partial=False) or []
@@ -1792,6 +1801,7 @@ def parse_arguments(arguments_json: str) -> dict[str, Any]:
 __all__ = [
     "BUILTIN_RENDERED_TOOLS",
     "EditPreview",
+    "OWN_ROWS_TOOLS",
     "RowLine",
     "RowRenderers",
     "RowRenderInputs",

@@ -273,9 +273,11 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   credential redaction before anything is drawn. The terminal text becomes
   HTML with the foreground colours of the active theme, bold, italic and
   underline as inline styles; backgrounds and every other escape sequence
-  are dropped and the text is escaped. `/export` asks the loaded extensions;
-  `pipy --export <file>` and `/share` run no extension code, so there only
-  the calls to MCP tools are drawn, titled from their pipy names.
+  are dropped and the text is escaped. `/export` and `/share` ask the
+  loaded extensions (`/share` draws its page on the session's thread before
+  the upload starts, as Pi's `/share` uploads its `exportToHtml` page);
+  `pipy --export <file>` runs no extension code, so there only the calls to
+  MCP tools are drawn, titled from their pipy names.
 - Images in tool results (MCP parity plan S39): the exported entries keep a
   result's `blocks`, so the image data is in the file. A drawn row shows an
   image as the terminal row does, `[Image: [image/png] 640x480]` (Pi draws
@@ -446,7 +448,10 @@ user-visible outcome (secret gist created, share URL printed):
    since uploading shifts a local artifact to a remote account. This is a pipy
    addition, not Pi parity, and it does not reduce exported content: the gist
    contains the same full HTML the `/export` path produces (minus auth tokens).
-3. **Export to a temp HTML file** (owner-only permissions), then read it.
+3. **Export to a temp HTML file** (owner-only permissions), then read it. The
+   page is the one `/export` writes, with the session's system prompt and the
+   calls the loaded extensions' renderers draw; it is drawn on the session's
+   thread before the upload's worker thread starts.
 4. **Create the gist** via `urllib` `POST https://api.github.com/gists` with
    `{"public": false, "files": {"<name>.html": {"content": "<html>"}}}`,
    `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`, and a

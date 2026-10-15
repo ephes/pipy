@@ -8,6 +8,43 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An extension tool whose handler raises fails the call with the
+  exception's message as its error result, as Pi's agent loop reports
+  `error.message` (Pi's docs tell extension authors to throw to fail a
+  call); the type name stands in for an empty message. Characters that
+  would steer a terminal become spaces (line breaks and tabs stay) and the
+  text is bounded like other tool output. A caller through
+  `ctx.execute_tool` or a codemode script gets the same text. Before, the
+  result was only `extension tool error: <exception type>`. A raising
+  `prepare_arguments` reports its message the same way, without the tool
+  name (before: `<name>: prepare_arguments raised <exception type>`). See
+  [extension API](docs/extension-api.md).
+- A tool renderer's call context has `is_error` set once the call failed,
+  as Pi takes `isError` from the call's current result for both phases, so
+  a custom `render_call` drawn again after the result in the terminal
+  (Ctrl+O, a resize, `invalidate()`) can mark the failure. Before, the call
+  context always said `False`. The HTML export draws a call before its
+  result, with `is_error` false, as Pi's export does. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- A tool renderer resolver's `next()` gives renderers for the calls to
+  `codemode`, as Pi's codemode tool brings its `codemodeRenderers`: they
+  draw the rows pipy draws for codemode (in the terminal and the HTML
+  export the script output without the `Script completed` header), so a
+  resolver can wrap them there and in captured output. Before, `next()` gave
+  `None` for `codemode`, and a resolver that returned `None` without
+  `next()` left codemode's own result rows in place instead of the generic
+  row. An extension tool named `codemode` that has renderers keeps them.
+  See [tool rendering](docs/extension-api.md#tool-rendering).
+- `/share` uploads the page `/export` writes, as Pi's `/share` uploads its
+  `exportToHtml` page: the session's system prompt, and the tool calls drawn
+  with the loaded extensions' renderers and resolvers and the session's MCP
+  tool titles. Before, the shared page had no system prompt and drew only MCP
+  calls, titled from their pipy names, so custom MCP renderers and resolvers
+  were lost. The page is drawn on the session's thread before the upload
+  starts, so no extension code runs on the upload's thread. `pipy --export`
+  still runs no extension code. See
+  [export](docs/export-distribution.md#artifact-shape).
+
 - `/reload` with `--tools` or `--exclude-tools` given keeps an extension
   tool that `tool_search` loaded declared, as Pi's reload keeps every active
   tool the filters allow; before, only loaded MCP tools came back. See
@@ -314,8 +351,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 - `ExtensionTool(prepare_arguments=...)` (Pi `prepareArguments`): a callback
   that receives a call's parsed arguments before validation and returns the
-  arguments to validate and run. If it raises, the call ends with the error
-  result `<name>: prepare_arguments raised <exception type>`. See
+  arguments to validate and run. If it raises, the call ends with the
+  exception's message as its error result. See
   [extension tools](docs/extension-api.md).
 - The automation fake provider (`--native-provider fake --native-model
   fake-tools`) asks for one `bash` call (`echo hi`) when the prompt starts
@@ -519,8 +556,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   extension's renderers draw, as the rows of the transcript: the call, and
   the result collapsed with a click to expand it. Before, such a call was
   shown as its raw arguments, or not at all next to assistant text, and its
-  result as plain text. `/export` uses the loaded extensions' renderers;
-  `pipy --export` and `/share` draw only the MCP rows. See
+  result as plain text. `/export` and `/share` use the loaded extensions'
+  renderers; `pipy --export` draws only the MCP rows. See
   [export](docs/export-distribution.md#artifact-shape).
 - Extension API: `api.register_mcp_server(name, config)` adds an MCP server
   for the session, with the shape of an `mcpServers` entry of `mcp.json`. A
@@ -1357,6 +1394,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   that the owner accepted (Q6), and 170 rows are closed with a test and 122
   with a limit. The [backlog](docs/backlog.md) has the extension-API items
   as follow-ons and points the parallel tools deferral at DEV-87.
+
+- The MCP parity plan, its acceptance note and the backlog hold the fix
+  slices V1 to V3 of the fourth goal check: DEV-32, DEV-33, DEV-44, DEV-45
+  and DEV-55 say what they changed, DEV-79 (the error text of a raising
+  `prepare_arguments`) is closed, and the rows they touch name their new
+  tests. EXT-01 keeps its limit through DEV-85, so no row changes its state:
+  170 rows are closed with a test and 122 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

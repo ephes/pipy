@@ -579,6 +579,11 @@ small reviewed slices.
 `api.on(...)` should support both direct registration and decorator style:
 `api.on("tool_call", handler)` and `@api.on("tool_call")`.
 
+`send_user_message(content, options)` accepts `options` and ignores them:
+Pi's `deliverAs` (steer, follow-up) and `expandPromptTemplates` are not
+honoured, so the message is queued as a plain prompt, without command or
+prompt-template expansion.
+
 ## Event Hooks
 
 Event names should mirror Pi where the lifecycle concept matches. The full
@@ -887,7 +892,11 @@ Rules:
 - A tool result may set `terminate=True` when it is final and no automatic
   follow-up model turn is needed; the batch ends only when every result in
   it asks, see [ending the batch](#ending-the-batch).
-- Raised exceptions become bounded tool errors, not uncaught session crashes.
+- A handler that raises fails the call, not the session: as in Pi, the
+  exception's message is the error result the model sees (the type name
+  when the message is empty), with characters that would steer a terminal
+  replaced by spaces and its length bounded. It reaches a caller through
+  `ctx.execute_tool` or a codemode script the same way.
 - Stateful tools should be able to reconstruct safe local state from prior
   result `details` or extension-owned append-only entries.
 - Tool results are bounded before returning to the model.
@@ -1076,8 +1085,8 @@ def activate(api):
   validate and run instead, for example to accept an older argument shape.
   It runs once per call, before the `tool_call` handlers, also for calls
   made by scripts and `ctx.execute_tool`. If it raises, the call ends with
-  the error result `<name>: prepare_arguments raised <exception type>` and
-  reaches no handler. A value that is not callable disables the extension with
+  the exception's message as its error result, as a raising handler's does,
+  and reaches no handler. A value that is not callable disables the extension with
   `invalid_tool`.
 
 **Results.** A handler that returns data declares an `output_schema` and
@@ -1475,7 +1484,10 @@ one that an extension of an earlier session had, or one the model made up.
 
 Besides `tool_name`, `args`, `is_result`, `is_error`, `content`, `details`,
 `expanded`, `width`, `theme` and `state`, a renderer's `ToolRenderContext`
-has Pi's fields:
+has Pi's fields. As in Pi, `is_error` comes from the call's current result
+in both phases: once the call failed, `render_call` is told so too when the
+row is drawn again in the terminal. The HTML export draws a call before its
+result, so there its `is_error` is false, as in Pi's export.
 
 - `tool_call_id`: the call's id, the same for its call and result renders.
 - `cwd`: the session's directory.
@@ -1527,7 +1539,7 @@ def activate(api):
   that tool, a built-in tool's included, and returning `None` without it
   gives the tool pipy's generic row.
 - What the tool itself has: for an extension tool that has a renderer, the
-  `ExtensionTool`; for a built-in tool and for a call to
+  `ExtensionTool`; for a built-in tool, for `codemode` and for a call to
   `mcp__<server>__<tool>` (whether such a tool is registered or not), an
   object that stands for pipy's own rows. Return it to keep pipy's rows, or
   call its `render_call(ctx)` and `render_result(ctx)` inside your own
@@ -1539,8 +1551,12 @@ def activate(api):
   `Elapsed` every second while it runs (pipy draws the row again, so
   `render_call` and `render_result` are called again; `render_result` is
   called from the start, with empty `content`, as Pi's bash tool sends an
-  empty update first). Called with a context pipy did not make, they
-  return `None`. For every other name it is `None`.
+  empty update first). For `codemode` the result part is, in the terminal
+  and the HTML export, the script's output without the `Script completed`
+  header, as Pi's codemode renderer draws it; the nested calls stay in the
+  row between the two parts. Called
+  with a context pipy did not make, they return `None`. For every other
+  name it is `None`.
 
   ```python
   def resolve(tool_name, next):
@@ -1581,6 +1597,8 @@ Different from Pi:
 
 - In Pi `next()` returns a registered tool's definition also when it has no
   renderers; pipy returns `None` for an extension tool without renderers.
+  An extension tool named `codemode` without renderers is the exception: it
+  gets pipy's codemode rows, where Pi draws its calls with the generic rows.
 - pipy's own rows keep what is outside the two parts when a resolver wraps
   them only as long as the object itself is returned: a wrapped `edit` row
   is drawn in the usual box, not in the edit box with its own background
@@ -1595,8 +1613,9 @@ extension tool's `render_call` and `render_result`, and what a resolver
 chose, are called with `expanded` false and true, a `width` of 98 and
 arguments, result text and details from which credentials were removed. As
 in Pi, the export page draws the built-in tools itself, so renderers that a
-resolver chose for a built-in tool are not used there. `pipy --export` and
-`/share` do not run extension code.
+resolver chose for a built-in tool are not used there. `/share` uploads the
+same page, drawn before the upload starts, as Pi's `/share` uploads its
+`exportToHtml` page. `pipy --export` does not run extension code.
 
 <a id="mcp-servers"></a>
 ### MCP servers

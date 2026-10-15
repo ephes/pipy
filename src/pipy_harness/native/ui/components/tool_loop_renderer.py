@@ -55,7 +55,7 @@ from pipy_harness.native.tool_renderer_lookup import (
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tool_rows import (
-    BUILTIN_RENDERED_TOOLS,
+    OWN_ROWS_TOOLS,
     RowRenderers,
     SkillInvocationBox,
     ToolRowResult,
@@ -415,7 +415,7 @@ class TuiToolLoopRenderer:
         self._stop_working(clear=True)
         args = parse_arguments(call.arguments_json.value)
         name = call.tool_name
-        builtin = name in BUILTIN_RENDERED_TOOLS
+        builtin = name in OWN_ROWS_TOOLS
         extension: RowRenderers | None = None
         mcp_label: str | None = None
         resolved = self._tool_renderers.resolve(name, builtin=builtin)
