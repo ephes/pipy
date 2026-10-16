@@ -17,14 +17,19 @@ are re-exported from `pipy_harness.extensions`.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping, Sequence
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from pipy_harness.native.agent.content import ToolPartialResult
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionUi,
     ExtensionUiDriver,
+    ToolCallInfo,
+    ToolCallOutcome,
+    ToolResult,
     is_valid_custom_entry_type,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
@@ -35,6 +40,10 @@ from pipy_harness.native.extensions.session_views import (
     _ConversationView,
     _ReadOnlySessionManagerView,
 )
+from pipy_harness.native.tools.base import NESTED_CALLS_UNAVAILABLE, NestedToolResult
+
+if TYPE_CHECKING:
+    from pipy_harness.native.tools.base import ToolInfo
 
 
 def make_extension_context(
@@ -108,7 +117,20 @@ class CommandContext(Protocol):
         ...
 
     def set_active_tools(self, tool_names: Sequence[str]) -> bool:
-        """Restrict the active model-visible tools for later provider turns."""
+        """Restrict the active model-visible tools for later provider turns.
+
+        Unknown and ``hidden`` names are ignored and the others applied (Pi
+        ``setActiveToolsByName``); ``False`` means the context can no longer
+        change the session.
+        """
+        ...
+
+    def get_all_tools(self) -> "tuple[ToolInfo, ...]":
+        """Every registered tool, active or not, with its metadata.
+
+        Pi ``getAllTools``: name, description, input schema, exposure,
+        namespace, annotations and the reach function of each tool.
+        """
         ...
 
     def set_model(self, reference: str) -> bool:
@@ -141,8 +163,79 @@ class CommandContext(Protocol):
     ) -> object: ...
 
 
+@runtime_checkable
+class ExtensionToolContext(CommandContext, Protocol):
+    """Context passed to an extension tool's handler (Pi
+    ``ExtensionToolContext``): the extension context plus what runs other
+    tools.
+
+    ``on_update(partial)`` publishes a partial result of the running tool
+    (Pi's ``onUpdate`` of ``execute``): a ``ToolResult`` whose text and
+    ``details`` replace the previous partial result in the call's live row,
+    the JSON/RPC ``tool_execution_update`` and a calling tool's
+    ``on_update``. It does nothing where no tool runs.
+
+    ``tools`` lists the tools ``execute_tool`` can call: the active
+    ``direct`` tools and every registered ``codemode`` or ``deferred`` tool,
+    as they were when this tool was called. ``execute_tool(name, arguments)``
+    runs one of them through the same argument validation, ``tool_call`` and
+    ``tool_result`` hooks as a call the model made (outside the tool
+    budget, as Pi has none), and returns its ``ToolCallOutcome``: the call, the result with its image
+    blocks, ``is_error`` and the duration. ``signal`` cancels that call
+    alone (default: ``signal``, the tool's own), and ``on_update`` receives
+    its partial results as ``ToolResult`` values (Pi ``onUpdate``). It never
+    raises for a tool failure: a tool that is
+    not callable, invalid arguments, a blocked call and a failed tool come
+    back as a result with ``is_error``.
+
+    A tool another tool called can run tools too, at any depth, and calls
+    from several threads run at the same time. In the context of commands
+    and hooks ``tools`` is empty and ``execute_tool`` answers with an error
+    result.
+    """
+
+    @property
+    def tools(self) -> "tuple[ToolInfo, ...]": ...
+
+    @property
+    def signal(self) -> "threading.Event | None": ...
+
+    def on_update(self, partial: ToolResult) -> None: ...
+
+    def onUpdate(self, partial: ToolResult) -> None: ...  # noqa: N802 - Pi-shaped alias
+
+    def execute_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        *,
+        signal: "threading.Event | None" = None,
+        on_update: Callable[[ToolResult], None] | None = None,
+    ) -> ToolCallOutcome: ...
+
+    def executeTool(  # noqa: N802 - Pi-shaped alias
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        options: Mapping[str, object] | None = None,
+    ) -> ToolCallOutcome: ...
+
+
+def _partial_results(
+    on_update: Callable[[ToolResult], None],
+) -> Callable[[ToolPartialResult], None]:
+    """Hand each partial result to an extension as Pi's result object."""
+
+    def update(partial: ToolPartialResult) -> None:
+        details = None if partial.details is None else dict(partial.details)
+        on_update(ToolResult(content=partial.content, details=details))
+
+    return update
+
+
 class _CommandContext:
-    """Concrete `CommandContext` for one command invocation."""
+    """Concrete `CommandContext` for one command invocation, and the
+    `ExtensionToolContext` of one tool invocation."""
 
     def __init__(
         self,
@@ -188,6 +281,83 @@ class _CommandContext:
             )
         return self._model_runtime.set_active_tools_fn(
             tuple(str(name) for name in tool_names)
+        )
+
+    def get_all_tools(self) -> "tuple[ToolInfo, ...]":
+        if self._model_runtime.get_all_tools_fn is None:
+            raise ExtensionCapabilityError(
+                "the tool list is not available in this context"
+            )
+        return tuple(self._model_runtime.get_all_tools_fn())
+
+    @property
+    def tools(self) -> "tuple[ToolInfo, ...]":
+        nested = self._model_runtime.nested_tools
+        return () if nested is None else nested.tools()
+
+    @property
+    def signal(self) -> "threading.Event | None":
+        """The running tool's cancellation signal (Pi ``signal``), or None."""
+        return self._model_runtime.tool_signal
+
+    def on_update(self, partial: ToolResult) -> None:
+        """Publish a partial result of the running tool (Pi ``onUpdate``);
+        nothing happens where no tool runs or nothing receives it."""
+        update = self._model_runtime.tool_update
+        if update is not None:
+            update(partial)
+
+    def onUpdate(self, partial: ToolResult) -> None:  # noqa: N802 - Pi-shaped alias
+        self.on_update(partial)
+
+    def execute_tool(
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        *,
+        signal: "threading.Event | None" = None,
+        on_update: Callable[[ToolResult], None] | None = None,
+    ) -> ToolCallOutcome:
+        nested = self._model_runtime.nested_tools
+        name = str(name)
+        if nested is None:
+            result = NestedToolResult(NESTED_CALLS_UNAVAILABLE, is_error=True)
+        else:
+            result = nested.execute(
+                name,
+                arguments,
+                signal=self._model_runtime.tool_signal if signal is None else signal,
+                on_update=None if on_update is None else _partial_results(on_update),
+            )
+        return ToolCallOutcome(
+            tool_call=ToolCallInfo(result.tool_call_id, name, result.arguments),
+            result=ToolResult(
+                content=result.content,
+                details=result.details,
+                structured_content=result.structured_content,
+                is_error=result.is_error,
+                blocks=result.blocks,
+                terminate=result.terminate,
+            ),
+            is_error=result.is_error,
+            duration_ms=result.duration_ms,
+        )
+
+    def executeTool(  # noqa: N802 - Pi-shaped alias
+        self,
+        name: str,
+        arguments: Mapping[str, object] | None = None,
+        options: Mapping[str, object] | None = None,
+    ) -> ToolCallOutcome:
+        """Pi's ``executeTool(name, args, {signal, onUpdate})``."""
+        options = options or {}
+        signal = options.get("signal")
+        on_update = options.get("onUpdate", options.get("on_update"))
+        return self.execute_tool(
+            name,
+            arguments,
+            signal=signal if isinstance(signal, threading.Event) else None,
+            on_update=on_update if callable(on_update) else None,
         )
 
     def set_model(self, reference: str) -> bool:

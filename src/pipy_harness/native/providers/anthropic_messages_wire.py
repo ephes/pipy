@@ -69,6 +69,7 @@ from pipy_harness.native.models import (
     ProviderToolCall,
 )
 from pipy_harness.native.providers.replay_content import (
+    TOOL_IMAGE_ONLY_TEXT,
     ReplayTarget,
     transform_assistant_blocks,
 )
@@ -359,13 +360,39 @@ def _tool_use_block(call: AgentToolCall) -> dict[str, object]:
     }
 
 
+def _tool_result_content(
+    envelope: AgentToolResultMessage,
+) -> str | list[dict[str, object]]:
+    """Pi ``convertContentBlocks``: the text, or with an image the ordered
+    text and image blocks, led by a placeholder when there is no text."""
+
+    if not envelope.blocks:
+        return envelope.content.value
+    content: list[dict[str, object]] = [
+        {"type": "text", "text": block.text}
+        if isinstance(block, TextContent)
+        else {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": block.mime_type,
+                "data": block.data,
+            },
+        }
+        for block in envelope.blocks
+    ]
+    if not any(isinstance(block, TextContent) for block in envelope.blocks):
+        content.insert(0, {"type": "text", "text": TOOL_IMAGE_ONLY_TEXT})
+    return content
+
+
 def convert_tool_result(envelope: AgentToolResultMessage) -> dict[str, object]:
     """Convert one tool-result envelope into a ``tool_result`` block."""
 
     block: dict[str, object] = {
         "type": "tool_result",
         "tool_use_id": portable_tool_correlation_id(envelope.provider_correlation_id),
-        "content": envelope.content.value,
+        "content": _tool_result_content(envelope),
     }
     if envelope.is_error:
         block["is_error"] = True

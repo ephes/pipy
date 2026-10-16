@@ -1,8 +1,8 @@
 """Codemode host runner: run one script in a fresh sandboxed worker (CM1 T3).
 
 :func:`run_script` starts the worker (:mod:`.worker`) in its own process
-group, feeds it the script, serves its ``tools.<name>(args)`` calls through an
-injected callback and always kills and reaps it. It never raises for anything
+group, feeds it the script, serves its ``tools.<name>(args)`` calls and its
+discovery calls through injected callbacks and always kills and reaps it. It never raises for anything
 the guest does: every failure becomes a :class:`ScriptOutcome` with one of the
 four error kinds (spike result §4.6).
 
@@ -12,12 +12,14 @@ Threads (spike result §4.1 host rules, §4.2 step 4):
   deadline and the cancel event are checked on every loop iteration, so a
   guest that floods output or never reads its stdin cannot stall the host.
   It validates every guest line (untrusted) and enforces the line, output and
-  stderr caps. On any protocol violation, cap, deadline or cancel it kills the
+  stderr caps. Replies are encoded and bounded on the calling thread. On any protocol violation, cap, deadline or cancel it kills the
   worker's process group at once and reports the outcome.
-- The calling (session) thread runs the tool callback. The I/O thread hands it
-  each ``call`` through a queue; the calling thread runs the callback and posts
-  the reply back. At most one call is outstanding: a second ``call`` before its
-  reply is a protocol violation.
+- The calling (session) thread starts each tool call and runs the discovery
+  callback. The I/O thread hands it each ``call`` and ``discover`` through a
+  queue, in the guest's order; the calling thread starts the call (or runs
+  the callback) and posts the reply back once it settled. Several requests
+  may be outstanding, at most :data:`.prelude.MAX_PENDING_REQUESTS`, and
+  replies go back in the order the calls settle.
 
 The worker's process group is the only thing ever signalled, and only while
 its leader is unreaped (a reaped pid may be reused). Nothing in the guest can
@@ -26,6 +28,7 @@ fork, so the group contains only the worker.
 
 from __future__ import annotations
 
+import collections
 import json
 import math
 import os
@@ -37,20 +40,39 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from pipy_harness.native.codemode.declarations import to_codemode_identifier
 from pipy_harness.native.codemode.outcome import (
+    NO_VALUE,
     CallResult,
     CallStatus,
+    ConsoleText,
+    DiscoveryResult,
     ErrorKind,
     ScriptError,
+    ScriptImage,
     ScriptLimits,
     ScriptOutcome,
+    ScriptTool,
+    StoreWrites,
     ToolCallRecord,
 )
-from pipy_harness.native.codemode.prelude import EXIT_PROTOCOL, unknown_tool_message
+from pipy_harness.native.codemode.prelude import (
+    DISCOVERY_NAMES,
+    EXIT_PROTOCOL,
+    MAX_PENDING_REQUESTS,
+    MAX_STORE_TOTAL_CHARS,
+    MAX_STORE_VALUE_CHARS,
+    TEXT_PIECE_CHARS,
+    image_type,
+    is_base64,
+    store_json,
+    tool_table,
+    unknown_tool_message,
+)
 from pipy_harness.native.codemode.runtime import (
     RUNTIME_PIN,
     CodemodePaths,
@@ -63,6 +85,18 @@ ActivityWaiter = Callable[[threading.Event, threading.Event], None]
 
 ToolCallback = Callable[[str, str], CallResult]
 """``(tool name, arguments as a JSON object string) -> CallResult``."""
+
+ToolStarter = Callable[[str, str, Callable[[CallResult], None]], None]
+"""``(tool name, arguments as a JSON object string, settle)``: start one call
+and return; ``settle(result)`` is then called once, on the calling thread,
+at once or later (from the activity waiter, or after the run ended)."""
+
+DiscoverCallback = Callable[[str, dict[str, Any]], DiscoveryResult]
+"""``(helper name, its arguments by parameter name) -> DiscoveryResult``.
+
+The helper name is one of ``search_tools``, ``describe_tool`` and
+``describe_namespace``. The arguments come from the guest unchecked: any JSON
+values, and any or none of the helper's parameters."""
 
 # The backend the worker must report in its ``ready`` line (worker.BACKEND;
 # the host never imports the worker module).
@@ -77,18 +111,36 @@ READ_CHUNK = 64 * 1024
 # cannot be encoded as UTF-8; every guest string is scrubbed to U+FFFD.
 _SURROGATE = re.compile("[\ud800-\udfff]")
 
+# How the prelude's image line starts, and the room for the rest of its frame.
+_IMAGE_LINE = b'{"type":"image",'
+_IMAGE_FRAME = 1024
+# How the prelude's done line starts. With store writes it may be longer than
+# other lines: each character of a key or of a value's JSON text takes at
+# most 12 bytes on the wire (an escaped astral character), and each entry at
+# most 8 more. The values set are at most ``MAX_STORE_TOTAL_CHARS``; the keys
+# deleted are keys of the snapshot.
+_DONE_LINE = b'{"type":"done",'
+_STORE_BYTES_PER_CHAR = 20
+# How the prelude's tool call line starts. It may be as long as a reply
+# (``ScriptLimits.reply_bytes``): its arguments can be as large as a result.
+_CALL_LINE = b'{"type":"call",'
+
 ABORTED_MESSAGE = "Execution aborted"
-OUTPUT_GUIDANCE = (
-    "the script's output exceeded {limit}; print a summary and write large "
-    "data through a tool instead"
+# Pi's prelude text, with pipy's calls that add output.
+OUTPUT_LIMIT_MESSAGE = (
+    "script output exceeded the limit of {chars} characters or {messages} "
+    "text(), image() and print calls. Print a summary instead, or write large "
+    "data to a file with a tool."
 )
 
 
 def run_script(
     code: str,
     *,
-    call_tool: ToolCallback,
-    tool_names: Iterable[str],
+    call_tool: ToolCallback | None = None,
+    start_tool: ToolStarter | None = None,
+    tools: Iterable[ScriptTool],
+    discover: DiscoverCallback | None = None,
     limits: ScriptLimits | None = None,
     cancel: threading.Event | None = None,
     tool_stop: threading.Event | None = None,
@@ -96,15 +148,30 @@ def run_script(
     pin: RuntimePin = RUNTIME_PIN,
     python: str = sys.executable,
     activity_waiter: ActivityWaiter | None = None,
+    store: Mapping[str, Any] | None = None,
 ) -> ScriptOutcome:
     """Run ``code`` in a fresh worker and return its outcome; never raises.
 
-    ``call_tool`` runs on this (the calling) thread, one call at a time, and
-    only for names in ``tool_names``; any other name gets an error result
-    without reaching it. It must honour ``cancel`` and ``tool_stop`` itself:
+    Exactly one of ``call_tool`` and ``start_tool`` runs the script's tool
+    calls, on this (the calling) thread and only for the names of ``tools``;
+    any other name gets an error result without reaching it. ``call_tool``
+    runs a call to its end, so calls run one at a time; ``start_tool``
+    starts it and settles it later, so the calls a script submits run at
+    the same time. Calls are started in the order the script made them, and
+    the outcome's ``calls`` keep that order; a call that did not settle
+    before the run ended is recorded as cancelled. After a ``done`` the
+    calls the script made before it are still started; after any other end
+    they are not. ``tools`` is ordered: the script sees it as
+    ``ALL_TOOLS``, and the first tool wins an identifier two names share.
+
+    ``discover`` answers the script's ``search_tools``, ``describe_tool`` and
+    ``describe_namespace`` calls, on this thread too. It executes no tool and
+    its calls are not part of the outcome's ``calls``. Without it the helpers
+    raise in the script. It must honour ``cancel`` and ``tool_stop`` itself:
     the runner cannot interrupt a callback. ``tool_stop`` (if given) is set as
-    soon as the run ends for any reason (deadline, violation, cancel, done),
-    so a callback still in flight can stop its tool. It must be a fresh event
+    soon as the run ends (deadline, violation, cancel), and after a ``done``
+    once the calls made before it were started, so a call still in flight
+    can stop its tool. It must be a fresh event
     per run: one already set, or in use by another run (a nested run from a
     callback, say), is refused with a sandbox error and left untouched.
     Setting ``cancel`` ends the run as ``aborted``.
@@ -117,11 +184,22 @@ def run_script(
     retains standalone polling. KeyboardInterrupt during either wait sets
     cancel and returns an aborted outcome; parent-turn state belongs to callers.
 
+    ``store`` is what the script's ``load()`` reads, by key (JSON values; a
+    value that is not JSON is left out). A script that succeeds reports what
+    it changed with ``store()`` as the outcome's ``store_writes``; the host
+    checks them against the store's limits, and keeping them is the caller's
+    job.
+
     Availability (:func:`.selftest.availability`) is the caller's job; the
     runner still fails closed: the worker re-checks ``python.wasm`` against the
     manifest and must report the expected backend and pinned runtime hash.
     """
 
+    if (call_tool is None) == (start_tool is None):
+        raise TypeError("run_script takes exactly one of call_tool and start_tool")
+    if start_tool is None:
+        assert call_tool is not None
+        start_tool = _starter(call_tool)
     if tool_stop is not None and not _claim_tool_stop(tool_stop):
         return ScriptOutcome(
             ScriptError(
@@ -132,8 +210,9 @@ def run_script(
     try:
         return _run_script(
             code,
-            call_tool,
-            tool_names,
+            start_tool,
+            tools,
+            discover,
             limits or ScriptLimits(),
             cancel,
             tool_stop,
@@ -141,6 +220,7 @@ def run_script(
             pin,
             python,
             activity_waiter,
+            _store_snapshot(store or {}),
         )
     finally:
         if tool_stop is not None:
@@ -165,10 +245,22 @@ def _release_tool_stop(tool_stop: threading.Event) -> None:
         _tool_stops_in_use.discard(tool_stop)
 
 
+def _starter(call_tool: ToolCallback) -> ToolStarter:
+    """``call_tool`` as a starter that settles each call before it returns."""
+
+    def start(
+        name: str, arguments_json: str, settle: Callable[[CallResult], None]
+    ) -> None:
+        settle(call_tool(name, arguments_json))
+
+    return start
+
+
 def _run_script(
     code: str,
-    call_tool: ToolCallback,
-    tool_names: Iterable[str],
+    start_tool: ToolStarter,
+    tools: Iterable[ScriptTool],
+    discover: DiscoverCallback | None,
     limits: ScriptLimits,
     cancel: threading.Event | None,
     tool_stop: threading.Event | None,
@@ -176,14 +268,17 @@ def _run_script(
     pin: RuntimePin,
     python: str,
     activity_waiter: ActivityWaiter | None,
+    snapshot: dict[str, str],
 ) -> ScriptOutcome:
     cancel = cancel or threading.Event()
     started = time.monotonic()
     early = _precheck(code, limits, cancel)
     if early is not None:
         return ScriptOutcome(early, wall_seconds=time.monotonic() - started)
-    names = sorted(set(tool_names))
-    run_line = _encode({"type": "run", "code": code, "tools": names})
+    records = _tool_records(tools)
+    run_line = _encode(
+        {"type": "run", "code": code, "tools": records, "store": snapshot}
+    )
     calls: list[ToolCallRecord] = []
     finished = _launch(
         _Launch(
@@ -192,12 +287,16 @@ def _run_script(
             python=python,
             limits=limits,
             pin=pin,
-            names=frozenset(names),
-            deadline=started + limits.wall_seconds,
+            names=frozenset(record["name"] for record in records),
+            identifiers=tuple(entry["name"] for entry in tool_table(records)[1]),
+            deadline=math.inf
+            if limits.wall_seconds is None
+            else started + limits.wall_seconds,
             cancel=cancel,
             tool_stop=tool_stop,
+            snapshot=snapshot,
         ),
-        call_tool,
+        _Callbacks(start_tool, discover),
         calls,
         activity_waiter,
     )
@@ -207,7 +306,40 @@ def _run_script(
         calls=tuple(calls),
         wall_seconds=time.monotonic() - started,
         diagnostics=finished.diagnostics,
+        store_writes=finished.store_writes if finished.error is None else StoreWrites(),
     )
+
+
+def _store_snapshot(store: Mapping[str, Any]) -> dict[str, str]:
+    """The run request's store: each value as the JSON text ``store()``
+    writes. A key that is not a string or a value that is not JSON is left
+    out (Pi ``serializeStore`` leaves out what does not serialize)."""
+
+    snapshot: dict[str, str] = {}
+    for key, value in store.items():
+        if not isinstance(key, str):
+            continue
+        try:
+            snapshot[key] = store_json(value)
+        except (TypeError, ValueError, RecursionError):
+            continue
+    return snapshot
+
+
+def _tool_records(tools: Iterable[ScriptTool]) -> list[dict[str, str]]:
+    """The run request's tool records: the first entry of a name, in order."""
+
+    records: dict[str, dict[str, str]] = {}
+    for tool in tools:
+        records.setdefault(
+            tool.name,
+            {
+                "name": tool.name,
+                "id": to_codemode_identifier(tool.name),
+                "description": tool.description,
+            },
+        )
+    return list(records.values())
 
 
 def _precheck(
@@ -242,8 +374,110 @@ def _worker_argv(python: str, status_fd: int, request: str) -> list[str]:
     return [python, "-I", str(WORKER_PATH), "run", str(status_fd), request]
 
 
-def _encode(message: dict[str, Any]) -> bytes:
-    return (json.dumps(message, separators=(",", ":")) + "\n").encode()
+def _encode(message: dict[str, Any], *, allow_nan: bool = True) -> bytes:
+    """One JSON line in UTF-8, so a non-ASCII character takes its UTF-8
+    bytes rather than a 6-byte escape against the reply limit.
+
+    A lone surrogate has no UTF-8 form; a message with one is sent with
+    JSON's ASCII escapes, which carry it to the guest as it is.
+    """
+
+    text = json.dumps(
+        message, separators=(",", ":"), ensure_ascii=False, allow_nan=allow_nan
+    )
+    try:
+        return (text + "\n").encode()
+    except UnicodeEncodeError:
+        text = json.dumps(message, separators=(",", ":"), allow_nan=allow_nan)
+        return (text + "\n").encode()
+
+
+def _has_only_string_keys(value: object) -> bool:
+    """For a value ``json.dumps`` accepted (so it is finite and acyclic)."""
+
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if any(type(key) is not str for key in item):
+                return False
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
+    return True
+
+
+def _error_reply(call_id: int, text: str) -> bytes:
+    return _encode({"type": "result", "id": call_id, "ok": False, "error": text})
+
+
+def _encode_reply(call_id: int, name: str, result: CallResult, limit: int) -> bytes:
+    """The reply line for one settled call; never raises.
+
+    A reply carries the tool's ``text``, or its structured ``value`` as JSON,
+    or an ``error`` that the guest raises as ``ToolError``. A value that is
+    not JSON, or a reply longer than ``limit``, is replaced by an error: the
+    tool has run, and the script learns why it got no result.
+    """
+
+    head: dict[str, Any] = {"type": "result", "id": call_id, "ok": True}
+    if result.value is not NO_VALUE:
+        try:
+            line = _encode(head | {"value": result.value}, allow_nan=False)
+            # After encoding, which refuses a cyclic value: the encoder turns
+            # the key 1 into "1" and would send duplicate keys.
+            if not _has_only_string_keys(result.value):
+                raise TypeError("object keys must be strings")
+        except (TypeError, ValueError, RecursionError) as exc:
+            return _error_reply(
+                call_id,
+                f'Tool "{name}" returned a structured result that is not JSON: '
+                f"{type(exc).__name__}",
+            )
+    elif result.ok:
+        line = _encode(head | {"text": str(result.text)})
+    else:
+        line = _error_reply(call_id, str(result.text))
+    if len(line) > limit:
+        return _error_reply(
+            call_id,
+            f'Tool "{name}" returned a result of {len(line)} bytes, more than the '
+            f"{limit}-byte limit for one result; ask the tool for less",
+        )
+    return line
+
+
+def _encode_discovery_reply(
+    call_id: int, name: str, result: DiscoveryResult, limit: int
+) -> bytes:
+    """The reply line for one discovery call; never raises."""
+
+    if result.error is not None:
+        line = _error_reply(call_id, str(result.error))
+    else:
+        try:
+            line = _encode(
+                {"type": "result", "id": call_id, "ok": True, "value": result.value},
+                allow_nan=False,
+            )
+        except (TypeError, ValueError, RecursionError) as exc:
+            return _error_reply(
+                call_id,
+                f"{name}() returned a value that is not JSON: {type(exc).__name__}",
+            )
+    if len(line) > limit:
+        return _error_reply(
+            call_id,
+            f"{name}() returned a result of {len(line)} bytes, more than the "
+            f"{limit}-byte limit for one result; narrow the search",
+        )
+    return line
+
+
+@dataclass(frozen=True, slots=True)
+class _Callbacks:
+    start_tool: ToolStarter
+    discover: DiscoverCallback | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,9 +488,22 @@ class _Launch:
     limits: ScriptLimits
     pin: RuntimePin
     names: frozenset[str]
+    # What scripts write for the tools, in ``ALL_TOOLS`` order.
+    identifiers: tuple[str, ...]
     deadline: float
     cancel: threading.Event
     tool_stop: threading.Event | None
+    # What ``load()`` reads: each key's value as JSON text.
+    snapshot: dict[str, str]
+
+    @property
+    def done_line_bytes(self) -> int:
+        """How long a ``done`` line, with its store writes, may be."""
+
+        chars = sum(len(key) + len(text) for key, text in self.snapshot.items())
+        return self.limits.line_bytes + _STORE_BYTES_PER_CHAR * (
+            MAX_STORE_TOTAL_CHARS + chars
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,16 +514,24 @@ class _Call:
 
 
 @dataclass(frozen=True, slots=True)
+class _Discovery:
+    id: int
+    name: str
+    args: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class _Finished:
     error: ScriptError | None
-    output: tuple[str, ...] = ()
+    output: tuple[str | ConsoleText | ScriptImage, ...] = ()
     diagnostics: str = ""
+    store_writes: StoreWrites = StoreWrites()
 
 
 @dataclass(frozen=True, slots=True)
 class _Reply:
     id: int
-    result: CallResult
+    line: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,7 +541,7 @@ class _StopRequest:
 
 def _launch(
     launch: _Launch,
-    call_tool: ToolCallback,
+    callbacks: _Callbacks,
     calls: list[ToolCallRecord],
     activity_waiter: ActivityWaiter | None,
 ) -> _Finished:
@@ -310,7 +565,7 @@ def _launch(
             channel.start()
         except (OSError, RuntimeError) as exc:  # no fd for the wake pipe, no thread
             return _start_failed(exc)
-        return _serve(channel, call_tool, launch.cancel, calls, activity_waiter)
+        return _serve(channel, callbacks, launch.cancel, calls, activity_waiter)
     finally:
         _cleanup(worker, channel, status_read)
 
@@ -343,12 +598,12 @@ def _cleanup(
 
 def _serve(
     channel: _Channel,
-    call_tool: ToolCallback,
+    callbacks: _Callbacks,
     cancel: threading.Event,
     calls: list[ToolCallRecord],
     activity_waiter: ActivityWaiter | None,
 ) -> _Finished:
-    """Run tool callbacks on this thread until the I/O thread finishes."""
+    """Run the callbacks on this thread until the I/O thread finishes."""
 
     while True:
         event = _take_live_activity(channel)
@@ -371,13 +626,21 @@ def _serve(
                 activity_waiter = None
             continue
         if isinstance(event, _Finished):
+            if event.error is None and channel.stopped_with is not None:
+                # Stopped on this thread after the I/O thread saw the done,
+                # while the calls made before it were started. A failed run
+                # keeps no store writes.
+                return _Finished(channel.stopped_with, event.output, event.diagnostics)
             return event
-        if channel.finished.is_set() or cancel.is_set():
+        if cancel.is_set() or (channel.finished.is_set() and not channel.done):
             continue  # the run is over; its _Finished follows
-        _run_call(channel, call_tool, cancel, calls, event)
+        if isinstance(event, _Discovery):
+            _run_discovery(channel, callbacks.discover, cancel, event)
+        else:
+            _start_call(channel, callbacks.start_tool, cancel, calls, event)
 
 
-def _take_live_activity(channel: _Channel) -> _Call | _Finished | None:
+def _take_live_activity(channel: _Channel) -> _Call | _Discovery | _Finished | None:
     event = channel.take_activity()
     if event is not None or channel.alive():
         return event
@@ -388,36 +651,87 @@ def _take_live_activity(channel: _Channel) -> _Call | _Finished | None:
     )
 
 
-def _run_call(
+def _start_call(
     channel: _Channel,
-    call_tool: ToolCallback,
+    start_tool: ToolStarter,
     cancel: threading.Event,
     calls: list[ToolCallRecord],
     call: _Call,
 ) -> None:
-    try:
-        result = call_tool(call.name, call.arguments_json)
-        if not isinstance(result, CallResult):
-            raise TypeError(f"returned {type(result).__name__}, not CallResult")
-    except Exception as exc:  # noqa: BLE001 - the runner never raises; a failing callback is a sandbox error
-        calls.append(ToolCallRecord(call.name, CallStatus.ERROR))
+    """Start one call. Its record takes its place now, as cancelled until
+    the call settles (Pi records a call as it starts)."""
+
+    index = len(calls)
+    calls.append(ToolCallRecord(call.name, CallStatus.CANCELLED))
+    settled = False
+
+    def failed(exc: Exception) -> None:
+        if calls[index].status is CallStatus.CANCELLED:
+            calls[index] = ToolCallRecord(call.name, CallStatus.ERROR)
         channel.stop(
             ScriptError(
                 ErrorKind.SANDBOX,
                 f"the {call.name} tool callback failed: {type(exc).__name__}: {exc}",
             )
         )
+
+    def settle(result: CallResult) -> None:
+        nonlocal settled
+        if settled:
+            return
+        settled = True
+        if not isinstance(result, CallResult):
+            failed(TypeError(f"returned {type(result).__name__}, not CallResult"))
+            return
+        if result.cancelled:
+            # A call the end of the run cancelled does not change its outcome.
+            if not channel.finished.is_set():
+                channel.stop(ScriptError(ErrorKind.ABORTED, ABORTED_MESSAGE))
+            return
+        calls[index] = ToolCallRecord(
+            call.name, CallStatus.OK if result.ok else CallStatus.ERROR
+        )
+        if cancel.is_set():
+            return  # the I/O thread ends the run as aborted; no reply
+        # Encoded here, on the calling thread: the I/O thread only copies bytes.
+        channel.reply(call.id, call.name, result)
+
+    try:
+        start_tool(call.name, call.arguments_json, settle)
+    except Exception as exc:  # noqa: BLE001 - the runner never raises; a failing callback is a sandbox error
+        settled = True
+        failed(exc)
+
+
+def _run_discovery(
+    channel: _Channel,
+    discover: DiscoverCallback | None,
+    cancel: threading.Event,
+    request: _Discovery,
+) -> None:
+    """Answer one discovery call; it runs no tool and leaves no call record."""
+
+    try:
+        if discover is None:
+            result = DiscoveryResult(error=f"{request.name}() is not available")
+        else:
+            result = discover(request.name, request.args)
+            if not isinstance(result, DiscoveryResult):
+                raise TypeError(
+                    f"returned {type(result).__name__}, not DiscoveryResult"
+                )
+    except Exception as exc:  # noqa: BLE001 - the runner never raises; a failing callback is a sandbox error
+        channel.stop(
+            ScriptError(
+                ErrorKind.SANDBOX,
+                f"the {request.name} discovery callback failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+        )
         return
-    if result.cancelled:
-        calls.append(ToolCallRecord(call.name, CallStatus.CANCELLED))
-        channel.stop(ScriptError(ErrorKind.ABORTED, ABORTED_MESSAGE))
-        return
-    calls.append(
-        ToolCallRecord(call.name, CallStatus.OK if result.ok else CallStatus.ERROR)
-    )
     if cancel.is_set():
         return  # the I/O thread ends the run as aborted; no reply
-    channel.reply(call.id, result)
+    channel.reply_discovery(request.id, request.name, result)
 
 
 class _Worker:
@@ -520,8 +834,13 @@ class _Channel:
         self._wake_read, self._wake_write = os.pipe()
         os.set_blocking(self._wake_read, False)
         os.set_blocking(self._wake_write, False)
-        self.inbox: queue.SimpleQueue[_Call | _Finished] = queue.SimpleQueue()
+        self.inbox: queue.SimpleQueue[_Call | _Discovery | _Finished] = (
+            queue.SimpleQueue()
+        )
         self.finished = threading.Event()
+        # Whether the run ended with the guest's ``done``; read once
+        # ``finished`` is set.
+        self.done = False
         self.activity = threading.Event()
         self._activity_lock = threading.Lock()
         self._commands: queue.SimpleQueue[_Reply | _StopRequest] = queue.SimpleQueue()
@@ -529,35 +848,56 @@ class _Channel:
             target=self._run, name="codemode-io", daemon=True
         )
         self._started = False
+        self._closed = False
+        # The first stop the calling thread asked for.
+        self.stopped_with: ScriptError | None = None
+        # After a done: sets ``tool_stop`` at the deadline (see ``_run``).
+        self._deadline_stop: threading.Timer | None = None
         # Everything below is owned by the I/O thread alone.
         self._out = bytearray(launch.run_line)
+        # What ``_out`` holds, in order: [bytes left, whether it is a reply].
+        self._out_parts: collections.deque[list[int]] = collections.deque(
+            [[len(launch.run_line), 0]]
+        )
         self._stdin_open = True
         self._line = bytearray()
         self._status_buf = bytearray()
         self._stderr_tail = bytearray()
-        self._output: list[str] = []
-        self._output_bytes = 0
-        # The call awaiting its reply; it stays outstanding until the reply
-        # has been written in full, so an unread reply blocks further calls
-        # and the reply buffer holds at most one reply.
-        self._outstanding: int | None = None
-        self._reply_queued = False
-        self._handoff: _Call | None = None
+        self._output: list[str | ConsoleText | ScriptImage] = []
+        self._output_chars = 0
+        # A text item sent in pieces: the pieces so far, held apart from
+        # the output until the last one came, so an item over the cap leaves
+        # nothing of itself (Pi checks a call's output whole), and whether
+        # they are console output.
+        self._pieces: list[str] = []
+        self._piece_chars = 0
+        self._text_open = False
+        self._piece_console = False
+        # A request stays outstanding until its reply has been written in
+        # full: the ids awaiting a reply, and the replies not written yet.
+        # Their sum is capped, so the reply buffer stays bounded however
+        # many calls a guest that does not read makes.
+        self._awaiting: set[int] = set()
+        self._unwritten = 0
+        self._handoffs: list[_Call | _Discovery] = []
         self._next_id = 1
         self._ready = False
         self._exit: dict[str, Any] | None = None
         self._open = {"out": True, "status": True}
+        self._done_line_bytes = launch.done_line_bytes
+        # The writes of a successful ``done``.
+        self._store_writes = StoreWrites()
 
     # --- the calling thread's side -------------------------------------------
 
-    def post_activity(self, event: _Call | _Finished) -> None:
+    def post_activity(self, event: _Call | _Discovery | _Finished) -> None:
         # Publication and empty-queue acknowledgement share this lock. A post
         # cannot slip between the consumer's empty check and event clear.
         with self._activity_lock:
             self.inbox.put(event)
             self.activity.set()
 
-    def take_activity(self) -> _Call | _Finished | None:
+    def take_activity(self) -> _Call | _Discovery | _Finished | None:
         with self._activity_lock:
             try:
                 return self.inbox.get_nowait()
@@ -572,13 +912,22 @@ class _Channel:
     def alive(self) -> bool:
         return self._thread.is_alive()
 
-    def reply(self, call_id: int, result: CallResult) -> None:
-        self._commands.put(_Reply(call_id, result))
+    def reply(self, call_id: int, name: str, result: CallResult) -> None:
+        line = _encode_reply(call_id, name, result, self._limits.reply_bytes)
+        self._commands.put(_Reply(call_id, line))
+        self._wake()
+
+    def reply_discovery(self, call_id: int, name: str, result: DiscoveryResult) -> None:
+        line = _encode_discovery_reply(call_id, name, result, self._limits.reply_bytes)
+        self._commands.put(_Reply(call_id, line))
         self._wake()
 
     def stop(self, error: ScriptError) -> None:
-        """Ask the I/O thread to end the run; a no-op once it has finished."""
+        """Ask the I/O thread to end the run; a no-op once it has finished,
+        except that the run's outcome then reports it if it was a success."""
 
+        if self.stopped_with is None:
+            self.stopped_with = error
         self._commands.put(_StopRequest(error))
         self._wake()
 
@@ -589,10 +938,15 @@ class _Channel:
         return not self._thread.is_alive()
 
     def close(self) -> None:
+        self._closed = True
+        if self._deadline_stop is not None:
+            self._deadline_stop.cancel()
         os.close(self._wake_read)
         os.close(self._wake_write)
 
     def _wake(self) -> None:
+        if self._closed:
+            return  # a call settled after the run: its fd may be reused
         try:
             os.write(self._wake_write, b"x")
         except (BlockingIOError, OSError):
@@ -620,7 +974,32 @@ class _Channel:
             )
         finally:
             try:
-                for event in (self.finished, self._launch.tool_stop):
+                # After a ``done`` the calling thread first starts the calls
+                # made before it, then the runner sets ``tool_stop``; the
+                # deadline still sets it, should starting them take that long.
+                stops: tuple[threading.Event | None, ...] = (
+                    self.finished,
+                    self._launch.tool_stop,
+                )
+                if (
+                    self.done
+                    and self._launch.tool_stop is not None
+                    and not math.isfinite(self._launch.deadline)
+                ):
+                    # No deadline: only the runner sets it.
+                    stops = (self.finished,)
+                elif self.done and self._launch.tool_stop is not None:
+                    try:
+                        self._deadline_stop = threading.Timer(
+                            max(self._launch.deadline - time.monotonic(), 0),
+                            self._launch.tool_stop.set,
+                        )
+                        self._deadline_stop.daemon = True
+                        self._deadline_stop.start()
+                        stops = (self.finished,)
+                    except BaseException:  # noqa: BLE001 - no timer: stop at once
+                        self._deadline_stop = None
+                for event in stops:
                     if event is None:
                         continue
                     try:
@@ -637,7 +1016,14 @@ class _Channel:
                 # No diagnostics, process signals or overridable publication
                 # helper here. Use the consumer's acknowledgement lock.
                 with self._activity_lock:
-                    self.inbox.put(_Finished(error, tuple(self._output), diagnostics))
+                    self.inbox.put(
+                        _Finished(
+                            error,
+                            tuple(self._output),
+                            diagnostics,
+                            self._store_writes if error is None else StoreWrites(),
+                        )
+                    )
                     self.activity.set()
 
     def _loop(self) -> ScriptError | None:
@@ -671,7 +1057,7 @@ class _Channel:
                 return
             if isinstance(command, _StopRequest):
                 raise _Stop(command.error)
-            self._queue_reply(command.id, command.result)
+            self._queue_reply(command.id, command.line)
 
     def _check_time(self) -> None:
         if self._launch.cancel.is_set():
@@ -723,12 +1109,19 @@ class _Channel:
         except OSError:
             # The guest closed its stdin or died; its stdout EOF follows.
             self._out.clear()
+            self._out_parts.clear()
+            self._unwritten = 0
             self._stdin_open = False
             return
         del self._out[:written]
-        if not self._out and self._reply_queued:
-            self._outstanding = None
-            self._reply_queued = False
+        while written:
+            part = self._out_parts[0]
+            taken = min(written, part[0])
+            part[0] -= taken
+            written -= taken
+            if part[0] == 0:
+                self._out_parts.popleft()
+                self._unwritten -= part[1]
 
     def _keep_stderr(self, chunk: bytes) -> None:
         self._stderr_tail += chunk
@@ -741,24 +1134,61 @@ class _Channel:
     def _feed_output(self, chunk: bytes) -> None:
         view = memoryview(chunk)
         start = 0
-        while (newline := chunk.find(b"\n", start)) >= 0:
-            self._append_line(view[start:newline])
-            line = bytes(self._line)
-            self._line.clear()
-            self._handle_line(line)
-            start = newline + 1
-        self._append_line(view[start:])
-        # A call goes to the calling thread only once the rest of its chunk
-        # was accepted: a violation in the same chunk (a ``done`` or garbage
-        # right after the call) must end the run before any tool runs.
-        if self._handoff is not None:
-            self.post_activity(self._handoff)
-            self._handoff = None
+        try:
+            while (newline := chunk.find(b"\n", start)) >= 0:
+                self._append_line(view[start:newline])
+                line = bytes(self._line)
+                self._line.clear()
+                self._handle_line(line)
+                start = newline + 1
+            self._append_line(view[start:])
+        except _Stop:
+            # The calls before a ``done`` were made; a violation or a cap in
+            # their chunk ends the run before any of them runs.
+            if self.done:
+                self._post_handoffs()
+            raise
+        self._post_handoffs()
+
+    def _post_handoffs(self) -> None:
+        """Hand the requests of an accepted chunk to the calling thread."""
+        for request in self._handoffs:
+            self.post_activity(request)
+        self._handoffs.clear()
 
     def _append_line(self, piece: memoryview) -> None:
-        if len(self._line) + len(piece) > self._limits.line_bytes:
-            raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
+        size = len(self._line) + len(piece)
+        if size > self._limits.line_bytes:
+            # Only an image, a done and a call line may be longer: as long
+            # as the image cap, the store's limits or a reply allow. What
+            # the line is is decided when it is parsed.
+            head = bytes(self._line[: len(_IMAGE_LINE)])
+            head += bytes(piece[: len(_IMAGE_LINE) - len(head)])
+            kind = (
+                "image"
+                if head == _IMAGE_LINE
+                else "done"
+                if head.startswith(_DONE_LINE)
+                else "call"
+                if head.startswith(_CALL_LINE)
+                else None
+            )
+            if size > self._line_limit(kind):
+                raise _violation(
+                    f"a guest line exceeded {self._limits.line_bytes} bytes"
+                )
         self._line += piece
+
+    def _line_limit(self, kind: object) -> int:
+        """How long a guest line of this ``type`` may be."""
+
+        if kind == "image":
+            return self._limits.output_chars + _IMAGE_FRAME
+        if kind == "done":
+            return self._done_line_bytes
+        if kind == "call":
+            return max(self._limits.line_bytes, self._limits.reply_bytes)
+        return self._limits.line_bytes
 
     def _handle_line(self, line: bytes) -> None:
         try:
@@ -767,14 +1197,22 @@ class _Channel:
             raise _violation("the guest sent a line that is not JSON") from None
         if not isinstance(message, dict):
             raise _violation("the guest sent a line that is not a JSON object")
-        if self._outstanding is not None:
-            # The guest blocks on its reply, so nothing may arrive meanwhile.
-            raise _violation("the guest sent a message while a tool call was pending")
         kind = message.get("type")
+        if len(line) > max(self._limits.line_bytes, self._line_limit(kind)):
+            # The longer allowances are an image's, a done's and a call's: a line that
+            # only started like one (a second ``type`` key wins in JSON) gets
+            # the limit its own type has.
+            raise _violation(f"a guest line exceeded {self._limits.line_bytes} bytes")
+        if self._text_open and kind != "text":
+            raise _violation("a text message in pieces was not continued")
         if kind == "text":
             self._on_text(message)
+        elif kind == "image":
+            self._on_image(message)
         elif kind == "call":
             self._on_call(message)
+        elif kind == "discover":
+            self._on_discover(message)
         elif kind == "done":
             self._on_done(message)
         else:
@@ -782,61 +1220,119 @@ class _Channel:
 
     def _on_text(self, message: dict[str, Any]) -> None:
         value = message.get("value")
-        if not isinstance(value, str):
+        more = message.get("more", False)
+        console = message.get("console", False)
+        if (
+            not isinstance(value, str)
+            or not isinstance(more, bool)
+            or not isinstance(console, bool)
+        ):
             raise _violation("a text message had no string value")
-        size = len(value.encode("utf-8"))
-        if self._output_bytes + size > self._limits.output_bytes:
-            raise self._output_capped(f"{self._limits.output_bytes} bytes")
+        if self._text_open and console is not self._piece_console:
+            raise _violation("a text message in pieces changed its kind")
+        size = self._piece_chars + len(value)
+        if self._output_chars + size > self._limits.output_chars:
+            raise self._output_capped()
+        if more:
+            # The prelude sends long text in pieces; they are one item. A
+            # piece holds TEXT_PIECE_CHARS code points (one fewer to keep a
+            # surrogate pair whole), at least half as many characters once
+            # pairs are joined, so the pieces held stay few.
+            if len(value) < TEXT_PIECE_CHARS // 2:
+                raise _violation("a text piece was shorter than a piece")
+            self._pieces.append(value)
+            self._piece_chars = size
+            self._text_open = True
+            self._piece_console = console
+            return
         if len(self._output) >= self._limits.output_messages:
-            raise self._output_capped(f"{self._limits.output_messages} messages")
-        self._output.append(value)
-        self._output_bytes += size
+            raise self._output_capped()
+        text = "".join([*self._pieces, value])
+        self._output.append(ConsoleText(text) if console else text)
+        self._output_chars += size
+        self._pieces = []
+        self._piece_chars = 0
+        self._text_open = False
 
-    @staticmethod
-    def _output_capped(limit: str) -> _Stop:
-        return _Stop(ScriptError(ErrorKind.SCRIPT, OUTPUT_GUIDANCE.format(limit=limit)))
+    def _on_image(self, message: dict[str, Any]) -> None:
+        data = message.get("data")
+        mime_type = message.get("mimeType")
+        # The prelude checks an image before it sends it; a line that fails
+        # the same check did not come from the prelude.
+        if (
+            not isinstance(data, str)
+            or not isinstance(mime_type, str)
+            or not is_base64(data)
+            or image_type(data) != mime_type
+        ):
+            raise _violation("the guest sent an image message that is not an image")
+        if self._output_chars + len(data) > self._limits.output_chars:
+            raise self._output_capped()
+        if len(self._output) >= self._limits.output_messages:
+            raise self._output_capped()
+        self._output.append(ScriptImage(data, mime_type))
+        self._output_chars += len(data)
+
+    def _output_capped(self) -> _Stop:
+        return _Stop(
+            ScriptError(
+                ErrorKind.SCRIPT,
+                OUTPUT_LIMIT_MESSAGE.format(
+                    chars=self._limits.output_chars,
+                    messages=self._limits.output_messages,
+                ),
+            )
+        )
 
     def _on_call(self, message: dict[str, Any]) -> None:
-        if not self._ready:
-            raise _violation("a tool call arrived before the worker was ready")
-        call_id = message.get("id")
-        name = message.get("name")
-        args = message.get("args")
-        if type(call_id) is not int or call_id != self._next_id:
-            raise _violation("a tool call had an unexpected id")
-        if not isinstance(name, str) or not isinstance(args, dict):
-            raise _violation("a tool call was malformed")
+        call_id, name, args = self._request(message, "tool")
         try:
             arguments_json = json.dumps(args, ensure_ascii=False, allow_nan=False)
         except ValueError:  # defensive: parsing already rejects non-finite numbers
             raise _violation("a tool call's arguments are not JSON") from None
-        self._outstanding = call_id
+        self._awaiting.add(call_id)
         self._next_id += 1
         if name not in self._launch.names:
-            message_text = unknown_tool_message(name, self._launch.names)
-            self._queue_reply(call_id, CallResult(ok=False, text=message_text))
+            message_text = unknown_tool_message(name, self._launch.identifiers)
+            self._queue_reply(call_id, _error_reply(call_id, message_text))
             return
-        self._handoff = _Call(call_id, name, arguments_json)
+        self._handoffs.append(_Call(call_id, name, arguments_json))
 
-    def _queue_reply(self, call_id: int, result: CallResult) -> None:
-        if call_id != self._outstanding or self._reply_queued:
+    def _on_discover(self, message: dict[str, Any]) -> None:
+        call_id, name, args = self._request(message, "discovery")
+        if name not in DISCOVERY_NAMES:
+            raise _violation("a discovery call named an unknown helper")
+        self._awaiting.add(call_id)
+        self._next_id += 1
+        self._handoffs.append(_Discovery(call_id, name, args))
+
+    def _request(
+        self, message: dict[str, Any], kind: str
+    ) -> tuple[int, str, dict[str, Any]]:
+        """The id, name and arguments of a ``call`` or ``discover`` message."""
+
+        if not self._ready:
+            raise _violation(f"a {kind} call arrived before the worker was ready")
+        call_id = message.get("id")
+        name = message.get("name")
+        args = message.get("args")
+        if type(call_id) is not int or call_id != self._next_id:
+            raise _violation(f"a {kind} call had an unexpected id")
+        if not isinstance(name, str) or not isinstance(args, dict):
+            raise _violation(f"a {kind} call was malformed")
+        if len(self._awaiting) + self._unwritten >= MAX_PENDING_REQUESTS:
+            raise _violation(
+                f"the guest had more than {MAX_PENDING_REQUESTS} requests outstanding"
+            )
+        return call_id, name, args
+
+    def _queue_reply(self, call_id: int, line: bytes) -> None:
+        if call_id not in self._awaiting:
             return  # stale: the run moved on
-        self._reply_queued = True
-        if result.ok:
-            reply = {
-                "type": "result",
-                "id": call_id,
-                "ok": True,
-                "value": str(result.text),
-            }
-        else:
-            reply = {
-                "type": "result",
-                "id": call_id,
-                "ok": False,
-                "error": str(result.text),
-            }
-        self._out += _encode(reply)
+        self._awaiting.discard(call_id)
+        self._unwritten += 1
+        self._out_parts.append([len(line), 1])
+        self._out += line
 
     def _on_done(self, message: dict[str, Any]) -> None:
         # ``done`` is terminal: nothing after it is read.
@@ -844,12 +1340,18 @@ class _Channel:
             raise _violation("the script finished before the worker was ready")
         ok = message.get("ok")
         if ok is True:
+            if "writes" in message:
+                self._store_writes = _store_writes(
+                    message["writes"], self._launch.snapshot
+                )
+            self.done = True
             raise _Stop(None)
         error = message.get("error")
         if ok is False and isinstance(error, dict):
             fields = [error.get(key) for key in ("type", "message", "traceback")]
             strings = [value for value in fields if isinstance(value, str)]
             if len(strings) == len(fields):
+                self.done = True
                 raise _Stop(ScriptError(ErrorKind.SCRIPT, _script_message(*strings)))
         raise _violation("the guest sent a malformed done message")
 
@@ -947,6 +1449,59 @@ def _exit_report_error(
     return ScriptError(ErrorKind.SANDBOX, f"the guest stopped unexpectedly: {detail}")
 
 
+def _store_writes(writes: object, snapshot: Mapping[str, str]) -> StoreWrites:
+    """The ``writes`` of a ``done``, checked as the prelude's ``store()``
+    checks them: every value set is JSON of at most
+    ``MAX_STORE_VALUE_CHARS``, and a script that set a value leaves at most
+    ``MAX_STORE_TOTAL_CHARS`` in the store. Anything else is a violation.
+    A deletion of a key the snapshot lacks is dropped, as the prelude never
+    reports one."""
+
+    if not isinstance(writes, list):
+        raise _violation("the guest sent malformed store writes")
+    # key -> (value, JSON text) of a set, or None for a deletion; last wins.
+    changes = dict(_store_change(entry) for entry in writes)
+    stored = dict(snapshot)
+    values: dict[str, Any] = {}
+    removed: list[str] = []
+    for key, change in changes.items():
+        if change is None:
+            # As in the prelude, deleting a key the snapshot lacks is no
+            # write: the deleted keys stay bounded by the snapshot.
+            if key in snapshot:
+                stored.pop(key, None)
+                removed.append(key)
+        else:
+            values[key], stored[key] = change
+    if values and sum(len(k) + len(t) for k, t in stored.items()) > (
+        MAX_STORE_TOTAL_CHARS
+    ):
+        raise _violation("the guest's store writes exceed the store's limit")
+    return StoreWrites(values, tuple(removed))
+
+
+def _store_change(entry: object) -> tuple[str, tuple[Any, str] | None]:
+    """One entry of a ``done``'s writes: the key and its new value with the
+    value's JSON text, or ``None`` for a deletion."""
+
+    if (
+        not isinstance(entry, list)
+        or len(entry) not in (1, 2)
+        or not all(isinstance(part, str) for part in entry)
+    ):
+        raise _violation("the guest sent malformed store writes")
+    if len(entry) == 1:
+        return entry[0], None
+    try:
+        value = _parse_guest_json(entry[1])
+        text = store_json(value)
+    except (ValueError, RecursionError):
+        raise _violation("the guest stored a value that is not JSON") from None
+    if len(text) > MAX_STORE_VALUE_CHARS:
+        raise _violation("the guest stored a value over the store's limit")
+    return entry[0], (value, text)
+
+
 def _parse_guest_line(line: bytes) -> Any:
     """Parse one guest line as UTF-8 JSON; lone surrogates become U+FFFD.
 
@@ -957,7 +1512,12 @@ def _parse_guest_line(line: bytes) -> Any:
     UTF-8 downstream.
     """
 
-    text = line.decode("utf-8", "surrogatepass")
+    return _parse_guest_json(line.decode("utf-8", "surrogatepass"))
+
+
+def _parse_guest_json(text: str) -> Any:
+    """Parse JSON text from the guest; lone surrogates become U+FFFD."""
+
     message = json.loads(
         text, parse_constant=_reject_constant, parse_float=_finite_float
     )

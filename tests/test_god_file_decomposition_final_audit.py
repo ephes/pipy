@@ -2902,11 +2902,11 @@ def test_complete_repository_boundary_audit_remains_strict() -> None:
     normalized_rules = [
         (rule.source_package, tuple(sorted(rule.forbidden_imports))) for rule in rules
     ]
-    assert len(normalized_rules) == 43
+    assert len(normalized_rules) == 44
     boundary_hash = hashlib.sha256(
         json.dumps(normalized_rules, separators=(",", ":")).encode()
     ).hexdigest()
-    expected_hash = "e999a30114af8e8883ab0dd180d0d8c8e84f3a69c1be59adec4322950b832a12"
+    expected_hash = "a462767c2cd84a4a6a6b661049649fe2093acdf5376383bcfda63a8dd94731d8"
     assert boundary_hash == expected_hash, (
         "architecture rule inventory drifted after canonical sorting: "
         f"expected {expected_hash}, got {boundary_hash}"
@@ -2935,11 +2935,11 @@ def test_final_measured_shape_and_complexity_pin_are_exact() -> None:
         )
         for path in (PRODUCTION_ROOT / "native").rglob("*.py")
     }
-    assert relative_counts["src/pipy_harness/native/tui.py"] == 580
+    assert relative_counts["src/pipy_harness/native/tui.py"] == 570
     # D2a reviewed one-time measured reset; keep the same downward-only bound
     # as _SIZE_RATCHET in test_architecture_quality_gates.py (architecture.md).
     assert relative_counts["src/pipy_harness/native/coding/session.py"] <= 399
-    assert relative_counts["src/pipy_harness/native/extensions/activation.py"] == 1807
+    assert relative_counts["src/pipy_harness/native/extensions/activation.py"] == 2007
     assert max(relative_counts.values()) == 2452
     assert sorted(path for path, count in relative_counts.items() if count == 2452) == [
         "src/pipy_harness/native/session.py"

@@ -1907,5 +1907,6 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=128_000,
     ),
     # ---- fake (deterministic bootstrap) -------------------------------------
-    _m("fake", "fake-native-bootstrap", "Fake (bootstrap)", "fake"),
+    # Takes images like Pi's faux provider, so a tool result's images reach it.
+    _m("fake", "fake-native-bootstrap", "Fake (bootstrap)", "fake", image=True),
 )

@@ -88,6 +88,24 @@ def wait_for_tool_interrupt(
     raise RuntimeError(f"unexpected tool interrupt outcome: {outcome!r}")
 
 
+def wait_for_escape(
+    terminal_ui: TerminalUi,
+    done_event: threading.Event,
+    cancel_event: threading.Event,
+) -> ToolExecutionInterruption:
+    """Watch only for Escape (and Ctrl-C, which raises) until ``done_event``.
+
+    For a wait outside a run, where a typed command has nothing to interrupt.
+    """
+
+    outcome = terminal_ui.wait_for_active_turn_interrupt(done_event, cancel_event)
+    if outcome == TURN_SETTLED:
+        return ToolExecutionInterruption.SETTLED
+    if outcome == TURN_ABORTED:
+        return ToolExecutionInterruption.OPERATOR_ABORT
+    raise RuntimeError(f"unexpected interrupt outcome: {outcome!r}")
+
+
 def wait_for_external_tool_interrupt(
     abort_event: threading.Event | _AbortCallbackSignal,
     done_event: threading.Event,

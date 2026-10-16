@@ -17,7 +17,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 from pipy_harness.native.agent import ProductContent
-from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ToolResultBlock
+from pipy_harness.native.agent.loop_policy import (
+    AgentProviderRequestPolicyInput,
+    AgentToolResultTransform,
+)
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.agent_request import (
     NativeProviderRequestHookContext,
@@ -42,6 +46,7 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
+    RegisteredCommand,
 )
 from pipy_harness.native.extensions.dispatch import (
     ExtensionCommandDispatch,
@@ -132,6 +137,12 @@ class SessionExtensionOperations:
             project_trusted=self.project_trusted,
         )
 
+    def commands(self) -> Mapping[str, RegisteredCommand]:
+        """The extension commands of the published generation."""
+
+        projection, _driver, _generation_id = self._projection()
+        return projection.commands.commands
+
     def dispatch_shortcut(
         self,
         key: str,
@@ -154,7 +165,13 @@ class SessionExtensionOperations:
             project_trusted=self.project_trusted,
         )
 
-    def dispatch_input(self, text: str) -> str:
+    def has_input_hooks(self) -> bool:
+        """Whether a loaded extension handles ``input``."""
+
+        projection = self.generation_ref.snapshot().generation.projection
+        return projection is not None and bool(projection.hooks.input)
+
+    def dispatch_input(self, text: str) -> str | None:
         projection, ui_driver, generation_id = self._projection()
         return dispatch_input_hooks(
             projection.hooks.input,
@@ -170,13 +187,21 @@ class SessionExtensionOperations:
     def dispatch_before_agent_start(
         self,
         system_prompt: str,
+        *,
+        sections: dict[str, str] | None = None,
+        render_system_prompt: Callable[[], str] | None = None,
     ) -> BeforeAgentStartResult:
+        """``sections`` is the run's own prompt sections, which the hooks
+        change in place; ``render_system_prompt`` renders the prompt for it."""
+
         projection, ui_driver, generation_id = self._projection()
         return dispatch_before_agent_start_hooks(
             projection.hooks.before_agent_start,
             cwd=self.cwd,
             has_ui=self.has_ui,
             system_prompt=system_prompt,
+            sections=sections,
+            render_system_prompt=render_system_prompt,
             notify_sink=self.notify_sink,
             ui_driver=ui_driver,
             model_runtime=self.model_runtime_factory(generation_id, True),
@@ -227,25 +252,49 @@ class SessionExtensionOperations:
         tool_name: str,
         content: ProductContent,
         is_error: bool,
-    ) -> ProductContent:
+        structured_content: object = NO_STRUCTURED_CONTENT,
+        tool_call_id: str = "",
+        parent_tool_call_id: str | None = None,
+        tool_input: Mapping[str, object] | None = None,
+        details: Mapping[str, object] | None = None,
+        blocks: tuple[ToolResultBlock, ...] = (),
+    ) -> AgentToolResultTransform:
+        """The result as the ``tool_result`` hooks leave it; the result's own
+        content and structured content when no hook changed it."""
+
         projection, ui_driver, generation_id = self._projection()
         hooks = projection.hooks.tool_result
+        unchanged = AgentToolResultTransform(content, structured_content)
         if not hooks:
-            return content
-        return ProductContent(
-            dispatch_tool_result_hooks(
-                hooks,
-                tool_name=tool_name,
-                content=content.value,
-                is_error=is_error,
-                cwd=self.cwd,
-                has_ui=self.has_ui,
-                notify_sink=self.notify_sink,
-                ui_driver=ui_driver,
-                model_runtime=self.model_runtime_factory(generation_id, False),
-                flags=projection.runtime_flags.values,
-                project_trusted=self.project_trusted,
-            )
+            return unchanged
+        transformed = dispatch_tool_result_hooks(
+            hooks,
+            tool_name=tool_name,
+            content=content.value,
+            is_error=is_error,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            notify_sink=self.notify_sink,
+            ui_driver=ui_driver,
+            model_runtime=self.model_runtime_factory(generation_id, False),
+            flags=projection.runtime_flags.values,
+            project_trusted=self.project_trusted,
+            structured_content=structured_content,
+            tool_call_id=tool_call_id,
+            parent_tool_call_id=parent_tool_call_id,
+            tool_input=tool_input,
+            details=details,
+            blocks=blocks,
+        )
+        if transformed is None:
+            return unchanged
+        assert transformed.content is not None and transformed.blocks is not None
+        return AgentToolResultTransform(
+            ProductContent(transformed.content),
+            transformed.structured_content,
+            blocks=transformed.blocks,
+            is_error=transformed.is_error,
+            details=transformed.details,
         )
 
     def session_allows(

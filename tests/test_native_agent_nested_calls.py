@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import replace
+from pathlib import Path
+from typing import Any
 
 import pytest
 from test_native_agent_loop import (
@@ -23,31 +26,35 @@ from test_native_agent_loop import (
 )
 
 from pipy_harness.native.agent import AgentEventSink
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ProductContent
 from pipy_harness.native.agent.events import (
     ToolCallCompleted,
     ToolCallStarted,
     ToolCallUpdated,
     TurnCompleted,
 )
-from pipy_harness.native.agent.loop import AgentLoop
+from pipy_harness.native.agent.loop import AgentLoop, AgentLoopRequestPreparation
 from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyDecision,
     AgentToolPolicyState,
+    AgentToolResultTransform,
 )
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.nested_calls import (
     NestedCallStatus,
+    NestedToolCallOutcome,
     NestedToolCallService,
 )
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
+from pipy_harness.native.agent.request import snapshot_provider_request
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
 from pipy_harness.native.agent_adapters import SynchronousAgentEventComposite
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.tools.base import ToolDefinition, ToolOutputSink
 
 
 class _NestedTools(_Tools):
@@ -60,15 +67,38 @@ class _NestedTools(_Tools):
             for name in ("codemode", "read", "write", "extension")
         )
 
-    def eligible_names(self) -> frozenset[str]:
-        return frozenset({"read", "write", "bash"})
+    # "bash" is callable without being declared, as a ``codemode`` tool is.
+    callable: frozenset[str] = frozenset({"read", "write", "bash"})
+
+    def callable_snapshot(self) -> _NestedTools:
+        self._order.append("tools:callable_snapshot")
+        return self
+
+    def callable_names(self) -> frozenset[str]:
+        return self.callable
+
+    # Callable tools that declare an output schema.
+    structured: frozenset[str] = frozenset()
+
+    def callable_tools(self) -> tuple[ToolDefinition, ...]:
+        return tuple(
+            ToolDefinition(
+                name,
+                "fixture",
+                {"type": "object"},
+                output_schema={"type": "object"} if name in self.structured else None,
+            )
+            for name in sorted(self.callable)
+        )
 
     def execute(
         self,
         call: AgentToolCall,
         *,
-        output_sink: Callable[[str], None] | None = None,
+        output_sink: ToolOutputSink | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        nested_tools: object = None,
+        arguments: Any = None,
     ) -> ToolExecutionOutcome:
         if call.arguments_json.value == "malformed":
             self.executed.append(call)
@@ -82,16 +112,23 @@ class _NestedTools(_Tools):
 
 
 class _Policy(_ToolPolicy):
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
-        super().before_execute(call)
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
+        super().before_execute(call, arguments, parent_call_id)
         return AgentToolPolicyDecision(
             ProductContent("denied") if call.tool_name == "write" else None
         )
 
     def transform_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage, /
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
+        /,
     ) -> ProductContent:
-        super().transform_result(call, result)
+        super().transform_result(call, result, arguments, parent_call_id)
         return ProductContent(result.content.value + " transformed")
 
 
@@ -162,7 +199,7 @@ def _setup(
     return loop, tools, events, order
 
 
-def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
+def test_nested_pipeline_statuses_unbudgeted_and_parent_only_records() -> None:
     seen = []
 
     def run(
@@ -183,21 +220,24 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
 
     runner = _Runner(run)
     loop, tools, events, order = _setup(runner)
-    outcome = loop.run(_run_input(tool_budget=7, malformed_count=2, malformed_streak=2))
+    # The parent takes the only place in the budget; its nested calls take
+    # none, as Pi has no limit on the calls a tool makes.
+    outcome = loop.run(_run_input(tool_budget=1, malformed_count=2, malformed_streak=2))
     assert [item.status for item in seen] == [
         NestedCallStatus.SETTLED,
         NestedCallStatus.BLOCKED,
-        NestedCallStatus.UNAUTHORIZED,
+        NestedCallStatus.SETTLED,
         *[NestedCallStatus.MALFORMED] * 3,
-        NestedCallStatus.BUDGET_EXHAUSTED,
-        NestedCallStatus.BUDGET_EXHAUSTED,
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.SETTLED,
     ]
     assert seen[0].result.content.value.endswith(" transformed")
+    # Malformed arguments fail validation before the hooks and the tool.
     assert [call.provider_correlation_id for call in tools.executed] == [
         "parent0/1",
-        "parent0/4",
-        "parent0/5",
-        "parent0/6",
+        "parent0/3",
+        "parent0/7",
+        "parent0/8",
     ]
     state = outcome.final_tool_state
     assert (
@@ -207,7 +247,7 @@ def test_nested_pipeline_statuses_budget_and_parent_only_records() -> None:
         state.invocations_this_turn,
         state.consecutive_malformed_streak,
         state.reserved_parent_slot,
-    ) == (2, 3, 2, 7, 0, False)
+    ) == (5, 3, 0, 1, 0, False)
     assert [
         m.provider_correlation_id
         for m in outcome.final_history
@@ -257,8 +297,9 @@ def test_parent_uses_latest_child_state_and_releases(kind: str) -> None:
     assert state.tool_invocation_count == (
         1 if kind in {"malformed", "interrupt"} else 2
     )
+    # Only the parent takes a place in the budget.
     assert state.invocations_this_turn == (
-        2 if kind in {"malformed", "interrupt"} else 3
+        0 if kind in {"malformed", "interrupt"} else 1
     )
     assert not state.reserved_parent_slot
     assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
@@ -287,8 +328,9 @@ def test_thread_refusal_record_bounds_and_fresh_parent() -> None:
     runner = _Runner(run)
     loop, _, _, _ = _setup(runner, parents=2)
     loop.run(_run_input(tool_budget=4))
-    # Exhaustion means the second provider parent is not dispatched.
-    assert len(runner.services) == 1
+    # The 300 nested calls take no place in the budget, so the second
+    # provider parent is dispatched too, with a fresh service.
+    assert len(runner.services) == 2
     runner = _Runner(lambda call, service: ToolExecutionOutcome(_tool_result(call)))
     loop, _, _, _ = _setup(runner, parents=2)
     loop.run(_run_input(tool_budget=4))
@@ -405,23 +447,32 @@ def test_nested_waiter_validation_and_callback_threads() -> None:
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             return pinned.execute(
                 call, output_sink=output_sink, wait_for_interrupt=wait_for_interrupt
             )
 
     class ThreadPolicy(_Policy):
-        def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+        def before_execute(
+            self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+        ) -> AgentToolPolicyDecision:
             assert threading.current_thread() is session_thread
-            return super().before_execute(call)
+            return super().before_execute(call, arguments, parent_call_id)
 
         def transform_result(
-            self, call: AgentToolCall, result: AgentToolResultMessage, /
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
         ) -> ProductContent:
             assert threading.current_thread() is session_thread
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     runner = _Runner(run)
     loop, _, _, _ = _setup(
@@ -442,8 +493,10 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
             self,
             call: AgentToolCall,
             *,
-            output_sink: Callable[[str], None] | None = None,
+            output_sink: ToolOutputSink | None = None,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             result = super().execute(
                 call, output_sink=output_sink, wait_for_interrupt=wait_for_interrupt
@@ -506,11 +559,12 @@ def test_child_interruption_closes_service_and_preserves_prior_counters() -> Non
     loop, _, events, _ = _setup(runner, tools=tools)
     outcome = loop.run(_run_input())
     state = outcome.final_tool_state
+    # The interrupted parent never settled into the budget.
     assert (
         state.tool_invocation_count,
         state.invocations_this_turn,
         state.reserved_parent_slot,
-    ) == (1, 1, False)
+    ) == (1, 0, False)
     assert len([e for e in events.events if isinstance(e, ToolCallCompleted)]) == 1
 
 
@@ -518,13 +572,15 @@ def test_reentrant_call_is_refused_without_second_execution() -> None:
     service_holder: list[NestedToolCallService] = []
 
     class Policy(_Policy):
-        def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+        def before_execute(
+            self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+        ) -> AgentToolPolicyDecision:
             if "/" in call.provider_correlation_id:
                 assert (
                     service_holder[0].call("read", "{}").status
                     is NestedCallStatus.REFUSED
                 )
-            return super().before_execute(call)
+            return super().before_execute(call, arguments, parent_call_id)
 
     def run(
         call: AgentToolCall, service: NestedToolCallService
@@ -560,24 +616,159 @@ def test_invalid_nested_result_propagates_and_closes() -> None:
     assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
 
 
-def test_hidden_builtin_is_unauthorized_and_extension_replacement_refused() -> None:
-    class EligibilityTools(_NestedTools):
-        def eligible_names(self) -> frozenset[str]:
-            return frozenset({"write"})
+def test_uncallable_and_request_withheld_tools_are_refused() -> None:
+    class CallableTools(_NestedTools):
+        callable = frozenset({"write", "bash"})
 
     def run(
         call: AgentToolCall, service: NestedToolCallService
     ) -> ToolExecutionOutcome:
+        # Declared by the request, not in the callable snapshot.
         assert service.call("read", "{}").status is NestedCallStatus.REFUSED
-        assert service.call("write", "{}").status is NestedCallStatus.UNAUTHORIZED
+        # Callable, but a request hook withheld it from this request.
+        assert service.call("write", "{}").status is NestedCallStatus.REFUSED
+        assert service.eligible_names() == frozenset({"bash"})
         return ToolExecutionOutcome(_tool_result(call))
 
     loop, tools, _, _ = _setup(
-        _Runner(run), tools=EligibilityTools([]), names=("codemode", "read")
+        _Runner(run), tools=CallableTools([]), names=("codemode", "read")
     )
     outcome = loop.run(_run_input())
     assert not tools.executed
-    assert outcome.final_tool_state.invocations_this_turn == 2
+    # A refusal consumes no budget: only the parent counts.
+    assert outcome.final_tool_state.invocations_this_turn == 1
+
+
+def test_declarations_the_request_left_out_stay_callable() -> None:
+    # `codemode.mode: "only"`: the product leaves `read` out of the request
+    # before any hook runs. A script is how the model reaches it, so unlike a
+    # tool a request hook withheld (`write` here) it stays callable.
+    class HidingRequests(_RequestSource):
+        def prepare(self, history, active_input, turn_index, available_tools):
+            shown = tuple(tool for tool in available_tools if tool.name != "read")
+            request = ProviderRequest(
+                system_prompt="system",
+                user_prompt=active_input.accepted_message.content.value,
+                provider_name="fake",
+                model_id="fake-model",
+                cwd=Path("/headless-fixture"),
+                messages=active_input.request_messages(history),
+                available_tools=shown,
+                undeclared_tool_names=("read",),
+            )
+            return AgentLoopRequestPreparation(
+                history,
+                snapshot_provider_request(
+                    request, available_tool_names=("codemode", "extension")
+                ),
+            )
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        seen.append(service.eligible_names())
+        seen.append(service.call("write", "{}").status)
+        seen.append(service.call("read", "{}").status)
+        return ToolExecutionOutcome(_tool_result(call))
+
+    seen: list[object] = []
+    loop, tools, _, order = _setup(_Runner(run))
+    loop._request_source = HidingRequests(order)  # noqa: SLF001
+    loop.run(_run_input())
+    assert seen == [
+        frozenset({"read", "bash"}),
+        NestedCallStatus.REFUSED,
+        NestedCallStatus.SETTLED,
+    ]
+    assert [call.tool_name for call in tools.executed] == ["read"]
+
+
+def test_parent_takes_one_callable_snapshot_after_its_hooks() -> None:
+    """Plan 4.3: names and executor of one snapshot serve the whole parent."""
+
+    class Snapshot:
+        def __init__(self, names: frozenset[str], order: list[str]) -> None:
+            self.names = names
+            self.order = order
+
+        def callable_names(self) -> frozenset[str]:
+            return self.names
+
+        def callable_tools(self) -> tuple[ToolDefinition, ...]:
+            return tuple(
+                ToolDefinition(name, "fixture", {"type": "object"})
+                for name in sorted(self.names)
+            )
+
+        def execute(
+            self,
+            call: AgentToolCall,
+            *,
+            output_sink: ToolOutputSink | None = None,
+            wait_for_interrupt: ToolInterruptWaiter | None = None,
+            nested_tools: object = None,
+            arguments: Any = None,
+        ) -> ToolExecutionOutcome:
+            self.order.append(f"snapshot:execute:{call.provider_correlation_id}")
+            return ToolExecutionOutcome(_tool_result(call, "from snapshot"))
+
+        def validated_arguments(
+            self, call: AgentToolCall, /
+        ) -> dict[str, Any] | ToolExecutionOutcome:
+            return dict(json.loads(call.arguments_json.value))
+
+    class LiveTools(_NestedTools):
+        live = frozenset({"read"})
+
+        def callable_snapshot(self) -> Snapshot:  # type: ignore[override]
+            self._order.append("tools:callable_snapshot")
+            return Snapshot(self.live, self._order)
+
+    seen = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        seen.append(service.call("read", "{}"))
+        # A value published while the parent runs does not reach it.
+        tools.live = frozenset({"extension"})
+        seen.append(service.call("read", "{}"))
+        seen.append(service.call("extension", "{}"))
+        assert service.eligible_names() == frozenset({"read"})
+        return ToolExecutionOutcome(_tool_result(call))
+
+    order: list[str] = []
+    tools = LiveTools(order)
+    loop, _, _, _ = _setup(_Runner(run), tools=tools, policy=_ToolPolicy(order))
+    loop.run(_run_input())
+    assert [item.status for item in seen] == [
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.SETTLED,
+        NestedCallStatus.REFUSED,
+    ]
+    assert seen[0].result.content.value == "from snapshot"
+    assert order.count("tools:callable_snapshot") == 1
+    assert order.index("policy:before:parent0") < order.index("tools:callable_snapshot")
+    # The snapshot's executor runs the children, the turn's executor none.
+    assert "snapshot:execute:parent0/1" in order
+    assert "snapshot:execute:parent0/2" in order
+    assert not tools.executed
+
+
+def test_composite_never_reaches_itself() -> None:
+    class SelfCallable(_NestedTools):
+        callable = frozenset({"codemode", "read"})
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        assert service.eligible_names() == frozenset({"read"})
+        assert service.call("codemode", "{}").status is NestedCallStatus.REFUSED
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, tools, _, _ = _setup(_Runner(run), tools=SelfCallable([]))
+    loop.run(_run_input())
+    assert not tools.executed
 
 
 @pytest.mark.parametrize(
@@ -627,14 +818,13 @@ def test_parent_preserves_child_interruption_ignored_by_runner(
         state.tool_invocation_count,
         state.invocations_this_turn,
         state.reserved_parent_slot,
-    ) == (1, 1, False)
+    ) == (1, 0, False)
     assert status.tool_states[-1] == state
     assert runner.services[0].call("read", "{}").status is NestedCallStatus.REFUSED
 
 
 @pytest.mark.parametrize("limit", ["count", "per_call", "total"])
 def test_sticky_interruption_survives_evidence_limits(limit: str) -> None:
-    from pipy_harness.native.agent.nested_calls import NestedToolCallOutcome
 
     interrupt = False
 
@@ -696,11 +886,16 @@ def test_child_counters_published_before_later_canonical_hook_failure() -> None:
 
     class Policy(_Policy):
         def transform_result(
-            self, call: AgentToolCall, result: AgentToolResultMessage, /
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
         ) -> ProductContent:
             if call.provider_correlation_id == "parent0":
                 raise RuntimeError("later postflight")
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     def run(
         call: AgentToolCall, service: NestedToolCallService
@@ -717,18 +912,16 @@ def test_child_counters_published_before_later_canonical_hook_failure() -> None:
     published = status.tool_states[-1]
     assert (
         published.tool_invocation_count,
-        published.budget_exhausted_count,
+        published.invocations_this_turn,
         published.reserved_parent_slot,
-    ) == (2, 1, False)
+    ) == (3, 1, False)
     assert any(
-        s.tool_invocation_count == 1
-        and s.budget_exhausted_count == 1
-        and s.reserved_parent_slot
+        s.tool_invocation_count == 2 and s.reserved_parent_slot
         for s in status.tool_states
     )
 
     snapshot = product_state.result_snapshot()
-    assert (snapshot.tool_invocation_count, snapshot.budget_exhausted_count) == (2, 1)
+    assert (snapshot.tool_invocation_count, snapshot.budget_exhausted_count) == (3, 0)
 
 
 def test_child_status_failure_propagates_instead_of_runner_error() -> None:
@@ -883,10 +1076,10 @@ def _secondary_failure_ports(
     fault, canonical_failure, original, secondary, session_thread, release_attempts
 ):
     class Policy(_Policy):
-        def transform_result(self, call, result, /):
+        def transform_result(self, call, result, arguments, parent_call_id, /):
             if canonical_failure and call.provider_correlation_id == "parent0/2":
                 raise original
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     class Tools(_NestedTools):
         def error_result(self, call, message, /):
@@ -904,3 +1097,284 @@ def _secondary_failure_ports(
                     raise secondary
 
     return Policy, Tools, Status
+
+
+def test_structured_content_follows_the_result_policy_and_the_output_schema() -> None:
+    """MCP parity plan S04 (CMD-03, CMD-25): a nested caller gets a result's
+    structured content only for a tool that declares an output schema, and
+    whoever replaces the content decides the structured content with it."""
+
+    class Tools(_NestedTools):
+        callable = frozenset({"stats", "plain", "redacted", "replaced", "kept"})
+        structured = frozenset({"stats", "redacted", "replaced", "kept", "codemode"})
+
+        def execute(
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
+        ):
+            del output_sink, wait_for_interrupt
+            self.executed.append(call)
+            return ToolExecutionOutcome(
+                replace(
+                    _tool_result(call, "2 files"),
+                    structured_content={"files": 2},
+                )
+            )
+
+    class Policy(_ToolPolicy):
+        def transform_result(self, call, result, arguments, parent_call_id, /):
+            if call.tool_name == "redacted":
+                # Content alone: the structured content may no longer match.
+                return ProductContent("0 files")
+            if call.tool_name == "replaced":
+                return AgentToolResultTransform(ProductContent("0 files"), {"files": 0})
+            if call.tool_name == "kept":
+                return AgentToolResultTransform(
+                    result.content, result.structured_content
+                )
+            return result.content
+
+    seen = {}
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        for name in ("stats", "plain", "redacted", "replaced", "kept"):
+            outcome = service.call(name, "{}")
+            seen[name] = (
+                outcome.result.content.value,
+                outcome.result.structured_content,
+                service.declares_output_schema(name),
+            )
+        # Names outside the callable snapshot never count, the parent included.
+        assert not service.declares_output_schema("codemode")
+        assert not service.declares_output_schema("missing")
+        # CMD-26: the retained records keep no result, structured or not.
+        assert all(
+            record.result.structured_content is NO_STRUCTURED_CONTENT
+            for record in service.records()
+        )
+        return ToolExecutionOutcome(_tool_result(call))
+
+    order: list[str] = []
+    loop, _, _, _ = _setup(
+        _Runner(run),
+        tools=Tools(order),
+        policy=Policy(order),
+        names=("codemode", "stats", "plain", "redacted", "replaced", "kept"),
+    )
+    loop.run(_run_input(tool_budget=10))
+
+    assert seen == {
+        "stats": ("2 files", {"files": 2}, True),
+        "plain": ("2 files", {"files": 2}, False),
+        "redacted": ("0 files", NO_STRUCTURED_CONTENT, True),
+        "replaced": ("0 files", {"files": 0}, True),
+        "kept": ("2 files", {"files": 2}, True),
+    }
+
+
+def test_a_failed_call_without_error_text_is_recorded_as_failed() -> None:
+    """Pi ``toScriptValue``: ``Tool "<name>" failed`` when a failure has no text."""
+
+    class Tools(_NestedTools):
+        def execute(
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
+        ):
+            del output_sink, wait_for_interrupt
+            return ToolExecutionOutcome(_tool_result(call, "", is_error=True))
+
+    records = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        service.call("read", "{}")
+        records.append(service.durable_record())
+        return ToolExecutionOutcome(_tool_result(call))
+
+    order: list[str] = []
+    loop, _, _, _ = _setup(_Runner(run), tools=Tools(order), policy=_ToolPolicy(order))
+    loop.run(_run_input())
+
+    assert (
+        json.dumps(records[0]["calls"]).count('"error": "Tool \\"read\\" failed"') == 1
+    )
+
+
+def _parent_execution(handler):
+    """``execute_parent`` of a ``ToolParentRunner``: ``handler(nested_tools)``
+    runs on a thread of its own while the session thread waits."""
+
+    def execute_parent(
+        call, /, *, wait_for_interrupt, nested_tools, arguments, output_sink=None
+    ):
+        done = threading.Event()
+        text: list[str] = []
+
+        def run() -> None:
+            try:
+                text.append(handler(nested_tools))
+            finally:
+                done.set()
+
+        threading.Thread(target=run).start()
+        wait_for_interrupt(done, threading.Event())
+        return ToolExecutionOutcome(_tool_result(call, text[0] if text else "none"))
+
+    return execute_parent
+
+
+def test_concurrent_nested_calls_run_past_the_budget() -> None:
+    # Three calls run at the same time under a parent that holds the only
+    # place in the budget: none is refused, as Pi has no limit on the calls
+    # a tool makes.
+    from pipy_harness.native.coding.tool_parent_runner import ToolParentRunner
+
+    running = threading.Barrier(3, timeout=5)
+
+    class Blocking(_NestedTools):
+        def execute(
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
+        ):
+            running.wait()
+            return super().execute(call)
+
+    def handler(nested_tools) -> str:
+        results: list[str] = []
+
+        def call() -> None:
+            results.append(nested_tools.execute("read", {}).content)
+
+        threads = [threading.Thread(target=call) for _ in range(3)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        return " | ".join(sorted(results))
+
+    loop, tools, _, _ = _setup(
+        ToolParentRunner(_parent_execution(handler), {}),  # type: ignore[arg-type]
+        tools=Blocking([]),
+    )
+    outcome = loop.run(_run_input(tool_budget=1))
+
+    parent = next(
+        m for m in outcome.final_history if isinstance(m, AgentToolResultMessage)
+    )
+    assert "budget" not in parent.content.value
+    assert len(tools.executed) == 3
+    assert not running.broken
+    state = outcome.final_tool_state
+    assert (state.invocations_this_turn, state.tool_invocation_count) == (1, 4)
+
+
+def test_a_script_child_serves_the_calls_of_its_own_threads() -> None:
+    # A tool a script called runs tools too (Pi: nested calls at every
+    # depth), also from a thread it starts while the script's call waits.
+    class Nesting(_NestedTools):
+        def execute(
+            self,
+            call,
+            *,
+            output_sink=None,
+            wait_for_interrupt=None,
+            nested_tools=None,
+            arguments=None,
+        ):
+            if call.tool_name != "read" or nested_tools is None:
+                return super().execute(call)
+            done = threading.Event()
+            box: list[str] = []
+
+            def worker() -> None:
+                box.append(nested_tools.execute("bash", {}).content)
+                done.set()
+
+            threading.Thread(target=worker).start()
+            assert wait_for_interrupt is not None
+            wait_for_interrupt(done, threading.Event())
+            return ToolExecutionOutcome(_tool_result(call, "read saw " + box[0]))
+
+    def wait(done_event, cancel_event):
+        done_event.wait()
+        return ToolExecutionInterruption.SETTLED
+
+    outcomes = []
+    ids: list[list[str]] = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        outcomes.append(service.call("read", "{}", waiter=wait))
+        ids.append([r.nested_call.provider_correlation_id for r in service.records()])
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, _, _, _ = _setup(_Runner(run), tools=Nesting([]))
+    loop.run(_run_input())
+
+    assert outcomes[0].result.content.value.startswith("read saw ")
+    # The record keeps the order the calls began in, as Pi's recorder does.
+    assert ids == [["parent0/1", "parent0/1/1"]]
+
+
+def test_nested_calls_are_validated_and_the_policy_gets_their_parent_id() -> None:
+    # Pi ``_beforeToolCall(context, parentId)``: the hooks of a nested call
+    # see its ``<parent id>/<n>`` id and the calling tool's id, after the
+    # arguments were validated; a call that fails validation reaches no hook.
+    policy = _Policy([])
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        assert service.call("read", '{"path": "a"}').status is NestedCallStatus.SETTLED
+        assert service.call("read", "[]").status is NestedCallStatus.MALFORMED
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, tools, _, _ = _setup(_Runner(run), policy=policy)
+    outcome = loop.run(_run_input())
+    assert policy.seen == [
+        ("parent0", {}, None),
+        ("parent0/1", {"path": "a"}, "parent0"),
+    ]
+    assert [call.provider_correlation_id for call in tools.executed] == ["parent0/1"]
+    assert outcome.final_tool_state.nested_malformed_count == 1
+
+
+def test_a_nested_call_runs_with_the_arguments_the_policy_left() -> None:
+    def change(arguments: dict[str, Any]) -> None:
+        if "path" in arguments:
+            arguments["path"] = "changed"
+
+    policy = _Policy([], change_arguments=change)
+    seen: list[NestedToolCallOutcome] = []
+
+    def run(
+        call: AgentToolCall, service: NestedToolCallService
+    ) -> ToolExecutionOutcome:
+        seen.append(service.call("read", '{"path": "asked"}'))
+        return ToolExecutionOutcome(_tool_result(call))
+
+    loop, tools, _, _ = _setup(_Runner(run), policy=policy)
+    loop.run(_run_input())
+    (ran,) = tools.executed
+    assert json.loads(ran.arguments_json.value) == {"path": "changed"}
+    # The outcome and the record name the call as it was asked for.
+    assert seen[0].nested_call.arguments_json.value == '{"path": "asked"}'

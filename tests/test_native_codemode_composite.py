@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import pytest
 from codemode_driver import REAL_RUNTIME, group_is_gone, real_runtime_skip_reason
@@ -44,7 +45,13 @@ from pipy_harness.native.agent.tools import (
     ToolInterruptWaiter,
 )
 from pipy_harness.native.codemode import host
-from pipy_harness.native.codemode.outcome import ScriptLimits
+from pipy_harness.native.codemode.outcome import (
+    CPU_SECONDS_MAX,
+    CallResult,
+    ScriptImage,
+    ScriptLimits,
+    ScriptOutcome,
+)
 from pipy_harness.native.codemode.runtime import RUNTIME_PIN, CodemodePaths
 from pipy_harness.native.coding.codemode_runner import CodemodeCompositeRunner
 from pipy_harness.native.repl.turn_leaves import wait_for_external_tool_interrupt
@@ -57,10 +64,11 @@ from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolExposure,
     ToolPort,
     ToolRequest,
 )
-from pipy_harness.native.tools.codemode import CodemodeTool
+from pipy_harness.native.tools.codemode import CodemodeTool, codemode_definition
 from pipy_harness.native.tools.read import ReadTool
 from pipy_harness.native.tools.write import WriteTool
 
@@ -101,10 +109,20 @@ def pids(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[int]]:
 class _Tool:
     name: str
     invoke_hook: Callable[[ToolRequest, ToolContext], None] | None = None
+    exposure: ToolExposure = "direct"
 
     @property
     def definition(self) -> ToolDefinition:
-        return ToolDefinition(self.name, "internal fixture", {"type": "object"})
+        # The loop validates a call's arguments before its hooks, so the
+        # fixture standing in for codemode takes codemode's arguments.
+        schema = (
+            codemode_definition().input_schema
+            if self.name == "codemode"
+            else {"type": "object"}
+        )
+        return ToolDefinition(
+            self.name, "internal fixture", schema, exposure=self.exposure
+        )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         if self.invoke_hook is not None:
@@ -118,14 +136,21 @@ class _Policy(_ToolPolicy):
         self.thread = threading.current_thread()
         self.children: list[AgentToolCall] = []
 
-    def before_execute(self, call: AgentToolCall, /):
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ):
         assert threading.current_thread() is self.thread
         if call.tool_name != "codemode":
             self.children.append(call)
-        return super().before_execute(call)
+        return super().before_execute(call, arguments, parent_call_id)
 
     def transform_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage, /
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
+        /,
     ) -> ProductContent:
         assert threading.current_thread() is self.thread
         return ProductContent(
@@ -216,7 +241,7 @@ def _loop(
         )
         if enabled
         else None,
-        nested_eligibility=frozen,
+        nested_eligibility=capabilities,
         tool_waiter=waiter,
     )
     return loop, status, events
@@ -243,19 +268,19 @@ try:
 except ToolError as exc:
     text('malformed: ' + str(exc))
 text(tools.write(path='effect', content='retained'))
-try:
-    tools.read(path='a')
-except ToolError as exc:
-    text('budget: ' + str(exc))
+text('past the budget: ' + tools.read(path='a'))
 raise RuntimeError('after effect')
 """
     loop, status, events = _loop(tmp_path, code, paths=paths, policy=policy)
-    outcome = loop.run(_run_input(tool_budget=5))
+    # The parent holds the only place in the budget; the script's calls take
+    # none, as Pi has no limit on the calls a tool makes.
+    outcome = loop.run(_run_input(tool_budget=1))
     parent = _parent(outcome)
     assert parent.provider_correlation_id == "parent" and parent.tool_name == "codemode"
     assert parent.is_error
     assert "alpha transformed/beta transformed" in parent.content.value
-    assert "malformed:" in parent.content.value and "budget:" in parent.content.value
+    assert "malformed:" in parent.content.value
+    assert "past the budget: alpha transformed" in parent.content.value
     assert "after effect" in parent.content.value
     assert parent.details is not None
     record = parent.details["nestedCalls"]
@@ -264,7 +289,7 @@ raise RuntimeError('after effect')
         "ok",
         "error",
         "ok",
-        "error",
+        "ok",
     ]
     assert record["complete"] is True
     assert record["calls"][3]["arguments"]["path"] == "effect"
@@ -275,13 +300,14 @@ raise RuntimeError('after effect')
         state.invocations_this_turn,
         state.nested_malformed_count,
         state.budget_exhausted_count,
-    ) == (4, 5, 1, 1)
+    ) == (5, 1, 1, 0)
     assert not state.reserved_parent_slot
+    # parent/3's arguments fail validation, so it reaches no hook (Pi).
     assert [call.provider_correlation_id for call in policy.children] == [
         "parent/1",
         "parent/2",
-        "parent/3",
         "parent/4",
+        "parent/5",
     ]
     lifecycle = [
         event
@@ -309,10 +335,22 @@ raise RuntimeError('after effect')
         NestedCallStatus.SETTLED,
         NestedCallStatus.MALFORMED,
         NestedCallStatus.SETTLED,
-        NestedCallStatus.BUDGET_EXHAUSTED,
+        NestedCallStatus.SETTLED,
     ]
     assert completed[0].result.content.value == "alpha transformed"
     assert all(event.duration_seconds >= 0 for event in completed)
+    # Pi's durationMs: only the calls whose tool ran have an execution time;
+    # the malformed call never started.
+    assert [event.execution_seconds is not None for event in completed] == [
+        True,
+        True,
+        False,
+        True,
+        True,
+    ]
+    parent_end = lifecycle[-1]
+    assert isinstance(parent_end, ToolCallCompleted)
+    assert parent_end.execution_seconds is not None  # the script ran
     assert len(pids) == 1
 
 
@@ -475,32 +513,46 @@ def test_backend_stop_cancels_tool_without_operator_turn(
     assert not outcome.final_tool_state.reserved_parent_slot
 
 
-def test_guest_names_are_frozen_advertised_builtin_identities(
+def test_guest_names_are_the_callable_snapshot(
     tmp_path: Path, paths: CodemodePaths, pids: list[int]
 ) -> None:
+    # `write` is active but a request hook withheld it; `orchestrate` is
+    # model-only and `withdrawn` hidden. `listed` is callable although no
+    # request declares it, and an extension's `bash` replaces the builtin.
     code = """
-for name in ['write', 'bash', 'extension', 'codemode']:
+for name in ['write', 'codemode', 'orchestrate', 'withdrawn']:
     try:
         getattr(tools, name)
     except AttributeError as exc:
         text(str(exc))
 text(tools.read(path='a'))
+text(tools.listed() + ' ' + tools.bash())
 """
     (tmp_path / "a").write_text("visible")
     loop, _, _ = _loop(
         tmp_path,
         code,
         paths=paths,
-        names=("codemode", "read", "bash", "extension"),
+        names=("codemode", "read", "bash", "orchestrate"),
         extra={"bash": _Tool("bash")},
-        extensions={"bash": _Tool("bash"), "extension": _Tool("extension")},
+        extensions={
+            "bash": _Tool("bash"),
+            "listed": _Tool("listed", exposure="codemode"),
+            "orchestrate": _Tool("orchestrate", exposure="model-only"),
+            "withdrawn": _Tool("withdrawn", exposure="hidden"),
+        },
     )
     outcome = loop.run(_run_input())
     parent = _parent(outcome)
     assert not parent.is_error
-    assert parent.content.value.count("Available tools: tools.read") == 4
+    assert (
+        # Registration order: the builtins, then the extension tools.
+        parent.content.value.count(" does not exist. Available: read, bash, listed.")
+        == 4
+    )
     assert "visible transformed" in parent.content.value
-    assert outcome.final_tool_state.tool_invocation_count == 2
+    assert "fixture result fixture result" in parent.content.value
+    assert outcome.final_tool_state.tool_invocation_count == 4
 
 
 @pytest.mark.parametrize(
@@ -516,7 +568,6 @@ def test_disabled_or_extension_codemode_retains_direct_behavior(
         enabled=enabled,
         registered=registered,
         extensions={"codemode": _Tool("codemode")} if extension else None,
-        arguments="{}",
     )
     outcome = loop.run(_run_input())
     assert _parent(outcome).content.value == "fixture result"
@@ -529,9 +580,12 @@ def test_disabled_or_extension_codemode_retains_direct_behavior(
 def test_parent_schema_uses_normal_malformed_semantics(
     tmp_path: Path, pids: list[int], arguments: str
 ) -> None:
-    loop, _, _ = _loop(tmp_path, "", arguments=arguments)
+    loop, _, events = _loop(tmp_path, "", arguments=arguments)
     outcome = loop.run(_run_input())
     assert _parent(outcome).is_error
+    # The script never started: no execution time (Pi omits durationMs).
+    (end,) = [e for e in events.events if isinstance(e, ToolCallCompleted)]
+    assert end.execution_seconds is None
     assert outcome.final_tool_state.malformed_argument_count == 1
     assert outcome.final_tool_state.tool_invocation_count == 0
     assert not outcome.final_tool_state.reserved_parent_slot
@@ -543,11 +597,16 @@ def test_canonical_hook_failure_propagates_after_guest_cleanup(
 ) -> None:
     class FailingPolicy(_Policy):
         def transform_result(
-            self, call: AgentToolCall, result: AgentToolResultMessage, /
+            self,
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+            arguments: Any,
+            parent_call_id: str | None,
+            /,
         ) -> ProductContent:
             if call.tool_name == "write":
                 raise RuntimeError("canonical transform failure")
-            return super().transform_result(call, result)
+            return super().transform_result(call, result, arguments, parent_call_id)
 
     loop, _, events = _loop(
         tmp_path,
@@ -561,6 +620,7 @@ def test_canonical_hook_failure_propagates_after_guest_cleanup(
     parent = next(e.result for e in events.events if isinstance(e, ToolCallCompleted))
     assert parent.details is not None
     assert parent.details["nestedCalls"]["calls"][0]["status"] == "unfinished"
+    assert parent.details["nestedCalls"]["complete"] is False
     assert parent.details["nestedCalls"]["calls"][0]["arguments"]["path"] == "effect"
     assert pids and all(group_is_gone(pid) for pid in pids)
 
@@ -596,8 +656,10 @@ def test_policy_rejection_is_catchable_guest_error(
     from pipy_harness.native.agent.loop_policy import AgentToolPolicyDecision
 
     class RejectPolicy(_Policy):
-        def before_execute(self, call: AgentToolCall, /):
-            super().before_execute(call)
+        def before_execute(
+            self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+        ):
+            super().before_execute(call, arguments, parent_call_id)
             return AgentToolPolicyDecision(
                 ProductContent("rejected") if call.tool_name == "write" else None
             )
@@ -616,7 +678,8 @@ def test_policy_rejection_is_catchable_guest_error(
     )
     assert not (tmp_path / "denied").exists()
     assert outcome.final_tool_state.tool_invocation_count == 1
-    assert outcome.final_tool_state.invocations_this_turn == 2
+    # The blocked nested call takes no place in the budget; the parent does.
+    assert outcome.final_tool_state.invocations_this_turn == 1
 
 
 def test_activity_callback_failure_reaps_and_is_parent_error(
@@ -918,7 +981,9 @@ def test_public_definition_write_then_raise_and_spill(
         return
     spill = Path(parent.details["fullOutputPath"])
     body = spill.read_text()
-    assert body.startswith("é🙂" * 25000 + "\nScript error:\n")
+    assert body.startswith(
+        "<console_output>\n" + "é🙂" * 25000 + "\n</console_output>\nScript error:\n"
+    )
     assert "RuntimeError: after effect" in body
     assert "not undone" in body and "write (ok)" in body
     assert len(parent.content.value) < 41000
@@ -941,9 +1006,19 @@ def test_stopped_composite_spill_preserves_records_and_interruption(
 
     abort_requested = False
 
-    def stopped(code, *, call_tool, activity_waiter, **kwargs):
+    def stopped(code, *, start_tool, activity_waiter, **kwargs):
         nonlocal abort_requested
-        assert call_tool("write", '{"path":"effect","content":"retained"}').ok
+        settled: list[CallResult] = []
+        until = threading.Event()
+
+        def settle(result: CallResult) -> None:
+            settled.append(result)
+            until.set()
+
+        start_tool("write", '{"path":"effect","content":"retained"}', settle)
+        while not settled:
+            activity_waiter(until, threading.Event())
+        assert settled[0].ok
         if kind == "aborted":
             abort_requested = True
             activity_waiter(threading.Event(), threading.Event())
@@ -979,3 +1054,454 @@ def test_stopped_composite_spill_preserves_records_and_interruption(
     assert (tmp_path / "effect").read_text() == "retained"
     assert (outcome.result.outcome is AgentRunOutcome.CANCELLED) == (kind == "aborted")
     assert ("fullOutputPath" in parent.details) is not spill_failure
+
+
+# --- calls that run at the same time (G3) --------------------------------------
+
+
+@dataclass
+class _Answering:
+    """A fixture tool whose result text ``answer`` gives."""
+
+    name: str
+    answer: Callable[[ToolRequest, ToolContext], str]
+    properties: dict[str, object] | None = None
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            self.name,
+            "internal fixture",
+            {"type": "object", "properties": self.properties or {}},
+        )
+
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            request.tool_request_id, self.answer(request, context)
+        )
+
+
+def test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Pi: "runs nested calls in parallel and returns only the script result"
+    # (agent-session-codemode.test.ts). The three tools return only once all
+    # three run, so the script finishes only if they run at the same time.
+    together = threading.Barrier(3, timeout=5)
+
+    def echo(request: ToolRequest, context: ToolContext) -> str:
+        together.wait()
+        return f"echo: {request.arguments['text']}"
+
+    def stats(request: ToolRequest, context: ToolContext) -> str:
+        together.wait()
+        return "files 2"
+
+    code = """
+a = tools.echo.submit(text="one")
+b = tools.echo.submit({"text": "two"})
+stats = tools.stats.submit()
+print(stats.result())
+text(",".join(tool["name"] for tool in ALL_TOOLS if tool["name"] in ("echo", "stats")))
+text({"a": a.result(), "b": b.result(), "again": a.result()})
+"""
+    loop, _, events = _loop(
+        tmp_path,
+        code,
+        paths=paths,
+        extra={
+            "echo": _Answering("echo", echo, {"text": {"type": "string"}}),
+            "stats": _Answering("stats", stats),
+        },
+    )
+    outcome = loop.run(_run_input())
+    parent = _parent(outcome)
+    assert not parent.is_error, parent.content.value
+    assert parent.content.value.endswith(
+        "==> text 1/2 <==\necho,stats\n==> text 2/2 <==\n"
+        '{"a": "echo: one", "b": "echo: two", "again": "echo: one"}\n'
+        "<console_output>\nfiles 2\n</console_output>"
+    )
+    assert parent.details is not None
+    record = parent.details["nestedCalls"]
+    assert [(c["id"], c["name"], c["status"]) for c in record["calls"]] == [
+        ("parent/1", "echo", "ok"),
+        ("parent/2", "echo", "ok"),
+        ("parent/3", "stats", "ok"),
+    ]
+    assert [c["arguments"] for c in record["calls"]] == [
+        {"text": "one"},
+        {"text": "two"},
+        {},
+    ]
+    assert record["complete"] is True
+    started = [e for e in events.events if isinstance(e, NestedToolCallStarted)]
+    assert [e.call.provider_correlation_id for e in started] == [
+        "parent/1",
+        "parent/2",
+        "parent/3",
+    ]
+    # Nested calls never become results of their own.
+    results = [
+        m for m in outcome.final_history if isinstance(m, AgentToolResultMessage)
+    ]
+    assert len(results) == 1
+    state = outcome.final_tool_state
+    assert (state.tool_invocation_count, state.invocations_this_turn) == (4, 1)
+    assert not state.reserved_parent_slot
+
+
+def test_a_script_makes_more_calls_than_the_tool_budget_has_places(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal check r3 D1: Pi has no limit on the calls a tool makes, so a
+    # script's calls, submitted or not, take no place in the tool budget.
+    release = threading.Event()
+
+    def slow(request: ToolRequest, context: ToolContext) -> str:
+        release.wait(5)
+        return f"done {request.arguments['n']}"
+
+    def fast(request: ToolRequest, context: ToolContext) -> str:
+        release.set()
+        return f"done {request.arguments['n']}"
+
+    code = """
+calls = [tools.slow.submit(n=1), tools.fast.submit(n=2), tools.slow.submit(n=3)]
+for call in calls:
+    text(call.result())
+for n in range(4, 9):
+    text(tools.fast(n=n))
+"""
+    loop, _, _ = _loop(
+        tmp_path,
+        code,
+        paths=paths,
+        extra={
+            "slow": _Answering("slow", slow, {"n": {"type": "integer"}}),
+            "fast": _Answering("fast", fast, {"n": {"type": "integer"}}),
+        },
+    )
+    outcome = loop.run(_run_input(tool_budget=2))
+    parent = _parent(outcome)
+    assert not parent.is_error, parent.content.value
+    assert "budget" not in parent.content.value
+    for n in range(1, 9):
+        assert f"==> text {n}/8 <==\ndone {n}" in parent.content.value
+    assert parent.details is not None
+    calls = parent.details["nestedCalls"]["calls"]
+    assert [c["status"] for c in calls] == ["ok"] * 8
+    state = outcome.final_tool_state
+    assert (
+        state.invocations_this_turn,
+        state.tool_invocation_count,
+        state.budget_exhausted_count,
+    ) == (1, 9, 0)
+
+
+def test_a_call_still_running_when_the_script_ends_is_cancelled(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    cancelled = threading.Event()
+
+    def slow(request: ToolRequest, context: ToolContext) -> str:
+        assert context.cancel_event is not None
+        if context.cancel_event.wait(5):
+            cancelled.set()
+        return "finished"
+
+    loop, _, _ = _loop(
+        tmp_path,
+        "tools.slow.submit()\ntext('ended')",
+        paths=paths,
+        extra={"slow": _Answering("slow", slow)},
+    )
+    started = time.monotonic()
+    outcome = loop.run(_run_input())
+    assert time.monotonic() - started < 4
+    parent = _parent(outcome)
+    assert not parent.is_error
+    assert "ended" in parent.content.value
+    assert parent.details is not None
+    (row,) = parent.details["nestedCalls"]["calls"]
+    assert (row["name"], row["status"]) == ("slow", "cancelled")
+    assert row["error"] == "tool stopped by script backend"
+    assert cancelled.wait(1)
+    assert not outcome.final_tool_state.reserved_parent_slot
+
+
+def test_an_interruption_cancels_every_running_call(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    entered: list[str] = []
+    cancelled: list[str] = []
+
+    def wait(request: ToolRequest, context: ToolContext) -> str:
+        entered.append(request.arguments["n"])
+        assert context.cancel_event is not None
+        if context.cancel_event.wait(5):
+            cancelled.append(request.arguments["n"])
+        return "finished"
+
+    def waiter(
+        done: threading.Event, cancel: threading.Event
+    ) -> ToolExecutionInterruption:
+        while not done.wait(0.01):
+            if len(entered) == 2:
+                cancel.set()
+                return ToolExecutionInterruption.OPERATOR_ABORT
+        return ToolExecutionInterruption.SETTLED
+
+    loop, _, _ = _loop(
+        tmp_path,
+        "a = tools.wait.submit(n='a')\nb = tools.wait.submit(n='b')\n"
+        "a.result(); b.result()\ntools.write(path='late', content='bad')",
+        paths=paths,
+        waiter=waiter,
+        extra={"wait": _Answering("wait", wait, {"n": {"type": "string"}})},
+    )
+    started = time.monotonic()
+    outcome = loop.run(_run_input())
+    assert time.monotonic() - started < 4
+    assert outcome.result.outcome is AgentRunOutcome.CANCELLED
+    parent = _parent(outcome)
+    assert parent.details is not None
+    assert [c["status"] for c in parent.details["nestedCalls"]["calls"]] == [
+        "cancelled",
+        "cancelled",
+    ]
+    assert sorted(cancelled) == ["a", "b"]
+    assert not (tmp_path / "late").exists()
+    assert not outcome.final_tool_state.reserved_parent_slot
+
+
+def test_a_call_a_script_call_made_ends_when_that_call_returns(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # A tool the script called starts a call on a thread of its own and
+    # returns without waiting: that call is cancelled before the script goes
+    # on, as when the tool ran under ``serve``.
+    entered = threading.Event()
+    cancelled = threading.Event()
+
+    def leaf(request: ToolRequest, context: ToolContext) -> str:
+        entered.set()
+        assert context.cancel_event is not None
+        if context.cancel_event.wait(5):
+            cancelled.set()
+        return "leaf"
+
+    def child(request: ToolRequest, context: ToolContext) -> str:
+        nested = context.nested_tools
+        assert nested is not None
+        threading.Thread(target=nested.execute, args=("leaf", {}), daemon=True).start()
+        assert entered.wait(5)
+        return "child"
+
+    loop, _, _ = _loop(
+        tmp_path,
+        "text(tools.child())",
+        paths=paths,
+        extra={"child": _Answering("child", child), "leaf": _Answering("leaf", leaf)},
+    )
+    outcome = loop.run(_run_input())
+    parent = _parent(outcome)
+    assert not parent.is_error, parent.content.value
+    assert parent.details is not None
+    assert [(c["id"], c["status"]) for c in parent.details["nestedCalls"]["calls"]] == [
+        ("parent/1", "ok"),
+        ("parent/1/1", "cancelled"),
+    ]
+    assert cancelled.wait(1)
+
+
+# Goal-check finding M17, Pi ``executeCodemode``: per-script options from the
+# first line, and no deadline by default.
+
+
+def test_the_options_line_sets_the_deadline_and_the_output_budget(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    code = (
+        '// @options: {"timeout_ms": 1500, "max_output_tokens": 10}\n'
+        "print('x' * 100)\n"
+        "while True:\n"
+        "    pass\n"
+    )
+    runner = CodemodeCompositeRunner(paths=paths)
+    loop, _, _ = _loop(tmp_path, code, runner=runner)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert parent.is_error
+    assert parent.details is not None
+    assert parent.details["truncation"]["maxTokens"] == 10
+    body = Path(parent.details["fullOutputPath"]).read_text()
+    assert body.startswith(
+        "<console_output>\n" + "x" * 100 + "\n</console_output>\nScript error:\n"
+    )
+    assert "Script timed out: Execution timed out after 1.5 s" in body
+
+
+def test_the_options_line_keeps_the_line_numbers(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    code = '// @options: {"max_output_tokens": 2000}\n\nraise ValueError("third")\n'
+    loop, _, _ = _loop(tmp_path, code, paths=paths)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert parent.is_error
+    assert "line 3" in parent.content.value
+    assert "ValueError: third" in parent.content.value
+
+
+def test_invalid_options_are_an_error_before_any_script_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_run(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the script must not run")
+
+    monkeypatch.setattr("pipy_harness.native.coding.codemode_runner.run_script", no_run)
+    loop, _, _ = _loop(tmp_path, '// @options: {"retries": 2}\ntext(1)')
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert parent.is_error
+    assert parent.content.value == (
+        "@options only supports `max_output_tokens` and `timeout_ms`; got `retries`"
+    )
+
+
+@pytest.mark.parametrize(
+    ("first_line", "wall_seconds", "max_tokens"),
+    [
+        ("", None, 10_000),
+        ('// @options: {"timeout_ms": 2500}\n', 2.5, 10_000),
+        # A budget past the 64 KiB a result's text may hold acts as the most
+        # that fits.
+        ('// @options: {"max_output_tokens": 1000000}\n', None, 16_000),
+    ],
+)
+def test_a_script_has_no_deadline_unless_it_sets_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_line: str,
+    wall_seconds: float | None,
+    max_tokens: int,
+) -> None:
+    seen: list[ScriptLimits] = []
+
+    def fake_run(code: str, **kwargs: object) -> ScriptOutcome:
+        limits = kwargs["limits"]
+        assert isinstance(limits, ScriptLimits)
+        seen.append(limits)
+        return ScriptOutcome(None, output=("y" * 200_000,))
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", fake_run
+    )
+    runner = CodemodeCompositeRunner()
+    loop, _, _ = _loop(tmp_path, first_line + "text(1)", runner=runner)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert [limits.wall_seconds for limits in seen] == [wall_seconds]
+    if wall_seconds is None:
+        assert seen[0].cpu_seconds == CPU_SECONDS_MAX
+    assert not parent.is_error
+    assert parent.details is not None
+    assert parent.details["truncation"]["maxTokens"] == max_tokens
+    assert len(parent.content.value) < 64 * 1024
+
+
+def test_the_budget_leaves_room_for_the_images_path_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review finding: the largest budget plus 40 image path lines must still
+    # fit the 64 KiB a result's text may hold; each image is saved once.
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    output: tuple[str | ScriptImage, ...] = (
+        "z" * 64_000,
+        *([ScriptImage(png, "image/png")] * 40),
+    )
+
+    def fake_run(code: str, **kwargs: object) -> ScriptOutcome:
+        return ScriptOutcome(None, output=output)
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", fake_run
+    )
+    loop, _, _ = _loop(
+        tmp_path,
+        '// @options: {"max_output_tokens": 16000}\ntext(1)',
+        runner=CodemodeCompositeRunner(),
+    )
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert not parent.is_error, parent.content.value[:300]
+    assert len(parent.content.value) <= 64 * 1024
+    assert parent.content.value.count("[Image saved to ") == 40
+    assert len(list(tmp_path.glob("pipy-codemode-*.png"))) == 1
+    assert parent.details is not None
+    assert parent.details["truncation"]["maxTokens"] < 16_000
+
+
+def test_output_over_the_line_limit_is_truncated_and_spilled(
+    tmp_path: Path,
+    paths: CodemodePaths,
+    pids: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Goal-check finding M18: 1,100,000 characters used to fail the
+    # sandbox; like Pi the script completes, and its output is cut to the
+    # budget with the whole of it in the spill file.
+    monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
+    loop, _, _ = _loop(tmp_path, "text('x' * 1_100_000)", paths=paths)
+
+    parent = _parent(loop.run(_run_input(tool_budget=5)))
+
+    assert not parent.is_error, parent.content.value[:300]
+    assert parent.content.value.startswith("Script completed\n")
+    assert "Warning: truncated output (original token count: 275000)" in (
+        parent.content.value
+    )
+    assert parent.details is not None
+    assert Path(parent.details["fullOutputPath"]).read_text() == "x" * 1_100_000
+
+
+def test_a_call_whose_arguments_the_record_leaves_out_keeps_a_preview(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal check r8, D1: Pi's codemode keeps the first 200 characters of
+    # each call's arguments in details.calls, so a restored or exported row
+    # still names the file of a write whose arguments are over 8 KiB, which
+    # the nestedCalls record replaces by their byte count.
+    from pipy_harness.native.tool_rows import (
+        nested_line_text,
+        nested_lines_from_details,
+    )
+
+    code = "tools.write(path='recognizable.txt', content='x' * 9000)\n" + (
+        "text(tools.read(path='recognizable.txt')[:5])"
+    )
+    loop, _, _ = _loop(tmp_path, code, paths=paths)
+    parent = _parent(loop.run(_run_input()))
+    assert not parent.is_error and parent.details is not None
+    record = parent.details["nestedCalls"]
+    write, read = record["calls"]
+    assert "arguments" not in write and write["argumentsBytes"] > 9000
+    assert read["arguments"] == {"path": "recognizable.txt"}
+    # Only the call the record left out has a preview.
+    previews = parent.details["argumentPreviews"]
+    assert set(previews) == {write["id"]}
+    preview = previews[write["id"]]
+    assert len(preview) == 200 and preview.endswith("...")
+    assert preview.startswith('{"path"') and "recognizable.txt" in preview
+    write_line, read_line = nested_lines_from_details(parent.details)
+    assert write_line.arguments == preview
+    assert "recognizable.txt" in nested_line_text(write_line, expanded=False)
+    assert read_line.arguments == '{"path":"recognizable.txt"}'
+    assert all(group_is_gone(pid) for pid in pids)

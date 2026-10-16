@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from pipy_harness.native.agent.content import display_segments
+from pipy_harness.native.agent.content import ToolPartialResult, display_segments
 from pipy_harness.native.agent.events import (
     AgentEvent,
     AssistantReasoningDelta,
@@ -33,6 +33,11 @@ from pipy_harness.native.agent.events import (
 )
 from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentToolCall
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.tool_result_display import (
+    ResultImages,
+    result_images,
+    tool_result_display_text,
+)
 from pipy_harness.native.ui.stopped_turn import (
     stopped_assistant_marker,
     stopped_tool_call_text,
@@ -167,6 +172,8 @@ class RenderToolResult:
     duration_seconds: float | None
     # Pi ``ToolResultMessage.details`` for the tool's result renderer.
     details: Mapping[str, Any] | None = field(default=None, compare=False)
+    # The result's images, for a terminal row that draws them inline.
+    images: ResultImages | None = field(default=None, compare=False)
 
 
 RenderDecision = (
@@ -336,16 +343,29 @@ def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
     if isinstance(event, ToolCallStarted):
         return (state, (RenderToolCall(event.call),))
     if isinstance(event, ToolCallUpdated):
-        return (state, (StreamToolOutput(event.update.value),))
+        update = event.update
+        # The row appends live output: what a streaming tool's (``bash``)
+        # update added, or a partial result that only replaces (MCP
+        # progress) as a line of its own, so the row shows the latest one.
+        if isinstance(update, ToolPartialResult):
+            text = (
+                update.appended
+                if update.appended is not None
+                else f"{update.content}\n"
+            )
+        else:
+            text = update.value
+        return (state, (StreamToolOutput(text),))
     if isinstance(event, ToolCallCompleted):
         return (
             state,
             (
                 RenderToolResult(
-                    output_text=event.result.content.value,
+                    output_text=tool_result_display_text(event.result),
                     is_error=event.result.is_error,
                     duration_seconds=event.duration_seconds,
                     details=event.result.details,
+                    images=result_images(event.result),
                 ),
             ),
         )

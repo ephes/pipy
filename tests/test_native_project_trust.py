@@ -93,6 +93,23 @@ def test_store_rejects_invalid_schema_without_overwriting(
     assert path.read_bytes() == before
 
 
+def test_store_reads_a_file_with_a_byte_order_mark(tmp_path: Path) -> None:
+    # Pi reads the trust file through `stripBom`; a write leaves the mark out.
+    path = tmp_path / "config" / "trust.json"
+    path.parent.mkdir(parents=True)
+    body = json.dumps({str(tmp_path.resolve()): True})
+    path.write_text("﻿" + body, encoding="utf-8")
+    store = ProjectTrustStore(path)
+    assert store.get(tmp_path) is True
+    store.set(tmp_path / "other", False)
+    assert not path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert store.get(tmp_path) is True
+    # Only one mark is dropped, as with `stripBom`.
+    path.write_text("﻿﻿" + body, encoding="utf-8")
+    with pytest.raises(ProjectTrustError):
+        store.get(tmp_path)
+
+
 def test_store_accepts_null_and_writes_sorted_private_json(tmp_path: Path) -> None:
     path = tmp_path / "config" / "trust.json"
     _write_json(path, {str(tmp_path / "unused"): None})
@@ -685,17 +702,25 @@ def test_extension_trust_decision_drives_and_closes_interactive_startup_ui(
             calls.append(("open", input_stream, terminal_stream, cwd))
             self.components = SimpleNamespace(modals=self, screen=self)
 
-        def run_extension_select(self, title: str, options: object) -> str:
+        def run_extension_select(
+            self, title: str, options: object, *, timeout: int | None = None
+        ) -> str:
             calls.append(("select", title, options))
             return "a"
 
         def run_extension_input(
-            self, title: str, placeholder: str | None = None
+            self,
+            title: str,
+            placeholder: str | None = None,
+            *,
+            timeout: int | None = None,
         ) -> str:
             calls.append(("input", title, placeholder))
             return "typed"
 
-        def run_extension_confirm(self, title: str, message: str) -> bool:
+        def run_extension_confirm(
+            self, title: str, message: str, *, timeout: int | None = None
+        ) -> bool:
             calls.append(("confirm", title, message))
             return True
 

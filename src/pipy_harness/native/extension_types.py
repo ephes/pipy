@@ -18,7 +18,8 @@ headless UI implementation and render helpers live in `extension_ui`;
 activation lives in `extensions.activation`, session render orchestration lives
 with its payload and UI owners, and the concrete live driver stays in `tui`.
 
-It has no project imports, so it can never participate in an import cycle with
+Its only project import is the leaf `agent.content` (for
+`NO_STRUCTURED_CONTENT`), so it can never participate in an import cycle with
 the runtime or loader that import it. The stable `pipy_harness.extensions` façade imports
 `normalize_shortcut_key` directly from this owner.
 """
@@ -30,14 +31,33 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    NoStructuredContent,
+)
+
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
+    import threading
+
     # ``ChromePalette`` is the theme value object returned by ``ExtensionUi``'s
     # ``theme`` / ``get_theme`` and accepted by ``set_theme``. It is imported
     # here only to resolve those annotations: a type-checking-only edge with no
     # runtime import, so ``extension_types`` remains a runtime leaf with no
     # import cycle.
+    from pipy_harness.native.agent.content import ToolResultBlock
+    from pipy_harness.native.mcp.registry import RegisteredMcpServer
     from pipy_harness.native.session_tree import NativeSessionTree
     from pipy_harness.native.themes import ChromePalette
+    from pipy_harness.native.tools.base import (
+        NestedToolCalls,
+        ReachesTools,
+        ToolAnnotations,
+        ToolExecutionMode,
+        ToolExposure,
+        ToolInfo,
+        ToolNamespace,
+    )
+    from pipy_harness.native.tools.loadout import ToolLoadout, ToolLoadoutChanges
 
 # Activation reason codes (safe, enumerable labels).
 REASON_IMPORT_ERROR: str = "import_error"
@@ -49,7 +69,6 @@ REASON_DUPLICATE_COMMAND: str = "duplicate_command"
 REASON_INVALID_HOOK: str = "invalid_hook"
 REASON_INVALID_TOOL: str = "invalid_tool"
 REASON_RESERVED_TOOL: str = "reserved_tool"
-REASON_DUPLICATE_TOOL: str = "duplicate_tool"
 REASON_INVALID_PROVIDER: str = "invalid_provider"
 REASON_DUPLICATE_PROVIDER: str = "duplicate_provider"
 REASON_INVALID_SHORTCUT: str = "invalid_shortcut"
@@ -61,6 +80,8 @@ REASON_INVALID_MESSAGE_RENDERER: str = "invalid_message_renderer"
 REASON_DUPLICATE_MESSAGE_RENDERER: str = "duplicate_message_renderer"
 REASON_INVALID_ENTRY_RENDERER: str = "invalid_entry_renderer"
 REASON_DUPLICATE_ENTRY_RENDERER: str = "duplicate_entry_renderer"
+REASON_INVALID_TOOL_RENDERER: str = "invalid_tool_renderer"
+REASON_DUPLICATE_MCP_SERVER: str = "duplicate_mcp_server"
 
 # Built-in hotkey / editor keys an extension shortcut may never claim, so a
 # binding can never shadow core input editing or the app hotkeys. Compared
@@ -196,24 +217,35 @@ ExtensionMode = Literal["tui", "print", "json", "rpc"]
 # model-visible tool set, switch the active model, or set the reasoning level.
 # Each returns ``True`` when the mutation was accepted.
 ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
+ControlGetAllToolsFn = Callable[[], "Sequence[ToolInfo]"]
 ControlSetModelFn = Callable[[str], bool]
 ControlSetThinkingLevelFn = Callable[[str], bool]
 
 
 @dataclass(frozen=True, slots=True)
 class ExtensionModelRuntimeControl:
-    """Frozen bundle of the three model-runtime control callables.
+    """Frozen bundle of the model-runtime control callables.
 
     Groups the ``set_active_tools`` / ``set_model`` / ``set_thinking_level``
     capability functions the extension host threads into every command, hook,
-    and tool context as a single port instead of an ad-hoc callable fan-out.
-    Each field is ``None`` when that mutation is not offered in the current
+    and tool context as a single port instead of an ad-hoc callable fan-out,
+    plus the ``get_all_tools`` read of the registered tools.
+    Each field is ``None`` when that capability is not offered in the current
     context (the context then raises ``ExtensionCapabilityError``).
     """
 
     set_active_tools_fn: ControlSetActiveToolsFn | None = None
     set_model_fn: ControlSetModelFn | None = None
     set_thinking_level_fn: ControlSetThinkingLevelFn | None = None
+    get_all_tools_fn: ControlGetAllToolsFn | None = None
+    # Set for the context of a running tool that may call other tools.
+    nested_tools: "NestedToolCalls | None" = None
+    # The running tool's cancellation signal (Pi's ``signal`` of
+    # ``execute``), the default ``signal`` of its nested calls.
+    tool_signal: "threading.Event | None" = None
+    # Where the running tool publishes its partial results (Pi's
+    # ``onUpdate`` of ``execute``); ``None`` where nothing receives them.
+    tool_update: "Callable[[ToolResult], None] | None" = None
 
 
 # Coding-session host collaborators an activated extension may invoke through a
@@ -280,13 +312,30 @@ CustomComponentDriver = Callable[
 ]
 
 
+def _no_invalidate() -> None:
+    """A render context's ``invalidate`` where nothing is redrawn."""
+
+
 @dataclass(frozen=True, slots=True)
 class ToolRenderContext:
-    """Read-only context passed to an extension tool renderer.
+    """Read-only context passed to an extension tool renderer (Pi
+    ``ToolRenderContext``).
 
     `state` is a single mutable mapping shared across render_call ->
     render_result for one tool execution. `details` is the extension's
-    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme."""
+    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme.
+    `is_result` says that there is a result to draw, a partial one too;
+    `is_partial` that the call has no final result yet.
+
+    The keyword fields are Pi's: `tool_call_id` (the call's id, the same for
+    its call and result renders), `cwd`, `execution_started` (the call
+    started running in this session; False for a call drawn from the
+    session file), `args_complete`, `show_images` (the
+    `terminal.showImages` setting; False where rows are not drawn in a
+    terminal), `duration_ms` (of the final result, None while it runs or
+    when unknown), `invalidate()` (draw this call's row again) and
+    `last_component` (what this renderer returned the previous time for
+    this row, None the first time)."""
 
     tool_name: str
     args: Mapping[str, object]
@@ -298,6 +347,48 @@ class ToolRenderContext:
     width: int
     theme: object  # ToolRenderTheme | None (None only in unit tests)
     state: MutableMapping[str, object]
+    tool_call_id: str = field(default="", kw_only=True)
+    cwd: str = field(default="", kw_only=True)
+    execution_started: bool = field(default=False, kw_only=True)
+    args_complete: bool = field(default=True, kw_only=True)
+    is_partial: bool = field(default=False, kw_only=True)
+    show_images: bool = field(default=False, kw_only=True)
+    duration_ms: float | None = field(default=None, kw_only=True)
+    invalidate: Callable[[], None] = field(
+        default=_no_invalidate, kw_only=True, repr=False, compare=False
+    )
+    last_component: object | None = field(
+        default=None, kw_only=True, repr=False, compare=False
+    )
+    # How the row that asked draws pipy's own rows of a call:
+    # ``(ctx, phase, mcp_label) -> lines`` with the context they are drawn
+    # from (its args, result and expanded flag, which a wrapper may have
+    # replaced), phase ``"call"`` or ``"result"`` and the MCP title, or None
+    # for a built-in tool's rows. What ``BuiltinToolRows`` and
+    # ``McpToolRows`` call; not for extensions.
+    _own_rows: (
+        Callable[[ToolRenderContext, str, str | None], Sequence[str] | None] | None
+    ) = field(default=None, kw_only=True, repr=False, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolRenderers:
+    """How the calls to one tool are drawn (Pi ``ToolRenderers``).
+
+    What a resolver registered with ``api.register_tool_renderer`` returns.
+    Each callable receives a `ToolRenderContext` and returns a
+    `ToolRenderComponent`, like `ExtensionTool.render_call` and
+    `render_result`; a part left ``None`` is drawn as pipy's generic row.
+    """
+
+    render_call: Callable[[ToolRenderContext], object] | None = None
+    render_result: Callable[[ToolRenderContext], object] | None = None
+
+
+# `resolver(tool_name, next)`: the renderers of the calls to `tool_name`, or
+# None. `next()` is what the resolvers registered after this one, then the
+# tool itself, would use.
+ToolRendererResolver = Callable[[str, Callable[[], object | None]], object | None]
 
 
 WidgetPlacement = Literal["above_editor", "below_editor"]
@@ -307,6 +398,8 @@ WidgetPlacement = Literal["above_editor", "below_editor"]
 class ExtensionUiDriver(Protocol):
     """Live UI operations backed by the product TUI."""
 
+    # A driver whose class sets `dialog_timeouts = True` also takes Pi's
+    # `timeout` (ms) as a keyword of `select`, `input` and `confirm`.
     def select(self, title: str, options: Sequence[str]) -> str | None: ...
 
     def input(self, title: str, placeholder: str | None = None) -> str | None: ...
@@ -359,13 +452,22 @@ class ExtensionUi(Protocol):
 
     def notify(self, message: str, kind: str = "info") -> None: ...
 
-    def select(self, title: str, options: Sequence[str]) -> str | None: ...
+    # `timeout` is Pi's dialog option, in milliseconds: the dialog ends with
+    # its default when it passes. RPC mode and the terminal honour it; the
+    # terminal shows the seconds left in the dialog's title.
+    def select(
+        self, title: str, options: Sequence[str], *, timeout: int | None = None
+    ) -> str | None: ...
 
-    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+    def input(
+        self, title: str, placeholder: str | None = None, *, timeout: int | None = None
+    ) -> str | None: ...
 
     def editor(self, title: str, prefill: str | None = None) -> str | None: ...
 
-    def confirm(self, title: str, message: str) -> bool: ...
+    def confirm(
+        self, title: str, message: str, *, timeout: int | None = None
+    ) -> bool: ...
 
     def set_status(self, key: str, text: str | None) -> None: ...
 
@@ -643,13 +745,34 @@ class ProjectTrustDispatchResult:
 class LifecycleEvent:
     """An observe-only lifecycle event passed to `@api.on(<event>)` hooks.
 
-    `name` is the event (for example `session_start`). `reason` is the
-    session-start reason (`"startup"`, `"reload"`, ...) where applicable,
-    and `None` otherwise. The event carries only safe metadata.
+    `name` is the event (for example `session_start`). `reason` is why a
+    session starts (`"startup"`, `"reload"`, `"new"`, `"resume"`, `"fork"`)
+    or shuts down (`"quit"`, `"new"`, `"resume"`, `"fork"`), and `None` for
+    the other events. When another session replaces this one,
+    `session_shutdown` has the file of the session that follows as
+    `target_session_file` and `session_start` the file of the one before as
+    `previous_session_file` (Pi `targetSessionFile`, `previousSessionFile`);
+    a session that is not saved has none. The event carries only safe
+    metadata.
     """
 
     name: str
     reason: str | None = None
+    previous_session_file: str | None = None
+    target_session_file: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class McpServersChangeEvent:
+    """Passed to `@api.on("mcp_servers_change")` hooks after an extension
+    registered or unregistered an MCP server (Pi ``McpServersChangeEvent``).
+
+    `servers` is every registered server after the change. An extension
+    that handles the event is taken to connect registered servers itself.
+    """
+
+    servers: tuple[RegisteredMcpServer, ...]
+    name: str = "mcp_servers_change"
 
 
 @dataclass(frozen=True, slots=True)
@@ -667,10 +790,62 @@ class InputTransform:
 
 
 @dataclass(frozen=True, slots=True)
-class BeforeAgentStartEvent:
-    """Presented to a `before_agent_start` hook before an agent run."""
+class InputHandled:
+    """Returned by an `input` hook that consumed the prompt (Pi's
+    `{action: "handled"}`): later hooks do not run and no run starts."""
 
-    system_prompt: str
+
+@dataclass(frozen=True, slots=True)
+class SystemPromptOptions:
+    """What the coming run's system prompt is built from, for a
+    `before_agent_start` hook to change (Pi `systemPromptOptions`).
+
+    `sections` maps the name of a prompt section the run adds, such as
+    `mcp_servers`, to its text without the tag. A hook changes the mapping
+    in place: setting a name adds that section, or replaces a section the
+    prompt already has (`tools`, `rules`, `cwd` and so on); deleting a name
+    takes the run's own section out again. Later hooks see the changes of
+    earlier ones. A name must match `[a-z][a-z0-9_-]*` and must not be
+    `preamble`, and a text must be a string; other entries are ignored and
+    reported.
+    """
+
+    sections: dict[str, str] = field(default_factory=dict)
+
+
+class BeforeAgentStartEvent:
+    """Presented to a `before_agent_start` hook before an agent run.
+
+    `system_prompt` is the prompt for the sections as they are when it is
+    read (Pi's `systemPrompt` getter): it shows the changes of earlier hooks
+    and of the hook reading it, and the text earlier hooks appended. The
+    event is built with a text, or with a function that renders it.
+    """
+
+    __slots__ = ("_system_prompt", "system_prompt_options")
+
+    def __init__(
+        self,
+        system_prompt: str | Callable[[], str],
+        system_prompt_options: SystemPromptOptions | None = None,
+    ) -> None:
+        self._system_prompt = system_prompt
+        self.system_prompt_options = (
+            SystemPromptOptions()
+            if system_prompt_options is None
+            else system_prompt_options
+        )
+
+    @property
+    def system_prompt(self) -> str:
+        prompt = self._system_prompt
+        return prompt if isinstance(prompt, str) else prompt()
+
+    def __repr__(self) -> str:
+        return (
+            f"BeforeAgentStartEvent(system_prompt={self.system_prompt!r}, "
+            f"system_prompt_options={self.system_prompt_options!r})"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -706,23 +881,53 @@ class QueuedCustomMessage:
 
 @dataclass(frozen=True, slots=True)
 class ToolResultEvent:
-    """The finalized, bounded result of a tool, shown to `tool_result` hooks.
+    """The finalized, bounded result of a tool, shown to `tool_result` hooks
+    (Pi `ToolResultEvent`).
 
-    `tool_name` is the tool that ran (built-in or extension); `content`
-    is the current provider-visible result text; `is_error` marks an
-    error observation.
+    `tool_name` is the tool that ran (built-in or extension); `content` is
+    the current provider-visible result text; `blocks` is Pi's ordered
+    content array (`TextContent` and `ImageContent`) when the result has an
+    image, else empty; `is_error` marks an error observation.
+    `structured_content` is the current machine-readable result
+    (`NO_STRUCTURED_CONTENT` when there is none; `None` is the JSON value
+    null) and `details` the result's local details; treat both as read-only
+    and return a `ToolResultTransform` to change them. `tool_call_id`,
+    `parent_tool_call_id` and `input` (the arguments the tool ran with) are
+    those of the call, as `ToolCallEvent` has them.
     """
 
     tool_name: str
     content: str
     is_error: bool
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    tool_call_id: str = ""
+    parent_tool_call_id: str | None = None
+    input: Mapping[str, object] = field(default_factory=dict)
+    details: Mapping[str, object] | None = None
+    blocks: tuple[ToolResultBlock, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class ToolResultTransform:
-    """Returned by a `tool_result` hook to replace the observation content."""
+    """Returned by a `tool_result` hook to change the result (Pi
+    `ToolResultEventResult`); a field left at its default stays as it is.
 
-    content: str
+    `content` replaces the whole content with a text, images included, and
+    `blocks`, Pi's content array of `TextContent` and `ImageContent`, replaces
+    it with those blocks (it wins over `content`; an empty tuple leaves no
+    content). The structured content belongs to the content it was produced
+    with: `structured_content` replaces the result's, and replaced content
+    without one drops it. A hook that redacts `content` and wants codemode
+    scripts to keep receiving a structured value returns the redacted value
+    here (`None` is the JSON value null); a value that is not JSON is
+    dropped. `is_error` and `details` (a JSON object) replace the result's.
+    """
+
+    content: str | None = None
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    blocks: tuple[ToolResultBlock, ...] | None = None
+    is_error: bool | None = None
+    details: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -733,24 +938,109 @@ class ToolResult:
     reaches the model). `details` is structured local state/metadata for
     rendering or later hooks; it is not sent to the provider. Like Pi, the
     session file stores it (a JSON object; a value that does not survive a
-    JSON round trip is dropped). (Pi-shaped `content`/`details`; the richer
-    block-content + `terminate` shape arrives in a later slice.)
+    JSON round trip is dropped). (Pi-shaped `content`/`details`.)
+
+    `blocks` is Pi's ordered `content` array for a result with images: a
+    tuple of `TextContent` and `ImageContent` values. A result whose blocks
+    hold an image reaches the model as those blocks, and its text is the
+    text of its text blocks; `content` is then not used. Blocks without an
+    image say no more than their text, which is then the result's text.
+
+    `structured_content` is the machine-readable result of a tool that
+    declares an `output_schema`, for programmatic callers; any JSON value,
+    `None` being null (a value that is not JSON is dropped). Left out, it is
+    `NO_STRUCTURED_CONTENT`: the result has none (Pi `undefined`). It is
+    never sent to the provider and
+    not written to the session file. `is_error` reports a failure without
+    raising: the model sees `content` as an error, and the result keeps its
+    `details` and `structured_content`.
+
+    `terminate=True` asks the agent to stop after the current tool batch
+    (Pi `terminate`): when every result of the model's tool calls in one
+    response asks for it, no automatic follow-up provider turn runs and the
+    run ends. A result that is not the model's call's (one that
+    `ctx.execute_tool` returns) does not end anything.
     """
 
     content: str
     details: Mapping[str, object] | None = None
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    is_error: bool = False
+    blocks: "tuple[ToolResultBlock, ...]" = ()
+    terminate: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallInfo:
+    """The call a tool made through `ctx.execute_tool` (Pi `AgentToolCall`):
+    its id `<calling id>/<n>`, the tool's name and the arguments."""
+
+    id: str
+    name: str
+    arguments: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallOutcome:
+    """What `ctx.execute_tool` returns (Pi `AgentToolCallOutcome`).
+
+    `result` is the result as the session's hooks left it, with its
+    `blocks` when it has images. `duration_ms` is how long the call took,
+    `None` for a call refused before it started.
+    """
+
+    tool_call: ToolCallInfo
+    result: ToolResult
+    is_error: bool
+    duration_ms: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ExtensionTool:
     """A model-visible tool an extension registers via `api.register_tool`.
 
-    `input_schema` is a JSON-schema dict in pipy's supported subset
-    (validated at registration). `handler(ctx, input)` receives a
+    `input_schema` is any JSON Schema object with `type: "object"` (Pi's
+    `parameters`): `number`, `null`, unions (`anyOf`, a list of types) and
+    `$ref` work, and arguments are checked as an MCP tool's are
+    (`tools/foreign_schema.py`). `handler(ctx, input)` receives a
     mode-aware context and the validated input mapping and returns a
     `ToolResult`. `render_call` and `render_result` are optional callables
     that receive a `ToolRenderContext` and return a `ToolRenderComponent`
     (or object) controlling how the tool's call and result rows render.
+
+    The keyword-only fields are the tool metadata of Pi's `ToolDefinition`,
+    validated at registration:
+
+    - `exposure`: how the model reaches the tool; default `"direct"`.
+      Registering one of the extension's own tool names again replaces the
+      earlier registration, so `exposure="hidden"` withdraws a tool.
+    - `namespace`: the `ToolNamespace` group the tool belongs to.
+    - `annotations`: `ToolAnnotations` hints about what the tool does.
+    - `output_schema`: JSON Schema of the `structured_content` in the tool's
+      successful results.
+    - `reaches_tools(input)`: for a tool that reaches other tools, `"all"` or
+      the words of the input that may name them.
+    - `default_active`: whether registering a `direct` or `model-only` tool
+      activates it; `False` leaves it inactive until a tool selection names
+      it.
+    - `prepare_loadout(loadout)`: for a tool that presents other tools, the
+      `ToolLoadoutChanges` it wants in what the model sees while it is
+      declared, or `None`.
+    - `prompt_snippet`: one line for the default system prompt's tool list
+      (Pi `promptSnippet`); a tool without one is not listed there.
+    - `prompt_guidelines`: bullets added to the default system prompt's
+      rules while the tool is declared; scripts see them with the tool's
+      declaration (Pi `promptGuidelines`).
+    - `execution_mode`: `"sequential"` makes the calls other tools make of
+      this tool (`ctx.execute_tool`, codemode scripts) run one at a time
+      with the other such calls (Pi `executionMode`); `None` or
+      `"parallel"` lets them run at the same time.
+    - `prepare_arguments(arguments)`: gets a call's parsed arguments before
+      they are validated and returns the arguments to validate instead
+      (Pi `prepareArguments`), for example to accept an older argument
+      shape. If it raises, the call ends with the exception's message as
+      its error result (Pi), or the exception's type name when the message
+      is empty.
     """
 
     name: str
@@ -759,6 +1049,21 @@ class ExtensionTool:
     handler: Callable[..., object]
     render_call: Callable[["ToolRenderContext"], object] | None = None
     render_result: Callable[["ToolRenderContext"], object] | None = None
+    exposure: "ToolExposure" = field(default="direct", kw_only=True)
+    namespace: "ToolNamespace | None" = field(default=None, kw_only=True)
+    annotations: "ToolAnnotations | None" = field(default=None, kw_only=True)
+    output_schema: Mapping[str, object] | None = field(default=None, kw_only=True)
+    reaches_tools: "ReachesTools | None" = field(default=None, kw_only=True)
+    default_active: bool = field(default=True, kw_only=True)
+    prepare_loadout: "Callable[[ToolLoadout], ToolLoadoutChanges | None] | None" = (
+        field(default=None, kw_only=True)
+    )
+    prompt_snippet: str | None = field(default=None, kw_only=True)
+    prompt_guidelines: Sequence[str] = field(default=(), kw_only=True)
+    execution_mode: "ToolExecutionMode | None" = field(default=None, kw_only=True)
+    prepare_arguments: Callable[[object], object] | None = field(
+        default=None, kw_only=True
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -771,23 +1076,36 @@ class RegisteredTool:
 
 @dataclass(frozen=True, slots=True)
 class ToolBlock:
-    """Returned by a `tool_call` hook to block a tool call with a reason."""
+    """Returned by a `tool_call` hook to block a tool call with a reason.
+
+    `terminate=True` gives the blocked call's error result Pi's
+    early-termination hint (`ToolResult.terminate`), so a batch whose calls
+    all end that way runs no automatic follow-up provider turn.
+    """
 
     reason: str
+    terminate: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class ToolCallEvent:
-    """The live model-selected tool call presented to a `tool_call` hook.
+    """The live tool call presented to a `tool_call` hook.
 
-    `tool_name` is the tool the model chose; `input` is its parsed
-    arguments. Trusted local hooks may inspect these to gate execution;
+    `tool_name` is the tool called; `input` is its arguments after argument
+    validation, the very dict the tool runs with: a hook changes the
+    arguments by changing `input` in place (Pi `ToolCallEvent.input`).
+    `tool_call_id` is the call's id; a call another tool made (a codemode
+    script's, `ctx.execute_tool`) has the id `<parent id>/<n>` and its
+    `parent_tool_call_id` is the calling tool's id, `None` for a call the
+    model made. Trusted local hooks may inspect these to gate execution;
     this live access does not change archive policy (raw tool inputs are
     not archived by default).
     """
 
     tool_name: str
-    input: Mapping[str, object]
+    input: dict[str, object]
+    tool_call_id: str
+    parent_tool_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

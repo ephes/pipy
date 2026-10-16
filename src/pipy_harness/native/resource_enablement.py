@@ -8,16 +8,41 @@ actually registered. A resource is enabled by default; among the directives that
 match its name, the last one wins. Bare entries (resource source paths) are
 additive sources and do not affect enablement.
 
-Patterns match a resource name exactly or as an fnmatch glob (e.g. ``draft-*``).
+Patterns match a resource name exactly or as a glob read as Pi's minimatch
+reads one (:func:`pipy_harness.native.minimatch.minimatch`): ``draft-*``,
+braces such as ``{draft,wip}-*``, extended globs such as ``+(draft|wip)-*``,
+and a ``**/`` that also matches no directory, so ``**/draft-*`` matches
+``draft-1``.
+
+Built-in extensions are parts of pipy that can be turned off like an
+extension (Pi's built-in extensions). One is named ``builtin:<name>`` in the
+``extensions`` array and on the command line: ``mcp``, ``codemode`` (the
+``codemode`` tool) and ``tool-search`` (the ``tool_search`` tool). Pi's
+``llama.cpp`` has no counterpart. Their entries follow Pi's override rules
+rather than the ones above: ``!pattern`` is a glob that turns them off,
+``+builtin:<name>`` and ``-builtin:<name>`` name one exactly
+(:func:`is_builtin_extension_enabled`). As in Pi, both are also tried on
+the path relative to the settings file's directory.
 """
 
 from __future__ import annotations
 
-from fnmatch import fnmatch
+import os
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Final
+
+from pipy_harness.native.minimatch import minimatch
+
+BUILTIN_EXTENSION_PREFIX: Final = "builtin:"
+# The parts of pipy that ``-builtin:<name>`` in ``extensions`` turns off.
+BUILTIN_EXTENSIONS: Final = ("codemode", "tool-search", "mcp")
 
 
 def _matches(name: str, pattern: str) -> bool:
-    return name == pattern or fnmatch(name, pattern)
+    """``name`` is ``pattern`` or matches it as a minimatch glob."""
+
+    return name == pattern or minimatch(name, pattern)
 
 
 def is_resource_enabled(name: str, patterns: list[str]) -> bool:
@@ -72,3 +97,176 @@ def enable_entry(patterns: list[str], name: str) -> list[str]:
     result = _without_directives(patterns, name)
     result.append(f"+{name}")
     return result
+
+
+def builtin_extension_name(value: str) -> str | None:
+    """The name in ``builtin:<name>``, or ``None`` for anything else."""
+
+    if not value.startswith(BUILTIN_EXTENSION_PREFIX):
+        return None
+    return value[len(BUILTIN_EXTENSION_PREFIX) :]
+
+
+def is_builtin_extension_enabled(
+    name: str,
+    *,
+    user_patterns: Sequence[object],
+    project_patterns: Sequence[object],
+    user_base_dir: Path | None = None,
+    project_base_dir: Path | None = None,
+    workspace: Path | None = None,
+) -> bool:
+    """Whether the ``extensions`` settings leave a built-in extension on.
+
+    Pi ``resolve`` in ``package-manager.ts``: the project array decides when
+    one of its ``!``, ``+`` or ``-`` entries matches ``builtin:<name>``, the
+    last matching entry winning (``applyAutoloadDisabledPatterns``).
+    Otherwise the user-level array decides (``isEnabledByOverrides``).
+    ``user_base_dir`` and ``project_base_dir`` are the directories of the
+    two settings files; when one is given, its entries are also tried on
+    the path relative to it (:func:`_resource_paths`, with ``workspace``).
+    """
+
+    resource = BUILTIN_EXTENSION_PREFIX + name
+    decided = _last_matching_override(
+        _resource_paths(resource, project_base_dir, workspace), project_patterns
+    )
+    if decided is not None:
+        return decided
+    return _enabled_by_overrides(
+        _resource_paths(resource, user_base_dir, workspace), user_patterns
+    )
+
+
+def _resource_paths(
+    resource: str, base_dir: Path | None, workspace: Path | None
+) -> tuple[str, ...]:
+    """The paths Pi matches a built-in extension's entries against.
+
+    Pi's ``matchesAnyPattern`` and ``matchesAnyExactPattern`` try the path
+    ``builtin:<name>`` and ``path.relative(baseDir, path)``, which resolves
+    it against Pi's working directory first, so in a project's settings
+    ``!../builtin:mcp`` also matches. (The base name Pi tries as well is the
+    path itself.) pipy resolves it against ``workspace`` (its ``--cwd``),
+    else its working directory; without a ``base_dir``, or a working
+    directory, only the path is tried.
+    """
+
+    if base_dir is None:
+        return (resource,)
+    try:
+        root = os.fspath(workspace) if workspace is not None else os.getcwd()
+    except OSError:
+        return (resource,)
+    return (resource, os.path.relpath(os.path.join(root, resource), base_dir))
+
+
+def _override_entries(patterns: Sequence[object]) -> list[str]:
+    """Pi ``getOverridePatterns``: the ``!``, ``+`` and ``-`` entries."""
+
+    return [
+        entry
+        for entry in patterns
+        if isinstance(entry, str) and entry[:1] in ("!", "+", "-")
+    ]
+
+
+def _matches_exactly(paths: Sequence[str], target: str) -> bool:
+    """Pi ``matchesAnyExactPattern`` for a built-in extension's paths: the
+    target as written, without a leading ``./``."""
+
+    if target.startswith(("./", ".\\")):
+        target = target[2:]
+    return target in paths
+
+
+def set_builtin_extension_entry(
+    patterns: list[str],
+    name: str,
+    *,
+    enabled: bool,
+    base_dir: Path | None = None,
+    workspace: Path | None = None,
+) -> list[str]:
+    """``patterns`` with ``+builtin:<name>`` (or ``-``) appended in place of
+    every ``+`` or ``-`` entry that names it exactly, also as ``./builtin:<name>``
+    or, with the settings file's ``base_dir``, by its relative path
+    (:func:`_resource_paths`).
+
+    Removing those keeps an earlier ``-`` entry from winning over the new
+    ``+`` one in the user array (:func:`is_builtin_extension_enabled`).
+    """
+
+    resource = BUILTIN_EXTENSION_PREFIX + name
+    paths = _resource_paths(resource, base_dir, workspace)
+    result = [
+        entry
+        for entry in patterns
+        if not (entry[:1] in ("+", "-") and _matches_exactly(paths, entry[1:]))
+    ]
+    result.append(("+" if enabled else "-") + resource)
+    return result
+
+
+def inherit_builtin_extension_entry(
+    patterns: list[str],
+    name: str,
+    *,
+    base_dir: Path | None = None,
+    workspace: Path | None = None,
+) -> list[str]:
+    """``patterns`` without the entries that name ``builtin:<name>``, so in
+    a project's settings the user-level entries decide about it again (the
+    inherit state of Pi's config selector, ``setProjectTopLevelOverride``).
+
+    Dropped are the ``!``, ``+`` and ``-`` entries that name it exactly, as
+    :func:`set_builtin_extension_entry` reads them, and a bare
+    ``builtin:<name>``. A ``!`` glob that matches it without naming it, such
+    as ``!builtin:*``, stays, as in Pi, and the project still decides then.
+    """
+
+    resource = BUILTIN_EXTENSION_PREFIX + name
+    paths = _resource_paths(resource, base_dir, workspace)
+    return [
+        entry
+        for entry in patterns
+        if entry != resource
+        and not (entry[:1] in ("!", "+", "-") and _matches_exactly(paths, entry[1:]))
+    ]
+
+
+def _override_matches(paths: Sequence[str], entry: str) -> bool:
+    """A ``!`` entry is a minimatch glob, a ``+`` or ``-`` entry an exact
+    path (Pi)."""
+
+    target = entry[1:]
+    if entry[0] == "!":
+        return any(minimatch(path, target) for path in paths)
+    return _matches_exactly(paths, target)
+
+
+def _last_matching_override(
+    paths: Sequence[str], patterns: Sequence[object]
+) -> bool | None:
+    """Pi ``applyAutoloadDisabledPatterns``: the last matching entry decides,
+    ``+`` turning on and ``!`` or ``-`` off; ``None`` when none matches."""
+
+    decided: bool | None = None
+    for entry in _override_entries(patterns):
+        if _override_matches(paths, entry):
+            decided = entry[0] == "+"
+    return decided
+
+
+def _enabled_by_overrides(paths: Sequence[str], patterns: Sequence[object]) -> bool:
+    """Pi ``isEnabledByOverrides``: a ``-`` entry turns it off over a ``+``
+    entry, which turns it on over a ``!`` entry, whatever their order."""
+
+    signs = {
+        entry[0]
+        for entry in _override_entries(patterns)
+        if _override_matches(paths, entry)
+    }
+    if "-" in signs:
+        return False
+    return "+" in signs or "!" not in signs

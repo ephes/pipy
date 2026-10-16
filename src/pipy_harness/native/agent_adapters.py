@@ -27,6 +27,7 @@ from pipy_harness.native.agent import (
     MessageCompleted,
     NestedToolCallCompleted,
     NestedToolCallStarted,
+    NestedToolCallUpdated,
     ProviderFailed,
     RetryCompleted,
     RetryScheduled,
@@ -94,7 +95,10 @@ class ProductSessionEventProjection:
             self._suppress_next_assistant = True
         elif isinstance(event, MessageCompleted):
             self._project_message(event)
-        elif isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
+        elif isinstance(
+            event,
+            (NestedToolCallStarted, NestedToolCallUpdated, NestedToolCallCompleted),
+        ):
             return  # Live evidence only; T7b owns parent durable details.
         elif isinstance(event, ToolCallCompleted):
             self._completed_tool_request_ids.add(event.result.tool_request_id)
@@ -246,7 +250,10 @@ class SdkAgentEventAdapter:
     def emit(self, event: AgentEvent) -> None:
         if isinstance(event, AgentRunSettled):
             self._result = event.result
-        elif isinstance(event, (NestedToolCallStarted, NestedToolCallCompleted)):
+        elif isinstance(
+            event,
+            (NestedToolCallStarted, NestedToolCallUpdated, NestedToolCallCompleted),
+        ):
             return  # SDK exposes assistant text and terminal run results only.
         elif isinstance(event, AssistantTextDelta) and self._stream_sink is not None:
             self._stream_sink(event.delta.value)

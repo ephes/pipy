@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -197,11 +198,29 @@ def test_loop_to_live_transcript_and_all_projections(
     assert all(type(v) is int for v in workflow._counts)
     assert "read" not in repr(workflow.counts())
     assert sdk.result is outcome.result
-    children = [e for e in automation.events if "parentToolCallId" in e]
+    children = [
+        e
+        for e in automation.events
+        if "parentToolCallId" in e and e["type"] != "tool_execution_update"
+    ]
     assert [e["type"] for e in children] == [
         "tool_execution_start",
         "tool_execution_end",
     ] * 2
+    # The fixture tool writes "progress" while it runs: Pi's parent-linked
+    # tool_execution_update (M12).
+    updates = [e for e in automation.events if e["type"] == "tool_execution_update"]
+    assert updates[0] == {
+        "type": "tool_execution_update",
+        "toolCallId": "parent0/1",
+        "parentToolCallId": "parent0",
+        "toolName": "read",
+        "args": {},
+        "partialResult": {
+            "content": [{"type": "text", "text": "progress"}],
+            "details": {},
+        },
+    }
     assert all(e["parentToolCallId"] == "parent0" for e in children)
     assert children[0] == {
         "type": "tool_execution_start",
@@ -215,12 +234,21 @@ def test_loop_to_live_transcript_and_all_projections(
         for e in automation.events
         if e["type"] == "tool_execution_end" and "parentToolCallId" not in e
     )
-    parent_details = parent_end["details"]
+    assert "details" not in parent_end
+    parent_result = parent_end["result"]
+    assert isinstance(parent_result, dict)
+    parent_details = parent_result["details"]
     assert isinstance(parent_details, dict)
     assert parent_details["nestedCalls"]["calls"][0]["status"] == "ok"
-    child_text = children[1]["result"]
-    assert isinstance(child_text, str)
+    child_result = children[1]["result"]
+    assert isinstance(child_result, dict)
+    assert set(child_result) <= {"content", "details"}
+    child_text = child_result["content"][0]["text"]
     assert child_text.endswith(" transformed") and children[1]["isError"] is False
+    if interruption is None:
+        # The blocked call never ran: no execution time (Pi omits it).
+        assert children[3]["toolName"] == "write"
+        assert "durationMs" not in children[3]
     live.width = 19
     live.transcript.refresh_tool_rows()
     live.transcript.set_tools_expanded(True)
@@ -260,10 +288,13 @@ def test_live_status_args_bounds_sanitize_and_parent_mismatch(tmp_path: Path) ->
         not any(ord(c) < 32 or 127 <= ord(c) < 160 for c in line.arguments + line.error)
         for line in retained
     )
+    # The 257th call pushed out the oldest one (call 1, ok).
+    assert state.nested_dropped == 1
+    assert retained[0].call_id == "parent/2"
     assert [line.status for line in retained[:3]] == [
-        "ok",
         "error",
         "cancelled",
+        "ok",
     ]
     assert all(line.duration_seconds == 0.125 for line in retained)
     live.transcript.set_tools_expanded(True)
@@ -284,6 +315,46 @@ def test_live_status_args_bounds_sanitize_and_parent_mismatch(tmp_path: Path) ->
         live.transcript.pending_tool is not None
         and live.transcript.pending_tool.nested_lines == ()
     )
+
+
+def test_the_live_row_keeps_the_latest_calls_past_the_record_bound(
+    tmp_path: Path,
+) -> None:
+    """Pi keeps every live call and shows the latest; the row keeps the latest
+    256, dropping the oldest finished call first, and counts the rest."""
+
+    live = _Live(tmp_path)
+    adapter = RenderingAgentEventAdapter(live.renderer)
+    parent = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    adapter.emit(ToolCallStarted(0, parent))
+    state = live.transcript.pending_tool
+    assert state is not None
+    # Call 1 keeps running while 299 more start and end.
+    slow = _child(n=1, args='{"path":"slow"}')
+    adapter.emit(NestedToolCallStarted(0, "parent", slow))
+    for n in range(2, 301):
+        call = _child(n=n, args=f'{{"path":"f{n}"}}')
+        adapter.emit(NestedToolCallStarted(0, "parent", call))
+        adapter.emit(_end(call, error=n == 300))
+    assert len(state.nested_lines) == 256
+    assert state.nested_dropped == 44
+    # The running call stayed, the oldest finished ones went.
+    assert [line.call_id for line in state.nested_lines[:2]] == [
+        "parent/1",
+        "parent/46",
+    ]
+    collapsed = _plain(live.transcript.pending_tool_lines)
+    assert "... (292 earlier calls, ctrl+o to expand)" in collapsed
+    # The latest calls and the latest failure are visible.
+    assert any('✗ read {"path":"f300"}' in line for line in collapsed)
+    assert any('✓ read {"path":"f299"}' in line for line in collapsed)
+    adapter.emit(_end(slow))
+    assert state.nested_lines[0].status == "ok"
+    live.transcript.set_tools_expanded(True)
+    expanded = _plain(live.transcript.pending_tool_lines)
+    assert "... (44 earlier calls, not kept)" in expanded
+    assert any('read {"path":"f46"}' in line for line in expanded)
+    assert not any('read {"path":"f45"}' in line for line in expanded)
 
 
 def test_automation_unknown_rejected_and_plain_children_indented() -> None:
@@ -378,12 +449,14 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
             ("read", "{}"),
             ("read", "{}"),
             ("write", "{}"),
-            ("bash", "{}"),
             ("read", "malformed"),
             ("read", "{}"),
         ]:
             service.call(name, args)
-        service.call("codemode", "{}")  # refusal has no events or execution
+        # A name outside the callable snapshot is refused before admission:
+        # no events, no execution, and so no nested "unauthorized" outcome.
+        service.call("codemode", "{}")
+        service.call("extension", "{}")
         return ToolExecutionOutcome(_tool_result(parent))
 
     tools = _NestedTools(
@@ -396,7 +469,8 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         ],
     )
     loop, _, events, _ = _setup(_Runner(body), tools=tools)
-    loop.run(_run_input(tool_budget=6))
+    # The parent holds the only place in the budget: nested calls take none.
+    loop.run(_run_input(tool_budget=1))
     lifecycle = [
         event
         for event in events.events
@@ -412,7 +486,7 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
     ]
     assert [type(event) for event in lifecycle] == [
         ToolCallStarted,
-        *([NestedToolCallStarted, NestedToolCallCompleted] * 6),
+        *([NestedToolCallStarted, NestedToolCallCompleted] * 5),
         ToolCallCompleted,
     ]
     completed = [
@@ -422,13 +496,89 @@ def test_all_accepted_policy_outcomes_have_ordered_nested_pairs() -> None:
         NestedCallStatus.SETTLED,
         NestedCallStatus.SETTLED,
         NestedCallStatus.BLOCKED,
-        NestedCallStatus.UNAUTHORIZED,
         NestedCallStatus.MALFORMED,
-        NestedCallStatus.BUDGET_EXHAUSTED,
+        NestedCallStatus.SETTLED,
     ]
-    assert not completed[0].result.is_error
-    assert all(event.result.is_error for event in completed[1:])
+    assert [event.result.is_error for event in completed] == [
+        False,
+        True,
+        True,
+        True,
+        False,
+    ]
     assert all(
         event.call.provider_correlation_id == f"parent0/{i}"
         for i, event in enumerate(completed, 1)
     )
+
+
+def test_nested_mcp_calls_are_rows_of_the_codemode_row(tmp_path: Path) -> None:
+    """RND-04: like built-in nested calls, under the tool's pipy name (Pi
+    ``CodemodeNestedCall.name`` is the tool's name)."""
+
+    live = _Live(tmp_path)
+    live.width = 100
+    adapter = RenderingAgentEventAdapter(live.renderer)
+    parent = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    search = AgentToolCall(
+        "parent/1", "mcp__docs__search", ProductContent('{"query":"pi"}')
+    )
+    read = AgentToolCall("parent/2", "read", ProductContent('{"path":"a"}'))
+    adapter.emit(ToolCallStarted(0, parent))
+    adapter.emit(NestedToolCallStarted(0, "parent", search))
+    assert '… mcp__docs__search {"query":"pi"}' in _plain(
+        live.transcript.pending_tool_lines
+    )
+    adapter.emit(_end(search, error=True))
+    adapter.emit(NestedToolCallStarted(0, "parent", read))
+    adapter.emit(_end(read))
+    live.renderer.render_tool_result(output_text="done", is_error=False)
+    assert live.rows() == [
+        [
+            "codemode",
+            '✗ mcp__docs__search {"query":"pi"} 125ms',
+            '✓ read {"path":"a"} 125ms',
+            "done",
+        ]
+    ]
+
+    stream = io.StringIO()
+    plain = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+    plain.render_tool_call(parent)
+    plain.render_nested_tool_call(_end(search))
+    assert '  ✓ mcp__docs__search {"query":"pi"} 125ms' in stream.getvalue()
+
+
+def test_calls_of_nested_calls_are_rows_of_the_parent_row(tmp_path: Path) -> None:
+    """A tool a script called runs a tool itself (Pi: nested calls at every
+    depth): its call is a row of the same parent row, live and plain."""
+
+    live = _Live(tmp_path)
+    live.width = 100
+    adapter = RenderingAgentEventAdapter(live.renderer)
+    parent = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    outer = AgentToolCall("parent/1", "outer", ProductContent("{}"))
+    inner = AgentToolCall("parent/1/1", "read", ProductContent('{"path":"a"}'))
+    adapter.emit(ToolCallStarted(0, parent))
+    adapter.emit(NestedToolCallStarted(0, "parent", outer))
+    adapter.emit(NestedToolCallStarted(0, "parent/1", inner))
+    adapter.emit(_end(inner))
+    adapter.emit(_end(outer))
+    # Another parent's calls stay out.
+    adapter.emit(NestedToolCallStarted(0, "parentx", _child("parentx")))
+    live.renderer.render_tool_result(output_text="done", is_error=False)
+    assert live.rows() == [
+        [
+            "codemode",
+            "✓ outer {} 125ms",
+            '✓ read {"path":"a"} 125ms',
+            "done",
+        ]
+    ]
+
+    stream = io.StringIO()
+    plain = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+    plain.render_tool_call(parent)
+    plain.render_nested_tool_call(_end(inner))
+    plain.render_nested_tool_call(_end(_child("parentx")))
+    assert stream.getvalue().count("✓ read") == 1

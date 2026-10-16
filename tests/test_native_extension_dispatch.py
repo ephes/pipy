@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.coding.session import CodingSession
@@ -159,6 +161,42 @@ def test_dispatch_runs_handler_and_captures_notify(tmp_path: Path) -> None:
     assert dispatch.ran is True
     assert dispatch.error is None
     assert dispatch.messages == (("info", "extension status: ok"),)
+
+
+def test_dispatch_awaits_an_async_command_handler(tmp_path: Path) -> None:
+    # Pi awaits a command's handler: an `async def` handler runs to its end,
+    # and what it raises is the command's error.
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "asyncext",
+        "import asyncio\n"
+        "def activate(api):\n"
+        "    async def status(ctx, args):\n"
+        "        await asyncio.sleep(0)\n"
+        "        ctx.ui.notify('awaited ' + args)\n"
+        "    async def broken(ctx, args):\n"
+        "        await asyncio.sleep(0)\n"
+        "        raise RuntimeError('late failure')\n"
+        "    api.register_command('async-status', 'Show status', status)\n"
+        "    api.register_command('async-broken', 'Fail', broken)\n",
+    )
+    command_map = _command_map(workspace)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        dispatch = dispatch_extension_command(
+            "/async-status now", command_map, cwd=str(workspace), has_ui=True
+        )
+        broken = dispatch_extension_command(
+            "/async-broken", command_map, cwd=str(workspace), has_ui=True
+        )
+        gc.collect()
+
+    assert dispatch is not None and dispatch.ran and dispatch.error is None
+    assert dispatch.messages == (("info", "awaited now"),)
+    assert broken is not None and not broken.ran
+    assert broken.error == "RuntimeError"
 
 
 def test_dispatch_passes_raw_args(tmp_path: Path) -> None:
@@ -812,6 +850,34 @@ def test_handler_exception_is_bounded(tmp_path: Path) -> None:
     # Bounded, no raw message leak.
     assert "/Users/x" not in dispatch.error
     assert "leak-tok-123" not in dispatch.error
+    # The exception's own text is kept apart, for Pi's extension error
+    # report of a command a prompt ran.
+    assert dispatch.message == "/Users/x/leak-tok-123"
+
+
+@pytest.mark.parametrize("raised", ["RuntimeError", "GeneratorExit"])
+def test_an_exception_whose_text_raises_is_still_bounded(
+    tmp_path: Path, raised: str
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write(
+        workspace,
+        "badtext",
+        "class Odd(Exception):\n"
+        "    def __str__(self):\n"
+        f"        raise {raised}('no text')\n"
+        "def activate(api):\n"
+        "    def boom(ctx, args):\n"
+        "        raise Odd()\n"
+        "    api.register_command('boom', 'b', boom)\n",
+    )
+
+    dispatch = dispatch_extension_command(
+        "/boom", _command_map(workspace), cwd=str(workspace), has_ui=False
+    )
+
+    assert dispatch is not None
+    assert (dispatch.ran, dispatch.error, dispatch.message) == (False, "Odd", "Odd")
 
 
 def test_extension_custom_entry_runs_through_the_session(tmp_path, monkeypatch) -> None:

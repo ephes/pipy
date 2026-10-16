@@ -160,7 +160,7 @@ class OpenAIChatCompletionsProvider:
             headers[header_name] = header_value
         # Copilot per-request headers follow the model headers (Pi
         # ``createClient``). This adapter does not render image attachments, so
-        # it never sends an image and never sets ``Copilot-Vision-Request``.
+        # ``Copilot-Vision-Request`` is set for the images of tool results only.
         if self.provider_name == COPILOT_PROVIDER_NAME:
             headers.update(copilot_dynamic_headers(request, images_sent=False))
         # Apply Bearer api_key only when no Authorization header is already

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
@@ -28,6 +28,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolPolicyDecision,
+    AgentToolResultTransform,
 )
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
@@ -72,6 +73,7 @@ from pipy_harness.native.extension_hooks import dispatch_tool_call_hooks
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.keybindings import KeybindingsManager
+from pipy_harness.native.mcp.commands import MCP_COMMAND_NAME
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections
@@ -80,6 +82,8 @@ from pipy_harness.native.repl.extension_operations import (
     SessionHookFamily,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.mcp_command import McpSessionCommand
+from pipy_harness.native.repl.mcp_session import McpSession
 from pipy_harness.native.repl.provider_config_commands import (
     ProviderConfigurationCommandEffects,
 )
@@ -110,7 +114,7 @@ from pipy_harness.native.session_tree_commands import (
 )
 from pipy_harness.native.settings import SettingsManager, retry_policy_from_settings
 from pipy_harness.native.tool_capabilities import NativeToolCapabilities
-from pipy_harness.native.tool_renderers import _parse_tool_input, _ToolLoopRenderer
+from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
     TerminalUi,
@@ -199,6 +203,12 @@ class SessionCollaborators:
     extension_ui_driver: _LiveExtensionUiDriver | None
     extension_notify: Callable[[str, str], None]
 
+    # ``/mcp``; ``None`` when MCP is turned off. ``session_commands`` is its
+    # entry for the slash menu.
+    mcp_command: McpSessionCommand | None = None
+    session_commands: Mapping[str, str] = field(default_factory=dict)
+    # The session's MCP servers, which ``/reload`` starts again.
+    mcp: McpSession | None = None
     summary_retry_status: SummaryRetryObserver | None = None
     summary_retry_loader: SummaryRetryLoader | None = None
 
@@ -357,6 +367,7 @@ class SessionCollaborators:
             diag=self.diag,
             current_session_dir=self.current_session_dir,
             import_transition=import_transition,
+            tool_renderers=(self.execution_projections.published_tool_renderer_lookup),
         )
 
     def reload_command_effects(
@@ -380,6 +391,7 @@ class SessionCollaborators:
             keybindings=keybindings,
             terminal_ui=self.terminal_ui,
             extension_ui_driver=self.extension_ui_driver,
+            ui_driver=self.extension_operations.ui_driver,
             renderer=renderer,
             error_stream=self.error_stream,
             emitter=emitter,
@@ -390,6 +402,8 @@ class SessionCollaborators:
             diag=self.diag,
             redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
             extension_send_message=self.custom_renderer.extension_send_message,
+            session_commands=self.session_commands,
+            mcp=self.mcp,
         )
 
     def rebuild_messages_from_tree(self) -> None:
@@ -664,7 +678,10 @@ class SessionCollaborators:
         return self.extension_operations.prepare_provider_request(policy_input)
 
     def apply_extension_tool_policy(
-        self, call: AgentToolCall
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
     ) -> AgentToolPolicyDecision:
         generation_id, hooks, flags, ui_driver = (
             self.execution_projections.tool_call_policy_inputs()
@@ -672,9 +689,11 @@ class SessionCollaborators:
         tool_block = dispatch_tool_call_hooks(
             hooks,
             tool_name=call.tool_name,
-            tool_input=_parse_tool_input(call.arguments_json.value),
+            tool_input=arguments,
+            tool_call_id=call.provider_correlation_id,
+            parent_tool_call_id=parent_call_id,
             cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
+            has_ui=self.extension_operations.has_ui,
             notify_sink=self.extension_notify,
             ui_driver=ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(
@@ -685,28 +704,45 @@ class SessionCollaborators:
         )
         if tool_block is None:
             return AgentToolPolicyDecision()
-        return AgentToolPolicyDecision(ProductContent(tool_block.reason))
+        return AgentToolPolicyDecision(
+            ProductContent(tool_block.reason),
+            terminate=tool_block.terminate is True,
+        )
 
     def transform_extension_tool_result(
-        self, call: AgentToolCall, result: AgentToolResultMessage
-    ) -> ProductContent:
+        self,
+        call: AgentToolCall,
+        result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+    ) -> AgentToolResultTransform:
         return self.extension_operations.transform_tool_result(
             tool_name=call.tool_name,
             content=result.content,
             is_error=result.is_error,
+            structured_content=result.structured_content,
+            tool_call_id=call.provider_correlation_id,
+            parent_tool_call_id=parent_call_id,
+            tool_input=arguments,
+            details=result.details,
+            blocks=result.blocks,
         )
 
     def dispatch_resource_effect(
-        self, command_text: str
+        self, command_text: str, *, prompt: bool = False
     ) -> ResourceDispatchResolution | None:
         resource_dispatch = dispatch_resource_command(
-            command_text, self.ctl.workspace_resources
+            command_text, self.ctl.workspace_resources, prompt=prompt
         )
         if resource_dispatch is None:
             return None
         if resource_dispatch.is_reject:
             return ResourceDispatchResolution(
                 ResourceDispatchKind.REJECT, resource_dispatch.message
+            )
+        if resource_dispatch.is_pass_through:
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.PASS_THROUGH, resource_dispatch.message
             )
         if resource_dispatch.is_run:
             return ResourceDispatchResolution(
@@ -725,9 +761,14 @@ class SessionCollaborators:
             ui_custom_driver=self.extension_custom_driver,
         )
         if extension_dispatch is None:
+            # ``/mcp`` comes after the extensions' commands, so an extension
+            # that registers ``mcp`` replaces it.
+            if self.mcp_command is not None and self.mcp_command.dispatch(command_text):
+                return ExtensionDispatchResolution(name=MCP_COMMAND_NAME, ran=True)
             return None
         return ExtensionDispatchResolution(
             name=extension_dispatch.name,
             ran=extension_dispatch.ran,
             error=extension_dispatch.error,
+            message=extension_dispatch.message,
         )

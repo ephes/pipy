@@ -10,7 +10,7 @@ import inspect
 import threading
 import typing
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import copy
 from dataclasses import dataclass, replace
@@ -48,6 +48,7 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    ToolRendererResolver,
 )
 from pipy_harness.native.extensions.activation import (
     _ExtensionCandidate,
@@ -60,6 +61,11 @@ from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
     RegisteredShortcut,
     _ExtensionRuntime,
+)
+from pipy_harness.native.extensions.live_tools import (
+    LiveToolRegistry,
+    LiveToolRendererResolvers,
+    LiveToolRenderers,
 )
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
@@ -211,11 +217,19 @@ class ExtensionToolProjection:
     registered: tuple[RegisteredTool, ...]
     ports: Mapping[str, ToolPort]
     capability_state: ToolCapabilityState
+    # Where the generation's extensions register tools after they loaded,
+    # and how such a registration becomes a port (with the generation's
+    # flag values), for the session to publish it.
+    live: LiveToolRegistry
+    build_port: Callable[[RegisteredTool], ToolPort]
 
 
 @dataclass(frozen=True, slots=True)
 class ExtensionRendererProjection:
     tools: Mapping[str, ExtensionTool]
+    # Resolvers of `api.register_tool_renderer`, in extension load order: a
+    # view that also has those registered while the session runs.
+    tool_resolvers: Sequence[ToolRendererResolver]
     messages: Mapping[str, RegisteredMessageRenderer]
     entries: Mapping[str, RegisteredEntryRenderer]
 
@@ -441,22 +455,24 @@ def build_extension_projection(
         ports[port.definition.name] = port
     capability_state = build_tool_capability(ports)
     _validate_capability_projection(ports, capability_state)
+    live_tools = LiveToolRegistry(
+        runtime.tools,
+        renderer_groups=runtime.tool_renderer_groups or (("", runtime.tool_renderers),),
+    )
     tools = ExtensionToolProjection(
         registered=_freeze_tuple(runtime.tools),
         ports=_freeze_mapping(ports),
         capability_state=capability_state,
+        live=live_tools,
+        build_port=lambda registered: build_tool_port(registered, values),
     )
 
     step("renderer_mappings")
     renderers = ExtensionRendererProjection(
-        tools=_freeze_mapping(
-            {
-                registered.tool.name: registered.tool
-                for registered in runtime.tools
-                if registered.tool.render_call is not None
-                or registered.tool.render_result is not None
-            }
-        ),
+        # A view: a tool registered again after loading draws with its
+        # latest renderers.
+        tools=LiveToolRenderers(live_tools),
+        tool_resolvers=LiveToolRendererResolvers(live_tools),
         messages=_freeze_mapping(runtime.message_renderers),
         entries=_freeze_mapping(runtime.entry_renderers),
     )
@@ -1009,6 +1025,18 @@ class SessionExtensionGeneration:
     runtime: _ExtensionRuntime
     projection: ExtensionProjection | None = None
     chrome_token: object | None = None
+
+    def reset_live_registrations(self) -> None:
+        """Forget what the extensions registered after they loaded: tools,
+        tool renderer resolvers and MCP servers. Another session in the run
+        replaces this one, and Pi's ``AgentSessionRuntime`` loads the
+        extensions again for it, so what an old session's handlers or
+        commands registered is gone and the new session's ``session_start``
+        handlers register it again once, not once more."""
+
+        if self.projection is not None:
+            self.projection.tools.live.reset()
+        self.runtime.mcp_servers.reset()
 
 
 def publish_candidate_ownership(candidate: _ExtensionCandidate) -> bool:

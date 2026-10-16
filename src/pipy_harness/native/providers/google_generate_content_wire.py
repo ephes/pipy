@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -48,7 +48,12 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    ThinkingContent,
+    tool_result_images,
+)
 from pipy_harness.native.http import ProviderHTTPError
 from pipy_harness.native.models import (
     ProviderContentBlock,
@@ -57,6 +62,7 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.providers.replay_content import (
     ReplayTarget,
+    tool_result_parts,
     transform_assistant_blocks,
 )
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
@@ -101,9 +107,16 @@ def gemini_contents(
         for envelope in request.messages:
             contents.append(
                 envelope_to_content(
-                    envelope, parse_error_class=parse_error_class, target=target
+                    envelope,
+                    parse_error_class=parse_error_class,
+                    target=target,
+                    model_id=request.model_id,
                 )
             )
+            if isinstance(envelope, AgentToolResultMessage):
+                image_turn = _tool_result_image_turn(envelope, request.model_id)
+                if image_turn is not None:
+                    contents.append(image_turn)
         if attach_images:
             _attach_images(contents, request)
         return contents
@@ -146,8 +159,15 @@ def envelope_to_content(
     *,
     parse_error_class: type[ProviderHTTPError],
     target: ReplayTarget | None = None,
+    model_id: str = "",
 ) -> dict[str, Any]:
-    """Translate one ``AgentMessage`` into a Gemini ``contents`` entry."""
+    """Translate one ``AgentMessage`` into a Gemini ``contents`` entry.
+
+    ``model_id`` decides where a tool result's images go (Pi
+    ``supportsMultimodalFunctionResponse``): inside the function response
+    for Gemini 3 and later and for models that are not Gemini, else in the
+    separate user turn :func:`gemini_contents` adds after it.
+    """
 
     if isinstance(envelope, AgentUserMessage):
         return {"role": "user", "parts": [{"text": envelope.content.value}]}
@@ -157,21 +177,48 @@ def envelope_to_content(
             parts.append({"text": ""})
         return {"role": "model", "parts": parts}
     if isinstance(envelope, AgentToolResultMessage):
-        return {
-            "role": "user",
-            "parts": [
-                {
-                    "functionResponse": {
-                        "id": portable_tool_correlation_id(
-                            envelope.provider_correlation_id
-                        ),
-                        "name": envelope.tool_name,
-                        "response": {"result": envelope.content.value},
-                    }
-                }
-            ],
+        text, images = tool_result_parts(envelope)
+        response: dict[str, Any] = {
+            "id": portable_tool_correlation_id(envelope.provider_correlation_id),
+            "name": envelope.tool_name,
+            "response": {"result": text},
         }
+        if images and _multimodal_function_response(model_id):
+            response["parts"] = _image_parts(images)
+        return {"role": "user", "parts": [{"functionResponse": response}]}
     raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
+
+
+_GEMINI_MAJOR_VERSION = re.compile(r"^gemini(?:-live)?-(\d+)")
+
+
+def _multimodal_function_response(model_id: str) -> bool:
+    """Pi ``supportsMultimodalFunctionResponse``: Gemini before 3 cannot
+    take images inside a function response; other models can."""
+
+    match = _GEMINI_MAJOR_VERSION.match(model_id.lower())
+    return match is None or int(match.group(1)) >= 3
+
+
+def _image_parts(images: Sequence[ImageContent]) -> list[dict[str, Any]]:
+    return [
+        {"inlineData": {"mimeType": image.mime_type, "data": image.data}}
+        for image in images
+    ]
+
+
+def _tool_result_image_turn(
+    envelope: AgentToolResultMessage, model_id: str
+) -> dict[str, Any] | None:
+    """Pi: for Gemini before 3 a tool result's images follow it in a user turn."""
+
+    images = tool_result_images(envelope.blocks)
+    if not images or _multimodal_function_response(model_id):
+        return None
+    return {
+        "role": "user",
+        "parts": [{"text": "Tool result image:"}, *_image_parts(images)],
+    }
 
 
 # Pi ``isValidThoughtSignature``: Google APIs take base64 (``TYPE_BYTES``).

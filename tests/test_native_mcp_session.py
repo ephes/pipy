@@ -1,0 +1,1402 @@
+"""MCP servers in a session (MCP parity plan S17 to S19).
+
+A coding session with a scripted provider and the fake stdio server as a real
+child process: the servers of ``mcp.json`` start with the session, their
+tools reach the model and codemode scripts through the normal tool pipeline,
+and the session's end closes them. Rows SES-01 to SES-03, SES-17, SES-19,
+EXP-05, the MCP part of EXT-03 and CFG-01's trust wiring.
+
+The S17 tests have a server with `codemode` tools, which no prompt waits
+for, so the provider's first turn calls an extension tool that waits until
+the server's tools are registered. The readiness waits themselves (S18, rows
+SES-05 to SES-10) follow, then S19: activating `codemode` and `tool_search`
+from the configuration, the startup report and the switches that turn MCP
+off (SES-04, SES-11 to SES-13, EXP-11, EXP-12).
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import sys
+import threading
+import time
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import pytest
+from test_native_codemode_delivery import (
+    runtime,  # noqa: F401 - the real-runtime fixture
+)
+from test_native_codemode_delivery import settings as codemode_settings
+from test_native_extension_tool_metadata import (
+    _result,
+    _tool_names,
+    _tool_results,
+)
+from test_native_mcp_connection import _FAKE_SERVER, _is_alive
+
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native.codemode import selftest
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
+from pipy_harness.native.mcp import readiness as readiness_module
+from pipy_harness.native.mcp.manager import McpManager
+from pipy_harness.native.mcp.readiness import STILL_CONNECTING_NOTICE
+from pipy_harness.native.models import (
+    ProviderRequest,
+    ProviderResult,
+    ProviderToolCall,
+)
+from pipy_harness.native.project_trust import has_trust_requiring_project_resources
+from pipy_harness.native.repl import mcp_loading
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
+
+_WAIT_SECONDS = 20.0
+
+_SEARCH = {
+    "name": "search",
+    "description": "Search the docs.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    },
+    "outputSchema": {
+        "type": "object",
+        "properties": {"hits": {"type": "array", "items": {"type": "string"}}},
+        "required": ["hits"],
+    },
+    "annotations": {"readOnlyHint": True},
+}
+_WIPE = {
+    "name": "wipe",
+    "description": "Delete every page.",
+    "inputSchema": {"type": "object", "properties": {}},
+    "annotations": {"destructiveHint": True},
+}
+_RESULTS = {
+    "search": {
+        "content": [{"type": "text", "text": "pipy guide\npipy faq"}],
+        "structuredContent": {"hits": ["pipy guide", "pipy faq"]},
+    },
+    "wipe": {"content": [{"type": "text", "text": "wiped"}]},
+}
+
+# Waits until `count` MCP tools are registered and writes what
+# `ctx.get_all_tools()` reports about them.
+_WAITER = """import json, time
+from pathlib import Path
+from pipy_harness.extensions import ExtensionTool, ToolResult
+
+
+def activate(api):
+    def wait(ctx, params):
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            tools = [t for t in ctx.get_all_tools() if t.name.startswith('mcp__')]
+            if len(tools) >= params['count']:
+                Path(__file__).with_name('tools.json').write_text(json.dumps([
+                    {'name': t.name, 'exposure': t.exposure,
+                     'namespace': t.namespace.name,
+                     'aliases': list(t.namespace.aliases),
+                     'description': t.namespace.description,
+                     'instructions': t.namespace.instructions,
+                     'read_only': t.annotations.read_only_hint
+                     if t.annotations else None,
+                     'reaches': t.reaches_tools is not None}
+                    for t in tools]))
+                return ToolResult(content='ready')
+            time.sleep(0.02)
+        return ToolResult(content='no MCP tools', is_error=True)
+
+    api.register_tool(ExtensionTool(
+        name='wait_for_mcp', description='Wait for the MCP tools.',
+        input_schema={'type': 'object',
+                      'properties': {'count': {'type': 'integer'}},
+                      'required': ['count'], 'additionalProperties': False},
+        handler=wait))
+"""
+
+# A permission extension as Pi's docs/mcp.md "Permissions" describes it, and a
+# result hook.
+_HOOKS = """from pipy_harness.extensions import ToolBlock, ToolResultTransform
+
+
+def activate(api):
+    @api.on('tool_call')
+    def gate(event, ctx):
+        hints = next((t.annotations for t in ctx.get_all_tools()
+                      if t.name == event.tool_name), None)
+        if hints is not None and hints.destructive_hint is True:
+            return ToolBlock(reason=event.tool_name + ' was not approved')
+
+    @api.on('tool_result')
+    def redact(event, ctx):
+        if event.tool_name == 'mcp__docs__search':
+            return ToolResultTransform(
+                content=event.content.replace('faq', '[redacted]'),
+                structured_content=event.structured_content)
+"""
+
+_WAIT_CALL = ProviderToolCall("wait", "wait_for_mcp", '{"count": 2}')
+
+
+def _server(
+    directory: Path, name: str = "docs", **scenario: Any
+) -> tuple[dict[str, Any], Path]:
+    """An ``mcpServers`` entry for a fake server, and its record file."""
+
+    directory.mkdir(parents=True, exist_ok=True)
+    record = directory / f"{name}-record.jsonl"
+    path = directory / f"{name}-scenario.json"
+    path.write_text(
+        json.dumps(
+            {
+                "record": str(record),
+                "tools": [_SEARCH, _WIPE],
+                "toolResults": _RESULTS,
+                "onStdinClose": [{"record": "stdin-closed"}, {"exit": 0}],
+                **scenario,
+            }
+        )
+    )
+    entry = {
+        "command": sys.executable,
+        "args": ["-I", str(_FAKE_SERVER), "--scenario", str(path)],
+    }
+    return entry, record
+
+
+def _write_mcp_json(path: Path, servers: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"mcpServers": servers}))
+
+
+def _extension(workspace: Path, name: str, body: str) -> Path:
+    directory = workspace / ".pipy" / "extensions"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.py").write_text(body, encoding="utf-8")
+    return directory
+
+
+def _records(record: Path) -> list[dict[str, Any]]:
+    if not record.exists():
+        return []
+    return [json.loads(line) for line in record.read_text().splitlines()]
+
+
+def _tool_calls(record: Path) -> list[tuple[str, Any]]:
+    return [
+        (line["received"]["params"]["name"], line["received"]["params"]["arguments"])
+        for line in _records(record)
+        if line.get("received", {}).get("method") == "tools/call"
+    ]
+
+
+def _events(record: Path) -> list[str]:
+    return [line["event"] for line in _records(record) if "event" in line]
+
+
+def _received(record: Path, method: str) -> bool:
+    return any(
+        line.get("received", {}).get("method") == method for line in _records(record)
+    )
+
+
+def _wait_until(condition: Callable[[], bool]) -> None:
+    deadline = time.monotonic() + _WAIT_SECONDS
+    while not condition():
+        assert time.monotonic() < deadline, "condition not met in time"
+        time.sleep(0.01)
+
+
+def _mcp_threads(before: set[threading.Thread]) -> list[str]:
+    """The MCP threads that started since ``before`` was taken and still run.
+
+    Other test modules leave threads of their in-memory servers behind.
+    """
+
+    return [
+        thread.name
+        for thread in threading.enumerate()
+        if thread not in before and thread.name.startswith("mcp")
+    ]
+
+
+class _Provider:
+    """Answers with scripted results; a callable runs before its result."""
+
+    name = "stub"
+    model_id = "stub-model"
+    supports_mid_convo_system_messages = True
+    supports_tool_calls = True
+
+    def __init__(self, results: list[ProviderResult | Callable[[], object]]) -> None:
+        self._results = list(results)
+        self.requests: list[ProviderRequest] = []
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
+        step = self._results.pop(0)
+        while not isinstance(step, ProviderResult):
+            step()
+            step = self._results.pop(0)
+        return step
+
+
+def _run(
+    workspace: Path,
+    provider: _Provider,
+    prompts: str = "go\n",
+    *,
+    settings: SettingsManager | None = None,
+    abort_event: threading.Event | None = None,
+    resource_options: RuntimeResourceOptions | None = None,
+    tool_filter_options: ToolFilterOptions | None = None,
+) -> tuple[HarnessStatus, str]:
+    errors = io.StringIO()
+    session = CodingSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+        tool_budget=8,
+        settings_manager=settings,
+        abort_event=abort_event,
+        resource_options=resource_options or RuntimeResourceOptions.empty(),
+        tool_filter_options=tool_filter_options or ToolFilterOptions.empty(),
+    )
+    result = session.run(
+        workspace_root=workspace,
+        input_stream=io.StringIO(prompts),
+        output_stream=io.StringIO(),
+        error_stream=errors,
+    )
+    return result.status, errors.getvalue()
+
+
+def test_a_direct_mcp_tool_is_declared_and_called_like_a_builtin(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Pi: "declares directly exposed MCP tools to the model" (EXP-05).
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    extensions = _extension(workspace, "waiter", _WAITER)
+    entry, record = _server(tmp_path / "servers", instructions="Search first.")
+    _write_mcp_json(
+        config / "mcp.json",
+        {"docs": {**entry, "exposure": "direct", "description": "Product docs"}},
+    )
+    provider = _Provider(
+        [
+            _result(tool_calls=(_WAIT_CALL,)),
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "mcp__docs__search", '{"query": "pipy"}'),
+                    # A value no conversion makes a string (Pi turns 3 into "3").
+                    ProviderToolCall("c2", "mcp__docs__search", '{"query": [3]}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+    before = set(threading.enumerate())
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The request after the server connected declares both tools.
+    assert _tool_names(provider.requests[1])[-2:] == [
+        "mcp__docs__search",
+        "mcp__docs__wipe",
+    ]
+    declared = provider.requests[1].available_tools[-2]
+    assert declared.description == "Search the docs."
+    assert declared.input_schema == _SEARCH["inputSchema"]
+    found, invalid = _tool_results(provider.requests[2])[-2:]
+    assert (found.is_error, found.content.value) == (False, "pipy guide\npipy faq")
+    # Arguments are checked against the server's schema before the call.
+    assert invalid.is_error and "query" in invalid.content.value
+    assert _tool_calls(record) == [("search", {"query": "pipy"})]
+    # EXT-03: what an extension reads about the MCP tools.
+    assert json.loads((extensions / "tools.json").read_text()) == [
+        {
+            "name": f"mcp__docs__{tool}",
+            "exposure": "direct",
+            "namespace": "mcp__docs",
+            "aliases": ["docs"],
+            "description": "Product docs",
+            "instructions": "Search first.",
+            "read_only": read_only,
+            "reaches": False,
+        }
+        for tool, read_only in (("search", True), ("wipe", None))
+    ]
+    # SES-17: the session's end closed the server and waited for it.
+    assert "stdin-closed" in _events(record)
+    # A transport's own threads end just after it reported its close.
+    _wait_until(lambda: _mcp_threads(before) == [])
+
+
+def test_hooks_block_and_change_direct_mcp_calls(tmp_path: Path, monkeypatch) -> None:
+    # SES-19; Pi docs/mcp.md "Permissions".
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    _extension(workspace, "waiter", _WAITER)
+    _extension(workspace, "hooks", _HOOKS)
+    entry, record = _server(tmp_path / "servers")
+    _write_mcp_json(config / "mcp.json", {"docs": {**entry, "exposure": "direct"}})
+    provider = _Provider(
+        [
+            _result(tool_calls=(_WAIT_CALL,)),
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "mcp__docs__wipe", "{}"),
+                    ProviderToolCall("c2", "mcp__docs__search", '{"query": "pipy"}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    wipe, search = _tool_results(provider.requests[2])[-2:]
+    assert wipe.is_error and "mcp__docs__wipe was not approved" in wipe.content.value
+    assert (search.is_error, search.content.value) == (
+        False,
+        "pipy guide\npipy [redacted]",
+    )
+    assert _tool_calls(record) == [("search", {"query": "pipy"})]
+
+
+def test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # Pi: "exposes codemode-only MCP tools through codemode and hides them
+    # from the model", "applies per-tool exposure overrides", "rejects direct
+    # model calls to codemode-only MCP tools"; CMD-05 and SES-19 for nested
+    # calls.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    _extension(workspace, "waiter", _WAITER)
+    _extension(workspace, "hooks", _HOOKS)
+    entry, record = _server(
+        tmp_path / "servers",
+        tools=[_SEARCH, _WIPE, {"name": "fail", "inputSchema": {"type": "object"}}],
+        toolResults={
+            **_RESULTS,
+            "fail": {
+                "content": [{"type": "text", "text": "server exploded"}],
+                "isError": True,
+            },
+        },
+    )
+    # The default exposure is `codemode`; one tool is declared directly.
+    _write_mcp_json(
+        workspace / "mcp.json",
+        {"docs": {**entry, "toolExposure": {"fail": "direct"}}},
+    )
+    code = """found = tools.mcp__docs__search(query='pipy')
+try:
+    tools.mcp__docs__wipe()
+except ToolError as error:
+    blocked = str(error)
+failed = tools.mcp__docs__fail()
+text({'hits': found['structuredContent']['hits'],
+      'text': found['content'][0]['text'], 'blocked': blocked,
+      'failed': [failed['isError'], failed['content'][0]['text']],
+      'listed': [tool['name'] for tool in search_tools('docs search')]})
+"""
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(ProviderToolCall("wait", "wait_for_mcp", '{"count": 3}'),)
+            ),
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "codemode", json.dumps({"code": code})),
+                )
+            ),
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c2", "mcp__docs__search", '{"query": "pipy"}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[1])
+    assert "codemode" in names and "mcp__docs__fail" in names
+    assert not {"mcp__docs__search", "mcp__docs__wipe"} & set(names)
+    parent = _tool_results(provider.requests[2])[-1]
+    assert not parent.is_error, parent.content.value
+    output = json.loads(
+        parent.content.value.split("Output:\n", 1)[1].split("\nTool calls", 1)[0]
+    )
+    assert output["hits"] == ["pipy guide", "pipy faq"]
+    # The result hook changed the text and passed the structured content on.
+    assert output["text"] == "pipy guide\npipy faq"
+    assert "mcp__docs__wipe was not approved" in output["blocked"]
+    # CMD-05: an error result resolves, with `isError`, instead of raising.
+    assert output["failed"] == [True, "server exploded"]
+    assert "mcp__docs__search" in output["listed"]
+    rejected = _tool_results(provider.requests[3])[-1]
+    assert rejected.is_error
+    assert rejected.content.value == "Tool mcp__docs__search not found"
+    assert _tool_calls(record) == [("search", {"query": "pipy"}), ("fail", {})]
+    # RND-04: the nested MCP calls are rows of the codemode row.
+    nested = [line.strip() for line in errors.splitlines()]
+    assert any(
+        line.startswith('✓ mcp__docs__search {"query": "pipy"}') for line in nested
+    ), errors
+    assert any(line.startswith("✗ mcp__docs__fail {}") for line in nested), errors
+    assert "stdin-closed" in _events(record)
+
+
+def test_session_end_closes_a_server_that_is_still_connecting(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-01 and SES-17: the prompt ran while the server had not answered
+    # `initialize`, and the session's end did not leave its process behind.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers",
+        methods={"initialize": [{"record": "initialize"}, {"sleep": 120}]},
+        onStdinClose=[],
+    )
+    pid_file = tmp_path / "pid"
+    launcher = (
+        "import os, sys\n"
+        "open(sys.argv[1], 'w').write(str(os.getpid()))\n"
+        "os.execv(sys.executable, [sys.executable, *sys.argv[2:]])\n"
+    )
+    entry = {
+        "command": sys.executable,
+        "args": ["-I", "-c", launcher, str(pid_file), *entry["args"]],
+    }
+    _write_mcp_json(config / "mcp.json", {"slow": entry})
+    provider = _Provider(
+        [lambda: _wait_until(lambda: "initialize" in _events(record)), _result()]
+    )
+    before = set(threading.enumerate())
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # SES-06; Pi: "does not hold the first prompt for codemode servers that
+    # are still connecting".
+    assert STILL_CONNECTING_NOTICE not in errors
+    assert not _is_alive(int(pid_file.read_text()))
+    # A transport's own threads end just after it reported its close.
+    _wait_until(lambda: _mcp_threads(before) == [])
+
+
+def test_a_session_that_ends_in_a_lifecycle_hook_still_closes_its_servers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Closing the servers does not depend on `session_shutdown` being reached."""
+
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    _extension(
+        workspace,
+        "interrupt",
+        "def activate(api):\n"
+        "    @api.on('agent_settled')\n"
+        "    def stop(event, ctx):\n"
+        "        raise KeyboardInterrupt\n",
+    )
+    entry, record = _server(tmp_path / "servers")
+    _write_mcp_json(config / "mcp.json", {"docs": entry})
+    provider = _Provider(
+        [lambda: _wait_until(lambda: _received(record, "tools/list")), _result()]
+    )
+    before = set(threading.enumerate())
+
+    with pytest.raises(KeyboardInterrupt):
+        _run(workspace, provider)
+
+    assert "stdin-closed" in _events(record)
+    _wait_until(lambda: _mcp_threads(before) == [])
+
+
+def _two_servers(tmp_path: Path, config: Path, workspace: Path) -> tuple[Path, Path]:
+    user_entry, user_record = _server(tmp_path / "servers", "user")
+    project_entry, project_record = _server(tmp_path / "servers", "project")
+    _write_mcp_json(config / "mcp.json", {"user": user_entry})
+    _write_mcp_json(workspace / ".pipy" / "mcp.json", {"project": project_entry})
+    return user_record, project_record
+
+
+def test_project_mcp_json_is_read_only_for_a_trusted_project(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # CFG-01, at the session: an untrusted project's servers never start.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    user_record, project_record = _two_servers(tmp_path, config, workspace)
+    assert has_trust_requiring_project_resources(workspace)
+    provider = _Provider(
+        [lambda: _wait_until(lambda: _received(user_record, "tools/list")), _result()]
+    )
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=SettingsManager.for_workspace(workspace, project_trusted=False),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "stdin-closed" in _events(user_record)
+    assert not project_record.exists()
+
+
+def test_a_trusted_project_adds_its_servers(tmp_path: Path, monkeypatch) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    user_record, project_record = _two_servers(tmp_path, config, workspace)
+    provider = _Provider(
+        [
+            lambda: _wait_until(
+                lambda: (
+                    _received(user_record, "tools/list")
+                    and _received(project_record, "tools/list")
+                )
+            ),
+            _result(),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "stdin-closed" in _events(user_record)
+    assert "stdin-closed" in _events(project_record)
+
+
+def test_a_notice_reaches_the_user_at_the_next_prompt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    _extension(workspace, "waiter", _WAITER)
+    entry, _record = _server(
+        tmp_path / "servers",
+        tools=[_SEARCH, _WIPE, {"name": "odd", "inputSchema": {"type": "string"}}],
+    )
+    _write_mcp_json(config / "mcp.json", {"docs": entry})
+    provider = _Provider(
+        [
+            _result(tool_calls=(_WAIT_CALL,)),
+            _result(final_text="first"),
+            _result(final_text="second"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider, "go\nagain\n")
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert len(provider.requests) == 3
+    assert errors.count('MCP tool "docs/odd" is not available: ') == 1, errors
+
+
+def test_a_session_without_mcp_json_starts_nothing(tmp_path: Path, monkeypatch) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    threads: list[list[str]] = []
+    before = set(threading.enumerate())
+    provider = _Provider([lambda: threads.append(_mcp_threads(before)), _result()])
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert threads == [[]]
+    assert not (config / "mcp.log").exists()
+    assert not [name for name in _tool_names(provider.requests[0]) if "mcp__" in name]
+
+
+def test_a_broken_mcp_json_does_not_stop_the_session(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    config.mkdir()
+    (config / "mcp.json").write_text("{not json")
+    provider = _Provider([_result(final_text="fine")])
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+
+
+# -- S18: readiness waits -----------------------------------------------------
+
+# The server answers `initialize` late, or never.
+_LATE = {"initialize": [{"record": "initialize"}, {"sleep": 0.5}, {"default": True}]}
+_NEVER = {"initialize": [{"record": "initialize"}, {"sleep": 120}]}
+
+
+def _settings(workspace: Path, *default_tools: str) -> SettingsManager:
+    """Settings whose user-level directory, and so `mcp.json`, is the workspace."""
+
+    return SettingsManager(
+        global_path=workspace / "global.json",
+        project_path=workspace / "project.json",
+        overrides={"defaultTools": list(default_tools), "theme": "pi"},
+    )
+
+
+def _codemode_output(result: Any) -> Any:
+    assert not result.is_error, result.content.value
+    text = result.content.value.split("Output:\n", 1)[1].split("\nTool calls", 1)[0]
+    return json.loads(text)
+
+
+def test_the_first_prompt_waits_for_a_server_with_direct_tools(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-05; Pi: "holds the first prompt for servers with direct tools".
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(config / "mcp.json", {"slow": {**entry, "exposure": "direct"}})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "mcp__slow__search", '{"query": "q"}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The first request already declares the tools.
+    assert _tool_names(provider.requests[0])[-2:] == [
+        "mcp__slow__search",
+        "mcp__slow__wipe",
+    ]
+    assert _tool_results(provider.requests[1])[-1].content.value == (
+        "pipy guide\npipy faq"
+    )
+    assert STILL_CONNECTING_NOTICE not in errors
+
+
+def test_a_registered_mcp_tools_call_is_titled_with_its_server_and_tool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # RND-01: the exact names, where the tool's pipy name has `my_docs`.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers", "my-docs")
+    _write_mcp_json(config / "mcp.json", {"my-docs": {**entry, "exposure": "direct"}})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "mcp__my_docs__search", '{"query": "q"}'),
+                    # No tool has this name; the name tells the title.
+                    ProviderToolCall("c2", "mcp__my_docs__gone", "{}"),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    lines = [line.strip() for line in errors.splitlines()]
+    assert 'my-docs/search query="q"' in lines
+    assert "my_docs/gone" in lines
+
+
+def test_the_first_prompt_waits_for_a_single_direct_tool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-05: "server exposure or any `toolExposure` value".
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(
+        config / "mcp.json", {"slow": {**entry, "toolExposure": {"wipe": "direct"}}}
+    )
+    provider = _Provider([_result(final_text="done")])
+
+    status, errors = _run(workspace, provider)
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "mcp__slow__wipe" in names and "mcp__slow__search" not in names
+
+
+def test_the_first_prompt_waits_only_up_to_the_startup_limit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-05; Pi: "holds the first prompt for servers with direct tools only
+    # up to startupWaitMs". The second prompt does not wait again.
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    monkeypatch.setattr(readiness_module, "STARTUP_WAIT_SECONDS", 0.2)
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers", "slow", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(config / "mcp.json", {"slow": {**entry, "exposure": "direct"}})
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+    started = time.monotonic()
+
+    status, errors = _run(workspace, provider, "go\nagain\n")
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert time.monotonic() - started < _WAIT_SECONDS
+    assert len(provider.requests) == 2
+    assert not [name for name in _tool_names(provider.requests[1]) if "mcp__" in name]
+    assert errors.count(STILL_CONNECTING_NOTICE) == 1, errors
+    assert "initialize" in _events(record)
+
+
+def test_a_script_waits_for_the_server_it_names(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-07, SES-08; Pi: "waits for the servers a codemode script names" and
+    # "waits for servers whose script identifiers differ from their names".
+    # The second server never connects and is not waited for.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "slow-docs", methods=_LATE)
+    other, _other_record = _server(
+        tmp_path / "servers", "other", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(workspace / "mcp.json", {"slow-docs": entry, "other": other})
+    code = (
+        "found = tools.mcp__slow_docs__search(query='q')\n"
+        "text(found['structuredContent'])"
+    )
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "codemode", json.dumps({"code": code})),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The first prompt did not wait: its request has no MCP tool.
+    assert not [name for name in _tool_names(provider.requests[0]) if "mcp__" in name]
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == {
+        "hits": ["pipy guide", "pipy faq"]
+    }
+    assert _tool_calls(record) == [("search", {"query": "q"})]
+
+
+def test_a_script_does_not_wait_for_a_server_it_does_not_name(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-08; Pi: "does not wait for servers a codemode script does not name".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers", "slow", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(workspace / "mcp.json", {"slow": entry})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall(
+                        "c1", "codemode", json.dumps({"code": "text(1 + 1)"})
+                    ),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+    started = time.monotonic()
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert time.monotonic() - started < _WAIT_SECONDS
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == 2
+    assert not _received(record, "tools/list")
+
+
+def test_a_script_that_searches_tools_waits_for_every_server(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-08: a discovery global reaches every tool.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"slow": entry})
+    code = "text([tool['name'] for tool in search_tools('search the docs')])"
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c1", "codemode", json.dumps({"code": code})),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(workspace, provider, settings=codemode_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "mcp__slow__search" in _codemode_output(
+        _tool_results(provider.requests[1])[-1]
+    )
+
+
+def test_tool_search_waits_for_the_servers_before_it_searches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-09; Pi: "waits for servers before tool_search searches".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", "slow", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"slow": {**entry, "exposure": "deferred"}})
+    provider = _Provider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall(
+                        "c1", "tool_search", '{"query": "search the docs", "limit": 1}'
+                    ),
+                )
+            ),
+            _result(
+                tool_calls=(
+                    ProviderToolCall("c2", "mcp__slow__search", '{"query": "late"}'),
+                )
+            ),
+            _result(final_text="done"),
+        ]
+    )
+
+    status, errors = _run(
+        workspace, provider, settings=_settings(workspace, "+tool_search")
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "mcp__slow__search" not in _tool_names(provider.requests[0])
+    assert "mcp__slow__search" in _tool_names(provider.requests[1])
+    called = _tool_results(provider.requests[2])[-1]
+    assert (called.is_error, called.content.value) == (False, "pipy guide\npipy faq")
+    assert _tool_calls(record) == [("search", {"query": "late"})]
+
+
+def test_an_abort_ends_the_wait_of_a_tool_call(tmp_path: Path, monkeypatch) -> None:
+    # SES-10: "Every readiness wait ends when the turn is cancelled."
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(
+        tmp_path / "servers", "slow", methods=_NEVER, onStdinClose=[]
+    )
+    _write_mcp_json(workspace / "mcp.json", {"slow": {**entry, "exposure": "deferred"}})
+    abort = threading.Event()
+    provider = _Provider(
+        [
+            lambda: threading.Timer(0.3, abort.set).start(),
+            _result(
+                tool_calls=(ProviderToolCall("c1", "tool_search", '{"query": "docs"}'),)
+            ),
+            _result(final_text="not reached"),
+        ]
+    )
+    started = time.monotonic()
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace, "+tool_search"),
+        abort_event=abort,
+    )
+
+    assert time.monotonic() - started < _WAIT_SECONDS
+    assert abort.is_set()
+    # The call was cancelled while it waited; the turn ended with it.
+    assert len(provider.requests) == 1, errors
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert not _received(record, "tools/list")
+
+
+# -- S19: discovery activation, the startup report, the switches --------------
+
+_UNREACHABLE = (
+    "MCP tools are only reachable from the codemode or tool_search tool, "
+    "but neither is active{reason}; they cannot be called."
+)
+_SEARCH_SCRIPT = """found = tools.mcp__docs__search(query='pipy')
+text(found['structuredContent']['hits'])
+"""
+
+
+def _codemode_call(code: str = _SEARCH_SCRIPT) -> ProviderResult:
+    return _result(
+        tool_calls=(ProviderToolCall("c1", "codemode", json.dumps({"code": code})),)
+    )
+
+
+def _load_and_call() -> list[ProviderResult | Callable[[], object]]:
+    """`tool_search` loads the search tool, then the model calls it."""
+
+    return [
+        _result(
+            tool_calls=(
+                ProviderToolCall(
+                    "c1", "tool_search", '{"query": "search the docs", "limit": 1}'
+                ),
+            )
+        ),
+        _result(
+            tool_calls=(
+                ProviderToolCall("c2", "mcp__docs__search", '{"query": "loaded"}'),
+            )
+        ),
+        _result(final_text="done"),
+    ]
+
+
+def test_codemode_is_activated_from_the_config(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-11; Pi: "does not hold the first prompt for codemode servers that
+    # are still connecting" asserts "codemode is activated from the config".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"docs": entry})
+    provider = _Provider([_codemode_call(), _result(final_text="done")])
+
+    # Nothing in the settings selects codemode.
+    status, errors = _run(workspace, provider, settings=_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    # The first request declares it, before the server connected.
+    names = _tool_names(provider.requests[0])
+    assert "codemode" in names and "tool_search" not in names
+    assert not [name for name in names if name.startswith("mcp__")]
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == [
+        "pipy guide",
+        "pipy faq",
+    ]
+    assert "MCP" not in errors
+
+
+def test_codemode_is_not_activated_when_auto_enable_codemode_is_false(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-11, SES-13; Pi: "does not activate codemode when autoEnableCodemode
+    # is false".
+    probes: list[object] = []
+    monkeypatch.setattr(selftest, "availability", lambda: probes.append(1))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers")
+    (workspace / "mcp.json").write_text(
+        json.dumps({"autoEnableCodemode": False, "mcpServers": {"docs": entry}})
+    )
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+
+    status, errors = _run(
+        workspace, provider, "go\nagain\n", settings=_settings(workspace)
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    for request in provider.requests:
+        assert "codemode" not in _tool_names(request)
+    reason = " (autoEnableCodemode is false)"
+    assert errors.count(_UNREACHABLE.format(reason=reason)) == 1, errors
+    assert probes == []
+
+
+def test_tool_search_reaches_codemode_tools_without_codemode(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-12; Pi: "treats codemode MCP tools as reachable through an active
+    # tool_search".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers")
+    (workspace / "mcp.json").write_text(
+        json.dumps({"autoEnableCodemode": False, "mcpServers": {"docs": entry}})
+    )
+    provider = _Provider(_load_and_call())
+
+    status, errors = _run(
+        workspace, provider, settings=_settings(workspace, "+tool_search")
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "mcp__docs__search" not in _tool_names(provider.requests[0])
+    names = _tool_names(provider.requests[1])
+    assert "mcp__docs__search" in names and "codemode" not in names
+    called = _tool_results(provider.requests[2])[-1]
+    assert (called.is_error, called.content.value) == (False, "pipy guide\npipy faq")
+    assert _tool_calls(record) == [("search", {"query": "loaded"})]
+    assert "MCP tools are only reachable" not in errors
+
+
+def test_tool_search_is_activated_for_deferred_tools(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-11: `deferred` asks for tool_search, not for codemode.
+    probes: list[object] = []
+    monkeypatch.setattr(selftest, "availability", lambda: probes.append(1))
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers", methods=_LATE)
+    _write_mcp_json(workspace / "mcp.json", {"docs": {**entry, "exposure": "deferred"}})
+    provider = _Provider(_load_and_call())
+
+    status, errors = _run(workspace, provider, settings=_settings(workspace))
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "tool_search" in names and "codemode" not in names
+    called = _tool_results(provider.requests[2])[-1]
+    assert (called.is_error, called.content.value) == (False, "pipy guide\npipy faq")
+    assert probes == [] and "MCP" not in errors
+
+
+def test_codemode_reaches_deferred_tools_without_tool_search(
+    tmp_path: Path,
+    monkeypatch,
+    runtime,  # noqa: F811
+) -> None:
+    # SES-12; Pi: "reaches deferred MCP tools through codemode when
+    # tool_search is not available".
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers")
+    _write_mcp_json(workspace / "mcp.json", {"docs": {**entry, "exposure": "deferred"}})
+    provider = _Provider([_codemode_call(), _result(final_text="done")])
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace, "+codemode"),
+        tool_filter_options=ToolFilterOptions(exclude=("tool_search",)),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "codemode" in names and "tool_search" not in names
+    assert _codemode_output(_tool_results(provider.requests[1])[-1]) == [
+        "pipy guide",
+        "pipy faq",
+    ]
+    assert "MCP tools are only reachable" not in errors
+
+
+def test_warns_when_the_codemode_runtime_is_unavailable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # SES-13: codemode is wanted but cannot be registered.
+    monkeypatch.setattr(
+        selftest,
+        "availability",
+        lambda: selftest.Availability(available=False, reason="no runtime here"),
+    )
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers")
+    _write_mcp_json(workspace / "mcp.json", {"docs": entry})
+    provider = _Provider([_result(final_text="one"), _result(final_text="two")])
+
+    status, errors = _run(
+        workspace, provider, "go\nagain\n", settings=_settings(workspace)
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert "codemode" not in _tool_names(provider.requests[0])
+    assert errors.count("pipy: codemode unavailable: no runtime here") == 1, errors
+    assert errors.count(_UNREACHABLE.format(reason="")) == 1, errors
+
+
+def _recorded_managers(monkeypatch) -> list[Any]:
+    """The MCP managers the session wiring creates from now on."""
+
+    managers: list[Any] = []
+
+    class Recording(McpManager):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            managers.append(self)
+
+    monkeypatch.setattr(mcp_loading, "McpManager", Recording)
+    return managers
+
+
+def test_startup_problems_are_reported_once(tmp_path: Path, monkeypatch) -> None:
+    # SES-04.
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, _record = _server(tmp_path / "servers")
+    config = workspace / "mcp.json"
+    config.write_text(
+        json.dumps(
+            {
+                "autoEnableCodemode": "yes",
+                "mcpServers": {
+                    "docs": {**entry, "exposure": "direct"},
+                    "gone": {
+                        "command": str(tmp_path / "no-such-server"),
+                        "exposure": "direct",
+                    },
+                },
+            }
+        )
+    )
+    managers = _recorded_managers(monkeypatch)
+    provider = _Provider(
+        [
+            lambda: managers[0].wait_until_settled(_WAIT_SECONDS),
+            _result(final_text="one"),
+            _result(final_text="two"),
+        ]
+    )
+
+    status, errors = _run(
+        workspace, provider, "go\nagain\n", settings=_settings(workspace)
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    head = (
+        "MCP servers need attention:\n"
+        f"  config: {config}: autoEnableCodemode must be a boolean\n"
+        "  gone: failed: "
+    )
+    assert errors.count(head) == 1, errors
+    assert errors.count("MCP servers need attention:") == 1
+    report = errors[errors.index(head) :]
+    assert report.split("\n")[3] == "Run /mcp to fix."
+    # The working server was not listed, and its tools were declared.
+    assert "  docs:" not in errors
+    assert "mcp__docs__search" in _tool_names(provider.requests[0])
+
+
+def test_no_mcp_reads_no_file_and_starts_no_process(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # EXP-11.
+    def refuse(**_kwargs: object) -> None:
+        raise AssertionError("mcp.json was read")
+
+    monkeypatch.setattr(mcp_loading, "load_mcp_config", refuse)
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    entry, record = _server(tmp_path / "servers")
+    (workspace / "mcp.json").write_text(
+        json.dumps(
+            {
+                "autoEnableCodemode": "yes",
+                "mcpServers": {"docs": {**entry, "exposure": "direct"}},
+            }
+        )
+    )
+    threads: list[list[str]] = []
+    before = set(threading.enumerate())
+    provider = _Provider([lambda: threads.append(_mcp_threads(before)), _result()])
+
+    status, errors = _run(
+        workspace,
+        provider,
+        settings=_settings(workspace),
+        resource_options=RuntimeResourceOptions(no_mcp=True),
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert threads == [[]]
+    assert not record.exists()
+    names = _tool_names(provider.requests[0])
+    assert not [name for name in names if "mcp__" in name]
+    assert "codemode" not in names and "tool_search" not in names
+    assert "MCP" not in errors
+
+
+@pytest.mark.parametrize(
+    ("extensions", "options", "connects"),
+    [
+        (["-builtin:mcp"], RuntimeResourceOptions(), False),
+        ([], RuntimeResourceOptions(no_extensions=True), False),
+        (
+            ["-builtin:mcp"],
+            RuntimeResourceOptions(no_extensions=True, builtin_extensions=("mcp",)),
+            True,
+        ),
+        ([], RuntimeResourceOptions(), True),
+    ],
+)
+def test_the_builtin_mcp_entry_turns_mcp_off_and_on(
+    tmp_path: Path,
+    monkeypatch,
+    extensions: list[str],
+    options: RuntimeResourceOptions,
+    connects: bool,
+) -> None:
+    # EXP-12: `-builtin:mcp` in `extensions`, `--no-extensions`, and
+    # `--extension builtin:mcp`.
+    config = tmp_path / "config"
+    config.mkdir()
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    (config / "settings.json").write_text(json.dumps({"extensions": extensions}))
+    entry, record = _server(tmp_path / "servers")
+    _write_mcp_json(config / "mcp.json", {"docs": {**entry, "exposure": "direct"}})
+    settings = SettingsManager(
+        global_path=config / "settings.json",
+        project_path=workspace / ".pipy" / "settings.json",
+        overrides={"theme": "pi"},
+    )
+    provider = _Provider([_result()])
+
+    status, errors = _run(
+        workspace, provider, settings=settings, resource_options=options
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    declared = "mcp__docs__search" in _tool_names(provider.requests[0])
+    assert declared is connects
+    assert record.exists() is connects
+
+
+@pytest.mark.parametrize(
+    ("extensions", "options", "declared"),
+    [
+        (["-builtin:tool-search"], RuntimeResourceOptions(), False),
+        (
+            [],
+            RuntimeResourceOptions(no_extensions=True, builtin_extensions=("mcp",)),
+            False,
+        ),
+        (
+            ["-builtin:tool-search"],
+            RuntimeResourceOptions(
+                no_extensions=True, builtin_extensions=("mcp", "tool-search")
+            ),
+            True,
+        ),
+        ([], RuntimeResourceOptions(), True),
+    ],
+)
+def test_the_builtin_tool_search_entry_turns_tool_search_off_and_on(
+    tmp_path: Path,
+    monkeypatch,
+    extensions: list[str],
+    options: RuntimeResourceOptions,
+    declared: bool,
+) -> None:
+    # Pi loads tool_search as the built-in extension `tool-search`:
+    # `-builtin:tool-search`, `--no-extensions` and `-e builtin:tool-search`
+    # apply to it as to `mcp`. Without it a deferred server's tools are
+    # unreachable, which the user is told.
+    monkeypatch.setattr(selftest, "availability", lambda: None)
+    config = tmp_path / "config"
+    config.mkdir()
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    (config / "settings.json").write_text(json.dumps({"extensions": extensions}))
+    entry, _record = _server(tmp_path / "servers")
+    _write_mcp_json(config / "mcp.json", {"docs": {**entry, "exposure": "deferred"}})
+    settings = SettingsManager(
+        global_path=config / "settings.json",
+        project_path=workspace / ".pipy" / "settings.json",
+        overrides={"theme": "pi"},
+    )
+    provider = _Provider([_result()])
+
+    status, errors = _run(
+        workspace, provider, settings=settings, resource_options=options
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    assert ("tool_search" in _tool_names(provider.requests[0])) is declared
+    assert ("MCP tools are only reachable" in errors) is not declared
+
+
+@pytest.mark.parametrize(
+    "options",
+    [RuntimeResourceOptions(), RuntimeResourceOptions(no_extensions=True)],
+)
+def test_the_builtin_codemode_entry_turns_codemode_off(
+    tmp_path: Path, monkeypatch, options: RuntimeResourceOptions
+) -> None:
+    # Pi loads codemode as the built-in extension `codemode`; turned off,
+    # `defaultTools` cannot select it and its runtime is never probed.
+    probes: list[object] = []
+    monkeypatch.setattr(selftest, "availability", lambda: probes.append(1))
+    config = tmp_path / "config"
+    config.mkdir()
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    disabled = [] if options.no_extensions else ["-builtin:codemode"]
+    (config / "settings.json").write_text(
+        json.dumps({"extensions": disabled, "defaultTools": ["+codemode"]})
+    )
+    settings = SettingsManager(
+        global_path=config / "settings.json",
+        project_path=workspace / ".pipy" / "settings.json",
+        overrides={"theme": "pi"},
+    )
+    provider = _Provider([_result()])
+
+    status, errors = _run(
+        workspace, provider, settings=settings, resource_options=options
+    )
+
+    assert status is HarnessStatus.SUCCEEDED, errors
+    names = _tool_names(provider.requests[0])
+    assert "codemode" not in names and "read" in names
+    assert probes == []

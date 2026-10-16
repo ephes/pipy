@@ -25,9 +25,10 @@ import json
 import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, TextIO
+from typing import Any, BinaryIO, Protocol, TextIO
 
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
@@ -40,9 +41,11 @@ from pipy_harness.native.automation.jsonl import (
     JsonlWriter,
     loads_strict,
 )
+from pipy_harness.native.automation.rpc_ui import RpcUi
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.coding.session_controller import (
     _NATIVE_CONTROL_EOF,
+    _NATIVE_CONTROL_IDLE,
     _NATIVE_CONTROL_WAKE,
     _NativeControlReady,
     _NativeControlSnapshot,
@@ -223,6 +226,10 @@ _KNOWN_COMMANDS = frozenset(
 )
 
 
+# How often the idle worker looks for notices while no command arrives.
+_IDLE_POLL_SECONDS = 0.1
+
+
 class _WakeChannel:
     """Blocking wake/EOF transport for the native control bridge.
 
@@ -230,7 +237,9 @@ class _WakeChannel:
     bare newline and EOF is the empty string, so the bridge can tell a
     redundant wake (no reservation left to select) from end of input; the
     bridge resolves the matching native reservation separately. EOF is sticky:
-    every read after it returns EOF immediately.
+    every read after it returns EOF immediately. A read that waits longer
+    than ``_IDLE_POLL_SECONDS`` returns the idle marker, so that the worker
+    can do its idle work.
     """
 
     def __init__(self) -> None:
@@ -246,10 +255,41 @@ class _WakeChannel:
             self._q.put(True)
 
     def readline(self, *_args: Any) -> str:
-        if self._q.get():
+        try:
+            eof = self._q.get(timeout=_IDLE_POLL_SECONDS)
+        except queue.Empty:
+            # Nothing yet: the worker shows what arose meanwhile (the
+            # notices of the MCP servers) and reads again.
+            return _NATIVE_CONTROL_IDLE
+        if eof:
             self._q.put(True)
             return _NATIVE_CONTROL_EOF
         return _NATIVE_CONTROL_WAKE
+
+
+class _SessionCommands(Protocol):
+    """The session's slash commands (``repl.session_command_port``)."""
+
+    def command_name(self, text: str) -> str | None: ...
+
+    def run(self, text: str) -> None: ...
+
+    def expand(self, text: str) -> str: ...
+
+    def has_input_hooks(self) -> bool: ...
+
+    def run_input_hooks(self, text: str) -> str | None: ...
+
+    def commands(self) -> list[dict[str, Any]]: ...
+
+
+def _queued_command_error(name: str) -> str:
+    """Pi's ``_throwIfExtensionCommand``."""
+
+    return (
+        f'Extension command "/{name}" cannot be queued. Use prompt() or execute '
+        "the command when not streaming."
+    )
 
 
 class _NullEventSink:
@@ -292,7 +332,14 @@ class NativeRpcServer:
         self._stdin = stdin
         self._writer = JsonlWriter(stdout_buffer)
         self._error = error_stream
+        # The session finds it through `automation_ui(observer)`.
+        self.ui = RpcUi(self._writer)
 
+        # Lines of stdin for the commands, in order; `None` is the end.
+        self._lines: queue.Queue[str | None] = queue.Queue()
+        self._input_error: BaseException | None = None
+        # The session's slash commands, once the session has bound them.
+        self._commands: _SessionCommands | None = None
         self._channel = _WakeChannel()
         self._bridge = _NativeSessionControlBridge()
         self._bridge.bind_wake_reader(self._channel.readline)
@@ -309,7 +356,35 @@ class NativeRpcServer:
         self._compact_ids: dict[object, str | None] = {}
         self._bash_operations: dict[object, _BashOperation] = {}
         self._bash_threads: list[threading.Thread] = []
+        # Extension commands a `prompt` runs at once during a run.
+        self._command_threads: list[threading.Thread] = []
+        # Queued input that meets the `input` hooks, in the order it came:
+        # a hook may open a dialog, whose answer this thread has to read.
+        self._input_jobs: queue.Queue[Callable[[], None] | None] = queue.Queue()
+        self._input_thread: threading.Thread | None = None
+        # Jobs submitted and not finished: while one is pending, later input
+        # waits behind it, and a session transition waits for it, so the
+        # message stays with the session it was sent to. Their own lock (it
+        # also guards `_input_thread`): the drain at the end of input holds
+        # `_lock` while it waits for the control gate.
+        self._input_jobs_pending = 0
+        self._input_jobs_done = threading.Condition(threading.Lock())
         self._worker: threading.Thread | None = None
+        # Prompts whose response the worker writes, by the identity of their
+        # content: Pi answers a prompt when it knows what became of it
+        # (`preflightResult`), which for a prompt that is next to run is known
+        # only when the session has dispatched it. `_prompt_lock` guards them
+        # and `_worker_ended`. The reader holds it across the admission, so
+        # that the worker cannot look for a prompt before it is listed; it is
+        # never taken while the control gate is held.
+        self._prompt_lock = threading.Lock()
+        self._owed_prompts: dict[int, tuple[ProductContent, str | None]] = {}
+        self._worker_ended: str | None = None
+
+    def bind_session_commands(self, commands: _SessionCommands) -> None:
+        """The session hands over its slash commands while it is composed."""
+
+        self._commands = commands
 
     # -- event tap (called from the worker thread) -----------------------
     def emit(self, event: dict[str, Any]) -> None:
@@ -324,6 +399,8 @@ class NativeRpcServer:
                 )
                 if text:
                     self._last_assistant_text = text
+        if event_type == "agent_start":
+            self._respond_prompt(self._bridge.attached_content(), "started")
         if event_type != "agent_end" or event.get("willRetry") is True:
             self._writer.write_line(event)
             return
@@ -334,10 +411,57 @@ class NativeRpcServer:
                 raise RuntimeError("terminal agent_end is already pending")
             self._pending_agent_end = event
 
+    def _take_owed_prompt(
+        self, content: ProductContent | None
+    ) -> tuple[ProductContent, str | None] | None:
+        if content is None:
+            return None
+        with self._prompt_lock:
+            return self._owed_prompts.pop(id(content), None)
+
+    def _respond_prompt(self, content: ProductContent | None, disposition: str) -> None:
+        """Answer the prompt with this content, if its answer is still owed.
+
+        Not for a publication under the control gate: it takes the prompt
+        lock, which the reader holds while it waits for that gate.
+        """
+
+        owed = self._take_owed_prompt(content)
+        if owed is not None:
+            self._respond(owed[1], "prompt", {"disposition": disposition})
+
+    def _worker_has_ended(self, reason: str) -> None:
+        """Answer the prompts the ended worker can no longer answer, and
+        refuse the ones that come later."""
+
+        with self._prompt_lock:
+            self._worker_ended = reason
+            owed = list(self._owed_prompts.values())
+            self._owed_prompts.clear()
+        for _content, cid in owed:
+            self._respond_error(cid, "prompt", reason)
+
+    def _settle_handled_prompt(self) -> None:
+        """A selected prompt ran an extension command: no run, no event."""
+
+        owed = self._take_owed_prompt(self._bridge.attached_content())
+
+        def publish(snapshot: _NativeControlSnapshot) -> None:
+            if owed is not None:
+                self._respond(owed[1], "prompt", {"disposition": "handled"})
+            if snapshot.reservation is not None:
+                self._emit_queue_update(snapshot)
+
+        snapshot = self._bridge.consume_attached_agent_end_and_publish(publish)
+        if snapshot.reservation is not None:
+            self._channel.wake()
+
     def _settle_logical_run(self) -> None:
         with self._lock:
             event = self._pending_agent_end
             self._pending_agent_end = None
+        # A run that ended before its `agent_start` still began.
+        self._respond_prompt(self._bridge.attached_content(), "started")
 
         def publish(snapshot: _NativeControlSnapshot) -> None:
             if event is not None:
@@ -365,7 +489,12 @@ class NativeRpcServer:
 
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._worker.start()
+        # stdin is read from the start, so that an extension's dialog in
+        # `session_start` or in a command's handler (also one that runs on
+        # this thread, such as a session transition hook) gets its answer.
+        threading.Thread(target=self._read_input, daemon=True).start()
         ready = False
+        ending = False
         try:
             outcome = self._bridge.wait_ready(120.0)
             if outcome is None:
@@ -382,16 +511,34 @@ class NativeRpcServer:
             self._retry = outcome.retry_port
             self._transition = outcome.transition_port
             self._bridge.bind_manual_compaction_handler(self._run_manual_compaction)
+            self._bridge.bind_handled_prompt_handler(self._settle_handled_prompt)
             ready = True
             self._read_loop()
+        except SystemExit:
+            # pipy is being ended (SIGTERM or SIGHUP, `exit_signals`). Pi
+            # disposes the runtime at once: the run in flight and the running
+            # `bash` commands are aborted, and what is queued is not run.
+            ending = True
+            if ready:
+                self._bridge.request_abort(discard_follow_ups=True)
+            self._abort_bash_operations()
+            raise
         finally:
+            # Nobody answers a UI request any more; the command that waits
+            # for one goes on as if it had been cancelled.
+            self.ui.close()
+            # A command a prompt runs at once answers its prompt and runs
+            # against the live session, so the session waits for it as it
+            # waits for a command on its own thread; its dialogs have ended.
+            if not ending:
+                self._join_command_threads()
             # Drain the active turn and any queued steer/follow-up BEFORE
             # signalling channel EOF. The channel is FIFO, so signalling EOF
             # while work is still queued/in-flight would let the worker read the
             # EOF sentinel ahead of a reserved queued message and drop it. Batch
             # clients (submit commands, then close stdin) therefore still get
             # their queued steering/follow-up runs delivered.
-            if ready and not self._retired:
+            if ready and not self._retired and not ending:
                 self._await_drain(timeout=120.0)
             self._channel.signal_eof()
             if self._worker is not None:
@@ -432,6 +579,7 @@ class NativeRpcServer:
             cwd=self._cwd,
             capture_policy=CapturePolicy(),
         )
+        ended = "the session has ended"
         try:
             prepared = self._adapter.prepare(request)
             self._adapter.run(
@@ -443,22 +591,59 @@ class NativeRpcServer:
                 self._pending_agent_end = None
             self._bridge.publish_failure_if_unpublished(exc)
             print(f"pipy: rpc worker ended: {type(exc).__name__}", file=self._error)
+            ended = f"the session has ended: {type(exc).__name__}"
+        finally:
+            # The session also ends without an exception, after a run that
+            # fails it. Nothing answers a prompt from then on.
+            self._worker_has_ended(ended)
+
+    def _read_input(self) -> None:
+        """The input thread: answers to UI requests are delivered at once
+        (Pi handles `extension_ui_response` as it arrives); every other
+        line waits for this thread's commands in order. At the end of the
+        input every waiting UI request ends unanswered."""
+
+        buffer = JsonlLineBuffer()
+        try:
+            while True:
+                chunk = self._stdin.readline()
+                # At EOF a partial last line still counts.
+                lines = buffer.flush() if chunk == "" else buffer.feed(chunk)
+                for line in lines:
+                    if not self._answer_ui(line):
+                        self._lines.put(line)
+                if chunk == "":
+                    return
+        except BaseException as error:  # noqa: BLE001 - raised on the command thread
+            # What failed here fails `run` as it did when the command thread
+            # read stdin itself.
+            self._input_error = error
+        finally:
+            self.ui.close()
+            self._lines.put(None)
+
+    def _answer_ui(self, line: str) -> bool:
+        try:
+            command = loads_strict(line)
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(command, dict) or command.get("type") != (
+            "extension_ui_response"
+        ):
+            return False
+        self.ui.respond(command)
+        return True
 
     def _read_loop(self) -> None:
-        buffer = JsonlLineBuffer()
         while True:
-            chunk = self._stdin.readline()
-            if chunk == "":
-                # Flush any buffered partial line, then EOF → graceful shutdown.
-                for line in buffer.flush():
-                    self._handle_line(line)
-                    if self._retired:
-                        return
+            line = self._lines.get()
+            if line is None:
+                if self._input_error is not None:
+                    raise self._input_error
                 return
-            for line in buffer.feed(chunk):
-                self._handle_line(line)
-                if self._retired:
-                    return
+            self._handle_line(line)
+            if self._retired:
+                return
 
     # -- dispatch --------------------------------------------------------
     def _handle_line(self, line: str) -> None:
@@ -474,7 +659,7 @@ class NativeRpcServer:
             return
         ctype = command.get("type")
         if ctype == "extension_ui_response":
-            # No pending extension UI request in this build; ignore safely.
+            self.ui.respond(command)
             return
         cid = command.get("id")
         # A non-string (and possibly unhashable, e.g. a list) ``type`` must not
@@ -605,6 +790,8 @@ class NativeRpcServer:
         *,
         fork: bool = False,
     ) -> None:
+        # A message sent before the transition stays with this session.
+        self._wait_for_input_jobs()
         try:
             result = invoke()
         except _NativeTransitionControlError:
@@ -678,37 +865,243 @@ class NativeRpcServer:
         if not isinstance(message, str) or not message:
             self._respond_error(cid, "prompt", "prompt requires a non-empty message")
             return
-        snapshot = self._bridge.admit_prompt(
-            ProductContent(message),
-            steer_active=command.get("streamingBehavior") == "steer",
-        )
-        self._respond(cid, "prompt")
+        steer = command.get("streamingBehavior") == "steer"
+        commands = self._commands
+        if commands is not None and self._input_jobs_waiting():
+            if commands.command_name(message) is not None:
+                # Pi runs an extension command at once, whatever waits.
+                self._run_command_at_once(cid, commands, message)
+                return
+            # Queued input still meets the hooks: the prompt comes after it.
+
+            def handle_later() -> None:
+                try:
+                    self._handle_prompt(cid, message, steer=steer, inline=True)
+                except Exception as error:  # noqa: BLE001 - becomes the prompt's error
+                    self._respond_error(
+                        cid, "prompt", f"{type(error).__name__}: {error}"
+                    )
+
+            self._submit_input_job(handle_later)
+            return
+        self._handle_prompt(cid, message, steer=steer, inline=False)
+
+    def _handle_prompt(
+        self, cid: str | None, message: str, *, steer: bool, inline: bool
+    ) -> None:
+        """``inline``: this runs as a job of the queued-input thread."""
+
+        commands = self._commands
+        content = ProductContent(message)
+        snapshot: _NativeControlSnapshot | None = None
+        next_to_run = False
+        with self._prompt_lock:
+            ended = self._worker_ended
+            if ended is None:
+                snapshot, next_to_run = self._admit_prompt_locked(
+                    cid, content, steer=steer, dispatched=commands is not None
+                )
+        if ended is not None:
+            self._respond_error(cid, "prompt", ended)
+            return
+        if snapshot is None:
+            # A run is in flight or input waits for one. Pi runs an extension
+            # command at once, and queues other text after the `input` hooks
+            # and its expansion.
+            assert commands is not None
+            if commands.command_name(message) is not None:
+                self._run_command_at_once(cid, commands, message)
+                return
+            self._queue_user_input(
+                cid, "prompt", commands, message, steer=steer, inline=inline
+            )
+            return
+        if not next_to_run:
+            # Behind the run in flight.
+            self._respond(cid, "prompt", {"disposition": "queued"})
         if snapshot.pending_count and not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
             self._channel.wake()
 
-    def _cmd_steer(self, cid: str | None, command: dict[str, Any]) -> None:
-        message = command.get("message")
-        if not isinstance(message, str) or not message:
-            self._respond_error(cid, "steer", "steer requires a non-empty message")
+    def _admit_prompt_locked(
+        self,
+        cid: str | None,
+        content: ProductContent,
+        *,
+        steer: bool,
+        dispatched: bool,
+    ) -> tuple[_NativeControlSnapshot | None, bool]:
+        """Admit a prompt under the prompt lock; the snapshot (``None`` when
+        nothing was admitted) and whether the prompt runs next.
+
+        With the session's commands (``dispatched``) the prompt is admitted
+        only when it runs next; the session then dispatches it (Pi
+        ``prompt``). The decision and the admission are one step, so a
+        prompt is never both queued here and dispatched there. A prompt
+        that runs next is answered by the worker, with ``started`` or
+        ``handled``.
+        """
+
+        snapshot = (
+            self._bridge.admit_prompt_if_idle(content)
+            if dispatched
+            else self._bridge.admit_prompt(content, steer_active=steer)
+        )
+        if snapshot is None:
+            return None, False
+        reservation = snapshot.reservation
+        next_to_run = reservation is not None and reservation.content is content
+        if next_to_run:
+            self._owed_prompts[id(content)] = (content, cid)
+        return snapshot, next_to_run
+
+    def _queue_user_input(
+        self,
+        cid: str | None,
+        kind: str,
+        commands: _SessionCommands,
+        message: str,
+        *,
+        steer: bool,
+        inline: bool = False,
+    ) -> None:
+        """Pi ``_queueUserInput``: the `input` hooks see the text, a hook
+        may handle it (answered ``handled``, nothing is queued), and the
+        hooks' text is queued with a skill or template expanded. The session
+        does not run the hooks or expand it again when it runs. With hooks,
+        or behind input that meets them, it happens on the queued-input
+        thread, in order; ``inline`` is a job of that thread already."""
+
+        admit = self._bridge.admit_steering if steer else self._bridge.admit_follow_up
+
+        def queue_it() -> None:
+            try:
+                text = commands.run_input_hooks(message)
+                if text is None:
+                    self._respond(cid, kind, {"disposition": "handled"})
+                    return
+                snapshot = admit(ProductContent(commands.expand(text)))
+            except Exception as error:  # noqa: BLE001 - becomes the command's error
+                self._respond_error(cid, kind, f"{type(error).__name__}: {error}")
+                return
+            self._respond(cid, kind, {"disposition": "queued"})
+            if not self._manual_compaction_active(snapshot):
+                self._emit_queue_update(snapshot)
+            if snapshot.reservation is not None and not snapshot.reservation.claimed:
+                self._channel.wake()
+
+        if inline or not (commands.has_input_hooks() or self._input_jobs_waiting()):
+            queue_it()
             return
-        snapshot = self._bridge.admit_steering(ProductContent(message))
-        self._respond(cid, "steer")
-        if not self._manual_compaction_active(snapshot):
-            self._emit_queue_update(snapshot)
-        if snapshot.reservation is not None and not snapshot.reservation.claimed:
-            self._channel.wake()
+        self._submit_input_job(queue_it)
+
+    def _input_jobs_waiting(self) -> bool:
+        with self._input_jobs_done:
+            return self._input_jobs_pending > 0
+
+    def _submit_input_job(self, job: Callable[[], None]) -> None:
+        with self._input_jobs_done:
+            self._input_jobs_pending += 1
+            if self._input_thread is None:
+                self._input_thread = threading.Thread(
+                    target=self._run_input_jobs, name="pipy-rpc-input", daemon=True
+                )
+                self._input_thread.start()
+        self._input_jobs.put(job)
+
+    def _wait_for_input_jobs(self) -> None:
+        """Until the queued input that meets the hooks is queued (or
+        handled). Answers to their dialogs arrive on the stdin thread."""
+
+        with self._input_jobs_done:
+            while self._input_jobs_pending:
+                self._input_jobs_done.wait()
+
+    def _join_command_threads(self) -> None:
+        """Wait for the queued input that meets the hooks, then for the
+        commands a prompt ran at once."""
+
+        with self._input_jobs_done:
+            input_thread = self._input_thread
+        if input_thread is not None:
+            self._input_jobs.put(None)
+            input_thread.join()
+        with self._lock:
+            pending_commands = list(self._command_threads)
+        for thread in pending_commands:
+            thread.join()
+
+    def _run_input_jobs(self) -> None:
+        while (job := self._input_jobs.get()) is not None:
+            try:
+                job()
+            finally:
+                with self._input_jobs_done:
+                    self._input_jobs_pending -= 1
+                    if not self._input_jobs_pending:
+                        self._input_jobs_done.notify_all()
+
+    def _queued_command_refused(
+        self, cid: str | None, kind: str, commands: _SessionCommands, message: str
+    ) -> bool:
+        """Pi ``_throwIfExtensionCommand``: a queued text that names an
+        extension command is refused."""
+
+        name = commands.command_name(message)
+        if name is None:
+            return False
+        self._respond_error(cid, kind, _queued_command_error(name))
+        return True
+
+    def _run_command_at_once(
+        self, cid: str | None, commands: _SessionCommands, message: str
+    ) -> None:
+        """Run the extension command on a thread of its own, so that this
+        thread goes on reading commands and its dialogs get their answers;
+        the prompt is answered ``handled`` when it returns."""
+
+        def run() -> None:
+            try:
+                commands.run(message)
+            except Exception as error:  # noqa: BLE001 - becomes the prompt's error
+                self._respond_error(cid, "prompt", f"{type(error).__name__}: {error}")
+                return
+            self._respond(cid, "prompt", {"disposition": "handled"})
+
+        thread = threading.Thread(target=run, name="pipy-rpc-command", daemon=True)
+        with self._lock:
+            self._command_threads = [t for t in self._command_threads if t.is_alive()]
+            self._command_threads.append(thread)
+        thread.start()
+
+    def _cmd_steer(self, cid: str | None, command: dict[str, Any]) -> None:
+        self._queue_command(cid, "steer", command)
 
     def _cmd_follow_up(self, cid: str | None, command: dict[str, Any]) -> None:
+        self._queue_command(cid, "follow_up", command)
+
+    def _queue_command(
+        self, cid: str | None, kind: str, command: dict[str, Any]
+    ) -> None:
         message = command.get("message")
         if not isinstance(message, str) or not message:
-            self._respond_error(
-                cid, "follow_up", "follow_up requires a non-empty message"
-            )
+            self._respond_error(cid, kind, f"{kind} requires a non-empty message")
             return
-        snapshot = self._bridge.admit_follow_up(ProductContent(message))
-        self._respond(cid, "follow_up")
+        commands = self._commands
+        if commands is not None:
+            if not self._queued_command_refused(cid, kind, commands, message):
+                self._queue_user_input(
+                    cid, kind, commands, message, steer=kind == "steer"
+                )
+            return
+        content = ProductContent(message)
+        snapshot = (
+            self._bridge.admit_steering(content)
+            if kind == "steer"
+            else self._bridge.admit_follow_up(content)
+        )
+        self._respond(cid, kind, {"disposition": "queued"})
         if not self._manual_compaction_active(snapshot):
             self._emit_queue_update(snapshot)
         if snapshot.reservation is not None and not snapshot.reservation.claimed:
@@ -722,6 +1115,10 @@ class NativeRpcServer:
             self._emit_queue_update(snapshot)
 
     def _cmd_abort_bash(self, cid: str | None, command: dict[str, Any]) -> None:
+        self._abort_bash_operations()
+        self._respond(cid, "abort_bash")
+
+    def _abort_bash_operations(self) -> None:
         # Mark and snapshot while the operation registry is stable. Signalling
         # happens after releasing the RPC lock: an Event callback must never be
         # able to block command correlation or terminal fixation.
@@ -732,7 +1129,6 @@ class NativeRpcServer:
                 events.append(operation.cancel_event)
         for event in events:
             event.set()
-        self._respond(cid, "abort_bash")
 
     def _cmd_abort_retry(self, cid: str | None, command: dict[str, Any]) -> None:
         self._retry_port().abort_retry()
@@ -1160,7 +1556,9 @@ class NativeRpcServer:
         self._writer.write_raw_line(line)
 
     def _cmd_get_commands(self, cid: str | None, command: dict[str, Any]) -> None:
-        self._respond(cid, "get_commands", {"commands": []})
+        commands = self._commands
+        listed = [] if commands is None else commands.commands()
+        self._respond(cid, "get_commands", {"commands": listed})
 
     def _cmd_get_available_models(
         self, cid: str | None, command: dict[str, Any]

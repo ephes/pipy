@@ -20,6 +20,7 @@ from pipy_harness.native.agent import (
     NestedToolCallStarted,
 )
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.ui.state import (
     CancelAssistantMessage,
     CompleteAssistantMessage,
@@ -81,6 +82,7 @@ class AgentEventRenderer(Protocol):
         is_error: bool,
         duration_seconds: float | None = None,
         details: Mapping[str, Any] | None = None,
+        images: ResultImages | None = None,
     ) -> None: ...
 
 
@@ -205,6 +207,7 @@ class RenderingAgentEventAdapter:
                 is_error=decision.is_error,
                 duration_seconds=decision.duration_seconds,
                 details=decision.details,
+                images=decision.images,
             )
         else:
             assert_never(decision)

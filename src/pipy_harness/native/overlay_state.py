@@ -150,7 +150,8 @@ class OverlayState:
     session_all: list[SessionListEntry] = field(default_factory=list)
     session_now: float = 0.0
 
-    # Pi's searchable model/thinking selectors: a component with
+    # What stands in place of the editor: Pi's searchable model/thinking
+    # selectors or the `/mcp` manager view, a component with
     # `render(width, style)` (ui/components/search_selectors.py).
     search_selector: object | None = None
 

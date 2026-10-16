@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from codemode_driver import (
@@ -37,17 +37,104 @@ CODEMODE_SRC = WORKER_PATH.parent
 
 def test_unknown_tool_suggests_the_closest_name() -> None:
     message = prelude.unknown_tool_message("reed", ["read", "ls", "grep"])
-    assert message == "tools.reed is not an available tool. Did you mean tools.read?"
+    assert message == (
+        "tools.reed does not exist. Did you mean tools.read? ALL_TOOLS lists "
+        "every tool; search_tools(query) finds tools by topic. Check for a tool "
+        'with "reed" in tools.'
+    )
 
 
 def test_unknown_tool_lists_up_to_twenty_names_and_no_more() -> None:
     few = prelude.unknown_tool_message("zzz", ["read", "ls"])
-    assert few.endswith("Available tools: tools.ls, tools.read.")
+    assert few.startswith("tools.zzz does not exist. Available: read, ls. ALL_TOOLS")
     many = [f"tool{index:02d}" for index in range(21)]
-    assert prelude.unknown_tool_message("zzz", many) == (
-        "tools.zzz is not an available tool."
+    assert prelude.unknown_tool_message("zzz", many).startswith(
+        "tools.zzz does not exist. ALL_TOOLS lists every tool;"
     )
     assert prelude.unknown_tool_message("zzz", []).endswith("No tools are available.")
+
+
+def _wire_with_replies(
+    *replies: dict[str, Any],
+) -> tuple[prelude.Wire, int, list[int]]:
+    """A wire whose host side already wrote ``replies``."""
+
+    read_fd, write_fd = os.pipe()
+    out_read, out_write = os.pipe()
+    for reply in replies:
+        os.write(write_fd, (json.dumps({"type": "result", **reply}) + "\n").encode())
+    return (
+        prelude.Wire(read_fd, out_write),
+        out_read,
+        [read_fd, write_fd, out_read, out_write],
+    )
+
+
+def _sent(out_read: int) -> list[dict[str, Any]]:
+    os.set_blocking(out_read, False)
+    try:
+        data = os.read(out_read, 1 << 16)
+    except BlockingIOError:
+        return []
+    return [json.loads(line) for line in data.splitlines()]
+
+
+def test_submitted_calls_are_sent_at_once_and_take_their_own_replies() -> None:
+    # Replies come in the order the calls settle, not the order they were made.
+    wire, out_read, fds = _wire_with_replies(
+        {"id": 2, "ok": True, "text": "second"},
+        {"id": 1, "ok": False, "error": "first failed"},
+        {"id": 3, "ok": True, "text": "third"},
+    )
+    try:
+        tools = prelude.Tools({"read": "read"}, ["read"], wire.call, wire.submit_call)
+        first = tools.read.submit(path="a")
+        second = cast(Any, tools["read"]).submit({"path": "b"})
+        assert [m["id"] for m in _sent(out_read)] == [1, 2]
+        assert repr(first) == "<pending call of tools.read>"
+        assert second.result() == "second"
+        assert second.result() == "second"
+        for _ in range(2):  # every result() raises again
+            with pytest.raises(prelude.ToolError, match="first failed"):
+                first.result()
+        assert repr(first) == "<settled call of tools.read>"
+        # A plain call waits for its own reply.
+        assert tools.read(path="c") == "third"
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_a_script_past_the_pending_limit_waits_for_a_reply() -> None:
+    limit = prelude.MAX_PENDING_REQUESTS
+    wire, out_read, fds = _wire_with_replies({"id": 1, "ok": True, "text": "one"})
+    try:
+        calls = [wire.submit_call("read", {"n": n}) for n in range(limit)]
+        assert len(_sent(out_read)) == limit
+        # The next request first reads a reply, so no more than the limit
+        # are ever waiting for the host.
+        calls.append(wire.submit_call("read", {"n": limit}))
+        assert [m["id"] for m in _sent(out_read)] == [limit + 1]
+        assert calls[0].result() == "one"
+    finally:
+        for fd in fds:
+            os.close(fd)
+
+
+def test_submit_without_a_submitting_wire_is_a_type_error() -> None:
+    tools = prelude.Tools({"read": "read"}, ["read"], lambda name, args: "x")
+    with pytest.raises(TypeError, match=r"tools\.read\.submit\(\) is not available"):
+        tools.read.submit()
+    with pytest.raises(TypeError, match="one dict of arguments or keyword"):
+        prelude.Tools(
+            {"read": "read"}, ["read"], lambda name, args: "x", lambda n, a: None
+        ).read.submit({"a": 1}, b=2)
+
+
+def test_the_host_and_the_prelude_share_the_pending_limit() -> None:
+    from pipy_harness.native.codemode import host
+
+    assert vars(host)["MAX_PENDING_REQUESTS"] is prelude.MAX_PENDING_REQUESTS == 16
 
 
 def test_call_arguments_accept_one_dict_or_keywords() -> None:
@@ -86,7 +173,7 @@ def test_tools_proxy_routes_attribute_calls_and_hides_private_names() -> None:
         sent.append((name, args))
         return "value"
 
-    tools = prelude.Tools(["read", "ls"], call)
+    tools = prelude.Tools({"read": "read", "ls": "ls"}, ["read", "ls"], call)
     assert tools.read(path="a") == "value"
     assert tools.ls({"path": "."}) == "value"
     assert sent == [("read", {"path": "a"}), ("ls", {"path": "."})]
@@ -94,8 +181,8 @@ def test_tools_proxy_routes_attribute_calls_and_hides_private_names() -> None:
     with pytest.raises(AttributeError) as unknown:
         tools.reed  # noqa: B018 - attribute access is the behaviour under test
     assert unknown.value.name is None
-    with pytest.raises(AttributeError):
-        tools._private  # noqa: B018
+    with pytest.raises(AttributeError, match="__deepcopy__"):
+        tools.__deepcopy__  # noqa: B018
 
 
 def test_traceback_keeps_only_script_frames_through_the_chain() -> None:
@@ -150,6 +237,79 @@ def test_worker_and_prelude_import_only_stdlib_and_wasmtime() -> None:
                 imported.add((node.module or "").split(".")[0])
         non_stdlib = {n for n in imported if n not in sys.stdlib_module_names}
         assert non_stdlib == allowed, name
+
+
+def test_wire_call_returns_the_text_or_the_structured_value_of_a_reply() -> None:
+    # MCP parity plan 4.9: a reply carries ``text`` or ``value`` (any JSON).
+    for reply, expected in (
+        ({"ok": True, "text": "2 files"}, "2 files"),
+        (
+            {"ok": True, "value": {"files": 2, "names": ["a"]}},
+            {"files": 2, "names": ["a"]},
+        ),
+        ({"ok": True, "value": "a string value"}, "a string value"),
+        ({"ok": True, "value": None}, None),
+        ({"ok": True, "value": 0}, 0),
+    ):
+        read_fd, write_fd = os.pipe()
+        out_read, out_write = os.pipe()
+        try:
+            os.write(
+                write_fd,
+                (json.dumps({"type": "result", "id": 1, **reply}) + "\n").encode(),
+            )
+            wire = prelude.Wire(read_fd, out_write)
+            assert wire.call("stats", {"key": "a"}) == expected
+            assert json.loads(os.read(out_read, 4096)) == {
+                "type": "call",
+                "id": 1,
+                "name": "stats",
+                "args": {"key": "a"},
+            }
+        finally:
+            for fd in (read_fd, write_fd, out_read, out_write):
+                os.close(fd)
+
+
+def test_wire_call_raises_tool_error_for_an_error_reply() -> None:
+    read_fd, write_fd = os.pipe()
+    out_read, out_write = os.pipe()
+    try:
+        os.write(write_fd, b'{"type":"result","id":1,"ok":false,"error":"denied"}\n')
+        with pytest.raises(prelude.ToolError, match="denied"):
+            prelude.Wire(read_fd, out_write).call("stats", {})
+    finally:
+        for fd in (read_fd, write_fd, out_read, out_write):
+            os.close(fd)
+
+
+def test_wire_text_sends_long_text_in_pieces_keeping_surrogate_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Goal-check finding M18: text over TEXT_PIECE_CHARS goes in pieces; a
+    # surrogate pair is never split, so JSON still joins it into one
+    # character.
+    monkeypatch.setattr(prelude, "TEXT_PIECE_CHARS", 4)
+    read_fd, write_fd = os.pipe()
+    out_read, out_write = os.pipe()
+    try:
+        wire = prelude.Wire(read_fd, out_write)
+        wire.text("abc\ud83d\ude42xyz")
+        wire.text("")
+        wire.text("1234")
+        lines = os.read(out_read, 4096).decode().splitlines()
+    finally:
+        for fd in (read_fd, write_fd, out_read, out_write):
+            os.close(fd)
+
+    messages = [json.loads(line) for line in lines]
+    assert messages == [
+        {"type": "text", "value": "abc", "more": True},
+        {"type": "text", "value": "\U0001f642xy", "more": True},
+        {"type": "text", "value": "z"},
+        {"type": "text", "value": ""},
+        {"type": "text", "value": "1234"},
+    ]
 
 
 # --- real runtime -------------------------------------------------------------------
@@ -293,8 +453,8 @@ def test_unknown_tool_and_bad_arguments_never_reach_the_host(cache_dir: Path) ->
 
     _ok(run)
     assert run.calls == []
-    assert run.texts[0] == (
-        "AttributeError: tools.reed is not an available tool. Did you mean tools.read?"
+    assert run.texts[0].startswith(
+        "AttributeError: tools.reed does not exist. Did you mean tools.read? "
     )
     assert run.texts[1] == "TypeError: tools.read() takes a dict of arguments, not list"
     assert "not both" in run.texts[2]
@@ -337,13 +497,71 @@ def test_syntax_error_is_a_script_failure(cache_dir: Path) -> None:
 
 
 @real_runtime
+def test_a_real_guest_receives_structured_values(cache_dir: Path) -> None:
+    replies = iter(
+        [
+            {"ok": True, "value": {"files": 2, "names": ["ä", None, 1.5, True]}},
+            {"ok": True, "value": [1, "two"]},
+            {"ok": True, "text": "plain"},
+        ]
+    )
+    run = _run(
+        "values = [tools.read(), tools.read(), tools.read()]\n"
+        "text([[type(value).__name__, value] for value in values])\n",
+        cache_dir,
+        tool_names=["read"],
+        reply=lambda message: {
+            "type": "result",
+            "id": message["id"],
+            **next(replies),
+        },
+    )
+
+    _ok(run)
+    assert json.loads(run.output) == [
+        ["dict", {"files": 2, "names": ["ä", None, 1.5, True]}],
+        ["list", [1, "two"]],
+        ["str", "plain"],
+    ]
+
+
+@real_runtime
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"ok": True},
+        {"ok": True, "text": 1},
+        {"ok": True, "text": "both", "value": "both"},
+        {"ok": False, "value": {"files": 2}},
+        {"ok": 1, "value": {"files": 2}},
+    ],
+)
+def test_a_reply_that_is_neither_text_value_nor_error_ends_the_guest(
+    cache_dir: Path, reply: dict[str, Any]
+) -> None:
+    run = _run(
+        "try:\n    tools.read()\nexcept BaseException:\n    text('swallowed')\n",
+        cache_dir,
+        tool_names=["read"],
+        reply=lambda message: {"type": "result", "id": message["id"], **reply},
+    )
+
+    assert run.done is None and run.texts == []
+    assert run.exit == {
+        "type": "exit",
+        "reason": "error",
+        "code": prelude.EXIT_PROTOCOL,
+    }
+
+
+@real_runtime
 @pytest.mark.parametrize("reply_id", [2, True, 1.0, "1", None])
 def test_a_malformed_host_reply_ends_the_guest_without_an_outcome(
     cache_dir: Path, reply_id: object
 ) -> None:
     def wrong_id(message: dict[str, Any]) -> dict[str, Any]:
         assert message["id"] == 1
-        return {"type": "result", "id": reply_id, "ok": True, "value": ""}
+        return {"type": "result", "id": reply_id, "ok": True, "text": ""}
 
     run = _run(
         "try:\n    tools.read()\nexcept BaseException:\n    text('swallowed')\n",
@@ -362,8 +580,18 @@ def test_a_malformed_host_reply_ends_the_guest_without_an_outcome(
 
 
 @real_runtime
-def test_a_malformed_run_request_ends_the_guest(cache_dir: Path) -> None:
-    run = _run("", cache_dir, first_line=b'{"type": "run", "code": 1}\n')
+@pytest.mark.parametrize(
+    "first_line",
+    [
+        b'{"type": "run", "code": 1}\n',
+        b'{"type": "run", "code": "", "tools": [], "store": []}\n',
+        b'{"type": "run", "code": "", "tools": [], "store": {"k": 1}}\n',
+    ],
+)
+def test_a_malformed_run_request_ends_the_guest(
+    cache_dir: Path, first_line: bytes
+) -> None:
+    run = _run("", cache_dir, first_line=first_line)
 
     assert run.messages == []
     assert run.exit == {
@@ -625,7 +853,7 @@ def test_a_worker_dies_with_its_sigkilled_host(code: str, tmp_path: Path) -> Non
         "    on_text(self, message)\n"
         "    print(message['value'], flush=True)\n"
         "host._Channel._on_text = report_text\n"
-        "outcome = host.run_script(sys.argv[1], call_tool=None, tool_names=(),\n"
+        "outcome = host.run_script(sys.argv[1], call_tool=print, tools=(),\n"
         "    limits=host.ScriptLimits(wall_seconds=60),\n"
         "    paths=host.CodemodePaths(Path(sys.argv[2])))\n"
         "print(outcome, flush=True)\n"

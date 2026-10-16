@@ -16,6 +16,7 @@ from pipy_harness.adapters import (
 )
 from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.capture import CapturePolicy
+from pipy_harness.exit_signals import exit_on_termination_signals
 from pipy_harness.models import (
     RunRequest,
 )
@@ -67,7 +68,10 @@ from pipy_harness.native.themes import (
     resolve_active_theme_name,
 )
 from pipy_harness.native.thinking import DEFAULT_THINKING_LEVEL
-from pipy_harness.native.tool_capabilities import ToolFilterOptions
+from pipy_harness.native.tool_capabilities import (
+    ToolFilterOptions,
+    apply_tool_modifiers,
+)
 from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.version_check import (
@@ -365,8 +369,9 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Load an extension file, extension directory, or directory of "
-            "extensions for this run. May be repeated. Explicit extensions "
-            "still load with --no-extensions."
+            "extensions for this run, or a built-in extension such as "
+            "builtin:mcp. May be repeated. Explicit extensions still load "
+            "with --no-extensions."
         ),
     )
     repl_parser.add_argument(
@@ -374,8 +379,18 @@ def build_parser() -> argparse.ArgumentParser:
         "-ne",
         action="store_true",
         help=(
-            "Disable default workspace/global/package extension discovery for "
-            "this run. Explicit --extension paths still load."
+            "Disable default workspace/global/package extension discovery and "
+            "the built-in extensions (mcp, codemode, tool-search) for this run. "
+            "Explicit --extension paths still load, and --extension "
+            "builtin:<name> keeps a built-in extension."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-mcp",
+        action="store_true",
+        help=(
+            "Disable the built-in MCP support for this run: no mcp.json is "
+            "read, no server connects and there are no MCP tools."
         ),
     )
     repl_parser.add_argument(
@@ -589,23 +604,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable startup network operations for this run (same as PIPY_OFFLINE=1).",
     )
 
+    # Listed for `pipy --help` and the router; `main` hands the arguments of
+    # `pipy mcp` to the command's own parser before argparse sees them.
+    subparsers.add_parser(
+        "mcp",
+        add_help=False,
+        help="Add, remove and check MCP servers (`pipy mcp --help`).",
+    )
+
     config_parser = subparsers.add_parser(
         "config",
-        help="View or toggle resource enablement (skills/prompts/themes/extensions).",
+        help=(
+            "View or toggle resource enablement (skills/prompts/themes/"
+            "extensions and the built-in MCP support)."
+        ),
     )
     config_parser.add_argument(
         "action",
         nargs="?",
-        choices=["list", "enable", "disable"],
+        choices=["list", "enable", "disable", "inherit"],
         default="list",
         help="list (default) shows discovered resources and their enabled state; "
-        "enable/disable write a +pattern/-pattern entry to settings.",
+        "enable/disable write a +pattern/-pattern entry to settings; inherit "
+        "removes a project's entries for a built-in, so the user settings "
+        "decide again.",
     )
     config_parser.add_argument(
         "resource_type",
         nargs="?",
-        choices=["skill", "prompt", "theme", "extension"],
-        help="Resource type for enable/disable.",
+        choices=["skill", "prompt", "theme", "extension", "builtin"],
+        help="Resource type for enable/disable/inherit; builtin names a part of "
+        "pipy (mcp, codemode, tool-search).",
     )
     config_parser.add_argument(
         "name", nargs="?", help="Resource name (or glob) for enable/disable."
@@ -613,8 +642,9 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument(
         "--scope",
         choices=["global", "project"],
-        default="global",
-        help="Settings scope to write to (default global).",
+        default=None,
+        help="Settings scope to write to (default global; inherit always "
+        "writes the project settings).",
     )
     config_parser.add_argument(
         "-l",
@@ -774,7 +804,10 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="tools",
         default=None,
         metavar="TOOLS",
-        help="Comma-separated tool allowlist, or exact +name/-name modifiers of defaultTools.",
+        help=(
+            "Comma-separated allowlist of tool names or patterns (* matches any "
+            "characters), or exact +name/-name modifiers of defaultTools."
+        ),
     )
     parser.add_argument(
         "--exclude-tools",
@@ -782,7 +815,10 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         dest="exclude_tools",
         default=None,
         metavar="TOOLS",
-        help="Comma-separated denylist of tool names to disable.",
+        help=(
+            "Comma-separated tool names or patterns (* matches any characters) "
+            "to disable."
+        ),
     )
 
 
@@ -797,14 +833,29 @@ def _tool_filter_options_from_args(args: Any) -> ToolFilterOptions:
     modifiers = tuple(entry for entry in entries if entry.startswith(("+", "-")))
     if modifiers and len(modifiers) != len(entries):
         raise ValueError("tool names cannot be mixed with +name or -name entries")
-    if any("*" in entry for entry in modifiers):
-        raise ValueError("+name and -name entries take exact tool names, not patterns")
+    pattern = next((entry for entry in modifiers if "*" in entry), None)
+    if pattern is not None:
+        raise ValueError(
+            f"+name and -name entries take exact tool names, not patterns: {pattern}"
+        )
+    exclude = _parse_tool_name_list(getattr(args, "exclude_tools", None))
+    no_tools = bool(getattr(args, "no_tools", False))
+    no_builtin_tools = bool(getattr(args, "no_builtin_tools", False)) and not no_tools
+    # Pi ``createAgentSession``: the no-tools flags only empty the default
+    # selection. Modifiers then start from nothing, and with ``--no-tools``
+    # what they select is the allowlist. A plain list, also an empty one,
+    # replaces the selection and is the allowlist whatever the flags say.
+    if modifiers:
+        if no_tools:
+            allow = apply_tool_modifiers((), modifiers)
+            return ToolFilterOptions(allow=allow, exclude=exclude, no_tools=not allow)
+        return ToolFilterOptions(
+            modifiers=modifiers, exclude=exclude, no_builtin_tools=no_builtin_tools
+        )
+    if getattr(args, "tools", None) is not None:
+        return ToolFilterOptions(allow=entries, exclude=exclude, no_tools=not entries)
     return ToolFilterOptions(
-        allow=() if modifiers else entries,
-        modifiers=modifiers,
-        exclude=_parse_tool_name_list(getattr(args, "exclude_tools", None)),
-        no_tools=bool(getattr(args, "no_tools", False)),
-        no_builtin_tools=bool(getattr(args, "no_builtin_tools", False)),
+        exclude=exclude, no_tools=no_tools, no_builtin_tools=no_builtin_tools
     )
 
 
@@ -992,8 +1043,19 @@ def _bind_tool_modifier_values(argv: list[str]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # SIGTERM and SIGHUP unwind the command like any other exit, so a session
+    # restores its terminal and ends its MCP servers (Pi's signal handlers).
+    with exit_on_termination_signals():
+        return _main(argv)
+
+
+def _main(argv: list[str] | None) -> int:
     parser = build_parser()
     incoming_argv = sys.argv[1:] if argv is None else argv
+    if incoming_argv[:1] == ["mcp"]:
+        # Pi-shape: the command parses its own arguments, so the options of a
+        # server command (`pipy mcp add files npx -y server`) pass through.
+        return _cmd_mcp(list(incoming_argv[1:]))
     # Front-controller router (Pi-shape): bare ``pipy``, a positional prompt, or
     # bare repl flags launch the interactive product session by injecting the
     # implicit ``repl`` subcommand; subcommands and the root-only flags
@@ -1025,7 +1087,7 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_product_export(args.export)
         if getattr(args, "list_models", None) is not None:
             cwd = getattr(args, "cwd", Path.cwd()).expanduser().resolve()
-            options = _resource_options_from_args(args)
+            options = _resource_options_from_args(args, report_load_errors=False)
             trust_resolution, pretrust_extensions = (
                 _resolve_runtime_project_trust_startup(
                     args,
@@ -1333,6 +1395,10 @@ def main(argv: list[str] | None = None) -> int:
         # Declined the cross-project fork prompt (Pi prints "Aborted." / exit 0).
         print("pipy: aborted.", file=sys.stderr)
         return 0
+    except ExtensionLoadError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        print(_EXTENSION_LOAD_FAILURE_HINT, file=sys.stderr)
+        return 1
     except ValueError as exc:
         print(f"pipy: {exc}", file=sys.stderr)
         return 2
@@ -1732,6 +1798,32 @@ def _cmd_package(args: Any) -> int:
     return 0
 
 
+def _cmd_mcp(args: list[str]) -> int:
+    """`pipy mcp`: add, remove and check MCP servers without a session.
+
+    Uses the current directory and the user's config home. No settings are
+    read and no extension is loaded, so `--no-mcp` and `-builtin:mcp` do not
+    apply (Pi `pi mcp`).
+    """
+
+    from pipy_harness.native.mcp.shell_cli import McpCommandOptions, run_mcp_command
+    from pipy_harness.native.settings import resolve_config_home
+    from pipy_harness.native.version_check import pipy_version
+
+    try:
+        return run_mcp_command(
+            args,
+            McpCommandOptions(
+                cwd=Path.cwd(),
+                config_home=resolve_config_home(),
+                client_version=pipy_version(),
+            ),
+        )
+    except OSError as exc:
+        print(f"pipy: {exc}", file=sys.stderr)
+        return 1
+
+
 def _cmd_config(args: Any) -> int:
     """`pipy config`: view or toggle resource enablement via settings patterns.
 
@@ -1742,19 +1834,32 @@ def _cmd_config(args: Any) -> int:
     """
 
     from pipy_harness.native.resource_enablement import (
+        BUILTIN_EXTENSION_PREFIX,
+        BUILTIN_EXTENSIONS,
+        builtin_extension_name,
         disable_entry,
         enable_entry,
+        inherit_builtin_extension_entry,
         is_resource_enabled,
+        set_builtin_extension_entry,
     )
     from pipy_harness.native.resources import WorkspaceResources
     from pipy_harness.native.settings import SCOPE_GLOBAL, SCOPE_PROJECT
 
     cwd = args.cwd.expanduser().resolve()
-    manager = _build_management_settings(args, cwd)
     action = getattr(args, "action", "list") or "list"
+    if action == "inherit" and args.scope == "global":
+        print(
+            "pipy: `pipy config inherit` removes a project's entries; it has "
+            "no global form.",
+            file=sys.stderr,
+        )
+        return 2
+    scope_name = args.scope or ("project" if action == "inherit" else "global")
+    manager = _build_management_settings(args, cwd)
     if (
-        action in ("enable", "disable")
-        and args.scope == "project"
+        action in ("enable", "disable", "inherit")
+        and scope_name == "project"
         and not manager.project_trusted
     ):
         print(
@@ -1829,8 +1934,17 @@ def _cmd_config(args: Any) -> int:
             }
             for d in descriptors
         ]
+        # Parts of pipy that `-builtin:<name>` in `extensions` turns off.
+        builtin_items = [
+            {
+                "name": BUILTIN_EXTENSION_PREFIX + builtin,
+                "enabled": manager.builtin_extension_enabled(builtin),
+            }
+            for builtin in BUILTIN_EXTENSIONS
+        ]
         report = {
             "enableSkillCommands": enable_skill_commands,
+            "builtin": builtin_items,
             "skills": skills,
             "prompts": prompts,
             "themes": theme_items,
@@ -1850,6 +1964,7 @@ def _cmd_config(args: Any) -> int:
                 ("prompts", prompts),
                 ("themes", theme_items),
                 ("extensions", extension_items),
+                ("built-in", builtin_items),
             ):
                 print(f"  {label}:")
                 if not items:
@@ -1868,8 +1983,71 @@ def _cmd_config(args: Any) -> int:
             file=sys.stderr,
         )
         return 2
+    if action == "inherit" and resource_type != "builtin":
+        print(
+            "pipy: `pipy config inherit` applies to built-in extensions, "
+            "e.g. `pipy config inherit builtin mcp`.",
+            file=sys.stderr,
+        )
+        return 2
+    scope = SCOPE_PROJECT if scope_name == "project" else SCOPE_GLOBAL
+    if resource_type == "builtin":
+        # Stored as `-builtin:<name>` in the scope's own `extensions` array;
+        # a project entry decides over the user-level one.
+        builtin = builtin_extension_name(name) or name
+        if builtin not in BUILTIN_EXTENSIONS:
+            print(
+                f"pipy: unknown built-in {name!r}; known: "
+                f"{', '.join(BUILTIN_EXTENSIONS)}.",
+                file=sys.stderr,
+            )
+            return 2
+        scope_value = manager.raw_scope(scope).get("extensions")
+        scope_patterns = [
+            entry
+            for entry in (scope_value if isinstance(scope_value, list) else [])
+            if isinstance(entry, str)
+        ]
+        base_dir = (
+            manager.global_path
+            if scope == SCOPE_GLOBAL
+            else manager.project_path or cwd / ".pipy" / "settings.json"
+        ).parent
+        if action == "inherit":
+            updated = inherit_builtin_extension_entry(
+                scope_patterns, builtin, base_dir=base_dir, workspace=cwd
+            )
+            if updated == scope_patterns:
+                print(
+                    "pipy: project settings (extensions) have no entry that "
+                    f"names built-in {builtin!r}."
+                )
+                return 0
+        else:
+            updated = set_builtin_extension_entry(
+                scope_patterns,
+                builtin,
+                enabled=action == "enable",
+                base_dir=base_dir,
+                workspace=cwd,
+            )
+        try:
+            manager.set_resource_patterns("extensions", updated, scope=scope)
+        except (RuntimeError, ValueError) as exc:
+            print(f"pipy: could not update extensions: {exc}", file=sys.stderr)
+            return 1
+        if action == "inherit":
+            print(
+                f"pipy: removed the entries that name built-in {builtin!r} "
+                "from project settings (extensions)."
+            )
+        else:
+            print(
+                f"pipy: {action}d built-in {builtin!r} in {scope} settings "
+                "(extensions)."
+            )
+        return 0
     key = _CONFIG_RESOURCE_KEYS[resource_type]
-    scope = SCOPE_PROJECT if args.scope == "project" else SCOPE_GLOBAL
     current = (
         manager.get_extensions_patterns()
         if key == "extensions"
@@ -2040,21 +2218,30 @@ def _resolve_runtime_project_trust_startup(
             terminal_ui = live_ui
 
             class _StartupUiDriver:
-                def select(self, title: str, options: Any) -> str | None:
+                dialog_timeouts = True
+
+                def select(
+                    self, title: str, options: Any, timeout: int | None = None
+                ) -> str | None:
                     return live_ui.components.modals.run_extension_select(
-                        title, options
+                        title, options, timeout=timeout
                     )
 
                 def input(
-                    self, title: str, placeholder: str | None = None
+                    self,
+                    title: str,
+                    placeholder: str | None = None,
+                    timeout: int | None = None,
                 ) -> str | None:
                     return live_ui.components.modals.run_extension_input(
-                        title, placeholder
+                        title, placeholder, timeout=timeout
                     )
 
-                def confirm(self, title: str, message: str) -> bool:
+                def confirm(
+                    self, title: str, message: str, timeout: int | None = None
+                ) -> bool:
                     return live_ui.components.modals.run_extension_confirm(
-                        title, message
+                        title, message, timeout=timeout
                     )
 
             ui_driver = _StartupUiDriver()
@@ -2279,6 +2466,9 @@ def _tool_repl_adapter_for(
     provider_state.thinking_level = provider_state.clamp_thinking_level(
         provider_state.selection, provider_state.thinking_level
     )
+    # Pi main.ts: `--api-key` is the runtime key of the startup model's
+    # provider, so a credential sent for another provider is never the key.
+    catalog_state.runtime_api_key_provider = provider_state.selection.provider_name
     return CodingSessionAdapter(
         provider_state=provider_state,
         tool_budget=tool_budget,
@@ -2559,14 +2749,51 @@ def _run_repl_automation(
     )
 
 
-def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
-    """Resolve Pi-shaped source-loading flags for one REPL run."""
+class ExtensionLoadError(ValueError):
+    """An extension named on the command line that cannot be loaded.
+
+    As in Pi (``main.ts``), it ends the startup with status 1:
+    ``Error: Failed to load extension "<path>": <error>`` and a hint.
+    """
+
+    def __init__(self, path: str, error: str) -> None:
+        super().__init__(f'Failed to load extension "{path}": {error}')
+
+
+_EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pipy -ne".'
+
+
+def _resource_options_from_args(
+    args: Any, *, report_load_errors: bool = True
+) -> RuntimeResourceOptions:
+    """Resolve Pi-shaped source-loading flags for one REPL run.
+
+    An unknown ``builtin:<name>`` is an :class:`ExtensionLoadError`, as Pi's
+    resource loader reports it (``Unknown built-in extension: <path>``).
+    pipy has no ``builtin:llama.cpp``, so that one is unknown here too.
+    Without ``report_load_errors`` it is left out instead, as
+    ``--list-models`` in Pi ignores the load errors.
+    """
+
+    from pipy_harness.native.resource_enablement import (
+        BUILTIN_EXTENSIONS,
+        builtin_extension_name,
+    )
 
     cwd = args.cwd.expanduser().resolve()
+    extension_paths: list[str] = []
+    builtin_extensions: list[str] = []
+    for value in getattr(args, "extensions", None) or []:
+        name = builtin_extension_name(value)
+        if name is None:
+            extension_paths.append(value)
+        elif name not in BUILTIN_EXTENSIONS:
+            if report_load_errors:
+                raise ExtensionLoadError(value, f"Unknown built-in extension: {value}")
+        elif name not in builtin_extensions:
+            builtin_extensions.append(name)
     return RuntimeResourceOptions(
-        extension_paths=_resolve_cli_resource_paths(
-            cwd, getattr(args, "extensions", None)
-        ),
+        extension_paths=_resolve_cli_resource_paths(cwd, extension_paths),
         skill_paths=_resolve_cli_resource_paths(cwd, getattr(args, "skills", None)),
         prompt_template_paths=_resolve_cli_resource_paths(
             cwd, getattr(args, "prompt_templates", None)
@@ -2577,6 +2804,8 @@ def _resource_options_from_args(args: Any) -> RuntimeResourceOptions:
         no_prompt_templates=bool(getattr(args, "no_prompt_templates", False)),
         no_themes=bool(getattr(args, "no_themes", False)),
         extension_flag_tokens=tuple(getattr(args, "extension_flag_tokens", ())),
+        no_mcp=bool(getattr(args, "no_mcp", False)),
+        builtin_extensions=tuple(builtin_extensions),
     )
 
 

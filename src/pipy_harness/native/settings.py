@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import stat
 import tempfile
@@ -749,6 +750,23 @@ class SettingsManager:
         )
         return resolve_default_tools(entries)
 
+    def get_codemode_mode(self) -> Literal["on", "only"]:
+        """Pi ``codemode.mode``: how ``codemode`` presents the other tools."""
+
+        return "only" if self._get_nested("codemode", "mode") == "only" else "on"
+
+    def get_codemode_inline_budget(self) -> float:
+        """Pi ``codemode.inlineBudget``: estimated tokens for tool declarations.
+
+        A value that is not a finite, nonnegative number is the default.
+        """
+
+        value: object = self._get_nested("codemode", "inlineBudget")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return 3000
+        # NaN fails both comparisons.
+        return value if 0 <= value < float("inf") else 3000
+
     def get_default_provider(self) -> str | None:
         return self._get_str("defaultProvider")
 
@@ -888,6 +906,46 @@ class SettingsManager:
 
     def get_extensions_patterns(self) -> list[str]:
         return self._get_str_list("extensions")
+
+    def builtin_extension_enabled(self, name: str) -> bool:
+        """Whether ``extensions`` leaves the built-in extension ``name`` on.
+
+        The user-level array decides unless a ``!``, ``+`` or ``-`` entry of
+        the project array matches ``builtin:<name>``, for example
+        ``-builtin:mcp`` or ``!builtin:*`` (Pi's override rules). Each
+        scope's entries are also tried on the path relative to its file's
+        directory, resolved against the workspace, as Pi's are against its
+        working directory.
+        """
+
+        from pipy_harness.native.resource_enablement import (
+            is_builtin_extension_enabled,
+        )
+
+        state = self.state
+
+        def patterns(scope: str) -> list[object]:
+            value = state.scope_body(scope).get("extensions")
+            return value if isinstance(value, list) else []
+
+        return is_builtin_extension_enabled(
+            name,
+            user_patterns=patterns(SCOPE_GLOBAL),
+            project_patterns=patterns(SCOPE_PROJECT),
+            user_base_dir=self.global_path.parent,
+            project_base_dir=(
+                self.project_path.parent if self.project_path is not None else None
+            ),
+            workspace=self.workspace_root,
+        )
+
+    @property
+    def workspace_root(self) -> Path | None:
+        """The directory whose ``.pipy/settings.json`` is the project file."""
+
+        return (
+            self.project_path.parent.parent if self.project_path is not None else None
+        )
 
     def get_enable_skill_commands(self) -> bool:
         return self._get_bool("enableSkillCommands", default=True)
@@ -1089,6 +1147,18 @@ class SettingsManager:
                 return value
         return 60000
 
+    def get_image_auto_resize(self) -> bool:
+        """``images.autoResize``: tool result images are resized (Pi
+        ``getImageAutoResize``)."""
+
+        return self._nested_bool("images", "autoResize", default=True)
+
+    def get_block_images(self) -> bool:
+        """``images.blockImages``: tool result images are withheld from
+        every provider request (Pi ``getBlockImages``)."""
+
+        return self._nested_bool("images", "blockImages", default=False)
+
     def get_branch_summary_reserve_tokens(self) -> int:
         return self._nested_int("branchSummary", "reserveTokens", default=16384)
 
@@ -1105,6 +1175,24 @@ class SettingsManager:
         if isinstance(value, bool):
             return value
         return self._env_flag("PIPY_HARDWARE_CURSOR")
+
+    def get_show_images(self) -> bool:
+        """Pi ``getShowImages``: ``terminal.showImages``, default true."""
+
+        return self._nested_bool("terminal", "showImages", default=True)
+
+    def get_image_width_cells(self) -> int:
+        """Pi ``getImageWidthCells``: ``terminal.imageWidthCells`` rounded
+        down and at least 1; 60 when it is not a finite number."""
+
+        value: object = self._get_nested("terminal", "imageWidthCells")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return 60
+        if isinstance(value, int):
+            return max(1, value)
+        if not math.isfinite(value):
+            return 60
+        return max(1, math.floor(value))
 
     def get_clear_on_shrink(self) -> bool:
         """terminal.clearOnShrink toggle; falls back to ``PIPY_CLEAR_ON_SHRINK`` env."""
@@ -1181,12 +1269,17 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         "    branchSummary: "
         f"reserveTokens={manager.get_branch_summary_reserve_tokens()}, "
         f"skipPrompt={manager.get_branch_summary_skip_prompt()}",
+        "    codemode: "
+        f"mode={manager.get_codemode_mode()}, "
+        f"inlineBudget={manager.get_codemode_inline_budget()}",
         f"    defaultThinkingLevel: {manager.get_default_thinking_level() or '(default)'}",
         "    display: "
         f"editorPaddingX={manager.get_editor_padding_x()}, "
         f"autocompleteMaxVisible={manager.get_autocomplete_max_visible()}, "
         f"showHardwareCursor={manager.get_show_hardware_cursor()}, "
-        f"clearOnShrink={manager.get_clear_on_shrink()}",
+        f"clearOnShrink={manager.get_clear_on_shrink()}, "
+        f"showImages={manager.get_show_images()}, "
+        f"imageWidthCells={manager.get_image_width_cells()}",
         f"    httpIdleTimeoutMs: {_http_idle_timeout_display(manager)}",
         f"    retry.provider.timeoutMs: {_provider_timeout_display(manager)}",
         f"    effectiveProviderTimeoutMs: {_effective_provider_timeout_display(manager)}",

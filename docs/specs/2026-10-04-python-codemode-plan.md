@@ -127,7 +127,8 @@ No startup optimization follows automatically from that measurement.
 ## Deferred
 
 Parallel execution and shared-state contracts; MCP/discovery/tool exposure;
-extension-tool generalization; branch-aware `store()`/`load()`; image output
+extension-tool generalization; branch-aware `store()`/`load()` (since landed
+as MCP parity plan G4); image output
 and generation; classifiers; JavaScript compatibility; codemode-only tool
 loadouts. These require separately selected slices.
 
@@ -142,5 +143,5 @@ Implemented decisions: WASI-only backend, sequential builtin snapshot, normal
 nested policy/hooks/budget, fresh worker, parent-only durable evidence and bounded
 output. Remaining owner decisions: runtime provenance/mirroring/platform gaps,
 resident engine after T10, crash durability via per-call CustomEntry, and the
-separately selected deferred surfaces above (including models/options lines and
-structured bash results). See spike §6 for historical findings and current status.
+separately selected deferred surfaces above (including models;
+structured bash results and options lines landed in MCP1 G5). See spike §6 for historical findings and current status.

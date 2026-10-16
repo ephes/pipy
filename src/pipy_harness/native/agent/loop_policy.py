@@ -5,14 +5,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import (
     require_bool,
     require_non_negative_int,
 )
 from pipy_harness.native.agent.active_input import AgentActiveInput
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    NoStructuredContent,
+    ProductContent,
+    ToolResultBlock,
+)
 from pipy_harness.native.agent.messages import (
     AgentToolCall,
     AgentToolResultMessage,
@@ -104,9 +109,15 @@ class AgentProviderRequestPolicy(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AgentToolPolicyDecision:
-    """Caller policy result for a tool that passed core authorization."""
+    """Caller policy result for a tool that passed core authorization.
+
+    ``terminate`` gives a blocked call's error result the early-termination
+    hint (Pi ``BeforeToolCallResult.terminate``); it means nothing for a
+    call that is not blocked.
+    """
 
     blocked_reason: ProductContent | None = None
+    terminate: bool = False
 
     def __post_init__(self) -> None:
         validate_agent_tool_policy_decision(self)
@@ -117,6 +128,8 @@ def validate_agent_tool_policy_decision(decision: object) -> None:
 
     if type(decision) is not AgentToolPolicyDecision:
         raise TypeError("decision must be an exact AgentToolPolicyDecision")
+    if type(decision.terminate) is not bool:
+        raise TypeError("AgentToolPolicyDecision.terminate must be a bool")
     if decision.blocked_reason is not None:
         validate_product_content(
             decision.blocked_reason,
@@ -124,18 +137,72 @@ def validate_agent_tool_policy_decision(decision: object) -> None:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class AgentToolResultTransform:
+    """What a tool policy makes of one result (Pi ``AfterToolCallResult``):
+    its content and, with it, the structured content programmatic callers
+    receive (``NO_STRUCTURED_CONTENT`` for none; ``None`` is the JSON value
+    null). Structured content belongs to the content it was produced with, so
+    whoever replaces the content decides both.
+
+    ``blocks`` is the content's ordered text and image blocks when it has an
+    image, ``()`` for a text-only content; ``None`` keeps the result's blocks
+    when ``content`` is its text and drops them otherwise. ``is_error`` and
+    ``details`` replace the result's when they are not ``None``.
+    """
+
+    content: ProductContent
+    structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
+    blocks: tuple[ToolResultBlock, ...] | None = None
+    is_error: bool | None = None
+    details: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        validate_product_content(self.content, "AgentToolResultTransform.content")
+        if self.blocks is not None and type(self.blocks) is not tuple:
+            raise TypeError("AgentToolResultTransform.blocks must be a tuple or None")
+        if self.is_error is not None:
+            require_bool(self.is_error, "AgentToolResultTransform.is_error")
+        if self.details is not None and not isinstance(self.details, Mapping):
+            raise TypeError("AgentToolResultTransform.details must be a mapping")
+
+
 @runtime_checkable
 class AgentToolPolicy(Protocol):
     """Product-owned tool policy constrained to blocking and content transforms."""
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision: ...
+    def before_execute(
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+        /,
+    ) -> AgentToolPolicyDecision:
+        """Decide whether ``call`` runs, after its arguments were validated.
+
+        ``arguments`` are the validated arguments the tool will run with; a
+        change the policy makes to them in place is what runs (Pi
+        ``beforeToolCall``). ``parent_call_id`` is the id of the call that
+        made a nested call, ``None`` for a call the model made.
+        """
+        ...
 
     def transform_result(
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
         /,
-    ) -> ProductContent: ...
+    ) -> ProductContent | AgentToolResultTransform:
+        """Return the result's content, or what the policy makes of the result.
+
+        ``arguments`` are those the call ran with and ``parent_call_id`` is as
+        for :meth:`before_execute` (Pi ``afterToolCall``). A bare
+        ``ProductContent`` that differs from the result's content drops the
+        result's structured content and images, which may no longer match it.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,18 +367,34 @@ def decide_tool_admission(
     call: AgentToolCall,
     *,
     mode: AgentToolInvocationMode = AgentToolInvocationMode.DIRECT,
+    callable_names: frozenset[str] | None = None,
 ) -> AgentToolPolicyTransition:
-    """Apply the core budget and request-authorization gates in order."""
+    """Apply the core budget and authorization gates in order.
+
+    A direct call is authorized by the request that declared the tool. A
+    nested call may pass ``callable_names``, its parent's callable snapshot,
+    which then authorizes it instead: a script reaches tools that no request
+    declares. Only a direct call meets the budget: nested calls take no
+    place in it, as Pi has no limit on the calls a tool makes.
+    """
 
     _validate_invocation_state(state, mode)
     if mode is AgentToolInvocationMode.PARENT:
         raise ValueError("parent mode is settlement only")
+    if callable_names is not None:
+        if mode is not AgentToolInvocationMode.NESTED:
+            raise ValueError("callable_names authorize nested calls only")
+        if type(callable_names) is not frozenset:
+            raise TypeError("callable_names must be an exact frozenset or None")
     if type(snapshot) is not AgentProviderRequestSnapshot:
         raise TypeError("snapshot must be AgentProviderRequestSnapshot")
     if type(call) is not AgentToolCall:
         raise TypeError("call must be AgentToolCall")
     validate_agent_tool_call(call)
-    if state.invocations_this_turn + state.reserved_parent_slot >= state.tool_budget:
+    if (
+        mode is AgentToolInvocationMode.DIRECT
+        and state.invocations_this_turn >= state.tool_budget
+    ):
         return AgentToolPolicyTransition(
             AgentToolPolicyAction.BUDGET_EXHAUSTED,
             replace(
@@ -319,8 +402,15 @@ def decide_tool_admission(
                 budget_exhausted_count=state.budget_exhausted_count + 1,
             ),
         )
-    if not snapshot.authorizes(call.tool_name):
-        return _consume_without_execution(state, AgentToolPolicyAction.UNAUTHORIZED)
+    authorized = (
+        snapshot.authorizes(call.tool_name)
+        if callable_names is None
+        else call.tool_name in callable_names
+    )
+    if not authorized:
+        return _consume_without_execution(
+            state, AgentToolPolicyAction.UNAUTHORIZED, mode
+        )
     return AgentToolPolicyTransition(AgentToolPolicyAction.EXECUTE, state)
 
 
@@ -339,7 +429,7 @@ def apply_tool_policy_decision(
         raise TypeError("policy_decision must be AgentToolPolicyDecision")
     validate_agent_tool_policy_decision(policy_decision)
     if policy_decision.blocked_reason is not None:
-        return _consume_without_execution(state, AgentToolPolicyAction.BLOCKED)
+        return _consume_without_execution(state, AgentToolPolicyAction.BLOCKED, mode)
     return AgentToolPolicyTransition(AgentToolPolicyAction.EXECUTE, state)
 
 
@@ -364,20 +454,19 @@ def settle_tool_execution(
             interruption=outcome.interruption,
         )
     if mode is AgentToolInvocationMode.NESTED:
-        if (
-            state.invocations_this_turn + 1 + state.reserved_parent_slot
-            > state.tool_budget
-        ):
-            raise ValueError("nested settlement cannot exceed tool_budget")
+        # A nested call takes no place in the budget (Pi has none).
         if outcome.malformed_arguments:
             return AgentToolPolicyTransition(
                 AgentToolPolicyAction.NESTED_MALFORMED,
                 replace(
                     state,
-                    invocations_this_turn=state.invocations_this_turn + 1,
                     nested_malformed_count=state.nested_malformed_count + 1,
                 ),
             )
+        return AgentToolPolicyTransition(
+            AgentToolPolicyAction.SETTLED,
+            replace(state, tool_invocation_count=state.tool_invocation_count + 1),
+        )
     if outcome.malformed_arguments:
         malformed_count = state.malformed_argument_count + 1
         malformed_streak = state.consecutive_malformed_streak + 1
@@ -402,11 +491,7 @@ def settle_tool_execution(
             state,
             invocations_this_turn=state.invocations_this_turn + 1,
             tool_invocation_count=state.tool_invocation_count + 1,
-            consecutive_malformed_streak=(
-                state.consecutive_malformed_streak
-                if mode is AgentToolInvocationMode.NESTED
-                else 0
-            ),
+            consecutive_malformed_streak=0,
         ),
     )
 
@@ -414,7 +499,12 @@ def settle_tool_execution(
 def _consume_without_execution(
     state: AgentToolPolicyState,
     action: AgentToolPolicyAction,
+    mode: AgentToolInvocationMode,
 ) -> AgentToolPolicyTransition:
+    """A refused call: a direct one spends its place in the budget, a
+    nested one takes none."""
+    if mode is AgentToolInvocationMode.NESTED:
+        return AgentToolPolicyTransition(action, state)
     return AgentToolPolicyTransition(
         action,
         replace(state, invocations_this_turn=state.invocations_this_turn + 1),

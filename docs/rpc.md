@@ -19,6 +19,9 @@ or naming the current session without driving the terminal UI.
   errors omit the input `id`.
 - stdout may also contain asynchronous session events that are not direct
   responses to a request.
+- stdout also carries `extension_ui_request` objects: notices, and questions
+  the client has to answer; and `extension_error` objects, which report an
+  extension command that failed.
 - stderr is for diagnostics that are not protocol messages; startup chrome and
   the footer are not written there.
 
@@ -29,7 +32,11 @@ The exact command and event contract is maintained in
 
 The shipped protocol implements:
 
-- prompting and asynchronous prompt execution;
+- prompting and asynchronous prompt execution. The `prompt` response says
+  what became of the prompt in `data.disposition`: `started`, `queued`, or
+  `handled` for a prompt that ran an extension command such as `/mcp` and
+  started no run (see
+  [Commands in a prompt](automation-rpc.md#commands-in-a-prompt));
 - steering/follow-up queue control and abort;
 - live model/thinking controls and reported queue-mode settings;
 - message/state introspection and message/tool counters;
@@ -66,13 +73,20 @@ Recognized command names do not imply implemented behavior:
   history/usage; thinking-only refreshes retain them. `enabledModels` scopes
   model cycling when effective, and model/thinking no-ops emit no event. An
   injected provider remains a static singleton with `off` thinking.
-- `get_commands` returns an empty command list. `get_session_stats` counts
+- `get_commands` lists the extension commands, prompt templates and skills a
+  `prompt` can run. `get_session_stats` counts
   messages and tool calls/results and reports the live session's Pi-shaped
   `tokens` (uncached `input`, `output`, `cacheRead`, `cacheWrite`, `total`) and
   catalog-priced `cost`. Those totals restart at a model switch and are not
   restored for a resumed session (Pi sums persisted per-message usage).
-- The extension-UI channel is unwired: no `extension_ui_request` is emitted,
-  and received `extension_ui_response` lines are accepted and ignored.
+- The extension-UI channel is built in part. Notices arrive as
+  `extension_ui_request` objects with `method: "notify"`. `/mcp` asks the
+  client to choose a server with a `select` request and for the pasted
+  redirect URL of a sign-in with an `input` request; the client answers
+  each with an `extension_ui_response` line of the same `id`, and the
+  session waits until it does. An extension's own dialogs and the other
+  request methods are not sent. See
+  [the channel](automation-rpc.md#extension-ui-requestresponse-channel).
 - Direct RPC `bash` has a fresh private cancellation event per accepted
   operation. `abort_bash` snapshots and cancels every active operation and
   succeeds when idle. Explicit abort terminates the direct child process group

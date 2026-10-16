@@ -36,6 +36,7 @@ from pipy_harness.native.tools.fs_errors import (
     node_null_byte_message,
 )
 from pipy_harness.native.tools.path_utils import resolve_to_cwd
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 
 WRITE_TOOL_DESCRIPTION = (
     "Write content to a file. Creates the file if it doesn't exist, overwrites "
@@ -58,6 +59,8 @@ class WriteTool:
         return ToolDefinition(
             name="write",
             description=WRITE_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["write"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["write"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {

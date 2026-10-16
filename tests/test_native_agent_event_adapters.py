@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -29,6 +30,8 @@ from pipy_harness.native.agent import (
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
+    NestedToolCallCompleted,
+    NestedToolCallUpdated,
     ProductContent,
     ProviderFailed,
     RetryCompleted,
@@ -42,7 +45,13 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    ToolPartialResult,
+)
 from pipy_harness.native.agent.messages import AgentMessageUsage
+from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.agent_adapters import (
     AppendProductMessage,
@@ -114,6 +123,7 @@ class _RecordingRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
         details: Mapping[str, object] | None = None,
+        images: object = None,
     ) -> None:
         self.actions.append(
             ("tool-complete", output_text, is_error, duration_seconds, details)
@@ -156,6 +166,7 @@ def test_rendering_projection_owns_streamed_buffered_and_tool_output() -> None:
     )
     adapter.emit(ToolCallStarted(1, call))
     adapter.emit(ToolCallUpdated(1, call, ProductContent("progress")))
+    adapter.emit(ToolCallUpdated(1, call, ToolPartialResult("50%", {"server": "s"})))
     adapter.emit(ToolCallCompleted(1, result, duration_seconds=0.25))
 
     assert renderer.actions == [
@@ -171,6 +182,8 @@ def test_rendering_projection_owns_streamed_buffered_and_tool_output() -> None:
         ("assistant-complete", True),
         ("tool-start", call),
         ("tool-update", "progress"),
+        # A partial result (MCP progress) is a line of its own (DEV-18).
+        ("tool-update", "50%\n"),
         # The result's Pi `details` reach the renderer (TOOLS3).
         ("tool-complete", "result", True, 0.25, {"truncation": {"truncated": True}}),
     ]
@@ -408,19 +421,101 @@ def test_automation_projection_preserves_pi_partial_and_tool_shapes() -> None:
             "toolCallId": "provider-call-malformed",
             "toolName": "read",
             "args": {"_raw": _PRIVATE_ARGUMENTS},
-            "partialResult": "partial result",
+            "partialResult": {
+                "content": [{"type": "text", "text": "partial result"}],
+                "details": {},
+            },
         },
         {
             "type": "tool_execution_end",
             "toolCallId": "provider-call-malformed",
             "toolName": "read",
-            "result": "tool result",
+            "result": {"content": [{"type": "text", "text": "tool result"}]},
             "isError": True,
         },
     ]
     assert result.tool_request_id == "pipy-tool-000042"
     assert result.provider_correlation_id == sink.events[-1]["toolCallId"]
     assert "toolRequestId" not in sink.events[-1]
+
+
+def test_automation_projection_emits_pi_tool_result_objects() -> None:
+    # Pi docs/json.md: `result` and `partialResult` are AgentToolResult
+    # objects, and `tool_execution_end` carries `durationMs` when the tool ran.
+    sink = _AutomationCollectingSink()
+    adapter = AutomationAgentEventAdapter(sink)
+    call = AgentToolCall("parent", "codemode", ProductContent("{}"))
+    child = AgentToolCall("parent/1", "mcp__docs__shot", ProductContent("{}"))
+    image = ImageContent(data="aGk=", mime_type="image/png")
+    child_result = AgentToolResultMessage(
+        "pipy-tool-000002",
+        "mcp__docs__shot",
+        ProductContent("caption"),
+        "parent/1",
+        details={"server": "docs", "tool": "shot"},
+        structured_content={"ok": True},
+        blocks=(TextContent("caption"), image),
+    )
+    parent_result = AgentToolResultMessage(
+        "pipy-tool-000001",
+        "codemode",
+        ProductContent("done"),
+        "parent",
+        details={"nestedCalls": {"calls": [], "complete": True}},
+    )
+    progress = ToolPartialResult("Progress 1/2", {"server": "docs", "tool": "shot"})
+
+    adapter.emit(ToolCallUpdated(0, call, ProductContent("chunk")))
+    adapter.emit(NestedToolCallUpdated(0, "parent", child, progress))
+    adapter.emit(
+        NestedToolCallCompleted(
+            0, "parent", child, child_result, NestedCallStatus.SETTLED, 0.5, 0.0126
+        )
+    )
+    adapter.emit(
+        ToolCallCompleted(0, parent_result, duration_seconds=2.0, execution_seconds=1.5)
+    )
+    # A call whose tool never ran has a lifecycle duration but no
+    # execution time.
+    adapter.emit(
+        ToolCallCompleted(0, replace(parent_result, details=None), duration_seconds=0.2)
+    )
+
+    chunk, nested_update, nested_end, end, unrun = sink.events
+    assert chunk["partialResult"] == {
+        "content": [{"type": "text", "text": "chunk"}],
+        "details": {},
+    }
+    assert nested_update["partialResult"] == {
+        "content": [{"type": "text", "text": "Progress 1/2"}],
+        "details": {"server": "docs", "tool": "shot"},
+    }
+    assert nested_end["result"] == {
+        "content": [
+            {"type": "text", "text": "caption"},
+            {"type": "image", "data": "aGk=", "mimeType": "image/png"},
+        ],
+        "details": {"server": "docs", "tool": "shot"},
+        "structuredContent": {"ok": True},
+    }
+    # Only the tool's own run counts (Pi times execute()), not the hooks.
+    assert nested_end["durationMs"] == 13
+    assert nested_end["parentToolCallId"] == "parent"
+    # The codemode record travels in the result's details, as in Pi.
+    assert end == {
+        "type": "tool_execution_end",
+        "toolCallId": "parent",
+        "toolName": "codemode",
+        "result": {
+            "content": [{"type": "text", "text": "done"}],
+            "details": {"nestedCalls": {"calls": [], "complete": True}},
+        },
+        "isError": False,
+        "durationMs": 1500,
+    }
+    # No duration when the tool did not run; no details when it has none.
+    assert unrun["result"] == {"content": [{"type": "text", "text": "done"}]}
+    assert "durationMs" not in unrun
 
 
 def test_automation_projection_silently_ignores_internal_bookkeeping() -> None:

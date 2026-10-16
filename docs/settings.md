@@ -87,6 +87,18 @@ The notes call out the most important limits.
 | `hideThinkingBlock` | boolean | Hide thinking blocks where the renderer/provider supports it. |
 | `enabledModels` | string array | Patterns used by `/scoped-models` and Ctrl+P cycling. |
 
+### Tools
+
+| Setting | Type | Notes |
+| --- | --- | --- |
+| `defaultTools` | string array | The tools active at startup; `+name` and `-name` entries change the inherited selection. `+codemode` and `+tool_search` activate the two optional built-in tools. See [default tool selection](settings-config.md#default-tool-selection). |
+| `codemode.mode` | `"on"` / `"only"` | How the [`codemode`](codemode.md#what-the-model-is-told) tool presents tools while it is declared. Default `on`: declared tools get a line on calling them from scripts appended to their description, and `codemode` lists only tools that are not declared by being registered. `only`: `codemode` lists every tool scripts can call, and active built-in and extension tools are left out of requests, so the model reaches them through `codemode`. Another value is `on`. |
+| `codemode.inlineBudget` | number | Estimated tokens (characters / 4) the `codemode` description may spend on tool declarations. Default `3000`. Tools that do not fit are left out and found with `search_tools()`. `0` lists only namespaces. A value that is not a nonnegative number is the default. |
+
+The two `codemode` settings are read when a session starts and on `/reload`.
+A program that embeds a session can replace them for that session
+([`CodemodeOptions`](sdk.md#codemode-tool-search-and-mcp)).
+
 ### UI and startup
 
 | Setting | Type | Notes |
@@ -147,7 +159,7 @@ settings layers as other preferences and is not discovered provider capability.
 | Setting | Type | Notes |
 | --- | --- | --- |
 | `packages` | array | Installed local-path or managed-git package sources, or objects with resource filters. |
-| `extensions` | string array | Extension path patterns. |
+| `extensions` | string array | Extension path patterns. The built-in extensions are `builtin:codemode`, `builtin:tool-search` and `builtin:mcp`; `-builtin:mcp` turns the built-in MCP support off, `-builtin:codemode` and `-builtin:tool-search` remove those tools. As in Pi, `-builtin:<name>` and `+builtin:<name>` name one exactly, and a `!pattern` glob such as `!builtin:*`, `!**/builtin:mcp` (a `**/` also matches no directory), `!builtin:{mcp,codemode}` or `!builtin:+(mcp|codemode)` turns off every built-in extension it matches, read as Pi's minimatch reads it; the entries are also tried on the path relative to the settings file's directory, resolved against the workspace, as in Pi (`!../builtin:mcp` in a project's `.pipy/settings.json`); in one array `-` wins over `+`, which wins over `!`. A matching `!`, `+` or `-` entry in project settings decides over the user-level ones, the last such entry winning. See [turning MCP off](mcp.md#turning-mcp-off). |
 | `skills` | string array | Skill path patterns. |
 | `prompts` | string array | Prompt-template path patterns. |
 | `themes` | string array | Theme path patterns. |

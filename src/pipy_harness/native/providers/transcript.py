@@ -93,7 +93,9 @@ def resolve_request_transcript(
     if not request.system_prompt.startswith(replay_text):
         return collapsed
     tail = request.system_prompt[len(replay_text) :]
-    visible = _without_hidden_declarations(messages, request.hidden_tool_names)
+    visible = _without_hidden_declarations(
+        messages, (*request.hidden_tool_names, *request.undeclared_tool_names)
+    )
     has_leading = anchored[0].position == 0
     first_later = 1 if has_leading else 0
     items: list[TranscriptItem] = []
@@ -126,8 +128,9 @@ def _without_hidden_declarations(
 ) -> tuple[AgentSystemMessage, ...]:
     """Pi ``_installHiddenDeclarationsProjection``.
 
-    Tools a request hook withheld are removed from every message's additions
-    and removals, so the projection stays consistent across requests.
+    Tools a request hook withheld, and declarations the product left out of
+    the request, are removed from every message's additions and removals, so
+    the projection stays consistent across requests.
     Ordinary removals and their declarations stay.
     """
 
@@ -212,10 +215,16 @@ def request_tools(
 
 
 def declaration_definition(declaration: AgentToolDeclaration) -> ToolDefinition:
-    """A transcript declaration as the tool definition adapters serialize."""
+    """A transcript declaration as the tool definition adapters serialize.
+
+    A declaration records what a request already declared, so its schema is
+    not held to the strict subset again: a foreign tool's schema is replayed
+    as it was sent.
+    """
 
     return ToolDefinition(
         name=declaration.name,
         description=declaration.description,
         input_schema=json.loads(declaration.parameters_json),
+        schema_mode="foreign",
     )

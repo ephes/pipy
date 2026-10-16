@@ -8,6 +8,490 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- OAuth discovery no longer waits for the body of an answer it does not
+  use, as Pi's discovery cancels it: a 404, 502 or other failure status of
+  a metadata URL is acted on at its headers, so a server whose error body
+  stalls no longer holds the sign-in up until the request's time limit (and
+  then fails it). The OAuth fetch also follows a redirect without waiting
+  for the redirect's body, as Node's `fetch` does, also for registration and
+  token requests. A fetch passed to the OAuth library
+  (`adapt_oauth_provider(provider, fetch=...)`) takes the new
+  `discard_unless_ok` argument. See
+  [the OAuth library](docs/mcp.md#the-oauth-library).
+- In JSON and RPC mode, the `toolResult` message of a tool that ran other
+  tools (a `codemode` script, or an extension tool through
+  `ctx.execute_tool`) carries the record of those calls as its own
+  `nestedCalls` field, as Pi's `ToolResultMessage` does, in `turn_end`,
+  `agent_end` and `get_messages`. Before, it was inside the message's
+  `details`, which no longer hold it; the message keeps the rest of the
+  result's details. `tool_execution_end` still has the record in its
+  `result.details`. See
+  [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
+- A codemode call's nested call whose arguments are over 8 KiB (or past
+  the record's 32 KiB in all) shows the first 200 characters of them in a
+  resumed session's row and in the HTML export, as Pi's codemode rows show
+  each call's `args` preview, instead of only `[<n> argument bytes]`: the
+  codemode result keeps them in `details.argumentPreviews` beside the
+  `nestedCalls` record, whose arguments stay bounded. See
+  [codemode](docs/codemode.md#nested-evidence-and-availability).
+- The export's credential redaction withholds a quoted value that the text
+  ends inside to the end of the text: a 200-character argument preview (or
+  an error cut to its bound) that stops inside a password no longer shows
+  the rest of it after the first word. See
+  [the export](docs/export-distribution.md).
+- A call to a tool that is not declared, or not callable from a codemode
+  script or `ctx.execute_tool`, is answered `Tool <name> not found`, Pi's
+  text (`agent-loop.ts` `prepareToolCall`), instead of
+  `unknown tool: <name>`. See
+  [tool exposure](docs/extension-api.md#tool-model).
+- An MCP request that is cancelled or times out keeps its HTTP event
+  stream, as in Pi: pipy sends `notifications/cancelled` and goes on
+  reading, and resuming, the stream that answers the request, so a log
+  message or a tool list change the server sends there afterwards still
+  arrives. Before, giving the request up closed its connection and dropped
+  them. See [HTTP servers](docs/mcp.md#http-servers).
+- An MCP server's event stream that ends before the `Content-Length` it
+  announced is a network failure, as for Node's `fetch`. The
+  server-to-client stream counts it against its five retries even when it
+  delivered events, so a server that keeps cutting it short no longer has
+  it reopened for ever. A response stream cut that way fails its request,
+  or is resumed, with that error.
+- Each `notifications/tools/list_changed` and
+  `notifications/resources/list_changed` starts a listing of its own, as in
+  Pi, so a listing the server does not answer no longer holds up the next
+  one until it times out. Of listings that overlap, the one that ends last
+  is kept, as in Pi, also when it was asked for first. See
+  [server connections](docs/mcp.md#server-connections).
+- In JSON and RPC mode the `toolResult` message of an extension tool that
+  ran other tools with `ctx.execute_tool` carries its nested-call record
+  (the message's `nestedCalls` field, see above) and the rest of the
+  result's `details` in `turn_end`, `agent_end` and `get_messages`, as a
+  `codemode` result's message does and as Pi records
+  the nested calls on every tool result message. Before, only `codemode`
+  messages had it; the record was in `tool_execution_end` only. See
+  [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
+- A codemode script whose `image()` call passes the output limit of
+  16,777,216 characters fails also when it catches the `ValueError`: the
+  run has failed before the error is raised, so the output after it and
+  the script's `store()` writes are dropped, as Pi's `output()` fails the
+  script before it throws. Before, a script could catch the error, go on
+  and succeed. See [images](docs/codemode.md#images).
+- `/reload` declares again every tool that was declared before it, not
+  only MCP tools, once the tool registers before the next prompt starts:
+  a `deferred` extension tool that `tool_search` loaded and that the
+  reloaded extension registers in a `before_agent_start` handler is
+  declared in the next request without another search, as in Pi; one that
+  registers after the next prompt started has to be loaded again. Before,
+  such a tool was dropped when `--tools`, `--exclude-tools` or
+  `defaultTools` were given, and otherwise declared again whenever it
+  registered. A tool `/tree` restores while it is `hidden` (the
+  resource tools while no server offers resources, a tool of a disabled
+  server) is not declared, and once the next prompt has started it has to
+  be loaded again when it comes back, as in Pi; before, it was declared
+  again without a search. See [Reloading](docs/mcp.md#reloading).
+- A tool that `tool_search` loaded under a `--tools` list that does not
+  name it, and that its server lists again or an extension registers again
+  as `direct`, leaves the active tools for good, as Pi applies the loadout
+  on every refresh: when it is `deferred` again it has to be loaded again.
+  Before, it was declared again without a search. A name restored from the
+  session that the list does not let be active stays pending until the
+  next run starts, as in Pi. See [MCP tools](docs/usage.md#mcp-tools).
+- The entries of `ctx.tools` (and of `ctx.get_all_tools()`) carry the
+  tool's `output_schema` and `execution_mode`, as Pi's `AgentTool` entries
+  do, so an extension tool that runs others can tell which return typed
+  results. See [running other tools](docs/extension-api.md#running-other-tools).
+- An MCP server with `auth.provider` is sent the `--api-key` of the
+  session when the server names that key's provider, before a stored login
+  or the Codex login, also for a provider an extension registered, as Pi's
+  runtime key replaces the stored credential. A provider that signs in with
+  OAuth only (`openai-codex` without a `models.json` `apiKey`, or an
+  extension provider with `oauth`) then gets no token, as in Pi. Before,
+  `openai-codex` was sent the Codex login and an extension provider never
+  got the key. See [a provider's token](docs/mcp.md#a-providers-token).
+- An SDK product session with `mcp` sends a server whose entry has
+  `auth.provider` that provider's token, from `auth.json`, the environment,
+  `models.json` and the Codex login in the default files, as a `pipy`
+  session does and as Pi's SDK resolves it through its model runtime. Before,
+  such a server got no token in an SDK session. See
+  [codemode, tool search and MCP](docs/sdk.md#codemode-tool-search-and-mcp).
+- An API key stored as `!command` in `auth.json` runs once per process and
+  its first result is kept, for model requests and for MCP `auth.provider`
+  requests, as Pi caches it. Before, it ran for every MCP request and for
+  every provider construction. A `models.json` `apiKey` command still runs
+  every time, as in Pi. See
+  [credential command helpers](docs/providers.md#credential-command-helpers).
+- pipy's own rows that a tool renderer resolver wraps (`next()`'s
+  renderers for a built-in tool, `codemode` or an MCP tool) draw the
+  context they are called with: its `args`, `content`, `details`,
+  `is_error`, `is_partial` and `expanded`, as Pi's renderers draw the
+  arguments, result and options they are given. A wrapper that passes
+  `dataclasses.replace(ctx, args=..., content=...)` can now change or
+  withhold what they show; before, they drew the call's own arguments and
+  result whatever the context held. The `edit` diff preview is left out
+  under other arguments. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- A codemode script's nested calls are part of codemode's result rows, as
+  in Pi's codemode renderer: renderers that replace codemode's, or the
+  generic row a resolver chose, no longer show pipy's nested-call lines,
+  and a resolver that wraps codemode's rows gets them in the result part,
+  also while the script runs (its `render_result` is called with empty
+  `content` once the script made a call, and `details` holds a
+  `nestedCalls` record of the calls, which the wrapper can change or
+  clear). Captured output writes them as
+  they run only for codemode's own rows. The export page's "Nested calls"
+  section is unchanged. See [codemode](docs/codemode.md) and
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- Renderers drawing a call for the HTML export (`/export`, `/share`) are
+  told `execution_started=True`, as Pi's export renders every call as
+  started; before it was false, so a renderer that waits for execution drew
+  the call as not started.
+- An extension tool whose handler raises fails the call with the
+  exception's message as its error result, as Pi's agent loop reports
+  `error.message` (Pi's docs tell extension authors to throw to fail a
+  call); the type name stands in for an empty message. Characters that
+  would steer a terminal become spaces (line breaks and tabs stay) and the
+  text is bounded like other tool output. A caller through
+  `ctx.execute_tool` or a codemode script gets the same text. Before, the
+  result was only `extension tool error: <exception type>`. A raising
+  `prepare_arguments` reports its message the same way, without the tool
+  name (before: `<name>: prepare_arguments raised <exception type>`). See
+  [extension API](docs/extension-api.md).
+- A tool renderer's call context has `is_error` set once the call failed,
+  as Pi takes `isError` from the call's current result for both phases, so
+  a custom `render_call` drawn again after the result in the terminal
+  (Ctrl+O, a resize, `invalidate()`) can mark the failure. Before, the call
+  context always said `False`. The HTML export draws a call before its
+  result, with `is_error` false, as Pi's export does. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- A tool renderer resolver's `next()` gives renderers for the calls to
+  `codemode`, as Pi's codemode tool brings its `codemodeRenderers`: they
+  draw the rows pipy draws for codemode (in the terminal and the HTML
+  export the script output without the `Script completed` header), so a
+  resolver can wrap them there and in captured output. Before, `next()` gave
+  `None` for `codemode`, and a resolver that returned `None` without
+  `next()` left codemode's own result rows in place instead of the generic
+  row. An extension tool named `codemode` that has renderers keeps them.
+  See [tool rendering](docs/extension-api.md#tool-rendering).
+- A registered extension tool without renderers is what a tool renderer
+  resolver's `next()` returns, as Pi's registered definition, so
+  `next() or mine` no longer fills in for it. An extension tool that
+  replaces `codemode` without renderers is drawn with the generic rows,
+  partial results included, in the terminal and left to the page in
+  `/export` and `/share`; before, it got the built-in codemode rows, which
+  hid its partial results and treated its output as a script's (see
+  [tool rendering](docs/extension-api.md#tool-rendering)).
+- `/share` uploads the page `/export` writes, as Pi's `/share` uploads its
+  `exportToHtml` page: the session's system prompt, and the tool calls drawn
+  with the loaded extensions' renderers and resolvers and the session's MCP
+  tool titles. Before, the shared page had no system prompt and drew only MCP
+  calls, titled from their pipy names, so custom MCP renderers and resolvers
+  were lost. The page is drawn on the session's thread before the upload
+  starts, so no extension code runs on the upload's thread. `pipy --export`
+  still runs no extension code. See
+  [export](docs/export-distribution.md#artifact-shape).
+
+- `/reload` with `--tools` or `--exclude-tools` given keeps an extension
+  tool that `tool_search` loaded declared, as Pi's reload keeps every active
+  tool the filters allow; before, only loaded MCP tools came back. See
+  [tool search](docs/mcp.md#tool-search).
+- An extension's `ctx.set_active_tools([...])` that names `codemode`
+  activates the built-in `codemode` also when nothing selected it before:
+  pipy registers it then (one runtime self-test), as Pi has it registered
+  inactive. Before, the name was dropped. See
+  [the tool model](docs/extension-api.md#tool-model).
+- `ctx.get_all_tools()` keeps listing an MCP tool that its server withdrew,
+  or whose server was disabled, with exposure `hidden`, as Pi's
+  `getAllTools` does. It stays neither declared nor callable, and `/mcp`
+  does not count it. See [when tools change](docs/mcp.md#when-tools-change).
+- An MCP server's tools keep the order they were registered in when the
+  server announces a new tool list, as Pi keeps the place of a tool it
+  registers again: a list that orders them another way, or drops a tool
+  and offers it again, leaves them where they were, and a new tool comes
+  after the server's others. Before, the new list's order replaced it, so
+  of two tools that match a `tool_search` query equally well the other one
+  could come first after the change (see
+  [MCP](docs/mcp.md#when-tools-change)).
+- A `!` glob in the `extensions`, `skills`, `prompts` or `themes` settings
+  matches as Pi's minimatch does for `**/`, which also matches no directory:
+  `"extensions": ["!**/builtin:mcp"]` now turns MCP off, where before it
+  matched nothing and the servers still started. See
+  [turning MCP off](docs/mcp.md#turning-mcp-off).
+- A `!` glob in the `extensions` setting is read as Pi's minimatch reads
+  it, braces and extended globs included: `"extensions":
+  ["!builtin:{mcp,codemode}"]` or `["!builtin:+(mcp|codemode)"]` now turns
+  MCP and codemode off, where before both matched nothing and the MCP
+  servers still started. As in Pi, the `!`, `+` and `-` entries for a
+  built-in extension are also tried on the path relative to the settings
+  file's directory (`!../builtin:mcp` in a project's settings), and
+  `pipy config enable|disable builtin` replaces such entries too. pipy's own
+  `-` and `+` entries in `skills`, `prompts`, `themes` and `extensions` use
+  the same globs, so a `*` there no longer crosses a `/` or matches a
+  leading dot. pipy ports minimatch and brace-expansion for this
+  ([decision](docs/decisions/2026-10-15-minimatch-globs.md)). See
+  [turning MCP off](docs/mcp.md#turning-mcp-off).
+- An unknown `--extension builtin:<name>`, Pi's `builtin:llama.cpp`
+  included, ends the startup as in Pi: `Error: Failed to load extension
+  "builtin:<name>": Unknown built-in extension: builtin:<name>`, the hint
+  `Hint: Start without extensions using "pipy -ne".` and status 1 (before:
+  `pipy: Unknown built-in extension: ...` and status 2). `--list-models`
+  ignores it, as Pi's does.
+- The codemode page's `store()`/`load()` example reads the page of an MCP
+  call from `structuredContent`, and the page says that an MCP tool returns
+  its whole `CallToolResult` (`content`, `structuredContent`, `isError`), as
+  Pi's documents it. Before, the example read the fields off the envelope
+  and would raise `KeyError`. See [codemode](docs/codemode.md).
+- An HTTP MCP server that takes longer than 30 seconds to accept
+  `notifications/initialized`, or another notification or response pipy
+  sends it, no longer fails: as Pi does, pipy waits for that acceptance
+  with no deadline, and closing the connection ends the wait. A request
+  still times out after the server's `timeout`. See [MCP](docs/mcp.md).
+- The streamable HTTP transport of the MCP library
+  (`StreamableHttpTransportOptions`) waits for a server to accept a
+  notification or a response with no deadline by default, as Pi's transport
+  does; `send_timeout_ms` sets one. Before, a transport built without that
+  option failed after 30 seconds. See
+  [what exists as a library](docs/mcp.md#what-exists-as-a-library).
+- `pipy mcp login` and `/mcp login` open the browser as Pi does: with
+  `open` on macOS, `rundll32` on Windows and `xdg-open` elsewhere, in a
+  session of its own without pipy's input and output, and without waiting
+  for it. Before, Python's `webbrowser` ran on the sign-in's thread, so a
+  launcher that blocked (a `BROWSER` command, `osascript` on macOS) delayed
+  the prompt for the pasted address and made `--timeout` late. See
+  [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- A stdio MCP server whose transport cannot start one of its threads (the
+  interpreter is out of threads) is killed and the connect fails with that
+  error. Before, closing the connection then waited without end. See
+  [what exists as a library](docs/mcp.md#what-exists-as-a-library).
+- A `!command` value (an API key, or an MCP server's `env`, `headers` or
+  `oauth.clientSecret` value) runs with no stdin, as in Pi, so `!cat` or a
+  command that asks a question can no longer read a piped prompt or RPC
+  input, or wait for the terminal.
+- `pipy mcp logout` and `/mcp logout` sign out even when a token refresh
+  holds the server's refresh lock for the whole 25-second wait: the
+  credentials are then deleted anyway, as Pi deletes them, instead of the
+  sign-out failing with `Timed out waiting for another MCP OAuth token
+  refresh`. A refresh that is answered afterwards may store its tokens
+  again, as in Pi. See [MCP](docs/mcp.md#the-credentials-file).
+- Closing a stdio MCP server on macOS with Python 3.11 or 3.12 now ends a
+  child of the server that outlives it and keeps its stdout or stderr open:
+  the transport waits for the server's exit with a kqueue there (Python has
+  no `os.waitid` on macOS before 3.13), so the exited server stays unreaped
+  and its process group keeps getting the SIGTERM and SIGKILL of the close,
+  and of the exit hook, until the pipes close, as with Pi. Before, the
+  server was reaped at once and such a child was never signalled. See
+  [MCP](docs/mcp.md).
+- A codemode row no longer freezes after 256 nested calls: the live row
+  keeps the latest 256 (past that the oldest finished call goes for each
+  new one), so the latest calls and failures stay visible, as Pi's renderer
+  shows the latest of every call. The collapsed
+  `... (N earlier calls, ctrl+o to expand)` counts every call left out, and
+  an expanded row starts with `... (N earlier calls, not kept)` when calls
+  were let go. Before, later calls were not shown at all. The `nestedCalls`
+  record in the result is unchanged (the first 256 calls, `complete: false`
+  past that). See [codemode](docs/codemode.md#nested-evidence-and-availability).
+- A tool renderer resolver that wraps the renderers `next()` gives for a
+  built-in tool keeps the row's live parts, as a wrapper of Pi's built-in
+  renderers does: a wrapped `edit` row shows the diff preview while the
+  call runs, and a wrapped `bash` row shows `Elapsed` from the start and
+  ticks it every second until the result, with the output so far above it.
+  Before, both were missing until the result arrived. A resolver that
+  leaves the row to the generic renderers (returns `None`, or renderers
+  without callables) still gets neither, as in Pi. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- With a `--tools` allowlist, `set_active_tools` (and adding tools to the
+  selection) drops an MCP-named tool the allowlist does not let be
+  activated, as Pi's `_applyToolLoadout` does, instead of keeping it in the
+  selection. Before, a later re-registration of such a tool as `deferred`
+  declared it without any activation or `tool_search` load.
+- An `auth.json` that starts with a UTF-8 byte order mark is read (Pi
+  `stripBom`), by the auth store and by the provider token an
+  `auth.provider` MCP server sends. Before, such a file read as empty, so a
+  stored login was ignored and the server asked for sign-in.
+- A `!command` value (auth `api_key`, `models.json` keys, MCP `env` and
+  `headers` values) is read as Pi reads it: the output is decoded with
+  invalid UTF-8 replaced by U+FFFD (before, it made the value unavailable)
+  and trimmed with JavaScript's `trim()` whitespace set, so a byte order mark
+  or U+3000 around the value is dropped while U+001C to U+001F and U+0085,
+  which Python's `strip()` removed, are kept.
+- A built-in extension's `extensions` entries follow Pi's override rules
+  (`isEnabledByOverrides`, `applyAutoloadDisabledPatterns`): a `!pattern`
+  glob such as `!builtin:mcp` or `!builtin:*` turns it off, which was ignored
+  before, so MCP stayed on and its servers launched. `+builtin:<name>` and
+  `-builtin:<name>` now name one exactly (before they were globs, so
+  `-builtin:*` turned all three off; in Pi it matches none). In the user
+  array a `-` entry wins over a `+` entry, which wins over a `!` entry,
+  whatever their order (before, the last matching entry won). A matching
+  `!`, `+` or `-` entry in a trusted project's array decides, the last one
+  winning (before only `+` and `-` entries counted there).
+  `pipy config enable|disable builtin <name>` replaces every `+` or `-`
+  entry that names the built-in exactly (also `./builtin:<name>`), so an
+  earlier `-` entry cannot keep it off. See
+  [turning MCP off](docs/mcp.md#turning-mcp-off).
+
+- A typed `/skill:<name>` line whose skill does not exist or cannot be read
+  goes to the model as typed, as in Pi, after pipy reports why; and a typed
+  skill, template or custom command line meets the `input` hooks before it
+  is expanded or refused, also when it cannot run. Before, such a skill line
+  was refused locally before the hooks ran and reached neither the hooks nor
+  the model. An empty template or custom command still sends nothing. See
+  [event hooks](docs/extension-api.md#event-hooks).
+- The calls a tool makes, from a codemode script or with
+  `ctx.execute_tool`, no longer count against the per-turn tool budget
+  (`--tool-budget`, default 50), as Pi has no limit on them. Before, one
+  script with about 50 calls spent the whole turn's budget: its later calls
+  failed with `tool budget exhausted` and the model could call no further
+  tool that turn. The budget now counts only the calls the model makes. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+- An extension tool's `ToolResult(terminate=True)` works as in Pi: when
+  every result of the tool calls of one model response asks for it, the run
+  ends after those results without the automatic follow-up provider turn. A
+  `tool_call` hook that blocks a call can ask the same with
+  `ToolBlock(reason, terminate=True)`, and JSON and RPC `tool_execution_end`
+  show `result.terminate: true`. Before, the documented field did not exist.
+  See [ending the batch](docs/extension-api.md#ending-the-batch).
+- An extension tool can publish partial results while it runs with
+  `ctx.on_update(ToolResult(...))`, Pi's `onUpdate`: each one replaces the
+  one before in JSON and RPC `tool_execution_update`, in a calling tool's
+  `on_update` and in the call's live row, published on the session thread
+  also when the handler's own thread sends it. Before, the docs promised a
+  progress callback that handlers did not get. See
+  [partial results](docs/extension-api.md#partial-results).
+- A nested call that waits for its turn behind a `sequential` tool's call
+  starts at once, as in Pi: its start event (JSON and RPC
+  `tool_execution_start` with `parentToolCallId`) and its live row come when
+  it is asked for, not when its turn comes, and one that never runs because
+  its calling tool or script ended gets its end event too. Before, such a
+  call was missing from the live rows and the event streams while it
+  waited, and a withdrawn one had no events at all. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+- `bash` reports its live output as Pi does: each partial result is the
+  output so far (the last 2000 lines or 50 KB, with `truncation` and
+  `fullOutputPath` in its `details` once it is cut), for JSON and RPC
+  `tool_execution_update` and for an `on_update` callback of
+  `ctx.execute_tool`. Before, each update carried only the next chunk, so a
+  consumer that replaces the previous partial result, as Pi's clients do,
+  lost the output before it. See
+  [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
+- Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+  `/import`) no longer keeps what the extensions registered after they
+  loaded: the tools, tool renderer resolvers and MCP servers registered
+  from a `session_start` handler, a command or a tool are gone, as in Pi,
+  whose new runtime loads the extensions again. Before, a `session_start`
+  handler that called `register_tool_renderer` added its resolver once more
+  for every new session, so it was asked once per session for every row, and a
+  tool or server a command registered stayed in the next session. See
+  [tool rendering](docs/extension-api.md#tool-rendering) and
+  [MCP servers](docs/extension-api.md#mcp-servers).
+- A model call to an extension tool prepares its arguments once: such a call
+  runs as a parent that may call other tools, and that path prepared the
+  call's arguments a second time instead of running those the `tool_call`
+  hooks saw. The agent loop now hands the parent runner the prepared,
+  hook-checked arguments, as the direct path does.
+- An extension dialog's `timeout` counts down in the terminal, as in Pi:
+  `ctx.ui.select`, `input` and `confirm` show the seconds left in their
+  title and are cancelled when they run out (`None`, or `False` for
+  `confirm`). Before, only RPC mode honoured it and a terminal dialog
+  meant to expire waited for ever. See
+  [extension UI](docs/extension-api.md).
+- Extension `input` hooks see all input Pi shows them. An RPC `steer`,
+  `follow_up`, or `prompt` sent during a run meets the hooks when it is
+  queued, before its skill or template is expanded, as Pi's
+  `_queueUserInput` does; a hook may handle it (`disposition: "handled"`,
+  nothing queued), and the hooks do not see it again when it runs. A
+  skill or template line typed into a session meets them before its
+  expansion too. Before, both skipped the hooks, so a redacting or
+  filtering extension was bypassed. A `prompt` sent as a run ends is
+  expanded once (it could be expanded twice). See
+  [commands in a prompt](docs/automation-rpc.md#commands-in-a-prompt) and
+  [event hooks](docs/extension-api.md#event-hooks).
+- Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+  `/import`, and the RPC and SDK operations that do the same) is a new
+  session for the extensions and the tools, as in Pi: the extensions get
+  `session_shutdown` and then `session_start`, with `reason` `new`,
+  `resume` or `fork` and the file of the session that follows or came
+  before, and the tool selection starts again from the configured tools,
+  so a selection an extension made, a tool `tool_search` loaded and a
+  `codemode` that MCP servers turned on are gone. Before, extensions got
+  neither event and every tool but the MCP ones stayed as it was. The
+  `session_shutdown` at exit has `reason` `quit`. See
+  [reloading](docs/mcp.md#reloading) and
+  [event hooks](docs/extension-api.md#event-hooks).
+- Tool selection follows Pi: a name in `--tools`, `--exclude-tools` or the
+  `defaultTools` setting that no tool has is ignored with a notice instead of
+  stopping startup, so a global `defaultTools` that names one project's
+  extension tool no longer breaks every other project. An extension's
+  `ctx.set_active_tools([...])` ignores unknown and `hidden` names and applies
+  the others, where before one unknown name refused the whole selection. A
+  tool that is registered again as `hidden` (an extension's withdrawn tool,
+  also through `/reload`, or the MCP resource tools once no server offers
+  resources) leaves the active tools, so a tool that `tool_search` had
+  loaded has to be loaded again when it comes back. See [tool options](docs/usage.md#tool-options).
+- `images.blockImages` also keeps the `@image` attachments of the user's
+  turn from the model, as in Pi: the user message gets the line `Image
+  reading is disabled.` in their place. Before, they were sent. See
+  [providers](docs/providers.md#size-of-tool-result-images-and-images-settings).
+- Inline images on Kitty-protocol terminals (kitty, Ghostty, WezTerm, Warp):
+  a JPEG, GIF or WebP tool result image is converted to PNG and drawn, as Pi
+  does, when Pillow (the optional `images` extra) is installed. Before, only
+  PNG images were drawn and the others showed their text line, which is
+  still what happens without Pillow. See
+  [images in tool results](docs/tui-workflow.md#images-in-tool-results).
+- MCP over HTTP: compressed answers work, as with Pi's `fetch`. The
+  transport's default fetch asks for `gzip` and `deflate` and decodes an
+  answer in those codings, a JSON body as a whole and an event stream as
+  it arrives. Before, a server or proxy that compressed its answer (or a
+  configured `Accept-Encoding` header) made every request fail. See
+  [what exists as a library](docs/mcp.md#what-exists-as-a-library).
+- MCP config: with `"clientRegistration": "cimd"` a `callbackUrl` whose
+  path is `/callback` once dot segments are removed (`/a/../callback`) is
+  accepted, as in Pi. See [configure servers](docs/mcp.md#configure-servers).
+- `!command` config values (provider keys, MCP `env` and `headers`) discard
+  the command's stderr and accept up to 1 MiB of stdout, as Pi does. Before,
+  stderr counted toward a 64 KiB limit, so a helper that logged a lot
+  resolved as unavailable. See
+  [credential command helpers](docs/providers.md#credential-command-helpers).
+- Project trust: a `trust.json` that starts with a UTF-8 byte order mark is
+  read, as Pi reads it, instead of failing as unreadable.
+
+- Codemode: a script's output is laid out as Pi lays it out, so the model
+  can tell where one item ends and the next begins. With more than one
+  `text()` item, each starts with a `==> text N/M <==` line, and what the
+  script printed (`print()`, writes to `sys.stdout` and `sys.stderr`)
+  follows all other output in one `<console_output>` block. Before, the
+  items ran together. A script can also hand a tool arguments of up to
+  16 MiB as JSON (a large file for `write`); before, a call over 1 MiB ended
+  the script as a sandbox failure, and now larger arguments raise
+  `ValueError` in the script. A tool's reply to a script counts the UTF-8
+  bytes of non-ASCII text against its 16 MiB limit instead of 6-byte
+  escapes, so a 6 MB accented result reaches the script. See
+  [writing a script](docs/codemode.md#writing-a-script).
+
+- Extension tools: calls that tools make of other tools
+  (`ctx.execute_tool`, codemode scripts and their `submit()`) now follow
+  Pi's execution mode. A tool registered with
+  `ExtensionTool(..., execution_mode="sequential")` (Pi `executionMode`)
+  has its calls run one at a time, in the order they were asked for, while
+  other calls run beside them; a call made inside the running sequential
+  call does not wait for it. Before, every nested call ran at the same
+  time, so two calls of a tool with shared state could overlap. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+
+- Security: the key given with `--api-key` is no longer sent to an MCP
+  server whose `"auth": {"provider": "<provider>"}` names another provider
+  than the one of the model the session starts with. Such a server gets
+  that provider's own token, or none, as in Pi; before, it was sent the
+  `--api-key` key of any provider. See
+  [a provider's token](docs/mcp.md#a-providers-token).
+
+- Security: an MCP server URL with a non-ASCII host is now written in
+  punycode as Pi's URL parser writes it (UTS #46, nontransitional), so
+  `https://faß.de/mcp` connects to `xn--fa-hia.de`; before, Python's
+  network code mapped it to `fass.de`, another domain, and sent it the
+  configured headers and tokens. OAuth resource checks, stored sign-ins and
+  callback ids use the same host, and a host Pi refuses makes the URL
+  invalid. pipy now depends on the `idna` package
+  ([decision](docs/decisions/2026-10-15-idna-hosts.md)).
+
 - Keep token-count fields such as `totalTokens` and `tokensBefore` in native
   HTML/JSONL exports instead of redacting them, so exported sessions re-import
   with every assistant message and compaction. Prefixed secret keys such as
@@ -48,6 +532,112 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `pipy config inherit builtin <name>` puts a project's setting for a
+  built-in extension (`mcp`, `codemode`, `tool-search`) back to inherit, as
+  the inherit state of Pi's config list does: it removes the `+`, `-` and
+  `!` entries of `.pipy/settings.json` that name `builtin:<name>`, and a
+  bare `builtin:<name>`, so the user settings decide again. A `!` glob that
+  only matches it, such as `!builtin:*`, stays. `inherit` always writes the
+  project settings (`--scope global` is refused) and needs a trusted
+  project. Before, a project's entry could only be flipped between `+` and
+  `-`. See [turning MCP off](docs/mcp.md#turning-mcp-off).
+- `ExtensionTool(prepare_arguments=...)` (Pi `prepareArguments`): a callback
+  that receives a call's parsed arguments before validation and returns the
+  arguments to validate and run. If it raises, the call ends with the
+  exception's message as its error result. See
+  [extension tools](docs/extension-api.md).
+- The automation fake provider (`--native-provider fake --native-model
+  fake-tools`) asks for one `bash` call (`echo hi`) when the prompt starts
+  with `TOOLCALL`; the RPC conformance gate checks the tool events of that
+  call (`json_mode_tool_events`).
+- TUI: images in tool results (MCP screenshots, codemode `image()`,
+  extension tools) are drawn inline after the tool row in terminals that
+  speak the Kitty graphics protocol (kitty, Ghostty, WezTerm, Warp, Herdr)
+  or iTerm2 inline images, as Pi's `ToolExecutionComponent` draws a pi-tui
+  `Image`. `terminal.showImages` (default on) and `terminal.imageWidthCells`
+  (default 60) are honoured; `PIPY_IMAGE_PROTOCOL=kitty|iterm2|none`
+  overrides the detection. Under tmux or screen, in other terminals and in
+  non-terminal output the row keeps the `[Image: [<mime>] <w>x<h>]` line.
+  See [images in tool results](docs/tui-workflow.md#images-in-tool-results).
+- Images in tool results (MCP tools and resources, codemode `image()`,
+  extension tools) are processed as Pi processes them before they are
+  stored, shown and sent: an image larger than 2000x2000 pixels or 4.5 MB
+  of base64 is scaled down, with a text that gives the original size and
+  the coordinate scale, and an image of another type than PNG, JPEG, GIF or
+  WebP is converted to PNG. `images.autoResize: false` turns the resizing
+  off. This needs the new optional extra `images` (Pillow); without it the
+  images are sent as before. See
+  [providers](docs/providers.md#size-of-tool-result-images-and-images-settings).
+- `images.blockImages: true` keeps tool result images from every provider
+  request; each becomes the text `Image reading is disabled.`. The terminal
+  still draws them, as in Pi.
+- An `input` hook can return `InputHandled` (Pi's `{action: "handled"}`):
+  later hooks do not run and no run starts. A handled prompt of `--print`
+  prints nothing, `--mode json` writes only the header, an RPC `prompt` is
+  answered with disposition `handled`; a typed line starts no run.
+- In RPC mode every extension has the client as its UI, as in Pi:
+  `ctx.has_ui` is true, `ctx.ui.select`, `confirm`, `input` and `editor` are
+  `extension_ui_request` dialogs the client answers, and `set_status`,
+  `set_widget` (lines of text), `set_title`, `set_editor_text` and
+  `paste_to_editor` are requests without an answer (`setStatus`,
+  `setWidget`, `setTitle`, `set_editor_text`). `select`, `confirm` and
+  `input` take Pi's `timeout` option (milliseconds); in RPC mode the dialog
+  then ends with its default. Before, extensions had no UI in RPC mode and
+  only `/mcp` sent requests.
+- `StreamableHttpTransportOptions(fetch=...)`: a program that builds on
+  `pipy_harness.native.mcp` can pass the function that sends the HTTP
+  requests of a transport, for a proxy or a network of its own (Pi's
+  `fetch` option). See `pipy_harness.native.mcp.http_fetch`.
+- `pipy_harness.native.mcp.oauth.flow.adapt_oauth_provider(provider)`: a
+  program that builds on pipy's MCP library can connect an HTTP MCP server
+  that wants OAuth with any OAuth client provider and a store of its own,
+  with a shared refresh after a 401 and a step-up authorization for more
+  scope (Pi's `adaptOAuthProvider`).
+- Keybindings: new action `app.message.copy` (default `ctrl+x`), which can
+  be rebound in `keybindings.json`. The sign-in screen of the `/mcp`
+  manager copies the authorization URL with it, as Pi's does; before, the
+  key was fixed to Ctrl+X.
+- A tool renderer's `ToolRenderContext` has Pi's call fields:
+  `tool_call_id`, `cwd`, `execution_started`, `args_complete`,
+  `is_partial`, `show_images`, `duration_ms`, `last_component` and
+  `invalidate()`, which draws the call's row again from any thread. See
+  [Tool rendering](docs/extension-api.md#tool-rendering).
+
+- An extension tool can give `prompt_snippet` and `prompt_guidelines`, as
+  Pi's `promptSnippet` and `promptGuidelines`: the default system prompt
+  lists the tool with its snippet and adds its guidelines to the rules
+  while it is declared, and a codemode script sees the guidelines with the
+  tool's description. `ctx.get_all_tools()` reports `prompt_guidelines`, and
+  the loadout of `prepare_loadout` gains `get_exposure`, `get_namespace` and
+  `get_prompt_guidelines`. A tool that replaces `codemode` or `tool_search`
+  is shown with its own texts. See
+  [Extension tool metadata](docs/extension-api.md#extension-tool-metadata).
+
+- A codemode script may start with Pi's options line,
+  `// @options: {"max_output_tokens": 2000, "timeout_ms": 60000}`: a budget
+  for the result's text (up to 16000 tokens in pipy) and a deadline for the
+  whole script. A script without `timeout_ms` now has no deadline, as in Pi;
+  before, every script was stopped after 120 seconds. See
+  [Writing a script](docs/codemode.md#writing-a-script).
+
+- `read` attaches JPEG, PNG, GIF and WebP files as images, after a `Read
+  image file [<type>]` line, as Pi's `read` does; before, it returned an
+  error for images. pipy does not resize or convert images: one over
+  2000 x 2000 pixels or 4.5 MB of base64, and a BMP, is left out with Pi's
+  `[Image omitted: ...]` text, as is a file that is cut short or malformed.
+  An `@file` reference still refuses an image and points to `@image:`.
+  A codemode script gets an image as the block
+  `{"type": "image", "data", "mimeType", "note"}`, which `image()` shows,
+  and a text file as its text. See [Writing a script](docs/codemode.md#writing-a-script).
+
+- A codemode script that calls `bash` gets Pi's structured result,
+  `{"output", "truncated", "full_output_path", "exit_code",
+  "wall_time_seconds"}`, also when the command exits with a non-zero code,
+  which no longer raises `ToolError` in the script. `output` is not cut to
+  the 2000 lines or 50 KB the model sees: it holds up to 1 MiB, and longer
+  output keeps its first and last 512 KiB, with the full output in
+  `full_output_path`. See [Writing a script](docs/codemode.md#writing-a-script).
+
 - Optional Python codemode: install the pinned CPython 3.14.7 WASI runtime with
   `pipy codemode install`, check it with `pipy codemode status`, and opt in via
   `defaultTools: ["+codemode"]` or `--tools +codemode`. Sequential calls to
@@ -67,17 +657,772 @@ entries oldest-first, and a version bump shows the new entries at startup.
   descriptive, not a general performance claim. See
   [CM1 acceptance](docs/specs/2026-10-09-python-codemode-acceptance.md).
 
+- Images in tool results. A tool result can hold images next to its text:
+  the session file stores them, JSON and RPC `toolResult` messages carry
+  them, and every provider adapter sends them to the model as Pi does (see
+  [providers](docs/providers.md#thinking-images-and-current-limits)); a
+  model whose catalog row lists no image input gets the text `(tool image
+  omitted: model does not support images)` instead. A tool row shows an
+  image as `[Image: [image/png] 640x480]` after the result's text, live,
+  after a resume and in an HTML export, where the terminal cannot draw it, and the export page shows the
+  images themselves after the result. An image an MCP tool returns and an
+  image resource read with `read_mcp_resource` now reach the model as
+  images, where they were the text `[image <mime> omitted]`; see
+  [images in results](docs/mcp.md#images-in-results). A codemode script
+  shows an image with `image(value)` (an MCP image block, a base64 `data:`
+  URL or a dict with `image_url`); the result attaches it after a line with
+  the path of the temp file it was saved to. See
+  [codemode images](docs/codemode.md#images).
+
+- More of the OAuth library for MCP servers.
+  `pipy_harness.native.mcp.oauth` now holds the authorization code flow (stored or dynamically registered
+  client or a Client ID Metadata Document, PKCE, the `resource` parameter,
+  the issuer check of RFC 9207, token exchange and refresh with recovery
+  from rejected credentials), a provider that keeps one server's OAuth state
+  in a store its caller supplies, the loopback callback server and the
+  sign-in pages. See [the OAuth library](docs/mcp.md#the-oauth-library).
+- The store for the OAuth credentials of MCP servers:
+  `McpOAuthCredentialStore` keeps one entry per server name and URL in
+  `mcp-auth.json` next to the user-level `mcp.json`, private to the user,
+  and has the lock that keeps two processes from refreshing a server's
+  tokens at the same time. See
+  [the credentials file](docs/mcp.md#the-credentials-file).
+- The auth provider for the connections of an OAuth MCP server:
+  `McpServerAuthProvider` sends the stored access token,
+  refreshes one that is about to expire or that the server rejected with a
+  401, and reports that a sign-in is needed when it cannot. The HTTP
+  transport hands a rejected request (401, or 403 asking for more scope) to
+  its auth provider once and sends it again.
+- Stored OAuth credentials on the connections of HTTP MCP servers, in a
+  session and in `pipy mcp list`. A server without an `Authorization` header
+  or `auth` is sent the access token stored for it in `mcp-auth.json`, which
+  is refreshed shortly before it expires and when the server rejects it.
+  A server that wants a sign-in pipy cannot answer from what is stored is in
+  the new state `needs-auth`: calls fail with `MCP server "<name>" requires
+  sign-in. Run /mcp to sign in.`, and the startup report, `/mcp` and `pipy
+  mcp list` show `needs sign-in`. Such a server showed as `failed` with
+  `MCP server requires authentication` before. See
+  [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- `auth` in an MCP server entry: `"auth": {"provider": "<provider>"}` sends
+  an HTTP MCP server the key a model request to that provider would use. The token
+  is read for every request and never stored for the server, and the server
+  never signs in with OAuth. When the server rejects it, the server shows as
+  `needs sign-in` and calls fail with `MCP server "<name>" requires
+  sign-in. Run /login <provider> to sign in.` The setting was accepted and
+  unused before; such a server that answered 401 showed as `failed`. See
+  [a provider's token](docs/mcp.md#a-providers-token).
+- `pipy mcp login <server> [--timeout <seconds>]` signs in to an HTTP MCP
+  server that uses OAuth: it prints the authorization URL, opens it in the
+  browser and waits for the browser to come back to a port on this machine,
+  or, in a terminal, for the redirect URL pasted from a browser that cannot
+  reach it. A stored refresh token is tried before the browser, a server
+  that asked for more scope gets the scopes granted so far as well, and the
+  whole sign-in ends after the timeout (300 seconds by default). `pipy mcp
+  logout <server>` deletes the stored credentials. See
+  [log in and out](docs/mcp.md#log-in-and-out).
+- The `/mcp` manager. In the terminal, `/mcp` now opens a manager instead
+  of printing the status: it lists every MCP server with its state, exposure
+  and source, the ones that need attention first, and follows them while
+  they connect. A server's menu shows its transport, configuration file,
+  state and whole error and offers what the state allows: `Sign in`,
+  `Tools`, `Reconnect`, `Sign out`, `Exposure` (`codemode`, `deferred`,
+  `direct`), `Disable` or `Enable`, and for a user-level server in a trusted
+  project `Disable in this project` and `Enable in this project`, which
+  write an override to the project's `mcp.json`. Enabling, disabling and
+  reconnecting run in the background. `Sign in` and `/mcp login` show a
+  sign-in screen with the authorization URL, Ctrl+X to copy it and an input
+  for the redirect URL pasted from a browser that cannot reach this machine;
+  `/mcp login` printed the URL as a notice and could not take a pasted URL
+  before. Outside the terminal UI `/mcp` prints the status as before. See
+  [the `/mcp` manager](docs/mcp.md#the-mcp-manager).
+- Calls to MCP server tools have their own rows in the terminal: the title
+  is `<server>/<tool>` in place of the pipy name, a collapsed result shows
+  its first 5 lines counted after wrapping (a result is often one long line
+  of JSON) with `... (<n> more lines, ctrl+o to expand)` and, for a
+  shortened result, `Full output: <path>`; a running call shows its last
+  progress line. A resumed session draws such calls the same way before the
+  server connected, and when it never does. Before, these calls had the
+  generic row: the pipy name as title and the first 10 lines of the result.
+  See [how a call is shown](docs/mcp.md#how-a-call-is-shown).
+- HTML exports show the calls to MCP server tools, and to tools that an
+  extension's renderers draw, as the rows of the transcript: the call, and
+  the result collapsed with a click to expand it. Before, such a call was
+  shown as its raw arguments, or not at all next to assistant text, and its
+  result as plain text. `/export` and `/share` use the loaded extensions'
+  renderers; `pipy --export` draws only the MCP rows. See
+  [export](docs/export-distribution.md#artifact-shape).
+- Extension API: `api.register_mcp_server(name, config)` adds an MCP server
+  for the session, with the shape of an `mcpServers` entry of `mcp.json`. A
+  server registered while the extension loads connects with the session,
+  one registered later at once; `api.unregister_mcp_server(name)` closes it
+  and `api.get_mcp_servers()` lists every registration. A server of
+  `mcp.json` with the same name wins, and `/mcp` lists the overridden
+  registration. Enabling, disabling and changing the exposure of a
+  registered server in `/mcp` last for the session. An invalid entry and a
+  name another extension has raise `McpServerRegistrationError`. Hooks for
+  the new `mcp_servers_change` event receive the registrations after every
+  change (`McpServersChangeEvent`). With MCP turned off and no such hook, a
+  registered server is reported once as an error of its extension, because
+  nothing connects it. See [MCP servers](docs/extension-api.md#mcp-servers).
+- Extension API: a tool can run other tools while it runs.
+  `ctx.execute_tool(name, arguments)` runs a callable tool (the active
+  `direct` tools and every `codemode` or `deferred` tool) through the same
+  argument validation, `tool_call` and `tool_result` hooks and tool budget
+  as a call the model made, and returns its `ToolResult`; a failure is a
+  result with `is_error`, never an exception. `ctx.tools` lists what it can
+  call. The calling tool's result keeps a bounded record of the calls as
+  `nestedCalls`. Only a tool the model called can do this, not one that was
+  itself called from a tool or a script. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+- Extension API: `ExtensionTool(prepare_loadout=...)` lets a tool that
+  orchestrates other tools change what the model sees while it is declared:
+  the function gets the declared, callable and registered tools
+  (`ToolLoadout`) and returns replacement descriptions and the declarations
+  that requests leave out (`ToolLoadoutChanges`). `default_active=False`
+  registers a tool without activating it. See
+  [presenting the loadout](docs/extension-api.md#presenting-the-loadout).
+- An extension that registers the `/mcp` command replaces the built-in MCP
+  support for the session: `mcp.json` is not read, no server connects and
+  `/mcp` is the extension's. pipy says so at startup and after `/reload`.
+  An extension tool named `codemode` or `tool_search` replaces the built-in
+  tool of that name; MCP activates it, and waits for servers before its
+  calls, only when it declares `reaches_tools`. The `pipy mcp` commands
+  keep using the built-in implementation. See
+  [replace the built-in MCP support](docs/mcp.md#replace-the-built-in-mcp-support).
+- Python SDK: `create_product_session` and `open_product_session` take
+  `codemode=CodemodeOptions(...)`, `tool_search=True` and
+  `mcp=McpOptions(...)`. A product session has the `codemode` tool, the
+  `tool_search` tool and MCP servers only when it is created with them;
+  without them it reads no `mcp.json` and connects to nothing, whatever the
+  settings say. `CodemodeOptions` replaces the `codemode.mode` and
+  `codemode.inlineBudget` settings for the session. `McpOptions` can replace
+  the configuration loader, the transport factory, the credential store, the
+  log path, the function that opens a sign-in URL, the function that saves a
+  change to a server and the time the first prompt waits for servers; what it
+  leaves out is what the `pipy` command does. The new example
+  `docs/examples/sdk_codemode_mcp.py` runs a prompt with all three. See
+  [Codemode, tool search and MCP](docs/sdk.md#codemode-tool-search-and-mcp).
+- Extension API: `api.register_tool_renderer(resolver)` chooses how the
+  calls to any tool are drawn, also of a tool that is not registered and of
+  a built-in tool. `resolver(tool_name, next)` returns a `ToolRenderers`
+  (new, with `render_call` and `render_result`) or `None`; `next()` is what
+  the later resolvers and the tool itself would use. A transcript that is
+  drawn again (resume, `/tree`, `/fork`) now asks the loaded extensions:
+  stored calls to an extension tool get its renderers before the session's
+  first request, where they had the generic row until then. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- `/mcp login [server]` signs in to an OAuth MCP server from a session in
+  the terminal: it shows the authorization URL, opens the browser, waits for
+  it and connects the server; Escape cancels. `/mcp logout [server]` deletes
+  the stored credentials. A session also notices a sign-in made outside it,
+  for example by `pipy mcp login` that the agent ran through `bash`: at the
+  start of the next turn it connects the server again, so that turn has the
+  server's tools. Ending a session cancels a sign-in that is running. See
+  [the `/mcp` command](docs/mcp.md#the-mcp-command) and
+  [sign-in with OAuth](docs/mcp.md#sign-in-with-oauth).
+- `oauth.clientRegistration: "cimd"` for an HTTP MCP server: pipy signs in
+  with a Client ID Metadata Document under `oauth.clientMetadataBaseUrl`
+  instead of registering a client, with a document and a redirect address of
+  the MCP server alone when the authorization server does not name itself
+  in its responses. A server that does not accept such documents fails the
+  sign-in. `oauth.clientMetadataBaseUrl` must now be an `https` URL without
+  query or fragment. The other `oauth` settings (`clientId`, `clientSecret`,
+  `callbackPort`, `callbackUrl`, `clientName`, `scope`,
+  `authServerMetadataUrl`) are described in one place. See
+  [OAuth settings](docs/mcp.md#oauth-settings).
+- HTTP MCP servers. A server configured with a `url` is connected over
+  streamable HTTP with its `headers`, whose values may use `${NAME}` and
+  `!command`, in a session and by `pipy mcp list`. A connect that fails with
+  a network error or with status 408, 429 or 5xx other than 501 is made again
+  after 250 ms and after one second; a resource read or listing is made once
+  more after such a status, a tool call is not. When the server forgot the
+  session (status 404), pipy starts a new one and makes the request once
+  more, tool calls included. See
+  [HTTP servers](docs/mcp.md#http-servers).
+- MCP resources. When a connected server offers resources, the tools
+  `list_mcp_resources`, `list_mcp_resource_templates` and `read_mcp_resource`
+  exist, with the shapes Codex and OpenCode use. They reach every enabled
+  server with resources whose exposure is not `hidden` and take the widest
+  exposure among those servers, so they are declared to the model for a
+  `direct` server and callable from codemode scripts otherwise. Listings are
+  JSON without MCP App resources and icons; read text is shown as text and
+  other binary content is saved to a temp file; scripts get the objects. A
+  resource link in a tool result now names `read_mcp_resource` and the
+  server. An image resource is a text placeholder for the model until tool
+  results carry images. See [Use resources](docs/mcp.md#use-resources).
+- `pipy mcp list` shows how many resources and URI templates a server
+  offers (`resources: <n>, URI templates: <m>`, and `resources` and
+  `resourceTemplates` with `--json`), for servers that declare the
+  `resources` capability; resources for MCP Apps are not counted. A
+  connection lists them when it connects and again when the server announces
+  a change. See [MCP](docs/mcp.md#list).
+- `/reload` reads `mcp.json` and the `builtin:mcp` setting again: it closes
+  the MCP servers and starts the ones configured now, so a server that was
+  removed is gone, a new one connects and a changed one runs with its new
+  entry. The startup report is made again and the next prompt waits for
+  servers with `direct` tools like a first prompt. A tool that `tool_search`
+  loaded is declared again when its server has connected before the next
+  prompt starts; the same holds for `/tree` to an entry that declares a tool
+  of a server that is still connecting. A reload that keeps the previous
+  extensions keeps the servers too. A server that connects or changes its
+  tools while a reload is prepared no longer makes that reload fail. See
+  [Reloading](docs/mcp.md#reloading).
+- `/mcp` shows the MCP servers of a session: one line per server with its
+  state, tool count and exposure, the whole error of a server that is not
+  connected, and the errors of the `mcp.json` files. `/mcp reconnect
+  [server]` connects a server again, which restarts a stdio server's
+  process, and the terminal completes the action and the server name. The
+  command waits for the servers that are still connecting; Escape ends the
+  wait.
+  Enabling, disabling and changing the exposure of a server in a session are
+  built into the MCP manager, with the change saved to the `mcp.json` that
+  defines or overrides the server, but nothing in a session reaches them
+  until the `/mcp` manager exists. A prompt given on the command line or
+  sent by an RPC client is not run as `/mcp`. See [MCP](docs/mcp.md#the-mcp-command).
+- `pipy mcp add`, `pipy mcp remove` and `pipy mcp list` configure and check
+  MCP servers from the shell, without starting a session. `add` writes a
+  stdio or HTTP entry into the user-level `mcp.json`, or with `-l` into the
+  project's, after checking it; `list` connects to every enabled server and
+  prints state, tools and errors as text or with `--json`, exiting 1 when
+  something is wrong. See
+  [MCP](docs/mcp.md#the-pipy-mcp-commands).
+- The system prompt lists the MCP servers whose tools are not declared to the
+  model, in a section named `mcp_servers`: each enabled server with
+  `codemode` or `deferred` tools, how its tools are reached, and one line
+  from its `description` or, once connected, from its instructions. The
+  section is written when a prompt starts and, when it changed, appended to
+  the conversation without touching earlier messages or tool declarations.
+  See [MCP](docs/mcp.md#the-servers-in-the-system-prompt).
+- `before_agent_start` handlers can read and change the prompt sections of
+  the coming run through `event.system_prompt_options.sections`: add a
+  section, replace one of pipy's by name, or remove the MCP server list.
+  Changed sections are recorded in the conversation like pipy's own. See the
+  [extension API](docs/extension-api.md#prompt-sections).
+- MCP servers turn on the tool that reaches their tools: `codemode` for a
+  server with `codemode` exposure (the default) unless `autoEnableCodemode`
+  is false in `mcp.json`, `tool_search` for one with `deferred` tools. This
+  is decided from the configuration at startup. When neither tool is active
+  pipy warns once that the MCP tools cannot be called. After startup one
+  warning lists the errors of `mcp.json` and the servers that failed
+  (`MCP servers need attention:`). `--no-mcp` turns MCP off for a run,
+  `"extensions": ["-builtin:mcp"]` in the settings turns it off for good
+  (`pipy config disable builtin mcp`), and `--no-extensions` now turns it off
+  too unless `--extension builtin:mcp` is given. See
+  [MCP](docs/mcp.md#control-tool-exposure).
+- Tool model for MCP and tool reach: tool definitions can carry an exposure
+  (`direct`, `model-only`, `codemode`, `deferred`, `hidden`), a namespace,
+  annotations, an output schema and a reach function, and tool results can
+  carry structured content for scripts. A definition can hold a schema pipy
+  did not write (an MCP server's); it reaches the provider unchanged and its
+  arguments are checked by a built-in validator for the common JSON Schema
+  keywords. Existing tools are unchanged.
+- Extension tools can declare that metadata: `ExtensionTool` takes `exposure`,
+  `namespace`, `annotations`, `output_schema` and `reaches_tools`, and a
+  `ToolResult` can carry `structured_content` and `is_error` (the model sees
+  the content as an error, without the handler raising).
+  `ctx.get_all_tools()` lists every registered tool with its exposure,
+  namespace, annotations and reach function, so a permission hook can decide
+  by the annotations. A tool registered with exposure `hidden` is never
+  declared to the model.
+  The built-in `codemode` tool declares which tools a script may reach.
+- Codemode scripts can call extension tools. A tool's exposure now decides how
+  it is reached: `direct` and `model-only` tools are declared to the model
+  when registered, `codemode` and `deferred` tools are not declared by being
+  registered (a direct model call to an undeclared one is an unknown tool;
+  activating one by name declares it) and are callable from scripts whenever
+  they are registered, `model-only` and `hidden` tools are never callable from
+  scripts. Nested calls to extension tools pass argument validation and the
+  `tool_call` and `tool_result` hooks and are recorded in the parent result
+  like calls to built-ins.
+- Codemode scripts receive structured results. A call to a tool that declares
+  an output schema returns its structured content as a Python value, also when
+  the result is an error that carries one; every other call returns the tool's
+  text, and a failed, blocked or invalid call raises `ToolError` with the
+  tool's error text (`Tool "<name>" failed` when there is none). One tool
+  reply may be up to 16 MiB of JSON, so a large structured result reaches the
+  script whole; a larger one raises `ToolError`.
+- Tool declarations for codemode: a renderer that writes a tool's JSON Schema
+  as Python type text, for example
+  `tools.search(args: {"query": str, "limit"?: float}) -> list[str]`, with
+  property descriptions and the constraints a type cannot express (`@integer`,
+  `@minimum 1`, `@default 20`) on comment lines. Scripts read the declarations
+  in `ALL_TOOLS` and from `describe_tool`, and the model reads them in the
+  `codemode` tool description.
+- Tool search core: a tokenizer (camelCase and punctuation splits, stop
+  words, folded plurals), the search text of a tool (name, description, schema
+  descriptions and property names, namespace) and an Okapi BM25 ranker.
+  `search_tools` in codemode scripts uses it; the `tool_search` tool follows.
+- `tool_search`, an optional built-in tool that finds tools the model has not
+  been given and loads them. It is registered inactive; enable it with
+  `"defaultTools": ["+tool_search"]` or `--tools +tool_search`. It ranks the
+  registered tools with exposure `codemode` or `deferred` that are not
+  declared yet and activates the matches, so the next model request declares
+  them. Loaded tools are recorded in the session like other tool changes and
+  stay declared on that branch through `/tree`. Scripts cannot call it. See
+  [tool search](docs/mcp.md#tool-search).
+- `--tools` and `--exclude-tools` entries may be patterns in which `*` matches
+  any characters (`--exclude-tools 'ext_*'`); `+name`/`-name` entries still
+  take exact names. A `--tools` list of plain names now keeps MCP tools
+  (`mcp__<server>__<tool>` and the resource tools) registered for codemode
+  scripts and `tool_search` without declaring them; once an entry starts with
+  `mcp__` the list filters them like other tools. `--exclude-tools 'mcp__*'`
+  and `--no-tools` remove them. See
+  [tool options](docs/usage.md#tool-options).
+- Codemode scripts can find the tools they may call. `ALL_TOOLS` lists every
+  callable tool as `{"name", "description"}` with the tool's declaration,
+  `search_tools(query, limit=8, namespace=None)` ranks them, `describe_tool(name)`
+  returns one tool's description and declaration, and
+  `describe_namespace(name)` returns a namespace's description, instructions
+  and tools. A tool is `tools.<identifier>` (characters an identifier cannot
+  hold become `_`, a Python keyword gets a trailing `_`) and also
+  `tools["<name>"]`, so a tool whose name starts with `_` or is not an
+  identifier is now callable. The helpers run no tool and add no nested call.
+  The message for a tool that does not exist changed: it reads
+  `tools.<name> does not exist.`, names close matches (also ones that differ
+  only in case or punctuation, or that contain the name) and points to
+  `ALL_TOOLS` and `search_tools`. `ALL_TOOLS` and that message list tools in
+  registration order, no longer alphabetically.
+- `tool_result` hooks see a result's structured content
+  (`ToolResultEvent.structured_content`) and decide it together with the
+  content: `ToolResultTransform` takes an optional `structured_content`, and
+  a transform without one drops the result's structured content, which may no
+  longer match the replaced content.
+- The `codemode` tool description now tells the model which tools a script
+  can call. It explains what a call returns (a string, or a structured value
+  when the tool's declaration says so), names `ALL_TOOLS`, `search_tools`,
+  `describe_tool` and `describe_namespace` as the way to find unlisted tools,
+  and lists callable tools under `Nested tools:`, grouped by namespace, each
+  with its description, prompt guidelines and declaration. The listing has a
+  budget of 3000 estimated tokens, the new `codemode.inlineBudget` setting;
+  `deferred` tools are never listed, so the description stays the same while
+  such tools register. The fixed sentence `Callable tools: read, ls, grep,
+  find, write, edit, bash.` is gone.
+- New setting `codemode.mode`. With `on` (default), every declared tool that
+  scripts can call says so in its own description
+  (``Codemode: `tools.read(args)` resolves to a string.``) and `codemode`
+  lists the tools that are not declared by being registered. With `only`,
+  `codemode` lists every callable tool and requests leave out the
+  declarations of active built-in and extension tools, which stay callable
+  from scripts; the system prompt then lists only the declared tools, and the
+  hidden tools' guidelines appear in the `codemode` description.
+  `describe_tool` and `ALL_TOOLS` carry a tool's prompt guidelines too. Both
+  settings are read at session start and on `/reload`.
+
+- MCP client library: `pipy_harness.native.mcp`
+  holds the protocol client (handshake, requests with timeouts, progress and
+  cancellation, paginated lists, tool calls and resource reads), the stdio
+  and streamable HTTP transports, validation, loading and editing of
+  `mcp.json` (user-level and trusted-project files, project overrides,
+  exposure rules), and OAuth discovery. See
+  [MCP](docs/mcp.md#configure-servers) for the file format and
+  [the library](docs/mcp.md#what-exists-as-a-library) for the modules.
+- MCP server connections: one connection per configured stdio server with
+  the states `connecting`,
+  `connected`, `disconnected`, `failed` and `closed`, a shared connect for
+  concurrent callers, a reconnect on the next call after the server dropped,
+  the tool list read again on `notifications/tools/list_changed`, and the
+  end of the server's stderr in the error. `env` values resolve `${NAME}`
+  and `!command`, a leading `~` in `command`, `args` and `cwd` is the home
+  directory, and a relative `cwd` is relative to the session directory.
+  Server log messages go to `mcp.log` in the config home, renamed to
+  `mcp.log.1` above 5 MB. See
+  [server connections](docs/mcp.md#server-connections).
+- MCP server tools: a server's tool becomes a pipy tool named `mcp__<server>__<tool>` (other
+  characters as `_`, a hash suffix for names over 64 characters and for
+  tools whose names would collide) in the namespace `mcp__<server>`, with the
+  server's schema, description and annotation hints. Scripts get the whole
+  result, `{content, structuredContent?, isError?}`, and the tool declares
+  that type. The model gets the text: resource links and binary resources as
+  one-line notes (binary data is saved to a temp file), and text over 20 KB
+  as its first and last 10 KB with the full text in a file readable by its
+  owner only. Progress notifications become live output. See
+  [server tools](docs/mcp.md#server-tools).
+- MCP servers in a session. pipy reads `mcp.json` from the config home and,
+  for a trusted project, `.pipy/mcp.json`, and starts connecting every
+  enabled stdio server when a session starts, without waiting for them. A
+  connected server's tools are registered as `mcp__<server>__<tool>` with the
+  exposure the config gives them: `direct` tools are declared to the model,
+  `codemode` (the default) and `deferred` tools are called from codemode
+  scripts or loaded by `tool_search`. Calls pass the `tool_call` and `tool_result` hooks, and
+  `ctx.get_all_tools()` reports the tools with their exposure, namespace and
+  annotation hints. A changed tool list adds and removes tools while the
+  session runs, `--tools` and `--exclude-tools` apply to them, `/reload`
+  keeps them, and the session's end closes every server. `.pipy/mcp.json`
+  now counts as a project resource that needs a trust decision.
+  See [MCP](docs/mcp.md#quick-setup).
+- Waiting for MCP servers that are still connecting. The first prompt of a
+  session waits up to 10 seconds for servers with `direct` tools, so its
+  first request declares them, and then says `MCP servers are still
+  connecting; their tools become available once connected.` A codemode
+  script waits for the servers its source names, or for every server when it
+  uses `search_tools`, `describe_namespace`, `describe_tool` or `ALL_TOOLS`;
+  `tool_search` waits for every server; a call to an MCP tool waits for its
+  own server. Escape or an abort ends a wait and cancels the call. An
+  extension tool gets the same wait by declaring `reaches_tools`. See
+  [MCP](docs/mcp.md#waiting-for-servers).
+- `just mcp-conformance` runs the official MCP client conformance suite
+  (`@modelcontextprotocol/conformance@0.2.0-alpha.11`, protocol versions
+  `2025-03-26`, `2025-06-18` and `2025-11-25`) against pipy's MCP client and
+  compares every check with a committed baseline. All scenarios pass except
+  the three that Pi's baseline lists as well (elicitation, `auth/basic-cimd`,
+  and the simulated user of `auth/scope-retry-limit`). The recipe is manual:
+  it needs Node's `npx` and the network. See
+  [MCP conformance](docs/mcp.md#conformance).
 - `quietStartup: "header"` keeps startup version and key hints while hiding
   details and resource listings. `--verbose` restores the full display.
+- Codemode scripts can keep small JSON values between calls, as Pi's
+  scripts do: `store(key, value)` keeps a value, `load(key)` reads it back
+  (or `None`), and `store(key, None)` deletes it. A script that succeeds,
+  also one that ends early with `sys.exit()`, appends its writes to the
+  session as a `codemode-store` custom entry; a failed script keeps none.
+  `load()` reads the entries on the current branch, so values follow
+  resume, `/tree` and `/fork`. A value may have 256 Ki characters of JSON
+  and the store 1 Mi characters in all. The codemode tool description names
+  the two globals. See
+  [keeping values between scripts](docs/codemode.md#keeping-values-between-scripts).
 
 ### Changed
 
+- The built-in `read` tool processes an image file as Pi's `read` does when
+  Pillow (the `images` extra) is installed: a BMP is converted to PNG and an
+  image over 2000 x 2000 pixels or 4.5 MB of base64 is resized, with Pi's
+  hint lines (`[Image converted from image/bmp to image/png.]`, `[Image:
+  original WxH, displayed at wxh. ...]`) after `Read image file [<type>]`, in
+  direct use and for `image(tools.read(...))` in a script. Before, such an
+  image was omitted with `[Image omitted: ...]` even with Pillow. `read`
+  follows `images.autoResize`: off, a PNG, JPEG, GIF or WebP file is attached
+  as it is and a BMP is still converted. Without Pillow nothing changes: a
+  fitting PNG, JPEG, GIF or WebP is attached and a larger image or a BMP gets
+  Pi's omission text. See [codemode](docs/codemode.md).
+- `search_tools(query, limit=8.0)` in a codemode script is accepted as
+  `limit=8`, as Pi's `Number.isInteger` accepts it; `2.5`, `inf`, `nan`,
+  `True` and strings still fail with `search_tools() limit must be a positive
+  integer`.
+
+- JSON and RPC tool events follow Pi's documented contract (`docs/json.md`):
+  `tool_execution_end.result` and `tool_execution_update.partialResult` are
+  now `{content, details}` objects instead of strings. `result.content` has
+  the result's text and image blocks, as in the `toolResult` message,
+  `result.details` the result's details when it has them, and
+  `result.structuredContent` the tool's machine-readable output when it gave
+  one. `tool_execution_end` carries `durationMs`, how long the tool itself
+  ran (Pi times `execute()` alone, without the hooks), for nested calls
+  (`parentToolCallId`) too; it is absent when the tool never started. A
+  codemode call's `nestedCalls` record moved from a top-level `details` field
+  of `tool_execution_end` into `result.details`. Clients that read `result`
+  or `partialResult` as a string must read `content[].text` instead. See
+  [automation and RPC](docs/automation-rpc.md).
+- An MCP tool's progress is a partial result `{content: [{type: "text",
+  text}], details: {server, tool}}` that replaces the previous one, as in Pi;
+  it was a `"<text>\n"` chunk. `bash` output updates are
+  `{content: [{type: "text", text: <chunk>}], details: {}}`, each chunk
+  continuing the text before it. The terminal row is unchanged (progress
+  lines are appended, plan DEV-18).
+- `ctx.execute_tool(..., on_update=)` gives the callback a `ToolResult` per
+  partial result (Pi `onUpdate`) instead of a text chunk: the MCP progress
+  text with `details={server, tool}`, or the next chunk of `bash` output.
+- An extension tool's input schema is now held to the rules of an MCP
+  server's tool (`schema_mode="foreign"`) instead of pipy's strict subset, as
+  Pi accepts any TypeBox schema: `number`, `null`, unions and `$ref` no longer
+  disable the extension with `invalid_tool`. Arguments are converted and
+  checked as an MCP tool's are; properties the schema does not declare are
+  kept unless `additionalProperties` forbids them.
+- When two extensions register the same tool name, the one that loaded first
+  keeps it and the other extension stays enabled with its other
+  contributions, as in Pi's `getAllRegisteredTools`; it was disabled with
+  `duplicate_tool`, which is gone. This holds while the session runs too: a
+  later-loaded extension's `register_tool` of that name is left out silently
+  (it raised `ExtensionCapabilityError`), an earlier-loaded one's takes the
+  name over.
+- `api.register_tool_renderer` works while the session runs the extension
+  (from `session_start`, a command, a hook or a tool), as Pi allows; it
+  raised once loading had finished. The resolver joins its extension's other
+  resolvers in load order and is asked for rows drawn from then on.
+- MCP: another session in the same run (`/new`, `/resume`, `/fork`,
+  `/clone`, `/import`, and the RPC and SDK `new_session`, `switch_session`,
+  `fork`, `clone`) closes the MCP servers and starts them again from the
+  `mcp.json` files, as Pi's MCP extension does on `session_shutdown` and
+  `session_start`. The startup report and the first prompt's wait apply
+  again; tools `tool_search` loaded and session-only `/mcp` changes to
+  extension-registered servers do not carry over.
+- MCP: the startup report and the report of a server an extension
+  registered later are shown while the session waits for input, in the
+  terminal editor (also behind the `/mcp` manager) and as an RPC `notify`
+  request while no command runs, instead of with the next prompt.
+- Print and JSON mode have no UI, as in Pi: the notices of extensions and of
+  MCP (`ctx.ui.notify`, the status and messages of `/mcp`, the MCP startup
+  report) are dropped there instead of written to stderr. An extension
+  command that a prompt ran and that raised is Pi's extension error with the
+  exception's text: `Extension error (command:<name>): <message>` on stderr
+  in print and JSON mode, an `extension_error` object (`extensionPath`,
+  `event`, `error`) on stdout in RPC mode; before it was `pipy: extension
+  command /<name> failed (<error type>)` on stderr in all three. The report
+  of an extension-registered MCP server that nothing connects is such an
+  error too (event `register_mcp_server`). See
+  [Extension errors](docs/automation-rpc.md#extension-errors).
+- The prompt of `--print`, `--mode json` and an RPC `prompt` reaches the
+  `input` hooks before skill and template expansion, as in Pi, so a hook
+  sees `/review x` and may turn text into a template invocation; the
+  session then stores the text the hooks left. A prompt template named like
+  a built-in command of the interactive session (`/model`, `/tree`, ...) is
+  expanded in such a prompt.
+- RPC `steer` and `follow_up` whose text names an extension command (also
+  `/mcp`) fail with Pi's `Extension command "/<name>" cannot be queued. Use
+  prompt() or execute the command when not streaming.`; a skill command or
+  prompt template in them, and in a `prompt` queued behind a run, is
+  expanded when it is queued. A `prompt` that names an extension command
+  during a run runs it at once and is answered `handled` (a failure is an
+  `extension_error`).
+- RPC `get_commands` lists the extension commands (with `/mcp`), prompt
+  templates (with pipy's custom commands) and skills (`skill:<name>`); it
+  answered an empty list before.
+- SDK: `ProductSession.submit()` handles its text as Pi's SDK
+  `session.prompt()` does: an extension command (also `/mcp`, so
+  `McpOptions.open_url` is reached by `/mcp login`) runs and starts no run,
+  the `input` hooks may change or handle the text, and skill commands and
+  prompt templates are expanded. Built-in commands of the interactive
+  session and `!` stay text for the model. Before, `submit()` sent every
+  text to the model unchanged.
+- MCP: a screen of the `/mcp` manager that is taller than the terminal
+  shows a server's details and error, a status message or the
+  authorization URL through a window that PageUp and PageDown
+  (`tui.select.pageUp`/`pageDown`) scroll, with a line such as
+  `… lines 1-9 of 26, pageup/pagedown to scroll`. Before, the text was cut
+  short and the rest could not be read.
+- MCP: the authorization URL on the `/mcp` sign-in screen and a new
+  `Cmd+click to open` hint (`Ctrl+click` outside macOS) are OSC 8
+  hyperlinks to the URL, as Pi's `AuthUrlComponent` draws them, so a
+  terminal that supports links opens a wrapped URL on a click.
+- Codemode: a codemode row shows the script's output as Pi's codemode
+  renderer does: without the `Script completed`/`Wall time`/`Output:`
+  header, collapsed to the first five wrapped lines with `... (N more
+  lines, ctrl+o to expand)`, and `Full output: <path>` when the output was
+  spilled to a file. Before, codemode had the generic result preview.
+- Export: the HTML page shows the nested calls of a tool result (a codemode
+  script's calls) as Pi's page does: `Nested calls: <n>`, and on a click one
+  line per call with its status, arguments, duration and error.
+- `ToolRenderContext.show_images` is the `terminal.showImages` setting, as
+  Pi's `showImages`; it was always false. A change of the setting draws the
+  rows of extension renderers again.
+- An HTTP MCP server that redirects to another host or port is followed, as
+  in Pi. The OAuth or provider token and a configured `Authorization`,
+  `Proxy-Authorization`, `Cookie` or `Host` header are not sent to the other
+  origin; other configured headers are. Before, such a redirect failed with
+  the redirect's status.
+- An HTTP MCP server may answer with a JSON body of any size. The 16 MiB
+  limit now applies to one event of an event stream, as in Pi; a larger
+  JSON answer failed with `MCP HTTP message exceeds <n> bytes` before.
+- A server's changed tool list is read again at once, also while the server
+  is slow to answer a listing of its resources (and the other way round).
+  Before, the two were read one after the other.
+- MCP server URLs and OAuth URLs are read as Pi reads them: shortened and
+  hex or decimal IPv4 hosts (`http://127.1:8080/mcp`), percent-escapes in
+  the host, and missing or extra slashes and backslashes after the scheme
+  are accepted, where they were configuration errors before. `127.1` and
+  the other spellings of `127.0.0.1` count as loopback hosts.
+- An `mcp.json` with bytes that are not UTF-8 inside a string loads, with
+  replacement characters there, as in Pi; the whole file was rejected
+  before.
+- `pipy mcp add --oauth-callback-port` and `pipy mcp login --timeout` read
+  their number as Pi does with JavaScript's `Number()`, so `0x50`, `0o17`,
+  `0b1` and `1e3` are numbers.
+- An MCP server with `"auth": {"provider": "<provider>"}` is also sent the
+  `openai-codex` login, the key given with `--api-key` (when the provider is
+  that of the model the session starts with) and the `apiKey` that
+  `models.json` configures for the provider, as a model request to that
+  provider would use them; these sources sent no token before.
+- An MCP server with `"auth": {"provider": "<provider>"}` is sent a stored
+  login refreshed first when it expires within five minutes, for every
+  provider Pi refreshes: `anthropic` and `openai-codex` logins in
+  `auth.json` are refreshed and saved under the lock of `auth.json`, and a
+  provider an extension registered is refreshed through its
+  `oauth.refresh_token` and sent its `oauth.get_api_key` token. Before,
+  such logins were sent as stored, expired or not. The stored login of a
+  provider without an OAuth sign-in is no token, as in Pi.
+- OAuth credentials that an older Pi stored in `mcp-auth.json` under the
+  server URL alone are used: the first server with that URL takes them
+  over, and `/mcp logout` deletes them. Before, they were ignored.
+- `--tools ''` disables every tool, MCP tools included, as `--no-tools`
+  does; before, an empty list was the same as no list.
+- `--no-tools` and `--no-builtin-tools` only empty the default selection,
+  as in Pi: `pipy --no-tools --tools tool_search` declares `tool_search`,
+  `--no-builtin-tools --tools read` declares `read`, and
+  `--no-builtin-tools --tools +read` activates `read` and keeps the
+  extension tools. Under `--no-builtin-tools` the built-in tools stay
+  registered (an extension can select one), and `codemode` and
+  `tool_search` stay available for MCP.
+- `codemode` and `tool_search` are the built-in extensions
+  `builtin:codemode` and `builtin:tool-search`, as in Pi:
+  `"extensions": ["-builtin:tool-search"]`, `pipy config disable builtin
+  codemode` and `--no-extensions` remove the tools, `--extension
+  builtin:<name>` loads one for a run, and `/reload` reads the entries again.
+- A tool that `tool_search` loaded is no longer declared again on its own
+  when its server is disabled and enabled again, or stops offering it and
+  offers it again; it has to be loaded again, as in Pi.
+- `api.register_tool` works while the session runs the extension, as Pi's
+  `registerTool` does: a command can add a tool or register one of its
+  tools again, with `exposure="hidden"` to withdraw it, and the next request
+  has the change. Before, registration closed when `activate(api)`
+  returned, and a withdrawal needed `/reload`. A name another extension
+  registered, a reserved name, and an `api` kept from before a `/reload` or
+  after the session ended raise `ExtensionCapabilityError`. See
+  [Withdrawing a tool](docs/extension-api.md#extension-tool-metadata).
+
+- A tool renderer resolver can call and wrap what `next()` gives for a
+  built-in or MCP tool, as Pi's renderers can be: its `render_call(ctx)`
+  and `render_result(ctx)` now return pipy's own lines of the row instead
+  of being `None`. See [Tool rendering](docs/extension-api.md#tool-rendering).
+
+- A tool's `prepare_loadout` function runs once for each new set of active
+  and registered tools, and pipy keeps its result, as Pi does: the
+  descriptions, the hidden declarations and the system prompt's tool list
+  come from the same call. Before, pipy called it every time it read the
+  declarations, several times per turn. See
+  [Presenting the loadout](docs/extension-api.md#presenting-the-loadout).
+
+- `event.system_prompt` of a `before_agent_start` handler is rendered from
+  the sections whenever it is read, as Pi's getter is, so a handler sees its
+  own section changes too; before, it was the text taken when the handler
+  was called. See [the prompt and its sections](docs/extension-api.md#prompt-sections).
+
+- `tool_call` hooks run after argument validation, as in Pi: a call whose
+  arguments do not fit the tool's schema gets the validation error and
+  reaches no `tool_call` or `tool_result` hook (before, the hooks saw the
+  raw arguments and the tool rejected them afterwards). `event.input` is the
+  validated arguments, and a hook that changes it in place changes what the
+  tool runs with; before, changes were ignored. The transcript keeps the
+  arguments the model sent. `ToolCallEvent` gains `tool_call_id` and
+  `parent_tool_call_id`, so a hook can tell a codemode script's call
+  (`<parent id>/<n>`) and its calling tool. `dispatch_tool_call_hooks` takes
+  `tool_call_id` (and `parent_tool_call_id`). See
+  [Call hooks](docs/extension-api.md#extension-tool-metadata).
+- A `tool_result` hook is shown the whole result and may change all of it,
+  as in Pi: `ToolResultEvent` gains `blocks` (the text and image blocks of a
+  result with images), `details`, `input`, `tool_call_id` and
+  `parent_tool_call_id`, and `ToolResultTransform` gains `blocks`,
+  `is_error` and `details`; its `content` is now optional. A transform's
+  `content` replaces the whole content, images included, so `content=""`
+  removes the image of an image-only result (before, images were kept
+  whenever the text stayed the same). `dispatch_tool_result_hooks` takes the
+  new fields and returns `None` when no hook changed the result. See
+  [Result hooks](docs/extension-api.md#extension-tool-metadata).
+- Arguments of MCP tools, `tool_search` and other tools with a foreign schema
+  are converted before validation as Pi converts them: an optional argument
+  sent as `null` is dropped when its schema does not allow `null`, and
+  primitives are converted to the type the schema asks for (`"5"` to `5`,
+  `"true"` to `true`, a number to a string, `null` to `0`, `false` or `""`).
+  Before, such arguments were refused. See
+  [MCP tools](docs/mcp.md).
+- The arguments of such tools are now checked for the JSON Schema keywords
+  and formats Pi checks: `multipleOf`, `uniqueItems`, `contains`,
+  `minContains`, `maxContains`, `additionalItems`, `minProperties`,
+  `maxProperties`, `propertyNames`, `patternProperties`, `dependentRequired`,
+  `dependentSchemas`, `dependencies`, `not`, `if`/`then`/`else`, `oneOf` as
+  exactly one match, and `format` (dates, times, e-mail addresses, IP
+  addresses, URIs, UUIDs and more, as Pi's TypeBox checks them). Before,
+  these were left to the server.
+- The prompt of `--print` and `--mode json` and an RPC `prompt` are handled
+  as Pi's `prompt` handles them. A text that names an extension command runs
+  it and starts no run; `/mcp` is such a command. `/skill:<name>` and prompt
+  templates are expanded. Everything else
+  goes to the model as it stands. Before, print and JSON mode read the
+  prompt as a typed line, so the built-in commands (`/model`, `/exit`, ...)
+  and the `!` shortcut ran there and an unknown `/name` ended with a notice
+  and no answer, while an RPC prompt went to the model without any of this.
+  The RPC `prompt` response now carries `data.disposition` (`started`,
+  `queued` or `handled`), `steer` and `follow_up` answer `queued`, and JSON
+  mode writes no `agent_settled` for a prompt that started no run. See
+  [Commands in a prompt](docs/automation-rpc.md#commands-in-a-prompt).
+- RPC mode sends notices to the client as `extension_ui_request` objects
+  with `method: "notify"` instead of writing them to stderr: an extension's
+  `ctx.ui.notify`, the status and messages of `/mcp` and the MCP startup
+  report. `/mcp` asks an RPC client to choose a server with a
+  `select` request, and `/mcp login` now works there: it sends the
+  authorization URL, opens the browser and asks for the pasted redirect URL
+  with an `input` request. `extension_ui_response` lines are no longer
+  ignored. See
+  [the channel](docs/automation-rpc.md#extension-ui-requestresponse-channel).
+- The tools a codemode script can call are fixed when the script starts, from
+  the tools registered and active at that moment, instead of from the request
+  that declared `codemode`. A script therefore also reaches an extension tool
+  that replaces a built-in, and a selection made by a `tool_call` hook on the
+  `codemode` call applies to that script. An extension tool registered with
+  exposure `codemode` or `deferred` is no longer declared to the model unless
+  it is activated by name.
 - Python codemode guidance now includes an executable small-file read/filter
   example, explains direct string processing and recommends filtering before
   emitting a compact answer. This guides model behavior without enforcing a
   one-script limit or changing tool authority, retries or output budgets.
+- `ctx.execute_tool` returns a `ToolCallOutcome`, Pi's outcome object: the
+  call (`tool_call.id`, `name`, `arguments`), the `result`, `is_error` and
+  `duration_ms`. It returned the result alone, without its images. A
+  `ToolResult` can now hold images as `blocks` of `TextContent` and
+  `ImageContent` (exported from `pipy_harness.extensions`), so a tool can
+  return the screenshot of an MCP tool it called. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+- Nested tool calls work as in Pi at every depth: a tool called through
+  `ctx.execute_tool` or from a codemode script can run tools itself, also
+  itself, and its calls are part of the record of the tool the model
+  called, with ids `<calling id>/<n>`. Calls an extension tool makes from
+  several threads run at the same time instead of one after the other; the
+  session thread runs their validation and handlers, and each counts
+  against the tool budget from the moment it is admitted. A handler now
+  runs on a worker thread also in a session that cannot be interrupted, so
+  calls from threads it starts are served there too instead of refused.
+  When the tool the model called returns, its nested calls that still run
+  are cancelled. See
+  [running other tools](docs/extension-api.md#running-other-tools).
+- `ctx.execute_tool` takes Pi's options: `signal` (a `threading.Event`)
+  cancels one nested call, by default with the calling tool's own signal,
+  now `ctx.signal`; `on_update` receives the live output of the nested tool
+  (`ctx.executeTool(name, args, {"signal": ..., "onUpdate": ...})`). Nested
+  calls now also emit their live output, such as an MCP server's progress
+  or a `bash` command's output, as `tool_execution_update` events with
+  `parentToolCallId` in JSON and RPC mode; it was dropped.
+- A codemode script can run tool calls at the same time, as Pi's scripts do
+  with `Promise.all`: `tools.<name>.submit(args)` starts a call and returns
+  at once, and its `.result()` waits for it and returns or raises what
+  `tools.<name>(args)` would. The calls start in the order the script
+  submits them, so their ids, the tool budget, the hooks and the record
+  follow that order; a call still running when the script ends is
+  cancelled. At most 16 calls of a script wait for their result at once.
+  The record of nested calls (`nestedCalls`) now lists every tool's calls in
+  the order they began instead of the order they ended, and a record with
+  an unfinished call says `complete: false`. The codemode guideline now
+  names `submit()` for independent calls. See
+  [calls at the same time](docs/codemode.md#calls-at-the-same-time).
 
 ### Fixed
+
+- Closing an HTTP MCP server, a request timeout and a cancelled call end a
+  request that is still connecting or in its TLS handshake at once. Before,
+  its thread and socket stayed for up to 30 seconds.
+- Signing in to an MCP server works when the authorization server answers a
+  client registration or a token request with a 307 or 308 redirect: the
+  request is sent again where it moved, as in Pi. Before, it failed with the
+  redirect's status.
+- Answers of an authorization server that are compressed with gzip or
+  deflate are read. Before, such metadata, registration and token answers
+  failed as invalid JSON.
+- Signing in to an MCP server whose configured URL has a non-ASCII or
+  otherwise unencoded path character (`https://example.com/café/mcp`) works
+  when the server's protected resource metadata writes that path
+  percent-encoded. Before, the sign-in stopped with `Protected resource ...
+  does not match MCP server ...`.
+- A codemode script may emit Pi's 16,777,216 characters of output, text and
+  image data together, or 100,000 `text()`, `image()` and print calls; longer
+  output is cut to the result's budget and saved whole to the full-output
+  file. Before, a script whose text passed 1 MiB, or one line of output
+  passed 1 MiB, failed. Past the limits the script fails with Pi's message.
+
+- A tool whose structured result is `null` now gives a codemode script
+  `None`, also for a failed result, as Pi does; before, the script received
+  the tool's text or a `ToolError`. A result without structured content is
+  marked with the new `NO_STRUCTURED_CONTENT` (from
+  `pipy_harness.extensions`), which is now the default of
+  `ToolResult.structured_content` and `ToolResultTransform.structured_content`
+  and what a `tool_result` handler sees in `ToolResultEvent` when there is
+  none; `None` there means `null`.
 
 - Compaction and branch summaries retry eligible failures from every provider and
   show dedicated retry countdowns and bounded JSON/RPC status events. Private
@@ -134,7 +1479,176 @@ entries oldest-first, and a version bump shows the new entries at startup.
   during manual `/compact` and `Auto-compacting...` during automatic
   compaction; previously nothing was shown while the summary ran.
 
+- SIGTERM and SIGHUP end pipy like an exit. Until now either signal ended
+  the process at once: a terminal session left the terminal in raw mode, and
+  an MCP server process that does not exit when its stdin closes was left
+  running without a parent. The command is now unwound as for any other
+  exit, so the terminal is restored and the servers get their close
+  sequence, and pipy exits with status 143 or 129, in every mode and for
+  `pipy mcp`. In RPC mode the signal aborts the run in flight instead of
+  waiting for it. The exit hook for server processes that are still running
+  when pipy exits now sends SIGKILL to a server that is not gone when its
+  close time is over, and waits for it; it sent SIGTERM only. See
+  [when pipy ends](docs/mcp.md#when-pipy-ends).
+- The test suite no longer leaves fake MCP server processes behind. A test
+  that failed, or a run that was killed, could leave a scripted server that
+  ignores the end of its stdin running for good. The fake server now ends
+  itself five minutes after its parent process ended, the PTY tests end the
+  servers of a session they had to kill, and a module whose tests leave a
+  fake server running fails with the command line of the process.
+- Closing a stdio MCP server now also ends a child in the server's process
+  group that keeps the server's stdout or stderr open and ignores SIGTERM.
+  The close used to end as soon as the server exited, so such a child was
+  sent one SIGTERM and kept running; now the group gets SIGTERM and then
+  SIGKILL until the pipes close, as with Pi. See
+  [when pipy ends](docs/mcp.md#when-pipy-ends).
+- An extension tool, command or shortcut handler written as `async def` now
+  runs, as Pi awaits them. A tool returned the text of the unstarted
+  coroutine as its successful result, also when another tool called it, and
+  a command or shortcut did nothing. See
+  [tools](docs/extension-api.md#tools).
+
 ### Documentation
+
+- The MCP parity plan, its acceptance note and the backlog record that
+  the final goal check (plan section 7, Q17) found MCP and codemode tool
+  reach at parity with Pi in all six areas, with no finding, and that the
+  owner approved the merge to `main`. The row counts are unchanged; the
+  live evidence and the follow-ons stay in the backlog. See the
+  [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md).
+- The MCP parity plan, its acceptance note and the backlog now hold the
+  goal-check tracks L and N and the owner decisions of 2026-10-14: no
+  default OAuth Client ID Metadata Document (dynamic client registration
+  stays the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl`),
+  stdio servers on Windows, the Radius offer after a login and codemode
+  `models.*` outside the parity goal, inline terminal images in scope, and
+  Pillow as the optional `images` extra.
+- The [MCP page](docs/mcp.md) is in the order a user needs it: quick setup,
+  configuration, migrating from another client, `/mcp` and the other ways
+  to look after servers in a session, the `pipy mcp` commands, OAuth, tool
+  exposure, tool search, resources, permissions, extensions and the SDK,
+  then the reference sections. New in it: a table for taking a
+  configuration over from Claude, Cursor, VS Code, Codex, OpenCode and Pi,
+  a list for diagnosing a server that does not connect, an introduction to
+  signing in with OAuth, a `toolExposure` example, and a list of what pipy
+  does not support. The MCP commands in the [CLI reference](docs/usage.md)
+  now list `login` and `logout`.
+
+- The MCP feature has an
+  [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
+  the 292 behaviours of the
+  [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
+  that pin it and where pipy differs from Pi. All are closed, 127 of them
+  with a recorded limit or deviation. The plan lists every recorded
+  difference from Pi (section 3.1) and the result (section 3.2); the
+  [backlog](docs/backlog.md) says what is open, which is live use with a
+  real server and model.
+
+- The MCP parity plan records the owner's decision on the second goal
+  check (section 7, Q11): the findings its triage neither fixes nor
+  refutes are accepted as the deviations it names, ten of them as the new
+  rows DEV-69 to DEV-78.
+  DEV-30 no longer says that Pi's SDK restores a resumed session's tools
+  (Pi's `createAgentSession` passes the initial tool names, as its CLI
+  does). The missing `before_agent_start` result fields (`systemPrompt`,
+  `message`) are an extension-API item in the [backlog](docs/backlog.md).
+  Since R2 and R5 were merged, the plan records the error text of a raising
+  `prepare_arguments` as the proposal DEV-79 (EXT-01 is closed with that
+  limit), and
+  DEV-10, DEV-18, DEV-26, DEV-45, DEV-48 and DEV-59 say what R2 and R5
+  changed, including that a resolver a `session_start` handler registers
+  is added again in each new session of the run.
+
+- The MCP parity plan records the decision on the third goal check
+  (section 7, Q12): the findings its triage neither fixes nor refutes are
+  accepted as the deviations it names, six of them as the new rows DEV-80 to
+  DEV-85 (the codemode output cap, an `mcp.json` with a number JSON cannot
+  write back, no proxy support, stored API keys without Pi's `${VAR}`
+  templates, extensions kept across a session replacement, no
+  `constrained_sampling`). DEV-36, DEV-48, DEV-54 and DEV-67 say more
+  precisely where pipy differs, Q12 corrects Q11's refutation of the stdio
+  child leak on macOS before Python 3.13 (a fix slice of that triage closes
+  the leak), and 173 rows are closed with a
+  test and 119 with a limit. [MCP](docs/mcp.md) lists the missing proxy
+  support, and the [backlog](docs/backlog.md) has proxy support, Pi's
+  `auth.json` config values and `constrained_sampling` as follow-ons.
+
+- The MCP parity plan, its acceptance note and the backlog hold the fix
+  slices T3, T4 and T6 of the third goal check: DEV-27, DEV-31, DEV-32,
+  DEV-45 and DEV-68 say what they changed, the rows they touch name their
+  new tests, and the backlog's READ-IMG item is left with what `read` does
+  without Pillow. No row changes its state: 173 rows are closed with a test
+  and 119 with a limit.
+
+- The MCP parity plan records the decision on the fourth goal check
+  (section 7, Q13): the findings its triage neither fixes nor refutes are
+  accepted as the deviations it names, eight of them as the new rows DEV-86
+  to DEV-93 (the text-only render context, one-at-a-time tool calls of a
+  model response, text-only partial results, the text-only `input` event,
+  ignored `send_user_message` options, trailing newlines of a print or JSON
+  prompt, object-only `details`, silent `input` handler errors). DEV-33 now
+  says that `get_all_tools()` lists `codemode` only once something
+  registers it, DEV-48 says that its callable snapshot is the plan's rule
+  that the owner accepted (Q6), and 170 rows are closed with a test and 122
+  with a limit. The [backlog](docs/backlog.md) has the extension-API items
+  as follow-ons and points the parallel tools deferral at DEV-87.
+
+- The MCP parity plan, its acceptance note and the backlog hold the fix
+  slices V1 to V3 of the fourth goal check: DEV-32, DEV-33, DEV-44, DEV-45
+  and DEV-55 say what they changed, DEV-79 (the error text of a raising
+  `prepare_arguments`) is closed, and the rows they touch name their new
+  tests. EXT-01 keeps its limit through DEV-85, so no row changes its state:
+  170 rows are closed with a test and 122 with a limit.
+
+- The MCP parity plan records the decision on the fifth goal check
+  (section 7, Q14): the findings its triage neither fixes nor refutes are
+  accepted as the deviations it names. `pipy mcp add --local` with a trust
+  store that cannot be read writes nothing, where Pi writes the entry and
+  then stops with an error (DEV-57, which now also names CMDL-06);
+  `pipy mcp logout` waits for a running token refresh, at most 25 s, so that
+  a refresh that ends in that time cannot store the tokens again (DEV-55); `ctx.get_all_tools()`
+  has no `sourceInfo` (DEV-25). The [backlog](docs/backlog.md) has tool
+  source metadata as an extension-API follow-on. When the fix slice X2 was
+  merged, Q14 also accepted the new DEV-94: pipy orders the MCP tools of
+  different servers by the configuration, where Pi's order follows the
+  order in which the servers connected. With it 168 rows are closed with a
+  test and 124 with a limit.
+
+- The MCP parity plan records the decision on the sixth goal check
+  (section 7, Q15): its eight findings are fixed by the slices Y1 to Y3 and
+  none is accepted. DEV-31 and DEV-52 say what Y2 and Y1 changed, DEV-66
+  says that the nested calls start codemode's result part, and the new
+  DEV-95, a proposal for the final judgement, records that a wrapped `edit`
+  row has no diff preview under other arguments and that its call part
+  shows the diff of the row's own result. The rows the slices touch name
+  their new tests in the acceptance note; no row changes its state: 168
+  rows are closed with a test and 124 with a limit.
+
+- The MCP parity plan records the decision on the seventh goal check
+  (section 7, Q16): the two findings its triage does not fix are accepted
+  as deviations. The live codemode row keeps the latest 256 nested calls of
+  a script, where Pi's renderer keeps every call (the new DEV-96, which
+  names RND-04 and CMD-26); the diff preview of a wrapped `edit` row comes
+  from the row's own arguments and result (DEV-95, a proposal until now).
+  The [backlog](docs/backlog.md) has both as follow-ons. CMD-26 is closed
+  with a limit, so 167 rows are closed with a test and 125 with a limit.
+
+- The MCP parity plan records the decision on the eighth goal check
+  (section 7, Q17): seven of its findings are accepted as deviations, and
+  the goal checks end with one final check after the fix slices of that
+  triage. That check asks for each area whether the goal is reached, with
+  no Critical gap and no gap a user would notice in normal use; edge cases
+  it still finds go to the [backlog](docs/backlog.md). The new DEV-97 to
+  DEV-101 record that an SSE `retry` field of more than 18 digits is
+  ignored, that an exposure change taking an excluded tool out of the
+  selection drops the pending tool restorations, that a tool result whose
+  blocks are all text reaches the hooks as its joined text, that an empty
+  `prepare_loadout` description is ignored, and that `api.on()` works only
+  while an extension loads. DEV-36 (a further hash suffix for a name that
+  belongs to another tool) and DEV-37 (an exposure change while a server
+  is not connected) are accepted in those parts. The backlog has the
+  follow-ons. HTP-07 and EXP-09 are closed with a limit, so 165 rows are
+  closed with a test and 127 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

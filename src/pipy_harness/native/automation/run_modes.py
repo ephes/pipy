@@ -61,7 +61,13 @@ class _SinglePromptStream:
     its embedded newlines into multiple REPL turns; this stream returns the whole
     prompt (newlines intact) on the first ``readline`` and EOF (``""``) after, so
     a one-shot ``--mode json``/``--print`` run is exactly one agent turn.
+
+    ``is_prompt`` tells the session that what it reads here is a prompt in
+    Pi's sense (``AgentSession.prompt``) and not a line somebody typed: only
+    extension commands, skills and prompt templates apply to it.
     """
+
+    is_prompt = True
 
     def __init__(self, prompt: str) -> None:
         self._lines = [prompt + "\n", ""]
@@ -96,8 +102,13 @@ class JsonlEventSink:
 
     def __init__(self, writer: JsonlWriter) -> None:
         self._writer = writer
+        # Whether an agent run began. A prompt that an extension command
+        # handled starts none.
+        self.run_started = False
 
     def emit(self, event: dict[str, Any]) -> None:
+        if event.get("type") == "agent_start":
+            self.run_started = True
         self._writer.write_line(event)
 
 
@@ -159,7 +170,8 @@ def run_json_mode(
     writer = JsonlWriter(stdout_buffer)
     writer.write_line(session_header_event(native_session))
     adapter.native_session = native_session
-    adapter.automation_observer = JsonlEventSink(writer)
+    sink = JsonlEventSink(writer)
+    adapter.automation_observer = sink
     adapter.input_stream = _SinglePromptStream(prompt)
     # The events carry full assistant content; discard the renderer's plain-text
     # final-answer print so stdout stays pure JSONL.
@@ -178,7 +190,10 @@ def run_json_mode(
         # the settle line here — in a `finally`, mirroring Pi, so it still fires
         # if the run raised. RPC synthesizes its own queue-aware `agent_settled`
         # in `RpcServer.emit`, so the canonical automation adapter never emits one.
-        writer.write_line({"type": "agent_settled"})
+        # A prompt that ran an extension command (`/mcp`) started no run and
+        # settles nothing: Pi's `prompt` returns before `_runAgentPrompt`.
+        if sink.run_started:
+            writer.write_line({"type": "agent_settled"})
     return result.exit_code
 
 

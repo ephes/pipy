@@ -85,6 +85,22 @@ core to catalog selections, extension policy, current product state, concrete
 tools, rendering, and persistence. These adapters are composition seams; the
 canonical package does not import them back.
 
+`native/tools/base.py` holds the one tool model for built-in, extension and
+MCP tools. A `ToolDefinition` carries, besides what a request declares, the
+metadata that decides how a tool is reached (`exposure`, `namespace`,
+`annotations`, `output_schema`, `reaches_tools`) and a `schema_mode`. Strict
+definitions keep pipy's JSON-schema subset. Foreign definitions carry a schema
+pipy did not write and are validated at call time by
+`native/tools/foreign_schema.py`, a standard-library validator for a named
+keyword set, so the runtime needs no JSON Schema dependency. The frozen
+provider-request snapshot keeps only the model-visible part of a definition
+(name, description, input schema, `schema_mode`); the metadata stays on the
+registered definition. `structured_content` on `ToolExecutionResult` and
+`AgentToolResultMessage` is in-memory state for programmatic callers: it takes
+no part in history equality, no provider adapter reads it and the session file
+does not store it, matching Pi, whose stored `ToolResultMessage` has no
+`structuredContent`.
+
 ## Headless coding-session layer
 
 `src/pipy_harness/native/coding/` owns product policy above a single agent run:
@@ -1265,7 +1281,13 @@ editors cross as detached `ResolvedCustomEditorLine` tuples, an immutable
 `FrameLine` subtype retaining resolved kind and cursor metadata. The façade
 applies the established plain control/SGR clipping policy once; the subtype
 marks that hand-off so full-frame finishing preserves the exact bytes (adding
-only requested right padding), while input layout only applies the row window. Pure functions perform block wrapping,
+only requested right padding), while input layout only applies the row window.
+One more subtype, `LinkedFrameLine`, marks rows whose text may keep OSC 8
+hyperlinks: the editor-area overlay (the `/mcp` manager's sign-in URL) clips
+them with `clip_custom_text(..., links=True)`, which keeps only a plain
+`ESC ]8;;<printable ASCII URL> ESC \` form and closes a link left open at the
+end of the row, and full-frame finishing clips them the same way. Every other
+row still loses every escape but SGR. Pure functions perform block wrapping,
 clipping, row budgeting/selection, input/footer pinning, style mapping, cursor
 placement, and deterministic terminal paint-plan calculation. The renderer does
 not call components or callbacks, inspect streams or terminal geometry, acquire
@@ -1425,7 +1447,7 @@ boundaries and the current dependency posture until that decision is accepted.
 The completed decomposition's executable ownership, import and complexity
 checks remain in force. `tests/test_architecture_import_boundaries.py` forbids a
 `native.ui` back-edge into `native.tui` or session/repl internals; moving code
-must not recreate that cycle. The 580-line TUI ratchet, other enumerated owner
+must not recreate that cycle. The 570-line TUI ratchet, other enumerated owner
 limits and the 2,488-line general native-module ceiling remain unchanged.
 
 D2a makes one scoped size-gate transition: the historical 336-line

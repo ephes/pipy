@@ -13,10 +13,37 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from pipy_harness.native.agent import AgentAssistantMessage, AgentToolCall
-from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+)
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    ThinkingContent,
+    tool_result_images,
+)
 from pipy_harness.native.agent.messages import AgentContentBlock
 from pipy_harness.native.models import ProviderRequest
+
+TOOL_IMAGE_ONLY_TEXT = "(see attached image)"
+"""Pi: the text of a tool result that is images only, in every adapter."""
+
+
+def tool_result_parts(
+    message: AgentToolResultMessage,
+) -> tuple[str, tuple[ImageContent, ...]]:
+    """A tool result as the adapters that cannot interleave send it: its
+    text (Pi's placeholder when it is images only) and its images."""
+
+    images = tool_result_images(message.blocks)
+    text = message.content.value
+    return (text or TOOL_IMAGE_ONLY_TEXT if images else text), images
+
+
+def image_data_url(image: ImageContent) -> str:
+    return f"data:{image.mime_type};base64,{image.data}"
 
 
 @dataclass(frozen=True, slots=True)

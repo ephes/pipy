@@ -203,11 +203,12 @@ Messages are JSON, one object per line. Every guest message is untrusted.
 
 | Direction | Message |
 |---|---|
-| host → guest | `{"type":"run","code":str,"tools":[str]}` (first line; `tools` names the callable tools, for the `tools.<name>` proxy and "did you mean") |
-| guest → host | `{"type":"call","id":int,"name":str,"args":object}` |
-| host → guest | `{"type":"result","id":int,"ok":true,"value":str}` or `{"type":"result","id":int,"ok":false,"error":str}` |
-| guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order) |
-| guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}` |
+| host → guest | `{"type":"run","code":str,"tools":[{"name":str,"id":str,"description":str}]}` (first line; `tools` lists the callable tools in registration order, each with its own name, the identifier scripts write and its `ALL_TOOLS` description; MCP parity plan S07). Since MCP parity plan G4 also `"store":{str:str}`, what `load()` reads: each key's value as JSON text |
+| guest → host | `{"type":"call","id":int,"name":str,"args":object}` (`name` is the tool's own name; since MCP parity plan G3 the guest may send further messages before the reply, with at most 16 requests unanswered) |
+| guest → host | `{"type":"discover","id":int,"name":"search_tools"\|"describe_tool"\|"describe_namespace","args":object}` (ids continue the sequence of the calls; answered with a `result` that carries `value` or `error`; runs no tool and is no call record; MCP parity plan S07) |
+| host → guest | `{"type":"result","id":int,"ok":true,"text":str}`, `{"type":"result","id":int,"ok":true,"value":<JSON>}` (the structured content of a tool that declares an output schema; MCP parity plan S04) or `{"type":"result","id":int,"ok":false,"error":str}` |
+| guest → host | `{"type":"text","value":str}` (from `text()` and from `print()`, in order); a value over 64 Ki characters goes in pieces, each but the last with `"more":true`, which the host joins (MCP parity plan G5) |
+| guest → host | `{"type":"done","ok":true}` or `{"type":"done","ok":false,"error":{"type":str,"message":str,"traceback":str}}`. Since MCP parity plan G4 a successful script that changed the store adds `"writes":[[key,json],[key],...]` (a value set as JSON text, or a deleted key); the host checks them against the store's limits, and such a line may be longer than the line cap by 20 bytes per character of the store's limit and of the snapshot |
 | worker → host (status fd) | `{"type":"ready","backend":"wasi","wasmtime":str,"runtime_sha256":str}`, then `{"type":"exit","reason":"ok"\|"trap-interrupt"\|"trap-stack"\|"error","code"?:int,"detail"?:str}`; a setup failure sends `exit` without `ready` |
 
 Host rules. Each one closes a red-team finding:
@@ -219,6 +220,10 @@ Host rules. Each one closes a red-team finding:
   or an unknown `type`, a wrong `id`, malformed JSON or a non-object line,
   counts as a protocol violation. The host kills the worker and returns a
   sandbox error, and the host itself never raises (fixes the JSON crash).
+  Revised by MCP parity plan G3: up to 16 requests (calls and discovery
+  calls) may be outstanding, each until its reply is written in full, and
+  replies go back in the order the calls settle; a 17th is the violation.
+  The bound keeps the reply buffer of a guest that does not read finite.
 - The line length cap is checked while bytes are being buffered.
 - `done` is terminal. After it, the host stops reading and kills the worker.
 - Every I/O-thread exit publishes completion and wakes activity in a narrow
@@ -284,7 +289,8 @@ These steps follow the seam map. Line references are to
    - **Authorization:** checks the name with `snapshot.authorizes(name)`
      against the parent turn's frozen snapshot (`agent/request.py:52-55`) and
      the projection pinned for that turn (`repl/execution_projections.py:121`),
-     minus `codemode`.
+     minus `codemode`. Revised: authorization and execution now use the
+     parent's callable snapshot, see section 4.7.
    - **Execution:** calls `self._tools.execute(...)` with a waiter that
      combines the operator interrupt and the script deadline. Validation and
      interruption are therefore the same as for a top-level call.
@@ -392,7 +398,10 @@ inspected end-to-end/tmux evidence.
   unauthorized, blocked and malformed calls each consume one slot; only
   success/tool error increments the execution count. Interrupted calls consume
   neither and retain the reservation. Exhaustion increments only the exhaustion
-  counter and carries no fatal failure.
+  counter and carries no fatal failure. MCP parity plan T5 (goal check r3, D1)
+  changed this to match Pi, which has no limit on the calls a tool makes:
+  nested calls are admitted without the budget check and consume no slot, so
+  only the reservation and the direct calls count against `tool_budget`.
 - Parent settlement releases the reservation before applying unchanged direct
   accounting: success/tool error consumes the slot and resets the direct malformed
   streak; malformed increments the direct count/streak without consuming a slot
@@ -420,19 +429,21 @@ inspected end-to-end/tmux evidence.
 
 | Limit | Default | Mechanism |
 |---|---|---|
-| Wall time per script, including nested tool time | 120 s | Host deadline on the I/O thread, then kill. During a nested call, the deadline also cancels the active tool through the executor's `cancel_event` path. |
-| Guest CPU backstop | wall + 5 s | Epoch deadline (10 ms ticks). The ticks count wall time, including time blocked on host replies (verified in T2), so the host wall timer is primary. |
+| Wall time per script, including nested tool time | none; a script's `timeout_ms` option sets one (MCP parity plan G5; 120 s before) | Host deadline on the I/O thread, then kill. During a nested call, the deadline also cancels the active tool through the executor's `cancel_event` path. |
+| Guest CPU backstop | wall + 5 s; 25 days without a deadline | Epoch deadline (10 ms ticks). The ticks count wall time, including time blocked on host replies (verified in T2), so the host wall timer is primary. |
 | Guest memory | 256 MiB | `Store.set_limits(memory_size=…)`. Verified to give `MemoryError` and let the script continue. |
 | Code size | 256 KiB | Host check before spawn |
-| Protocol line | 1 MiB | Checked while buffering |
-| Total output | 1 MiB or 100 000 `text` messages | Host kills the worker and returns a script error with guidance to write large data through a tool |
-| Model-visible output | 10 000 tokens (chars/4) | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
+| Protocol line | 1 MiB | Each line the guest sends, checked while buffering |
+| Tool reply | 16 MiB | Each reply line the host sends, checked when it is encoded; a larger result becomes a `ToolError` for that call (MCP parity plan S04) |
+| Total output | 16 Mi characters of text and image data, or 100 000 `text()`, `image()` and print calls (Pi's limits; 1 MiB of text before MCP parity plan G5) | Host kills the worker and returns a script error with Pi's guidance to print a summary or write large data to a file with a tool |
+| Model-visible output | 10 000 tokens (chars/4); a script's `max_output_tokens` option sets it, at most what fits the 64 KiB result text | Head and tail truncation, with the full output spilled to a user-only temp file whose path is in the result. Reuse `tools/truncate.py` / `output_accumulator.py` where they fit. |
 | Diagnostic stderr | 64 KiB | Captured, never parsed |
-| Nested calls | Turn tool budget | §4.4 |
+| Nested calls | None, as in Pi (the turn tool budget before MCP parity plan T5) | §4.4 |
 
-Pi's default wall limit is effectively unlimited. pipy deliberately sets a
-finite one, because the plan requires it. Per-script overrides (Pi's
-`// @options:` line) are deferred.
+Pi's default wall limit is effectively unlimited. pipy first set a finite
+one (120 s); since MCP parity plan G5 it follows Pi: no deadline unless the
+script's `// @options:` line sets `timeout_ms`, and `max_output_tokens`
+there sets the output budget.
 
 ### 4.6 Error result shape (Pi-adopted)
 
@@ -455,10 +466,25 @@ Tool calls made before the failure (they are not undone): read (ok), bash (error
 
 ### 4.7 Eligible tools
 
-- **Callable:** the built-in tools advertised in the parent turn's snapshot
-  (`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash`), minus `codemode`.
-- **Not callable in the first slice:** extension tools (that generalization is
-  deferred) and `codemode` itself.
+Revised 2026-10-12 by the [MCP parity plan](2026-10-12-mcp-parity-plan.md),
+section 4.3 (owner decision Q6). The first slice allowed only the built-in
+tools advertised in the parent turn's frozen request snapshot. That rule
+cannot reach tools that no request declares, so it is replaced by the callable
+snapshot:
+
+- **Callable snapshot:** when a `codemode` parent is admitted, after its
+  `tool_call` hooks, the loop takes one snapshot from the live capability
+  value: the callable names, bound to the registry and executor of that one
+  value. It is immutable for the life of the parent. Every nested call is
+  authorized against it and executed by its executor. A capability value
+  published later (a reload, `set_active_tools`) does not change a running
+  script.
+- **Callable:** the active tools with exposure `direct` and every registered
+  tool with exposure `codemode` or `deferred` that the tool filters keep,
+  built-in or extension.
+- **Not callable:** `codemode` itself, `model-only` and `hidden` tools,
+  inactive `direct` tools, and a tool a `before_provider_request` hook
+  withheld from the parent's request.
 - **Authority:** nested calls run with the same authority as a direct call,
   including all of pipy's path policy and extension `tool_call` hooks, and
   they are attributed to the parent. As in Pi, the boundary limits what a
@@ -467,35 +493,67 @@ Tool calls made before the failure (they are not undone): read (ok), bash (error
   nested call goes through the full policy path (§4.2). The spike's
   unprotected `read` stand-in is not representative of pipy's read tool.
 - **Results:** a call returns the tool's model-facing text content as `str`.
-  A tool error raises `ToolError(message)`. Structured results (Pi's `bash`
-  object) are deferred.
+  A tool error raises `ToolError(message)`. Since MCP parity plan S04 a tool
+  that declares an output schema returns its structured content instead.
+  Structured results of the built-ins (Pi's `bash` object) are deferred.
+  Since MCP parity plan G3 `tools.<name>.submit(args)` starts a call without
+  waiting and its `.result()` gives the same value or `ToolError`, so calls
+  run at the same time, as Pi's `Promise.all` runs them.
 
 ### 4.8 What the model sees (stable, byte-pinned)
 
 Schema: `{"code": {"type": "string", "description": "Python source run as a script."}}`.
 
-Implemented description, byte-pinned by T8 tests (unchanged by T11).
-“Unavailable modules” below summarizes unavailable functionality: subprocess,
-socket and threading import but cannot create processes, sockets or threads.
-See the user page for precise module capabilities.
+The description has a fixed part, byte-pinned by the T8 test, and since MCP
+parity plan S08 a listing of callable tools under `Nested tools:` that a
+request adds (grouping, budget and `codemode.mode` are specified in the user
+page, "What the model is told"). The fixed part names no tool, so it is the
+same whatever is registered. “Unavailable modules” below summarizes
+unavailable functionality: subprocess, socket and threading import but cannot
+create processes, sockets or threads. See the user page for precise module
+capabilities.
 
-Description:
+Fixed part, followed by pipy's read/filter guidance and its runnable example
+(`tools/codemode.py`):
 
 > Run a Python script that calls other tools. The script runs in an isolated
 > Python 3.14 interpreter with no file system, network or process access of
 > its own. All effects go through `tools.<name>(args)`, which runs the named
-> tool exactly as a direct call would, with the same JSON arguments. It
-> returns the tool's text output or raises `ToolError`. Calls run one at a
-> time. `text(value)` emits output: strings as-is, anything else as JSON.
-> `print()` output is included as well. Unavailable modules: subprocess,
-> socket networking, ssl, threading, ctypes, zlib/gzip/bz2/lzma, sqlite3.
-> Limits: 120 s wall time, 256 MiB memory, about 10k tokens of output. Tool
-> calls already made are not undone when the script fails. Callable tools:
-> read, ls, grep, find, write, edit, bash.
+> tool exactly as a direct call would, with the same JSON arguments.
+>
+> - `tools.<name>(args)` returns a string, or a structured value if the
+>   tool's declaration says so, and raises `ToolError` on failure. A tool
+>   whose declaration returns a structured value returns it on failure too
+>   when the failed result carries one; check its fields.
+>   `tools.<name>.submit(args)` starts the call and returns at once; its
+>   `.result()` returns or raises as the call would, so calls submitted
+>   together run at the same time. Calls still running when the script ends
+>   are cancelled.
+> - Optional first line: `// @options: {"max_output_tokens": 10000, "timeout_ms": 60000}`
+> - Unavailable modules: subprocess, socket networking, ssl, threading,
+>   ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 256 MiB memory, about 10k
+>   tokens of output; no wall time limit unless `timeout_ms` sets one. Tool
+>   calls already made are not undone when the script fails.
+>
+> Globals:
+>
+> - `text(value)` emits output: strings as-is, anything else as JSON.
+>   `print()` output is included as well.
+> - `ALL_TOOLS`, `search_tools(query, limit=8, namespace=None)`,
+>   `describe_tool(name)`, `describe_namespace(name)`: find unlisted tools,
+>   such as MCP tools.
 
-Prompt snippet: "Run Python that calls other tools". Guideline: "Use codemode
-to chain several tool calls or filter large output in one step instead of many
-separate calls."
+Until S08 the description ended with the sentence "Callable tools: read, ls,
+grep, find, write, edit, bash." and said that a call returns the tool's text.
+
+Prompt snippet: "Run Python that calls other tools". Guidelines: "Use codemode
+to batch independent tool calls (`tools.<name>.submit()`), chain them, or
+filter large output in one step instead of many separate calls." (Pi's
+wording with `.submit()` for `Promise.allSettled` since MCP parity plan G3;
+before it "Use codemode to chain several tool calls or filter large output in
+one step instead of many separate calls.") and the adherence slice's "Keep intermediate tool results in
+Python and emit only the task-relevant answer; parse documented text output
+directly instead of adding format-probe calls." No tool adds to them.
 
 ### 4.9 Pi behaviours
 
@@ -521,13 +579,18 @@ separate calls."
 
 - Python instead of JavaScript.
 - A process plus a wasm runtime instead of a worker thread.
-- A finite default wall limit.
-- Sequential calls only.
+- The options line keeps Pi's `//` form inside a JSON `code` string, and
+  the output budget is capped by the 64 KiB result text (MCP parity plan
+  G5; before G5 a finite 120 s wall limit was the default).
+- Calls run at the same time only when the script submits them
+  (`tools.<name>.submit`, MCP parity plan G3), at most 16 at once; a plain
+  call waits for its result. Before G3 calls were sequential.
 - A JSON `code` string instead of raw-source grammar.
 - No `return`, `console.*` or `exit()`; print is equivalent to text.
-- Deferred: `store()`/`load()`, `image()`, `models.*`, `searchTools()` and
-  related helpers, MCP exposure tiers, structured tool results and the
-  options line.
+- Deferred: `image()`, `models.*`, `searchTools()` and
+  related helpers, MCP exposure tiers and structured tool results.
+  `store()`/`load()` landed with MCP parity plan G4, the options line with
+  G5.
 
 ## 5. First-slice task list
 
@@ -674,12 +737,14 @@ Each task is small and lands with its own tests. The plan's acceptance items
      wall limit.
    - Covers E, F and G.
    - **Implemented** in `codemode/host.py` and `codemode/outcome.py`:
-     - `run_script(code, *, call_tool, tool_names, limits, cancel,
-       tool_stop, paths, pin, python) -> ScriptOutcome` never raises.
+     - `run_script(code, *, call_tool, tools, discover, limits, cancel,
+       tool_stop, paths, pin, python) -> ScriptOutcome` never raises
+       (`tools` and `discover` since MCP parity plan S07; before that a
+       `tool_names` list).
        `call_tool(name, arguments_json) -> CallResult(ok, text, cancelled)`
        runs on the calling thread, one call at a time (§4.2 step 4): the I/O
        thread hands each `call` over a queue and the caller posts the reply
-       back. Names outside `tool_names` get an error result without reaching
+       back. Names outside `tools` get an error result without reaching
        the callback. `tool_stop` is set whenever the run ends, early exits included, so a callback
        still in flight (T6's waiter) can stop its tool; it must be a fresh
        event per run, and one already set or in use by another run (a nested
@@ -689,7 +754,7 @@ Each task is small and lands with its own tests. The plan's acceptance items
        anything but a `CallResult` is a sandbox error. Running out of fds or
        threads while starting is a sandbox error too. `ScriptLimits` refuses
        values the worker would reject (memory above 4 GiB or not an `int`,
-       wall plus margin above 24 h).
+       wall plus margin above 24 h; 25 days since MCP parity plan G5).
      - The I/O thread owns every pipe, all non-blocking (replies wait in a
        buffer until the guest's stdin is writable), and checks cancel and
        the deadline every iteration (≤ 20 ms). A call stays outstanding
@@ -961,5 +1026,6 @@ Each task is small and lands with its own tests. The plan's acceptance items
     decision.
 13. **Deferred Pi surface.** Options line or timeout override, structured
     `bash` results, exposure tiers (direct, model-only, codemode, deferred),
-    `store()`/`load()`, `image()`, `models.*`, parallel calls with Pi's
-    exclusive-queue rule.
+    `image()`, `models.*`. Parallel calls landed with MCP
+    parity plan G3, without Pi's exclusive queue (plan DEV-48);
+    `store()`/`load()` with G4.

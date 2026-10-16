@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.agent import AgentUserMessage
+from pipy_harness.native.agent import AgentToolResultMessage, AgentUserMessage
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import (
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
@@ -191,6 +191,8 @@ class FakeNativeProvider:
 AUTOMATION_FAKE_MODEL_ID = "fake-tools"
 AUTOMATION_FAKE_BLOCK_SENTINEL = "BLOCK"
 AUTOMATION_FAKE_STREAM_BLOCK_SENTINEL = "STREAMBLOCK"
+AUTOMATION_FAKE_TOOL_SENTINEL = "TOOLCALL"
+AUTOMATION_FAKE_TOOL_ARGUMENTS = '{"command":"echo hi"}'
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +211,8 @@ class AutomationFakeProvider:
     ``steer``/``abort`` checks can interrupt a genuinely in-flight turn at the
     provider boundary. ``STREAMBLOCK`` first streams a partial answer and then
     waits the same way, so an abort keeps partial text (DF1-F6 PTY evidence).
+    ``TOOLCALL`` first asks for one ``bash`` call (``echo hi``) and replies
+    once its result is in, so the gate sees the tool events of a real call.
     No auth/credential material is ever produced.
     """
 
@@ -246,23 +250,11 @@ class AutomationFakeProvider:
             cancel_token.raise_if_cancelled()
         started_at = datetime.now(UTC)
         user_text = self._latest_user_text(request).strip()
-        if (
-            user_text.startswith(AUTOMATION_FAKE_STREAM_BLOCK_SENTINEL)
-            and cancel_token is not None
-        ):
-            # Stream a partial answer first, so an abort has text to keep.
-            if stream_sink is not None:
-                stream_sink("PARTIAL:streamed-before-abort")
-            if cancel_token.event.wait(timeout=self.block_timeout_seconds):
-                self._cancel_observed[0] = True
-                raise ProviderCancelledError("automation fake turn cancelled")
-        if (
-            user_text.startswith(AUTOMATION_FAKE_BLOCK_SENTINEL)
-            and cancel_token is not None
-        ):
-            if cancel_token.event.wait(timeout=self.block_timeout_seconds):
-                self._cancel_observed[0] = True
-                raise ProviderCancelledError("automation fake turn cancelled")
+        if cancel_token is not None:
+            self._block(user_text, stream_sink, cancel_token)
+        tool_turn = self._tool_call_turn(request, user_text, started_at)
+        if tool_turn is not None:
+            return tool_turn
         token = (user_text.split() or ["EMPTY"])[0]
         chunks = ("SEEN:", token)
         if stream_sink is not None:
@@ -278,6 +270,52 @@ class AutomationFakeProvider:
             final_text="".join(chunks),
             usage={},
             tool_calls=(),
+        )
+
+    def _block(
+        self,
+        user_text: str,
+        stream_sink: StreamChunkSink | None,
+        cancel_token: CancelToken,
+    ) -> None:
+        """Wait on the cancel token for the ``STREAMBLOCK``/``BLOCK`` turns."""
+        if user_text.startswith(AUTOMATION_FAKE_STREAM_BLOCK_SENTINEL):
+            # Stream a partial answer first, so an abort has text to keep.
+            if stream_sink is not None:
+                stream_sink("PARTIAL:streamed-before-abort")
+            if cancel_token.event.wait(timeout=self.block_timeout_seconds):
+                self._cancel_observed[0] = True
+                raise ProviderCancelledError("automation fake turn cancelled")
+        if user_text.startswith(AUTOMATION_FAKE_BLOCK_SENTINEL):
+            if cancel_token.event.wait(timeout=self.block_timeout_seconds):
+                self._cancel_observed[0] = True
+                raise ProviderCancelledError("automation fake turn cancelled")
+
+    def _tool_call_turn(
+        self, request: ProviderRequest, user_text: str, started_at: datetime
+    ) -> ProviderResult | None:
+        """The ``TOOLCALL`` turn that asks for one ``bash`` call; None once
+        the call's result is in, or for any other prompt."""
+        if not user_text.startswith(AUTOMATION_FAKE_TOOL_SENTINEL) or (
+            request.messages
+            and isinstance(request.messages[-1], AgentToolResultMessage)
+        ):
+            return None
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=started_at,
+            ended_at=datetime.now(UTC),
+            final_text="",
+            usage={},
+            tool_calls=(
+                ProviderToolCall(
+                    provider_correlation_id="fake-tool-call-1",
+                    tool_name="bash",
+                    arguments_json=AUTOMATION_FAKE_TOOL_ARGUMENTS,
+                ),
+            ),
         )
 
 

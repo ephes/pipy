@@ -7,7 +7,10 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    ProductContent,
+    require_tool_result_blocks,
+)
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
@@ -182,37 +185,65 @@ def validate_provider_request_snapshot(snapshot: AgentProviderRequestSnapshot) -
 
 
 def _freeze_tool_definition(definition: ToolDefinition) -> ToolDefinition:
+    """Freeze the model-visible part of one definition.
+
+    A provider request declares a name, a description and an input schema.
+    Tool metadata (exposure, namespace, annotations, output schema, reach) is
+    not part of it and stays on the registered definition; only `schema_mode`
+    is carried, because it decides which schemas the frozen copy may hold.
+    """
+
     _validate_tool_definition(definition, require_frozen_schema=False)
-    frozen_schema = _freeze_schema_mapping(definition.input_schema)
-    _validate_schema_semantics(frozen_schema)
+    foreign = _is_foreign(definition)
+    frozen_schema = _freeze_schema_mapping(definition.input_schema, foreign=foreign)
+    if not foreign:
+        _validate_schema_semantics(frozen_schema)
     validated = ToolDefinition(
         definition.name,
         definition.description,
         _thaw_schema_mapping(frozen_schema),
+        schema_mode=definition.schema_mode,
     )
     object.__setattr__(validated, "input_schema", frozen_schema)
     return validated
 
 
-def _freeze_schema_mapping(value: object) -> _ImmutableSchemaMapping:
+def _is_foreign(definition: ToolDefinition) -> bool:
+    mode = definition.schema_mode
+    if type(mode) is not str or mode not in {"strict", "foreign"}:
+        raise TypeError("ToolDefinition.schema_mode must be strict or foreign")
+    return mode == "foreign"
+
+
+def _freeze_schema_mapping(value: object, *, foreign: bool) -> _ImmutableSchemaMapping:
     if not isinstance(value, Mapping):
         raise TypeError("ToolDefinition.input_schema must be a mapping")
     frozen: list[tuple[str, object]] = []
     for key, child in value.items():
         if type(key) is not str:
             raise TypeError("tool schema keys must be exact strings")
-        frozen.append((key, _freeze_schema_value(child)))
+        frozen.append((key, _freeze_schema_value(child, foreign=foreign)))
     return _ImmutableSchemaMapping(tuple(frozen))
 
 
-def _freeze_schema_value(value: object) -> object:
+def _freeze_schema_value(value: object, *, foreign: bool) -> object:
     if isinstance(value, Mapping):
-        return _freeze_schema_mapping(value)
+        return _freeze_schema_mapping(value, foreign=foreign)
     if isinstance(value, (list, tuple)) and type(value) in {list, tuple}:
-        return tuple(_freeze_schema_value(child) for child in value)
-    if value is None or type(value) in {bool, int, str}:
+        return tuple(_freeze_schema_value(child, foreign=foreign) for child in value)
+    if _is_schema_scalar(value, foreign=foreign):
         return value
     raise TypeError("tool schema values must be immutable JSON values")
+
+
+def _is_schema_scalar(value: object, *, foreign: bool) -> bool:
+    """A JSON scalar a schema may hold; only foreign schemas use numbers with
+    a fraction (`"minimum": 0.5`)."""
+
+    if value is None or type(value) in {bool, int, str}:
+        return True
+    # Finite floats only: NaN differs from itself, and JSON has no infinity.
+    return foreign and type(value) is float and value - value == 0.0
 
 
 def _thaw_schema_mapping(value: Mapping[str, object]) -> dict[str, object]:
@@ -330,21 +361,23 @@ def _validate_tool_definition(
     if type(definition.description) is not str or not definition.description:
         raise TypeError("ToolDefinition.description must be a non-empty exact string")
     if require_frozen_schema:
-        _validate_frozen_schema_value(definition.input_schema)
+        _validate_frozen_schema_value(
+            definition.input_schema, foreign=_is_foreign(definition)
+        )
     elif not isinstance(definition.input_schema, Mapping):
         raise TypeError("ToolDefinition.input_schema must be a mapping")
 
 
-def _validate_frozen_schema_value(value: object) -> None:
+def _validate_frozen_schema_value(value: object, *, foreign: bool) -> None:
     if type(value) is _ImmutableSchemaMapping:
         for child in value.values():
-            _validate_frozen_schema_value(child)
+            _validate_frozen_schema_value(child, foreign=foreign)
         return
     if type(value) is tuple:
         for child in value:
-            _validate_frozen_schema_value(child)
+            _validate_frozen_schema_value(child, foreign=foreign)
         return
-    if value is None or type(value) in {bool, int, str}:
+    if _is_schema_scalar(value, foreign=foreign):
         return
     raise TypeError("tool schema must be recursively immutable")
 
@@ -378,6 +411,13 @@ def _validate_system_transcript(request: ProviderRequest) -> None:
         type(name) is not str or not name for name in request.hidden_tool_names
     ):
         raise TypeError("ProviderRequest.hidden_tool_names must be exact names")
+    undeclared = request.undeclared_tool_names
+    if type(undeclared) is not tuple or any(
+        type(name) is not str or not name for name in undeclared
+    ):
+        raise TypeError("ProviderRequest.undeclared_tool_names must be exact names")
+    if not {tool.name for tool in request.available_tools}.isdisjoint(undeclared):
+        raise ValueError("an undeclared tool must not be among the available tools")
     anchored: object = request.system_messages
     message_count = len(request.messages)
     if type(anchored) is not tuple:
@@ -453,6 +493,9 @@ def validate_agent_tool_result_message(result: object) -> None:
     validate_product_content(result.content, "AgentToolResultMessage.content")
     if type(result.is_error) is not bool:
         raise TypeError("AgentToolResultMessage.is_error must be an exact bool")
+    require_tool_result_blocks(
+        result.blocks, result.content.value, "AgentToolResultMessage"
+    )
 
 
 def validate_product_content(content: object, field_name: str) -> None:

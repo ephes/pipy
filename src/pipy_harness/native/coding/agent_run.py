@@ -32,13 +32,18 @@ from pipy_harness.native.agent.loop import (
     AgentLoopRequestSource,
     AgentLoopRunInput,
     AgentLoopStatusPolicy,
+    TurnStartHook,
 )
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderStatusDecision,
     AgentToolPolicy,
     AgentToolPolicyState,
 )
-from pipy_harness.native.agent.messages import AgentMessage
+from pipy_harness.native.agent.messages import (
+    AgentMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+)
 from pipy_harness.native.agent.nested_calls import (
     AgentCompositeToolRunner,
     NestedToolEligibility,
@@ -59,6 +64,7 @@ from pipy_harness.native.agent.system_messages import AgentSystemPromptInput
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
     ToolInterruptWaiter,
+    ToolReadinessWaiter,
 )
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.coding.state import CodingSessionState
@@ -233,6 +239,14 @@ class CodingAgentRunCoordinator:
         tool_waiter: ToolInterruptWaiter | None = None,
         composite_runner: AgentCompositeToolRunner | None = None,
         nested_eligibility: NestedToolEligibility | None = None,
+        tool_readiness: ToolReadinessWaiter | None = None,
+        before_turn: TurnStartHook | None = None,
+        parent_runner: Callable[
+            [AgentToolCall, dict[str, object]], AgentCompositeToolRunner | None
+        ]
+        | None = None,
+        normalize_result: Callable[[AgentToolResultMessage], AgentToolResultMessage]
+        | None = None,
     ) -> None:
         if type(coding_state) is not CodingSessionState:
             raise TypeError("coding_state must be an exact CodingSessionState")
@@ -251,6 +265,10 @@ class CodingAgentRunCoordinator:
         self._tool_waiter = tool_waiter
         self._composite_runner = composite_runner
         self._nested_eligibility = nested_eligibility
+        self._tool_readiness = tool_readiness
+        self._before_turn = before_turn
+        self._parent_runner = parent_runner
+        self._normalize_result = normalize_result
 
     def run_turn(
         self,
@@ -273,6 +291,10 @@ class CodingAgentRunCoordinator:
             tool_waiter=self._tool_waiter,
             composite_runner=self._composite_runner,
             nested_eligibility=self._nested_eligibility,
+            tool_readiness=self._tool_readiness,
+            before_turn=self._before_turn,
+            parent_runner=self._parent_runner,
+            normalize_result=self._normalize_result,
         )
         witness = self._coding_state.begin_agent_run()
         try:

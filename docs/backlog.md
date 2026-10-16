@@ -1,7 +1,8 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-04.
+updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited),
+2026-10-15 (MCP1 goal-check tracks merged) and 2026-10-16 (MCP1 done).
 
 ## Status
 
@@ -16,6 +17,10 @@ updated 2026-10-04.
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
+- **MCP1 MCP and codemode tool reach: done (2026-10-16).** The final goal
+  check found Pi parity reached; the owner approved the merge to `main`.
+  The live evidence and the recorded differences stay open; see
+  [MCP1](#mcp1-mcp-and-codemode-tool-reach-done-2026-10-16).
 - **CM1 Python codemode: done (2026-10-09).**
   Public codemode remains opt-in. T4–T11 and A–K evidence are indexed in the
   [acceptance note](specs/2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index).
@@ -87,6 +92,76 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
+### MCP1 — MCP and codemode tool reach (done 2026-10-16)
+
+Owner-requested 2026-10-12: the whole Pi MCP feature at functionality parity,
+against Pi `a447ba11f`. The
+[parity plan](specs/2026-10-12-mcp-parity-plan.md) holds the acceptance
+checklist (292 rows with Pi sources), the deviations, the design, the
+ordered slices S01–S40, X1, X2 and the goal-check slices G1–G9, L1–L4 and
+N1–N4, and the test strategy. Scope: codemode reaching
+extension and MCP tools with discovery, the MCP client (stdio and streamable
+HTTP), `mcp.json` configuration and project overrides, exposure modes,
+`tool_search`, the `mcp_servers` prompt section, resources, OAuth, result
+truncation, `pipy mcp`, the `/mcp` manager, `--no-mcp` and `mcp__` tool
+patterns, reload, and the extension and SDK hooks.
+
+Fixed by the owner: the synchronous native core stays (no async runtime, no
+`mcp` SDK dependency; the client is written in pipy), codemode stays Python
+on WASI with Python names, and configuration uses Pi's `mcp.json` format at
+pipy's locations under the existing project-trust rules. Nested calls run
+concurrently since G3 (plan DEV-03). Decided
+2026-10-12 (plan section 7): images in tool results and the extension
+orchestration hooks are in scope, the client name is `pipy`, and slices land
+on `feat/mcp-parity`, pushed per slice, as a campaign exception to the trunk
+rule; the merge to `main` needed owner approval (given 2026-10-16). Decided 2026-10-14: no
+default OAuth Client ID Metadata Document (dynamic client registration stays
+the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl`); stdio
+servers on Windows, the Radius offer after a login and codemode `models.*`
+are outside the parity goal; inline terminal images are in scope; Pillow is
+the optional `images` extra.
+
+State after the closing audit and the goal-check tracks (2026-10-16, plan
+section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
+every slice is on `feat/mcp-parity`. Of the 292 rows, 165 are closed with a
+test and 127 with a recorded limit or deviation; none is open. The official
+MCP conformance suite gives the same result for pipy as for Pi
+(`just mcp-conformance`, a manual recipe). Open:
+
+- **Live evidence** (plan section 6.5): a stdio server through `uvx` or
+  `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
+  needs the owner's provider login and an account at an OAuth MCP server.
+- **Owner decisions:** which of the recorded
+  differences from Pi (plan section 3.1, DEV-15 to DEV-101) that plan
+  section 7, Q11 to Q17, do not name are accepted. Q11 (2026-10-15)
+  accepts the findings of the second goal check that its triage neither
+  fixes nor refutes; Q12, Q13 and Q14 (2026-10-15) do the same for the
+  third, fourth and fifth goal checks, Q15 (2026-10-16) records that
+  the sixth goal check left nothing to accept, Q16 (2026-10-16)
+  accepts DEV-95 and DEV-96 for the seventh, and Q17 (2026-10-16) accepts
+  DEV-97 to DEV-101 and parts of DEV-36 and DEV-37 for the eighth. Q17
+  also sets the bar for the end: after the fix slices K1 to K3 of the
+  eighth triage, one final goal check asks for each area whether the goal
+  is reached (no Critical gap and no gap a user would notice in normal
+  use); edge cases it still finds go to this backlog, and then the owner is
+  asked about the merge. The fix slices T1 to T6 of
+  the third triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5),
+  and so are the fix slices V1 to V3 of the fourth triage (V3 merged in
+  INT6), the fix slices X1 to X3 of the fifth triage (X2 merged in INT7,
+  which added DEV-94, the order of the MCP tools across servers, accepted
+  in Q14) and the fix slices Y1 to Y3 of the sixth triage (Y3 merged in
+  INT8, which added DEV-95, two limits of a wrapped `edit` row, accepted
+  in Q16), and so are the fix slices Z1 and Z2 of the seventh triage
+  (Z2 narrowed DEV-20 to the 64 KiB result text) and the fix slices K1 to
+  K3 of the eighth triage (K2 and K3 merged in INT9).
+
+Campaign done (2026-10-16): the final goal check Q17 describes ran at
+`2f95587d` and found the goal reached in all six areas, each CLEAN with no
+finding, so it added nothing to this backlog. The owner approved the merge
+of `feat/mcp-parity` to `main` the same day. The follow-ons from the goal
+checks stay listed under [Follow-ons](#follow-ons), and the live evidence
+and the owner decisions above stay open.
+
 ### CM1 — Python codemode (done 2026-10-09)
 
 Owner-requested 2026-10-04; bounded implementation and T11 user documentation
@@ -110,9 +185,11 @@ Per-slice full checks and independent reviews, the cumulative whole-campaign
 review and final main/CI/worktree outcomes are recorded separately in the
 coordinator campaign report. This product index does not assert a review verdict.
 
-Follow-ons require separately selected slices: extension-tool generalization,
-MCP/discovery/exposure, parallel calls/shared state, images, `models.*`,
-`store()`/`load()`, options lines and structured bash results. Compact-script
+Extension-tool generalization and MCP/discovery/exposure are now MCP1 above.
+Other follow-ons require separately selected slices: shared state (parallel
+calls are MCP1 slice G3; `store()`/`load()` is MCP1 slice G4), images (the tool-result part is MCP1 slice S39), and `models.*`
+(structured bash results and options lines are MCP1 slice G5; `models.*` is
+outside the MCP parity goal by the owner's decision of 2026-10-14). Compact-script
 model adherence needs further evidence; the T10 repeat is retained as a limitation.
 **CM1-A1 — adherence guidance (review closed).** The owner-selected follow-on adds
 direct string-processing guidance,
@@ -162,11 +239,12 @@ assessment, not a completed rebaseline or a fresh parity-gate result:
   newly outstanding work. GPT-6.1 Sol and OpenAI ChatGPT sign-in have already
   landed in pipy 0.3.0.
 - **MCP / codemode / tool search** (Python-codemode planning split out as
-  CM1 on 2026-10-04; MCP/tool search retain this deferral) was the next
-  substantial feature-scope
-  decision, separate from UP1. OAuth, tool naming, discovery, exposure and
-  reload behavior are still changing upstream. Revisit around 2026-10-13;
-  selection requires a bounded plan and any dependency decisions.
+  CM1 on 2026-10-04) was the next substantial feature-scope decision, separate
+  from UP1. The owner selected it on 2026-10-12 as MCP1, with the bounded plan
+  and the dependency decision (no `mcp` SDK, no async runtime) recorded in the
+  [parity plan](specs/2026-10-12-mcp-parity-plan.md). OAuth, tool naming,
+  discovery, exposure and reload behavior were still changing upstream until
+  the plan's reference commit; later Pi changes are not in its checklist.
 - **Virtual models and classifier operations** are separate coverage decisions;
   current realignment does not establish parity for them. Image generation
   remains deferred.
@@ -184,8 +262,9 @@ assessment, not a completed rebaseline or a fresh parity-gate result:
 UP1 should also triage smaller established-agent changes such as provider/model
 CLI validation, provider retry and tool-schema handling, extension validation
 and tool previews. Compare each with pipy's implementation before calling it a
-gap. This decision does not authorize MCP implementation, parallel tools or a
-durable-runtime migration.
+gap. This decision did not authorize MCP implementation, parallel tools or a
+durable-runtime migration; MCP was authorized separately on 2026-10-12 (MCP1).
+Parallel tools and a durable-runtime migration remain unauthorized.
 
 ## Done (2026-09-29)
 
@@ -227,15 +306,20 @@ Open deviations collected from the done slices, not yet queued. Take one when
 a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
-- **READ-IMG, images from `read`:** Pi's `read` returns jpg/png/gif/webp/bmp
-  files as image attachments (resized). pipy tool results are text-only, so
-  `read` returns an error for images. Porting needs image content in tool
-  results across the provider adapters, the session tree and replay.
+- **READ-IMG, images from `read`:** `read` attaches JPEG, PNG, GIF and
+  WebP files (MCP parity plan S39 and G5). Without Pillow (the `images`
+  extra) `read` does not resize an image over 2000 x 2000 pixels or 4.5 MB
+  of base64 or convert a BMP; such an image is omitted with Pi's text. With
+  Pillow it does (goal check r3, D2). The `Current model does not support
+  images` note is not added.
 - **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
   - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
     OSC 8 file links (DF1-F7 added the ticking `Elapsed`);
-  - JSON/RPC `toolResult` messages and `tool_execution_end` carry no
-    `details`; Pi's thrown tool errors store `details: {}`, pipy stores none;
+  - JSON/RPC `toolResult` messages carry `details` only for the parents of
+    nested calls (minus the record, which is the message's `nestedCalls`
+    field since MCP1 goal check r8, B; `tool_execution_end.result` carries
+    them for every tool since MCP1 goal check r2); Pi's thrown tool errors
+    store `details: {}`, pipy stores none;
   - `edit` stores no `details.patch` (jsdiff `createTwoFilesPatch`);
   - a hallucinated tool name gets the generic `name key=value` row where Pi,
     knowing no definition, prints the arguments as JSON;
@@ -429,8 +513,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - Pi's bash guideline names `PI_*` session environment variables that
     pipy's bash tool does not set (pipy acts as Pi with
     `exposeSessionEnvironment: false`);
-  - extension tools have no `promptSnippet`/`promptGuidelines`, and
-    `before_agent_start` gets no `systemPromptOptions`;
+  - the `systemPromptOptions` of `before_agent_start` has only `sections`
+    (`event.system_prompt_options.sections`); extension tools have
+    `prompt_snippet`/`prompt_guidelines` since the MCP parity slice G9;
   - Pi also refreshes the sections before each turn inside a run; pipy
     rebuilds them per run;
   - package extensions and themes still load at the lowest precedence (Pi
@@ -447,10 +532,12 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 
 Revisit these when an active item needs them or the Pi surface stabilizes.
 
-- **Pi MCP / tool search** (`8562bcf66`, 2026-09-29). This is L and
-  still moving. Python codemode planning is now CM1, without MCP. Revisit MCP
-  around 2026-10-13 as a feature-scope decision; see
-  [Upstream scope decision](#upstream-scope-decision-2026-10-01).
+- **Pi MCP / tool search:** no longer deferred. Selected on 2026-10-12 as
+  [MCP1](#mcp1-mcp-and-codemode-tool-reach-done-2026-10-16),
+  which is done (2026-10-16). What it does not port is listed in
+  the plan's deviations tables (parallel nested calls, the non-reach
+  codemode globals, Radius setup, Windows process handling, and the
+  differences the slices recorded).
 - **Pi durable execution and experimental TUI** (`5609b0d6c`): a separate
   architecture watch track, not the established-agent parity target. Reassess
   when contracts stabilize or a user need requires it; see the scope decision.
@@ -458,18 +545,114 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   decisions, not covered by the completed realignment.
 - **Strict tool schemas** (Pi 0.86.0): only once a primary provider needs
   capability-gated constraints.
-- **Per-model image input limits and resize** (Pi `f5c946480`).
-- **Missing RPC commands:** `clear_queue` (`a79b37334`), prompt disposition
-  (`e473b5cd8`), and `get_tree`/`get_entries` (`7ba1b6bfe`).
+- **Per-model image input limits** (Pi `f5c946480`). Tool result images
+  are resized with Pi's default limits since MCP1 G7; per-model
+  `inputLimits` are not read.
+- **Missing RPC commands:** `clear_queue` (`a79b37334`) and
+  `get_tree`/`get_entries` (`7ba1b6bfe`).
 - **Extension events** that Pi's `core/extensions/types.ts` has and pipy's
   `extensions/activation.py` lacks.
+- **`before_agent_start` breadth** (MCP1 goal check r2, finding S24; plan
+  DEV-35): the event has no `messageType`, `prompt`, `images` or custom
+  `message`, and the result has only `append_system_prompt`. Pi's result can
+  also replace the whole system prompt (`systemPrompt`, seen by later
+  handlers) and add a custom message to the run (`message`). Anyone porting
+  a Pi extension that does either meets this; it belongs to the
+  extension-API track, not MCP.
+- **`constrained_sampling` on extension tools** (MCP1 goal check r3,
+  finding S6; plan DEV-85): Pi's `constrainedSampling` asks the provider for
+  grammar-constrained argument generation (Pi's own codemode tool uses a
+  Lark grammar for the raw script). pipy's tool adapter cannot carry it, and
+  it needs provider-side grammar support. Extension-API track.
+- **Render context content blocks** (MCP1 goal check r4, finding D1; plan
+  DEV-86): pass the result's content blocks (text and images, in order) to
+  custom renderers in the terminal and the HTML export, as Pi's
+  `renderResult` gets `content`. Extension-API track.
+- **Rich partial results** (MCP1 goal check r4, finding S3; plan DEV-88):
+  carry image blocks, `structured_content` and `is_error` of an `on_update`
+  partial result through `ToolPartialResult`, the TUI row, JSON/RPC
+  `partialResult` and nested `on_update`. Extension-API track.
+- **`input` event breadth** (MCP1 goal check r4, finding S4; plan DEV-89):
+  `images`, `source` (interactive, rpc, extension) and `streamingBehavior`
+  on `InputEvent`, and image replacement in `InputTransform`. Extension-API
+  track.
+- **`send_user_message` options** (MCP1 goal check r4, finding S5; plan
+  DEV-90): `deliver_as` (steer, follow-up) and `expand_prompt_templates`
+  (command and template expansion, opt-in as in Pi). Extension-API track.
+- **Trailing newlines of a print or JSON prompt** (MCP1 goal check r4,
+  finding S6; plan DEV-91, low): keep the prompt's own trailing newlines so
+  `/name\n` is not a command, as in Pi.
+- **Non-object `details`** (MCP1 goal check r4, finding S8; plan DEV-92):
+  allow any JSON value as a tool result's `details` (types, session entries,
+  renderers, hooks). Extension-API track.
+- **Report extension hook errors** (MCP1 goal check r4, finding S9; plan
+  DEV-93): emit an extension error (extension path, event, message) when an
+  `input`, `before_agent_start`, `tool_result` or observer handler raises,
+  as Pi's `emitError`, while keeping the fail-safe behaviour. Extension-API
+  track.
+- **Tool source metadata** (MCP1 goal check r5, finding U3; plan DEV-25):
+  `source_info` on `ToolInfo` and in `ctx.get_all_tools()`, as Pi's
+  `sourceInfo` (`path`, `source`, `scope`, `origin`, `base_dir`), so an
+  extension can tell which built-in, extension path or SDK call registered a
+  tool. Extension-API track.
+- **Wrapped `edit` row diff** (MCP1 goal check r7, finding S1; plan
+  DEV-95): build the diff preview of a wrapped `edit` row from the
+  arguments and the result the wrapper supplies, as Pi's edit renderer does
+  (`computeEditsDiff` for the arguments it is given, `setEditPreview` from
+  the result's `details.diff`), so that a wrapper can change or redact it.
+  Extension-API track.
+- **Every nested call in the live codemode row** (MCP1 goal check r7,
+  finding D1; plan DEV-96): keep a full renderer history of a script's
+  nested calls beside the bounded record, as Pi's `details.calls`, if a
+  script with more than 256 calls ever needs all of them inspectable. The
+  durable record stays bounded at 256 calls, as Pi's. Codemode track.
+- **Zero-padded SSE `retry` values** (MCP1 goal check r8, finding P4; plan
+  DEV-97, low): read a `retry` field of more than 18 digits by its value,
+  as Pi's `Number(value)` does, so that a small delay padded with zeros is
+  honoured, while still bounding the conversion. MCP track.
+- **Pending restorations past an excluded tool** (MCP1 goal check r8,
+  finding U1; plan DEV-98): keep tools that `--exclude-tools` removes out of
+  the internal active selection, as Pi never registers them, so that an
+  exposure change of their server keeps the pending names of other servers'
+  restored tools. MCP track.
+- **Text blocks of a tool result** (MCP1 goal check r8, finding U2; plan
+  DEV-99): keep a text-only result's blocks for `tool_result` hooks and the
+  provider request, as Pi's `convertMcpResult` and `_afterToolCall` do,
+  instead of only their joined text. Extension-API track.
+- **Pi's MCP name and exposure timing** (MCP1 goal check r8, findings U3
+  and U4; plan DEV-36, DEV-37, low): pipy gives a suffixed name that
+  already belongs to another tool a further suffix, and applies an exposure
+  change to a server that is not connected at once; Pi reuses the name
+  (the second tool replaces the first) and waits for the reconnect. Both
+  are kept as the safer behaviour; revisit only if exact Pi names or timing
+  matter to someone. MCP track.
+- **Empty `prepare_loadout` descriptions** (MCP1 goal check r8, finding
+  S1; plan DEV-100, low): let a loadout blank a tool's description, as Pi
+  does, which needs declared copies to allow an empty description.
+  Extension-API track.
+- **`api.on()` after loading** (MCP1 goal check r8, finding S2; plan
+  DEV-101): let an active extension subscribe to events after it has
+  loaded (for example from `session_start`) and return a function that
+  removes the handler, as Pi's `on()` does. Extension-API track.
+- **Proxy support, pipy-wide** (MCP1 goal check r3, finding F2; plan
+  DEV-82): Pi's `httpProxy` setting (global only) applied as
+  `HTTP_PROXY`/`HTTPS_PROXY`, honoured by the MCP HTTP transport and the
+  OAuth fetch (CONNECT tunnelling in their cancellable connect), with
+  `NO_PROXY`. Model providers already follow the environment proxies through
+  urllib, so behind a proxy MCP HTTP servers fail while model requests work.
+- **`auth.json` config values** (MCP1 goal check r3, finding Q1; plan
+  DEV-83): Pi's `${VAR}` templates, `$$`/`$!` escapes and the credential's
+  `env` map for stored API keys, pipy-wide (model requests and MCP
+  `auth.provider`). This changes how a plain env-variable name is read.
 - **Pi's shared OAuth callback server** (`4df157433`). This is a refactor only:
   pipy already has `AnthropicOAuthProvider` (`oauth_providers.py:117`).
 - **Other deferred items:**
   - per-model compaction overrides (Pi `46bde88a1`)
   - live Codex model discovery
 - **Standing deferrals:**
-  - Parallel tools, until latency evidence starts with explicitly safe reads.
+  - Parallel tools, until latency evidence starts with explicitly safe reads
+    (plan DEV-87; Pi runs a response's tool calls concurrently by default and
+    honours `executionMode`).
   - Image generation.
   - Distributed agents, durable lanes and server mode.
   - Full component/theme parity.

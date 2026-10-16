@@ -9,7 +9,6 @@ class NestedCallStatus(StrEnum):
     CANCELLED = "cancelled"
     BLOCKED = "blocked"
     UNAUTHORIZED = "unauthorized"
-    BUDGET_EXHAUSTED = "budget_exhausted"
     MALFORMED = "malformed"
     INTERRUPTED = "interrupted"
     REFUSED = "refused"

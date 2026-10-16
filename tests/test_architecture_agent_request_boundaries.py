@@ -30,6 +30,7 @@ _REQUEST_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pathlib.Path",
         "pipy_harness.native.agent.content",
         "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.content.require_tool_result_blocks",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentAssistantMessage",
         "pipy_harness.native.agent.messages.AgentMessage",

@@ -33,7 +33,10 @@ _CANONICAL_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.active_input",
         "pipy_harness.native.agent.active_input.AgentActiveInput",
         "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.NO_STRUCTURED_CONTENT",
+        "pipy_harness.native.agent.content.NoStructuredContent",
         "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.content.ToolResultBlock",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
@@ -55,6 +58,7 @@ _CANONICAL_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.status",
         "pipy_harness.status.HarnessStatus",
         "typing",
+        "typing.Any",
         "typing.Protocol",
         "typing.runtime_checkable",
     }
@@ -64,6 +68,8 @@ _PRODUCT_ALLOWED_DIRECT_IMPORTS = frozenset(
     {
         "__future__",
         "__future__.annotations",
+        "typing",
+        "typing.Any",
         "collections.abc",
         "collections.abc.Callable",
         "dataclasses",
@@ -73,6 +79,7 @@ _PRODUCT_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.loop_policy",
         "pipy_harness.native.agent.loop_policy.AgentProviderRequestPolicyInput",
         "pipy_harness.native.agent.loop_policy.AgentToolPolicyDecision",
+        "pipy_harness.native.agent.loop_policy.AgentToolResultTransform",
         "pipy_harness.native.agent.loop_policy.validate_agent_tool_policy_decision",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
@@ -328,7 +335,14 @@ def test_canonical_loop_policy_has_only_narrow_typed_surfaces() -> None:
     assert ast.literal_eval(constant.value) == 200
     fields = {
         "AgentProviderRequestPolicyInput": ("baseline", "active_input"),
-        "AgentToolPolicyDecision": ("blocked_reason",),
+        "AgentToolPolicyDecision": ("blocked_reason", "terminate"),
+        "AgentToolResultTransform": (
+            "content",
+            "structured_content",
+            "blocks",
+            "is_error",
+            "details",
+        ),
         "AgentToolPolicyState": (
             "tool_budget",
             "malformed_limit",

@@ -19,7 +19,8 @@ Invariants pinned by the focused tests:
   value.
 - Each user turn allows at most `tool_budget` tool invocations; subsequent
   model-emitted calls receive a deterministic "tool budget exhausted"
-  observation.
+  observation. Calls a tool makes (codemode scripts, `ctx.execute_tool`)
+  take no place in it, as Pi has no limit on them.
 - Malformed tool calls are authorized calls whose arguments fail JSON decoding
   or schema validation. They are returned as canonical error tool-result
   observations and increment a streak counter; three consecutive malformed

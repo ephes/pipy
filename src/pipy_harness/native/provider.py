@@ -103,11 +103,20 @@ def copilot_dynamic_headers(
     (a follow-up after assistant/tool messages) and ``user`` otherwise; a
     request with no message envelope is a single user turn. Pi sets
     ``Copilot-Vision-Request`` when a user or tool-result message carries an
-    image; in pipy only the current turn's attachments carry images, so the
-    adapter passes whether it actually sends them.
+    image. In pipy a user's images are the current turn's attachments, so the
+    adapter passes whether it sends those; the images of tool results are
+    found here, since every adapter sends them.
     """
 
-    from pipy_harness.native.agent.messages import AgentUserMessage
+    from pipy_harness.native.agent.messages import (
+        AgentToolResultMessage,
+        AgentUserMessage,
+    )
+
+    images_sent = images_sent or any(
+        isinstance(message, AgentToolResultMessage) and bool(message.blocks)
+        for message in request.messages
+    )
 
     last = request.messages[-1] if request.messages else None
     initiator = (

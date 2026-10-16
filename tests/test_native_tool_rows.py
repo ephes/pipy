@@ -519,6 +519,214 @@ def test_generic_call_header_and_result_preview(tmp_path: Path) -> None:
     assert _text(long_args)[0] == "kv " + ('text="' + "x" * 200)[:97] + "..."
 
 
+# -- MCP tools (Pi createMcpToolRenderers) ---------------------------------------
+
+
+def _mcp(args: dict[str, Any], tmp_path: Path, **kw: Any) -> ToolRowState:
+    return _state("mcp__docs__search", args, tmp_path, mcp_label="docs/search", **kw)
+
+
+def test_mcp_call_is_titled_server_tool_with_its_arguments(tmp_path: Path) -> None:
+    # RND-01, Pi `formatToolCallWithArgs`.
+    state = _mcp({"query": "pi\tdocs", "limit": 3, "tags": ["a"]}, tmp_path)
+    assert _text(state) == ['docs/search query="pi\\tdocs" limit=3 tags=["a"]']
+    assert _text(state, expanded=True) == [
+        "docs/search",
+        "  query: pi   docs",
+        "  limit: 3",
+        "  tags: [",
+        '      "a"',
+        "    ]",
+    ]
+    assert _text(_mcp({}, tmp_path)) == ["docs/search"]
+    long_args = _mcp({"text": "x" * 200}, tmp_path)
+    assert _text(long_args)[0] == "docs/search " + ('text="' + "x" * 200)[:97] + "..."
+
+
+def test_mcp_result_collapsed_shows_the_first_five_lines(tmp_path: Path) -> None:
+    # RND-02.
+    state = _mcp({"query": "pi"}, tmp_path)
+    state.result = _result("\n".join(f"hit {n}" for n in range(1, 13)) + "\n")
+    assert _rows(state) == [
+        ("success", ""),
+        ("success", 'docs/search query="pi"'),
+        ("success", ""),
+        *[("success", f"hit {n}") for n in range(1, 6)],
+        ("success", "... (7 more lines, ctrl+o to expand)"),
+        ("success", ""),
+        ("none", ""),
+    ]
+    assert _text(state, expanded=True) == [
+        "docs/search",
+        "  query: pi",
+        *[f"hit {n}" for n in range(1, 13)],
+    ]
+    state.result = _result("\n".join(f"hit {n}" for n in range(1, 6)))
+    assert _text(state)[1:] == [f"hit {n}" for n in range(1, 6)]
+
+
+def test_mcp_result_counts_wrapped_lines_at_the_box_width(tmp_path: Path) -> None:
+    # Pi: "Limit wrapped lines, not logical ones: MCP results are often one
+    # long JSON line."
+    state = _mcp({}, tmp_path)
+    state.result = _result("a" * 240)
+    # width 42 -> content width 40: 240 characters are 6 visual rows.
+    assert _text(state, width=42) == [
+        "docs/search",
+        *["a" * 40] * 5,
+        "... (1 more lines, ctrl+o to expand)",
+    ]
+    assert _text(state, width=62) == ["docs/search", *["a" * 60] * 4]
+    # The hint is cut to the box like every clipped row.
+    assert _SGR.sub("", _text(state, width=22)[-1]) == "... (7 more lines..."
+
+
+def test_mcp_result_names_the_full_output_file_when_collapsed(tmp_path: Path) -> None:
+    details = {"server": "docs", "tool": "search", "fullOutputPath": "/tmp/full.txt"}
+    notice = "[Full output: /tmp/full.txt (read it with offset/limit)]"
+    state = _mcp({}, tmp_path)
+    state.result = _result(
+        "\n".join(f"hit {n}" for n in range(8)) + f"\n\n{notice}", details
+    )
+    assert _text(state)[-2:] == [
+        "... (5 more lines, ctrl+o to expand)",
+        "Full output: /tmp/full.txt",
+    ]
+    # Expanded, the notice at the end of the text says it.
+    assert _text(state, expanded=True)[-2:] == ["hit 7", notice]
+    state.result = _result("short", details)
+    assert _text(state) == ["docs/search", "short", "Full output: /tmp/full.txt"]
+    state.result = _result("short", {"server": "docs", "tool": "search"})
+    assert _text(state) == ["docs/search", "short"]
+
+
+def test_mcp_error_result_uses_the_error_colour(tmp_path: Path) -> None:
+    state = _mcp({}, tmp_path)
+    state.result = _result("server exploded\nagain", error=True)
+    rows = render_tool_row(
+        state, RowRenderInputs(expanded=False, width=100, theme=MARKED)
+    )
+    error = f"\x1b[{MARKED.codes['error']}m"
+    output = [row.text for row in rows[3:5]]
+    assert [_SGR.sub("", text) for text in output] == ["server exploded", "again"]
+    assert all(text.startswith(error) for text in output)
+    assert {row.bg for row in rows[:-1]} == {"error"}
+    state.result = _result("fine")
+    rows = render_tool_row(
+        state, RowRenderInputs(expanded=True, width=100, theme=MARKED)
+    )
+    assert f"\x1b[{MARKED.codes['toolOutput']}mfine\x1b[39m" in [r.text for r in rows]
+
+
+def test_mcp_result_without_text_adds_no_rows(tmp_path: Path) -> None:
+    state = _mcp({}, tmp_path)
+    state.result = _result(" \n")
+    assert _rows(state) == [
+        ("success", ""),
+        ("success", "docs/search"),
+        ("success", ""),
+        ("none", ""),
+    ]
+
+
+_SCRIPT = "Script completed\nWall time 0.4 seconds\nOutput:\n"
+
+
+def _codemode(tmp_path: Path) -> ToolRowState:
+    return _state("codemode", {"code": "print(1)"}, tmp_path)
+
+
+def test_codemode_result_drops_the_script_header(tmp_path: Path) -> None:
+    # M19, Pi codemodeRenderers.renderResult.
+    state = _codemode(tmp_path)
+    state.result = _result(_SCRIPT + "1\n2\n")
+    assert _rows(state) == [
+        ("success", ""),
+        ("success", 'codemode code="print(1)"'),
+        ("success", ""),
+        ("success", "1"),
+        ("success", "2"),
+        ("success", ""),
+        ("none", ""),
+    ]
+    # Rejected input has no header and is shown as it is.
+    state.result = _result("Invalid options: timeout", error=True)
+    assert _text(state)[1:] == ["Invalid options: timeout"]
+
+
+def test_codemode_result_counts_wrapped_lines_and_names_the_full_output(
+    tmp_path: Path,
+) -> None:
+    # Pi: "Limit wrapped lines, not logical ones: script output is often one
+    # long JSON line." 4000 characters at content width 98 are 41 rows.
+    notice = "Full output saved to /tmp/pipy-codemode-1.log (4000 bytes)."
+    details = {"fullOutputPath": "/tmp/pipy-codemode-1.log"}
+    state = _codemode(tmp_path)
+    state.result = _result(_SCRIPT + "x" * 4000 + f"\n\n{notice}", details)
+    assert _text(state) == [
+        'codemode code="print(1)"',
+        *["x" * 98] * 5,
+        "... (38 more lines, ctrl+o to expand)",
+        "Full output: /tmp/pipy-codemode-1.log",
+    ]
+    # Expanded, the whole output and the notice at its end; no extra path.
+    expanded = _text(state, expanded=True)
+    assert expanded[-1] == notice
+    assert "".join(expanded[2:-1]) == "x" * 4000
+    assert "Full output: /tmp/pipy-codemode-1.log" not in expanded
+
+
+def test_codemode_result_is_empty_while_the_script_runs(tmp_path: Path) -> None:
+    state = _codemode(tmp_path)
+    state.partial_output = "partial"
+    assert _text(state) == ['codemode code="print(1)"']
+    state.result = _result(_SCRIPT)
+    assert _text(state) == ['codemode code="print(1)"']
+
+
+def test_codemode_error_result_uses_the_error_colour(tmp_path: Path) -> None:
+    state = _codemode(tmp_path)
+    state.result = _result(
+        "Script failed\nWall time 0.1 seconds\nOutput:\nboom", error=True
+    )
+    rows = render_tool_row(
+        state, RowRenderInputs(expanded=False, width=100, theme=MARKED)
+    )
+    error = f"\x1b[{MARKED.codes['error']}m"
+    assert [row.text for row in rows if row.text.startswith(error)] == [
+        f"{error}boom\x1b[39m"
+    ]
+
+
+def test_a_running_mcp_call_shows_its_latest_progress(tmp_path: Path) -> None:
+    state = _mcp({}, tmp_path)
+    state.partial_output = "Progress 1/3\nindexing\n"
+    assert _rows(state) == [
+        ("pending", ""),
+        ("pending", "docs/search"),
+        ("pending", ""),
+        ("pending", "indexing"),
+        ("pending", ""),
+        ("none", ""),
+    ]
+
+
+def test_an_extension_renderer_wins_over_the_mcp_title(tmp_path: Path) -> None:
+    from pipy_harness.extensions import ExtensionTool
+
+    tool = ExtensionTool(
+        name="mcp__docs__search",
+        description="d",
+        input_schema={"type": "object"},
+        handler=lambda c, i: "",
+    )
+    state = _mcp({"query": "pi"}, tmp_path, extension=tool)
+    state.result = _result("\n".join(f"r{n}" for n in range(12)))
+    text = _text(state)
+    assert text[0] == 'mcp__docs__search query="pi"'
+    assert text[11] == "... (2 more lines, ctrl+o to expand)"
+
+
 # -- theme, wrap and frame ------------------------------------------------------
 
 
@@ -677,3 +885,81 @@ def test_a_resize_redraws_tool_rows_at_the_new_width(tmp_path: Path) -> None:
     live.transcript.refresh_tool_rows()
     # Content width 10: three rows of the wrapped output, as Pi draws them.
     assert live.rows() == [["$ x", "a" * 10, "a" * 10, "a" * 10]]
+
+
+# -- which rows a call gets (Pi resolveToolRenderers) ----------------------------
+
+
+def test_calls_to_mcp_tools_that_are_not_registered_get_mcp_rows(
+    tmp_path: Path,
+) -> None:
+    """Pi regression 10285: "renders calls to MCP tools that are not registered"."""
+
+    live = _Live(tmp_path)
+    live.width = 100
+    live.call("mcp__my_docs__search", {"query": "pi"})
+    live.renderer.render_tool_result(
+        output_text="\n".join(f"hit {n}" for n in range(7)), is_error=False
+    )
+    live.call("not_mcp", {"query": "pi"})
+    live.renderer.render_tool_result(
+        output_text="\n".join(f"hit {n}" for n in range(7)), is_error=False
+    )
+    # The resource tools and an incomplete name have no server and tool.
+    for name in ("list_mcp_resources", "mcp__docs", "mcp____search", "mcp__docs__"):
+        live.call(name, {})
+        live.renderer.render_tool_result(output_text="", is_error=False)
+    assert live.rows() == [
+        [
+            'my_docs/search query="pi"',
+            *[f"hit {n}" for n in range(5)],
+            "... (2 more lines, ctrl+o to expand)",
+        ],
+        ['not_mcp query="pi"', *[f"hit {n}" for n in range(7)]],
+        ["list_mcp_resources"],
+        ["mcp__docs"],
+        ["mcp____search"],
+        ["mcp__docs__"],
+    ]
+
+
+def test_a_registered_mcp_tool_is_titled_with_its_exact_names(tmp_path: Path) -> None:
+    from pipy_harness.extensions import ExtensionTool, lines_component
+    from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
+
+    own = ExtensionTool(
+        name="mcp__my_docs__own",
+        description="d",
+        input_schema={"type": "object"},
+        handler=lambda c, i: "",
+        render_call=lambda ctx: lines_component(["own row"]),
+    )
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(
+            tools={"mcp__my_docs__own": own},
+            mcp_labels={"mcp__my_docs__search_1a2b3c4d": "my-docs/search"},
+        )
+    )
+    for name in (
+        "mcp__my_docs__search_1a2b3c4d",
+        "mcp__my_docs__other",
+        "mcp__my_docs__own",
+    ):
+        live.call(name, {})
+        live.renderer.render_tool_result(output_text="", is_error=False)
+    # The first group of the name ends at the first `__`, as in Pi.
+    assert live.rows() == [["my-docs/search"], ["my_docs/other"], ["own row"]]
+
+
+def test_a_built_in_tool_keeps_its_own_rows(tmp_path: Path) -> None:
+    from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
+
+    live = _Live(tmp_path)
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(mcp_labels={"ls": "docs/ls"})
+    )
+    live.call("ls", {"path": "src"})
+    live.renderer.render_tool_result(output_text="a.py", is_error=False)
+    assert live.rows() == [["ls src", "a.py"]]

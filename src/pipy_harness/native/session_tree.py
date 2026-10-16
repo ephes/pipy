@@ -50,6 +50,10 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.content import (
+    ToolResultBlock,
+    normalized_tool_result_blocks,
+)
 from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
 from pipy_harness.native.agent.system_messages import (
     current_system_message,
@@ -60,6 +64,8 @@ from pipy_harness.native.agent.usage_json import usage_from_json, usage_to_json
 from pipy_harness.native.assistant_blocks_json import (
     assistant_blocks_from_json,
     assistant_blocks_to_json,
+    tool_result_blocks_from_json,
+    tool_result_blocks_to_json,
 )
 
 CURRENT_SESSION_VERSION = 1
@@ -175,6 +181,7 @@ class _UnresolvedToolResultMessage:
     provider_correlation_id: str | None
     is_error: bool = False
     details: dict[str, Any] | None = None
+    blocks: tuple[ToolResultBlock, ...] = ()
 
 
 _StoredMessage = AgentTranscriptMessage | _UnresolvedToolResultMessage
@@ -346,6 +353,9 @@ def _tool_result_to_json(
     # Pi ``ToolResultMessage.details``; omitted when the tool gave none.
     if message.details is not None:
         body["details"] = dict(message.details)
+    # Pi ``ToolResultMessage.content`` of a result that has an image.
+    if message.blocks:
+        body["blocks"] = tool_result_blocks_to_json(message.blocks)
     return body
 
 
@@ -463,6 +473,11 @@ def _message_from_json(
         raw_details = body.get("details")
         if raw_details is not None and not isinstance(raw_details, dict):
             raise ValueError("tool details must be an object")
+        blocks = normalized_tool_result_blocks(
+            tool_result_blocks_from_json(body.get("blocks")),
+            output_text,
+            "stored tool result",
+        )
         if provider_correlation_id and tool_name is not None:
             return AgentToolResultMessage(
                 tool_request_id=tool_request_id,
@@ -471,6 +486,7 @@ def _message_from_json(
                 is_error=is_error,
                 provider_correlation_id=provider_correlation_id,
                 details=raw_details,
+                blocks=blocks,
             )
         return _UnresolvedToolResultMessage(
             tool_request_id=tool_request_id,
@@ -478,6 +494,7 @@ def _message_from_json(
             provider_correlation_id=provider_correlation_id,
             is_error=is_error,
             details=raw_details,
+            blocks=blocks,
         )
     raise ValueError(f"unsupported message role: {role!r}")
 

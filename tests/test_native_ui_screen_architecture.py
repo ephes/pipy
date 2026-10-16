@@ -27,6 +27,7 @@ MODAL_METHODS = (
     "run_extension_editor",
     "run_extension_confirm",
     "run_session_picker",
+    "run_mcp_manager",
 )
 RETIRED_FACADE_METHODS = {
     "autocomplete",
@@ -146,7 +147,7 @@ def test_facade_screen_state_and_private_implementation_are_gone() -> None:
     }
 
 
-def test_ten_modal_methods_use_the_one_screen_drive_loop() -> None:
+def test_modal_methods_use_the_one_screen_drive_loop() -> None:
     modal_class = _class(MODAL_PATH.read_text(encoding="utf-8"), "TerminalModalDriver")
     definitions = {
         node.name for node in modal_class.body if isinstance(node, ast.FunctionDef)

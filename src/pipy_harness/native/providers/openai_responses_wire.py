@@ -50,7 +50,11 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent.content import (
+    TextContent,
+    ThinkingContent,
+    tool_result_images,
+)
 from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.deferred_tools import short_hash
 from pipy_harness.native.http import ProviderHTTPError, extract_responses_usage
@@ -61,6 +65,7 @@ from pipy_harness.native.models import (
 )
 from pipy_harness.native.providers.replay_content import (
     ReplayTarget,
+    image_data_url,
     transform_assistant_blocks,
 )
 from pipy_harness.native.providers.responses_output import (
@@ -126,7 +131,7 @@ class ResponsesReplay:
                 {
                     "type": "function_call_output",
                     "call_id": _call_id(envelope.provider_correlation_id),
-                    "output": envelope.content.value,
+                    "output": _tool_result_output(envelope),
                 }
             ]
         raise self.parse_error_class(
@@ -352,6 +357,26 @@ def _system_tool_additions(
             ],
         },
     ]
+
+
+def _tool_result_output(
+    envelope: AgentToolResultMessage,
+) -> str | list[dict[str, object]]:
+    """Pi ``convertToolResultOutput``: the text, or with images an
+    ``input_text`` part (when there is text) and the ``input_image`` parts."""
+
+    images = tool_result_images(envelope.blocks)
+    text = envelope.content.value
+    if not images:
+        return text
+    output: list[dict[str, object]] = []
+    if text:
+        output.append({"type": "input_text", "text": text})
+    output.extend(
+        {"type": "input_image", "detail": "auto", "image_url": image_data_url(image)}
+        for image in images
+    )
+    return output
 
 
 def responses_input(

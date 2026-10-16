@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -318,6 +318,7 @@ class _Tools:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        arguments: Any = None,
     ) -> ToolExecutionOutcome:  # pragma: no cover - no tool calls in fixtures
         del call, output_sink, wait_for_interrupt
         raise AssertionError("no tool calls are produced")
@@ -336,11 +337,19 @@ class _Tools:
             provider_correlation_id=call.provider_correlation_id,
         )
 
+    def validated_arguments(
+        self, call: AgentToolCall, /
+    ) -> dict[str, Any] | ToolExecutionOutcome:  # pragma: no cover - no tool calls
+        del call
+        raise AssertionError("no tool calls are produced")
+
 
 class _ToolPolicy:
     def before_execute(
         self,
         call: AgentToolCall,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> AgentToolPolicyDecision:  # pragma: no cover - no tool calls in fixtures
         del call
@@ -350,6 +359,8 @@ class _ToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> ProductContent:  # pragma: no cover - no tool calls in fixtures
         del call

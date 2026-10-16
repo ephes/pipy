@@ -124,6 +124,17 @@ class OutputAccumulator:
             full_output_path=self._temp_file_path,
         )
 
+    def flush_temp_file(self) -> None:
+        """Write what the temp file buffers, so the file a running command's
+        update names already holds the output so far."""
+
+        if self._temp_file is None:
+            return
+        try:
+            self._temp_file.flush()
+        except OSError:
+            self._abandon_temp_file()
+
     def close_temp_file(self) -> None:
         if self._temp_file is None:
             return
@@ -135,6 +146,46 @@ class OutputAccumulator:
             self._abandon_temp_file()
             return
         self._temp_file = None
+
+    def read_full_output(self, max_bytes: int) -> tuple[str, bool]:
+        """The complete output and whether it omits part of it (Pi
+        ``readFullOutput``), for callers that take more than the snapshot.
+
+        Call after :meth:`finish` and :meth:`close_temp_file`. Output longer
+        than ``max_bytes`` raw bytes keeps its first and last
+        ``max_bytes / 2`` bytes around an omission marker. When the temp file
+        could not be kept, only the snapshot's tail is left, so that is the
+        output, marked as cut when the command wrote more.
+        """
+
+        path = self._temp_file_path
+        if path is None:
+            if self._temp_file_failed:
+                snapshot = self.snapshot()
+                return snapshot.content, snapshot.truncation.truncated
+            return b"".join(self._raw_chunks).decode("utf-8", "replace"), False
+        try:
+            with open(path, "rb") as handle:
+                size = os.fstat(handle.fileno()).st_size
+                if size <= max_bytes:
+                    return handle.read().decode("utf-8", "replace"), False
+                head_bytes = max_bytes // 2
+                tail_bytes = max_bytes - head_bytes
+                head = handle.read(head_bytes)
+                handle.seek(size - tail_bytes)
+                tail = handle.read(tail_bytes)
+        except OSError:
+            snapshot = self.snapshot()
+            return snapshot.content, snapshot.truncation.truncated
+        # Cut at character boundaries: an incomplete sequence at the end of
+        # the head is held back, and the tail skips continuation bytes.
+        head_text = codecs.getincrementaldecoder("utf-8")(errors="replace").decode(head)
+        start = 0
+        while start < len(tail) and (tail[start] & 0xC0) == 0x80:
+            start += 1
+        tail_text = tail[start:].decode("utf-8", "replace")
+        omitted = size - head_bytes - tail_bytes
+        return f"{head_text}\n\n[... {omitted} bytes omitted ...]\n\n{tail_text}", True
 
     @property
     def last_line_bytes(self) -> int:

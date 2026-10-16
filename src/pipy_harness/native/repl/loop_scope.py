@@ -20,7 +20,7 @@ without letting the agent tier see either the concrete UI or the session.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Iterator, MutableMapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,7 +29,9 @@ from typing import TYPE_CHECKING, TextIO
 
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
+    AgentCancellationReason,
     AgentFailure,
+    AgentMessage,
     AgentSystemMessage,
     AgentTranscriptMessage,
     AgentUserMessage,
@@ -66,6 +68,7 @@ from pipy_harness.native.package_runtime import PackageResourceRoots
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
+from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl_input import NativeReplInput
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
@@ -312,6 +315,11 @@ class ReplLoopScope:
     # Pi `compaction_end`: redraw the chat, or show the outcome's notice.
     show_compaction: Callable[[CodingCompactionOutcome, AgentUserMessage | None], None]
     declared_context_window: Callable[[CodingProviderBinding], int | None]
+    # Pi ``transformMessages``: the history as a request to the bound model
+    # holds it (no tool result images for a model that takes none).
+    request_history: Callable[
+        [CodingProviderBinding, tuple[AgentMessage, ...]], tuple[AgentMessage, ...]
+    ]
     cycle_thinking_level: Callable[[], "RpcConfigurationResult | None"]
     append_agent_message: Callable[[AgentTranscriptMessage], None]
     drain_extension_outboxes: Callable[[], None]
@@ -321,6 +329,23 @@ class ReplLoopScope:
     extension_custom_driver: Callable[..., object]
     extension_notify: Callable[[str, str], None]
     coding_session_control: Callable[[], ExtensionCodingSessionControl]
+    # The waits for MCP servers that are still connecting.
+    mcp_waits: McpSessionWaits
+    # Runs when a turn starts, before its tools are read: connects MCP
+    # servers again that somebody signed in to outside the session. A reason
+    # it returns cancels the run.
+    before_turn: Callable[[], AgentCancellationReason | None]
+    # The sections the session adds to the coming run's prompt, by name and
+    # without their tags: the `mcp_servers` list. Read when a run starts.
+    session_prompt_sections: Callable[[], Mapping[str, str]]
+    # Called once when a run's prompt is settled, after its hooks: tools a
+    # reload or `/tree` restored that have not registered by now stay
+    # inactive (Pi `_pendingToolNames`).
+    run_prepared: Callable[[], None]
     compaction_event: (
         Callable[[str, str, CodingCompactionOutcome | None], None] | None
     ) = None
+    # A session of `--print` or `--mode json`, whose input stream says so
+    # (`is_prompt`): the line it reads is a prompt in Pi's sense
+    # (`AgentSession.prompt`), not a line somebody typed.
+    prompt_mode: bool = False

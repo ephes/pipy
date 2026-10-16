@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_types import (
     CustomComponentDriver,
     ExtensionCodingSessionControl,
@@ -32,15 +34,18 @@ class ExtensionCommandDispatch:
     """Outcome of dispatching one extension `/command`.
 
     `ran` is True when the handler completed; `error` carries a safe,
-    bounded label (exception type name only) when it raised. `messages`
-    are the `(kind, text)` notifications the handler emitted, for the
-    caller to render as live UI output. No provider turn is implied.
+    bounded label (exception type name only) when it raised, and `message`
+    the exception's own text, which Pi reports for a command that a prompt
+    ran (`Extension error (command:<name>): <message>`). `messages` are the
+    `(kind, text)` notifications the handler emitted, for the caller to
+    render as live UI output. No provider turn is implied.
     """
 
     name: str
     ran: bool
     error: str | None
     messages: tuple[tuple[str, str], ...]
+    message: str | None = None
 
 
 def extension_command_map(
@@ -201,7 +206,10 @@ def _run_extension_handler(
         project_trusted=project_trusted,
     )
     try:
-        handler(ctx, args)
+        # Pi awaits command and shortcut handlers.
+        result = handler(ctx, args)
+        if inspect.isawaitable(result):
+            _drive_awaitable(result)
     except (KeyboardInterrupt, SystemExit):
         # A genuine user abort / interpreter exit is control flow, not an
         # extension failure: never swallow it into a bounded error.
@@ -212,6 +220,7 @@ def _run_extension_handler(
             ran=False,
             error=_safe_diagnostic(err),
             messages=tuple(ui.messages),
+            message=_exception_text(err),
         )
     return ExtensionCommandDispatch(
         name=name,
@@ -219,3 +228,15 @@ def _run_extension_handler(
         error=None,
         messages=tuple(ui.messages),
     )
+
+
+def _exception_text(err: BaseException) -> str:
+    """The exception's own text (Pi's ``err.message``), or its type name
+    when even that raises: a bad handler must never escape the dispatch."""
+
+    try:
+        return str(err)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - the handler boundary's bound
+        return _safe_diagnostic(err)

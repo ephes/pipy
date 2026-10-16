@@ -7,7 +7,8 @@ Pipy analogue of Pi's ``AuthStorage`` (auth-storage.ts) +
 Resolution priority for a per-request API key (Pi's order):
 
 1. runtime ``--api-key`` override
-2. stored ``api_key`` in ``auth.json`` (resolved as literal/env-name/``!command``)
+2. stored ``api_key`` in ``auth.json`` (resolved as literal/env-name/``!command``;
+   a command runs once per process, as Pi caches it)
 3. stored OAuth token (refresh-on-expiry is the OAuth layer's job, M7)
 4. provider env var(s)
 5. the provider's ``models.json`` ``apiKey`` (literal/env-name/``!command``),
@@ -35,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 
+from pipy_harness.native.fuzzy import js_trim
+
 CommandRunner = Callable[[str], str | None]
 OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
 
@@ -46,7 +49,8 @@ OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
 
 _read_command_output = os.read
 _COMMAND_TIMEOUT = 10.0
-_COMMAND_OUTPUT_LIMIT = 64 * 1024
+# Node's default `maxBuffer` of `execSync`, which Pi runs the command with.
+_COMMAND_OUTPUT_LIMIT = 1024 * 1024
 _COMMAND_CLEANUP_GRACE = 0.2
 _COMMAND_CLEANUP_POLL = 0.01
 # Bound separately so cleanup keeps real time when the lookup clock is replaced.
@@ -93,29 +97,27 @@ def _stop_command(process: subprocess.Popen[bytes]) -> None:
 
 
 def _capture_command(process: subprocess.Popen[bytes], deadline: float) -> bytes | None:
-    assert process.stdout is not None and process.stderr is not None
+    """The command's stdout; ``None`` past the deadline or the output limit."""
+
+    assert process.stdout is not None
     output = bytearray()
-    total = 0
     with selectors.DefaultSelector() as selector:
-        for stream in (process.stdout, process.stderr):
-            os.set_blocking(stream.fileno(), False)
-            selector.register(stream, selectors.EVENT_READ)
+        os.set_blocking(process.stdout.fileno(), False)
+        selector.register(process.stdout, selectors.EVENT_READ)
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
             for key, _ in selector.select(remaining):
                 chunk = _read_command_output(
-                    key.fd, min(8192, _COMMAND_OUTPUT_LIMIT - total + 1)
+                    key.fd, min(65536, _COMMAND_OUTPUT_LIMIT - len(output) + 1)
                 )
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
-                total += len(chunk)
-                if total > _COMMAND_OUTPUT_LIMIT:
+                output.extend(chunk)
+                if len(output) > _COMMAND_OUTPUT_LIMIT:
                     return None
-                if key.fileobj is process.stdout:
-                    output.extend(chunk)
     return bytes(output)
 
 
@@ -124,8 +126,13 @@ def _default_run_command(command: str) -> str | None:
         process = subprocess.Popen(  # noqa: S602 - explicit user-configured command
             command,
             shell=True,
+            # As Pi (`stdio: ["ignore", "pipe", "ignore"]`): the command gets
+            # no stdin, so it can neither take a piped prompt or RPC input
+            # nor wait for the terminal.
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            # As Pi: stderr is not read, so it does not count toward the limit.
+            stderr=subprocess.DEVNULL,
             process_group=0,
         )
     except (OSError, subprocess.SubprocessError):
@@ -143,7 +150,9 @@ def _default_run_command(command: str) -> str | None:
         completed = True
         if returncode != 0:
             return None
-        value = output.decode("utf-8", errors="strict").strip()
+        # Node's execSync decodes with replacement characters and Pi trims
+        # with String.prototype.trim, which also drops U+FEFF.
+        value = js_trim(output.decode("utf-8", errors="replace"))
         return value or None
     except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
@@ -155,8 +164,6 @@ def _default_run_command(command: str) -> str | None:
                 pass
         if process.stdout is not None:
             process.stdout.close()
-        if process.stderr is not None:
-            process.stderr.close()
 
 
 def resolve_config_value(
@@ -175,9 +182,51 @@ def resolve_config_value(
         result = runner(value[1:])
         if result is None:
             return None
-        stripped = result.strip()
+        stripped = js_trim(result)
         return stripped or None
     return env.get(value) or value
+
+
+# Pi ``commandResultCache`` (resolve-config-value.ts): what a stored
+# ``!command`` printed, or ``None`` when it failed, by the value, for the
+# lifetime of the process. The lock is held while a command runs, so threads
+# that ask for the same key at once run it once.
+_stored_command_results: dict[str, str | None] = {}
+_stored_command_lock = threading.Lock()
+
+
+def resolve_stored_key(
+    value: str,
+    *,
+    env: Mapping[str, str],
+    run_command: CommandRunner | None = None,
+) -> str | None:
+    """Resolve the ``key`` of an ``auth.json`` ``api_key`` entry as
+    :func:`resolve_config_value` does, running a ``!command`` once per
+    process: later calls get its first result, also a failure.
+
+    Pi's ``AuthStorage.read`` resolves a stored key with the cached
+    ``resolveConfigValue``; a ``models.json`` ``apiKey`` and the headers are
+    resolved uncached (``resolveConfigValueOrThrow``), so those stay with
+    :func:`resolve_config_value`.
+    """
+
+    if not value.startswith("!"):
+        return resolve_config_value(value, env=env)
+    with _stored_command_lock:
+        if value not in _stored_command_results:
+            _stored_command_results[value] = resolve_config_value(
+                value, env=env, run_command=run_command
+            )
+        return _stored_command_results[value]
+
+
+def clear_stored_command_results() -> None:
+    """Forget every stored ``!command`` result (Pi ``clearConfigValueCache``,
+    for tests)."""
+
+    with _stored_command_lock:
+        _stored_command_results.clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -496,7 +545,8 @@ def auth_file_lock(path: Path) -> Iterator[None]:
 
 def _read_auth_file(path: Path) -> dict[str, object]:
     try:
-        body = json.loads(path.read_text(encoding="utf-8"))
+        # Pi ``stripBom``: a leading byte order mark is not part of the JSON.
+        body = json.loads(path.read_text(encoding="utf-8").removeprefix("\ufeff"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return {}
     return _detach_auth_data(body) if isinstance(body, dict) else {}
@@ -637,7 +687,7 @@ def _stored_api_key(
     if cred_type == "api_key":
         key = cred.get("key")
         if isinstance(key, str):
-            return resolve_config_value(key, env=env, run_command=run_command)
+            return resolve_stored_key(key, env=env, run_command=run_command)
         return None
     if cred_type == "oauth":
         if oauth_token_resolver is not None:

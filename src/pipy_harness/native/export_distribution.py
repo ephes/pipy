@@ -25,7 +25,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO, TypeVar
+from typing import TYPE_CHECKING, Any, BinaryIO, TypeVar
 
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.http import urlopen_read_cancellable
@@ -34,6 +34,9 @@ from pipy_harness.native.session_tree import (
     _entry_to_json,
     _load_file_entries,
 )
+
+if TYPE_CHECKING:
+    from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
 
 # Text keys containing a marker are candidates; ``_key_is_sensitive`` then
 # decides, so token-count fields such as ``totalTokens`` survive.
@@ -46,12 +49,17 @@ _SENSITIVE_KEY_CANDIDATE_RE = (
 _JSON_SECRET_KEY_RE = re.compile(
     rf"(?i)(?P<quote>['\"])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})(?P=quote)\s*:\s*"
 )
-_JSON_SECRET_VALUE_RE = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,}\]]+")
+# A quoted value that text cut short leaves open (a nested call's argument
+# preview, an error cut to its bound) is a value to the end of the text, so
+# no part of it survives.
+_JSON_SECRET_VALUE_RE = re.compile(
+    r"\"(?:\\.|[^\"\\])*(?:\"|\\?\Z)|'(?:\\.|[^'\\])*(?:'|\\?\Z)|[^\s,}\]]+"
+)
 _SECRET_ASSIGN_KEY_RE = re.compile(
     rf"(?i)(?<![A-Za-z0-9_.-])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})"
     r"\s*(?P<sep>[:=])\s*"
 )
-_SECRET_ASSIGN_VALUE_RE = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s<>'\"]+")
+_SECRET_ASSIGN_VALUE_RE = re.compile(r"\"[^\"]*(?:\"|\Z)|'[^']*(?:'|\Z)|[^\s<>'\"]+")
 _SECRET_KEY_MARKER_RE = re.compile(r"api_?key|secret|password|passwd|credential")
 # ``token`` marks a credential unless it is token accounting: the plural
 # (``totalTokens``, ``tokensBefore``) or a count-shaped suffix
@@ -115,13 +123,33 @@ def _redact_export_mapping(
     value: Mapping[_MappingKeyT, object],
 ) -> dict[str, Any]:
     redacted: dict[str, Any] = {}
+    image_block = _is_image_block(value)
     for key, item in value.items():
         key_text = str(key)
-        if _key_is_sensitive(key_text):
+        if image_block and key_text == "data":
+            # Base64 image data is not text: a pattern that matched inside it
+            # would only break the image.
+            redacted[key_text] = item
+        elif _key_is_sensitive(key_text):
             redacted[key_text] = "[REDACTED]"
         else:
             redacted[key_text] = redact_export_value(item)
     return redacted
+
+
+_BASE64_DATA_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+
+
+def _is_image_block(value: Mapping[Any, object]) -> bool:
+    """A stored tool result image: ``{"type":"image","data","mimeType"}``."""
+
+    data = value.get("data")
+    return (
+        value.get("type") == "image"
+        and isinstance(value.get("mimeType"), str)
+        and isinstance(data, str)
+        and _BASE64_DATA_RE.fullmatch(data) is not None
+    )
 
 
 def _key_is_sensitive(key: str) -> bool:
@@ -289,7 +317,16 @@ def session_export_payload(
     *,
     system_prompt: str = "",
     tools: list[dict[str, Any]] | None = None,
+    tool_renderers: ToolRendererLookup | None = None,
 ) -> dict[str, Any]:
+    """The data an exported page shows.
+
+    ``renderedTools`` (Pi's name) has the rows of the tool calls that
+    renderers draw, by call id; it is left out when there are none.
+    ``tool_renderers`` chooses the renderers. Without it only calls to MCP
+    server tools are drawn, and no extension code runs.
+    """
+
     payload = {
         "header": tree.get_header().to_json_dict(),
         "entries": [_entry_to_json(entry) for entry in tree.get_entries()],
@@ -297,7 +334,27 @@ def session_export_payload(
         "systemPrompt": system_prompt,
         "tools": tools or [],
     }
-    return _redact_export_mapping(payload)
+    redacted = _redact_export_mapping(payload)
+    rendered = _rendered_tools(tree, tool_renderers)
+    if rendered:
+        redacted["renderedTools"] = rendered
+    return redacted
+
+
+def _rendered_tools(
+    tree: NativeSessionTree, tool_renderers: ToolRendererLookup | None
+) -> dict[str, dict[str, str]]:
+    # Imported here: the rows need the chrome and tool-row modules, which
+    # nothing else in this module does.
+    from pipy_harness.native.export_tool_rows import render_export_tools
+    from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
+
+    return render_export_tools(
+        tree.get_entries(),
+        tool_renderers if tool_renderers is not None else ToolRendererLookup(),
+        cwd=Path(tree.get_header().cwd),
+        redact=redact_export_value,
+    )
 
 
 def encoded_session_payload(payload: Mapping[str, Any]) -> str:
@@ -316,6 +373,7 @@ def export_native_session_to_html(
     *,
     system_prompt: str = "",
     tools: list[dict[str, Any]] | None = None,
+    tool_renderers: ToolRendererLookup | None = None,
 ) -> Path:
     if tree.path is None:
         raise NativeExportError("Cannot export in-memory session to HTML.")
@@ -323,7 +381,12 @@ def export_native_session_to_html(
         raise NativeExportError("Nothing to export yet.")
     output = Path(output_path).expanduser()
     html = generate_session_html(
-        session_export_payload(tree, system_prompt=system_prompt, tools=tools)
+        session_export_payload(
+            tree,
+            system_prompt=system_prompt,
+            tools=tools,
+            tool_renderers=tool_renderers,
+        )
     )
     _write_export(tree.path, output, html)
     return output
@@ -582,23 +645,50 @@ def create_secret_gist(
     return ShareResult(gist_id=gist_id, gist_url=gist_url, viewer_url=viewer_url)
 
 
+def share_session_html(
+    tree: NativeSessionTree,
+    *,
+    system_prompt: str = "",
+    tool_renderers: ToolRendererLookup | None = None,
+) -> str:
+    """The page ``/share`` uploads: the HTML export of ``tree``, with the
+    session's system prompt and the renderers ``tool_renderers`` chooses,
+    as Pi's ``/share`` uploads ``exportToHtml``'s page.
+
+    The renderers are extension code: call it on the session's thread, not
+    on the thread that uploads.
+    """
+
+    if tree.path is None:
+        raise NativeExportError("Cannot share an in-memory session.")
+    if not tree.get_entries():
+        raise NativeExportError("Nothing to share yet.")
+    return generate_session_html(
+        session_export_payload(
+            tree, system_prompt=system_prompt, tool_renderers=tool_renderers
+        )
+    )
+
+
 def share_native_session(
     tree: NativeSessionTree,
+    html: str,
     *,
     token: str,
     opener: Callable[[urllib.request.Request, float], Any] | None = None,
     cancelled: Callable[[], bool] | None = None,
     cancel_token: CancelToken | None = None,
 ) -> ShareResult:
+    """Upload ``html`` (``share_session_html``'s page of ``tree``) as a
+    secret gist. Runs no extension code."""
+
     if tree.path is None:
         raise NativeExportError("Cannot share an in-memory session.")
-    if not tree.get_entries():
-        raise NativeExportError("Nothing to share yet.")
     with tempfile.NamedTemporaryFile(
         "w", encoding="utf-8", suffix=".html", prefix="pipy-share-", delete=False
     ) as handle:
         temp_path = Path(handle.name)
-        handle.write(generate_session_html(session_export_payload(tree)))
+        handle.write(html)
     try:
         try:
             temp_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
@@ -811,6 +901,15 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 .role { font-weight: 700; color: var(--accent); margin-bottom: 6px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .tool { color: var(--muted); }
+.tool-rendered { background: #1f2023; color: #d7dae0; border-radius: 6px; padding: 10px 12px; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-rendered .tool-output { margin-top: 1.45em; }
+.tool-rendered .expandable { cursor: pointer; }
+.tool-rendered .expandable .output-full, .tool-rendered .expandable.expanded .output-preview { display: none; }
+.tool-rendered .expandable.expanded .output-full { display: block; }
+.tool-image { display: block; max-width: 100%; margin-top: 8px; border-radius: 6px; }
+.nested-calls { margin-top: 8px; cursor: pointer; color: var(--muted); }
+.nested-calls .output-full, .nested-calls.expanded .output-preview { display: none; }
+.nested-calls.expanded .output-full { display: block; }
 </style>
 </head>
 <body>
@@ -838,13 +937,137 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     pre.textContent = text || "";
     wrap.append(label, pre);
     entries.append(wrap);
+    return wrap;
+  }
+  // Rows drawn ahead by the tool's renderers, by call id. The HTML in them
+  // was escaped when it was made.
+  const renderedTools = data.renderedTools || {};
+  function rendered(id) {
+    const rows = Object.prototype.hasOwnProperty.call(renderedTools, id) ? renderedTools[id] : null;
+    return rows && typeof rows === "object" ? rows : null;
+  }
+  function part(cls, html) {
+    const node = document.createElement("div");
+    node.className = cls;
+    node.innerHTML = html;
+    return node;
+  }
+  // The images of a tool result, after its text or its drawn row.
+  function appendImages(blocks) {
+    const images = (Array.isArray(blocks) ? blocks : []).filter(block =>
+      block && block.type === "image" && typeof block.data === "string" &&
+      /^image\\/[A-Za-z0-9.+-]+$/.test(block.mimeType || "") && /^[A-Za-z0-9+\\/=\\s]+$/.test(block.data));
+    if (!images.length) return;
+    const wrap = document.createElement("article");
+    wrap.className = "entry";
+    const label = document.createElement("div");
+    label.className = "role";
+    label.textContent = "Tool result images";
+    wrap.append(label);
+    for (const block of images) {
+      const image = document.createElement("img");
+      image.className = "tool-image";
+      image.alt = block.mimeType;
+      image.src = `data:${block.mimeType};base64,${block.data}`;
+      wrap.append(image);
+    }
+    entries.append(wrap);
+  }
+  // The calls a tool made to other tools (a codemode script's), from the
+  // nestedCalls record of its result, without their results (Pi
+  // renderNestedCalls): the count, and one line per call on a click.
+  function nestedCallsText(details) {
+    const record = details && typeof details === "object" ? details.nestedCalls : null;
+    // An imported file may hold anything: a call without a string name and
+    // status is left out, and only plain values are shown.
+    const calls = record && Array.isArray(record.calls)
+      ? record.calls.filter(call => call && typeof call === "object" &&
+        typeof call.name === "string" && typeof call.status === "string") : [];
+    if (!calls.length) return "";
+    const icons = new Map([["ok", "\u2713"], ["error", "\u2717"], ["unfinished", "\u2026"], ["cancelled", "\u2298"]]);
+    // The start of the arguments the record left out, by call id (Pi's
+    // codemode row shows them from details.calls).
+    const previews = details.argumentPreviews && typeof details.argumentPreviews === "object"
+      ? details.argumentPreviews : {};
+    const lines = calls.map(call => {
+      const bytes = typeof call.argumentsBytes === "number" ? call.argumentsBytes : "?";
+      const preview = typeof call.id === "string" &&
+        Object.prototype.hasOwnProperty.call(previews, call.id) &&
+        typeof previews[call.id] === "string" ? `${previews[call.id].slice(0, 200)} ` : "";
+      const args = call.arguments !== undefined
+        ? JSON.stringify(call.arguments)
+        : `${preview}[arguments omitted, ${bytes} bytes]`;
+      const duration = typeof call.durationMs === "number" ? ` ${Math.round(call.durationMs)}ms` : "";
+      const error = typeof call.error === "string" && call.error
+        ? `\\n    ${call.error.split("\\n").join("\\n    ")}` : "";
+      return `${icons.get(call.status) || "?"} ${call.name} ${args}${duration}${error}`;
+    });
+    const title = `Nested calls: ${calls.length}${record.complete ? "" : " (incomplete record)"}`;
+    return [title, ...lines].join("\\n");
+  }
+  function appendNestedCalls(target, details) {
+    const text = nestedCallsText(details);
+    if (!text) return;
+    const lines = text.split("\\n");
+    const output = document.createElement("div");
+    output.className = "nested-calls";
+    const preview = document.createElement("pre");
+    preview.className = "output-preview";
+    preview.textContent = `${lines[0]}\\n... (${lines.length - 1} more lines)`;
+    const full = document.createElement("pre");
+    full.className = "output-full";
+    full.textContent = text;
+    output.append(preview, full);
+    output.addEventListener("click", function () {
+      if (!window.getSelection().toString()) output.classList.toggle("expanded");
+    });
+    target.append(output);
+  }
+  // The box of each call drawn ahead, by call id, for its nested calls.
+  const renderedBoxes = new Map();
+  function appendRenderedTool(rows, id) {
+    const wrap = document.createElement("article");
+    wrap.className = "entry";
+    const label = document.createElement("div");
+    label.className = "role";
+    label.textContent = "Tool call";
+    const box = part("tool-rendered", rows.callHtml || "");
+    if (rows.resultHtmlCollapsed && rows.resultHtmlExpanded) {
+      const output = document.createElement("div");
+      output.className = "tool-output expandable";
+      output.append(part("output-preview", rows.resultHtmlCollapsed), part("output-full", rows.resultHtmlExpanded));
+      output.addEventListener("click", function () {
+        if (!window.getSelection().toString()) output.classList.toggle("expanded");
+      });
+      box.append(output);
+    } else if (rows.resultHtmlExpanded) box.append(part("tool-output", rows.resultHtmlExpanded));
+    wrap.append(label, box);
+    entries.append(wrap);
+    renderedBoxes.set(id, box);
   }
   for (const entry of data.entries || []) {
     if (entry.type === "message") {
       const msg = entry.message || {};
       if (msg.role === "user") append("User", msg.content || "");
-      else if (msg.role === "assistant") append("Assistant", msg.content || JSON.stringify(msg.tool_calls || [], null, 2));
-      else if (msg.role === "tool") append("Tool result", msg.output_text || "", "tool");
+      else if (msg.role === "assistant") {
+        const calls = msg.tool_calls || [];
+        const plain = calls.filter(call => !rendered(call.provider_correlation_id));
+        if (msg.content) append("Assistant", msg.content);
+        else if (plain.length || !calls.length) append("Assistant", JSON.stringify(plain, null, 2));
+        for (const call of calls) {
+          const rows = rendered(call.provider_correlation_id);
+          if (rows) appendRenderedTool(rows, call.provider_correlation_id);
+        }
+      }
+      else if (msg.role === "tool") {
+        // A result drawn ahead is shown in its call's box.
+        const id = msg.provider_correlation_id;
+        const rows = rendered(id);
+        const box = rows && "resultHtmlExpanded" in rows ? renderedBoxes.get(id) : undefined;
+        const target = box || append("Tool result", msg.output_text || "", "tool");
+        appendNestedCalls(target, msg.details);
+        appendImages(msg.blocks);
+      }
       else append("Message", JSON.stringify(msg, null, 2));
     } else if (entry.type === "session_info") append("Session", entry.name || "");
     else if (entry.type === "compaction") append("Compaction", entry.summary || "");

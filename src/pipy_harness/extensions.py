@@ -24,6 +24,11 @@ one-shot completion.
 
 from __future__ import annotations
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
@@ -55,8 +60,10 @@ from pipy_harness.native.extension_types import (
     ExtensionUiDriver,
     FooterData,
     InputEvent,
+    InputHandled,
     InputTransform,
     LifecycleEvent,
+    McpServersChangeEvent,
     MessageRenderComponent,
     MessageRenderContext,
     ProviderContext,
@@ -69,11 +76,16 @@ from pipy_harness.native.extension_types import (
     RenderedCustomEntry,
     SessionBeforeEvent,
     SessionDecision,
+    SystemPromptOptions,
     ThemeColor,
     ToolBlock,
     ToolCallEvent,
+    ToolCallInfo,
+    ToolCallOutcome,
     ToolRenderComponent,
     ToolRenderContext,
+    ToolRendererResolver,
+    ToolRenderers,
     ToolRenderTheme,
     ToolResult,
     ToolResultEvent,
@@ -106,6 +118,7 @@ from pipy_harness.native.extensions.collectors import (
 from pipy_harness.native.extensions.command_context import (
     CommandContext,
     ExtensionCapabilityError,
+    ExtensionToolContext,
 )
 from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
@@ -141,12 +154,27 @@ from pipy_harness.native.extensions.session_views import (
     SessionManagerView,
     SessionTreeNodeView,
 )
+from pipy_harness.native.mcp.registry import (
+    McpServerRegistrationError,
+    RegisteredMcpServer,
+)
 from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.provider_construction import build_extension_provider_port
+from pipy_harness.native.tools.base import (
+    ToolAnnotations,
+    ToolExecutionMode,
+    ToolExposure,
+    ToolInfo,
+    ToolNamespace,
+)
+from pipy_harness.native.tools.loadout import ToolLoadout, ToolLoadoutChanges
 
 __all__ = [
     "PipyExtensionAPI",
     "CommandContext",
+    "ExtensionToolContext",
+    "ToolLoadout",
+    "ToolLoadoutChanges",
     "ConversationView",
     "AssistantMessageView",
     "SessionEntryView",
@@ -175,9 +203,11 @@ __all__ = [
     "ToolCallEvent",
     "LifecycleEvent",
     "InputEvent",
+    "InputHandled",
     "InputTransform",
     "BeforeAgentStartEvent",
     "BeforeAgentStartResult",
+    "SystemPromptOptions",
     "QueuedUserMessage",
     "QueuedCustomMessage",
     "ExtensionTool",
@@ -188,6 +218,11 @@ __all__ = [
     "RegisteredProvider",
     "RegisteredFlag",
     "ToolResult",
+    "ToolCallInfo",
+    "ToolCallOutcome",
+    "TextContent",
+    "NO_STRUCTURED_CONTENT",
+    "ImageContent",
     "RegisteredTool",
     "ToolResultEvent",
     "ToolResultTransform",
@@ -208,6 +243,8 @@ __all__ = [
     "ThemeColor",
     "ToolRenderComponent",
     "ToolRenderContext",
+    "ToolRendererResolver",
+    "ToolRenderers",
     "ToolRenderTheme",
     "coerce_tool_render_lines",
     "lines_component",
@@ -242,4 +279,12 @@ __all__ = [
     "discover_extensions",
     "safe_extension_metadata",
     "apply_provider_headers",
+    "ToolAnnotations",
+    "ToolExecutionMode",
+    "ToolExposure",
+    "ToolInfo",
+    "ToolNamespace",
+    "McpServerRegistrationError",
+    "RegisteredMcpServer",
+    "McpServersChangeEvent",
 ]

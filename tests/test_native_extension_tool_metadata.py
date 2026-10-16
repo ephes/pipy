@@ -1,0 +1,997 @@
+"""Extension tool metadata (MCP parity plan S02, rows EXT-01 to EXT-05).
+
+An extension tool declares `exposure`, `namespace`, `annotations`,
+`output_schema` and `reaches_tools`; its result can carry
+`structured_content` and `is_error`; `ctx.get_all_tools()` reports every
+registered tool with that metadata; and registering one of the extension's own
+tool names again replaces the earlier registration, so `exposure="hidden"`
+withdraws a tool.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from pipy_harness.extensions import (
+    NO_STRUCTURED_CONTENT,
+    ExtensionCapabilityError,
+    ExtensionTool,
+    ToolAnnotations,
+    ToolInfo,
+    ToolNamespace,
+    ToolResult,
+)
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import AgentToolResultMessage
+from pipy_harness.native.coding.session import (
+    CodingSession,
+    production_tool_registry,
+)
+from pipy_harness.native.extension_types import (
+    REASON_INVALID_TOOL,
+    ExtensionModelRuntimeControl,
+    RegisteredTool,
+)
+from pipy_harness.native.extensions.activation import activate_extensions
+from pipy_harness.native.extensions.collectors import extension_tools
+from pipy_harness.native.extensions.command_context import make_extension_context
+from pipy_harness.native.extensions.packages import discover_extensions
+from pipy_harness.native.extensions.tool_port import _ExtensionToolPort
+from pipy_harness.native.models import (
+    ProviderRequest,
+    ProviderResult,
+    ProviderToolCall,
+)
+from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
+    ToolFilterOptions,
+)
+from pipy_harness.native.tools import (
+    ToolContext,
+    ToolRequest,
+    make_tool_request_id,
+)
+from pipy_harness.native.tools.codemode import CodemodeTool, script_reach
+
+_HEADER = (
+    "import json\n"
+    "from pathlib import Path\n"
+    "from pipy_harness.extensions import (\n"
+    "    ExtensionTool, ToolAnnotations, ToolBlock, ToolNamespace, ToolResult,\n"
+    ")\n"
+)
+
+
+def _write(workspace: Path, name: str, body: str) -> None:
+    directory = workspace / ".pipy" / "extensions"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.py").write_text(_HEADER + body, encoding="utf-8")
+
+
+def _activate(workspace: Path) -> list:
+    return activate_extensions(
+        discover_extensions(
+            workspace,
+            config_home_env={},
+            home_dir=workspace,
+            include_workspace_defaults=True,
+        )
+    )
+
+
+class _StubProvider:
+    name = "stub"
+    model_id = "stub-model"
+    supports_mid_convo_system_messages = True
+
+    def __init__(self, results: list[ProviderResult]) -> None:
+        self._results = list(results)
+        self.requests: list[ProviderRequest] = []
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return True
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
+        return self._results.pop(0)
+
+
+def _result(*, tool_calls=(), final_text=None) -> ProviderResult:
+    now = datetime(2026, 10, 12, 12, 0, tzinfo=UTC)
+    return ProviderResult(
+        status=HarnessStatus.SUCCEEDED,
+        provider_name="stub",
+        model_id="stub-model",
+        started_at=now,
+        ended_at=now,
+        final_text=final_text,
+        tool_calls=tool_calls,
+    )
+
+
+def _run(workspace: Path, provider: _StubProvider, prompts: str):
+    session = CodingSession(
+        provider=provider, tool_registry=production_tool_registry(), tool_budget=5
+    )
+    return session.run(
+        workspace_root=workspace,
+        input_stream=io.StringIO(prompts),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+
+def _tool_names(request: ProviderRequest) -> list[str]:
+    return [tool.name for tool in request.available_tools]
+
+
+def _tool_results(request: ProviderRequest) -> list[AgentToolResultMessage]:
+    return [
+        message
+        for message in request.messages
+        if isinstance(message, AgentToolResultMessage)
+    ]
+
+
+# -- EXT-01, EXT-05: declaration ------------------------------------------
+
+_FULL_TOOL = (
+    "def activate(api):\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='lookup',\n"
+    "        description='Look a record up.',\n"
+    "        input_schema={'type': 'object'},\n"
+    "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+    "        exposure='codemode',\n"
+    "        namespace=ToolNamespace(\n"
+    "            name='records', aliases=('rec',),\n"
+    "            description='Record store', instructions='Search first.'),\n"
+    "        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),\n"
+    "        output_schema={'type': 'object', 'properties': {\n"
+    "            'score': {'type': 'number'},\n"
+    "            'tags': {'anyOf': [{'type': 'null'}, {'type': 'array'}]}}},\n"
+    "        reaches_tools=lambda params: ('read', str(params.get('name'))),\n"
+    "    ))\n"
+)
+
+
+def test_activation_accepts_every_metadata_field(tmp_path: Path) -> None:
+    _write(tmp_path, "full", _FULL_TOOL)
+
+    (registered,) = extension_tools(_activate(tmp_path))
+    tool = registered.tool
+
+    assert tool.exposure == "codemode"
+    assert tool.namespace == ToolNamespace(
+        name="records",
+        aliases=("rec",),
+        description="Record store",
+        instructions="Search first.",
+    )
+    assert tool.annotations == ToolAnnotations(
+        read_only_hint=True, open_world_hint=False
+    )
+    # An output schema is any JSON Schema object, not pipy's strict subset.
+    assert tool.output_schema == {
+        "type": "object",
+        "properties": {
+            "score": {"type": "number"},
+            "tags": {"anyOf": [{"type": "null"}, {"type": "array"}]},
+        },
+    }
+    assert tool.reaches_tools is not None
+    assert tool.reaches_tools({"name": "grep"}) == ("read", "grep")
+
+    definition = _ExtensionToolPort(registered, has_ui=False).definition
+    assert definition.exposure == "codemode"
+    assert definition.namespace == tool.namespace
+    assert definition.annotations == tool.annotations
+    assert definition.output_schema == tool.output_schema
+    assert definition.reaches_tools is tool.reaches_tools
+    assert definition.schema_mode == "foreign"
+
+
+def test_metadata_defaults_describe_a_plain_tool(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "plain",
+        "def activate(api):\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='plain', description='plain', input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(content='ok')))\n",
+    )
+
+    (registered,) = extension_tools(_activate(tmp_path))
+
+    assert registered.tool.exposure == "direct"
+    assert registered.tool.namespace is None
+    assert registered.tool.annotations is None
+    assert registered.tool.output_schema is None
+    assert registered.tool.reaches_tools is None
+
+
+def test_output_schema_is_detached_at_registration(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "detached",
+        "SCHEMA = {'type': 'object', 'properties': {'n': {'type': 'integer'}}}\n"
+        "def activate(api):\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='detached', description='d', input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+        "        output_schema=SCHEMA))\n"
+        "    SCHEMA['properties']['n']['type'] = 'string'\n",
+    )
+
+    (registered,) = extension_tools(_activate(tmp_path))
+
+    assert registered.tool.output_schema == {
+        "type": "object",
+        "properties": {"n": {"type": "integer"}},
+    }
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "exposure='public'",
+        "exposure=None",
+        "exposure=['direct']",
+        "namespace={'name': 'records'}",
+        "namespace='records'",
+        "annotations={'readOnlyHint': True}",
+        "annotations=True",
+        "output_schema='object'",
+        "output_schema=['object']",
+        "output_schema={'type': 'object', 'default': {1, 2}}",
+        "output_schema={'type': 'object', 'maximum': float('nan')}",
+        "reaches_tools='all'",
+        "reaches_tools=('read',)",
+    ],
+)
+def test_activation_rejects_a_wrong_metadata_shape(tmp_path: Path, field: str) -> None:
+    _write(
+        tmp_path,
+        "bad",
+        "def activate(api):\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='bad', description='bad', input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+        f"        {field}))\n",
+    )
+
+    (activated,) = _activate(tmp_path)
+
+    assert activated.status == "disabled"
+    assert activated.reason == REASON_INVALID_TOOL
+    assert not extension_tools([activated])
+
+
+# -- EXT-02: result fields ------------------------------------------------
+
+
+def _port(handler) -> _ExtensionToolPort:
+    tool = ExtensionTool(
+        name="probe",
+        description="probe",
+        input_schema={"type": "object"},
+        handler=handler,
+    )
+    return _ExtensionToolPort(RegisteredTool(tool=tool, extension="t"), has_ui=False)
+
+
+def _invoke(port: _ExtensionToolPort, tmp_path: Path):
+    return port.invoke(
+        ToolRequest(
+            tool_request_id=make_tool_request_id(), tool_name="probe", arguments={}
+        ),
+        ToolContext(workspace_root=tmp_path),
+    )
+
+
+def test_result_carries_structured_content_and_is_error(tmp_path: Path) -> None:
+    data = {"rows": [1, 2.5, None], "ok": False}
+    port = _port(
+        lambda ctx, params: ToolResult(
+            content="partial failure",
+            details={"attempt": 1},
+            structured_content=data,
+            is_error=True,
+        )
+    )
+
+    result = _invoke(port, tmp_path)
+
+    assert result.output_text == "partial failure"
+    assert result.is_error is True
+    assert result.details == {"attempt": 1}
+    assert result.structured_content == data
+    # The result keeps a copy, not the handler's own object.
+    assert result.structured_content is not data
+
+
+@pytest.mark.parametrize(
+    "value", [0, False, "", [], {}, "text", 3.5, [1, {"a": None}], None]
+)
+def test_structured_content_is_any_json_value(tmp_path: Path, value: object) -> None:
+    port = _port(lambda ctx, params: ToolResult(content="x", structured_content=value))
+
+    result = _invoke(port, tmp_path)
+
+    assert result.structured_content == value
+    assert type(result.structured_content) is type(value)
+    assert result.is_error is False
+
+
+@pytest.mark.parametrize(
+    "value", [{1: "a"}, {"a": {1, 2}}, float("nan"), object(), b"bytes"]
+)
+def test_structured_content_that_is_not_json_is_dropped(
+    tmp_path: Path, value: object
+) -> None:
+    port = _port(lambda ctx, params: ToolResult(content="x", structured_content=value))
+
+    result = _invoke(port, tmp_path)
+
+    assert result.output_text == "x"
+    assert result.structured_content is NO_STRUCTURED_CONTENT
+
+
+def test_plain_results_stay_successes_without_structured_content(
+    tmp_path: Path,
+) -> None:
+    for returned in (ToolResult(content="x"), "x"):
+        result = _invoke(_port(lambda ctx, params, value=returned: value), tmp_path)
+
+        assert result.is_error is False
+        assert result.structured_content is NO_STRUCTURED_CONTENT
+
+
+def test_is_error_result_reaches_the_model_as_an_error(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(
+        tmp_path,
+        "failing",
+        "def activate(api):\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='lookup', description='look up',\n"
+        "        input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(\n"
+        "            content='record 7 is locked', is_error=True,\n"
+        "            structured_content={'locked': [7]}),\n"
+        "        output_schema={'type': 'object'}))\n",
+    )
+    call = ProviderToolCall("c1", "lookup", "{}")
+    provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
+
+    result = _run(tmp_path, provider, "look it up\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    (tool_result,) = _tool_results(provider.requests[1])
+    assert tool_result.is_error is True
+    assert tool_result.content.value == "record 7 is locked"
+    assert tool_result.structured_content == {"locked": [7]}
+
+
+# -- EXT-03: get_all_tools ------------------------------------------------
+
+_REPORTING = (
+    "def _dump(ctx, name):\n"
+    "    rows = [\n"
+    "        {'name': t.name, 'exposure': t.exposure,\n"
+    "         'namespace': t.namespace.name if t.namespace else None,\n"
+    "         'read_only': t.annotations.read_only_hint if t.annotations else None,\n"
+    "         'reaches': t.reaches_tools is not None}\n"
+    "        for t in ctx.get_all_tools()\n"
+    "    ]\n"
+    "    (Path(ctx.cwd) / name).write_text(json.dumps(rows))\n"
+    "def activate(api):\n"
+    "    api.register_command('dump', 'dump tools', lambda ctx, args: _dump(ctx, 'command.json'))\n"
+    "    def reporter(ctx, params):\n"
+    "        _dump(ctx, 'tool.json')\n"
+    "        return ToolResult(content='dumped')\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='reporter', description='report tools',\n"
+    "        input_schema={'type': 'object'}, handler=reporter))\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='lookup', description='look up',\n"
+    "        input_schema={'type': 'object'},\n"
+    "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+    "        exposure='deferred',\n"
+    "        namespace=ToolNamespace(name='records'),\n"
+    "        annotations=ToolAnnotations(read_only_hint=True),\n"
+    "        reaches_tools=lambda params: 'all'))\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='withdrawn', description='gone',\n"
+    "        input_schema={'type': 'object'},\n"
+    "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+    "        exposure='hidden'))\n"
+)
+
+
+def test_get_all_tools_reports_every_registered_tool(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(tmp_path, "reporting", _REPORTING)
+    call = ProviderToolCall("c1", "reporter", "{}")
+    provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
+
+    result = _run(tmp_path, provider, "/dump\nreport\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    from_command = json.loads((tmp_path / "command.json").read_text())
+    from_tool = json.loads((tmp_path / "tool.json").read_text())
+    # A command context and a tool handler context read the same registry.
+    assert from_command == from_tool
+    by_name = {row["name"]: row for row in from_command}
+    assert [row["name"] for row in from_command] == [
+        "read",
+        "ls",
+        "grep",
+        "find",
+        "write",
+        "edit",
+        "bash",
+        # Registered inactive with the production built-ins (TSR-01).
+        "tool_search",
+        "reporter",
+        "lookup",
+        "withdrawn",
+    ]
+    assert by_name["read"] == {
+        "name": "read",
+        "exposure": "direct",
+        "namespace": None,
+        "read_only": None,
+        "reaches": False,
+    }
+    assert by_name["lookup"] == {
+        "name": "lookup",
+        "exposure": "deferred",
+        "namespace": "records",
+        "read_only": True,
+        "reaches": True,
+    }
+    # A hidden tool is reported, although no request declares it.
+    assert by_name["withdrawn"]["exposure"] == "hidden"
+    assert "withdrawn" not in _tool_names(provider.requests[0])
+
+
+def test_a_permission_hook_decides_by_annotations(tmp_path, monkeypatch) -> None:
+    # Pi docs/extensions.md "Tool exposure": the tool_call handler that reads
+    # `getAllTools()` annotations to decide which calls to confirm.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(
+        tmp_path,
+        "permissions",
+        "def activate(api):\n"
+        "    for name, hints in (\n"
+        "        ('peek', ToolAnnotations(read_only_hint=True)),\n"
+        "        ('wipe', ToolAnnotations(destructive_hint=True)),\n"
+        "    ):\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name=name, description=name, input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params, name=name: ToolResult(content=name + ' ran'),\n"
+        "            annotations=hints))\n"
+        "    @api.on('tool_call')\n"
+        "    def gate(event, ctx):\n"
+        "        hints = next(\n"
+        "            (t.annotations for t in ctx.get_all_tools()\n"
+        "             if t.name == event.tool_name), None)\n"
+        "        if hints is not None and hints.destructive_hint is True:\n"
+        "            return ToolBlock(reason=event.tool_name + ' was not approved')\n",
+    )
+    calls = (
+        ProviderToolCall("c1", "peek", "{}"),
+        ProviderToolCall("c2", "wipe", "{}"),
+    )
+    provider = _StubProvider([_result(tool_calls=calls), _result(final_text="ok")])
+
+    result = _run(tmp_path, provider, "go\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    peek, wipe = _tool_results(provider.requests[1])
+    assert (peek.is_error, peek.content.value) == (False, "peek ran")
+    assert wipe.is_error is True
+    assert "wipe was not approved" in wipe.content.value
+    assert "wipe ran" not in wipe.content.value
+
+
+def test_all_tools_reads_the_live_registry_with_detached_schemas(
+    tmp_path: Path,
+) -> None:
+    capabilities = NativeToolCapabilities(
+        {"codemode": CodemodeTool()},
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=1.0,
+    )
+
+    (info,) = capabilities.all_tools()
+
+    assert isinstance(info, ToolInfo)
+    assert info.name == "codemode"
+    assert info.description == CodemodeTool().definition.description
+    # Declared to the model, never callable from a script.
+    assert info.exposure == "model-only"
+    # EXT-05: codemode declares which tools a script may reach.
+    assert info.reaches_tools is script_reach
+    # A caller that edits the reported schema does not edit the registered one.
+    info.input_schema["properties"]["code"]["type"] = "integer"  # type: ignore[index]
+    (again,) = capabilities.all_tools()
+    assert again.input_schema["properties"]["code"]["type"] == "string"
+
+    port = _port(lambda ctx, params: ToolResult(content="x"))
+    capabilities.publish(capabilities.prepare_extensions({"probe": port}))
+    assert [tool.name for tool in capabilities.all_tools()] == ["codemode", "probe"]
+
+
+def test_get_all_tools_is_a_capability_of_the_context() -> None:
+    bare = make_extension_context("/tmp", False)
+    with pytest.raises(ExtensionCapabilityError):
+        bare.get_all_tools()
+
+    info = ToolInfo(
+        name="x", description="x", input_schema={"type": "object"}, exposure="direct"
+    )
+    wired = make_extension_context(
+        "/tmp",
+        False,
+        model_runtime=ExtensionModelRuntimeControl(get_all_tools_fn=lambda: [info]),
+    )
+    assert wired.get_all_tools() == (info,)
+
+
+# -- EXT-05: codemode reach -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        # Pi `getScriptReach`: the words of the source name the tools.
+        (
+            "text(tools.mcp__docs__search({'q': 'x'}))",
+            ("text", "tools", "mcp__docs__search", "q", "x"),
+        ),
+        (
+            "tools['mcp__docs__' + name]()",
+            ("tools", "mcp__docs__", "name"),
+        ),
+        ("", ()),
+        # A discovery global lets the script call any tool by a computed name.
+        ("for t in ALL_TOOLS: text(t)", "all"),
+        ("search_tools('issue')", "all"),
+        ("describe_tool('read')", "all"),
+        ("describe_namespace('mcp__docs')", "all"),
+        # Only whole words count.
+        ("my_search_tools_helper()", ("my_search_tools_helper",)),
+    ],
+)
+def test_codemode_reach_follows_the_script(code: str, expected: object) -> None:
+    assert script_reach({"code": code}) == expected
+
+
+def test_codemode_reach_of_a_call_without_source_is_empty() -> None:
+    assert script_reach({}) == ()
+    assert script_reach({"code": 7}) == ()
+    assert CodemodeTool().definition.reaches_tools is script_reach
+
+
+# -- EXT-04: re-registration and hidden -----------------------------------
+
+
+def test_registering_a_name_again_replaces_the_earlier_tool(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "twice",
+        "def activate(api):\n"
+        "    for description in ('first', 'second'):\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name='alpha', description=description,\n"
+        "            input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params: ToolResult(content='ok')))\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name='beta', description='beta',\n"
+        "            input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params: ToolResult(content='ok')))\n",
+    )
+
+    (activated,) = _activate(tmp_path)
+
+    assert activated.status == "activated"
+    # The replacement keeps the place of the first registration.
+    assert [(t.tool.name, t.tool.description) for t in activated.tools] == [
+        ("alpha", "second"),
+        ("beta", "beta"),
+    ]
+
+
+def test_another_extensions_tool_name_keeps_the_first_registration(
+    tmp_path: Path,
+) -> None:
+    # Pi `getAllRegisteredTools`: the first registration of a name wins and
+    # the later extension stays enabled with its other tools.
+    def body(description: str) -> str:
+        return (
+            "def activate(api):\n"
+            "    api.register_tool(ExtensionTool(\n"
+            f"        name='shared', description='{description}',\n"
+            "        input_schema={'type': 'object'},\n"
+            "        handler=lambda ctx, params: ToolResult(content='ok'),\n"
+            "        exposure='hidden'))\n"
+            "    api.register_tool(ExtensionTool(\n"
+            f"        name='own_{description}', description='own',\n"
+            "        input_schema={'type': 'object'},\n"
+            "        handler=lambda ctx, params: ToolResult(content='ok')))\n"
+        )
+
+    _write(tmp_path, "aaa", body("aaa"))
+    _write(tmp_path, "bbb", body("bbb"))
+
+    activated = {a.name: a for a in _activate(tmp_path)}
+
+    assert (activated["aaa"].status, activated["bbb"].status) == (
+        "activated",
+        "activated",
+    )
+    assert [t.tool.description for t in activated["aaa"].tools] == ["aaa", "own"]
+    assert [t.tool.name for t in activated["bbb"].tools] == ["own_bbb"]
+
+
+def test_hidden_re_registration_withdraws_the_tool(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(
+        tmp_path,
+        "withdraw",
+        "def activate(api):\n"
+        "    def register(exposure):\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name='lookup', description='look up',\n"
+        "            input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params: ToolResult(content='looked up'),\n"
+        "            exposure=exposure))\n"
+        "    register('direct')\n"
+        "    register('hidden')\n"
+        "    api.register_command(\n"
+        "        'activate', 'activate the hidden tool',\n"
+        "        lambda ctx, args: ctx.ui.notify(\n"
+        "            str(ctx.set_active_tools(['read', 'lookup']))))\n",
+    )
+    call = ProviderToolCall("c1", "lookup", "{}")
+    provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
+
+    result = _run(tmp_path, provider, "/activate\nlook it up\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    # Naming a hidden tool as active has no effect: it is never declared.
+    assert _tool_names(provider.requests[0]) == ["read"]
+    # A model that calls it anyway is told the tool does not exist.
+    (tool_result,) = _tool_results(provider.requests[1])
+    assert tool_result.is_error is True
+    assert tool_result.content.value == "Tool lookup not found"
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_set_active_tools_activates_codemode_that_nothing_selected(
+    tmp_path, monkeypatch, available
+) -> None:
+    # Goal check r4, U2. Pi's codemode extension registers the tool inactive
+    # ("Activate it with --tools, the defaultTools setting, or
+    # setActiveTools()"). pipy registers the built-in when an extension's
+    # selection names it; without its runtime the name is ignored.
+    from pipy_harness.native.codemode import selftest
+    from pipy_harness.native.codemode.selftest import Availability
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    monkeypatch.setattr(
+        selftest, "availability", lambda: Availability(available, "no runtime")
+    )
+    _write(
+        tmp_path,
+        "pick",
+        "def pick(ctx, args):\n"
+        "    before = [t.name for t in ctx.get_all_tools()]\n"
+        "    applied = ctx.set_active_tools(['read', 'codemode'])\n"
+        "    after = [t.name for t in ctx.get_all_tools()]\n"
+        "    (Path(ctx.cwd) / 'picked.json').write_text(\n"
+        "        json.dumps([before, applied, after]))\n"
+        "def activate(api):\n"
+        "    api.register_command('pick', 'pick tools', pick)\n",
+    )
+    provider = _StubProvider([_result(final_text="ok")])
+
+    result = _run(tmp_path, provider, "/pick\ngo\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    before, applied, after = json.loads((tmp_path / "picked.json").read_text())
+    assert applied is True
+    assert "codemode" not in before
+    assert ("codemode" in after) is available
+    assert _tool_names(provider.requests[0]) == (
+        ["read", "codemode"] if available else ["read"]
+    )
+
+
+def test_a_retired_context_does_not_register_codemode(tmp_path, monkeypatch) -> None:
+    # A context of an extension generation that `/reload` replaced changes
+    # nothing, `codemode` included: it neither probes nor registers it.
+    from pipy_harness.native.codemode import selftest
+    from pipy_harness.native.codemode.selftest import Availability
+
+    probes: list[int] = []
+
+    def probe() -> Availability:
+        probes.append(1)
+        return Availability(True, None)
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    monkeypatch.setattr(selftest, "availability", probe)
+    _write(
+        tmp_path,
+        "stale",
+        "import builtins\n"
+        "def keep(ctx, args):\n"
+        "    builtins._pipy_test_kept_context = ctx\n"
+        "def stale(ctx, args):\n"
+        "    old = builtins._pipy_test_kept_context\n"
+        "    applied = old.set_active_tools(['read', 'codemode'])\n"
+        "    names = [t.name for t in ctx.get_all_tools()]\n"
+        "    (Path(ctx.cwd) / 'stale.json').write_text(json.dumps([applied, names]))\n"
+        "def activate(api):\n"
+        "    api.register_command('keep', 'keep the context', keep)\n"
+        "    api.register_command('stale', 'use the kept context', stale)\n",
+    )
+    provider = _StubProvider([_result(final_text="ok")])
+
+    try:
+        result = _run(tmp_path, provider, "/keep\n/reload\n/stale\ngo\n")
+    finally:
+        import builtins
+
+        builtins.__dict__.pop("_pipy_test_kept_context", None)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    applied, names = json.loads((tmp_path / "stale.json").read_text())
+    assert applied is False
+    assert "codemode" not in names
+    assert "codemode" not in _tool_names(provider.requests[0])
+    assert probes == []
+
+
+def test_hidden_re_registration_removes_the_tool_from_the_next_request(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(
+        tmp_path,
+        "reloaded",
+        "MARKER = Path(__file__).with_name('withdrawn.marker')\n"
+        "def activate(api):\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='lookup', description='look up',\n"
+        "        input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(content='ok')))\n"
+        "    if MARKER.exists():\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name='lookup', description='look up',\n"
+        "            input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params: ToolResult(content='ok'),\n"
+        "            exposure='hidden'))\n"
+        "    api.register_command(\n"
+        "        'withdraw', 'withdraw the tool', lambda ctx, args: MARKER.write_text('x'))\n",
+    )
+    provider = _StubProvider([_result(final_text="one"), _result(final_text="two")])
+
+    result = _run(tmp_path, provider, "first\n/withdraw\n/reload\nsecond\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second = provider.requests
+    assert "lookup" in _tool_names(first)
+    assert "lookup" not in _tool_names(second)
+    # The transcript tells the model that the tool is gone.
+    assert second.system_messages[-1].message.tools_removed == ("lookup",)
+
+
+_LIVE = (
+    "from pathlib import Path\n"
+    "OUT = Path(__file__).with_name('live.out')\n"
+    "def tool(name, exposure='direct', description='look up'):\n"
+    "    return ExtensionTool(\n"
+    "        name=name, description=description,\n"
+    "        input_schema={'type': 'object'}, exposure=exposure,\n"
+    "        handler=lambda ctx, params: ToolResult(content=name + ' ran'))\n"
+    "def activate(api):\n"
+    "    api.register_tool(tool('lookup'))\n"
+    "    def attempt(register):\n"
+    "        try:\n"
+    "            register()\n"
+    "        except Exception as error:\n"
+    "            OUT.open('a').write(type(error).__name__ + ': ' + str(error) + '\\n')\n"
+    "    api.register_command('withdraw', 'withdraw lookup',\n"
+    "        lambda ctx, args: api.register_tool(tool('lookup', 'hidden')))\n"
+    "    api.register_command('restore', 'restore lookup',\n"
+    "        lambda ctx, args: api.register_tool(tool('lookup', description='again')))\n"
+    "    api.register_command('add', 'add a tool',\n"
+    "        lambda ctx, args: api.register_tool(tool('fresh')))\n"
+    "    api.register_command('steal', 'take another extension\\'s name',\n"
+    "        lambda ctx, args: attempt(lambda: api.register_tool(tool('theirs'))))\n"
+    "    api.register_command('reserved', 'take a built-in name',\n"
+    "        lambda ctx, args: attempt(lambda: api.register_tool(tool('read'))))\n"
+)
+
+_OTHER = (
+    "def activate(api):\n"
+    "    api.register_tool(ExtensionTool(\n"
+    "        name='theirs', description='theirs', input_schema={'type': 'object'},\n"
+    "        handler=lambda ctx, params: ToolResult(content='theirs')))\n"
+)
+
+
+def test_a_tool_registered_while_the_session_runs_takes_effect_at_once(
+    tmp_path, monkeypatch
+) -> None:
+    # Goal-check finding E1 (EXT-04): Pi `registerTool` stays usable after
+    # loading and refreshes the tool registry; re-registering a tool with
+    # `hidden` withdraws it in the running session.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(tmp_path, "live", _LIVE)
+    _write(tmp_path, "other", _OTHER)
+    calls = (ProviderToolCall("c1", "lookup", "{}"),)
+    provider = _StubProvider(
+        [
+            _result(final_text="one"),
+            _result(tool_calls=calls),
+            _result(final_text="two"),
+            _result(tool_calls=(ProviderToolCall("c2", "fresh", "{}"),)),
+            _result(final_text="three"),
+        ]
+    )
+
+    result = _run(
+        tmp_path,
+        provider,
+        "first\n/withdraw\nsecond\n/restore\n/add\n/steal\n/reserved\nthird\n",
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second, after_call, third, after_fresh = provider.requests
+    assert "lookup" in _tool_names(first)
+    # Withdrawn at once, without a reload: not declared, and a call to it is
+    # an unknown tool.
+    assert "lookup" not in _tool_names(second)
+    assert second.system_messages[-1].message.tools_removed == ("lookup",)
+    (withdrawn,) = _tool_results(after_call)
+    assert withdrawn.is_error is True
+    assert withdrawn.content.value == "Tool lookup not found"
+    # Registered again as `direct`, and a new tool: both are declared and
+    # run; the description is the latest registration's.
+    names = _tool_names(third)
+    assert "lookup" in names and "fresh" in names
+    assert next(t for t in third.available_tools if t.name == "lookup").description == (
+        "again"
+    )
+    fresh = _tool_results(after_fresh)[-1]
+    assert (fresh.is_error, fresh.content.value) == (False, "fresh ran")
+    # A reserved name is refused. Another extension's name is not: `live`
+    # loaded before `other`, so its registration takes the name over, as
+    # Pi's first-registration-wins lookup does.
+    refused = (tmp_path / ".pipy" / "extensions" / "live.out").read_text()
+    assert refused.splitlines() == [
+        "ExtensionCapabilityError: tool registration refused (reserved_tool)"
+    ]
+    theirs = next(t for t in third.available_tools if t.name == "theirs")
+    assert theirs.description == "look up"
+
+
+def test_an_api_of_replaced_extensions_registers_no_tools(
+    tmp_path, monkeypatch
+) -> None:
+    # After `/reload` the earlier extensions' API refuses, as Pi's stale
+    # extension context does; the session's tools are the new ones'.
+    import sys
+    import types
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    store = types.ModuleType("pipy_test_live_store")
+    store.apis = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pipy_test_live_store", store)
+    _write(
+        tmp_path,
+        "stale",
+        "import sys\n"
+        "OUT = Path(__file__).with_name('stale.out')\n"
+        "def activate(api):\n"
+        "    sys.modules['pipy_test_live_store'].apis.append(api)\n"
+        "    def late(ctx, args):\n"
+        "        first = sys.modules['pipy_test_live_store'].apis[0]\n"
+        "        try:\n"
+        "            first.register_tool(ExtensionTool(\n"
+        "                name='late', description='late', input_schema={'type': 'object'},\n"
+        "                handler=lambda ctx, params: ToolResult(content='late')))\n"
+        "            OUT.write_text('registered')\n"
+        "        except Exception as error:\n"
+        "            OUT.write_text(type(error).__name__ + ': ' + str(error))\n"
+        "    api.register_command('late', 'register with the first api', late)\n",
+    )
+    provider = _StubProvider([_result(final_text="one")])
+
+    result = _run(tmp_path, provider, "/reload\n/late\nfirst\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert len(store.apis) == 2  # type: ignore[attr-defined]
+    out = (tmp_path / ".pipy" / "extensions" / "stale.out").read_text()
+    assert out == (
+        "ExtensionCapabilityError: tools can no longer be registered here: "
+        "the extensions were loaded again or their session ended"
+    )
+    assert "late" not in _tool_names(provider.requests[0])
+
+
+def test_a_tool_registered_in_session_start_is_kept_across_a_reload(
+    tmp_path, monkeypatch
+) -> None:
+    # A reload fires `session_start` for the new extensions before it
+    # publishes them; what they register there is published with them.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(
+        tmp_path,
+        "starter",
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def start(event, ctx):\n"
+        "        api.register_tool(ExtensionTool(\n"
+        "            name='started', description='started',\n"
+        "            input_schema={'type': 'object'},\n"
+        "            handler=lambda ctx, params: ToolResult(content='ok')))\n",
+    )
+    provider = _StubProvider([_result(final_text="one"), _result(final_text="two")])
+
+    result = _run(tmp_path, provider, "first\n/reload\nsecond\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second = provider.requests
+    assert "started" in _tool_names(first)
+    assert "started" in _tool_names(second)
+
+
+def test_a_kept_api_registers_no_tools_after_the_session_ended(
+    tmp_path, monkeypatch
+) -> None:
+    import sys
+    import types
+
+    from pipy_harness.native.extensions.command_context import (
+        ExtensionCapabilityError,
+    )
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    store = types.ModuleType("pipy_test_live_store")
+    store.apis = []  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pipy_test_live_store", store)
+    _write(
+        tmp_path,
+        "kept",
+        "import sys\n"
+        "def activate(api):\n"
+        "    sys.modules['pipy_test_live_store'].apis.append(api)\n",
+    )
+
+    result = _run(tmp_path, _StubProvider([_result(final_text="one")]), "first\n")
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    (api,) = store.apis  # type: ignore[attr-defined]
+    with pytest.raises(ExtensionCapabilityError, match="loaded again"):
+        api.register_tool(
+            ExtensionTool(
+                name="late",
+                description="late",
+                input_schema={"type": "object"},
+                handler=lambda ctx, params: ToolResult(content="late"),
+            )
+        )

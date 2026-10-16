@@ -276,6 +276,11 @@ _CODING_STATE_ALLOWED_RUNTIME_PREFIXES = (
     "pipy_harness.native.coding.input_queue",
     "pipy_harness.native.coding.state",
     "pipy_harness.native.tools.base",
+    # The standard-library argument validator for foreign-schema tools; the
+    # canonical tool executor selects it per definition.
+    "pipy_harness.native.tools.foreign_schema",
+    # Its string formats, a standard-library leaf.
+    "pipy_harness.native.tools.json_formats",
 )
 
 _CODING_STATE_ALLOWED_RUNTIME_EXACT = frozenset(
@@ -301,6 +306,7 @@ _CODING_STATE_ALLOWED_DIRECT_IMPORTS = frozenset(
         "math.isfinite",
         "pipy_harness.native.agent.content",
         "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.content.require_tool_result_blocks",
         "pipy_harness.native.agent.identity",
         "pipy_harness.native.agent.identity.AGENT_TOOL_REQUEST_ID_PREFIX",
         "pipy_harness.native.agent.messages",
@@ -441,12 +447,16 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.loop.AgentLoopRequestSource",
         "pipy_harness.native.agent.loop.AgentLoopRunInput",
         "pipy_harness.native.agent.loop.AgentLoopStatusPolicy",
+        "pipy_harness.native.agent.loop.TurnStartHook",
         "pipy_harness.native.agent.loop_policy",
         "pipy_harness.native.agent.loop_policy.AgentProviderStatusDecision",
         "pipy_harness.native.agent.loop_policy.AgentToolPolicy",
         "pipy_harness.native.agent.loop_policy.AgentToolPolicyState",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.messages.AgentToolCall",
+        # The type of the forwarded result normalizer.
+        "pipy_harness.native.agent.messages.AgentToolResultMessage",
         # The coordinator forwards only the UI-free optional composite ports.
         "pipy_harness.native.agent.nested_calls",
         "pipy_harness.native.agent.nested_calls.AgentCompositeToolRunner",
@@ -469,6 +479,7 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.tools",
         "pipy_harness.native.agent.tools.AgentToolCapabilities",
         "pipy_harness.native.agent.tools.ToolInterruptWaiter",
+        "pipy_harness.native.agent.tools.ToolReadinessWaiter",
         "pipy_harness.native.agent.usage",
         "pipy_harness.native.agent.usage.AgentTokenPricing",
         "pipy_harness.native.coding.state",
@@ -660,6 +671,9 @@ _AGENT_HISTORY_ALLOWED_DIRECT_IMPORTS = frozenset(
         "collections.abc.Sequence",
         "dataclasses",
         "dataclasses.dataclass",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ESTIMATED_IMAGE_CHARS",
+        "pipy_harness.native.agent.content.tool_result_images",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentAssistantMessage",
         "pipy_harness.native.agent.messages.AgentMessage",
@@ -679,16 +693,24 @@ _AGENT_TOOLS_ALLOWED_DIRECT_IMPORTS = frozenset(
         "collections.abc.Sequence",
         "dataclasses",
         "dataclasses.dataclass",
+        "dataclasses.field",
         "dataclasses.replace",
         "enum",
         "enum.StrEnum",
         "json",
+        # The executor measures how long a tool ran (Pi ``durationMs``).
+        "math",
+        "math.isfinite",
         "threading",
+        "time",
+        "time.monotonic",
         "typing",
+        "typing.Any",
         "typing.Protocol",
         "typing.runtime_checkable",
         "pipy_harness.native.agent.content",
         "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.content.ToolOutput",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
@@ -697,10 +719,15 @@ _AGENT_TOOLS_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.base.ToolContext",
         "pipy_harness.native.tools.base.ToolDefinition",
         "pipy_harness.native.tools.base.ToolExecutionResult",
+        "pipy_harness.native.tools.base.ToolOutputSink",
         "pipy_harness.native.tools.base.ToolPort",
         "pipy_harness.native.tools.base.ToolRequest",
         "pipy_harness.native.tools.base.make_tool_request_id",
         "pipy_harness.native.tools.base.validate_arguments",
+        # Arguments of a foreign-schema tool (an MCP server's) are checked by
+        # the standard-library JSON Schema validator next to the strict one.
+        "pipy_harness.native.tools.foreign_schema",
+        "pipy_harness.native.tools.foreign_schema.validate_foreign_arguments",
     }
 )
 
@@ -715,9 +742,12 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "collections.abc.Sequence",
         "dataclasses",
         "dataclasses.dataclass",
+        "dataclasses.field",
         "dataclasses.replace",
         "pathlib",
         "pathlib.Path",
+        "typing",
+        "typing.Any",
         "pipy_harness.native.agent.messages",
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
@@ -725,6 +755,11 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.tools.ToolExecutionOutcome",
         "pipy_harness.native.agent.tools.ToolExecutor",
         "pipy_harness.native.agent.tools.ToolInterruptWaiter",
+        # What a running tool calls other tools through is part of the
+        # context the facade builds for an invocation.
+        "pipy_harness.native.tools.base",
+        "pipy_harness.native.tools.base.NestedToolCalls",
+        "pipy_harness.native.tools.base.ToolOutputSink",
         # Product composition owns lazy optional builtin registration and its
         # fail-closed availability gate; canonical agent tools remain unaware.
         "pipy_harness.native.tools.registry",
@@ -737,6 +772,29 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.ToolContext",
         "pipy_harness.native.tools.ToolDefinition",
         "pipy_harness.native.tools.ToolPort",
+        # `all_tools` reports the registered tools to extensions (Pi
+        # `getAllTools`); the report type belongs to the tool contracts.
+        "pipy_harness.native.tools.ToolInfo",
+        "pipy_harness.native.tools.tool_info",
+        # The loadout contract (Pi `prepareLoadout`): the facade applies the
+        # changes an injected presenter returns; it renders no description.
+        "pipy_harness.native.tools.loadout",
+        "pipy_harness.native.tools.loadout.PrepareToolLoadout",
+        "pipy_harness.native.tools.loadout.ToolLoadout",
+        "pipy_harness.native.tools.loadout.ToolLoadoutChanges",
+        "pipy_harness.native.tools.loadout.checked_loadout_changes",
+        # Tool name patterns of `--tools`/`--exclude-tools` and the names that
+        # count as MCP tools: a standard-library leaf of the tool contracts.
+        "pipy_harness.native.tools.name_patterns",
+        "pipy_harness.native.tools.name_patterns.MCP_TOOL_NAME_PREFIX",
+        "pipy_harness.native.tools.name_patterns.create_tool_name_matcher",
+        "pipy_harness.native.tools.name_patterns.is_mcp_tool_name",
+        # The optional builtin `tool_search` is registered inactive with the
+        # production defaults, like `codemode`; it needs the facade itself
+        # (the loadable tools and `load_tools`), so the facade constructs it.
+        "pipy_harness.native.tool_search",
+        "pipy_harness.native.tool_search.TOOL_SEARCH_TOOL_NAME",
+        "pipy_harness.native.tool_search.ToolSearchTool",
         # The live capability state pointer is guarded state (an extension tool
         # handler can reach `set_active_tools` from a worker thread while the
         # session publishes a reloaded generation), and published registries are
@@ -903,6 +961,14 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.providers",
         forbidden_imports=_PROVIDER_UI_FORBIDDEN_IMPORTS,
         reason="Phase 5 provider transports must not depend on UI code",
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.mcp",
+        forbidden_imports=_PROVIDER_UI_FORBIDDEN_IMPORTS,
+        reason=(
+            "the MCP client, transports, OAuth library and configuration must "
+            "not depend on UI code"
+        ),
     ),
     BoundaryRule(
         source_package="pipy_harness.native.coding",
@@ -2513,6 +2579,32 @@ def test_each_current_provider_ui_boundary_rule_activates(
 
 
 @pytest.mark.parametrize("forbidden_import", _PROVIDER_UI_FORBIDDEN_IMPORTS)
+def test_mcp_package_ui_boundary_rule_governs_nested_modules(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    nested_path = _write_module(
+        source_root,
+        "pipy_harness.native.mcp.oauth.flow",
+        f"import {forbidden_import}\n",
+    )
+    mcp_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.mcp"
+    )
+
+    violations = _evaluate_rule(source_root, mcp_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == nested_path
+    assert violations[0].imported_module == forbidden_import
+    assert _package_directory(SOURCE_ROOT, mcp_rule.source_package).is_dir()
+    assert _evaluate_rule(SOURCE_ROOT, mcp_rule) == []
+
+
+@pytest.mark.parametrize("forbidden_import", _PROVIDER_UI_FORBIDDEN_IMPORTS)
 def test_future_provider_package_ui_boundary_rule_activates(
     tmp_path: Path,
     forbidden_import: str,
@@ -2800,6 +2892,8 @@ def test_request_budget_direct_imports_remain_pure() -> None:
             "dataclasses.dataclass",
             "dataclasses.fields",
             "dataclasses.replace",
+            "pipy_harness.native.agent.content",
+            "pipy_harness.native.agent.content.tool_result_images",
             "pipy_harness.native.agent.messages",
             "pipy_harness.native.agent.messages.AgentAssistantMessage",
             "pipy_harness.native.agent.messages.AgentToolResultMessage",

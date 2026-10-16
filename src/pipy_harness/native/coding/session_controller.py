@@ -81,9 +81,11 @@ _NativeSessionControl = _input_queue._NativeSessionControl
 # newline and EOF is the empty string. A wake is only a hint to re-examine the
 # native reservation, so a redundant wake (its reservation already selected
 # through an earlier wake or direct promotion) is harmless; only EOF ends the
-# worker's input.
+# worker's input. A reader that returns ``_NATIVE_CONTROL_IDLE`` instead has
+# nothing yet: the worker does its idle work and reads again.
 _NATIVE_CONTROL_WAKE = "\n"
 _NATIVE_CONTROL_EOF = ""
+_NATIVE_CONTROL_IDLE = "\x00idle"
 
 _NOT_HANDLED_COMMAND_NOTICE = (
     "supported local commands are /hotkeys, /reload, "
@@ -170,6 +172,8 @@ class _NativeSessionControlBridge:
         "_claim",
         "_event",
         "_fatal",
+        "_handled_prompt",
+        "_idle_work",
         "_manual_handler",
         "_outcome",
         "_outcome_lock",
@@ -198,6 +202,8 @@ class _NativeSessionControlBridge:
             Callable[[_NativeRunClaim], _NativeControlSnapshot] | None
         ) = None
         self._wake_reader: Callable[[], str] | None = None
+        self._idle_work: Callable[[], None] | None = None
+        self._handled_prompt: Callable[[], None] | None = None
         self._fatal = False
         self._manual_handler: (
             Callable[
@@ -221,6 +227,40 @@ class _NativeSessionControlBridge:
                 raise RuntimeError("manual compaction handler is already bound")
             self._manual_handler = handler
 
+    def bind_handled_prompt_handler(self, handler: Callable[[], None]) -> None:
+        """Bind what settles a selected prompt that started no run.
+
+        The handler runs on the worker and has to consume the attached claim
+        (``consume_attached_agent_end_and_publish``).
+        """
+
+        if not callable(handler):
+            raise TypeError("handled prompt handler must be callable")
+        with self._outcome_lock:
+            if self._handled_prompt is not None:
+                raise RuntimeError("handled prompt handler is already bound")
+            self._handled_prompt = handler
+
+    def settle_handled_prompt(self) -> None:
+        """Settle the attached claim of a prompt that a command handled.
+
+        Without an attached claim the prompt did not come from the transport
+        and there is nothing to settle.
+        """
+
+        if self._claim is None:
+            return
+        handler = self._handled_prompt
+        if handler is None:
+            raise RuntimeError("native handled prompt handler is not bound")
+        handler()
+
+    def attached_content(self) -> ProductContent | None:
+        """The content of the claim the worker runs now, for the worker."""
+
+        claim = self._claim
+        return None if claim is None else claim.content
+
     def bind_wake_reader(self, reader: Callable[[], str]) -> None:
         """Bind the transport's wake/EOF reader before worker startup."""
 
@@ -230,6 +270,17 @@ class _NativeSessionControlBridge:
             if self._wake_reader is not None:
                 raise RuntimeError("native control bridge wake reader is already bound")
             self._wake_reader = reader
+
+    def bind_idle_work(self, work: Callable[[], None]) -> None:
+        """Bind what the worker does while it waits for a wake: it runs
+        whenever the wake reader returns ``_NATIVE_CONTROL_IDLE``."""
+
+        if not callable(work):
+            raise TypeError("idle work must be callable")
+        with self._outcome_lock:
+            if self._idle_work is not None:
+                raise RuntimeError("native control bridge idle work is already bound")
+            self._idle_work = work
 
     def bind_transition_control(
         self,
@@ -299,11 +350,18 @@ class _NativeSessionControlBridge:
             return ""
         raise AssertionError("infinite native control drain terminated")
 
-    @staticmethod
-    def _read_wake(reader: Callable[[], str]) -> bool:
-        """Block for one wake/EOF value; return ``True`` only for EOF."""
+    def _read_wake(self, reader: Callable[[], str]) -> bool:
+        """Block for one wake/EOF value, doing the idle work while the
+        reader has nothing; return ``True`` only for EOF."""
 
-        wake = reader()
+        wake = _NATIVE_CONTROL_IDLE
+        # The reader never returns ``None``: this loops until a wake or EOF.
+        for wake in iter(reader, None):
+            if wake != _NATIVE_CONTROL_IDLE:
+                break
+            work = self._idle_work
+            if work is not None:
+                work()
         if wake == _NATIVE_CONTROL_EOF:
             return True
         if wake != _NATIVE_CONTROL_WAKE:
@@ -429,8 +487,22 @@ class _NativeSessionControlBridge:
             verify_authorized=self._require_authorized,
         )
 
-    def request_abort(self) -> _NativeControlSnapshot:
-        return self._ready().control.request_abort()
+    def request_abort(
+        self, *, discard_follow_ups: bool = False
+    ) -> _NativeControlSnapshot:
+        return self._ready().control.request_abort(
+            discard_follow_ups=discard_follow_ups
+        )
+
+    def admit_prompt_if_idle(
+        self, content: ProductContent
+    ) -> _NativeControlSnapshot | None:
+        """Admit ``content`` to run next when nothing runs or waits; ``None``
+        (and nothing admitted) otherwise."""
+
+        return self._ready().control._bridge_admit_prompt_if_idle(
+            content, self._require_authorized
+        )
 
     def admit_steering(self, content: ProductContent) -> _NativeControlSnapshot:
         return self._ready().control._bridge_admit_steering(
@@ -597,12 +669,18 @@ class CodingCommandEffects(Protocol):
     def record_resource_invocation(self) -> None: ...
 
     def dispatch_resource(
-        self, command_text: str
+        self, command_text: str, *, prompt: bool = False
     ) -> ResourceDispatchResolution | None: ...
+
+    def run_input_hooks(self, text: str) -> str | None: ...
 
     def dispatch_extension(
         self, command_text: str
     ) -> ExtensionDispatchResolution | None: ...
+
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None: ...
 
 
 class _CallableCodingCommandEffects:
@@ -620,8 +698,10 @@ class _CallableCodingCommandEffects:
         "_footer",
         "_interpret",
         "_record_resource",
+        "_report_extension_error",
         "_resolve_extension",
         "_resolve_resource",
+        "_run_input_hooks",
     )
 
     def __init__(
@@ -631,8 +711,10 @@ class _CallableCodingCommandEffects:
         footer: Callable[[], None],
         interpret: Callable[[CodingCommandOutcome], None],
         record_resource: Callable[[], None],
-        resolve_resource: Callable[[str], ResourceDispatchResolution | None],
+        resolve_resource: Callable[..., ResourceDispatchResolution | None],
         resolve_extension: Callable[[str], ExtensionDispatchResolution | None],
+        report_extension_error: Callable[[str, str, str], None],
+        run_input_hooks: Callable[[str], str | None],
     ) -> None:
         self._emit = emit
         self._footer = footer
@@ -640,6 +722,8 @@ class _CallableCodingCommandEffects:
         self._record_resource = record_resource
         self._resolve_resource = resolve_resource
         self._resolve_extension = resolve_extension
+        self._report_extension_error = report_extension_error
+        self._run_input_hooks = run_input_hooks
 
     def emit_diagnostic(self, message: str) -> None:
         self._emit(message)
@@ -653,13 +737,25 @@ class _CallableCodingCommandEffects:
     def record_resource_invocation(self) -> None:
         self._record_resource()
 
-    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
+        if prompt:
+            return self._resolve_resource(command_text, prompt=True)
         return self._resolve_resource(command_text)
+
+    def run_input_hooks(self, text: str) -> str | None:
+        return self._run_input_hooks(text)
 
     def dispatch_extension(
         self, command_text: str
     ) -> ExtensionDispatchResolution | None:
         return self._resolve_extension(command_text)
+
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None:
+        self._report_extension_error(extension_path, event, error)
 
 
 class CodingLoopStepKind(Enum):
@@ -693,6 +789,12 @@ class CodingLoopStep:
     selected_provider_content: ProductContent | None = None
     queued_input: AgentQueuedInput | None = None
     keyboard_interrupt: bool = False
+    # The content is a prompt a transport client sent (RPC ``prompt``), as
+    # opposed to a queued message, a seed or an extension's message.
+    external_prompt: bool = False
+    # The queued content already met the `input` hooks and was expanded
+    # (an RPC client's queued message, ``CodingInputSelection``).
+    input_hooks_ran: bool = False
 
     def __post_init__(self) -> None:
         _require_exact_coding_loop_step_fields(self)
@@ -713,6 +815,9 @@ class CodingLoopStep:
         content: ProductContent,
         queued_input: AgentQueuedInput | None,
         settle_pending: bool,
+        *,
+        external_prompt: bool = False,
+        input_hooks_ran: bool = False,
     ) -> CodingLoopStep:
         return cls(
             CodingLoopStepKind.PROVIDER_CONTENT,
@@ -720,6 +825,8 @@ class CodingLoopStep:
             settle_pending,
             selected_provider_content=content,
             queued_input=queued_input,
+            external_prompt=external_prompt,
+            input_hooks_ran=input_hooks_ran,
         )
 
     @classmethod
@@ -1191,6 +1298,9 @@ class CodingSessionController:
             selection.content,
             selection.queued_input,
             settle_pending,
+            external_prompt=selection.source
+            in (CodingInputSource.EXTERNAL_PROMPT, CodingInputSource.SUBMITTED_PROMPT),
+            input_hooks_ran=selection.input_hooks_ran,
         )
 
     def dispatch_command(
@@ -1240,7 +1350,7 @@ class CodingSessionController:
             return builtin
 
         resource, resource_provider_text = _dispatch_resource_command(
-            command_text, effects
+            command_text, user_input, effects
         )
         if resource is not None:
             return resource
@@ -1257,6 +1367,59 @@ class CodingSessionController:
             selected_provider_content=selected_provider_content,
         )
 
+    def dispatch_prompt(
+        self,
+        *,
+        user_input: str,
+        selected_provider_content: ProductContent | None,
+        effects: CodingCommandEffects,
+    ) -> CommandDispatchResolution:
+        """Resolve a prompt of an automation mode as Pi's ``AgentSession.prompt``.
+
+        A prompt given to ``--print`` or ``--mode json`` or sent by an RPC
+        client is not a typed line: no built-in command, shell shortcut or
+        hotkey applies to it. A text that starts with ``/`` and names an
+        extension command (``/mcp`` is one) runs that command and there is no
+        run. Then the ``input`` hooks see the text; one may change it or
+        handle it, and a handled prompt starts no run either. In both cases
+        the transport's claim for the prompt is settled here. Otherwise a
+        skill command or a prompt template in the hooks' text is expanded,
+        and every other text, an unknown ``/name`` included, is the prompt
+        as it stands. The resolution carries the hooks' text, so the
+        accepted turn does not run them again.
+        """
+
+        if not isinstance(effects, CodingCommandEffects):
+            raise TypeError("effects must implement CodingCommandEffects")
+        if user_input.startswith("/"):
+            extension = _dispatch_extension_command(user_input, effects, prompt=True)
+            if extension is not None:
+                self.settle_handled_prompt()
+                return extension
+        text = effects.run_input_hooks(user_input)
+        if text is None:
+            self.settle_handled_prompt()
+            return CommandDispatchResolution.continue_loop()
+        provider_text: str | None = None
+        if text.startswith("/"):
+            provider_text = _expand_prompt_resource(text, effects)
+        if text != user_input and selected_provider_content is not None:
+            selected_provider_content = ProductContent(text)
+        return CommandDispatchResolution.proceed_to_run(
+            user_input=text,
+            resource_provider_text=provider_text,
+            selected_provider_content=selected_provider_content,
+            input_hooks_ran=True,
+        )
+
+    def settle_handled_prompt(self) -> None:
+        """Settle the transport's claim of a selected input that started no
+        run (a command or an ``input`` hook handled it); without a claim
+        there is nothing to settle."""
+
+        if self._control_bridge is not None:
+            self._control_bridge.settle_handled_prompt()
+
     def _step_from_wake(
         self,
         wake: CodingInputSelection,
@@ -1271,6 +1434,8 @@ class CodingSessionController:
             wake.content,
             wake.queued_input,
             settle_pending,
+            external_prompt=wake.source is CodingInputSource.EXTERNAL_PROMPT,
+            input_hooks_ran=wake.input_hooks_ran,
         )
 
 
@@ -1320,7 +1485,9 @@ class _CodingSessionLifetime:
         if claim is None:
             raise RuntimeError("product session operation already active")
         try:
-            self.enqueue_seed(claim.content)
+            # Pi's SDK session runs ``prompt()``: extension commands, input
+            # hooks, then skill and template expansion.
+            self.input_queue.enqueue_submitted_prompt(claim.content)
             result = self.drive(step_once)
         except BaseException as primary:
             try:
@@ -1422,6 +1589,12 @@ def _require_exact_coding_loop_step_fields(step: CodingLoopStep) -> None:
         raise TypeError("settle_pending must be an exact bool")
     if type(step.keyboard_interrupt) is not bool:
         raise TypeError("keyboard_interrupt must be an exact bool")
+    if type(step.external_prompt) is not bool:
+        raise TypeError("external_prompt must be an exact bool")
+    if type(step.input_hooks_ran) is not bool:
+        raise TypeError("input_hooks_ran must be an exact bool")
+    if step.input_hooks_ran and step.queued_input is None:
+        raise ValueError("only queued provider content may have met the hooks")
 
 
 def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
@@ -1442,6 +1615,11 @@ def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
             )
         if step.queued_input is not None:
             raise ValueError("only provider-content steps carry queued_input")
+    if step.external_prompt and (
+        step.kind is not CodingLoopStepKind.PROVIDER_CONTENT
+        or step.queued_input is not None
+    ):
+        raise ValueError("only unqueued provider content is an external prompt")
     if step.kind in (CodingLoopStepKind.IDLE, CodingLoopStepKind.EOF):
         _require_empty_step(step)
         return
@@ -1512,15 +1690,50 @@ def _dispatch_builtin_command(
 
 def _dispatch_resource_command(
     command_text: str,
+    user_input: str,
     effects: CodingCommandEffects,
 ) -> tuple[CommandDispatchResolution | None, str | None]:
-    """Route REJECT locally and return RUN's provider-visible text."""
+    """Route REJECT locally and return RUN's provider-visible text.
+
+    A line that names a skill, template or custom command meets the
+    ``input`` hooks first, as Pi ``prompt`` runs them before
+    ``_expandSkillCommand`` and ``expandPromptTemplate``: a hook that
+    handles it ends the line, and a line the hooks changed is dispatched
+    again; when it no longer names one it is the prompt as it stands. A
+    skill that cannot run (unknown or unreadable) is reported and the line
+    goes to the model as it stands, as Pi passes it through.
+    """
 
     resource = effects.dispatch_resource(command_text)
     if resource is None:
         return None, None
     if type(resource) is not ResourceDispatchResolution:
         raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+    text = effects.run_input_hooks(user_input)
+    if text is None:
+        effects.refresh_footer()
+        return CommandDispatchResolution.continue_loop(), None
+    if text != user_input:
+        resource = effects.dispatch_resource(text.strip())
+        if resource is None:
+            return CommandDispatchResolution.proceed_to_run(
+                user_input=text,
+                resource_provider_text=None,
+                selected_provider_content=None,
+                input_hooks_ran=True,
+            ), None
+        if type(resource) is not ResourceDispatchResolution:
+            raise TypeError(
+                "dispatch_resource must return a ResourceDispatchResolution"
+            )
+    if resource.kind is ResourceDispatchKind.PASS_THROUGH:
+        effects.emit_diagnostic(resource.message)
+        return CommandDispatchResolution.proceed_to_run(
+            user_input=text,
+            resource_provider_text=None,
+            selected_provider_content=None,
+            input_hooks_ran=True,
+        ), None
     if resource.kind is ResourceDispatchKind.REJECT:
         effects.emit_diagnostic(resource.message)
         effects.refresh_footer()
@@ -1532,18 +1745,56 @@ def _dispatch_resource_command(
     return None, provider_text
 
 
+def _expand_prompt_resource(
+    text: str,
+    effects: CodingCommandEffects,
+) -> str | None:
+    """The provider text of a skill command or prompt template, else ``None``.
+
+    A resource that cannot run (an unknown skill, an empty expansion) says so
+    and leaves the text to go to the model unchanged, as Pi leaves it.
+    """
+
+    resource = effects.dispatch_resource(text, prompt=True)
+    if resource is None:
+        return None
+    if type(resource) is not ResourceDispatchResolution:
+        raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+    if resource.message:
+        effects.emit_diagnostic(resource.message)
+    if resource.kind is not ResourceDispatchKind.RUN:
+        return None
+    effects.record_resource_invocation()
+    return resource.provider_text or ""
+
+
 def _dispatch_extension_command(
     command_text: str,
     effects: CodingCommandEffects,
+    *,
+    prompt: bool = False,
 ) -> CommandDispatchResolution | None:
-    """Consume a handled or failed extension command after resources."""
+    """Consume a handled or failed extension command after resources.
+
+    A command a prompt ran that fails is Pi's extension error
+    (``command:<name>``, event ``command``, the exception's text), which
+    each mode reports in its own way; a typed command keeps pipy's line.
+    """
 
     extension = effects.dispatch_extension(command_text)
     if extension is None:
         return None
     if type(extension) is not ExtensionDispatchResolution:
         raise TypeError("dispatch_extension must return an ExtensionDispatchResolution")
-    if not extension.ran and extension.error:
+    if prompt and not extension.ran:
+        effects.report_extension_error(
+            f"command:{extension.name}",
+            "command",
+            extension.message
+            if extension.message is not None
+            else extension.error or "",
+        )
+    elif not extension.ran and extension.error:
         effects.emit_diagnostic(
             f"pipy: extension command /{extension.name} failed ({extension.error})"
         )

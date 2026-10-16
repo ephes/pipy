@@ -150,11 +150,14 @@ class ResourceDispatchKind(StrEnum):
 
     The composition root maps a concrete resource dispatch onto exactly one of
     these before the headless controller interprets the precedence: ``REJECT``
-    is consumed locally (diagnostic + footer), while ``RUN`` records the
+    is consumed locally (diagnostic + footer), ``PASS_THROUGH`` (a skill that
+    cannot run, Pi passes it through) reports its diagnostic and leaves the
+    line to go to the model as it stands, while ``RUN`` records the
     invocation counter and carries the bounded provider-visible text.
     """
 
     REJECT = "reject"
+    PASS_THROUGH = "pass_through"
     RUN = "run"
 
 
@@ -182,6 +185,8 @@ class ExtensionDispatchResolution:
     name: str
     ran: bool
     error: str | None = None
+    # The text of what the handler raised, for Pi's extension error report.
+    message: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.name) is not str:
@@ -190,6 +195,8 @@ class ExtensionDispatchResolution:
             raise TypeError("ran must be an exact bool")
         if self.error is not None and type(self.error) is not str:
             raise TypeError("error must be an exact str or None")
+        if self.message is not None and type(self.message) is not str:
+            raise TypeError("message must be an exact str or None")
 
 
 class CommandDispatchResolutionKind(StrEnum):
@@ -215,13 +222,17 @@ class CommandDispatchResolution:
     ``PROCEED_TO_RUN`` carries the exact values the run transition needs: the
     literal ``user_input``, the optional ``resource_provider_text`` from a
     resource run, and the optional ``selected_provider_content`` for
-    queued/provider-visible content.
+    queued/provider-visible content. ``input_hooks_ran`` says that the
+    dispatch already ran the ``input`` hooks (before expanding a skill or
+    template, as Pi ``prompt`` does), so the accepted turn does not run
+    them again.
     """
 
     kind: CommandDispatchResolutionKind
     user_input: str = ""
     resource_provider_text: str | None = None
     selected_provider_content: ProductContent | None = None
+    input_hooks_ran: bool = False
 
     def __post_init__(self) -> None:
         _require_exact_dispatch_resolution_fields(self)
@@ -242,12 +253,14 @@ class CommandDispatchResolution:
         user_input: str,
         resource_provider_text: str | None,
         selected_provider_content: ProductContent | None,
+        input_hooks_ran: bool = False,
     ) -> CommandDispatchResolution:
         return cls(
             CommandDispatchResolutionKind.PROCEED_TO_RUN,
             user_input,
             resource_provider_text,
             selected_provider_content,
+            input_hooks_ran,
         )
 
 
@@ -268,6 +281,8 @@ def _require_exact_dispatch_resolution_fields(
         raise TypeError(
             "selected_provider_content must be an exact ProductContent or None"
         )
+    if type(resolution.input_hooks_ran) is not bool:
+        raise TypeError("input_hooks_ran must be an exact bool")
 
 
 def _require_dispatch_resolution_payload(
@@ -286,6 +301,8 @@ def _require_dispatch_resolution_payload(
         raise ValueError(f"{subject} resolution carries no resource_provider_text")
     if resolution.selected_provider_content is not None:
         raise ValueError(f"{subject} resolution carries no provider content")
+    if resolution.input_hooks_ran:
+        raise ValueError(f"{subject} resolution starts no turn")
 
 
 def _require_exact_product_content(content: object) -> None:

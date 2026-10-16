@@ -99,6 +99,30 @@ def test_preflight_fail_closed(tmp_path, monkeypatch):
     assert "secret-sentinel" not in json.dumps(report)
 
 
+def test_minimal_worker_run_uses_the_runner_signature(tmp_path, monkeypatch):
+    # After a successful preflight the script runs one real script; its call
+    # must fit `run_script` as it is today.
+    import inspect
+
+    from pipy_harness.native.codemode import ScriptError, ScriptOutcome, run_script
+    from pipy_harness.native.codemode.outcome import ErrorKind
+
+    calls = []
+
+    def fake_run_script(*args, **kwargs):
+        calls.append(inspect.signature(run_script).bind(*args, **kwargs))
+        return ScriptOutcome(ScriptError(ErrorKind.SANDBOX, "stopped by the test"))
+
+    monkeypatch.setattr(measure, "version", lambda _: "49.0.0")
+    monkeypatch.setattr(
+        measure, "availability", lambda: selftest.Availability(True, "")
+    )
+    monkeypatch.setattr(measure, "run_script", fake_run_script)
+    report = measure.execute(tmp_path)
+    assert len(calls) == 1
+    assert report["failure"] == "minimal_worker_failed"
+
+
 def test_exception_privacy(tmp_path, monkeypatch):
     monkeypatch.setattr(measure, "version", lambda _: "49.0.0")
 

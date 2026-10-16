@@ -101,7 +101,9 @@ def test_sdk_surface_is_product_only() -> None:
     expected_exports = {
         "AgentEvent",
         "AgentEventSink",
+        "CodemodeOptions",
         "CodingSessionResultSnapshot",
+        "McpOptions",
         "ProductSession",
         "ProductSessionTarget",
         "ProductSessionTransitionError",

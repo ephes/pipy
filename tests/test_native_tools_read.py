@@ -9,10 +9,18 @@ covered by `tests/test_native_explicit_file_excerpt_tool.py`).
 
 from __future__ import annotations
 
+import base64
+import io
+import zlib
 from pathlib import Path
 
 import pytest
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+)
 from pipy_harness.native.tools import (
     ToolArgumentError,
     ToolContext,
@@ -20,8 +28,9 @@ from pipy_harness.native.tools import (
     ToolPort,
     ToolRequest,
     make_tool_request_id,
+    read_image,
 )
-from pipy_harness.native.tools.read import ReadTool
+from pipy_harness.native.tools.read import READ_OUTPUT_SCHEMA, ReadTool
 
 
 def _make_request(arguments: dict[str, object]) -> ToolRequest:
@@ -45,8 +54,8 @@ def test_read_tool_definition_is_object_schema_with_required_path():
 
     assert definition.name == "read"
     assert definition.description == (
-        "Read the contents of a file. Supports text files; images (jpg, png, "
-        "gif, webp, bmp) are not supported yet and return an error. For text "
+        "Read the contents of a file. Supports text files and images (jpg, png, "
+        "gif, webp, bmp). Images are sent as attachments. For text "
         "files, output is truncated to 2000 lines or 50KB (whichever is hit "
         "first). Use offset/limit for large files. When you need the full "
         "file, continue with offset until complete."
@@ -71,6 +80,26 @@ def test_read_tool_definition_is_object_schema_with_required_path():
         "required": ["path"],
         "additionalProperties": False,
     }
+    # Pi ``readOutputSchema``.
+    assert (
+        definition.output_schema
+        == READ_OUTPUT_SCHEMA
+        == {
+            "anyOf": [
+                {"type": "string"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {"const": "image", "type": "string"},
+                        "data": {"type": "string"},
+                        "mimeType": {"type": "string"},
+                        "note": {"type": "string"},
+                    },
+                    "required": ["type", "data", "mimeType", "note"],
+                },
+            ]
+        }
+    )
 
 
 def test_read_tool_returns_bounded_text_for_workspace_file(tmp_path: Path):
@@ -408,7 +437,8 @@ def _png(*chunks: bytes) -> bytes:
 
 
 def _chunk(kind: bytes, data: bytes = b"") -> bytes:
-    return len(data).to_bytes(4, "big") + kind + data + b"\x00" * 4
+    crc = zlib.crc32(kind + data).to_bytes(4, "big")
+    return len(data).to_bytes(4, "big") + kind + data + crc
 
 
 def _bmp() -> bytes:
@@ -422,44 +452,383 @@ def _bmp() -> bytes:
     return bytes(header) + b"\x00" * 4
 
 
+# Small real images, each decoded by an image library before it was added.
+_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAIAAABxZ0isAAAACXBIWXMAAAABAAAAAQBPJcTW"
+    "AAAAEklEQVR4nGP8w4AdsOAQp4sEAJm0ARInmA0VAAAAAElFTkSuQmCC"
+)
+_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYzLjEuMTAyAP/bAEMACAoKCwoLDQ0NDQ0N"
+    "EA8QEBAQEBAQEBAQEBISEhUVFRISEhAQEhIUFBUVFxcXFRUVFRcXGRkZHh4cHCMjJCsrM//E"
+    "AE0AAQEAAAAAAAAAAAAAAAAAAAAGAQEBAQAAAAAAAAAAAAAAAAAABgcQAQAAAAAAAAAAAAAA"
+    "AAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAGAAgDARIAAhIAAxIA/9oADAMBAAIRAxEA"
+    "PwCKEoN+H//Z"
+)
+_GIF = base64.b64decode("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==")
+_WEBP = base64.b64decode(
+    "UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoIAAYAAgA0JaACdLoB+AADsAD+8Oj3/yC5YXXI"
+    "1/8gP+MqfGVP+PIAAAA="
+)
+_WEBP_LOSSLESS = base64.b64decode(
+    "UklGRiAAAABXRUJQVlA4TBQAAAAvB0ABAAcQ5Y/+BwCC8L9tIqL/IQ=="
+)
+_WEBP_ANIMATED = base64.b64decode(
+    "UklGRvIAAABXRUJQVlA4WAoAAAACAAAABwAABQAAQU5JTQYAAAAAbPz/AABBTk1GagAAAAAA"
+    "AAAAAAcAAAUAAPQBAAJWUDhMUgAAAC8HQAEAb6CgbRSoPIKRhxTEIMRs2jZK2//pwRkEAgT/"
+    "KSLNf0D2gBSsAR3MbZu/+LRBNW0rlkUkGWTw/s7gWvSfRwajNw4R/Q9IK4jrn7cH4gJBTk1G"
+    "VAAAAAAAAAIAAAcAAAAAAPQBAABWUDhMOwAAAC8HAAAAP6CobRuoF//X4A1KgBBmGw15eAdz"
+    "KHsQZNtskKc85OY/gAsiXDPsjvkEoQAac0gmg3YR/Q8PAA=="
+)
+
+
+def _png_of(width: int, height: int, idat: bytes | None = None, pad: int = 0) -> bytes:
+    """A grayscale PNG; its rows are zeros unless ``idat`` replaces them,
+    and ``pad`` adds an ancillary chunk of that many bytes."""
+
+    ihdr = (
+        width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x00\x00\x00\x00"
+    )
+    if idat is None:
+        idat = zlib.compress(b"\x00" * (height * (width + 1)))
+    extra = _chunk(b"teXt", b"\x00" * pad) if pad else b""
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + extra
+        + _chunk(b"IDAT", idat)
+        + _chunk(b"IEND")
+    )
+
+
+def _interlaced_png(width: int, height: int) -> bytes:
+    """An Adam7-interlaced 8-bit RGB PNG of zero pixels."""
+
+    rows = b""
+    for x0, y0, dx, dy in (
+        (0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
+        (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2),
+    ):  # fmt: skip
+        columns = len(range(x0, width, dx))
+        if columns:
+            rows += (b"\x00" + b"\x00" * 3 * columns) * len(range(y0, height, dy))
+    ihdr = (
+        width.to_bytes(4, "big") + height.to_bytes(4, "big") + b"\x08\x02\x00\x00\x01"
+    )
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", ihdr)
+        + _chunk(b"IDAT", zlib.compress(rows))
+        + _chunk(b"IEND")
+    )
+
+
+def _with_size(data: bytes, mime: str, width: int, height: int) -> bytes:
+    """A real image whose header declares another size."""
+
+    if mime == "image/jpeg":
+        sof = data.index(b"\xff\xc0")
+        size = height.to_bytes(2, "big") + width.to_bytes(2, "big")
+        return data[: sof + 5] + size + data[sof + 9 :]
+    # The animated WebP's canvas.
+    size = (width - 1).to_bytes(3, "little") + (height - 1).to_bytes(3, "little")
+    return data[:24] + size + data[30:]
+
+
 @pytest.mark.parametrize(
     ("data", "mime"),
     [
-        (_png(_chunk(b"IDAT")), "image/png"),
-        (b"\xff\xd8\xff\xe0" + b"\x00" * 16, "image/jpeg"),
-        (b"GIF89a" + b"\x00" * 16, "image/gif"),
-        (b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 8, "image/webp"),
+        (_PNG, "image/png"),
+        (_png_of(2000, 1), "image/png"),
+        (_interlaced_png(5, 3), "image/png"),
+        (_JPEG, "image/jpeg"),
+        (_GIF, "image/gif"),
+        (_WEBP, "image/webp"),
+        (_WEBP_LOSSLESS, "image/webp"),
+        (_WEBP_ANIMATED, "image/webp"),
     ],
 )
-def test_read_tool_refuses_attachable_images_with_image_hint(
+def test_read_tool_returns_an_image_as_an_attachment(
     tmp_path: Path, data: bytes, mime: str
+):
+    # Goal-check finding M16, Pi read.ts: "Read image file [<type>]" and the
+    # image; the structured result is the image block codemode's image()
+    # shows. An image within Pi's limits is sent as it is.
+    (tmp_path / "pic").write_bytes(data)
+
+    result = _read(tmp_path, "pic")
+
+    encoded = base64.b64encode(data).decode("ascii")
+    assert result.is_error is False
+    assert result.output_text == f"Read image file [{mime}]"
+    assert result.blocks == (
+        TextContent(f"Read image file [{mime}]"),
+        ImageContent(encoded, mime),
+    )
+    assert result.structured_content == {
+        "type": "image",
+        "data": encoded,
+        "mimeType": mime,
+        "note": f"Read image file [{mime}]",
+    }
+
+
+def _replace_chunk(png: bytes, kind: bytes, body: bytes) -> bytes:
+    start = png.index(kind) - 4
+    end = start + 12 + int.from_bytes(png[start : start + 4], "big")
+    return png[:start] + _chunk(kind, body) + png[end:]
+
+
+@pytest.fixture
+def without_pillow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``read`` tool as it works when the ``images`` extra is missing."""
+
+    monkeypatch.setattr(read_image, "pillow_available", lambda: False)
+
+
+@pytest.mark.parametrize(
+    ("data", "mime"),
+    [
+        # Over 2000 pixels: Pi resizes it; without Pillow pipy cannot.
+        (_png_of(2001, 1), "image/png"),
+        (_with_size(_JPEG, "image/jpeg", 10, 2001), "image/jpeg"),
+        (_with_size(_WEBP_ANIMATED, "image/webp", 4000, 3000), "image/webp"),
+        # 4.5 MB of base64 or more.
+        (_png_of(10, 10, pad=9 * 1024 * 1024 * 3 // 8), "image/png"),
+        # A file that is not a complete image cannot be decoded: cut short,
+        # a broken checksum, no or broken pixel data, no frame.
+        (_PNG[:33], "image/png"),
+        (_PNG[:-1], "image/png"),
+        (_PNG.replace(b"IDAT", b"IDAt"), "image/png"),
+        (_replace_chunk(_PNG, b"IDAT", b""), "image/png"),
+        (_replace_chunk(_PNG, b"IDAT", b"not deflate data"), "image/png"),
+        (_png_of(10, 10, idat=zlib.compress(b"\x00" * 50)), "image/png"),
+        (_png_of(1, 2, idat=zlib.compress(b"\x00\x00\x07\x00")), "image/png"),
+        # All the rows, but the zlib stream is cut before its end.
+        (_png_of(1, 1, idat=zlib.compress(b"\x00\x00")[:-5]), "image/png"),
+        (_png_of(0, 10), "image/png"),
+        # The rows of a 5 x 3 RGB image without interlacing: 48 bytes, where
+        # its seven passes take 52.
+        (
+            _replace_chunk(_interlaced_png(5, 3), b"IDAT", zlib.compress(bytes(48))),
+            "image/png",
+        ),
+        (_JPEG[:-2], "image/jpeg"),
+        (_JPEG[:30], "image/jpeg"),
+        (b"\xff\xd8\xff\xe0" + b"\x00" * 16, "image/jpeg"),
+        (_GIF[:-1], "image/gif"),
+        (_GIF[:-6], "image/gif"),
+        (_GIF.replace(b"\x02\x02\x44\x01\x00", b"\x02\x00"), "image/gif"),
+        (_WEBP[:-1], "image/webp"),
+        (_WEBP_ANIMATED[:-1], "image/webp"),
+        # The canvas and the animation chunk, then a frame without image.
+        (
+            b"RIFF"
+            + (36 + 24).to_bytes(4, "little")
+            + _WEBP_ANIMATED[8:44]
+            + b"ANMF\x10\x00\x00\x00"
+            + b"\x00" * 16,
+            "image/webp",
+        ),
+    ],
+)
+def test_read_tool_omits_an_image_it_would_have_to_resize(
+    tmp_path: Path, data: bytes, mime: str, without_pillow: None
 ):
     (tmp_path / "pic").write_bytes(data)
 
     result = _read(tmp_path, "pic")
 
-    assert result.is_error is True
-    assert result.output_text == (
-        f"read error: image files are not supported by read yet ({mime}). "
-        "Ask the user to attach it with @image:<path>."
+    note = (
+        f"Read image file [{mime}]\n"
+        "[Image omitted: could not be resized below the inline image size limit.]"
     )
+    assert result.is_error is False
+    assert result.output_text == note
+    assert result.blocks == ()
+    assert result.structured_content == note
 
 
-def test_read_tool_refuses_bmp_without_attach_hint(tmp_path: Path):
+def test_read_tool_omits_a_bmp_it_would_have_to_convert(
+    tmp_path: Path, without_pillow: None
+):
     (tmp_path / "pic_bmp").write_bytes(_bmp())
 
     result = _read(tmp_path, "pic_bmp")
 
-    assert result.is_error is True
-    assert result.output_text == (
-        "read error: image files are not supported by read yet (image/bmp)."
+    note = (
+        "Read image file [image/bmp]\n[Image omitted: could not be converted to "
+        "a supported inline image format.]"
     )
+    assert (result.is_error, result.output_text) == (False, note)
+    assert result.structured_content == note
+
+
+def _pillow_image(width: int, height: int, image_format: str) -> bytes:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 30, 30)).save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+def _decoded_size(data: str) -> tuple[int, int]:
+    from PIL import Image
+
+    with Image.open(io.BytesIO(base64.b64decode(data))) as image:
+        return image.size
+
+
+def test_read_tool_resizes_a_large_image_with_pillow(tmp_path: Path):
+    # Goal-check r3 D2, Pi read.ts + processImage: a large image is resized
+    # to fit 2000 x 2000 and the note says how coordinates map back.
+    pytest.importorskip("PIL")
+    (tmp_path / "wide.png").write_bytes(_pillow_image(3000, 100, "PNG"))
+
+    result = _read(tmp_path, "wide.png")
+
+    note = (
+        "Read image file [image/png]\n[Image: original 3000x100, displayed at "
+        "2000x67. Multiply coordinates by 1.50 to map to original image.]"
+    )
+    assert (result.is_error, result.output_text) == (False, note)
+    assert len(result.blocks) == 2
+    assert result.blocks[0] == TextContent(note)
+    image = result.blocks[1]
+    assert isinstance(image, ImageContent)
+    assert image.mime_type == "image/png"
+    assert _decoded_size(image.data) == (2000, 67)
+    assert result.structured_content == {
+        "type": "image",
+        "data": image.data,
+        "mimeType": "image/png",
+        "note": note,
+    }
+
+
+def test_read_tool_converts_a_bmp_to_png_with_pillow(tmp_path: Path):
+    pytest.importorskip("PIL")
+    (tmp_path / "pic.bmp").write_bytes(_pillow_image(4, 3, "BMP"))
+
+    result = _read(tmp_path, "pic.bmp")
+
+    note = "Read image file [image/png]\n[Image converted from image/bmp to image/png.]"
+    assert (result.is_error, result.output_text) == (False, note)
+    image = result.blocks[1]
+    assert isinstance(image, ImageContent)
+    assert image.mime_type == "image/png"
+    assert _decoded_size(image.data) == (4, 3)
+
+
+def test_read_tool_keeps_the_size_when_auto_resize_is_off(tmp_path: Path):
+    # Pi passes images.autoResize to read: off, a fitting type is attached
+    # as it is and a BMP is still converted.
+    pytest.importorskip("PIL")
+    wide = _pillow_image(3000, 100, "PNG")
+    (tmp_path / "wide.png").write_bytes(wide)
+    (tmp_path / "pic.bmp").write_bytes(_pillow_image(4, 3, "BMP"))
+    tool = ReadTool(auto_resize_images=lambda: False)
+    context = ToolContext(workspace_root=tmp_path)
+
+    png = tool.invoke(_make_request({"path": "wide.png"}), context)
+    bmp = tool.invoke(_make_request({"path": "pic.bmp"}), context)
+
+    assert png.blocks == (
+        TextContent("Read image file [image/png]"),
+        ImageContent(base64.b64encode(wide).decode("ascii"), "image/png"),
+    )
+    assert bmp.output_text == (
+        "Read image file [image/png]\n[Image converted from image/bmp to image/png.]"
+    )
+
+
+def test_without_pillow_auto_resize_off_attaches_a_fitting_type_as_it_is(
+    tmp_path: Path, without_pillow: None
+):
+    # Pi without autoResizeImages does not decode a PNG, JPEG, GIF or WebP;
+    # a BMP still needs the codec.
+    wide = _png_of(2001, 1)
+    (tmp_path / "wide").write_bytes(wide)
+    (tmp_path / "pic_bmp").write_bytes(_bmp())
+    tool = ReadTool(auto_resize_images=lambda: False)
+    context = ToolContext(workspace_root=tmp_path)
+
+    png = tool.invoke(_make_request({"path": "wide"}), context)
+    bmp = tool.invoke(_make_request({"path": "pic_bmp"}), context)
+
+    assert png.blocks == (
+        TextContent("Read image file [image/png]"),
+        ImageContent(base64.b64encode(wide).decode("ascii"), "image/png"),
+    )
+    assert bmp.output_text == (
+        "Read image file [image/bmp]\n[Image omitted: could not be converted to "
+        "a supported inline image format.]"
+    )
+
+
+@pytest.mark.parametrize(
+    ("data", "mime", "reason"),
+    [
+        (
+            _PNG[:33],
+            "image/png",
+            "[Image omitted: could not be resized below the inline image size limit.]",
+        ),
+        (
+            _bmp(),
+            "image/bmp",
+            "[Image omitted: could not be converted to a supported inline image "
+            "format.]",
+        ),
+    ],
+)
+def test_read_tool_omits_an_image_pillow_cannot_decode(
+    tmp_path: Path, data: bytes, mime: str, reason: str
+):
+    pytest.importorskip("PIL")
+    (tmp_path / "pic").write_bytes(data)
+
+    result = _read(tmp_path, "pic")
+
+    note = f"Read image file [{mime}]\n{reason}"
+    assert (result.is_error, result.output_text, result.blocks) == (False, note, ())
+    assert result.structured_content == note
+
+
+def test_a_text_only_reader_refuses_an_image(tmp_path: Path):
+    # @file references keep only text, so an image is not read there.
+    (tmp_path / "pic").write_bytes(_PNG)
+    (tmp_path / "pic_bmp").write_bytes(_bmp())
+    tool = ReadTool(attach_images=False)
+
+    png = tool.invoke(
+        _make_request({"path": "pic"}), ToolContext(workspace_root=tmp_path)
+    )
+    bmp = tool.invoke(
+        _make_request({"path": "pic_bmp"}), ToolContext(workspace_root=tmp_path)
+    )
+
+    assert (png.is_error, png.output_text) == (
+        True,
+        "read error: image files cannot be read as text (image/png). "
+        "Attach it with @image:<path>.",
+    )
+    assert bmp.output_text == (
+        "read error: image files cannot be read as text (image/bmp)."
+    )
+
+
+def test_read_tool_structured_result_of_a_text_file_is_its_text(tmp_path: Path):
+    (tmp_path / "a.txt").write_text("one\ntwo\n", encoding="utf-8")
+
+    result = _read(tmp_path, "a.txt", limit=1)
+
+    assert result.structured_content == result.output_text
+    assert result.output_text.startswith("one\n\n[2 more lines")
+    assert _read(tmp_path, "missing").structured_content is NO_STRUCTURED_CONTENT
 
 
 def test_read_tool_reads_non_images_with_image_like_prefixes_as_text(tmp_path: Path):
     # Pi does not treat animated PNG or `ff d8 ff f7` as supported images.
-    # The files have no suffix because pipy's shared path policy still refuses
-    # image suffixes such as `.png` (READ2).
     (tmp_path / "anim").write_bytes(_png(_chunk(b"acTL", b"\x00" * 8)))
     (tmp_path / "jpegls").write_bytes(b"\xff\xd8\xff\xf7rest")
 

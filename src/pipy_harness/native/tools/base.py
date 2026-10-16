@@ -8,7 +8,9 @@ only fixes the data shapes and validation surface.
 Design boundaries:
 
 - `ToolDefinition` carries model-visible tool name, description, and
-  JSON-schema for arguments.
+  JSON-schema for arguments, plus the metadata that decides how a tool is
+  reached (`exposure`, `namespace`, `annotations`, `output_schema`,
+  `reaches_tools`) and the `schema_mode` its input schema is held to.
 - `ToolRequest` carries the pipy-owned internal `tool_request_id` plus an
   optional `provider_correlation_id`. The internal id must not leak as a
   provider id; the provider id is opaque to pipy logic.
@@ -33,6 +35,10 @@ Supported JSON-schema subset (sufficient for `read`/`write`/`edit`/`ls`/
 - on integers: `minimum`, `maximum`
 
 Anything outside this subset raises a clear error at definition time.
+
+A definition with `schema_mode="foreign"` carries a schema pipy did not write
+(an MCP server's). It only has to be a JSON object with `type: "object"`, and
+its arguments are checked by `tools/foreign_schema.py` instead.
 """
 
 from __future__ import annotations
@@ -44,9 +50,19 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, get_args, runtime_checkable
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ToolOutput,
+    ToolPartialResult,
+    ToolResultBlock,
+    normalized_tool_result_blocks,
+)
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
+
+ToolOutputSink = Callable[[ToolOutput], None]
+"""Where a running tool writes its live output (``ToolContext.output_sink``)."""
 
 _ALLOWED_TOP_LEVEL_TYPES = ("object",)
 _ALLOWED_TYPES = ("object", "string", "integer", "boolean", "array")
@@ -60,6 +76,34 @@ _ALLOWED_STRING_KEYS = frozenset(
 _ALLOWED_INTEGER_KEYS = frozenset({"type", "minimum", "maximum", "description"})
 _ALLOWED_BOOLEAN_KEYS = frozenset({"type", "description"})
 
+# Pi ``ToolExposure`` (``core/extensions/types.ts``): how the model reaches a
+# tool. "Callable" means callable from another tool, as codemode scripts do.
+#
+# - ``direct``: declared to the model while active, and callable while active.
+# - ``model-only``: declared to the model while active, never callable.
+# - ``codemode``: callable whenever registered; not declared unless activated;
+#   listed in the codemode description.
+# - ``deferred``: like ``codemode``, but not listed; tool search can find it.
+# - ``hidden``: registered but unreachable.
+ToolExposure = Literal["direct", "model-only", "codemode", "deferred", "hidden"]
+TOOL_EXPOSURES: tuple[str, ...] = get_args(ToolExposure)
+
+# ``strict`` holds an input schema to the subset above; ``foreign`` accepts any
+# JSON Schema object and leaves argument checks to ``validate_foreign_arguments``.
+ToolSchemaMode = Literal["strict", "foreign"]
+TOOL_SCHEMA_MODES: tuple[str, ...] = get_args(ToolSchemaMode)
+
+# Pi ``ToolExecutionMode``: ``sequential`` runs a tool's calls one at a time
+# with the other calls; ``parallel`` lets them run at the same time.
+ToolExecutionMode = Literal["sequential", "parallel"]
+TOOL_EXECUTION_MODES: tuple[str, ...] = get_args(ToolExecutionMode)
+
+# Pi ``reachesTools``: which tools a call with this input may reach. ``"all"``,
+# or the words of the input that may name them (a word refers to a tool or
+# namespace whose name it contains, so words may over-match).
+ToolReach = Literal["all"] | tuple[str, ...]
+ReachesTools = Callable[[Mapping[str, Any]], ToolReach]
+
 
 class ToolArgumentError(ValueError):
     """Raised when tool arguments fail JSON-schema validation.
@@ -67,6 +111,9 @@ class ToolArgumentError(ValueError):
     The error carries the originating tool name and a structured field path so
     later slices of the tool loop can format a deterministic observation that
     is returned to the model without leaking raw arguments or model output.
+    Its text is ``<tool>[.<path>]: <message>``; with ``qualified=False`` it is
+    the message alone, as Pi reports what a tool's ``prepareArguments``
+    throws.
     """
 
     def __init__(
@@ -75,6 +122,7 @@ class ToolArgumentError(ValueError):
         message: str,
         *,
         field_path: tuple[str, ...] = (),
+        qualified: bool = True,
     ) -> None:
         if not tool_name:
             raise ValueError("ToolArgumentError requires a non-empty tool_name")
@@ -83,7 +131,9 @@ class ToolArgumentError(ValueError):
         self.tool_name = tool_name
         self.field_path = tuple(str(part) for part in field_path)
         path_label = "." + ".".join(self.field_path) if self.field_path else ""
-        super().__init__(f"{tool_name}{path_label}: {message}")
+        super().__init__(
+            f"{tool_name}{path_label}: {message}" if qualified else message
+        )
 
 
 def materialize_tool_input_schema(
@@ -144,17 +194,102 @@ def _materialize_tool_schema_value(
 
 
 @dataclass(frozen=True, slots=True)
+class ToolNamespace:
+    """A group of related tools, such as the tools of one MCP server.
+
+    Pi ``ToolNamespace``. `aliases` are other names that refer to the group
+    where tools look it up by name. `description` is the short summary shown
+    with the group in tool listings; `instructions` is longer guidance that is
+    returned only when the namespace is described on request.
+    """
+
+    name: str
+    aliases: tuple[str, ...] = ()
+    description: str | None = None
+    instructions: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError("ToolNamespace requires a non-empty name")
+        if type(self.aliases) is not tuple or any(
+            not isinstance(alias, str) or not alias for alias in self.aliases
+        ):
+            raise ValueError("ToolNamespace.aliases must be a tuple of names")
+        for field_name in ("description", "instructions"):
+            value = getattr(self, field_name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"ToolNamespace.{field_name} must be a string or None")
+
+
+@dataclass(frozen=True, slots=True)
+class ToolAnnotations:
+    """Hints about what a tool does, with the meaning of MCP tool annotations.
+
+    Pi ``ToolAnnotations``. They come from the tool's author and are not
+    verified. `None` means the author gave no hint.
+    """
+
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
+    idempotent_hint: bool | None = None
+    open_world_hint: bool | None = None
+
+    def __post_init__(self) -> None:
+        for field_name in self.__slots__:
+            value = getattr(self, field_name)
+            if value is not None and type(value) is not bool:
+                raise ValueError(f"ToolAnnotations.{field_name} must be a bool or None")
+
+
+@dataclass(frozen=True, slots=True)
 class ToolDefinition:
     """Model-visible declaration of one tool.
 
     `input_schema` is a JSON-schema dict in the subset supported by
     `validate_arguments`. It is validated at construction time so later slices
-    do not need to re-check definition shape.
+    do not need to re-check definition shape. With `schema_mode="foreign"` it
+    is any JSON Schema object with `type: "object"`, the description has no
+    length cap, and arguments are checked by `validate_foreign_arguments`.
+
+    The keyword-only fields are tool metadata with Pi's meaning:
+
+    - `exposure`: how the model reaches the tool (see `ToolExposure`).
+    - `namespace`: the group the tool belongs to.
+    - `annotations`: the author's hints about what the tool does.
+    - `output_schema`: JSON Schema of the `structured_content` in the tool's
+      successful results. It is declared, not enforced.
+    - `reaches_tools`: for a tool that reaches other tools, which ones a call
+      with the given input may reach.
+    - `default_active`: whether registering the tool activates it. A `direct`
+      or `model-only` tool with `False` is registered inactive, until a tool
+      selection names it.
+    - `prepare_loadout`: for a tool that presents other tools, a function
+      from a `ToolLoadout` to the `ToolLoadoutChanges` it wants while it is
+      declared (`native/tools/loadout.py`).
+    - `prompt_snippet`: one line for the system prompt's tool list (Pi
+      `promptSnippet`); a tool without one is not listed there.
+    - `prompt_guidelines`: bullets for the system prompt's rules while the
+      tool is declared, which scripts see with its declaration (Pi
+      `promptGuidelines`; `native/tools/prompts.py`).
+    - `execution_mode`: `"sequential"` makes the tool's calls by other tools
+      wait for each other (Pi `executionMode`); `None` or `"parallel"` leaves
+      the session's mode (`native/agent/nested_calls.py`).
     """
 
     name: str
     description: str
     input_schema: Mapping[str, Any]
+    exposure: ToolExposure = field(default="direct", kw_only=True)
+    namespace: ToolNamespace | None = field(default=None, kw_only=True)
+    annotations: ToolAnnotations | None = field(default=None, kw_only=True)
+    output_schema: Mapping[str, Any] | None = field(default=None, kw_only=True)
+    reaches_tools: ReachesTools | None = field(default=None, kw_only=True)
+    default_active: bool = field(default=True, kw_only=True)
+    prepare_loadout: Callable[[Any], Any] | None = field(default=None, kw_only=True)
+    schema_mode: ToolSchemaMode = field(default="strict", kw_only=True)
+    prompt_snippet: str | None = field(default=None, kw_only=True)
+    prompt_guidelines: tuple[str, ...] = field(default=(), kw_only=True)
+    execution_mode: ToolExecutionMode | None = field(default=None, kw_only=True)
 
     NAME_MAX_LENGTH: ClassVar[int] = 64
     DESCRIPTION_MAX_LENGTH: ClassVar[int] = 4 * 1024
@@ -170,14 +305,126 @@ class ToolDefinition:
             raise ValueError("ToolDefinition name must be alphanumeric or underscore")
         if not isinstance(self.description, str) or not self.description:
             raise ValueError("ToolDefinition requires a non-empty description")
-        if len(self.description) > self.DESCRIPTION_MAX_LENGTH:
+        if self.schema_mode not in TOOL_SCHEMA_MODES:
+            raise ValueError(
+                f"ToolDefinition.schema_mode must be one of {TOOL_SCHEMA_MODES}"
+            )
+        foreign = self.schema_mode == "foreign"
+        if not foreign and len(self.description) > self.DESCRIPTION_MAX_LENGTH:
             raise ValueError(
                 "ToolDefinition description exceeds "
                 f"{self.DESCRIPTION_MAX_LENGTH} characters"
             )
         if not isinstance(self.input_schema, Mapping):
             raise ValueError("ToolDefinition.input_schema must be a mapping")
-        _validate_schema_shape(self.input_schema, top_level=True)
+        if foreign:
+            _require_json_schema_object(self.input_schema, "input_schema")
+            if self.input_schema.get("type") != "object":
+                raise ValueError("ToolDefinition top-level schema must be an object")
+        else:
+            _validate_schema_shape(self.input_schema, top_level=True)
+        self._validate_metadata()
+        self._validate_prompts()
+
+    def _validate_metadata(self) -> None:
+        if self.exposure not in TOOL_EXPOSURES:
+            raise ValueError(f"ToolDefinition.exposure must be one of {TOOL_EXPOSURES}")
+        if self.namespace is not None and type(self.namespace) is not ToolNamespace:
+            raise ValueError("ToolDefinition.namespace must be a ToolNamespace or None")
+        if (
+            self.annotations is not None
+            and type(self.annotations) is not ToolAnnotations
+        ):
+            raise ValueError(
+                "ToolDefinition.annotations must be a ToolAnnotations or None"
+            )
+        if self.output_schema is not None:
+            if not isinstance(self.output_schema, Mapping):
+                raise ValueError("ToolDefinition.output_schema must be a mapping")
+            _require_json_schema_object(self.output_schema, "output_schema")
+        if self.reaches_tools is not None and not callable(self.reaches_tools):
+            raise ValueError("ToolDefinition.reaches_tools must be callable or None")
+        if type(self.default_active) is not bool:
+            raise ValueError("ToolDefinition.default_active must be a bool")
+        if self.prepare_loadout is not None and not callable(self.prepare_loadout):
+            raise ValueError("ToolDefinition.prepare_loadout must be callable or None")
+        if self.execution_mode is not None and (
+            type(self.execution_mode) is not str
+            or self.execution_mode not in TOOL_EXECUTION_MODES
+        ):
+            raise ValueError(
+                "ToolDefinition.execution_mode must be one of "
+                f"{TOOL_EXECUTION_MODES} or None"
+            )
+
+    def _validate_prompts(self) -> None:
+        if self.prompt_snippet is not None and not isinstance(self.prompt_snippet, str):
+            raise ValueError("ToolDefinition.prompt_snippet must be a string or None")
+        guidelines = self.prompt_guidelines
+        if isinstance(guidelines, (str, bytes)) or not isinstance(
+            guidelines, (tuple, list)
+        ):
+            raise ValueError(
+                "ToolDefinition.prompt_guidelines must be a list of strings"
+            )
+        if not all(isinstance(guideline, str) for guideline in guidelines):
+            raise ValueError(
+                "ToolDefinition.prompt_guidelines must be a list of strings"
+            )
+        object.__setattr__(self, "prompt_guidelines", tuple(guidelines))
+
+
+@dataclass(frozen=True, slots=True)
+class ToolInfo:
+    """One registered tool as an extension sees it (Pi ``ToolInfo``).
+
+    `ctx.get_all_tools()` returns one per registered tool, whether or not the
+    tool is active, and `ctx.tools` one per tool `ctx.execute_tool` can call.
+    `input_schema` and `output_schema` are detached copies. `reaches_tools`
+    is the tool's reach function, or None when the tool reaches no other
+    tools. `output_schema` and `execution_mode` are those of the definition,
+    as Pi's `AgentTool` entries of `ctx.tools` carry `outputSchema` and
+    `executionMode`.
+    """
+
+    name: str
+    description: str
+    input_schema: Mapping[str, Any]
+    exposure: ToolExposure
+    namespace: ToolNamespace | None = None
+    annotations: ToolAnnotations | None = None
+    reaches_tools: ReachesTools | None = None
+    prompt_guidelines: tuple[str, ...] = ()
+    output_schema: Mapping[str, Any] | None = None
+    execution_mode: ToolExecutionMode | None = None
+
+
+def tool_info(definition: ToolDefinition) -> ToolInfo:
+    """Report one definition's extension-visible metadata."""
+
+    return ToolInfo(
+        name=definition.name,
+        description=definition.description,
+        input_schema=materialize_tool_input_schema(definition.input_schema),
+        exposure=definition.exposure,
+        namespace=definition.namespace,
+        annotations=definition.annotations,
+        reaches_tools=definition.reaches_tools,
+        prompt_guidelines=definition.prompt_guidelines,
+        output_schema=None
+        if definition.output_schema is None
+        else materialize_tool_input_schema(definition.output_schema),
+        execution_mode=definition.execution_mode,
+    )
+
+
+def _require_json_schema_object(schema: Mapping[str, Any], field_name: str) -> None:
+    """Reject a schema that JSON cannot represent (or that contains a cycle)."""
+
+    try:
+        materialize_tool_input_schema(schema)
+    except TypeError as exc:
+        raise ValueError(f"ToolDefinition.{field_name} must be JSON: {exc}") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,6 +479,20 @@ class ToolExecutionResult:
     # Pi ``AgentToolResult.details``: structured data for renderers and the
     # session file, never sent to a provider. A JSON object or None.
     details: Mapping[str, Any] | None = None
+    # Pi ``AgentToolResult.structuredContent``: the machine-readable result of
+    # a tool that declares an ``output_schema``, for programmatic callers such
+    # as codemode scripts. Any JSON value, ``None`` being null;
+    # NO_STRUCTURED_CONTENT means the tool gave none. It is never sent to a
+    # provider and, as in Pi, never written to the session file.
+    structured_content: Any = NO_STRUCTURED_CONTENT
+    # Pi ``AgentToolResult.content`` when the result has an image: the ordered
+    # text and image blocks the model receives. ``output_text`` is then the
+    # text blocks joined by newlines. Empty for a result that is text only.
+    blocks: tuple[ToolResultBlock, ...] = ()
+    # Pi ``AgentToolResult.terminate``: the tool asks the agent to stop after
+    # the current tool batch. The batch ends without the automatic follow-up
+    # provider turn only when every result in it asks for that.
+    terminate: bool = False
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
@@ -252,6 +513,8 @@ class ToolExecutionResult:
             )
         if not isinstance(self.is_error, bool):
             raise ValueError("ToolExecutionResult.is_error must be a bool")
+        if not isinstance(self.terminate, bool):
+            raise ValueError("ToolExecutionResult.terminate must be a bool")
         if self.provider_correlation_id is not None and (
             not isinstance(self.provider_correlation_id, str)
             or not self.provider_correlation_id
@@ -262,6 +525,42 @@ class ToolExecutionResult:
             )
         if self.details is not None and not is_json_object(self.details):
             raise ValueError("ToolExecutionResult.details must be a JSON object")
+        if self.structured_content is not NO_STRUCTURED_CONTENT and not is_json_value(
+            self.structured_content
+        ):
+            raise ValueError("ToolExecutionResult.structured_content must be JSON")
+        object.__setattr__(
+            self,
+            "blocks",
+            normalized_tool_result_blocks(
+                self.blocks, self.output_text, "ToolExecutionResult"
+            ),
+        )
+
+
+def is_json_value(value: object) -> bool:
+    """Whether ``value`` is plain JSON data: no NaN, no non-string keys."""
+
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return False
+    return _has_only_string_keys(value)
+
+
+def _has_only_string_keys(value: object) -> bool:
+    # Iterative: a value the encoder accepts may nest deeper than Python
+    # frames can follow.
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if any(type(key) is not str for key in item):
+                return False
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
+    return True
 
 
 def is_json_object(value: object) -> bool:
@@ -290,13 +589,95 @@ def json_safe_details(value: object) -> dict[str, Any] | None:
     return copied if isinstance(copied, dict) else None
 
 
+def json_safe_value(value: object) -> Any:
+    """A detached JSON copy of ``value`` when it is JSON data (``None`` is
+    null), else ``NO_STRUCTURED_CONTENT``.
+
+    The copy is what a tool result keeps as ``structured_content``, so a
+    handler that goes on mutating its own value cannot change the result.
+    """
+
+    if value is NO_STRUCTURED_CONTENT or not is_json_value(value):
+        return NO_STRUCTURED_CONTENT
+    try:
+        return json.loads(json.dumps(value, allow_nan=False))
+    except (ValueError, RecursionError):
+        return NO_STRUCTURED_CONTENT
+
+
+# What a tool gets for a call to another tool where none can run (Pi's text).
+NESTED_CALLS_UNAVAILABLE = "Nested tool calls are not available in this context"
+
+
+@dataclass(frozen=True, slots=True)
+class NestedToolResult:
+    """What a tool gets back for a call it made to another tool.
+
+    The result as the session's hooks left it. A failure of any kind, also a
+    tool that is not callable, a blocked call or invalid arguments, is a
+    result with ``is_error``.
+
+    ``blocks`` are the ordered text and image blocks of a result that has an
+    image (Pi ``result.content``); ``content`` is then their text. The call
+    itself (Pi ``AgentToolCallOutcome.toolCall`` and ``durationMs``):
+    ``tool_call_id`` is ``<calling id>/<n>``, ``arguments`` the arguments
+    the call was made with, and ``duration_ms`` how long the call took, or
+    ``None`` when it was refused before it started. ``terminate`` is the
+    result's early-termination hint (Pi ``result.terminate``); it has no
+    effect on the calling tool.
+    """
+
+    content: str
+    is_error: bool = False
+    details: Mapping[str, Any] | None = None
+    structured_content: Any = NO_STRUCTURED_CONTENT
+    blocks: tuple[ToolResultBlock, ...] = ()
+    tool_call_id: str = ""
+    arguments: Mapping[str, Any] = field(default_factory=dict)
+    duration_ms: float | None = None
+    terminate: bool = False
+
+
+class NestedToolCalls(Protocol):
+    """How a running tool calls other tools (Pi ``ctx.executeTool``).
+
+    One object serves one invocation of one tool, from any thread, and stops
+    answering when that invocation ended.
+    """
+
+    def tools(self) -> tuple[ToolInfo, ...]:
+        """The tools ``execute`` can call, in registration order."""
+        ...
+
+    def execute(
+        self,
+        tool_name: str,
+        arguments: object,
+        /,
+        *,
+        signal: threading.Event | None = None,
+        on_update: Callable[[ToolPartialResult], None] | None = None,
+    ) -> NestedToolResult:
+        """Run the tool and return its result. Never raises for a tool failure.
+
+        ``signal`` cancels this call alone when it is set (Pi
+        ``ExecuteToolOptions.signal``). ``on_update`` receives each partial
+        result of the tool, on the thread that produced it (Pi ``onUpdate``):
+        for ``bash`` its output so far, tail-bounded, as Pi's ``bash``
+        reports it."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class ToolContext:
     """Environment passed to one tool invocation.
 
-    `output_sink` is an optional callable that long-running tools (`bash`)
-    use to stream incremental command output to the loop's live UI region as
-    it is produced, matching Pi's live tool-output rendering. The default is
+    `output_sink` is an optional callable that long-running tools use to
+    report live output while they run (Pi ``onUpdate``), as a
+    `ToolPartialResult` that replaces the previous one: `bash` its output so
+    far (the last 2000 lines or 50 KB, with the text the update added as
+    `appended`), an MCP tool each progress notification. The loop turns them
+    into `tool_execution_update` events. The default is
     `None`, in which case the tool still returns its full bounded result but
     emits nothing mid-run. The archive boundary is unrelated; streamed output
     never crosses it.
@@ -309,12 +690,18 @@ class ToolContext:
     extension tool receives the generation selected for its complete invocation,
     so a retained context cannot mutate a successor generation after reload.
     Built-in and standalone tool calls leave it as `None`.
+
+    `nested_tools` is set for a tool that may call other tools while it runs:
+    a call to an extension tool the model made, and every call another tool
+    made, so nested tools can call tools at any depth. It is `None` for the
+    other calls the model made.
     """
 
     workspace_root: Path
-    output_sink: Callable[[str], None] | None = field(default=None)
+    output_sink: ToolOutputSink | None = field(default=None)
     cancel_event: threading.Event | None = field(default=None)
     extension_generation_id: int | None = field(default=None)
+    nested_tools: NestedToolCalls | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from typing import Any
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolPolicyDecision,
+    AgentToolResultTransform,
     validate_agent_tool_policy_decision,
 )
 from pipy_harness.native.agent.messages import (
@@ -40,6 +42,7 @@ def materialize_provider_request(
             name=definition.name,
             description=definition.description,
             input_schema=materialize_tool_input_schema(definition.input_schema),
+            schema_mode=definition.schema_mode,
         )
         for definition in snapshot.request.available_tools
     )
@@ -100,9 +103,12 @@ class NativeAgentToolPolicy:
 
     def __init__(
         self,
-        before_execute: Callable[[AgentToolCall], AgentToolPolicyDecision],
+        before_execute: Callable[
+            [AgentToolCall, dict[str, Any], str | None], AgentToolPolicyDecision
+        ],
         transform_result: Callable[
-            [AgentToolCall, AgentToolResultMessage], ProductContent
+            [AgentToolCall, AgentToolResultMessage, dict[str, Any], str | None],
+            ProductContent | AgentToolResultTransform,
         ],
     ) -> None:
         if not callable(before_execute):
@@ -112,10 +118,20 @@ class NativeAgentToolPolicy:
         self._before_execute = before_execute
         self._transform_result = transform_result
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self,
+        call: AgentToolCall,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
+        /,
+    ) -> AgentToolPolicyDecision:
         if type(call) is not AgentToolCall:
             raise TypeError("call must be AgentToolCall")
-        decision = self._before_execute(call)
+        if type(arguments) is not dict:
+            raise TypeError("arguments must be a dict")
+        if parent_call_id is not None and type(parent_call_id) is not str:
+            raise TypeError("parent_call_id must be a string or None")
+        decision = self._before_execute(call, arguments, parent_call_id)
         if type(decision) is not AgentToolPolicyDecision:
             raise TypeError(
                 "before_execute callback must return AgentToolPolicyDecision"
@@ -127,14 +143,28 @@ class NativeAgentToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: dict[str, Any],
+        parent_call_id: str | None,
         /,
-    ) -> ProductContent:
+    ) -> ProductContent | AgentToolResultTransform:
         if type(call) is not AgentToolCall:
             raise TypeError("call must be AgentToolCall")
         if type(result) is not AgentToolResultMessage:
             raise TypeError("result must be AgentToolResultMessage")
-        content = self._transform_result(call, result)
-        if type(content) is not ProductContent:
-            raise TypeError("transform_result callback must return ProductContent")
-        validate_product_content(content, "transform_result callback result")
-        return content
+        if type(arguments) is not dict:
+            raise TypeError("arguments must be a dict")
+        if parent_call_id is not None and type(parent_call_id) is not str:
+            raise TypeError("parent_call_id must be a string or None")
+        transformed = self._transform_result(call, result, arguments, parent_call_id)
+        if type(transformed) is AgentToolResultTransform:
+            validate_product_content(
+                transformed.content, "transform_result callback result"
+            )
+            return transformed
+        if type(transformed) is not ProductContent:
+            raise TypeError(
+                "transform_result callback must return ProductContent or "
+                "AgentToolResultTransform"
+            )
+        validate_product_content(transformed, "transform_result callback result")
+        return transformed

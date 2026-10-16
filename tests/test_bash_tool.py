@@ -16,12 +16,17 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ToolOutput,
+    ToolPartialResult,
+)
 from pipy_harness.native.tools.base import (
     ToolContext,
+    ToolOutputSink,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
@@ -38,7 +43,7 @@ from pipy_harness.native.tools.output_accumulator import OutputAccumulator
 def _ctx(
     workspace: Path,
     *,
-    output_sink: Callable[[str], None] | None = None,
+    output_sink: ToolOutputSink | None = None,
     cancel_event: threading.Event | None = None,
 ) -> ToolContext:
     return ToolContext(
@@ -261,10 +266,12 @@ def test_streams_output_incrementally_before_process_exits(tmp_path: Path) -> No
     # command is still running, not all at once at the end. The command prints
     # AAA, sleeps, then prints BBB — so a streaming reader sees AAA ~0.6s before
     # the process finishes, while a buffer-until-exit reader would not.
-    received: list[tuple[float, str]] = []
+    received: list[tuple[float, ToolPartialResult]] = []
 
-    def sink(chunk: str) -> None:
-        received.append((time.monotonic(), chunk))
+    def sink(update: ToolOutput) -> None:
+        # Pi ``emitOutputUpdate``: each update is the output so far.
+        assert isinstance(update, ToolPartialResult)
+        received.append((time.monotonic(), update))
 
     ctx = _ctx(tmp_path, output_sink=sink)
     result = BashTool().invoke(
@@ -273,12 +280,84 @@ def test_streams_output_incrementally_before_process_exits(tmp_path: Path) -> No
     finished_at = time.monotonic()
 
     assert result.is_error is False
-    streamed = "".join(chunk for _, chunk in received)
-    assert "AAA" in streamed
-    assert "BBB" in streamed
+    updates = [update for _, update in received]
+    assert updates[0].content == "AAA"
+    assert updates[-1].content == "AAABBB"
+    assert all(update.details == {} for update in updates)
+    # A live row appends what each update added.
+    assert "".join(update.appended or "" for update in updates) == "AAABBB"
     # The first emission (AAA) landed well before the command finished.
     first_emit_at = received[0][0]
     assert finished_at - first_emit_at >= 0.4
+
+
+def test_streamed_updates_are_the_tail_with_truncation_details(
+    tmp_path: Path,
+) -> None:
+    # Pi: past 2000 lines an update holds the last 2000, ``details`` the
+    # truncation and the temp file with the full output.
+    updates: list[ToolPartialResult] = []
+
+    def sink(update: ToolOutput) -> None:
+        assert isinstance(update, ToolPartialResult)
+        updates.append(update)
+
+    result = BashTool().invoke(
+        _request({"command": "seq 1 2500"}), _ctx(tmp_path, output_sink=sink)
+    )
+
+    assert result.is_error is False
+    last = updates[-1]
+    lines = last.content.splitlines()
+    assert len(lines) == 2000
+    assert lines[0] == "501" and lines[-1] == "2500"
+    assert last.details is not None
+    truncation = last.details["truncation"]
+    assert truncation["truncated"] is True
+    assert truncation["truncatedBy"] == "lines"
+    assert truncation["totalLines"] == 2500
+    path = Path(last.details["fullOutputPath"])
+    assert path.read_text().splitlines()[0] == "1"
+    assert "".join(update.appended or "" for update in updates).splitlines() == [
+        str(n) for n in range(1, 2501)
+    ]
+
+
+def test_the_last_update_holds_the_whole_decoded_output(tmp_path: Path) -> None:
+    # An incomplete UTF-8 sequence at the end is decoded before the last
+    # update, as in the result.
+    updates: list[ToolPartialResult] = []
+
+    def sink(update: ToolOutput) -> None:
+        assert isinstance(update, ToolPartialResult)
+        updates.append(update)
+
+    result = BashTool().invoke(
+        _request({"command": "printf 'ok\\342'"}), _ctx(tmp_path, output_sink=sink)
+    )
+
+    assert result.output_text == "ok\ufffd"
+    assert updates[-1].content == "ok\ufffd"
+
+
+def test_the_file_an_update_names_holds_the_output_so_far(tmp_path: Path) -> None:
+    # A consumer may read the full output while the command still runs.
+    seen: list[str] = []
+
+    def sink(update: ToolOutput) -> None:
+        assert isinstance(update, ToolPartialResult)
+        details = update.details or {}
+        if "fullOutputPath" in details and not seen:
+            seen.append(Path(details["fullOutputPath"]).read_text())
+
+    BashTool().invoke(
+        _request({"command": "seq 1 2001; sleep 0.5; echo done"}),
+        _ctx(tmp_path, output_sink=sink),
+    )
+
+    assert seen and seen[0].splitlines()[:1] == ["1"]
+    assert "2001" in seen[0].splitlines()
+    assert "done" not in seen[0]
 
 
 def test_timeout_enforced_when_stdout_closed_early(tmp_path: Path) -> None:
@@ -453,3 +532,125 @@ def test_accumulator_drops_a_temp_file_it_could_not_write() -> None:
     assert snapshot.full_output_path is None
     assert not Path(path).exists()
     assert snapshot.content == "3\n4"
+    assert accumulator.read_full_output(1024) == ("3\n4", True)
+
+
+# Goal-check finding M15: Pi's structured bash result for programmatic
+# callers (bash.ts ``bashOutputSchema`` and ``structuredContent``).
+
+
+def test_the_output_schema_is_pis() -> None:
+    assert BashTool().definition.output_schema == {
+        "type": "object",
+        "properties": {
+            "output": {
+                "type": "string",
+                "description": "Combined stdout and stderr, possibly truncated",
+            },
+            "truncated": {"type": "boolean"},
+            "full_output_path": {
+                "type": "string",
+                "description": "Full output, when truncated",
+            },
+            "exit_code": {"type": "number"},
+            "wall_time_seconds": {"type": "number"},
+        },
+        "required": ["output", "truncated", "exit_code", "wall_time_seconds"],
+    }
+
+
+def test_a_command_carries_a_structured_result(tmp_path: Path) -> None:
+    result = BashTool().invoke(_request({"command": "echo hi"}), _ctx(tmp_path))
+
+    structured = result.structured_content
+    assert isinstance(structured, dict)
+    assert list(structured) == ["output", "truncated", "exit_code", "wall_time_seconds"]
+    assert structured["output"] == "hi\n"
+    assert structured["truncated"] is False
+    assert structured["exit_code"] == 0
+    wall = structured["wall_time_seconds"]
+    assert isinstance(wall, float) and 0 <= wall < 30 and wall == round(wall, 1)
+
+
+def test_a_nonzero_exit_is_an_error_that_keeps_its_structured_result(
+    tmp_path: Path,
+) -> None:
+    result = BashTool().invoke(
+        _request({"command": "echo bad; exit 3"}), _ctx(tmp_path)
+    )
+
+    assert result.is_error is True
+    assert result.output_text == "bad\n\n\nCommand exited with code 3"
+    assert result.structured_content["output"] == "bad\n"
+    assert result.structured_content["exit_code"] == 3
+    # No output stays empty here; ``(no output)`` is the model's text.
+    empty = BashTool().invoke(_request({"command": "exit 1"}), _ctx(tmp_path))
+    assert empty.structured_content["output"] == ""
+
+
+def test_structured_output_is_not_cut_like_the_models_text(tmp_path: Path) -> None:
+    # 3000 lines: the model sees the last 2000, the script all of them, and
+    # under 1 MiB nothing is cut, so no file is named.
+    result = BashTool().invoke(_request({"command": "seq 1 3000"}), _ctx(tmp_path))
+
+    structured = result.structured_content
+    assert structured["output"] == "".join(f"{n}\n" for n in range(1, 3001))
+    assert structured["truncated"] is False
+    assert "full_output_path" not in structured
+    assert result.details is not None and "fullOutputPath" in result.details
+
+
+def test_structured_output_over_one_mebibyte_keeps_head_and_tail(
+    tmp_path: Path,
+) -> None:
+    # 1.5 MiB of one line, starting with "<" and ending with ">".
+    command = f"{sys.executable} -c \"import sys; sys.stdout.write('<' + 'x' * (3 * 512 * 1024 - 2) + '>')\""
+    result = BashTool().invoke(_request({"command": command}), _ctx(tmp_path))
+
+    structured = result.structured_content
+    assert structured["truncated"] is True
+    output = structured["output"]
+    marker = f"\n\n[... {3 * 512 * 1024 - 1024 * 1024} bytes omitted ...]\n\n"
+    head, _, tail = output.partition(marker)
+    assert head == "<" + "x" * (512 * 1024 - 1)
+    assert tail == "x" * (512 * 1024 - 1) + ">"
+    path = structured["full_output_path"]
+    assert result.details is not None
+    assert path == result.details["fullOutputPath"]
+    assert Path(path).stat().st_size == 3 * 512 * 1024
+    assert list(structured) == [
+        "output",
+        "truncated",
+        "full_output_path",
+        "exit_code",
+        "wall_time_seconds",
+    ]
+
+
+def test_an_interrupted_command_has_no_structured_result(tmp_path: Path) -> None:
+    # Pi throws for a timeout or an abort, so no structured content exists.
+    result = BashTool().invoke(
+        _request({"command": "sleep 30", "timeout": 1}), _ctx(tmp_path)
+    )
+
+    assert result.is_error is True
+    assert result.structured_content is NO_STRUCTURED_CONTENT
+
+
+def test_full_output_cuts_at_character_boundaries(tmp_path: Path) -> None:
+    accumulator = OutputAccumulator(max_lines=10, max_bytes=8)
+    # Twelve bytes of three-byte characters; the cut at 5 + 5 bytes falls
+    # inside characters on both sides.
+    accumulator.append("€€€€".encode())
+    accumulator.finish()
+    accumulator.snapshot(persist_if_truncated=True)
+    accumulator.close_temp_file()
+
+    output, truncated = accumulator.read_full_output(10)
+
+    assert truncated is True
+    assert output == "€\n\n[... 2 bytes omitted ...]\n\n€"
+    small = OutputAccumulator()
+    small.append(b"ok\xff")
+    small.finish()
+    assert small.read_full_output(10) == ("ok�", False)

@@ -23,7 +23,7 @@ Design boundaries:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from pipy_harness.native.tools.base import (
@@ -198,7 +198,8 @@ def resolve_file_references(
     if not tokens:
         return FileReferenceResolution()
 
-    tool = read_tool or ReadTool()
+    # The excerpt is text: an image is refused, not attached and lost.
+    tool = replace(read_tool or ReadTool(), attach_images=False)
     context = ToolContext(workspace_root=workspace_root.expanduser().resolve())
 
     attempted = tokens[:max_references]

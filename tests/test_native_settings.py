@@ -656,6 +656,58 @@ def test_retry_getters_defaults_and_overrides(tmp_path: Path) -> None:
     assert mgr2.get_retry_provider_max_retry_delay_ms() == 30000
 
 
+def test_codemode_getters(tmp_path: Path) -> None:
+    # Pi `codemode.mode` and `codemode.inlineBudget` with Pi's defaults.
+    mgr = _manager(tmp_path)
+    assert mgr.get_codemode_mode() == "on"
+    assert mgr.get_codemode_inline_budget() == 3000
+
+    mgr = _manager(
+        tmp_path, overrides={"codemode": {"mode": "only", "inlineBudget": 0}}
+    )
+    assert mgr.get_codemode_mode() == "only"
+    assert mgr.get_codemode_inline_budget() == 0
+    assert (
+        _manager(
+            tmp_path, overrides={"codemode": {"inlineBudget": 12.5}}
+        ).get_codemode_inline_budget()
+        == 12.5
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [{"mode": "off"}, {"mode": True}, {"mode": ["only"]}, "only", None, []],
+)
+def test_codemode_mode_ignores_other_values(tmp_path: Path, value: object) -> None:
+    mgr = _manager(tmp_path, overrides={"codemode": value})
+    assert mgr.get_codemode_mode() == "on"
+
+
+@pytest.mark.parametrize(
+    "budget", [-1, True, "100", None, float("inf"), float("nan"), [3]]
+)
+def test_codemode_inline_budget_ignores_other_values(
+    tmp_path: Path, budget: object
+) -> None:
+    mgr = _manager(tmp_path, overrides={"codemode": {"inlineBudget": budget}})
+    assert mgr.get_codemode_inline_budget() == 3000
+
+
+def test_codemode_settings_merge_one_level_across_layers(tmp_path: Path) -> None:
+    _write_json(
+        tmp_path / "config" / "settings.json",
+        {"codemode": {"mode": "only", "inlineBudget": 500}},
+    )
+    _write_json(
+        tmp_path / "proj" / ".pipy" / "settings.json",
+        {"codemode": {"inlineBudget": 100}},
+    )
+    mgr = _manager(tmp_path, project_trusted=True)
+    assert mgr.get_codemode_mode() == "only"
+    assert mgr.get_codemode_inline_budget() == 100
+
+
 def test_branch_summary_getters(tmp_path: Path) -> None:
     mgr = _manager(tmp_path)
     assert mgr.get_branch_summary_reserve_tokens() == 16384
@@ -712,6 +764,7 @@ def test_settings_report_lines_cover_resolved_values(tmp_path: Path) -> None:
     assert "retry.provider.timeoutMs: (inherit)" in text
     assert "effectiveProviderTimeoutMs: 300000" in text
     assert "websocketConnectTimeoutMs: 15000" in text
+    assert "codemode: mode=on, inlineBudget=3000" in text
 
 
 def test_merged_file_settings_excludes_base_defaults(tmp_path: Path) -> None:
@@ -1280,3 +1333,25 @@ def test_compaction_budget_snapshot_defaults_zero_reserve_and_exact_guard(
 def test_quiet_startup_modes(tmp_path: Path, value: object, expected: object) -> None:
     manager = _manager(tmp_path, overrides={"quietStartup": value})
     assert manager.get_quiet_startup() == expected
+
+
+@pytest.mark.parametrize(
+    ("terminal", "show", "width"),
+    [
+        ({}, True, 60),
+        ({"showImages": False, "imageWidthCells": 40}, False, 40),
+        ({"showImages": "no", "imageWidthCells": 12.9}, True, 12),
+        ({"imageWidthCells": 0}, True, 1),
+        ({"imageWidthCells": True}, True, 60),
+        ({"imageWidthCells": "80"}, True, 60),
+        ({"imageWidthCells": 10**400}, True, 10**400),
+        ({"imageWidthCells": 1e400}, True, 60),
+    ],
+)
+def test_image_getters_are_pis(
+    tmp_path: Path, terminal: dict[str, object], show: bool, width: int
+) -> None:
+    _write_json(tmp_path / "config" / "settings.json", {"terminal": terminal})
+    mgr = _manager(tmp_path)
+    assert mgr.get_show_images() is show
+    assert mgr.get_image_width_cells() == width

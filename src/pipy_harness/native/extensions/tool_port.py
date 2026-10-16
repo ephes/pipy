@@ -2,20 +2,33 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ToolPartialResult,
+    ToolResultBlock,
+    tool_result_text,
+)
+from pipy_harness.native.extension_hooks import bounded_result_blocks
+from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_types import (
+    ControlGetAllToolsFn,
     ExtensionModelRuntimeControl,
     ToolResult,
 )
 from pipy_harness.native.extensions.command_context import make_extension_context
 from pipy_harness.native.tools.base import (
+    ToolArgumentError,
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolOutputSink,
     ToolRequest,
     json_safe_details,
+    json_safe_value,
 )
 
 if TYPE_CHECKING:
@@ -23,6 +36,53 @@ if TYPE_CHECKING:
 
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
+_TRUNCATED = "\n[pipy: extension tool output truncated]"
+
+
+def _exception_text(err: BaseException, limit: int) -> str:
+    """What a raising extension callback reports, as Pi's agent loop does
+    (``error.message``): the exception's message, or its type name when the
+    message is empty or cannot be read. Characters that would steer a
+    terminal become spaces (line breaks and tabs stay), and the text is
+    bounded to ``limit`` characters."""
+
+    try:
+        message = str(err)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - an unreadable message
+        message = ""
+    if not message.strip():
+        message = type(err).__name__
+    text = "".join(
+        char if char.isprintable() or char in "\n\t" else " " for char in message
+    )
+    if len(text) > limit:
+        text = text[: max(0, limit - 64)] + _TRUNCATED
+    return text
+
+
+def _partial_update(sink: ToolOutputSink) -> Callable[[ToolResult], None]:
+    """``ctx.on_update`` of a running extension tool (Pi ``onUpdate``):
+    each partial ``ToolResult`` becomes a partial result that replaces the
+    previous one, its text bounded like the final result's."""
+
+    def update(partial: ToolResult) -> None:
+        if not isinstance(partial, ToolResult):
+            raise TypeError("on_update expects a ToolResult")
+        if partial.blocks:
+            text = tool_result_text(partial.blocks)
+        else:
+            text = (
+                partial.content
+                if isinstance(partial.content, str)
+                else str(partial.content)
+            )
+        if len(text) > _TOOL_OUTPUT_MAX_CHARS:
+            text = text[: _TOOL_OUTPUT_MAX_CHARS - 64] + _TRUNCATED
+        sink(ToolPartialResult(text, json_safe_details(partial.details)))
+
+    return update
 
 
 class _ExtensionToolPort:
@@ -30,8 +90,9 @@ class _ExtensionToolPort:
 
     The loop validates arguments against `definition.input_schema` before
     `invoke`, so the handler receives already-validated input. A handler
-    exception becomes a bounded tool error (never a session crash), and
-    the provider-visible output is bounded. `KeyboardInterrupt` /
+    exception becomes a tool error with the exception's message, printable
+    and bounded (Pi's agent loop reports ``error.message``; never a session
+    crash), and the provider-visible output is bounded. `KeyboardInterrupt` /
     `SystemExit` propagate.
 
     Trust model (see the extension-api spec "Local trust boundary"):
@@ -53,6 +114,7 @@ class _ExtensionToolPort:
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
         set_active_tools_fn: Callable[[int, Sequence[str]], bool] | None = None,
+        get_all_tools_fn: ControlGetAllToolsFn | None = None,
         flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
     ) -> None:
@@ -60,6 +122,7 @@ class _ExtensionToolPort:
         self._has_ui = has_ui
         self._notify_sink = notify_sink
         self._set_active_tools_fn = set_active_tools_fn
+        self._get_all_tools_fn = get_all_tools_fn
         self._flags = dict(flags or {})
         self._project_trusted = bool(project_trusted)
         tool = registered.tool
@@ -67,11 +130,43 @@ class _ExtensionToolPort:
             name=tool.name,
             description=str(tool.description),
             input_schema=dict(tool.input_schema),
+            exposure=tool.exposure,
+            namespace=tool.namespace,
+            annotations=tool.annotations,
+            output_schema=tool.output_schema,
+            reaches_tools=tool.reaches_tools,
+            default_active=tool.default_active,
+            prepare_loadout=tool.prepare_loadout,
+            prompt_snippet=tool.prompt_snippet,
+            prompt_guidelines=tuple(tool.prompt_guidelines),
+            execution_mode=tool.execution_mode,
+            schema_mode="foreign",
         )
 
     @property
     def definition(self) -> ToolDefinition:
         return self._definition
+
+    def prepare_arguments(self, arguments: object) -> object:
+        """The tool's ``prepare_arguments`` (Pi ``prepareArguments``), which
+        the executor runs on the parsed arguments before validation. A
+        callback that raises makes the call an argument error whose text is
+        the exception's message (Pi reports what ``prepareToolCall`` catches
+        as the call's error result)."""
+
+        prepare = self._registered.tool.prepare_arguments
+        if prepare is None:
+            return arguments
+        try:
+            return prepare(arguments)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as err:  # noqa: BLE001 - bound a bad callback
+            raise ToolArgumentError(
+                self._definition.name,
+                _exception_text(err, ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH),
+                qualified=False,
+            ) from None
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         generation_id = context.extension_generation_id
@@ -86,39 +181,78 @@ class _ExtensionToolPort:
             self._has_ui,
             self._notify_sink,
             model_runtime=ExtensionModelRuntimeControl(
-                set_active_tools_fn=set_active_tools
+                set_active_tools_fn=set_active_tools,
+                get_all_tools_fn=self._get_all_tools_fn,
+                nested_tools=context.nested_tools,
+                tool_signal=context.cancel_event,
+                tool_update=(
+                    None
+                    if context.output_sink is None
+                    else _partial_update(context.output_sink)
+                ),
             ),
             flags=self._flags,
             project_trusted=self._project_trusted,
         )
         try:
             result = self._registered.tool.handler(ctx, dict(request.arguments))
+            # Pi awaits a tool's ``execute``: an ``async def`` handler runs
+            # to its end here, on the thread that runs the handler.
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as err:  # noqa: BLE001 - bound a bad tool
+            # Pi: throwing from `execute` fails the call with the message.
             return ToolExecutionResult(
                 tool_request_id=request.tool_request_id,
-                output_text=f"extension tool error: {type(err).__name__}",
+                output_text=_exception_text(
+                    err, ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+                ),
                 is_error=True,
                 provider_correlation_id=request.provider_correlation_id,
             )
-        if isinstance(result, ToolResult) and isinstance(result.content, str):
+        cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+        blocks: tuple[ToolResultBlock, ...] = ()
+        if isinstance(result, ToolResult) and result.blocks:
+            bounded = bounded_result_blocks(result.blocks, cap, _TRUNCATED)
+            if bounded is None:
+                return ToolExecutionResult(
+                    tool_request_id=request.tool_request_id,
+                    output_text="extension tool error: invalid result blocks",
+                    is_error=True,
+                    provider_correlation_id=request.provider_correlation_id,
+                )
+            blocks = bounded
+            content = tool_result_text(blocks)
+        elif isinstance(result, ToolResult) and isinstance(result.content, str):
             content = result.content
         elif isinstance(result, ToolResult):
             content = str(result.content)
         else:
             content = str(result)
-        cap = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
         if len(content) > cap:
-            content = content[: cap - 64] + "\n[pipy: extension tool output truncated]"
+            content = content[: cap - 64] + _TRUNCATED
         # Pi stores `details` on the tool result and hands it to the result
         # renderer; the JSON copy is what the session file keeps, so live and
         # restored rows render from the same value.
         details = result.details if isinstance(result, ToolResult) else None
+        # Pi `isError` and `structuredContent`: a handler reports a failure
+        # that still carries data by returning it instead of raising.
+        is_error = isinstance(result, ToolResult) and bool(result.is_error)
+        structured_content = (
+            result.structured_content
+            if isinstance(result, ToolResult)
+            else NO_STRUCTURED_CONTENT
+        )
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=content,
-            is_error=False,
+            is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
             details=json_safe_details(details),
+            structured_content=json_safe_value(structured_content),
+            blocks=blocks,
+            # Pi ``terminate === true``: only an exact True asks.
+            terminate=isinstance(result, ToolResult) and result.terminate is True,
         )

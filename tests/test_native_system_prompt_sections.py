@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pipy_harness.native.system_prompt_sections import (
     build_system_prompt_sections,
+    is_custom_section_name,
     render_system_prompt,
     sections_for_prompt,
+    split_custom_sections,
+    with_custom_sections,
 )
 
 
@@ -55,3 +60,46 @@ def test_a_prompt_that_is_not_the_sections_rendering_is_one_preamble() -> None:
         ("preamble", "custom prompt"),
     )
     assert sections_for_prompt("only a string", ()) == (("preamble", "only a string"),)
+
+
+def test_custom_sections_replace_in_place_or_follow_the_last_section() -> None:
+    # Pi `buildSystemPromptSections` with the `sections` option.
+    sections = build_system_prompt_sections(
+        preamble="P", cwd="/work", tools="- read", resume="resumed"
+    )
+
+    result = with_custom_sections(
+        sections, {"mcp_servers": "servers", "cwd": "/other", "notes": "n", "gone": ""}
+    )
+
+    assert result == (
+        ("preamble", "P"),
+        ("tools", "<tools>\n- read\n</tools>"),
+        ("cwd", "<cwd>\n/other\n</cwd>"),
+        ("resume", "<resume>\nresumed\n</resume>"),
+        ("mcp_servers", "<mcp_servers>\nservers\n</mcp_servers>"),
+        ("notes", "<notes>\nn\n</notes>"),
+    )
+    assert with_custom_sections(sections, {}) == sections
+    # Sections a caller passed as they are (no template) take them as well.
+    assert with_custom_sections((("preamble", "only"),), {"a-b_1": "x"}) == (
+        ("preamble", "only"),
+        ("a-b_1", "<a-b_1>\nx\n</a-b_1>"),
+    )
+
+
+@pytest.mark.parametrize("name", ["preamble", "Notes", "1st", "a b", "", "a\n", "é"])
+def test_an_invalid_custom_section_name_is_refused(name: str) -> None:
+    # Pi: `Invalid system prompt section name: <name>`.
+    assert not is_custom_section_name(name)
+    with pytest.raises(ValueError, match="Invalid system prompt section name: "):
+        with_custom_sections((("preamble", "P"),), {name: "x"})
+
+
+def test_split_custom_sections_separates_what_cannot_be_a_section() -> None:
+    valid, invalid = split_custom_sections(
+        {"notes": "n", "empty": "", "Bad": "x", "preamble": "x", "count": 3, 7: "x"}
+    )
+
+    assert valid == {"notes": "n", "empty": ""}
+    assert invalid == ("Bad", "preamble", "count", "7")

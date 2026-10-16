@@ -6,14 +6,21 @@ separate process, does. :func:`run_script` (:mod:`.host`) runs one script in a
 fresh worker and serves its tool calls through an injected callback. See ``docs/specs/2026-10-06-python-codemode-spike.md``.
 """
 
-from pipy_harness.native.codemode.host import ToolCallback, run_script
+from pipy_harness.native.codemode.host import (
+    DiscoverCallback,
+    ToolCallback,
+    run_script,
+)
 from pipy_harness.native.codemode.outcome import (
+    NO_VALUE,
     CallResult,
     CallStatus,
+    DiscoveryResult,
     ErrorKind,
     ScriptError,
     ScriptLimits,
     ScriptOutcome,
+    ScriptTool,
     ToolCallRecord,
 )
 from pipy_harness.native.codemode.result import ResultText, format_result
@@ -30,12 +37,15 @@ from pipy_harness.native.codemode.runtime import (
 from pipy_harness.native.codemode.selftest import Availability, availability
 
 __all__ = [
+    "NO_VALUE",
     "RUNTIME_PIN",
     "Availability",
     "CallResult",
     "CallStatus",
     "CodemodePaths",
     "CodemodeRuntimeError",
+    "DiscoverCallback",
+    "DiscoveryResult",
     "ErrorKind",
     "InstallResult",
     "ResultText",
@@ -43,6 +53,7 @@ __all__ = [
     "ScriptError",
     "ScriptLimits",
     "ScriptOutcome",
+    "ScriptTool",
     "ToolCallRecord",
     "ToolCallback",
     "availability",

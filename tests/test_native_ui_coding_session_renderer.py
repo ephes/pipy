@@ -17,18 +17,33 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentToolCall,
     ProductContent,
+    ToolCallUpdated,
 )
+from pipy_harness.native.agent.content import ToolPartialResult
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
+from pipy_harness.native.extension_types import ToolRenderContext, ToolRenderers
+from pipy_harness.native.extension_ui import lines_component
 from pipy_harness.native.frame_renderer import decode_tool_box_line
+from pipy_harness.native.tool_renderer_lookup import ToolRendererLookup
+from pipy_harness.native.tools.base import (
+    ToolContext,
+    ToolRequest,
+    make_tool_request_id,
+)
+from pipy_harness.native.tools.bash import BashTool
 from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.ui.components.transcript import TranscriptComponent
 from pipy_harness.native.ui.paint_lock import PaintLock
 from pipy_harness.native.ui.screen import ScreenRenderInputs
+from pipy_harness.native.ui.state import StreamToolOutput, UiState
+from pipy_harness.native.ui.state import reduce as reduce_ui_event
 
 _SGR = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -293,6 +308,115 @@ def test_other_tools_and_replayed_bash_rows_do_not_tick() -> None:
     # `startedAt` without `executionStarted`).
     assert h.ticks == []
     assert h.pending_rows() == [("pending", "$ seq 3")]
+
+
+def _wrap_rows(name: str, following: Callable[[], object | None]) -> object | None:
+    """A resolver that wraps ``next()``'s renderers in tagged lines (Pi)."""
+
+    inner = following()
+    if inner is None:
+        return None
+
+    def wrap(render: Any, tag: str) -> Callable[[ToolRenderContext], object]:
+        def draw(ctx: ToolRenderContext) -> object:
+            component = render(ctx)
+            lines = [] if component is None else list(component.render(ctx.width))
+            return lines_component([f"[{tag}]", *lines])
+
+        return draw
+
+    return ToolRenderers(
+        render_call=wrap(getattr(inner, "render_call"), "call"),
+        render_result=wrap(getattr(inner, "render_result"), "result"),
+    )
+
+
+def test_a_wrapped_bash_row_ticks_elapsed_until_the_result() -> None:
+    """Pi: a wrapper that calls the bash renderers with its context keeps the
+    ticking time (the renderer's `setInterval` and `invalidate`)."""
+
+    h = _Harness()
+    h.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(_wrap_rows,)))
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 3"}))
+    assert h.pending_rows() == [
+        ("pending", "[call]"),
+        ("pending", "$ sleep 3"),
+        ("pending", "[result]"),
+        ("pending", "Elapsed 0.0s"),
+    ]
+    assert len(h.ticks) == 1
+    h.now += 1.04
+    h.ticks[0]()
+    assert h.pending_rows()[-1] == ("pending", "Elapsed 1.0s")
+    h.renderer.tool_output_sink("tick\n")
+    assert h.pending_rows()[-2:] == [("pending", "tick"), ("pending", "Elapsed 1.0s")]
+    h.renderer.render_tool_result(output_text="", is_error=False, duration_seconds=2.0)
+    assert h.ticks == [] and h.cancelled == 1
+    assert _rows(h) == [
+        [
+            ("success", "[call]"),
+            ("success", "$ sleep 3"),
+            ("success", "[result]"),
+            ("success", "Took 2.0s"),
+        ]
+    ]
+
+
+def test_a_wrapped_bash_row_shows_the_streamed_output_once(tmp_path: Path) -> None:
+    """The real `bash` tool's partial results (the output so far, with the
+    text each one added as `appended`) reach a wrapped row through the UI
+    reducer: the row shows each output line once, above the ticking time."""
+
+    updates: list[ToolPartialResult] = []
+
+    def sink(update: object) -> None:
+        assert isinstance(update, ToolPartialResult)
+        updates.append(update)
+
+    command = "printf 'one\\n'; sleep 0.3; printf 'two\\n'"
+    call = _call("bash", {"command": command})
+    result = BashTool().invoke(
+        ToolRequest(
+            tool_request_id=make_tool_request_id(),
+            tool_name="bash",
+            arguments={"command": command},
+            provider_correlation_id=call.provider_correlation_id,
+        ),
+        ToolContext(workspace_root=tmp_path.resolve(), output_sink=sink),
+    )
+    assert result.is_error is False
+    # More than one update, each the output so far.
+    assert len(updates) >= 2 and updates[-1].content == "one\ntwo\n"
+
+    h = _Harness()
+    h.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(_wrap_rows,)))
+    h.renderer.render_tool_call(call)
+    ui_state = UiState()
+    for update in updates:
+        ui_state, decisions = reduce_ui_event(
+            ui_state, ToolCallUpdated(turn_index=0, call=call, update=update)
+        )
+        for decision in decisions:
+            assert isinstance(decision, StreamToolOutput)
+            h.renderer.tool_output_sink(decision.text)
+    assert h.pending_rows()[2:] == [
+        ("pending", "[result]"),
+        ("pending", "one"),
+        ("pending", "two"),
+        ("pending", "Elapsed 0.0s"),
+    ]
+
+
+def test_a_bash_row_left_to_the_generic_renderers_does_not_tick() -> None:
+    """Pi calls no bash renderer for such a row, so nothing ticks."""
+
+    h = _Harness()
+    h.renderer.refresh_tool_renderers(
+        ToolRendererLookup(resolvers=(lambda name, following: None,))
+    )
+    h.renderer.render_tool_call(_call("bash", {"command": "sleep 3"}))
+    assert h.ticks == []
+    assert h.pending_rows() == [("pending", 'bash command="sleep 3"')]
 
 
 def test_a_new_session_render_stops_the_ticker() -> None:

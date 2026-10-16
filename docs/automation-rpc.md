@@ -156,8 +156,36 @@ Base agent-lifecycle events (Pi `AgentEvent`, `packages/agent/src/types.ts`):
 | `message_update` | `message: Message`, `assistantMessageEvent: AssistantMessageEvent` | Streaming delta for an assistant message (assistant only). |
 | `message_end` | `message: Message` | A message is finalized. |
 | `tool_execution_start` | `toolCallId: string`, `toolName: string`, `args: object` | A tool call begins executing. |
-| `tool_execution_update` | `toolCallId`, `toolName`, `args`, `partialResult` | Bounded progress from a running tool. |
-| `tool_execution_end` | `toolCallId`, `toolName`, `result`, `isError: boolean` | A tool call finished. |
+| `tool_execution_update` | `toolCallId`, `toolName`, `args`, `partialResult` | A running tool reported a partial result. |
+| `tool_execution_end` | `toolCallId`, `toolName`, `result`, `isError: boolean`, `durationMs?: number` | A tool call finished. `durationMs` is how long the tool itself ran, in whole milliseconds on a monotonic clock, without the `tool_call`/`tool_result` hooks; absent when the tool never started (unknown tool, invalid arguments, a call a hook blocked or one cancelled before it ran). |
+
+A call that another tool made (a codemode script, or an extension tool's
+`ctx.execute_tool`) has the id `<calling id>/<n>`, and its
+`tool_execution_start`, `tool_execution_update` and `tool_execution_end`
+carry the id of the calling call as `parentToolCallId`, as in Pi.
+
+`result` and `partialResult` are Pi's `AgentToolResult` objects
+(`docs/json.md` in Pi):
+
+- `result` has `content`, the blocks of a `toolResult` message (see below),
+  `details` when the result has them (the `nestedCalls` record of a tool
+  that ran other tools among them), `structuredContent` when the tool gave
+  machine-readable output, and `terminate: true` when the result asks the
+  agent to stop after the batch (an extension tool's
+  [`terminate`](extension-api.md#ending-the-batch)).
+- `partialResult` has `content` with one text block and, when the tool gave
+  them, `details`. An MCP tool's progress is a partial result with
+  `details: {server, tool}` that replaces the previous one, as is an
+  extension tool's [`ctx.on_update`](extension-api.md#partial-results). `bash` streams
+  its output as Pi's does: each update's text is the output so far, the
+  last 2000 lines or 50 KB, and its `details` are `{}` until the output is
+  cut, then `truncation` and the `fullOutputPath` of the file with all of
+  it.
+
+```json
+{"type":"tool_execution_update","toolCallId":"call_1","toolName":"mcp__docs__search","args":{"q":"radius"},"partialResult":{"content":[{"type":"text","text":"Progress 1/2"}],"details":{"server":"docs","tool":"search"}}}
+{"type":"tool_execution_end","toolCallId":"call_1","toolName":"mcp__docs__search","result":{"content":[{"type":"text","text":"found"}],"details":{"server":"docs","tool":"search"}},"isError":false,"durationMs":12}
+```
 
 Session-extension events (Pi `AgentSessionEvent`,
 `packages/coding-agent/src/core/agent-session.ts`):
@@ -194,6 +222,28 @@ the coding-agent extended messages `BashExecutionMessage`, `CustomMessage`,
 message/tool dataclasses serialized to the same role/content discriminators;
 exact byte-for-byte field matching with Pi is not the gate (see Verification).
 
+A `toolResult` message's `content` is one text block, or, when the result has
+an image, Pi's ordered blocks: `{"type":"text","text"}` and
+`{"type":"image","data","mimeType"}` with base64 data. The `result` of
+`tool_execution_end` has the same `content`.
+
+The `toolResult` message of a tool that ran other tools (a `codemode`
+script, or an extension tool through `ctx.execute_tool`) carries the
+bounded record of those calls as its `nestedCalls` field, in `turn_end`,
+`agent_end` and `get_messages`, as Pi's `ToolResultMessage` does for every
+tool that made calls: `{"calls": [{"id", "name", "arguments" or
+"argumentsBytes", "status", "durationMs", "error"?}], "complete"}`. Such a
+message also has
+the rest of the result's `details`, when there are any, which do not
+hold the record, as in Pi. Other `toolResult` messages have no `details`;
+their details are in the `result` of `tool_execution_end`, where pipy
+also keeps the record in `details.nestedCalls` (Pi's `result` has no
+record).
+
+```json
+{"role":"toolResult","toolCallId":"call_1","content":[{"type":"text","text":"Script completed\nWall time 0.1 seconds\nOutput:\n2"}],"nestedCalls":{"calls":[{"id":"call_1/1","name":"read","status":"ok","durationMs":3.2,"arguments":{"path":"a.txt"}}],"complete":true},"isError":false}
+```
+
 ### Canonical `--mode json` sequence (deterministic fake provider, no tools)
 
 The leading `version` below is the pipy native-session-tree format version (see
@@ -215,7 +265,9 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"agent_settled"}
 ```
 
-The one-shot run settles into idle exactly when it returns, so a single
+A prompt that [ran an extension command](#commands-in-a-prompt) started no
+run: the header is then the only line. Otherwise the
+one-shot run settles into idle exactly when it returns, so a single
 payload-free `agent_settled` is emitted as the final line after `agent_end`,
 matching Pi's `_runAgentPrompt` `finally`
 (`agent-session.ts:534-541,1022-1034`) which `--mode json` forwards
@@ -247,7 +299,9 @@ transcript. pipy does the same (SYS1a, SYS1b):
 - **Sections.** The prompt is Pi's ordered sections (`buildSystemPromptSections`):
   the untagged `preamble` (pipy's default or custom prompt), then `addendum`, `project_context`, `skills` and `cwd`, each wrapped
   in a tag of its name, and pipy's `resume` block as a trailing custom
-  section. Empty optional sections are left out. Pi's `tools`/`rules`/`docs`
+  section. Sections a run adds follow: the `mcp_servers` list of
+  [MCP servers](mcp.md#the-servers-in-the-system-prompt) and what a
+  `before_agent_start` handler sets. Empty optional sections are left out. Pi's `tools`/`rules`/`docs`
   sections are a backlog follow-on (SYS1c remainder).
 - **Forced prompts.** A `before_agent_start` suffix is not recorded: it forces
   that run's prompt, and those requests collapse to it (Pi `16292398a`).
@@ -316,8 +370,8 @@ in `packages/coding-agent/src/modes/rpc/rpc-mode.ts`.
   it must still let `steer`/`follow_up`/`abort`/`extension_ui_response` reach the
   running prompt promptly rather than blocking behind it.
 - `prompt` is **asynchronous**: the command returns its authoritative success
-  response only after prompt preflight succeeds, and session events stream while
-  the turn runs. All other commands resolve to a single response. `steer`,
+  response, with `data.disposition`, only when it is known what became of the
+  prompt, and session events stream while the turn runs. All other commands resolve to a single response. `steer`,
   `follow_up`, and `abort` are accepted while a prompt is in flight (mid-turn).
 - Client correlation reference: `packages/coding-agent/src/modes/rpc/rpc-client.ts`
   resolves a response when `data.type === "response" && data.id` matches a
@@ -332,9 +386,9 @@ Prompting / run control:
 
 | Command | Args | Response `data` | Notes |
 | --- | --- | --- | --- |
-| `prompt` | `message: string`, `images?: ImageContent[]`, `streamingBehavior?: "steer" \| "followUp"` | none (`success` only) | Async: success emitted after preflight; events follow. On preflight failure emits an error response. |
-| `steer` | `message: string`, `images?` | none | Mid-turn interrupt; queued/applied per steering mode. |
-| `follow_up` | `message: string`, `images?` | none | Queue a message after the current run. |
+| `prompt` | `message: string`, `images?: ImageContent[]`, `streamingBehavior?: "steer" \| "followUp"` | `{ disposition: "started" \| "queued" \| "handled" }` | Async: answered when it is known what became of the prompt; events follow a `started` one. See [Commands in a prompt](#commands-in-a-prompt). |
+| `steer` | `message: string`, `images?` | `{ disposition: "queued" }` | Mid-turn interrupt; queued/applied per steering mode. |
+| `follow_up` | `message: string`, `images?` | `{ disposition: "queued" }` | Queue a message after the current run. |
 | `abort` | (none) | none | Abort the current run. |
 | `new_session` | (none) | `{ cancelled: boolean }` | Starts a fresh native session through the native transition owner; a supplied legacy `parentSession` is refused until a later lineage contract. |
 
@@ -650,9 +704,15 @@ The ID is `null` only for an explicitly non-persistent native session; a
 persistent session requires the exact retained durable entry ID.
 
 `RpcSlashCommand` (`get_commands`): `name: string`, `description?: string`,
-`source: "extension" | "prompt" | "skill"`, `sourceInfo: object`. pipy lists
-its extension commands (`docs/extension-api.md`), prompt templates, and skills
-(`skill:<name>`).
+`source: "extension" | "prompt" | "skill"`, `sourceInfo?: object`. As in Pi
+the list holds the extension commands (with `/mcp` while MCP is on), then
+the prompt templates, then the skills (`skill:<name>`): what a `prompt`
+[runs or expands](#commands-in-a-prompt). pipy's custom commands
+(`.pipy/commands`) are listed with the templates, as `prompt`, since they
+expand the same way. Different from Pi: `sourceInfo` has only `path`, the
+file's path as pipy shows it (relative to the workspace, or
+`<global>/...`), or the extension that registered the command; `/mcp` has
+none.
 
 ### Mid-turn steering, follow-up, and abort
 
@@ -811,13 +871,19 @@ D6b3 routes `switch_session`, `fork`, `clone`, and `new_session` through the
 already-reviewed native transition owner. RPC calls the composed native
 `SessionTransitionCoordinator` port composed in wiring; RPC may parse paths and
 project correlation, but does not load/create trees, own the canonical registry
-or lease handoff, fire lifecycle, or retain a parallel active tree.
+or lease handoff, fire lifecycle, or retain a parallel active tree. The native
+owner sends the extensions `session_shutdown` and `session_start` for a
+completed transition, as Pi does, with `reason` `new`, `resume` or `fork`
+([event hooks](extension-api.md#event-hooks)).
 `new_session`, `switch_session`,
 `fork`, and `clone` map respectively to native fresh replacement, strict
 existing replacement, entry-selected fork, and current-leaf clone.
 `new_session.parentSession` is not adopted until a later separately reviewed
 lineage contract; D6b3 refuses a supplied value rather than inventing parent
 authority.
+A completed operation closes the session's MCP servers and starts them again
+from the `mcp.json` files, as `/new` does in a terminal
+([MCP: reloading](mcp.md#reloading)).
 
 Every accepted RPC session operation is atomically admitted and settled by the existing
 native control with the same true-idle/abort boundary as other control commands.
@@ -967,33 +1033,76 @@ summary retries do not activate the ordinary retry lease. See the
 
 ### Extension UI request/response channel
 
-When a Python extension (`docs/extension-api.md`) needs user interaction in
-headless mode, pipy emits an `extension_ui_request` on stdout and waits for a
-matching `extension_ui_response` on stdin, correlated by `id`. Pipy mirrors
-Pi's `ExtensionUIContext` request methods (`rpc-types.ts`
-`RpcExtensionUIRequest`):
+Pi sends the user interaction of an extension to an RPC client: an
+`extension_ui_request` on stdout, answered where an answer is expected by an
+`extension_ui_response` on stdin with the same `id` (`rpc-types.ts`
+`RpcExtensionUIRequest`, Pi's `docs/rpc-extension-ui.md`). pipy does the
+same for every extension: in RPC mode `ctx.has_ui` is true and an
+extension's `ctx.ui` sends these requests, as does pipy's own `/mcp`.
 
-| `method` | Request fields | Expected response | Notes |
+| `method` | Request fields | Expected response | Sent for |
 | --- | --- | --- | --- |
-| `select` | `title`, `options: string[]`, `timeout?` | `{ value }` or `{ cancelled: true }` | Returns chosen option or cancel. |
-| `confirm` | `title`, `message`, `timeout?` | `{ confirmed: boolean }` or `{ cancelled: true }` | |
-| `input` | `title`, `placeholder?`, `timeout?` | `{ value }` or `{ cancelled: true }` | |
-| `editor` | `title`, `prefill?` | `{ value }` or `{ cancelled: true }` | |
-| `notify` | `message`, `notifyType?: "info"\|"warning"\|"error"` | (none) | Fire-and-forget. |
-| `setStatus` | `statusKey`, `statusText` | (none) | Fire-and-forget. |
-| `setWidget` | `widgetKey`, `widgetLines: string[]\|undefined`, `widgetPlacement?: "aboveEditor"\|"belowEditor"` | (none) | String-array widgets only. |
-| `setTitle` | `title` | (none) | Fire-and-forget. |
-| `set_editor_text` | `text` | (none) | Fire-and-forget. |
+| `select` | `title`, `options: string[]`, `timeout?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.select`; `/mcp login`, `logout` and `reconnect` without a server name, when several servers qualify (`title` is `MCP server`). |
+| `confirm` | `title`, `message`, `timeout?` | `{ confirmed: boolean }` or `{ cancelled: true }` | `ctx.ui.confirm` |
+| `input` | `title`, `placeholder?`, `timeout?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.input`; `/mcp login`: the pasted redirect URL of a sign-in. |
+| `editor` | `title`, `prefill?` | `{ value }` or `{ cancelled: true }` | `ctx.ui.editor` |
+| `notify` | `message`, `notifyType: "info"\|"warning"\|"error"` | (none) | Every notice of an extension command or hook (`ctx.ui.notify`), and the notices of [MCP](mcp.md): the status and messages of `/mcp`, the startup report, changes of extension-registered servers. pipy's own diagnostics (lines that start with `pipy:`, a tool warning such as an unavailable `codemode`) stay on stderr. |
+| `setStatus` | `statusKey`, `statusText?` (absent clears it) | (none) | `ctx.ui.set_status` |
+| `setWidget` | `widgetKey`, `widgetLines?` (absent clears it), `widgetPlacement: "aboveEditor"\|"belowEditor"` | (none) | `ctx.ui.set_widget` with a list of strings or `None`; a component factory is not sent. |
+| `setTitle` | `title` | (none) | `ctx.ui.set_title` |
+| `set_editor_text` | `text` | (none) | `ctx.ui.set_editor_text` and `ctx.ui.paste_to_editor` |
+
+Every request also has `type: "extension_ui_request"` and an `id` (a UUID).
+A `timeout` (milliseconds) is sent when the extension gave one
+(`ctx.ui.select(title, options, timeout=5000)`): when it passes, pipy ends
+the dialog with its default (`None`, or `False` for `confirm`), and a later
+response is ignored. What needs the terminal does nothing in RPC mode, as in
+Pi: the working message and indicator, the header and footer, `custom()`,
+the hidden-thinking label; `get_editor_text()` returns `""` and switching the
+theme fails with `Theme switching not supported in RPC mode`.
+
+A notice is sent when it is produced, so a command's notices come before
+the `prompt` response that says `handled`. The notices of MCP servers, such
+as the startup report, are sent while the session waits for a command, so a
+client gets the report without sending anything; one that arises during a
+run is sent after it.
 
 Input control line (stdin, not a command):
-`{ "type": "extension_ui_response", "id": "<request id>", ... }` with one of
-`{ value: string }`, `{ confirmed: boolean }`, or `{ cancelled: true }`. A
-pending request with a `timeout` resolves to its safe default if no response
-arrives. UI capabilities that require a real TUI (working indicator, custom
-header/footer/components, theme switching, autocomplete, tool expansion) are
-**not supported** in RPC mode and degrade deterministically — matching Pi's
-no-op stubs in `rpc-mode.ts`. Extension errors are surfaced as
-`{ "type": "extension_error", "extensionPath", "event", "error" }` on stdout.
+`{ "type": "extension_ui_response", "id": "<request id>", ... }` with
+`{ value: string }`, `{ confirmed: boolean }` or `{ cancelled: true }`. A
+response whose `id` no request waits for is ignored. A dialog waits until it
+is answered or its timeout passes; the thread that asked does nothing else
+meanwhile (for a command or a hook that is the session), and a `prompt` sent
+then is queued. The end of the input (stdin EOF) ends every waiting request
+as cancelled. An `input` of `/mcp login` also ends unanswered when its
+answer is no longer wanted, which for a sign-in is when the browser came
+back.
+
+pipy reads stdin from the start, and answers are delivered as they arrive,
+also while a command waits: a dialog of a `session_start` hook, or of a hook
+that a `new_session`, `switch_session`, `fork` or `clone` runs, gets its
+answer. Other commands sent meanwhile wait their turn.
+
+Different from Pi: a dialog's `signal` option does not exist; an RPC `abort`
+ends the waits of `/mcp` but not an extension's dialog. A session whose
+startup (with its `session_start` hooks) takes longer than 120 seconds, for
+example because a dialog there is not answered, fails to start.
+
+### Extension errors
+
+Pi reports what an extension did wrong through one listener per mode
+(`onError`). In RPC mode that is an object on stdout, not a response:
+
+```json
+{"type": "extension_error", "extensionPath": "command:deploy", "event": "command", "error": "no target"}
+```
+
+pipy sends it for an extension command that a `prompt` ran and that raised
+(`extensionPath` `command:<name>`, event `command`, `error` the exception's
+text), and for a server an extension registered that nothing connects
+because MCP is off (`extensionPath` the extension's path, event
+`register_mcp_server`; see [MCP](mcp.md)). Other extension failures (a hook
+that raises, a tool that fails) are reported as before, on stderr.
 
 ### Lifecycle and shutdown
 
@@ -1003,7 +1112,87 @@ no-op stubs in `rpc-mode.ts`. Extension errors are surfaced as
 - On shutdown pipy unsubscribes event listeners, disposes the runtime, flushes
   stdout (except on SIGTERM), and exits. It joins tracked direct-bash workers;
   explicit abort and timeout terminate their child process groups before the
-  terminal response is written.
+  terminal response is written. At the end of input it first waits, without
+  a limit, for an extension command that a `prompt` started during a run
+  (its dialogs end with their default) and writes that prompt's response.
+- The end of input lets the run in flight and the queued messages finish
+  first. SIGTERM and SIGHUP do not: the run and the running direct-bash
+  commands are aborted and queued steering and follow-up messages are
+  dropped, as Pi disposes its runtime at once.
+
+## Commands in a prompt
+
+The prompt of `--print` and `--mode json` and the `message` of an RPC
+`prompt` are handled as Pi's `AgentSession.prompt` handles them. They are
+not lines typed into a session.
+
+1. A text that starts with `/` and names a command an extension registered
+   runs that command, with the text after the first space as its arguments.
+   [`/mcp`](mcp.md#the-mcp-command) is such a command while MCP is on. No run
+   starts and the model is not asked.
+2. Otherwise the extensions' `input` hooks see the text. One may change it,
+   or handle it (`InputHandled`): then no run starts, as for a command.
+3. In the text the hooks left, `/skill:<name> [args]` becomes the skill
+   block and `/<name> [args]` the expanded prompt template or custom
+   command of that name, also a template named like a built-in command of
+   the interactive session (`/model`, `/tree`, ...).
+4. Every other text is the prompt as it stands. That includes the built-in
+   commands of the interactive session (`/model`, `/compact`, `/exit` and
+   the rest), an unknown `/name` and a line that starts with `!`: the model
+   receives them as text.
+
+The text is not trimmed: ` /mcp` with a leading space is a prompt.
+
+Input queued while a run is in flight follows the same rules, as in Pi:
+
+- `steer` and `follow_up` whose text names an extension command (also
+  `/mcp`, and also while the session is idle) fail with
+  `Extension command "/<name>" cannot be queued. Use prompt() or execute the command when not streaming.`
+- A `prompt` that names an extension command runs it at once, while the run
+  goes on, and is answered `handled` when the command returned; a failure
+  is an [`extension_error`](#extension-errors) before that response.
+- Otherwise the `input` hooks see the text when the message is queued, as
+  in Pi's `_queueUserInput`: a hook that handles it ends it (the response's
+  `data.disposition` is `"handled"` and nothing is queued), and in the text
+  the hooks left a skill command or prompt template is expanded, so
+  `queue_update` and the run see the expanded text. The hooks do not see
+  the message again when it runs. The response is written once the hooks
+  have returned; while they run (a dialog of theirs gets its answer) later
+  commands are read and handled, and queued messages keep their order.
+
+What a handled prompt (case 1, or a hook that handled it) looks like:
+
+| Mode | Result |
+| --- | --- |
+| `--print` | Nothing on stdout, exit status 0. |
+| `--mode json` | The session header line and no event, also no `agent_settled`. |
+| `--mode rpc` | The `prompt` response has `data.disposition` `"handled"` and is written when the command has returned. No event follows, so a client must not wait for `agent_settled`. |
+
+The other dispositions of an RPC `prompt`: `"started"` is written just
+before the run's `agent_start`, `"queued"` at once for a prompt that went
+behind the run in flight.
+
+Print and JSON mode have no UI, as in Pi: a notice (`ctx.ui.notify`, the
+status `/mcp` prints, the notices of MCP servers) is dropped, so
+`pipy -p /mcp` shows nothing. In RPC mode notices are
+[`notify` requests](#extension-ui-requestresponse-channel) to the client,
+written before the response. A command that raises is an extension error,
+and its prompt is handled all the same: in print and JSON mode the line
+`Extension error (command:<name>): <message>` on stderr, in RPC mode an
+[`extension_error` object](#extension-errors) written before the response.
+A line typed into a session keeps pipy's report
+`pipy: extension command /<name> failed (<error type>)`.
+
+Different from Pi:
+
+- A skill that is unknown or cannot be read, and a template that expands to
+  nothing, say so on stderr; the text then goes to the model unchanged.
+  Custom commands (`.pipy/commands`) expand like templates.
+
+The interactive session is not affected: a line typed into the terminal UI
+or the plain REPL, also one piped to `pipy` without `--print`, runs the
+built-in commands as before. A [product session](sdk.md)'s `submit()`
+handles its text like a prompt, as Pi's SDK `session.prompt()` does.
 
 ## (c) `--print/-p` One-Shot Mapping
 
@@ -1203,7 +1392,8 @@ These hold throughout the track, not as later deferrals:
 9. **RPC extension-UI channel.** `extension_ui_request` emission and
    `extension_ui_response` handling with timeout defaults; degrade
    TUI-only capabilities deterministically. (Depends on `docs/extension-api.md`
-   UI surface.)
+   UI surface.) Built in part: `notify`, and `select` and `input` for
+   `/mcp`; see the channel's section for what is missing.
 10. **Lifecycle + shutdown hardening.** stdin EOF, SIGTERM/SIGHUP, extension
     shutdown, detached-child cleanup, stdout flush ordering.
 11. **Retire `--native-output json` (done).** The flag was removed and is now
@@ -1255,6 +1445,10 @@ correct. It must verify:
 12. `--mode json "<prompt>"` (one-shot) emits the native session header line
     first, then the full event sequence, then exits 0; the removed metadata-only
     `pipy.native_output` schema is **not** emitted.
+13. `--mode json "TOOLCALL"` makes the fake provider ask for one `bash` call
+    (`echo hi`): `tool_execution_update.partialResult` and
+    `tool_execution_end.result` are `{content, details}` objects with typed
+    content blocks, and `tool_execution_end` carries an integer `durationMs`.
 
 `--json` prints a machine-readable pass/fail summary per check, mirroring the
 existing `scripts/parity_checks/*.py` style (e.g. `branching_behavior.py`),
@@ -1280,9 +1474,9 @@ calls.
 - Session ops rebind: after `switch_session`/`fork`/`clone`/`new_session`,
   events come from the new active session; an extension cancel yields
   `{cancelled:true}` and no rebind.
-- Extension-UI channel: `extension_ui_request` is emitted, a matching
-  `extension_ui_response` resolves it, and a `timeout` falls back to the safe
-  default.
+- Extension-UI channel: `extension_ui_request` is emitted and a matching
+  `extension_ui_response` resolves it (`tests/test_native_automation_rpc_ui.py`).
+  The `timeout` fallback is not built.
 - Secret hygiene: no provider keys/tokens reach any stdout object.
 - Retirement: `--native-output json` is rejected with guidance (the flag was
   removed); `--mode json` is the supported full-event path.

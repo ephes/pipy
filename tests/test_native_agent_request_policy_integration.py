@@ -314,7 +314,7 @@ def test_hidden_registered_call_is_rejected_before_hooks_or_execution(
     assert rejected.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX)
     assert rejected.tool_request_id != rejected.provider_correlation_id
     assert rejected.is_error
-    assert rejected.content.value == "unknown tool: echo"
+    assert rejected.content.value == "Tool echo not found"
 
     turns = [event for event in sink.events if isinstance(event, TurnCompleted)]
     assert [turn.tool_results for turn in turns] == [(rejected,), ()]
@@ -396,7 +396,7 @@ def test_hidden_extension_tool_skips_custom_renderers_for_malformed_arguments(
     assert "custom call" not in error_stream.getvalue()
     assert "custom result" not in error_stream.getvalue()
     assert "hidden({)" in error_stream.getvalue()
-    assert "unknown tool: hidden" in error_stream.getvalue()
+    assert "Tool hidden not found" in error_stream.getvalue()
 
     starts = [event for event in sink.events if isinstance(event, ToolCallStarted)]
     completions = [
@@ -407,7 +407,7 @@ def test_hidden_extension_tool_skips_custom_renderers_for_malformed_arguments(
     rejected = completions[0].result
     assert rejected.provider_correlation_id == "hidden-render"
     assert rejected.is_error
-    assert rejected.content.value == "unknown tool: hidden"
+    assert rejected.content.value == "Tool hidden not found"
 
 
 def test_hidden_first_consumes_budget_before_following_valid_call(
@@ -451,7 +451,7 @@ def test_hidden_first_consumes_budget_before_following_valid_call(
         "valid",
     ]
     assert [item.content.value for item in observations] == [
-        "unknown tool: hidden",
+        "Tool hidden not found",
         "tool budget exhausted (limit 1)",
     ]
 
@@ -519,7 +519,7 @@ def test_mixed_valid_then_hidden_calls_execute_and_reject_in_response_order(
     ]
     assert [item.content.value for item in observations] == [
         "valid",
-        "unknown tool: hidden",
+        "Tool hidden not found",
     ]
 
 
@@ -617,7 +617,7 @@ def test_unauthorized_call_does_not_reset_consecutive_malformed_streak(
     assert [
         event.result.provider_correlation_id for event in completions
     ] == expected_ids
-    assert completions[1].result.content.value == "unknown tool: hidden"
+    assert completions[1].result.content.value == "Tool hidden not found"
 
 
 def test_tool_added_by_first_call_is_not_authorized_later_in_same_response(
@@ -686,7 +686,7 @@ def test_tool_added_by_first_call_is_not_authorized_later_in_same_response(
     ]
     assert [item.content.value for item in observations] == [
         "loaded",
-        "unknown tool: late_tool",
+        "Tool late_tool not found",
     ]
 
 

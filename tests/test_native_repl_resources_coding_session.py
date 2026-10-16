@@ -110,7 +110,9 @@ def _run(tmp_path, monkeypatch, script, *, history=None):
     return provider, result
 
 
-def test_tool_loop_runs_skill_template_command_and_rejects(tmp_path, monkeypatch):
+def test_tool_loop_runs_skill_template_command_and_passes_unknown_skill(
+    tmp_path, monkeypatch
+):
     _seed(tmp_path)
     # The template is invoked by its own name (Pi shape); no /template wrapper.
     # A skill runs as Pi's `/skill:<name>`; the bare `/skill` is not a command.
@@ -119,20 +121,22 @@ def test_tool_loop_runs_skill_template_command_and_rejects(tmp_path, monkeypatch
     )
     provider, result = _run(tmp_path, monkeypatch, script)
 
-    # Three runs => three provider turns; the unknown and bare commands none.
+    # Three runs, and the unknown skill goes to the model as typed (Pi passes
+    # it through): four provider turns; the bare `/skill` none.
     user_prompts = [request.user_prompt for request in provider.requests]
-    assert len(user_prompts) == 3
+    assert len(user_prompts) == 4
     assert user_prompts[0].startswith('<skill name="lint" location="')
     assert "\n\nSKILL_BODY_lint_rules\n</skill>" in user_prompts[0]
     assert user_prompts[1].strip() == "TEMPLATE_review the auth module now"
     assert user_prompts[2].strip() == "COMMAND_deploy_for staging"
+    assert user_prompts[3].strip() == "/skill:nope"
 
     # The provider also sees the bounded text as the latest AgentUserMessage.
     last_messages = provider.requests[2].messages
     assert last_messages[-1].content.value.strip() == "COMMAND_deploy_for staging"
 
     assert result.resource_invocation_count == 3
-    assert result.user_turn_count == 3
+    assert result.user_turn_count == 4
 
 
 def test_tool_loop_resource_runs_never_touch_history(tmp_path, monkeypatch):

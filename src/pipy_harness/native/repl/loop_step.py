@@ -8,9 +8,11 @@ single shared ``scope.ctl`` instance; no phase snapshots or copies it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from functools import partial
+from pathlib import Path
 from typing import cast
 
 from pipy_harness.models import HarnessStatus
@@ -26,6 +28,7 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import should_compact_agent_history
 from pipy_harness.native.agent.loop import AgentLoopRequestPreparation
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
+from pipy_harness.native.agent.messages import with_user_images_blocked
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnOutcome,
@@ -79,7 +82,9 @@ from pipy_harness.native.coding.session_controller import (
 )
 from pipy_harness.native.coding.state import CodingRunContext, CodingSessionState
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
+from pipy_harness.native.coding.tool_parent_runner import parent_runner_for
 from pipy_harness.native.diagnostics import emit_diagnostic
+from pipy_harness.native.extension_types import LifecycleEvent
 from pipy_harness.native.extensions.activation import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
@@ -95,6 +100,7 @@ from pipy_harness.native.image_attachment import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderSystemMessage
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.codemode_session_store import SessionCodemodeStore
 from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.repl.loop_scope import (
     AgentTurnStatusPresentationAdapter,
@@ -125,7 +131,13 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.settings import retry_policy_from_settings
-from pipy_harness.native.system_prompt_sections import render_system_prompt
+from pipy_harness.native.system_prompt_sections import (
+    SystemPromptSections,
+    render_system_prompt,
+    split_custom_sections,
+    with_custom_sections,
+)
+from pipy_harness.native.tool_result_images import tool_result_normalizer
 from pipy_harness.native.tools import ToolDefinition
 from pipy_harness.native.tui import TerminalUi
 from pipy_harness.native.ui.components.custom_editor import (
@@ -154,6 +166,11 @@ class _TurnInput:
     stripped: str
     command_text: str
     from_hotkey: bool = False
+    # A prompt of an automation mode: dispatched as Pi's `prompt` does, with
+    # no command of the typed line (`command_text` is empty).
+    prompt: bool = False
+    # Queued content that met the `input` hooks when it was queued.
+    input_hooks_ran: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,13 +178,15 @@ class _AcceptedRun:
     turn_input: _TurnInput
     accepted_turn: CodingAcceptedTurn
     resource_provider_text: str | None
+    # The run's tagged prompt sections, which the transcript records.
+    system_sections: SystemPromptSections
 
 
 @dataclass(frozen=True, slots=True)
 class _AcceptedInputEffects:
     turn: _TurnScope
 
-    def transform_input(self, prompt: str) -> str:
+    def transform_input(self, prompt: str) -> str | None:
         return self.turn.scope.extension_operations.dispatch_input(prompt)
 
     def resolve_file_references(self, prompt: str) -> FileReferenceResolution:
@@ -184,12 +203,6 @@ class _AcceptedInputEffects:
             workspace_root=scope.cwd,
         )
 
-    def system_prompt_suffix(self, base_prompt: str) -> str | None:
-        result = self.turn.scope.extension_operations.dispatch_before_agent_start(
-            base_prompt
-        )
-        return result.append_system_prompt
-
     def emit_diagnostic(self, message: str) -> None:
         scope = self.turn.scope
         emit_diagnostic(
@@ -198,6 +211,75 @@ class _AcceptedInputEffects:
             else None,
             scope.error_stream,
             message,
+        )
+
+
+@dataclass(slots=True)
+class _RunSystemPrompt:
+    """The system prompt of one run that is about to start.
+
+    Pi builds a run's prompt from options its ``before_agent_start`` handlers
+    may change. Here ``custom`` is the changeable part: the sections the run
+    adds to the session's own (Pi's ``sections`` option). It starts with what
+    the session lists, the ``mcp_servers`` section, and the hooks change it in
+    place. ``sections`` is the outcome, which the transcript records.
+    """
+
+    turn: _TurnScope
+    custom: dict[str, str] = field(default_factory=dict)
+    sections: SystemPromptSections = ()
+
+    def base(self) -> str:
+        """Render the prompt the hooks are shown.
+
+        The session's first prompt first waits for MCP servers with ``direct``
+        tools, so the prompt and the first request list their tools and the
+        ``mcp_servers`` section has their summaries (Pi waits in its
+        ``before_agent_start`` handler, before it renders the section).
+        """
+
+        scope = self.turn.scope
+        scope.mcp_waits.before_first_prompt()
+        self.custom.update(scope.session_prompt_sections())
+        return self.current()
+
+    def current(self) -> str:
+        return render_system_prompt(self._sections()[0])
+
+    def suffix(self, base_prompt: str) -> str | None:
+        result = self.turn.scope.extension_operations.dispatch_before_agent_start(
+            base_prompt, sections=self.custom, render_system_prompt=self.current
+        )
+        return result.append_system_prompt
+
+    def after_hooks(self) -> str:
+        """Settle the run's sections and render them.
+
+        Rebuilt for the tools active now, so a hook that changed the active
+        tools is reflected as well. From here on the run has its tools: a
+        restored tool that registers later is not activated for it. An entry a hook set that cannot be a
+        section is left out and reported (Pi fails the prompt).
+        """
+
+        scope = self.turn.scope
+        scope.run_prepared()
+        self.sections, invalid = self._sections()
+        for name in invalid:
+            emit_diagnostic(
+                scope.terminal_ui.components.transcript
+                if scope.terminal_ui is not None
+                else None,
+                scope.error_stream,
+                f"pipy: ignored invalid system prompt section {name!r} set by a "
+                "before_agent_start hook",
+            )
+        return render_system_prompt(self.sections)
+
+    def _sections(self) -> tuple[SystemPromptSections, tuple[str, ...]]:
+        valid, invalid = split_custom_sections(self.custom)
+        return (
+            with_custom_sections(self.turn.scope.system_sections(), valid),
+            invalid,
         )
 
 
@@ -221,6 +303,8 @@ class _RequestPreparationEffects:
                 settings = scope.settings.capture_compaction_budget_settings()
             except ValueError as exc:
                 invalid_policy = str(exc)
+            # Read once: the estimates and the request agree on what is sent.
+            block_images = scope.settings.get_block_images()
         if invalid_policy is not None:
             return self._refuse(context, invalid_policy)
         declared = scope.declared_context_window(context.binding)
@@ -239,6 +323,9 @@ class _RequestPreparationEffects:
         baseline = freeze_provider_request(
             self._request_values(active_input, turn_index, available_tools, context)
         )
+        if block_images:
+            # Measured as it will be sent: blocked attachments count nothing.
+            baseline = replace(baseline, attachments=())
         compaction = self._compact_if_needed(
             context, budget, settings.enabled, baseline, active_input
         )
@@ -255,6 +342,8 @@ class _RequestPreparationEffects:
                 active_input=active_input,
             )
         )
+        if block_images and snapshot.request.attachments:
+            snapshot = _with_user_images_blocked(snapshot)
         scope.coding_state.validate_run_context(context)
         estimate = estimate_request(
             snapshot.request,
@@ -267,7 +356,9 @@ class _RequestPreparationEffects:
                 "estimated request exceeds the context window; reduce input/tool context, compact, or correct the context limit/reserve",
             )
         scope.renderer.refresh_tool_renderers(
-            scope.execution_projections.tool_renderers(snapshot.advertised_tool_names)
+            scope.execution_projections.tool_renderer_lookup(
+                snapshot.advertised_tool_names
+            )
         )
         scope.coding_state.validate_run_context(context)
         return AgentLoopRequestPreparation(context.messages, snapshot)
@@ -387,14 +478,28 @@ class _RequestPreparationEffects:
                 context.binding.provider, "supports_mid_convo_system_messages", False
             ):
                 system_messages = anchored
+        # Pi ``_hiddenDeclarations``: the transcript declares these tools, the
+        # request does not, and a mid-conversation adapter drops them from the
+        # system messages it sends. They stay callable from scripts.
+        hidden = scope.execution_projections.hidden_declarations()
+        # Pi ``transformMessages``: a model without image input gets a
+        # placeholder for each tool result image.
+        messages = scope.request_history(
+            context.binding, active_input.request_messages(context.messages)
+        )
         return ProviderRequest(
             system_prompt=system_prompt + context.summary_suffix,
             user_prompt=accepted_turn.provider_user_input,
             provider_name=context.binding.provider_name,
             model_id=context.binding.model_id,
             cwd=scope.cwd,
-            messages=active_input.request_messages(context.messages),
-            available_tools=available_tools,
+            messages=messages,
+            available_tools=tuple(
+                tool for tool in available_tools if tool.name not in hidden
+            ),
+            undeclared_tool_names=tuple(
+                tool.name for tool in available_tools if tool.name in hidden
+            ),
             attachments=(accepted_turn.turn_attachments if turn_index == 0 else ()),
             # Pi passes the current session's id on every agent turn for
             # prompt-cache affinity; read per request so /new, /resume and
@@ -402,6 +507,26 @@ class _RequestPreparationEffects:
             session_id=scope.ctl.session_tree.session_id,
             system_messages=system_messages,
         )
+
+
+def _with_user_images_blocked(
+    snapshot: AgentProviderRequestSnapshot,
+) -> AgentProviderRequestSnapshot:
+    """Pi ``convertToLlmWithBlockImages`` for a user message: the ``@image``
+    attachments are not sent, and the user message says so.
+
+    Applied to the snapshot the hooks produced, because the hooks find the
+    accepted message in the request by identity.
+    """
+
+    request = snapshot.request
+    messages, user_prompt = with_user_images_blocked(
+        request.messages, request.user_prompt
+    )
+    return AgentProviderRequestSnapshot(
+        replace(request, messages=messages, user_prompt=user_prompt, attachments=()),
+        snapshot.advertised_tool_names,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -511,13 +636,18 @@ def _phase_b_intake(
     selected = step.selected_provider_content
     user_input = selected.value if selected is not None else scope.ctl.line.rstrip("\n")
     stripped = user_input.strip()
+    prompt = step.external_prompt or (
+        scope.prompt_mode and step.kind is CodingLoopStepKind.FRESH_LINE
+    )
     return _TurnInput(
         turn=turn,
         selected_provider_content=selected,
         queued_input=step.queued_input,
         user_input=user_input,
         stripped=stripped,
-        command_text="" if selected is not None else stripped,
+        command_text="" if selected is not None or prompt else stripped,
+        prompt=prompt,
+        input_hooks_ran=step.input_hooks_ran,
     )
 
 
@@ -638,13 +768,20 @@ def _phase_d_dispatch(
         # The plain REPL (no Pi counterpart) restyles the line readline
         # already echoed, command or not.
         scope.renderer.render_user_message(turn_input.user_input)
-    resolution = scope.loop_controller.dispatch_command(
-        command_text=turn_input.command_text,
-        stripped=turn_input.stripped,
-        user_input=turn_input.user_input,
-        selected_provider_content=turn_input.selected_provider_content,
-        effects=scope.command_effects,
-    )
+    if turn_input.prompt:
+        resolution = scope.loop_controller.dispatch_prompt(
+            user_input=turn_input.user_input,
+            selected_provider_content=turn_input.selected_provider_content,
+            effects=scope.command_effects,
+        )
+    else:
+        resolution = scope.loop_controller.dispatch_command(
+            command_text=turn_input.command_text,
+            stripped=turn_input.stripped,
+            user_input=turn_input.user_input,
+            selected_provider_content=turn_input.selected_provider_content,
+            effects=scope.command_effects,
+        )
     if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
         return LoopStepSignal.break_loop()
     if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
@@ -660,32 +797,52 @@ def _phase_d_dispatch(
     return resolution
 
 
+def _unchanged(text: str) -> str:
+    return text
+
+
 def _phase_e_accepted_input(
     turn_input: _TurnInput,
     resolution: CommandDispatchResolution,
-) -> _AcceptedRun:
+) -> _AcceptedRun | None:
     scope = turn_input.turn.scope
     effects = _AcceptedInputEffects(turn_input.turn)
+    run_prompt = _RunSystemPrompt(turn_input.turn)
     accepted_turn = CodingAcceptedInputPreparer(
-        transform_input=effects.transform_input,
+        # A prompt, and a typed skill or template line, met the `input` hooks
+        # in its dispatch, before expansion; an RPC client's queued message
+        # met them when it was queued.
+        transform_input=(
+            _unchanged
+            if resolution.input_hooks_ran or turn_input.input_hooks_ran
+            else effects.transform_input
+        ),
         resolve_file_references=effects.resolve_file_references,
         resolve_image_attachments=effects.resolve_image_attachments,
-        system_prompt_suffix=effects.system_prompt_suffix,
+        system_prompt_suffix=run_prompt.suffix,
         next_turn_context=scope.coding_input_queue.take_next_turn_context,
         emit_diagnostic=effects.emit_diagnostic,
         state_recorder=CodingSessionAcceptedInputRecorder(
             scope.coding_state, tool_budget=scope.tool_budget
         ),
+        system_prompt_after_hooks=run_prompt.after_hooks,
     ).prepare(
         user_input=resolution.user_input,
         resource_provider_text=resolution.resource_provider_text,
         selected_provider_content=resolution.selected_provider_content,
-        base_system_prompt=lambda: render_system_prompt(scope.system_sections()),
+        base_system_prompt=run_prompt.base,
     )
+    if accepted_turn is None:
+        # An `input` hook handled the input: no run (Pi `prompt`). An idle
+        # RPC `steer` or `follow_up` came with the transport's claim.
+        scope.loop_controller.settle_handled_prompt()
+        scope.refresh_legacy_footer_with_usage()
+        return None
     return _AcceptedRun(
         turn_input=turn_input,
         accepted_turn=accepted_turn,
         resource_provider_text=resolution.resource_provider_text,
+        system_sections=run_prompt.sections,
     )
 
 
@@ -727,8 +884,17 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         coding_state=scope.coding_state,
         retain_next_input=scope.coding_input_queue.retain_agent_input,
         tool_waiter=tool_waiter,
-        composite_runner=CodemodeCompositeRunner(),
+        composite_runner=CodemodeCompositeRunner(
+            store=SessionCodemodeStore(scope.ctl.session_tree_section)
+        ),
+        parent_runner=parent_runner_for(
+            scope.execution_projections.runs_as_parent,
+            scope.execution_projections.execute_parent,
+        ),
         nested_eligibility=scope.execution_projections,
+        tool_readiness=scope.mcp_waits.before_tool_call,
+        before_turn=scope.before_turn,
+        normalize_result=tool_result_normalizer(scope.settings),
     )
 
 
@@ -740,11 +906,12 @@ def _phase_f2_run_and_settle(
     scope.ctl.agent_settled_pending = True
     with scope.ctl.session_tree_section() as tree:
         transcript = tree.build_context().messages
-    # The transcript records the prompt's tagged sections, rebuilt for the
-    # tools active now (after the run's input hooks, as Pi's
-    # ``prepareNextTurn``); a ``before_agent_start`` suffix forces the run's
-    # prompt without being recorded (Pi ``16292398a``).
-    system_prompt = system_prompt_input(transcript, scope.system_sections())
+    # The transcript records the prompt's tagged sections as the run's hooks
+    # left them (built after the ``input`` and ``before_agent_start`` hooks,
+    # for the tools active then, as Pi's ``_prepareRun``); a
+    # ``before_agent_start`` suffix forces the run's prompt without being
+    # recorded (Pi ``16292398a``).
+    system_prompt = system_prompt_input(transcript, accepted.system_sections)
     outcome = coordinator.run_turn(
         accepted.accepted_turn.active_input,
         accepted.accepted_turn.initial_tool_state,
@@ -779,6 +946,46 @@ def _phase_f2_run_and_settle(
     )
 
 
+def fire_replaced_session_shutdown(
+    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
+    drain_outboxes: Callable[[], None],
+    reason: str,
+    target: Path | None,
+) -> None:
+    """Pi ``teardownCurrent`` before another session replaces this one:
+    ``session_shutdown`` names the session that follows. What the handlers
+    sent (``send_message``, ``send_user_message``) still belongs to the
+    outgoing session, so it is delivered now, before the tree changes; the
+    transition then clears the queued input of the old session."""
+
+    emitter.fire_lifecycle(
+        EVENT_SESSION_SHUTDOWN,
+        event=LifecycleEvent(
+            name=EVENT_SESSION_SHUTDOWN,
+            reason=reason,
+            target_session_file=None if target is None else str(target),
+        ),
+    )
+    drain_outboxes()
+
+
+def fire_replaced_session_start(
+    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
+    reason: str,
+    previous: Path | None,
+) -> None:
+    """The new session's ``session_start``, naming the session before."""
+
+    emitter.fire_lifecycle(
+        EVENT_SESSION_START,
+        event=LifecycleEvent(
+            name=EVENT_SESSION_START,
+            reason=reason,
+            previous_session_file=None if previous is None else str(previous),
+        ),
+    )
+
+
 class _ReplLoopStep:
     """Stateless owner of one REPL iteration and its lifecycle bookends."""
 
@@ -801,6 +1008,8 @@ class _ReplLoopStep:
         if isinstance(dispatch, LoopStepSignal):
             return dispatch
         accepted = _phase_e_accepted_input(hotkey, dispatch)
+        if accepted is None:
+            return LoopStepSignal.continue_loop()
         coordinator = _phase_f1_assemble(accepted)
         return _phase_f2_run_and_settle(accepted, coordinator)
 
@@ -837,7 +1046,7 @@ class _ReplLoopStep:
     def fire_session_shutdown(
         self, *, emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
     ) -> None:
-        emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
+        emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN, reason="quit")
 
     def consume_settle_pending(self, *, ctl: RunControlState) -> bool:
         if ctl.agent_settled_pending:
@@ -864,6 +1073,9 @@ class _ReplLoopStep:
                     )
         if not first_close:
             return
+        if generation is not None and generation.projection is not None:
+            # A kept extension API registers no tools once the session ended.
+            generation.projection.tools.live.close()
 
         retained: tuple[object, ...] = ()
         queue_error: BaseException | None = None

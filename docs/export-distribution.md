@@ -225,8 +225,10 @@ a `KEY=value` / `key: value` assignment is withheld when its key contains
 by `count`, `details`, `start`, `end`, `limit`, `usage` or `budget`
 (`totalTokenCount`). This keeps usage and compaction integers intact so an
 exported JSONL session re-imports with every entry. In text, an object or
-array value under a sensitive key is withheld whole, and a skipped key's value
-is still scanned for nested secrets. Bearer values and common
+array value under a sensitive key is withheld whole, a quoted value that the
+text ends inside (a nested call's 200-character argument preview, an error
+cut to its bound) is withheld to the end of the text, and a skipped key's
+value is still scanned for nested secrets. Bearer values and common
 token prefixes (`sk-`, `ghp_`, `github_pat_`, `ya29.`, `xoxb-`/`xoxp-`) are
 withheld wherever they appear.
 
@@ -258,6 +260,50 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   terminal/bash output so colorized output is preserved. A `renderedTools`-style
   custom-tool pre-render hook is a later extension-API concern, not a first-slice
   blocker.
+- `renderedTools` as built (MCP parity plan S35,
+  `native/export_tool_rows.py`): the calls to MCP server tools, to extension
+  tools that have a renderer, and to tools for which a resolver of
+  `api.register_tool_renderer` chose renderers are drawn when the file is
+  written, at a width of 100 columns, and stored by call id as `callHtml`
+  (the collapsed call), `resultHtmlExpanded` (when the call has a result)
+  and `resultHtmlCollapsed` (when it differs from the expanded one). The
+  page shows such a call as a dark box titled "Tool call"; a click on a
+  result that has both forms switches between them, and the separate "Tool
+  result" entry of that call is left out. The stored call and result stay in
+  `entries`. Calls to the built-in tools and to tools without renderers
+  (an extension tool that replaces `codemode` without renderers included)
+  are shown as before. The arguments, the result text and the details pass the
+  credential redaction before anything is drawn. The terminal text becomes
+  HTML with the foreground colours of the active theme, bold, italic and
+  underline as inline styles; backgrounds and every other escape sequence
+  are dropped and the text is escaped. `/export` and `/share` ask the
+  loaded extensions (`/share` draws its page on the session's thread before
+  the upload starts, as Pi's `/share` uploads its `exportToHtml` page);
+  `pipy --export <file>` runs no extension code, so there only the calls to
+  MCP tools are drawn, titled from their pipy names.
+- Images in tool results (MCP parity plan S39): the exported entries keep a
+  result's `blocks`, so the image data is in the file. A drawn row shows an
+  image as the terminal row does, `[Image: [image/png] 640x480]` (Pi draws
+  its export rows with `showImages: false`). After the result, drawn or not,
+  the page adds an entry "Tool result images" with each image as an `<img>`;
+  a block whose `mimeType` is not an `image/` type or whose data is not
+  base64 is left out. Pi's page shows a result's images for its `read` tool
+  only. The base64 data of an image block is exempt from the credential
+  redaction, which would only break the image; data that is not plain base64
+  is redacted like any text.
+- Nested calls (Pi `renderNestedCalls`): a tool result whose `details` hold
+  a `nestedCalls` record, the calls a codemode script (or an extension tool
+  through `ctx.execute_tool`) made, shows `Nested calls: <n>`, with
+  ` (incomplete record)` when calls were left out of the record. A click
+  shows one line per call: its status (`✓`, `✗`, `…`, and `⊘` for a
+  cancelled call, which Pi's page shows as `?`), its name, its arguments as
+  compact JSON or `[arguments omitted, <n> bytes]` (for a codemode call,
+  after the first 200 characters of them from the result's
+  `argumentPreviews`, which Pi's page shows in codemode's row), its
+  duration in whole milliseconds (Pi prints the recorded number), and its error indented below.
+  The section is in the call's box when the call is drawn, and below the
+  "Tool result" entry otherwise. The record has passed the credential
+  redaction like the rest of `details`.
 
 Templates, CSS, and JS live as packaged data files under the pipy package (for
 example `src/pipy_harness/native/export_html/`) and are read at runtime via
@@ -407,7 +453,10 @@ user-visible outcome (secret gist created, share URL printed):
    since uploading shifts a local artifact to a remote account. This is a pipy
    addition, not Pi parity, and it does not reduce exported content: the gist
    contains the same full HTML the `/export` path produces (minus auth tokens).
-3. **Export to a temp HTML file** (owner-only permissions), then read it.
+3. **Export to a temp HTML file** (owner-only permissions), then read it. The
+   page is the one `/export` writes, with the session's system prompt and the
+   calls the loaded extensions' renderers draw; it is drawn on the session's
+   thread before the upload's worker thread starts.
 4. **Create the gist** via `urllib` `POST https://api.github.com/gists` with
    `{"public": false, "files": {"<name>.html": {"content": "<html>"}}}`,
    `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`, and a

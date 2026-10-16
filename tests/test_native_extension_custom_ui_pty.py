@@ -539,3 +539,34 @@ def test_pty_extension_shortcut_returns_sentinel(
     finally:
         _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == [f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl-x\n"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_extension_confirm_counts_its_timeout_down_and_expires(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Goal check r2, S11: Pi's `CountdownTimer` in the terminal. The title
+    # shows the seconds left and no key ends the dialog: its time does.
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
+    result: list[object] = []
+
+    def _run() -> None:
+        result.append(
+            ui.components.modals.run_extension_confirm("Allow?", "rm -rf", timeout=2000)
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    started = time.monotonic()
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "Allow? (2s)"), "countdown never rendered"
+        assert _wait_for(err_chunks, "Allow? (1s)"), "countdown never ticked"
+        worker.join(timeout=8.0)
+        assert not worker.is_alive(), "dialog did not expire"
+    finally:
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
+    assert result == [False]
+    assert time.monotonic() - started >= 1.5

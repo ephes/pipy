@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
+import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 from pipy_harness.native.extension_types import (
+    CustomComponent,
     CustomComponentFactory,
     CustomComponentOptions,
 )
@@ -29,6 +32,11 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionSelectComponent,
 )
 from pipy_harness.native.ui.components.input_editor import InputEditor
+from pipy_harness.native.ui.components.mcp_manager_view import (
+    CopyText,
+    McpManagerView,
+    mcp_manager_keys,
+)
 from pipy_harness.native.ui.components.model_selector import ModelSelectorComponent
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
@@ -49,11 +57,32 @@ from pipy_harness.native.ui.key_specs import resolved_key_specs
 from pipy_harness.native.ui.screen import DriveOwner, DriveResult, Screen
 
 _CloseT = TypeVar("_CloseT")
+
+
+class McpManagerSession(Protocol):
+    """What runs in the ``/mcp`` manager view while it is open (the flow of
+    ``native/mcp/manager_flow.py``)."""
+
+    def poll(self) -> None:
+        """Take in what happened on other threads and show it in the view.
+        Called on the session thread about ten times a second."""
+
+    def stop(self) -> None:
+        """The view was closed; cancel what only it was waiting for."""
+
+
 _ResultT = TypeVar("_ResultT")
 
 
 def _open_result(opened: bool, cancelled: _ResultT) -> DriveResult[_ResultT] | None:
     return None if opened else DriveResult(cancelled)
+
+
+def _repainted(view: McpManagerView, repaint: Callable[[], None]) -> None:
+    """Paint the frame again when the view shows something else."""
+
+    if view.take_dirty():
+        repaint()
 
 
 def _open_void(callback: Callable[..., None], *args: object, **kwargs: object) -> None:
@@ -64,6 +93,56 @@ def _drive_result(
     closed: _CloseT | None, project: Callable[[_CloseT], _ResultT]
 ) -> DriveResult[_ResultT] | None:
     return None if closed is None else DriveResult(project(closed))
+
+
+class _TitledComponent(CustomComponent, Protocol):
+    title: str
+
+
+class _DialogCountdown:
+    """Pi's ``CountdownTimer`` for an extension dialog with a ``timeout``.
+
+    The title shows the whole seconds left (``Title (5s)``); when they run
+    out the dialog is cancelled, as Pi's ``onExpire`` cancels it: ``select``
+    and ``input`` give ``None``, ``confirm`` gives ``False``. Polled on the
+    key loop's thread.
+    """
+
+    def __init__(
+        self,
+        component: _TitledComponent,
+        timeout_ms: int,
+        done: Callable[..., None],
+        repaint: Callable[[], None],
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._component = component
+        self._title = component.title
+        self._done = done
+        self._repaint = repaint
+        self._clock = clock
+        self._deadline = clock() + math.ceil(timeout_ms / 1000)
+        self._shown: int | None = None
+        self._show(self._left())
+
+    def _left(self) -> int:
+        return max(0, math.ceil(self._deadline - self._clock()))
+
+    def _show(self, seconds: int) -> None:
+        self._shown = seconds
+        self._component.title = f"{self._title} ({seconds}s)"
+
+    def poll(self) -> bool:
+        """Whether the dialog ended because its time ran out."""
+
+        seconds = self._left()
+        if seconds <= 0:
+            self._done(None)
+            return True
+        if seconds != self._shown:
+            self._show(seconds)
+            self._repaint()
+        return False
 
 
 class TerminalModalDriver:
@@ -158,6 +237,74 @@ class TerminalModalDriver:
         )
         return self._screen.drive(owner)
 
+    def run_mcp_manager(
+        self,
+        start: Callable[[McpManagerView], McpManagerSession],
+        *,
+        copy: CopyText,
+    ) -> None:
+        """Show the ``/mcp`` manager view until it closes itself.
+
+        ``start`` shows the first screen and returns what is polled while
+        the view is open. The view stands in place of the editor, like Pi's
+        selectors. Its callbacks run on this thread without the paint lock:
+        they may block and may take the locks of the MCP manager, which are
+        held by threads that publish tools.
+        """
+
+        view = McpManagerView(mcp_manager_keys(self._keybindings_manager()), copy=copy)
+        session = start(view)
+        paint_lock = self._screen.paint_lock
+        repaint = self._screen.paint
+
+        def open_view() -> DriveResult[None] | None:
+            if view.closed:
+                return DriveResult(None)
+            view.take_dirty()
+            with paint_lock:
+                self._overlays.begin_search_selector(view)
+            repaint()
+            return None
+
+        def handle_key(key: str | None) -> DriveResult[None] | None:
+            if key is None:
+                # End of input closes the view, like the cancel key would.
+                view.close()
+            else:
+                view.handle_key(key)
+            if view.closed:
+                return DriveResult(None)
+            _repainted(view, repaint)
+            return None
+
+        def poll() -> bool:
+            session.poll()
+            _repainted(view, repaint)
+            return view.closed
+
+        def consume_paste() -> None:
+            view.paste(self._input_editor.consume_paste())
+            _repainted(view, repaint)
+
+        def dispose() -> None:
+            try:
+                session.stop()
+            finally:
+                with paint_lock:
+                    if self._overlays.search_selector is view:
+                        self._overlays.end_search_selector()
+                repaint()
+
+        owner: DriveOwner[None] = DriveOwner(
+            open=open_view,
+            handle_key=handle_key,
+            is_finished=lambda: view.closed,
+            dispose=dispose,
+            consume_paste=consume_paste,
+            poll=poll,
+        )
+        self._screen.drive(owner)
+
     def run_scoped_models_selector(
         self,
         rows: Sequence[ScopedModelRow],
@@ -250,7 +397,12 @@ class TerminalModalDriver:
         self,
         factory: CustomComponentFactory,
         options: CustomComponentOptions | None = None,
+        *,
+        poll: Callable[[], bool] | None = None,
     ) -> object:
+        """``poll`` runs while a key is waited for; ``True`` from it means
+        the component finished meanwhile."""
+
         runner = CustomComponentRunner(self._overlays, self._screen.paint)
         runner.create(factory, options)
         owner: DriveOwner[object] = DriveOwner(
@@ -260,23 +412,54 @@ class TerminalModalDriver:
             ),
             is_finished=lambda: runner.finished,
             dispose=runner.dispose,
+            poll=poll,
         )
         return self._screen.drive(owner)
 
-    def run_extension_select(self, title: str, options: Sequence[str]) -> str | None:
+    def _run_dialog(
+        self,
+        create: Callable[[Callable[..., None]], _TitledComponent],
+        timeout: int | None,
+    ) -> object:
+        """An extension dialog, counting down Pi's ``timeout`` (ms) when
+        it is positive."""
+
+        if timeout is None or timeout <= 0:
+            return self.run_custom_component(create)
+        countdowns: list[_DialogCountdown] = []
+
+        def factory(done: Callable[..., None]) -> _TitledComponent:
+            component = create(done)
+            countdowns.append(
+                _DialogCountdown(component, timeout, done, self._screen.paint)
+            )
+            return component
+
+        return self.run_custom_component(
+            factory, poll=lambda: any(countdown.poll() for countdown in countdowns)
+        )
+
+    def run_extension_select(
+        self, title: str, options: Sequence[str], *, timeout: int | None = None
+    ) -> str | None:
         choices = tuple(str(option) for option in options if str(option))
         if not choices:
             return None
-        result = self.run_custom_component(
-            lambda done: ExtensionSelectComponent(str(title), choices, done)
+        result = self._run_dialog(
+            lambda done: ExtensionSelectComponent(str(title), choices, done), timeout
         )
         return result if isinstance(result, str) else None
 
     def run_extension_input(
-        self, title: str, placeholder: str | None = None
+        self,
+        title: str,
+        placeholder: str | None = None,
+        *,
+        timeout: int | None = None,
     ) -> str | None:
-        result = self.run_custom_component(
-            lambda done: ExtensionInputComponent(str(title), placeholder, done)
+        result = self._run_dialog(
+            lambda done: ExtensionInputComponent(str(title), placeholder, done),
+            timeout,
         )
         return result if isinstance(result, str) else None
 
@@ -294,9 +477,12 @@ class TerminalModalDriver:
         )
         return result if isinstance(result, str) else None
 
-    def run_extension_confirm(self, title: str, message: str) -> bool:
-        result = self.run_custom_component(
-            lambda done: ExtensionConfirmComponent(str(title), str(message), done)
+    def run_extension_confirm(
+        self, title: str, message: str, *, timeout: int | None = None
+    ) -> bool:
+        result = self._run_dialog(
+            lambda done: ExtensionConfirmComponent(str(title), str(message), done),
+            timeout,
         )
         return result == "Yes"
 
@@ -332,3 +518,28 @@ class TerminalModalDriver:
             ),
         )
         return self._screen.drive(owner)
+
+
+class TerminalExtensionDialogs:
+    """The dialogs of the live extension UI driver in the terminal's modal
+    loop. ``select``, ``input`` and ``confirm`` take Pi's ``timeout`` (ms)
+    and count it down (``dialog_timeouts``, which ``_CollectingUi`` reads)."""
+
+    dialog_timeouts = True
+    _modals: TerminalModalDriver
+
+    def select(
+        self, title: str, options: Sequence[str], timeout: int | None = None
+    ) -> str | None:
+        return self._modals.run_extension_select(title, options, timeout=timeout)
+
+    def input(
+        self, title: str, placeholder: str | None = None, timeout: int | None = None
+    ) -> str | None:
+        return self._modals.run_extension_input(title, placeholder, timeout=timeout)
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None:
+        return self._modals.run_extension_editor(title, prefill)
+
+    def confirm(self, title: str, message: str, timeout: int | None = None) -> bool:
+        return self._modals.run_extension_confirm(title, message, timeout=timeout)

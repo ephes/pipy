@@ -47,12 +47,13 @@ operations plus `EVENT_*` constants from `extensions.activation`. The dependency
 remains one-way and cycle-free: activation never imports back from this module.
 
 The `before_agent_start` and `tool_result` injections are each bounded by
-`_BEFORE_AGENT_START_MAX_CHARS` / `_TOOL_RESULT_MAX_CHARS` so a buggy or
+`_BEFORE_AGENT_START_MAX_CHARS` / `TOOL_RESULT_MAX_CHARS` so a buggy or
 malicious extension cannot create unbounded provider input.
 """
 
 from __future__ import annotations
 
+import functools
 import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
@@ -69,6 +70,14 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     TurnStarted,
 )
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ImageContent,
+    TextContent,
+    ToolResultBlock,
+    tool_result_images,
+    tool_result_text,
+)
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
@@ -84,8 +93,10 @@ from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     InputEvent,
+    InputHandled,
     InputTransform,
     LifecycleEvent,
+    McpServersChangeEvent,
     ProjectTrustContext,
     ProjectTrustDispatchResult,
     ProjectTrustEvent,
@@ -95,6 +106,7 @@ from pipy_harness.native.extension_types import (
     QueuedUserMessage,
     SessionBeforeEvent,
     SessionDecision,
+    SystemPromptOptions,
     ToolBlock,
     ToolCallEvent,
     ToolResultEvent,
@@ -113,6 +125,7 @@ from pipy_harness.native.extensions.activation import (
     EVENT_BEFORE_PROVIDER_HEADERS,
     EVENT_BEFORE_PROVIDER_REQUEST,
     EVENT_INPUT,
+    EVENT_MCP_SERVERS_CHANGE,
     EVENT_PROJECT_TRUST,
     EVENT_SESSION_BEFORE_COMPACT,
     EVENT_SESSION_BEFORE_FORK,
@@ -134,6 +147,8 @@ from pipy_harness.native.extensions.collectors import (
     extension_flags,
     extension_message_renderers,
     extension_providers,
+    extension_tool_renderer_groups,
+    extension_tool_renderers,
     extension_tools,
     extension_unregistered_providers,
 )
@@ -150,11 +165,13 @@ from pipy_harness.native.extensions.dispatch import (
 )
 from pipy_harness.native.extensions.message_routing import GenerationMessageRouting
 from pipy_harness.native.extensions.packages import discover_extensions
+from pipy_harness.native.mcp.registry import McpServerRegistry, RegisteredMcpServer
 from pipy_harness.native.session_generation import (
     FrozenStagedDeliveryBatch,
     OrderedDeliveryGate,
     OrderedDeliveryToken,
 )
+from pipy_harness.native.tools.base import json_safe_details, json_safe_value
 
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.package_resources import PackageRoot
@@ -162,7 +179,7 @@ if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.session_tree import NativeSessionTree
 
 # Bound a transformed tool-result observation before it reaches the model.
-_TOOL_RESULT_MAX_CHARS: int = 60 * 1024
+TOOL_RESULT_MAX_CHARS: int = 60 * 1024
 # Cap the total `before_agent_start` system-prompt injection so a buggy or
 # malicious extension cannot create unbounded provider input.
 _BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
@@ -313,6 +330,7 @@ def _activate_workspace_extensions(
             outbox: list[QueuedUserMessage] = []
             custom_outbox: list[QueuedCustomMessage] = []
             message_routing = GenerationMessageRouting(outbox, custom_outbox)
+            mcp_servers = McpServerRegistry()
             activated = activate_extensions(
                 descriptors,
                 reserved_command_names=reserved,
@@ -320,6 +338,7 @@ def _activate_workspace_extensions(
                 message_outbox=outbox,
                 custom_message_outbox=custom_outbox,
                 message_routing=message_routing,
+                mcp_servers=mcp_servers,
                 diagnostic=diagnostic,
             )
         else:
@@ -327,10 +346,11 @@ def _activate_workspace_extensions(
             outbox = activation_batch.message_outbox
             custom_outbox = activation_batch.custom_message_outbox
             message_routing = activation_batch.message_routing
+            mcp_servers = activation_batch.mcp_servers
             if activation_batch.pending:
                 raise ValueError("initial extension activation batch must be finalized")
         return _compose_extension_bundle(
-            activated, outbox, custom_outbox, message_routing
+            activated, outbox, custom_outbox, message_routing, mcp_servers
         )
     except BaseException:
         # This boundary owns every supplied or newly activated candidate host
@@ -347,8 +367,13 @@ def _compose_extension_bundle(
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
     message_routing: GenerationMessageRouting,
+    mcp_servers: McpServerRegistry | None = None,
 ) -> _ExtensionRuntime:
-    """Compose one candidate runtime without publishing its host ownership."""
+    """Compose one candidate runtime without publishing its host ownership.
+
+    ``mcp_servers`` is the registry the activation hosts register MCP
+    servers in; without it the runtime has an empty one.
+    """
 
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
@@ -414,6 +439,8 @@ def _compose_extension_bundle(
         unregistered_providers=extension_unregistered_providers(activated),
         message_renderers=extension_message_renderers(activated),
         entry_renderers=extension_entry_renderers(activated),
+        tool_renderers=extension_tool_renderers(activated),
+        tool_renderer_groups=extension_tool_renderer_groups(activated),
         custom_messages=custom_messages,
         activation_hosts=tuple(
             extension._activation_host
@@ -422,6 +449,7 @@ def _compose_extension_bundle(
             if extension._activation_host is not None
         ),
         message_routing=message_routing,
+        mcp_servers=mcp_servers if mcp_servers is not None else McpServerRegistry(),
     )
 
 
@@ -436,14 +464,16 @@ def dispatch_input_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
-) -> str:
+) -> str | None:
     """Run `input` hooks over a submitted prompt; return the final text.
 
     Hooks run in registration order, each receiving an `InputEvent` with
     the current text. A hook returning an `InputTransform` replaces the
-    text for subsequent hooks; any other return value observes only. A
-    hook that raises is fail-safe: the current text is kept unchanged so
-    a buggy hook never breaks submission. `KeyboardInterrupt` /
+    text for subsequent hooks; one returning `InputHandled` consumed the
+    prompt: the result is `None`, later hooks do not run and nothing is
+    sent (Pi `emitInput`). Any other return value observes only. A hook
+    that raises is fail-safe: the current text is kept unchanged so a
+    buggy hook never breaks submission. `KeyboardInterrupt` /
     `SystemExit` propagate.
     """
 
@@ -466,6 +496,8 @@ def dispatch_input_hooks(
             raise
         except BaseException:  # noqa: BLE001 - fail-safe: keep current text
             continue
+        if isinstance(result, InputHandled):
+            return None
         if isinstance(result, InputTransform) and isinstance(result.text, str):
             # Ignore a non-string transform (fail-safe): never propagate a
             # non-string into @file resolution / the provider request.
@@ -484,6 +516,8 @@ def dispatch_before_agent_start_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
+    sections: dict[str, str] | None = None,
+    render_system_prompt: Callable[[], str] | None = None,
 ) -> BeforeAgentStartResult:
     """Run `before_agent_start` hooks; aggregate their context injections.
 
@@ -491,6 +525,15 @@ def dispatch_before_agent_start_hooks(
     prompt) and may return a `BeforeAgentStartResult` whose
     `append_system_prompt` is concatenated (in order). A hook that raises
     is fail-safe (ignored). `KeyboardInterrupt` / `SystemExit` propagate.
+
+    ``sections`` is the run's own prompt sections; every hook gets the same
+    mapping as ``event.system_prompt_options.sections`` and changes it in
+    place, so the caller reads the outcome from it (what a hook changed
+    before it raised stays). ``render_system_prompt`` renders the prompt for
+    the mapping as it is now; ``event.system_prompt`` calls it on every read
+    (Pi's getter), so a hook sees the sections it and earlier hooks changed.
+    Without it every hook is shown ``system_prompt``. Either way the text
+    earlier hooks appended follows the prompt.
     """
 
     appended: list[str] = []
@@ -502,10 +545,20 @@ def dispatch_before_agent_start_hooks(
             flags=flags,
             project_trusted=project_trusted,
         )
-        current_prompt = system_prompt
+        options = SystemPromptOptions(sections={} if sections is None else sections)
         for hook in hooks:
+            # Later hooks see earlier hooks' appended context (ordered
+            # composition), matching `BeforeAgentStartEvent.system_prompt`.
+            prompt: str | Callable[[], str] = "\n".join([system_prompt, *appended])
+            if render_system_prompt is not None:
+                prompt = functools.partial(
+                    _prompt_with_appended, render_system_prompt, tuple(appended)
+                )
             try:
-                result = hook(BeforeAgentStartEvent(system_prompt=current_prompt), ctx)
+                result = hook(
+                    BeforeAgentStartEvent(prompt, system_prompt_options=options),
+                    ctx,
+                )
                 if inspect.isawaitable(result):
                     result = _drive_awaitable(result)
             except (KeyboardInterrupt, SystemExit):
@@ -518,9 +571,6 @@ def dispatch_before_agent_start_hooks(
                 and result.append_system_prompt
             ):
                 appended.append(result.append_system_prompt)
-                # Later hooks see earlier hooks' appended context (ordered
-                # composition), matching `BeforeAgentStartEvent.system_prompt`.
-                current_prompt = current_prompt + "\n" + result.append_system_prompt
     if not appended:
         return BeforeAgentStartResult(append_system_prompt=None)
     combined = "\n".join(appended)
@@ -530,6 +580,60 @@ def dispatch_before_agent_start_hooks(
             + "\n[pipy: before_agent_start injection truncated]"
         )
     return BeforeAgentStartResult(append_system_prompt=combined)
+
+
+def _prompt_with_appended(render: Callable[[], str], appended: tuple[str, ...]) -> str:
+    return "\n".join([render(), *appended])
+
+
+def bounded_result_blocks(
+    blocks: object, cap: int, marker: str
+) -> tuple[ToolResultBlock, ...] | None:
+    """A handler's ``blocks`` with their text bounded, or ``None`` when they
+    are not a sequence of text and image blocks.
+
+    The bound is ``cap`` or the ``tool_result`` hooks' bound, whichever is
+    smaller: text the hooks would cut loses the images with it. Text within
+    the bound is kept as it is. Otherwise images are kept whole and in
+    order, the text block that reaches the bound is cut and marked, and
+    later text blocks are left out. ``marker`` ends the cut text.
+    """
+
+    if isinstance(blocks, (str, bytes)) or not isinstance(blocks, Sequence):
+        return None
+    checked: list[ToolResultBlock] = []
+    for block in blocks:
+        if type(block) is ImageContent:
+            checked.append(block)
+        elif type(block) is TextContent and block.signature is None:
+            checked.append(block)
+        else:
+            return None
+    limit = min(cap, TOOL_RESULT_MAX_CHARS)
+    if len(tool_result_text(checked)) <= limit:
+        return tuple(checked)
+    # Room for the marker and its newline is kept, so the text stays within
+    # the bound.
+    budget = limit - len(marker) - 1
+    kept: list[ToolResultBlock] = []
+    used = 0  # length of the kept text blocks joined by newlines
+    texts = 0
+    cut = False
+    for block in checked:
+        if not isinstance(block, TextContent):
+            kept.append(block)
+            continue
+        if cut:
+            continue
+        separator = 1 if texts else 0
+        if used + separator + len(block.text) > budget:
+            room = max(budget - used - separator, 0)
+            block = TextContent(block.text[:room] + marker)
+            cut = True
+        kept.append(block)
+        used += separator + len(block.text)
+        texts += 1
+    return tuple(kept)
 
 
 def dispatch_tool_result_hooks(
@@ -545,55 +649,189 @@ def dispatch_tool_result_hooks(
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
-) -> str:
-    """Run `tool_result` hooks over a finalized tool result; return content.
+    structured_content: object = NO_STRUCTURED_CONTENT,
+    tool_call_id: str = "",
+    parent_tool_call_id: str | None = None,
+    tool_input: Mapping[str, object] | None = None,
+    details: Mapping[str, object] | None = None,
+    blocks: tuple[ToolResultBlock, ...] = (),
+) -> ToolResultTransform | None:
+    """Run `tool_result` hooks over a finalized tool result (Pi `emitToolResult`).
 
-    Each hook receives a `ToolResultEvent` with the current content and
-    may return a `ToolResultTransform` to replace it for later hooks /
-    the model. Hooks run in registration order. A hook that raises or
-    returns a non-string transform is fail-safe (the current content is
-    kept). The final content is bounded before returning to the model.
+    Each hook receives a `ToolResultEvent` with the result as the earlier
+    hooks left it and may return a `ToolResultTransform` to change it for
+    later hooks, the model and programmatic callers. Hooks run in
+    registration order. A transform's `blocks` (Pi's content array) or
+    `content` replace the whole content, images included; replaced content
+    drops the structured content unless the transform carries one.
+    `structured_content`, `is_error` and `details` replace their field when
+    given. A hook that raises, or returns a transform with a field of the
+    wrong kind, is fail-safe: the result stays as it was. Replaced text is
+    bounded to `TOOL_RESULT_MAX_CHARS`; images are kept whole.
     `KeyboardInterrupt` / `SystemExit` propagate.
+
+    Returns the result as the hooks left it, or `None` when no hook changed
+    anything.
     """
 
-    current = content
-    if hooks:
-        ctx = _CommandContext(
-            cwd,
-            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            model_runtime=model_runtime,
-            flags=flags,
-            project_trusted=project_trusted,
+    if not hooks:
+        return None
+    state = _ToolResultState(content, blocks, structured_content, is_error, details)
+    arguments = dict(tool_input or {})
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        model_runtime=model_runtime,
+        flags=flags,
+        project_trusted=project_trusted,
+    )
+    for hook in hooks:
+        try:
+            result = hook(
+                ToolResultEvent(
+                    tool_name=tool_name,
+                    content=state.content,
+                    is_error=state.is_error,
+                    structured_content=state.structured_content,
+                    tool_call_id=tool_call_id,
+                    parent_tool_call_id=parent_tool_call_id,
+                    input=arguments,
+                    details=state.details,
+                    blocks=state.blocks,
+                ),
+                ctx,
+            )
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail-safe: keep the result
+            continue
+        if isinstance(result, ToolResultTransform):
+            state.apply(result)
+    if not state.modified:
+        return None
+    return ToolResultTransform(
+        content=state.content,
+        structured_content=state.structured_content,
+        blocks=state.blocks,
+        is_error=state.is_error,
+        details=state.details,
+    )
+
+
+_TOOL_RESULT_TRUNCATED = "\n[pipy: tool_result transform truncated]"
+
+
+class _ToolResultState:
+    """A result as the `tool_result` hooks have left it so far."""
+
+    __slots__ = (
+        "blocks",
+        "content",
+        "details",
+        "is_error",
+        "modified",
+        "structured_content",
+    )
+
+    def __init__(
+        self,
+        content: str,
+        blocks: tuple[ToolResultBlock, ...],
+        structured_content: object,
+        is_error: bool,
+        details: Mapping[str, object] | None,
+    ) -> None:
+        self.content = content
+        self.blocks = blocks
+        self.structured_content = structured_content
+        self.is_error = is_error
+        self.details = details
+        self.modified = False
+
+    def apply(self, transform: ToolResultTransform) -> None:
+        """Take what ``transform`` changes; nothing when a field it gives has
+        the wrong kind or cannot be copied as JSON (Pi ``emitToolResult``)."""
+
+        try:
+            replaced, structured, details = self._prepared(transform)
+        except (RecursionError, ValueError, TypeError):
+            # A field of the wrong kind, or a value too deep (or otherwise
+            # not JSON) to copy: the transform changes nothing.
+            return
+        if replaced is not None:
+            self.content, self.blocks = replaced
+            # Pi: structured content that is not replaced along with the
+            # content may no longer match it.
+            self.structured_content = NO_STRUCTURED_CONTENT
+        if transform.structured_content is not NO_STRUCTURED_CONTENT:
+            self.structured_content = structured
+        if transform.is_error is not None:
+            self.is_error = transform.is_error
+        if details is not None:
+            self.details = details
+        self.modified = True
+
+    def _prepared(
+        self, transform: ToolResultTransform
+    ) -> tuple[
+        tuple[str, tuple[ToolResultBlock, ...]] | None,
+        object,
+        dict[str, Any] | None,
+    ]:
+        """The checked replacement content, structured content and details.
+        Raises ``TypeError`` for a field of the wrong kind."""
+
+        replaced = _replaced_content(transform)
+        if transform.is_error is not None and type(transform.is_error) is not bool:
+            raise TypeError("is_error must be a bool")
+        details: dict[str, Any] | None = None
+        if transform.details is not None:
+            details = json_safe_details(transform.details)
+            if details is None:
+                raise TypeError("details must be a JSON object")
+        given = transform.structured_content
+        # The event's own value handed back is kept as it is; any other is a
+        # detached JSON copy, and a value that is not JSON is dropped.
+        structured = (
+            given
+            if given is NO_STRUCTURED_CONTENT or given is self.structured_content
+            else json_safe_value(given)
         )
-        for hook in hooks:
-            try:
-                result = hook(
-                    ToolResultEvent(
-                        tool_name=tool_name, content=current, is_error=is_error
-                    ),
-                    ctx,
-                )
-                if inspect.isawaitable(result):
-                    result = _drive_awaitable(result)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - fail-safe: keep current content
-                continue
-            if isinstance(result, ToolResultTransform) and isinstance(
-                result.content, str
-            ):
-                current = result.content
-    if len(current) > _TOOL_RESULT_MAX_CHARS:
-        current = (
-            current[:_TOOL_RESULT_MAX_CHARS]
-            + "\n[pipy: tool_result transform truncated]"
+        return replaced, structured, details
+
+
+def _replaced_content(
+    transform: ToolResultTransform,
+) -> tuple[str, tuple[ToolResultBlock, ...]] | None:
+    """The text and blocks a transform puts in place of the content, bounded;
+    ``None`` when it leaves the content. Raises ``TypeError`` when its
+    ``blocks`` or ``content`` are of the wrong kind."""
+
+    if transform.blocks is not None:
+        bounded = bounded_result_blocks(
+            transform.blocks, TOOL_RESULT_MAX_CHARS, _TOOL_RESULT_TRUNCATED
         )
-    return current
+        if bounded is None:
+            raise TypeError("blocks must be text and image blocks")
+        # Blocks without an image say no more than their text.
+        return tool_result_text(bounded), (
+            bounded if tool_result_images(bounded) else ()
+        )
+    if transform.content is None:
+        return None
+    if not isinstance(transform.content, str):
+        raise TypeError("content must be a string")
+    text = transform.content
+    if len(text) > TOOL_RESULT_MAX_CHARS:
+        text = text[:TOOL_RESULT_MAX_CHARS] + _TOOL_RESULT_TRUNCATED
+    return text, ()
 
 
 def dispatch_lifecycle_hooks(
     hooks: Sequence[HookHandler],
-    event: LifecycleEvent,
+    event: LifecycleEvent | McpServersChangeEvent,
     *,
     cwd: str,
     has_ui: bool,
@@ -688,7 +926,31 @@ class _ExtensionLifecycleAgentEventAdapter:
             flags=flags,
         )
 
-    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
+    def mcp_servers_change_handled(self) -> bool:
+        """Whether a loaded extension handles ``mcp_servers_change``, which
+        means it connects the MCP servers extensions register."""
+
+        projection = self._generation_snapshot().generation.projection
+        return projection is not None and bool(
+            projection.hooks.lifecycle.get(EVENT_MCP_SERVERS_CHANGE)
+        )
+
+    def fire_mcp_servers_change(self, servers: Sequence[RegisteredMcpServer]) -> None:
+        """Tell the loaded extensions that the registered MCP servers
+        changed; ``servers`` is every registration after the change."""
+
+        self.fire_lifecycle(
+            EVENT_MCP_SERVERS_CHANGE,
+            event=McpServersChangeEvent(servers=tuple(servers)),
+        )
+
+    def fire_lifecycle(
+        self,
+        name: str,
+        *,
+        reason: str | None = None,
+        event: LifecycleEvent | McpServersChangeEvent | None = None,
+    ) -> None:
         snapshot = self._generation_snapshot()
         projection = snapshot.generation.projection
         if projection is None:
@@ -700,7 +962,7 @@ class _ExtensionLifecycleAgentEventAdapter:
             ui_driver = bind(chrome.sink)
         self._dispatch_lifecycle(
             projection.hooks.lifecycle.get(name),
-            LifecycleEvent(name=name, reason=reason),
+            LifecycleEvent(name=name, reason=reason) if event is None else event,
             ui_driver=ui_driver,
             flags=projection.runtime_flags.values,
         )
@@ -708,7 +970,7 @@ class _ExtensionLifecycleAgentEventAdapter:
     def _dispatch_lifecycle(
         self,
         hooks: Sequence[HookHandler] | None,
-        event: LifecycleEvent,
+        event: LifecycleEvent | McpServersChangeEvent,
         *,
         ui_driver: ExtensionUiDriver | None,
         flags: Mapping[str, object],
@@ -737,7 +999,9 @@ def dispatch_tool_call_hooks(
     hooks: Sequence[HookHandler],
     *,
     tool_name: str,
-    tool_input: Mapping[str, object],
+    tool_input: dict[str, object],
+    tool_call_id: str,
+    parent_tool_call_id: str | None = None,
     cwd: str,
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
@@ -748,15 +1012,22 @@ def dispatch_tool_call_hooks(
 ) -> ToolBlock | None:
     """Run `tool_call` hooks for one tool call; return the first block.
 
-    Each hook receives a `ToolCallEvent` (live tool name + parsed input)
-    and a mode-aware context. The first hook to return a `ToolBlock`
-    blocks the call; hooks returning anything else allow it. A hook that
-    raises fails closed (blocks with a safe reason), since a policy gate
-    that errors must not silently allow the action. `KeyboardInterrupt` /
+    Each hook receives the same `ToolCallEvent` (tool name, validated input,
+    call id and parent call id) and a mode-aware context. `tool_input` is
+    handed over, not copied: what the hooks change in it is what the caller
+    runs (Pi `emitToolCall`). The first hook to return a `ToolBlock` blocks
+    the call; hooks returning anything else allow it. A hook that raises
+    fails closed (blocks with a safe reason), since a policy gate that
+    errors must not silently allow the action. `KeyboardInterrupt` /
     `SystemExit` propagate (user abort is never swallowed).
     """
 
-    event = ToolCallEvent(tool_name=tool_name, input=tool_input)
+    event = ToolCallEvent(
+        tool_name=tool_name,
+        input=tool_input,
+        tool_call_id=tool_call_id,
+        parent_tool_call_id=parent_tool_call_id,
+    )
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),

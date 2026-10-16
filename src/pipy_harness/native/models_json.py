@@ -1054,7 +1054,8 @@ class ModelCatalog:
     # -- load / merge --------------------------------------------------------
 
     def refresh(self) -> None:
-        self.provider_request_configs = {}
+        # ``provider_request_configs`` is replaced by one assignment in
+        # ``_merge`` and never emptied first: MCP request threads read it.
         self.error = None
         self._config = None
         self._reload_identity = object()
@@ -1246,10 +1247,7 @@ class ModelCatalog:
         return request_configs
 
     def _store_provider_request_configs(self, config: ModelsConfig | None) -> None:
-        self.provider_request_configs = {
-            **self.provider_request_configs,
-            **self._provider_request_configs(config),
-        }
+        self.provider_request_configs = self._provider_request_configs(config)
 
     def _merge_custom_model_rows(
         self, merged: list[NativeModelSpec], config: ModelsConfig | None

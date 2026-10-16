@@ -6,7 +6,8 @@ hit first wins: a line limit (default 2000 lines) and a byte limit (default
 50 KB). Head truncation never returns a partial line; tail truncation returns
 a partial line only when the last line alone exceeds the byte limit.
 
-Pi's ``truncateMiddle`` has no caller among pipy's tools and is not ported.
+``truncate_middle`` keeps the start and the end of a text instead; MCP tool
+results use it.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
+
+from pipy_harness.native.tools.fs_errors import node_encodable_text
 
 DEFAULT_MAX_LINES = 2000
 DEFAULT_MAX_BYTES = 50 * 1024
@@ -67,7 +70,7 @@ def _split_lines_for_counting(content: str) -> list[str]:
     return lines
 
 
-def format_size(num_bytes: int) -> str:
+def format_size(num_bytes: int | float) -> str:
     """Format a byte count like Pi's ``formatSize``.
 
     JavaScript's ``toFixed(1)`` rounds an exact tie up (1280 B is ``1.3KB``),
@@ -265,3 +268,57 @@ __all__ = [
     "truncate_line",
     "truncate_tail",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class MiddleTruncationResult:
+    """Pi's ``MiddleTruncationResult``."""
+
+    content: str
+    truncated: bool
+    # Characters (code points) the marker stands for.
+    removed_chars: int
+    total_bytes: int
+    total_lines: int
+
+
+def truncate_middle(content: str, max_bytes: int) -> MiddleTruncationResult:
+    """Keep the start and the end of ``content``, half of ``max_bytes`` each.
+
+    Pi ``truncateMiddle``: the middle is replaced by a ``…N chars truncated…``
+    marker, as Codex does for tool output. Cuts fall only on character
+    boundaries. Bytes are those Node would write, so a lone surrogate counts
+    as U+FFFD; text within the limit is returned as it was given.
+    """
+
+    buf = node_encodable_text(content).encode("utf-8")
+    total_lines = len(_split_lines_for_counting(content))
+    if len(buf) <= max_bytes:
+        return MiddleTruncationResult(
+            content=content,
+            truncated=False,
+            removed_chars=0,
+            total_bytes=len(buf),
+            total_lines=total_lines,
+        )
+
+    def is_boundary(index: int) -> bool:
+        # Continuation bytes (10xxxxxx) are not character starts.
+        return index >= len(buf) or (buf[index] & 0xC0) != 0x80
+
+    head_end = max_bytes // 2
+    while head_end > 0 and not is_boundary(head_end):
+        head_end -= 1
+    tail_start = len(buf) - (max_bytes - max_bytes // 2)
+    while tail_start < len(buf) and not is_boundary(tail_start):
+        tail_start += 1
+    head = buf[:head_end].decode("utf-8")
+    tail = buf[tail_start:].decode("utf-8")
+    removed_chars = len(buf[head_end:tail_start].decode("utf-8"))
+    return MiddleTruncationResult(
+        content=f"{head}…{removed_chars} chars truncated…{tail}",
+        truncated=True,
+        removed_chars=removed_chars,
+        total_bytes=len(buf),
+        total_lines=total_lines,
+    )

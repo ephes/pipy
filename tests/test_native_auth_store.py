@@ -8,6 +8,7 @@ from typing import cast
 from pipy_harness.native.auth_store import (
     AuthStore,
     ProviderAuthRequestConfig,
+    clear_stored_command_results,
     env_api_key,
     find_env_keys,
     provider_auth_status,
@@ -36,6 +37,11 @@ def test_resolve_config_value_command_runs_and_strips():
 
     assert resolve_config_value("!echo hi", env={}, run_command=runner) == "cmd-secret"
     assert calls == ["echo hi"]
+    # JavaScript trim(), as Pi.
+    assert (
+        resolve_config_value("!x", env={}, run_command=lambda c: "\ufeffkey\u3000")
+        == "key"
+    )
 
 
 # ---- env credential detection ----------------------------------------------
@@ -363,6 +369,49 @@ def test_resolve_request_auth_preserves_resolver_and_header_order(tmp_path):
     ]
 
 
+def test_a_stored_command_key_runs_once_per_process(tmp_path):
+    # Pi `AuthStorage.read` resolves a stored key through the cached
+    # `resolveConfigValue` (`commandResultCache`); the models.json `apiKey`
+    # and headers go through the uncached `resolveConfigValueOrThrow`.
+    store = _store(tmp_path)
+    store.set("ds4", {"type": "api_key", "key": "!stored-key"})
+    store.set("other", {"type": "api_key", "key": "!failing"})
+    calls: list[str] = []
+    values = {"stored-key": "stored", "failing": None, "models-header": "h"}
+
+    def run_command(command: str) -> str | None:
+        calls.append(command)
+        return values[command]
+
+    config = ProviderAuthRequestConfig(headers={"X-H": "!models-header"})
+    for _ in range(2):
+        resolved = resolve_request_auth(
+            "ds4",
+            store=store,
+            env={},
+            models_json_config=config,
+            run_command=run_command,
+        )
+        assert resolved.api_key == "stored"
+        assert resolved.headers == {"X-H": "h"}
+        failed = resolve_request_auth(
+            "other", store=store, env={}, run_command=run_command
+        )
+        assert failed.api_key is None
+    # Keyed by the command, whatever provider stores it.
+    store.set("third", {"type": "api_key", "key": "!stored-key"})
+    assert (
+        resolve_request_auth("third", store=store, env={}, run_command=run_command)
+    ).api_key == "stored"
+    assert calls == ["stored-key", "models-header", "failing", "models-header"]
+
+    clear_stored_command_results()
+    assert (
+        resolve_request_auth("ds4", store=store, env={}, run_command=run_command)
+    ).api_key == "stored"
+    assert calls[-1] == "stored-key"
+
+
 def test_resolve_request_auth_authheader_without_key_fails(tmp_path):
     store = _store(tmp_path)
     resolved = resolve_request_auth(
@@ -390,14 +439,15 @@ def test_resolve_request_auth_stored_oauth_via_resolver(tmp_path):
     assert resolved.ok and resolved.api_key == "tok"
 
 
-def test_command_invalid_utf8_is_unavailable(capsys):
+def test_command_invalid_utf8_is_replaced(capsys):
+    # Goal check r3 F3: Node's execSync decodes with U+FFFD.
     import shlex
     import sys
 
     command = shlex.join(
         [sys.executable, "-c", "import os; os.write(1, b'fake-marker\\xff')"]
     )
-    assert resolve_config_value("!" + command, env={}) is None
+    assert resolve_config_value("!" + command, env={}) == "fake-marker\ufffd"
     captured = capsys.readouterr()
     assert "fake-marker" not in captured.out + captured.err
 
@@ -408,6 +458,11 @@ def test_command_unicode_success_and_nonzero():
 
     for script, expected in [
         ("import os; os.write(1, '  clé  '.encode('utf-8'))", "clé"),
+        # Goal check r3 F3, JavaScript trim(): U+FEFF and U+00A0 go, while
+        # U+001C and U+0085, which Python's strip() removes, stay.
+        ("import os; os.write(1, '\\ufefftoken\\n'.encode('utf-8'))", "token"),
+        ("import os; os.write(1, '\\xa0tok\\x1c'.encode('utf-8'))", "tok\x1c"),
+        ("import os; os.write(1, '\\x85tok'.encode('utf-8'))", "\x85tok"),
         ("print('invented'); raise SystemExit(1)", None),
     ]:
         command = shlex.join([sys.executable, "-c", script])
@@ -449,7 +504,6 @@ def test_command_timeout_owns_descendant_group(monkeypatch):
     selector.select.assert_called_once_with(10.0)
     process.wait.assert_called_with(timeout=auth_store._COMMAND_CLEANUP_GRACE)
     process.stdout.close.assert_called_once()
-    process.stderr.close.assert_called_once()
 
 
 def test_command_output_is_bounded(monkeypatch):
@@ -535,12 +589,50 @@ def test_completed_command_does_not_terminate_group(monkeypatch):
     assert signals == []
 
 
-def test_command_stderr_budget_and_exact_limit(monkeypatch):
+def test_command_exact_limit_and_ignored_stderr(monkeypatch):
     from pipy_harness.native import auth_store
 
     monkeypatch.setattr(auth_store, "_COMMAND_OUTPUT_LIMIT", 8)
     assert resolve_config_value("!printf 12345678", env={}) == "12345678"
-    assert resolve_config_value("!printf 12345678; printf x >&2", env={}) is None
+    assert resolve_config_value("!printf 123456789", env={}) is None
+    # As Pi (`stdio: [..., "pipe", "ignore"]`), stderr is not read and does
+    # not count toward the limit.
+    assert resolve_config_value("!printf 12345678; printf x >&2", env={}) == "12345678"
+
+
+def test_command_gets_no_stdin():
+    # Goal check r4, F1: as Pi (`stdio: ["ignore", "pipe", "ignore"]`), a
+    # `!command` cannot read what is piped to pipy, such as a prompt or RPC
+    # input, and that input is still there for pipy afterwards.
+    import subprocess
+    import sys
+
+    script = (
+        "import sys\n"
+        "from pipy_harness.native.auth_store import resolve_config_value\n"
+        "print(repr(resolve_config_value('!cat', env={})))\n"
+        "print(repr(sys.stdin.read()))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        input="piped prompt\n",
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    assert completed.stdout.splitlines() == ["None", "'piped prompt\\n'"]
+
+
+def test_command_output_limit_is_node_max_buffer():
+    # Pi runs the command with `execSync` and Node's default `maxBuffer`.
+    mib = 1024 * 1024
+    big_stderr = "head -c 200000 /dev/zero | tr '\\0' e >&2"
+    assert resolve_config_value(f"!{big_stderr}; printf key", env={}) == "key"
+    exact = resolve_config_value(f"!head -c {mib} /dev/zero | tr '\\0' k", env={})
+    assert exact == "k" * mib
+    over = f"!head -c {mib + 1} /dev/zero | tr '\\0' k"
+    assert resolve_config_value(over, env={}) is None
 
 
 def test_command_cleanup_reaps_even_if_group_signal_fails(monkeypatch):

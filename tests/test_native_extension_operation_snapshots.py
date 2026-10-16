@@ -17,6 +17,7 @@ import pipy_harness.native.repl.extension_attach as extension_attach_module
 from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
+from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.session import CodingSession
@@ -233,9 +234,10 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
             content=content,
             is_error=False,
         )
-        assert transformed.value == "result"
+        assert transformed.content.value == "result"
+        assert transformed.structured_content is NO_STRUCTURED_CONTENT
         if identity:
-            assert transformed is content
+            assert transformed.content is content
     else:
         assert operations.session_allows(
             "switch",
@@ -451,11 +453,19 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         repaint=noop,
         custom_editor=custom_editor,
     )
-    terminal_ui = SimpleNamespace(components=SimpleNamespace(autocomplete=autocomplete))
+    terminal_ui = SimpleNamespace(
+        components=SimpleNamespace(
+            autocomplete=autocomplete,
+            transcript=SimpleNamespace(set_image_options=lambda *_a, **_k: None),
+        ),
+        terminal_stream=io.StringIO(),
+    )
     effect = SimpleNamespace(
         settings=SimpleNamespace(
             get_theme=lambda: None,
             get_autocomplete_max_visible=lambda: 5,
+            get_show_images=lambda: True,
+            get_image_width_cells=lambda: 60,
             load_errors=lambda: {},
             get_quiet_startup=lambda: True,
             project_trusted=True,
@@ -468,6 +478,7 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         error_stream=io.StringIO(),
         cwd=tmp_path,
         resource_options=RuntimeResourceOptions(),
+        session_commands={"/mcp": "Manage MCP servers"},
     )
 
     assert (
@@ -483,6 +494,9 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
     assert autocomplete.shortcut_keys == frozenset({"ctrl-k"})
     assert autocomplete.max_visible == 5
     assert generation_ref.snapshot_calls == 1
+    # The session's own command stays in the menu, after the extensions'.
+    assert autocomplete.command_names[-1] == "/mcp"
+    assert autocomplete.command_descriptions["/mcp"] == "Manage MCP servers"
 
 
 class _GenerationTool:
@@ -663,6 +677,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
             provider_mutation=Mutation(),
             cwd=tmp_path,
             terminal_ui=None,
+            extension_operations=SimpleNamespace(has_ui=False),
             extension_notify=lambda _kind, _message: None,
             settings=SimpleNamespace(project_trusted=True),
         ),
@@ -672,7 +687,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
         tool_name="probe",
         arguments_json=ProductContent("{}"),
     )
-    SessionCollaborators.apply_extension_tool_policy(collaborator, call)
+    SessionCollaborators.apply_extension_tool_policy(collaborator, call, {}, None)
 
     assert len(retained) == 1
     assert retained[0].set_active_tools(()) is True

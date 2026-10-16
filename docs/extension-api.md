@@ -290,7 +290,8 @@ Initial discovery should support:
   -> `~/.config/pipy`
 - Explicit CLI paths: repeated `--extension <PATH>` accepts a Python file, a
   direct extension directory, or a directory of extension candidates. Matching
-  `--no-extensions` disables workspace/global/package discovery but still
+  `--no-extensions` disables workspace/global/package discovery (and the
+  built-in [MCP support](mcp.md#turning-mcp-off)) but still
   honors explicit paths, and explicit paths also override persisted resource
   filters for the same resource name. The same per-run pattern exists for
   `--skill`, `--prompt-template`, and `--theme`.
@@ -354,7 +355,9 @@ async activation before the native session starts.
 
 Activation receives only the extension API. Runtime event handlers receive
 event-specific contexts later. Contribution registration is activation-bounded:
-after activation succeeds or is rejected, every retained `register_*`,
+after activation succeeds or is rejected, every retained `register_*` (except
+`register_tool`, which registers at once while the session runs the
+extension; see "Withdrawing a tool"),
 `unregister_provider(...)`, and direct or decorator-form `on(...)` call raises
 `ExtensionCapabilityError` at that call boundary. This includes void-return
 registrations, `register_flag(...)`, `on(event, handler)`, and `on(event)`; pipy
@@ -436,13 +439,27 @@ class ExtensionTool:
     name: str
     description: str
     input_schema: JsonSchema
-    handler: Callable[["ToolCallContext", Mapping[str, Any]], "ToolResult"]
+    handler: Callable[
+        ["ToolCallContext", Mapping[str, Any]], "ToolResult | Awaitable[ToolResult]"
+    ]
+    # Keyword-only tool metadata; see "Tool model" below.
+    exposure: Literal["direct", "model-only", "codemode", "deferred", "hidden"] = "direct"
+    namespace: "ToolNamespace | None" = None
+    annotations: "ToolAnnotations | None" = None
+    output_schema: JsonSchema | None = None
+    reaches_tools: Callable[[Mapping[str, Any]], Literal["all"] | Sequence[str]] | None = None
+    prepare_arguments: Callable[[Any], Any] | None = None
 
 
 @dataclass(frozen=True)
 class ToolResult:
     content: ToolContent
     details: Mapping[str, Any] | None = None
+    structured_content: Any = NO_STRUCTURED_CONTENT
+    is_error: bool = False
+    # Pi's content array for a result with images: TextContent and
+    # ImageContent values; their text is then the result's text.
+    blocks: tuple["TextContent | ImageContent", ...] = ()
     terminate: bool = False
 
 
@@ -489,6 +506,14 @@ class PipyExtensionAPI(Protocol):
         renderer: Callable[..., object],
     ) -> None: ...
 
+    def register_tool_renderer(self, resolver: "ToolRendererResolver") -> None: ...
+
+    def register_mcp_server(self, name: str, config: Mapping[str, Any]) -> None: ...
+
+    def unregister_mcp_server(self, name: str) -> None: ...
+
+    def get_mcp_servers(self) -> list["RegisteredMcpServer"]: ...
+
     def register_provider(self, provider: "ExtensionProvider") -> None: ...
 
     def unregister_provider(self, name: str) -> None: ...
@@ -509,7 +534,6 @@ class PipyExtensionAPI(Protocol):
     # activation-time API only registers the renderer.
 
     def get_commands(self) -> Sequence["CommandInfo"]: ...
-    def get_all_tools(self) -> Sequence["ToolInfo"]: ...
     def on(self, event: str, handler: Callable[..., object] | None = None) -> object: ...
 
 
@@ -540,6 +564,7 @@ class CommandContext(Protocol):
 
     def complete(self, system_prompt: str, user_text: str) -> str: ...
     def set_active_tools(self, tool_names: Sequence[str]) -> bool: ...
+    def get_all_tools(self) -> tuple["ToolInfo", ...]: ...
     def set_model(self, reference: str) -> bool: ...
     def set_thinking_level(self, level: str) -> bool: ...
     def append_entry(self, custom_type: str, data: object | None = None) -> object: ...
@@ -554,6 +579,11 @@ small reviewed slices.
 `api.on(...)` should support both direct registration and decorator style:
 `api.on("tool_call", handler)` and `@api.on("tool_call")`.
 
+`send_user_message(content, options)` accepts `options` and ignores them:
+Pi's `deliverAs` (steer, follow-up) and `expandPromptTemplates` are not
+honoured, so the message is queued as a plain prompt, without command or
+prompt-template expansion.
+
 ## Event Hooks
 
 Event names should mirror Pi where the lifecycle concept matches. The full
@@ -562,10 +592,10 @@ target vocabulary includes:
 | Event | Purpose | Allowed return |
 | --- | --- | --- |
 | `project_trust` | Let pre-trust global/CLI extensions decide whether protected project inputs may load. **Shipped.** | `{trusted: "yes"|"no"|"undecided", remember?: bool}` |
-| `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
-| `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
+| `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. `event.reason` is `"startup"`, `"reload"`, `"new"`, `"resume"` (also `/import`) or `"fork"` (also `/clone`); after another session replaced this one `event.previous_session_file` is the file of the session before (Pi `SessionStartEvent`). | None |
+| `session_shutdown` | Cleanup local extension state before exit or session switch. `event.reason` is `"quit"`, `"new"`, `"resume"` or `"fork"`; on a switch `event.target_session_file` is the file of the session that follows (Pi `SessionShutdownEvent`). | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
-| `input` | Observe or transform submitted user input before a provider turn. | None or `InputTransform` |
+| `input` | Observe or transform submitted user input before a provider turn, or handle it so that no turn starts (`InputHandled`, Pi's `{action: "handled"}`; later hooks then do not run). A prompt of print, JSON or RPC mode, a queued RPC `steer`, `follow_up` or `prompt` (when it is queued), and a skill, template or custom command line typed into a session (also one naming a skill that does not exist, which then goes to the model as it stands) reach the hooks before skill and template expansion, as in Pi; another line typed into a session reaches them when its turn is prepared, so a template the hooks' text names is not expanded. | None, `InputTransform` or `InputHandled` |
 | `user_bash` | Observe or gate a user-run bash command entered via Pi's `!`/`!!` prefix, including whether it is excluded from model context. | None or `UserBashDecision` |
 | `before_agent_start` | Inject bounded context, alter system-prompt options, or add safe custom messages before a turn. | None or `BeforeAgentStartResult` |
 | `agent_start` | Observe a low-level agent run starting, including each admitted retry continuation. | None |
@@ -576,7 +606,7 @@ target vocabulary includes:
 | `context` | Observe or contribute bounded context before provider-visible context is finalized. | None or `ContextContribution` |
 | `message_start` / `message_update` | Observe assistant/user/tool-result message lifecycle events. | None |
 | `message_end` | Observe or replace the finalized message before later lifecycle hooks see it. | None or `MessageTransform` |
-| `tool_call` | Inspect, mutate within policy, or block a model-selected tool call before execution. | None or `ToolBlock` |
+| `tool_call` | Inspect, change the arguments of, or block a tool call after its arguments were validated and before it runs. | None or `ToolBlock` |
 | `tool_execution_start` | Observe extension or native tool execution starting. | None |
 | `tool_execution_update` | Observe bounded progress updates from running tools. | None |
 | `tool_execution_end` | Observe extension or native tool execution ending after `tool_result` hooks have produced the finalized result. | None |
@@ -592,6 +622,7 @@ target vocabulary includes:
 | `session_compact` | Observe completed compaction metadata. | None |
 | `session_before_tree` | Observe or block tree/session-history navigation before it starts. | None or `SessionDecision` |
 | `session_tree` | Observe completed tree/session-history navigation metadata. | None |
+| `mcp_servers_change` | Observe a change of the [MCP servers extensions registered](#mcp-servers). Handling it marks the extension as the one that connects them. **Shipped.** | None |
 
 Ordinary retries call agent/turn lifecycle hooks for each attempt, while input,
 before_agent_start and before_provider_request hooks run once for the captured
@@ -602,6 +633,69 @@ and queued continuations reach true idle. In RPC, the final agent_end hook runs
 before the buffered terminal agent_end envelope and logical claim settlement;
 intermediate retry envelopes precede their hooks. A blocking final hook therefore
 keeps get_state.isStreaming true and a queued successor pending until it returns.
+
+<a id="prompt-sections"></a>
+### `before_agent_start`: the prompt and its sections
+
+A `before_agent_start` handler runs once before a run starts, after the
+`input` handlers. Its event has:
+
+- `event.system_prompt`: the prompt for the sections as they are when it is
+  read, as in Pi: it shows what earlier handlers and the handler itself
+  changed, followed by the text earlier handlers appended.
+- `event.system_prompt_options.sections`: a `dict` of the prompt sections the
+  run adds to pipy's own, name to text. pipy puts the list of MCP servers
+  there as `mcp_servers` (see
+  [MCP](mcp.md#the-servers-in-the-system-prompt)); otherwise it is empty.
+
+Change the `dict` in place to change the coming request's prompt:
+
+```python
+from pipy_harness.extensions import BeforeAgentStartResult
+
+
+def activate(api):
+    @api.on("before_agent_start")
+    def sections(event, ctx):
+        sections = event.system_prompt_options.sections
+        sections["review_rules"] = "Never approve a change without tests."
+        sections.pop("mcp_servers", None)  # do not list the MCP servers
+```
+
+- A new name adds a section. The text is wrapped in a tag of that name
+  (`<review_rules>` ... `</review_rules>`) and follows the prompt's last
+  section; several new sections keep the order they were set in.
+- The name of a section the prompt already has (`tools`, `rules`, `docs`,
+  `addendum`, `project_context`, `skills`, `cwd`, `resume`) replaces that
+  section's text where it stands. pipy's own sections are not in the `dict`;
+  read them from `event.system_prompt`.
+- Deleting a name takes the run's own section out again. An empty text does
+  the same for a new name and leaves one of pipy's sections as it is.
+- A name must match `[a-z][a-z0-9_-]*` and must not be `preamble`, and a text
+  must be a string. pipy leaves any other entry out and reports it
+  (`pipy: ignored invalid system prompt section '<name>' set by a
+  before_agent_start hook`).
+
+The `dict` is built anew for every run, so set a section in every run you
+want it in. Later handlers see the changes of earlier ones, in the `dict` and
+in `event.system_prompt`; what a handler changed before it raised stays.
+
+Sections are recorded in the conversation: when a run's sections differ from
+the ones the conversation has, only the changed ones are appended as a change
+of the system prompt (a section that is gone is removed by name), and earlier
+messages stay as they are. Returning
+`BeforeAgentStartResult(append_system_prompt=...)` works differently: the
+text is appended to the prompt of that one run and is not recorded. Prefer
+sections where a provider's prompt cache matters.
+
+Different from Pi: `system_prompt_options` has only `sections`. Pi's other
+fields (`selectedTools`, `toolSnippets`, `toolGuidelines`,
+`promptGuidelines`, `appendSystemPrompt`, `contextFiles`, `skills`,
+`customPrompt`, `forceSystemPrompt`) do not exist, and the event has no
+`messageType`, `prompt` or `images`. `event.system_prompt` also holds the
+text earlier handlers appended with `append_system_prompt`. An invalid
+section name fails the prompt in Pi; pipy reports it and goes on. Assign into the `dict`; replacing
+`system_prompt_options.sections` with another `dict` is not possible.
 
 ### D6b public and RPC transition ordering
 
@@ -629,10 +723,20 @@ including a hook failure, returns the one stable public `extension_refusal` and
 the RPC cancelled projection. No adapter infers a hook crash from diagnostic
 text. Neither case writes a child/fresh session, publishes a candidate tree, or
 emits a completed transition observation. A successful
-transition's public observation is its one immutable result. It does not send
-`session_shutdown` followed by `session_start`, a new extension completion
-event, or a UI rebind: those bookends continue to occur once when the
-encompassing facade starts and retires. D6b3 owns the single RPC event/UI rebind
+transition's public observation is its one immutable result. As in Pi's
+`AgentSessionRuntime`, it sends `session_shutdown` (with the transition's
+reason and `target_session_file`) just before the new tree is published, and
+delivers what its handlers sent with `send_message` to the outgoing session (a
+`send_user_message` there starts no run in the new session, and what a message
+renderer sends during that delivery is dropped), and
+`session_start` (with the reason and `previous_session_file`) after the new
+session's history, settings, tool selection and MCP servers are in place; it
+sends no new extension completion event and no UI rebind. The extensions stay
+loaded: the same extension instances receive both events. Where Pi loads the
+extensions again for the new session, pipy forgets, before the MCP servers
+start again, the tools, tool renderer resolvers and MCP servers they
+registered after loading, so the new session has what `activate(api)` and
+its own `session_start` handlers register. D6b3 owns the single RPC event/UI rebind
 after an accepted native transition; refusal and same-target no-op do not
 rebind. The state-first tree/context rebuild
 boundary is not an atomic transaction; a post-publication rebuild error retires
@@ -675,6 +779,7 @@ session startup; `/reload` intentionally starts a fresh batch.
 @dataclass(frozen=True)
 class ToolBlock:
     reason: str
+    terminate: bool = False
 
 
 def activate(api):
@@ -690,7 +795,7 @@ def activate(api):
 
 Hook event objects may expose live runtime data to trusted local Python
 extensions when the event requires it. For example, `tool_call` must expose the
-live tool name and parsed input so permission gates can inspect a bash command
+live tool name and validated input so permission gates can inspect a bash command
 or write path. That live access does not change archive policy: the
 metadata-only workflow archive/catalog must not store prompts, raw tool inputs,
 raw tool results, file contents, provider payloads, secrets, or UI text unless
@@ -737,6 +842,8 @@ implemented as Python attributes and methods. The target context should expose:
   capability, not the mutable recorder.
 - `ctx.model`: current provider/model selection and safe capability metadata.
 - `ctx.signal`: cancellation signal for active turns and tools.
+- `ctx.on_update(partial)`: a running tool's partial result (Pi `onUpdate`),
+  see [partial results](#partial-results).
 - `ctx.get_system_prompt()`: the current chained system prompt or safe
   system-prompt view for hooks that may affect it.
 - `ctx.get_context_usage()`: safe context/window usage counters when known.
@@ -751,20 +858,45 @@ Extension tools are model-visible tools that join the bounded tool registry.
 
 Rules:
 
-- Tool names must not shadow built-ins unless a later explicit override policy
-  is designed.
-- Tool schemas use the same JSON-schema subset as native tools.
-- Tool descriptions are model-visible and should support optional
-  tool-specific prompt guidance in a later slice.
+- The names of the seven built-in file and shell tools are reserved. An
+  extension tool named `codemode` or `tool_search` replaces the built-in
+  tool of that name, see [Replacing built-in tools](#replacing-built-in-tools).
+- Of two extensions that register the same tool name, the one that loaded
+  first has it, as in Pi: the other extension's tool of that name is left out
+  silently, and that extension stays enabled with its other tools, commands
+  and hooks. This also holds for registrations while the session runs: a
+  later-loaded extension cannot take the name, an earlier-loaded one takes it
+  over. An extension that registers one of its own tool names again replaces
+  its earlier registration, as in Pi.
+- An extension tool's input schema is any JSON Schema object with
+  `type: "object"`, as Pi's TypeBox `parameters` are: `number`, `null`,
+  unions and `$ref` work. pipy holds it to `schema_mode="foreign"`, as an
+  MCP server's tool (see [Tool model](#tool-model)): extra properties are
+  allowed unless `additionalProperties` forbids them.
+- Tool descriptions are model-visible; `prompt_snippet` and
+  `prompt_guidelines` add the tool to the system prompt (see "Extension tool
+  metadata" below).
 - Tool handlers receive a workspace-scoped context with safe helper methods.
-- Tool handlers receive parsed input, a cancellation signal, and a progress
-  callback or sink for partial updates.
+- A tool, command or shortcut handler may be an `async def` function, as Pi's
+  are: pipy runs the coroutine to its end on the thread that called the
+  handler (its own event loop, or a helper thread when that thread already
+  runs one) and uses what it returns or raises like a synchronous handler's.
+- Tool handlers receive parsed input and a context with the cancellation
+  signal (`ctx.signal`) and `ctx.on_update(...)`, which publishes a partial
+  result (Pi `onUpdate`); see [partial results](#partial-results).
 - Tool results use Pi-shaped `content` plus `details`, where `content` is the
   provider-visible result and `details` is structured local state/metadata that
   can support rendering, state reconstruction, or later hooks.
-- Tool handlers may signal early termination for workflows where the tool
-  result is final and no automatic follow-up model turn is needed.
-- Raised exceptions become bounded tool errors, not uncaught session crashes.
+- A tool result may also carry `structured_content` and `is_error`; see
+  "Extension tool metadata" below.
+- A tool result may set `terminate=True` when it is final and no automatic
+  follow-up model turn is needed; the batch ends only when every result in
+  it asks, see [ending the batch](#ending-the-batch).
+- A handler that raises fails the call, not the session: as in Pi, the
+  exception's message is the error result the model sees (the type name
+  when the message is empty), with characters that would steer a terminal
+  replaced by spaces and its length bounded. It reaches a caller through
+  `ctx.execute_tool` or a codemode script the same way.
 - Stateful tools should be able to reconstruct safe local state from prior
   result `details` or extension-owned append-only entries.
 - Tool results are bounded before returning to the model.
@@ -772,6 +904,898 @@ Rules:
 - Shell execution, network access, and writes require explicit future
   permission policy. Until that policy exists, extension tools should be
   read-only or pure transformations.
+
+### Tool model
+
+Every tool, built-in, extension or MCP, is described by one native
+`ToolDefinition` (`native/tools/base.py`). Besides the name, description and
+input schema it carries the metadata Pi's tools carry, with Pi's meaning:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `exposure` | `direct` (default), `model-only`, `codemode`, `deferred`, `hidden` | How the model reaches the tool. `direct`: declared while active and callable from scripts while active. `model-only`: declared while active, never callable from scripts. `codemode`: callable from scripts whenever registered, listed in the codemode description, not declared unless activated. `deferred`: as `codemode`, but not listed; tool search finds it. `hidden`: registered but unreachable. |
+| `namespace` | `ToolNamespace(name, aliases, description, instructions)` | The group the tool belongs to, such as one MCP server. |
+| `annotations` | `ToolAnnotations` with `read_only_hint`, `destructive_hint`, `idempotent_hint`, `open_world_hint` | The author's hints about what the tool does. They are reported, not verified. |
+| `output_schema` | a JSON Schema object | The shape of the tool's `structured_content`. Declared, not enforced. |
+| `reaches_tools` | a function from the call input to `"all"` or a tuple of words | For a tool that reaches other tools: which ones a call may reach. |
+| `schema_mode` | `strict` (default), `foreign` | Which input schemas the definition accepts. |
+
+The defaults describe today's tools, so existing tools are unchanged.
+Extension tools set these fields on `ExtensionTool` (next section).
+
+The exposure decides two sets:
+
+- **Declared** to the model: the active tools, without `hidden` ones.
+  Registering a `direct` or `model-only` tool activates it. A `codemode` or
+  `deferred` tool is not activated by being registered; it is declared only
+  after something names it, such as `ctx.set_active_tools([...])`. The model
+  cannot call a tool that is not declared: a call to it is answered with
+  Pi's `Tool <name> not found`. A tool that `--tools`, `--exclude-tools` or
+  `--no-tools` removed is not declared when something names it, and neither
+  is an [MCP tool](usage.md#mcp-tools) that a `--tools` list keeps without
+  naming it (unless `tool_search` could load it).
+  `ctx.set_active_tools([...])` still accepts such a name. As in Pi it
+  ignores a name that no tool has and a `hidden` tool, and makes the other
+  names the active tools; it returns `False` only when the context can no
+  longer change the session. Naming the built-in `codemode` activates it
+  also when nothing selected it before: pipy then registers it, which runs
+  its runtime self-test once (Pi always has it registered, inactive). When
+  the runtime is unavailable, or `--tools`, `--exclude-tools` or
+  `--no-tools` removed it, the name is ignored like one that no tool has.
+- **Callable** from a [codemode](codemode.md) script: the active `direct`
+  tools and every registered `codemode` or `deferred` tool, whether or not it
+  is active. `model-only` and `hidden` tools and `codemode` itself are never
+  callable. A tool that `--tools`, `--exclude-tools` or `--no-tools` removed is
+  not callable either.
+
+A script's nested calls pass the same argument validation and the same
+`tool_call` and `tool_result` hooks as a direct call. An extension tool
+reaches the same callable tools with `ctx.execute_tool`; see
+[running other tools](#running-other-tools).
+
+While the built-in `codemode` tool is declared it changes what the model
+sees of the other tools, never what is registered or what
+`ctx.get_all_tools()` reports: with `codemode.mode` `on` (the default) a
+declared tool that scripts can call gets a last line in its description,
+``Codemode: `tools.<name>(args)` resolves to a string.``, and with `only`
+active `direct` tools are left out of requests and listed in the `codemode`
+description. See [what the model is told](codemode.md#what-the-model-is-told).
+A `before_provider_request` hook sees the tools a request declares, so with
+`only` it does not see the tools that were left out. An extension tool does
+the same with `prepare_loadout`; see
+[presenting the loadout](#presenting-the-loadout).
+
+`schema_mode="strict"` holds the input schema to the JSON-schema subset above
+and caps the description at 4 KiB. `schema_mode="foreign"` is for schemas pipy
+did not write, such as an MCP server's or an extension's: the schema only has to be a JSON
+object with `type: "object"`, the description has no cap, and the schema
+reaches the provider unchanged. Arguments of a foreign tool are checked by a
+standard-library validator (`native/tools/foreign_schema.py`) that enforces
+what Pi's TypeBox validator does, except `unevaluatedProperties`,
+`unevaluatedItems`, `$dynamicRef`, `$recursiveRef`, a `$ref` outside the
+schema or under a nested `$id`, and the formats `hostname`, `idn-hostname`, `idn-email`, `iri`,
+`iri-reference`, `url` and `regex`; patterns are Python regular expressions
+and string lengths count code points. For those the tool's owner stays the
+authority on what it accepts. The validator never rejects arguments because
+of a keyword it does not enforce: a `oneOf` refuses a value two branches
+match only when it enforces both in full, and `not`, `if` and `maxContains`
+decide likewise only for schemas it enforces in full.
+Before validating, pipy prepares the arguments as Pi's
+`validateToolArguments` does for such a schema: an optional property sent as
+`null` is dropped when its schema does not allow `null`, and primitives are
+converted to the types the schema names (`"5"` to `5`, `"true"` to `true`, a
+number to a string, `null` to `0`, `false` or `""`). Pi then validates with a
+full JSON Schema implementation.
+
+A tool result may carry `structured_content`, the machine-readable result for
+programmatic callers such as codemode scripts. As in Pi it is never sent to a
+provider and is not written to the session file; `content` stays the
+model-facing result.
+
+### Extension tool metadata
+
+`ExtensionTool` takes the metadata as keyword arguments. `ToolNamespace`,
+`ToolAnnotations` and `ToolInfo` are importable from `pipy_harness.extensions`.
+
+```python
+from pipy_harness.extensions import (
+    ExtensionTool, ToolAnnotations, ToolNamespace, ToolResult,
+)
+
+def activate(api):
+    api.register_tool(ExtensionTool(
+        name="find_issue",
+        description="Find an issue by key.",
+        input_schema={"type": "object", "properties": {"key": {"type": "string"}},
+                      "required": ["key"]},
+        handler=find_issue,
+        exposure="codemode",
+        namespace=ToolNamespace(
+            name="tracker",
+            aliases=("issues",),
+            description="Issue tracker",
+            instructions="Search before you create an issue.",
+        ),
+        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=True),
+        output_schema={"type": "object", "properties": {"title": {"type": "string"}}},
+    ))
+```
+
+- `exposure` is one of the five values in the table above. Any other value
+  disables the extension with `invalid_tool`, as does a `namespace` that is not
+  a `ToolNamespace`, `annotations` that are not `ToolAnnotations`, an
+  `output_schema` that is not a JSON object, or a `reaches_tools` that is not
+  callable.
+- `namespace.aliases` is a tuple of other names the group can be looked up by.
+  `description` is the short summary shown with the group; `instructions` is
+  longer guidance that is only returned when the namespace is described on
+  request. Codemode scripts look a namespace up with
+  `describe_namespace(name)` and `search_tools(query, namespace=name)`, by its
+  name or an alias, as written or as the same identifier (`my-docs` and
+  `my_docs` match alike); see [codemode globals](codemode.md#globals).
+- `annotations` have the meaning of MCP tool annotations. Each hint is `True`,
+  `False` or `None` (no hint). Missing hints take the MCP defaults: a tool is
+  not read-only, and may be destructive and reach an open world. pipy does not
+  verify them.
+- `output_schema` is the JSON Schema of the tool's `structured_content`. It may
+  use any JSON Schema keyword, as the input schema may. pipy keeps a copy made
+  at registration and does not enforce it.
+- `reaches_tools(input)` is for a tool that reaches other tools. It returns
+  `"all"`, or the words of the input that may name the tools it reaches; a
+  word refers to every tool or namespace whose name it contains, so words may
+  over-match. The built-in `codemode` tool declares it: `"all"` for a script
+  that uses `search_tools`, `describe_tool`, `describe_namespace` or
+  `ALL_TOOLS`, otherwise the words of the script. `tool_search` declares
+  `"all"`.
+
+  pipy uses the reach before each call of the tool, after the `tool_call`
+  handlers: it waits for the MCP servers that are still connecting and that
+  the call may reach, so their tools are registered when the handler runs.
+  `"all"` waits for every enabled server; a word waits for the server whose
+  namespace (`mcp__<server>`, with `-` as `_`) it contains. Returning `None`
+  for a call means the call reaches no other tool. The function runs on the
+  session thread and must not block. If it raises, or returns something
+  else, the call waits for every server (Pi fails the call). See
+  [waiting for servers](mcp.md#waiting-for-servers).
+
+- `default_active=False` registers a `direct` or `model-only` tool without
+  activating it (Pi `defaultActive`). It is declared once something names
+  it: `--tools`, the `defaultTools` setting or `ctx.set_active_tools(...)`.
+  The other exposures are never activated by being registered.
+- `prepare_loadout(loadout)` is for a tool that presents other tools; see
+  [presenting the loadout](#presenting-the-loadout).
+- `prompt_snippet` is one line for the tool list of pipy's default system
+  prompt (Pi `promptSnippet`): `- <name>: <snippet>`. A tool without one is
+  not listed there. Line breaks and runs of spaces become single spaces.
+- `prompt_guidelines` is a list of bullets the default system prompt adds to
+  its rules while the tool is declared (Pi `promptGuidelines`); each is
+  trimmed, and empty and repeated ones are left out. A codemode script that
+  reaches the tool sees them with its description in `ALL_TOOLS`,
+  `describe_tool()` and the `codemode` description, since the prompt lists
+  them for declared tools only. A custom system prompt (`--system-prompt`,
+  `SYSTEM.md`) has no tool list or rules, so neither field shows there.
+- `execution_mode="sequential"` (Pi `executionMode`) runs the calls other
+  tools make of this tool one at a time; see
+  [running other tools](#running-other-tools). Use it when the tool keeps
+  mutable state in memory. `None` (the default) and `"parallel"` let them
+  run at the same time. The calls the model makes run one at a time in
+  any case.
+- `prepare_arguments(arguments)` (Pi `prepareArguments`) receives a call's
+  parsed arguments before they are validated and returns the arguments to
+  validate and run instead, for example to accept an older argument shape.
+  It runs once per call, before the `tool_call` handlers, also for calls
+  made by scripts and `ctx.execute_tool`. If it raises, the call ends with
+  the exception's message as its error result, as a raising handler's does,
+  and reaches no handler. A value that is not callable disables the extension with
+  `invalid_tool`.
+
+**Results.** A handler that returns data declares an `output_schema` and
+returns the data as `ToolResult(structured_content=...)` next to `content`. It
+is any JSON value, `None` being `null`; a value that is not JSON is dropped,
+and the result keeps a copy. A result without structured content has
+`NO_STRUCTURED_CONTENT` there (importable from `pipy_harness.extensions`), the
+default, as Pi's has `undefined`. To report a failure that still carries data, return the result with
+`is_error=True` instead of raising: the model sees `content` as an error, and
+the result keeps its `details` and `structured_content`. A codemode script
+that calls a tool with an `output_schema` receives the structured content as a
+Python value instead of the text, also from a result with `is_error=True`; a
+tool without an `output_schema` gives scripts its text, and its failures raise
+`ToolError` there. See [codemode](codemode.md#writing-a-script).
+
+**Images.** A result with images is Pi's content array: return
+`ToolResult(content="", blocks=(TextContent("..."), ImageContent(data,
+"image/png")))` with `TextContent` and `ImageContent` from
+`pipy_harness.extensions` (`data` is base64). The model receives the blocks
+in their order, and the text of the text blocks, joined by newlines, is the
+result's text; `content` is then not used. Their text is bounded to 60 KiB,
+the bound of `tool_result` handlers, so the bound never costs the result its
+images: past it, the text block that reaches it is cut and marked, later
+text blocks are left out, and images are kept whole. Anything else in
+`blocks` makes the result the error `extension tool error: invalid result
+blocks`.
+
+<a id="ending-the-batch"></a>
+**Ending the batch.** `ToolResult(..., terminate=True)` asks the agent to
+stop after the current tool batch, as Pi's `terminate` does: when every
+result of the tool calls of one model response asks for it, the run ends
+after their results without the automatic follow-up provider turn. A
+result without it, such as the error of a malformed call, an unknown tool or
+a call over the tool budget, does not end the batch. Only `True` asks (Pi
+`terminate === true`).
+A `tool_call` handler that blocks a call can return `ToolBlock(reason,
+terminate=True)` to give the blocked call's error result the hint, as Pi's
+`ToolCallEventResult.terminate` does. `tool_result` handlers keep the hint as
+the tool set it; as in Pi, `ToolResultTransform` has no field for it. A
+queued steering or follow-up message still starts its own run afterwards,
+and the result of a call another tool made (`ctx.execute_tool`, a codemode
+script) carries the hint on its outcome (`outcome.result.terminate`) but
+ends nothing. JSON and RPC `tool_execution_end` events show it as
+`result.terminate: true`; the session file does not keep it, as in Pi.
+
+<a id="partial-results"></a>
+**Partial results.** A running tool publishes a partial result with
+`ctx.on_update(ToolResult(...))` (also `ctx.onUpdate`), Pi's `onUpdate` of
+`execute`, from the handler's thread or one it started. Each one replaces
+the one before: its text (the text of its `blocks` when it has them; unlike
+Pi, its images are not passed on), bounded to 32 KiB like the final result, and `details` (a
+JSON object) become JSON and RPC `tool_execution_update` with
+`partialResult`, the `on_update` of a calling tool (`ctx.execute_tool`), and
+a line of the call's live row. A partial result that is not a `ToolResult`
+raises `TypeError`. Updates sent after the handler returned are dropped, as
+in Pi. In the context of a command or hook, and of a tool whose updates
+nothing receives, `on_update` does nothing.
+
+```python
+def index(ctx, params):
+    for done, path in enumerate(params["paths"], 1):
+        ctx.on_update(ToolResult(content=f"indexed {done}/{len(params['paths'])}",
+                                 details={"done": done}))
+        ...
+    return ToolResult(content="indexed")
+```
+
+**Call hooks.** A `tool_call` handler receives a `ToolCallEvent` with
+`tool_name`, `input`, `tool_call_id` and `parent_tool_call_id`. The handlers
+run after argument validation, as in Pi: a call whose arguments do not fit
+the tool's schema gets the validation error and reaches no `tool_call` or
+`tool_result` handler. `input` is the validated arguments, the very dict the
+tool runs with: to change the arguments, change `event.input` in place
+(`event.input["path"] = ...`). Later handlers see the change, and the tool
+runs with what the last handler left; the transcript keeps the arguments the
+model sent. `tool_call_id` is the call's id. A call another tool made, a
+codemode script's or one through `ctx.execute_tool`, has the id
+`<calling id>/<n>`, and its `parent_tool_call_id` is the calling tool's id;
+for a call the model made it is `None`. Different from Pi: the tool validates
+changed arguments again, so a change the schema refuses gives the validation
+error instead of running the tool (it does not count as a malformed call of
+the model), and a handler that leaves a value that is not JSON in `input`
+blocks the call with `tool_call hooks left arguments that are not JSON`.
+
+**Result hooks.** A `tool_result` handler receives a `ToolResultEvent` with
+`tool_name`, `content` (the result's text), `blocks` (Pi's content array of
+`TextContent` and `ImageContent` when the result has an image, else empty),
+`is_error`, `structured_content` (`NO_STRUCTURED_CONTENT` when there is none;
+`None` is the value `null`), `details`, `input` (the arguments the tool ran
+with), `tool_call_id` and `parent_tool_call_id` (as for
+[call hooks](#extension-tool-metadata)); treat the values as read-only. It may
+return a `ToolResultTransform`, Pi's `ToolResultEventResult`; a field it
+leaves at its default stays as it is:
+
+- `content` replaces the whole content with a text, images included, so
+  `ToolResultTransform(content="")` removes an image-only result's image.
+  `blocks` replaces it with text and image blocks instead (and wins over
+  `content`); blocks of anything else make the transform change nothing.
+  Replaced text is bounded to 60 KiB like an extension tool's blocks.
+- The structured content belongs to the content it was produced with:
+  `structured_content` replaces the result's (a value that is not JSON is
+  dropped), and replaced content without one drops it, because it may no
+  longer match. A handler that redacts `content` of a tool with an output
+  schema therefore returns the redacted structured value as well, or scripts
+  receive the redacted text.
+- `is_error` replaces the error flag and `details` (a JSON object) the
+  details. The result's `terminate` hint stays as the tool set it (see
+  [ending the batch](#ending-the-batch)).
+
+Later handlers see what earlier ones left. A handler that returns nothing,
+raises, or returns a field of the wrong kind changes nothing. A call whose
+arguments failed validation, or that a `tool_call` handler blocked, reaches no
+`tool_result` handler, as in Pi. Pi's transform can also replace usage; pipy
+counts no usage of tools (DEV-13).
+
+**Listing tools.** `ctx.get_all_tools()` returns a `ToolInfo` for every
+registered tool, built-in and extension, active or not (the built-in
+[`tool_search`](mcp.md#tool-search) is registered inactive, and naming it in
+`ctx.set_active_tools(...)` activates it), in registration order, without the
+tools that `--tools`, `--exclude-tools` or `--no-tools` removed. After them
+come the [MCP tools](mcp.md#when-tools-change) that are no longer registered,
+because their server withdrew them or was disabled, with exposure `hidden`, as
+Pi lists them; they are listed only, never declared or callable. Each entry has
+`name`, `description`, `input_schema` (a copy), `exposure`,
+`namespace`, `annotations`, `reaches_tools` (the function, or `None`),
+`prompt_guidelines` (as registered), `output_schema` (a copy, or `None`) and
+`execution_mode` (`"sequential"`, `"parallel"` or `None`). It
+is available in command, shortcut, hook and tool handler contexts of a
+session and raises `ExtensionCapabilityError` where no session backs the
+context. In Pi this is `pi.getAllTools()`; pipy puts it on the context, next
+to `ctx.set_active_tools(...)`. Pi's entries also carry `sourceInfo`, which
+says which built-in, extension or SDK call registered the tool; pipy's have
+no such field. A permission hook can decide by the annotations:
+
+```python
+@api.on("tool_call")
+def gate(event, ctx):
+    hints = next(
+        (tool.annotations for tool in ctx.get_all_tools()
+         if tool.name == event.tool_name),
+        None,
+    )
+    if hints is not None and hints.destructive_hint is True:
+        return ToolBlock(reason=f"{event.tool_name} was not approved")
+```
+
+**Withdrawing a tool.** Tools cannot be unregistered. Register the name again
+with `exposure="hidden"` to withdraw it: the tool stays registered and
+`get_all_tools()` reports it as `hidden`, but no request declares it,
+`ctx.set_active_tools(...)` cannot bring it back, and a model call to it is
+answered with `Tool <name> not found`. As in Pi it leaves the active tools: registered
+again as `codemode` or `deferred`, it is declared only once something names
+it again. As in Pi, `api.register_tool` stays usable while
+the session runs the extension, for example from a command: the tool is
+published at once, and the next request no longer declares a withdrawn tool;
+the transcript tells the model that it was removed. Such a registration may
+add a new tool or register one of the extension's own tools again; it raises
+`ExtensionCapabilityError` and changes nothing for an invalid tool and a
+reserved name, and once `/reload` replaced the extensions or the session ended
+(an `api` kept from before). A name another extension has goes to the one of
+the two that loaded first (see [Tools](#tools)). A tool registered
+in a `session_start` handler is kept across `/reload` that way too.
+Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+`/import`) forgets the tools registered after loading, as Pi's new runtime
+loads the extensions again; its `session_start` handlers register theirs
+anew. A tool that becomes `direct` or
+`model-only` is activated like a new one. `api.register_tool_renderer` also
+works while the session runs (see [Tool rendering](#tool-rendering)); the
+other `register_*` methods stay closed after `activate(api)`.
+
+### Running other tools
+
+A tool handler can run other tools while it runs. Its context is an
+`ExtensionToolContext` (importable from `pipy_harness.extensions`): the
+extension context plus `tools` and `execute_tool`.
+
+```python
+def read_all(ctx, params):
+    parts = []
+    for path in params["paths"]:
+        outcome = ctx.execute_tool("read", {"path": path})
+        if outcome.is_error:
+            return ToolResult(
+                content=f"{path}: {outcome.result.content}", is_error=True
+            )
+        parts.append(outcome.result.content)
+    return ToolResult(content="\n".join(parts))
+```
+
+- `ctx.tools` is a tuple of `ToolInfo`, one per tool `execute_tool` can
+  call, in registration order: the callable tools of the
+  [tool model](#tool-model), as they were when the tool the model called
+  started, the tool itself included when it is callable. A tool that is
+  `model-only` is not in the list and cannot be called this way. Each entry
+  carries the tool's `output_schema` and `execution_mode`, as Pi's
+  `AgentTool` entries carry `outputSchema` and `executionMode`, so a tool
+  that orchestrates others can tell which ones return typed
+  `structured_content`.
+- `ctx.execute_tool(name, arguments, *, signal=None, on_update=None)` (also
+  `ctx.executeTool(name, arguments, {"signal": ..., "onUpdate": ...})`) runs the tool
+  and returns a `ToolCallOutcome`, Pi's `AgentToolCallOutcome`:
+  `tool_call` (a `ToolCallInfo` with the call's `id`, `name` and
+  `arguments`), `result` (a `ToolResult` with `content`, `details`,
+  `structured_content`, `is_error` and, for a result with images, its
+  `blocks`), `is_error`, and `duration_ms`, how long the call took (`None`
+  for a name that is not callable). A tool can return the `blocks` of a
+  nested result as its own, so an MCP screenshot reaches the model as an
+  image. `arguments` is a mapping, or nothing
+  for a tool without arguments. `signal`, a `threading.Event`, cancels this
+  call alone when it is set: it ends with the error
+  `tool cancelled by its caller`. Without it the call uses `ctx.signal`, the
+  calling tool's own cancellation signal (`None` where it has none).
+  `on_update` receives each partial result of the tool as a `ToolResult`
+  (Pi `onUpdate`), on the thread that produced it; what it raises is
+  ignored. An MCP tool's progress is a partial result with the progress text
+  as `content` and `{server, tool}` as `details`, which replaces the one
+  before it; for `bash` each partial result's `content` is the output so
+  far, as in Pi: the last 2000 lines or 50 KB, with `details` holding the
+  `truncation` once it is cut and the `fullOutputPath` of the file with all
+  of it, and `{}` before that. The call passes argument validation and the
+  `tool_call` and `tool_result` handlers like a call the model made, but it
+  takes no place in the tool budget of the turn (`--tool-budget` counts the
+  calls the model makes; Pi has no limit on the calls a tool makes).
+- It never raises for a failure of the tool. A name that is not callable
+  gives `Tool <name> not found`; invalid arguments, a call a `tool_call`
+  handler blocked and a failed tool give the same error results the model
+  would get. All of them have `is_error=True`.
+- A tool called this way gets `ctx.tools` and `ctx.execute_tool` too, so a
+  nested tool can run tools itself, at any depth, also a tool that calls
+  itself. As in Pi, nothing bounds the number of these calls or their
+  depth, so a tool that calls itself must stop on its own. A tool a
+  codemode script called can run tools the same way.
+- The nested calls do not appear in the transcript: their results only reach
+  the calling tool, which reports them in its own result. They have the ids
+  `<calling id>/<n>` (`p1/2/1` is the first call of the second call of
+  `p1`), and the session emits a start and an end event for
+  each, and an update event for each partial result, with the id of
+  the calling call (`parentToolCallId` in
+  [JSON mode](json.md) and [RPC mode](rpc.md)). The result of the calling
+  tool the model called keeps a bounded record of them, at every depth, as
+  `nestedCalls` in its `details`, in the order the calls began
+  (name, arguments, status, duration and error, never results; at most 256
+  calls, arguments up to 8 KiB per call and 32 KiB in all, with
+  `complete: false` when something was left out). A tool that called nothing
+  has no such record. Compaction uses the record for its file lists, the
+  HTML export shows it, and the tool result message in JSON and RPC mode
+  carries it (see [the event vocabulary](automation-rpc.md#event-vocabulary-pipy-must-emit)).
+- Escape or an abort while a nested call runs cancels that call and the
+  calling tool with it.
+
+`execute_tool` may be called from any thread the handler starts, and calls
+made from several threads run at the same time, as in Pi; each blocks its
+caller until it ended. A call of a tool registered with
+`execution_mode="sequential"` waits instead until the sequential calls
+asked for before it ended, in the order they were asked for, as Pi's
+exclusive queue does; calls of other tools run beside them, and a call made
+inside the running sequential call, at any depth, does not wait for it. A
+waiting call has its id, its place in the record and its start event at
+once, as in Pi; its `tool_call` handlers come when its turn comes. If its
+calling tool returns first, it does not run and ends with
+`tool cancelled by its caller`, with its end event. The handler runs on a worker thread, and the session
+thread runs the pipeline of each call (validation, handlers, budget) while
+the tools themselves run on threads of their own. When the tool the model
+called returned, the nested calls still running are cancelled with the
+error `tool cancelled by its caller`, as is a call still running when the
+nested tool that made it returned, and a call that is still waiting or is
+made later is answered with
+`Nested tool calls are not available in this context`; so is a call of a
+nested tool that already returned.
+
+Different from Pi:
+
+- The contexts of commands and hooks have an empty `ctx.tools`, and their
+  `execute_tool` returns the error result
+  `Nested tool calls are not available in this context`; Pi does not give
+  them `executeTool`.
+- `ctx.tools` and what `execute_tool` reaches, at every depth, are fixed when
+  the tool the model called starts, after its `tool_call` handlers ran. Pi
+  looks the callable tools up again for every call.
+- Pi also runs every nested call one at a time when its agent executes
+  tool calls sequentially (`toolExecution`, set through its SDK). pipy's
+  agent loop has the same rule (`AgentLoop(tool_execution="sequential")`),
+  but no setting or SDK option selects it, so nested calls follow only the
+  tools' `execution_mode`.
+- Pi lets a nested call still running when its calling tool returned go on;
+  pipy cancels it when its calling tool returned.
+- In the outcome, `result.content` is the result's text and `result.blocks`
+  its ordered text and image blocks when it has an image; Pi's
+  `result.content` is always the block list. A partial result's `content`
+  is its text in the same way.
+- Pi adds the usage that nested results report to the calling tool's
+  result. pipy's tool results carry no usage.
+- No event is emitted for a call to a name that is not callable; the record
+  lists it.
+
+### Presenting the loadout
+
+A tool that orchestrates other tools can adjust what the model sees while
+it is declared, with `prepare_loadout`. `ToolLoadout` and
+`ToolLoadoutChanges` are importable from `pipy_harness.extensions`.
+
+```python
+def present(loadout):
+    names = ", ".join(tool.name for tool in loadout.callable_tools)
+    return ToolLoadoutChanges(
+        descriptions={"run_tools": f"Runs tools: {names}"},
+        hidden_declarations=["echo"],
+    )
+
+api.register_tool(ExtensionTool(
+    name="run_tools", description="Runs tools.", input_schema={"type": "object"},
+    handler=run_tools, exposure="model-only", prepare_loadout=present,
+))
+```
+
+- The function receives a `ToolLoadout` with three tuples of tool
+  definitions in registration order: `declared_tools` (the tools declared
+  to the model, with their original descriptions), `callable_tools` (what
+  `ctx.execute_tool` and scripts can call) and `registered_tools` (every
+  registered tool, without those `--tools`, `--exclude-tools` or
+  `--no-tools` removed). A definition has `name`, `description`,
+  `input_schema`, `exposure`, `namespace`, `annotations`, `output_schema`,
+  `prompt_snippet` and `prompt_guidelines`. As in Pi, the loadout also has
+  `get_exposure(name)`, `get_namespace(name)` and
+  `get_prompt_guidelines(name)` (trimmed, without empty or repeated ones).
+- It returns `ToolLoadoutChanges`, or `None` to change nothing.
+  `descriptions` maps the names of declared tools, also the tool's own, to
+  the description the model is to see. `hidden_declarations` names declared
+  tools whose declarations requests leave out: they stay active and
+  callable, the transcript still records them as declared, and the system
+  prompt leaves them out of its tool list and rules. A tool that hides
+  declarations should present those tools itself, as `codemode` lists them
+  in its description with mode `only`.
+- It runs only while its tool is declared, once for each new set of
+  active and registered tools (a change of the active tools, an MCP server's
+  tools arriving, `/reload`). pipy keeps the result: the descriptions, the
+  hidden declarations and the system prompt's tool list come from the same
+  call. It may run on any thread that reads the declarations; should two
+  threads read them for a new set at once, both call it and the first
+  result is used.
+- When several declared tools have the function (the built-in `codemode`
+  counts as one), their changes are merged in the order the tools are
+  declared: a later tool's description of a name replaces an earlier one's,
+  and the hidden declarations add up.
+- A function that raises, or returns something that is not
+  `ToolLoadoutChanges` with texts by name and a collection of names,
+  changes nothing. pipy shows one warning for it, `pipy: prepare_loadout of
+  tool "<name>" failed: <error type>`, and goes on with the other tools' changes.
+- The changes never alter what is registered, active or callable, or what
+  `ctx.get_all_tools()` reports.
+
+Together with `exposure`, `reaches_tools` and `ctx.execute_tool` this is
+everything the built-in `codemode` uses of the tool system, so an extension
+can build a tool that behaves like it under another name.
+
+Different from Pi:
+
+- Pi calls the function when the active tools change and again before
+  each request, and keeps the result until the next call. pipy calls it
+  once per set of active and registered tools, so a function whose answer
+  changes without the tools changing is not asked again before the next
+  request.
+- Pi reports a failing function as an error of its extension each time. pipy
+  warns once per session, tool and error type, naming the tool and the type
+  but not the error's text.
+
+### Replacing built-in tools
+
+The names of the seven built-in file and shell tools are reserved. The
+names `codemode` and `tool_search` are not: an extension that registers a
+tool of one of these names replaces the built-in tool of that name for the
+session (Pi: its built-in `codemode` and `tool-search` extensions are
+replaceable).
+
+- The extension's tool is the one that is registered, declared and called.
+  The built-in `codemode` is then never registered, so its runtime is not
+  probed, and the built-in presenter of the loadout does not run; a
+  replacement presents the tools with its own
+  [`prepare_loadout`](#presenting-the-loadout) and runs them with
+  [`ctx.execute_tool`](#running-other-tools). The system prompt shows the
+  replacement's own `prompt_snippet` and `prompt_guidelines`, not the
+  built-in tool's.
+- [MCP](mcp.md#control-tool-exposure) activates `codemode` for servers with
+  `codemode` tools and `tool_search` for servers with `deferred` tools.
+  It activates a replacement only when that tool declares `reaches_tools`;
+  a tool of the name without it is left as it is, and when nothing else
+  reaches the servers' tools pipy warns that they cannot be called. A
+  replacement that should stay undeclared until MCP needs it registers with
+  `default_active=False`.
+- Before a call of a tool that declares `reaches_tools`, pipy waits for the
+  servers the call may reach; a replacement without it is called at once.
+- A replacement's calls are drawn with its own renderers, or with the
+  generic rows, partial results included, when it has none: only the
+  built-in `codemode` has the codemode rows, as in Pi only the built-in
+  codemode tool brings its renderers (see [Tool rendering](#tool-rendering)).
+
+An extension that registers the `/mcp` command replaces the built-in MCP
+support; see [MCP](mcp.md#replace-the-built-in-mcp-support).
+
+### Tool rendering
+
+An `ExtensionTool`'s `render_call` and `render_result` draw the rows of its
+calls (slice 17 below). `api.register_tool_renderer(resolver)` chooses the
+renderers of the calls to any tool, also of a tool that is not registered:
+one that an extension of an earlier session had, or one the model made up.
+
+Besides `tool_name`, `args`, `is_result`, `is_error`, `content`, `details`,
+`expanded`, `width`, `theme` and `state`, a renderer's `ToolRenderContext`
+has Pi's fields. As in Pi, `is_error` comes from the call's current result
+in both phases: once the call failed, `render_call` is told so too when the
+row is drawn again in the terminal. The HTML export draws a call before its
+result, so there its `is_error` is false, as in Pi's export.
+
+- `tool_call_id`: the call's id, the same for its call and result renders.
+- `cwd`: the session's directory.
+- `execution_started`: the call started running in this session; False for
+  a call drawn from the session file in the terminal. The HTML export tells
+  renderers True for every call, as Pi's export does.
+- `args_complete`: always True, since pipy draws a call once its arguments
+  are complete.
+- `is_partial`: the call has no final result yet. `is_result` is True also
+  for a partial result (streamed output), so a renderer that draws progress
+  checks both.
+- `show_images`: the `terminal.showImages` setting, as in Pi; whether the
+  terminal draws the result's images after the row also depends on its
+  image protocol (see
+  [images in tool results](tui-workflow.md#images-in-tool-results)). False
+  for captured output and the HTML export.
+- `duration_ms`: how long the call ran, with the final result; None while it
+  runs and when it is not known.
+- `invalidate()`: draws the call's row again, from any thread; for example
+  after something the renderer loads in the background arrived in `state`.
+  A row that is already in the scrollback is redrawn with it when it looks
+  different. Captured output and the HTML export are written once, so there
+  it does nothing; a call made while the row is being drawn is skipped.
+- `last_component`: what this renderer returned for the row the time
+  before, None the first time and in captured output.
+
+```python
+from pipy_harness.extensions import ToolRenderers, lines_component
+
+
+def activate(api):
+    mine = ToolRenderers(
+        render_call=lambda ctx: lines_component([f"jira {dict(ctx.args)}"]),
+        render_result=lambda ctx: lines_component([ctx.content or ""]),
+    )
+
+    def resolve(tool_name, next):
+        return next() or (mine if tool_name.startswith("jira_") else None)
+
+    api.register_tool_renderer(resolve)
+```
+
+- `resolver(tool_name, next)` returns a `ToolRenderers`, an `ExtensionTool`,
+  any object with the attributes `render_call` and `render_result` (each a
+  callable or `None`), or `None`.
+- `next()` returns what the resolvers registered after this one, then the
+  tool itself, would use. Resolvers are asked in extension load order, and in
+  the order one extension registered them. `next() or mine` therefore only
+  fills in (as in Pi, not for a registered extension tool without
+  renderers, which `next()` returns); returning `mine` without calling
+  `next()` replaces the rows of that tool, a built-in tool's included, and
+  returning `None` without it gives the tool pipy's generic row.
+- What the tool itself has: for a registered extension tool, the
+  `ExtensionTool`, also when it has no renderers (as Pi's registered
+  definition): its `render_call` and `render_result` are then `None` and
+  its calls get the generic row, partial results included. That holds for
+  an extension tool that replaces `codemode` too: only the built-in
+  `codemode` has pipy's codemode rows, as in Pi only the built-in codemode
+  tool brings its renderers. The names of the other built-in tools are
+  reserved, so their calls keep pipy's rows (in Pi a replacement of them
+  without renderers keeps the built-in renderers). For a built-in tool, for
+  the built-in `codemode` and for a call to
+  `mcp__<server>__<tool>` (whether such a tool is registered or not), an
+  object that stands for pipy's own rows. Return it to keep pipy's rows, or
+  call its `render_call(ctx)` and `render_result(ctx)` inside your own
+  renderers to wrap them, as Pi's built-in and MCP renderers can be: each
+  returns a component with pipy's lines of that part of the row (for `edit`
+  the call is the box with its diff), drawn at `ctx.width`. As with Pi's
+  built-in renderers, the live parts stay: a wrapped `edit` row shows the
+  diff preview once pipy has computed it, and a wrapped `bash` row ticks
+  `Elapsed` every second while it runs (pipy draws the row again, so
+  `render_call` and `render_result` are called again; `render_result` is
+  called from the start, with empty `content`, as Pi's bash tool sends an
+  empty update first). For `codemode` the result part is, in the terminal
+  and the HTML export, the script's nested calls and its output without the
+  `Script completed` header, as Pi's codemode renderer draws them; while
+  the script runs `render_result` is called with empty `content` once it
+  made a call, and with `details` holding a `nestedCalls` record of the
+  calls (`{"nestedCalls": {"calls": [...]}}`, the form of the final
+  result's record), as Pi's codemode tool sends its calls as partial
+  results.
+  Renderers that replace codemode's draw no nested calls of pipy's
+  (captured output, written as it comes, writes the calls of codemode's own
+  rows as they run, and a wrapper gets them with the result, from its
+  `details`). These
+  rows draw the context they are called with: its `args`, `content`,
+  `details`, `is_error`, `is_partial` and `expanded`, so a wrapper can pass
+  `dataclasses.replace(ctx, args=..., content=...)` to change or withhold
+  what they show, as Pi's built-in, MCP and codemode renderers draw the
+  arguments, result and options they are given. The `edit` diff preview is
+  computed from the call's own arguments and is left out under others;
+  the nested calls of a running `codemode` row are the ones it keeps
+  while `details` is its own record, and other `details` show the calls
+  they record (`None` shows none, and a call still running has no
+  duration). Called
+  with a context pipy did not make, they return `None`. For every other
+  name it is `None`.
+
+  ```python
+  def resolve(tool_name, next):
+      inner = next()
+      if inner is None:
+          return None
+
+      def call(ctx):
+          lines = inner.render_call(ctx).render(ctx.width)
+          return lines_component(["[audited]", *lines])
+
+      return ToolRenderers(render_call=call, render_result=inner.render_result)
+  ```
+- A renderer of the returned object that is `None` leaves that part to
+  pipy's generic row (`name key=value …`, the first 10 result lines), also
+  when the tool is a built-in or MCP tool: nothing of pipy's own row for
+  that tool is kept, including the diff preview of `edit`.
+- A resolver is asked when a call's row starts and when a session's
+  transcript is drawn again, which is before any request in a resumed
+  session. The row keeps what was chosen for it.
+- A resolver that raises or returns something else is left out, as if it
+  had returned `next()`. Passing something that is not callable to
+  `register_tool_renderer` disables the extension with
+  `invalid_tool_renderer`.
+- As in Pi, `register_tool_renderer` also works while the session runs the
+  extension: from a `session_start` handler, a command, a hook or a tool. The
+  resolver joins the extension's others in their order (an extension that
+  loaded earlier still comes first) and is asked for every row drawn from
+  then on; rows already drawn keep what they chose. Something that is not
+  callable then raises `ExtensionCapabilityError`, as does a registration
+  once `/reload` replaced the extensions or the session ended.
+- Another session in the same run (`/new`, `/resume`, `/fork`, `/clone`,
+  `/import`) starts with the resolvers registered in `activate(api)` only,
+  as Pi's new runtime loads the extensions again: one a `session_start`
+  handler registers is there once in every session.
+
+Different from Pi:
+
+- pipy's own rows keep what is outside the two parts when a resolver wraps
+  them only as long as the object itself is returned: a wrapped `edit` row
+  is drawn in the usual box, not in the edit box with its own background
+  (Pi's `renderShell: "self"`), and the HTML export draws built-in tools
+  itself.
+- Pi's `renderShell` is not part of `ToolRenderers`, and the render
+  context has no `outputPad`.
+
+`/export` to HTML draws the calls with the same renderers and stores the
+rows in the file (see `docs/export-distribution.md` "Artifact shape"): an
+extension tool's `render_call` and `render_result`, and what a resolver
+chose, are called with `expanded` false and true, a `width` of 98 and
+arguments, result text and details from which credentials were removed. As
+in Pi, the export page draws the built-in tools itself, so renderers that a
+resolver chose for a built-in tool are not used there. `/share` uploads the
+same page, drawn before the upload starts, as Pi's `/share` uploads its
+`exportToHtml` page. `pipy --export` does not run extension code.
+
+<a id="mcp-servers"></a>
+### MCP servers
+
+`api.register_mcp_server(name, config)` adds an MCP server for the session
+(Pi `registerMcpServer`). `config` is a dict with the shape of an
+`mcpServers` entry of [`mcp.json`](mcp.md#configure-servers): `command`,
+`args`, `env` and `cwd` for a stdio server, `url`, `headers`, `oauth` and
+`auth` for an HTTP server, and `exposure`, `toolExposure`, `description`,
+`enabled` and `timeout`.
+
+```python
+from pipy_harness.extensions import McpServerRegistrationError
+
+
+def activate(api):
+    api.register_mcp_server(
+        "jira", {"url": "https://mcp.example.com/jira", "exposure": "codemode"}
+    )
+
+    def drop(ctx, args):
+        api.unregister_mcp_server("jira")
+
+    api.register_command("drop-jira", "Disconnect the jira server", drop)
+```
+
+- A server registered while the extension loads (in `activate`), or in a
+  `session_start` handler, connects when the session's servers start, with
+  those of `mcp.json` and after them in every list. A server registered
+  later, from a command, a hook or a tool handler that kept `api`, connects
+  at once, in the background.
+- Nothing is saved: register on every load, for example from the
+  extension's own settings. `/reload` loads the extensions again and
+  keeps only what they register then; an `api` of the extensions it
+  replaced raises `McpServerRegistrationError`. Another session in the same
+  run (`/new`, `/resume`, `/fork`, `/clone`, `/import`) starts from the
+  servers registered while the extensions loaded, as Pi's new runtime
+  loads them again; one registered later is there only when a
+  `session_start` handler registers it again.
+- Registering a name again replaces the extension's registration. With the
+  same configuration nothing happens; with another one the server's tools
+  go away, its connection is closed, and it connects again once that
+  connection has closed. The order of the keys of `toolExposure` is part of
+  the configuration, because the first matching pattern decides.
+- `api.unregister_mcp_server(name)` closes the connection of a server this
+  extension registered and makes its tools unreachable. A name it did not
+  register is left alone.
+- `api.get_mcp_servers()` returns copies of every registration, in the order
+  the names were first registered, as `RegisteredMcpServer(name, config,
+  extension_path)`. `extension_path` is the path label of the extension
+  (`.pipy/extensions/jira.py`), which is what `/mcp` and the messages show.
+  Two extensions can have one label (two `--extension` directories of the
+  same name); they are still two owners. While an extension loads, the list
+  does not have its own registrations yet.
+- A server in `mcp.json` with the same name, or a name that differs only in
+  `-` and `_`, takes precedence: the registered one does not connect, and
+  `/mcp` lists it as overridden (see [`/mcp`](mcp.md#the-mcp-command)).
+- A registered server is in `/mcp` with `extension` as its source. Enabling,
+  disabling and changing its exposure there last for the session and are
+  not saved; they are undone when the server is registered with another
+  configuration.
+- With MCP [turned off](mcp.md#turning-mcp-off) registered servers do not
+  connect.
+
+After a server was registered or unregistered, hooks for
+`mcp_servers_change` receive a `McpServersChangeEvent` whose `servers` is
+every registration after the change, as copies:
+
+```python
+@api.on("mcp_servers_change")
+def changed(event, ctx):
+    for server in event.servers:
+        ctx.ui.notify(f"{server.name} from {server.extension_path}")
+```
+
+- What extensions register while they load is not an event; read it with
+  `api.get_mcp_servers()` in a `session_start` handler. A change made in
+  a `session_start` handler is an event like a later one.
+- The hooks run on the session thread, where the session shows its
+  notices (before a prompt starts and when it becomes idle) and when a turn
+  starts, one event per change and in the order of the changes, whatever
+  threads made them. A hook that raises is skipped. A hook that registers
+  or unregisters a server causes another event, which is fired at the next
+  of those points.
+- pipy connects registered servers itself, so the event is for an extension
+  that connects them in pipy's place: one that
+  [replaces the built-in MCP support](mcp.md#replace-the-built-in-mcp-support)
+  with its own `/mcp` command, or one that runs while MCP is turned off. With MCP
+  [turned off](mcp.md#turning-mcp-off) or replaced, and no hook for the event, nothing
+  connects a registered server; pipy then reports each registration once
+  per load of the extensions and per session (`/new`, `/resume`, `/fork`
+  and the like start another), also one that was unregistered again right
+  away:
+
+  ```text
+  Extension ".pipy/extensions/jira.py" error: MCP server "jira" is registered, but no loaded extension connects MCP servers; another extension may have replaced the built-in MCP support
+  ```
+
+  That is the form of a session in a terminal. It is an extension error, as
+  in Pi (event `register_mcp_server`): print and JSON mode write
+  `Extension error (.pipy/extensions/jira.py): MCP server "jira" is registered, ...`
+  to stderr, and RPC mode sends an
+  [`extension_error` object](automation-rpc.md#extension-errors).
+
+`register_mcp_server` raises `McpServerRegistrationError` (a `ValueError`):
+
+| Case | Message |
+| --- | --- |
+| A name with other characters than letters, digits, `_` and `-`, or an entry `mcp.json` would refuse | `Invalid MCP server registered by extension "<path>": <reason>` |
+| A name another extension registered | `MCP server "<name>" is already registered by extension "<path>"` |
+| A name that differs from a registered one only in `-` and `_` | `MCP server "<name>" conflicts with registered server "<other>"` |
+
+An extension that catches the error goes on. One that lets it leave
+`activate` is disabled with `activation_error`, like for any other
+exception, and nothing it registered is kept.
+
+Different from Pi:
+
+- Extensions that load before the project is trusted (user-level and
+  `--extension` ones, when a `project_trust` decision is pending) do not see
+  each other's registrations while they load, so two of them can register
+  one name without an error. When they are finalized the later one is
+  disabled with `duplicate_mcp_server`, as for a command name that is taken.
+  Between loading and that point, a `project_trust` handler cannot register
+  or list servers (`ExtensionCapabilityError`).
+- One extension that registers `my-server` and `my_server` while it loads is
+  refused the second name. Pi notices that clash only for a name that was
+  registered before the extension loaded.
+- `codemode` or `tool_search` is activated for a server registered during a
+  run when the next turn starts, and for one registered while the session is
+  idle before the next prompt; Pi activates it in the same step as the
+  registration. The model's next request has it in both.
+- Pi fires `mcp_servers_change` inside the call that registers; pipy fires
+  it on the session thread at the points named above, so a server
+  registered from another thread while the session waits for input is
+  announced when the next prompt is sent. The server itself connects at
+  once in both.
+- In Pi the built-in MCP support is itself a handler of the event, and the
+  report means that another extension replaced it. pipy's MCP support is
+  not an extension; the report appears when it is turned off. The text is
+  Pi's.
+- A server that fails or needs a sign-in after it was registered later is
+  reported like the [startup report](mcp.md#startup-report), with only that
+  server in it, as soon as the session waits for input (in the editor, or in
+  RPC mode while no command runs); Pi reports it when it arises.
 
 First-slice candidates:
 
@@ -801,7 +1825,15 @@ so Pi extensions translate naturally:
   external-editor handoff from the resolved `app.editor.external` keybinding
   (default Ctrl+G) in interactive TTY sessions. Ctrl+G is a reserved app binding;
   an extension that registers it as a shortcut is disabled rather than shadowing
-  the editor.
+  the editor. `select`, `confirm` and `input` take Pi's `timeout` option as a
+  keyword, in milliseconds (`ctx.ui.confirm("Allow?", "rm -rf", timeout=10000)`):
+  in [RPC mode](automation-rpc.md#extension-ui-requestresponse-channel) the
+  dialog ends with its default when it passes. The terminal counts it down
+  as Pi does: the dialog's title shows the seconds left (`Allow? (10s)`),
+  and when they run out the dialog is cancelled (`select` and `input` give
+  `None`, `confirm` gives `False`). In RPC mode `ctx.has_ui` is true
+  and the dialogs, `notify`, `set_status`, `set_widget` (lines of text),
+  `set_title` and `set_editor_text` are requests to the client, as in Pi.
 - Status and indicators **(shipped for command/shortcut contexts)**:
   `set_status(key, text)`, working-message and working-indicator controls, and
   `ctx.ui.set_hidden_thinking_label(label=None)` /
@@ -914,7 +1946,12 @@ OAuth-backed extension providers, `/login <provider>` calls `login(callbacks)`
 with deterministic stdio callbacks (`onAuth`, `onDeviceCode`, `onPrompt`,
 `onSelect`, `onProgress`, plus snake_case aliases), then stores the returned
 mapping as `{"type": "oauth", ...credentials}` in pipy's `AuthStore` under the
-provider name. `/logout <provider>` removes that stored entry. OAuth-backed
+provider name. `/logout <provider>` removes that stored entry. An MCP server whose `auth.provider` names the provider is sent
+`get_api_key(credentials)` of that entry, after `refresh_token(credentials)`
+refreshed it (and pipy saved the result as the new entry) when it expires within
+five minutes, as Pi does; both are then called on the thread that sends the MCP
+request and must return a mapping and a string, not an awaitable
+([a provider's token](mcp.md#a-providers-token)). OAuth-backed
 extension provider rows are unavailable with `login-required` until that entry is
 present; non-OAuth extension providers remain factory-owned and available as
 before. The declarative API-backed provider config
@@ -1604,9 +2641,11 @@ and the live `scripts/tmux_answer_verify.sh`.
     the box's content width (the terminal width less two columns). The whole
     path is **fail-soft**: a renderer (or its `render()`) that raises, returns a
     non-component, or returns an uncoercible value falls back to Pi's generic
-    rows (`name key=value …` and the first 10 result lines). Deferred: live
-    invalidation/partial updates, `renderShell:"self"` self-framing, and
-    overriding built-in tool renderers.
+    rows (`name key=value …` and the first 10 result lines). `ctx.invalidate()`
+    draws a row again and the context has Pi's call fields (see "Tool
+    rendering"). Deferred: `renderShell:"self"` self-framing.
+    A built-in tool's rows can be replaced with `api.register_tool_renderer`
+    (see "Tool rendering").
     The extension tool-renderer map now refreshes on `/reload`: renderers added,
     removed, or changed by the reloaded extension generation are applied to the
     existing session renderer without restarting, and stale renderers disappear

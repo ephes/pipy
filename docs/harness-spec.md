@@ -581,8 +581,11 @@ discovery). Outcomes:
   arguments; a placeholder-free body with arguments appends them as inserted
   prompt text). Each becomes one bounded provider-visible message through the
   same provider boundary as a genuine prompt.
-- Unknown or unreadable skills, and unsafe or empty templates and commands,
-  fail closed: a diagnostic is printed and no provider turn is issued.
+- An unknown or unreadable skill is reported with a diagnostic and the line
+  goes to the model as it stands, as Pi's `_expandSkillCommand` passes it
+  through. Empty templates and commands fail closed: a diagnostic is printed
+  and no provider turn is issued. A typed skill, template or command line
+  meets the `input` hooks before either, as in Pi.
 
 Privacy: the resource body, expanded prompt, and command text are never
 archived. Resource lifecycle metadata is limited to safe fields
@@ -1523,7 +1526,11 @@ boundary for one model-selected tool call. It receives a canonical
 `AgentToolCall`, a `ToolContext`, and a registry of `ToolPort` implementations;
 it owns lookup, a tool's optional `prepare_arguments` (Pi's `prepareArguments`,
 run on the parsed arguments before validation; `edit` uses it to accept Pi's
-legacy argument shapes), JSON/schema validation, pipy-owned request-id allocation,
+legacy argument shapes), JSON/schema validation (also on its own as
+`validated_arguments`, which the agent loop runs before the `tool_call`
+policy; the loop then passes the arguments the hooks left as
+`execute(..., arguments=...)`, which validates them again without preparing
+them again), pipy-owned request-id allocation,
 invocation, live output propagation, exact malformed/error observations, and
 normalization into `AgentToolResultMessage`. Unexpected exceptions and invalid
 tool return types still propagate. A caller may inject a wait port for the
@@ -2663,7 +2670,14 @@ frozen `AgentToolPolicyState` and pure transitions own tool-budget precedence,
 request-snapshot authorization, product-policy admission, session-wide
 malformed accounting/fatal-after-three, settled invocation accounting, and
 interruption precedence. Tool-budget exhaustion remains an ordinary error tool
-result and never becomes a terminal run or turn outcome. There is no separate
+result and never becomes a terminal run or turn outcome. Only the calls the
+model makes count against the budget: nested calls (codemode scripts,
+`ctx.execute_tool`) are admitted without it and consume no slot, as Pi has
+no limit on the calls a tool makes. A tool batch whose
+results all carry Pi's `terminate` hint (`AgentToolResultMessage.terminate`,
+from an extension tool's result or a blocking `tool_call` hook) ends the run
+after those results, without the automatic follow-up provider turn (Pi
+`shouldTerminateToolBatch`). There is no separate
 agent token-budget policy. The canonical named 200-call maximum is also the
 product session/CLI maximum, preventing the two validation layers from drifting.
 Provider status normalization preserves usage-before-
@@ -3299,7 +3313,9 @@ persists across completion and is reset only by the next `MessageStarted`.
 Slice 4.1b folds the three remaining tool-event renders into the same `reduce`,
 so it is the single owner of every agent-event-to-render-decision mapping:
 `ToolCallStarted` emits a `RenderToolCall` carrying the call, `ToolCallUpdated`
-emits a `StreamToolOutput` carrying the exact update chunk, and `ToolCallCompleted`
+emits a `StreamToolOutput` carrying the text the update added (a streaming
+tool's `appended` text, or a replacing partial result as a line of its own),
+and `ToolCallCompleted`
 emits a `RenderToolResult` forwarding `output_text`/`is_error`/`duration_seconds`
 and the result's Pi `details` (TOOLS3).
 Tool events carry no display state, so they leave `UiState` untouched.

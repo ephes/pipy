@@ -7,7 +7,8 @@ import math
 import os
 import threading
 from collections.abc import Callable, Mapping, MutableMapping
-from typing import Any, ClassVar, TextIO, TypedDict
+from pathlib import Path
+from typing import Any, ClassVar, TextIO, TypedDict, cast
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -41,10 +42,22 @@ from pipy_harness.native.extension_ui import coerce_tool_render_lines
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session_tree_commands import sanitize_label_text
 from pipy_harness.native.tool_headers import pi_tool_call_header
+from pipy_harness.native.tool_renderer_lookup import (
+    BuiltinToolRows,
+    McpToolRows,
+    ToolRendererLookup,
+    as_tool_renderer_lookup,
+)
+from pipy_harness.native.tool_result_display import ResultImages
 from pipy_harness.native.tool_rows import (
+    OWN_ROWS_TOOLS,
     NestedToolLine,
+    RowRenderers,
     bounded_nested_text,
+    collapsed_tool_args,
+    is_nested_under,
     nested_line_text,
+    nested_lines_from_details,
 )
 
 
@@ -103,29 +116,42 @@ def build_tool_render_theme(style: ChromeStyle) -> ToolRenderTheme:
 def render_tool_phase(
     renderer: Callable[[ToolRenderContext], object],
     ctx: ToolRenderContext,
+    *,
+    keep: Callable[[object | None], None] | None = None,
 ) -> list[str] | None:
     """Run one extension tool renderer fail-soft.
 
     Returns the rendered lines, or None to signal the caller should fall back
     to pipy's default rendering. A renderer that raises, returns a non-
     component, whose render() raises, or returns an uncoercible value all
-    yield None. KeyboardInterrupt/SystemExit propagate."""
+    yield None. KeyboardInterrupt/SystemExit propagate.
+
+    ``keep`` receives the component the renderer returned, or None when it
+    raised or returned none, for the next render's ``last_component``
+    (Pi keeps ``callRendererComponent``/``resultRendererComponent``)."""
 
     try:
         component = renderer(ctx)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - a bad renderer falls back
+        if keep is not None:
+            keep(None)
         return None
     if not isinstance(component, ToolRenderComponent):
+        if keep is not None:
+            keep(None)
         return None
     try:
         produced = component.render(ctx.width)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - a bad render() falls back
-        return None
-    coerced = coerce_tool_render_lines(produced)
+        produced = None
+    coerced = None if produced is None else coerce_tool_render_lines(produced)
+    if keep is not None:
+        # Only a component that drew is kept, as Pi keeps one it could add.
+        keep(None if coerced is None else component)
     if coerced is None:
         return None
     return list(coerced)
@@ -254,9 +280,14 @@ class _ToolLoopRenderer:
         *,
         output_stream: TextIO,
         error_stream: TextIO,
-        tool_renderers: "Mapping[str, ExtensionTool] | None" = None,
+        tool_renderers: "Mapping[str, ExtensionTool] | ToolRendererLookup | None" = None,
+        cwd: Path | None = None,
     ) -> None:
         self._output_stream = output_stream
+        # The session's directory, for a renderer's `ctx.cwd`.
+        self._cwd = str(cwd if cwd is not None else Path.cwd())
+        # Whether the current call runs in this session (not a replayed one).
+        self._execution_started = False
         self._error_stream = error_stream
         self._terminal_lock = threading.Lock()
         self._cursor_control_enabled = self._compute_cursor_control_enabled(
@@ -283,16 +314,17 @@ class _ToolLoopRenderer:
         self._working_thread: threading.Thread | None = None
         self._reasoning_active = False
         self._reasoning_emitted_any = False
-        self._tool_renderers = dict(tool_renderers or {})
+        self._tool_renderers = as_tool_renderer_lookup(tool_renderers)
         self._pending_render: _PendingCapturedToolRender | None = None
-        self._pending_tool: "ExtensionTool | None" = None
+        self._pending_tool: RowRenderers | None = None
         self._last_tool_name = ""
         self._last_arguments: dict[str, object] = {}
+        self._own_rows = True
 
     def refresh_tool_renderers(
-        self, tool_renderers: "Mapping[str, ExtensionTool]"
+        self, tool_renderers: "Mapping[str, ExtensionTool] | ToolRendererLookup"
     ) -> None:
-        self._tool_renderers = dict(tool_renderers)
+        self._tool_renderers = as_tool_renderer_lookup(tool_renderers)
 
     @staticmethod
     def _compute_enabled(stream: TextIO) -> bool:
@@ -739,10 +771,25 @@ class _ToolLoopRenderer:
     def render_tool_call(
         self, call: AgentToolCall, *, display_only: bool = False
     ) -> None:
-        del display_only  # Plain rows never start a preview or execution timer.
+        # Plain rows never start a preview or execution timer; a displayed
+        # call (a replayed one) did not start running here.
+        self._execution_started = not display_only
+        resolved = self._tool_renderers.resolve(
+            call.tool_name, builtin=call.tool_name in OWN_ROWS_TOOLS
+        )
+        mcp_label = resolved.label if isinstance(resolved, McpToolRows) else None
+        # Whether the call keeps pipy's own header and edit/write preview. A
+        # resolver that chose other renderers, or none, took them away.
+        self._own_rows = isinstance(resolved, BuiltinToolRows)
         with self._terminal_lock:
+            # A codemode script's nested calls are part of codemode's own
+            # rows (Pi `codemodeRenderers`): written as they run when the
+            # call keeps them, and part of the result that renderers
+            # wrapping them draw (`_own_lines`).
             self._nested_parent_id = (
-                call.provider_correlation_id if call.tool_name == "codemode" else None
+                call.provider_correlation_id
+                if call.tool_name == "codemode" and self._own_rows
+                else None
             )
         self._clear_working()
         self._close_reasoning()
@@ -750,7 +797,11 @@ class _ToolLoopRenderer:
         self._last_arguments = _parse_tool_input(call.arguments_json.value)
         self._pending_render = None
         self._pending_tool = None
-        tool = self._tool_renderers.get(call.tool_name)
+        tool: RowRenderers | None = None
+        if resolved is not None and not isinstance(
+            resolved, McpToolRows | BuiltinToolRows
+        ):
+            tool = cast(RowRenderers, resolved)
         if tool is not None:
             args = _parse_tool_input(call.arguments_json.value)
             state: dict[str, object] = {}
@@ -773,6 +824,7 @@ class _ToolLoopRenderer:
                     content=None,
                     details=None,
                     is_error=False,
+                    tool_call_id=call.provider_correlation_id,
                 )
                 if lines is not None:
                     self._error_stream.write(self._tool_panel_blank_line())
@@ -784,7 +836,10 @@ class _ToolLoopRenderer:
         # --- existing default body ---
         self._error_stream.write(self._tool_panel_blank_line())
         rendered = self._format_pi_call_header_rich(
-            call.tool_name, call.arguments_json.value
+            call.tool_name,
+            call.arguments_json.value,
+            mcp_label=mcp_label,
+            own_rows=self._own_rows,
         )
         self._error_stream.write(self._tool_panel_rich_line(rendered))
         self._error_stream.write(self._tool_panel_blank_line())
@@ -794,7 +849,9 @@ class _ToolLoopRenderer:
         self, event: NestedToolCallStarted | NestedToolCallCompleted
     ) -> None:
         with self._terminal_lock:
-            if getattr(self, "_nested_parent_id", None) != event.parent_correlation_id:
+            if not is_nested_under(
+                getattr(self, "_nested_parent_id", None), event.parent_correlation_id
+            ):
                 return
             status = "unfinished"
             duration = None
@@ -839,7 +896,10 @@ class _ToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None = None,
         details: Mapping[str, Any] | None = None,
+        images: ResultImages | None = None,
     ) -> None:
+        # A line-oriented stream draws no images: `output_text` names them.
+        del images
         with self._terminal_lock:
             self._nested_parent_id = None
         pending = self._pending_render
@@ -847,7 +907,7 @@ class _ToolLoopRenderer:
         self._pending_render = None
         self._pending_tool = None
         lines = self._extension_result_lines(
-            pending, tool, output_text, is_error, details
+            pending, tool, output_text, is_error, details, duration_seconds
         )
         if lines is not None:
             self._write_extension_result(lines, duration_seconds)
@@ -865,19 +925,9 @@ class _ToolLoopRenderer:
         result's ``details.diff`` and the call's ``content`` argument.
         """
 
-        if is_error:
+        if not self._own_rows:
             return
-        text = ""
-        if self._last_tool_name == "edit" and details is not None:
-            diff = details.get("diff")
-            text = diff if isinstance(diff, str) else ""
-        elif self._last_tool_name == "write":
-            content = self._last_arguments.get("content")
-            if isinstance(content, str):
-                lines = content.replace("\r", "").replace("\t", "   ").split("\n")
-                while lines and lines[-1] == "":
-                    lines.pop()
-                text = "\n".join(lines)
+        text = self._mutation_preview(is_error, details, self._last_arguments)
         if text:
             try:
                 with self._terminal_lock:
@@ -886,13 +936,37 @@ class _ToolLoopRenderer:
             except (ValueError, OSError):
                 pass
 
+    def _mutation_preview(
+        self,
+        is_error: bool,
+        details: Mapping[str, Any] | None,
+        args: Mapping[str, object],
+    ) -> str:
+        """The edit diff or the write content of the current call with
+        ``args`` and the result's ``details``, or ""."""
+
+        if is_error:
+            return ""
+        if self._last_tool_name == "edit" and details is not None:
+            diff = details.get("diff")
+            return diff if isinstance(diff, str) else ""
+        if self._last_tool_name == "write":
+            content = args.get("content")
+            if isinstance(content, str):
+                lines = content.replace("\r", "").replace("\t", "   ").split("\n")
+                while lines and lines[-1] == "":
+                    lines.pop()
+                return "\n".join(lines)
+        return ""
+
     def _extension_result_lines(
         self,
         pending: _PendingCapturedToolRender | None,
-        tool: ExtensionTool | None,
+        tool: RowRenderers | None,
         output_text: str,
         is_error: bool,
         details: Mapping[str, Any] | None,
+        duration_seconds: float | None = None,
     ) -> list[str] | None:
         if pending is None or tool is None or tool.render_result is None:
             return None
@@ -904,6 +978,8 @@ class _ToolLoopRenderer:
             content=output_text,
             details=details,
             is_error=is_error,
+            tool_call_id=pending["corr"],
+            duration_ms=None if duration_seconds is None else duration_seconds * 1000,
         )
 
     def _write_extension_result(
@@ -922,30 +998,34 @@ class _ToolLoopRenderer:
         is_error: bool,
         duration_seconds: float | None,
     ) -> None:
-        lines = output_text.splitlines() or [""]
-        tail_preview = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
-        earlier = len(lines) - len(tail_preview)
-        if earlier > 0:
-            self._error_stream.write(
-                self._tool_panel_line(
-                    f"... ({earlier} earlier lines, ctrl+o to expand)",
-                    style=self._ANSI_DIM,
-                )
-            )
-            tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
-        for line in tail_preview:
-            self._error_stream.write(self._tool_panel_line(line, style=self._ANSI_DIM))
-        if is_error:
-            self._error_stream.write(
-                self._tool_panel_line(
-                    "[error] tool reported a failure",
-                    style=self._ANSI_RED + self._ANSI_DIM,
-                )
-            )
+        for text, style in self._default_result_lines(output_text, is_error):
+            self._error_stream.write(self._tool_panel_line(text, style=style))
         if duration_seconds is not None:
             self._write_result_duration(duration_seconds)
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
+
+    def _default_result_lines(
+        self, output_text: str, is_error: bool
+    ) -> list[tuple[str, str]]:
+        """The result preview as ``(text, style)`` lines: the last lines of
+        the output and an error marker."""
+
+        lines = output_text.splitlines() or [""]
+        tail_preview = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+        earlier = len(lines) - len(tail_preview)
+        shown: list[tuple[str, str]] = []
+        if earlier > 0:
+            shown.append(
+                (f"... ({earlier} earlier lines, ctrl+o to expand)", self._ANSI_DIM)
+            )
+            tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
+        shown.extend((line, self._ANSI_DIM) for line in tail_preview)
+        if is_error:
+            shown.append(
+                ("[error] tool reported a failure", self._ANSI_RED + self._ANSI_DIM)
+            )
+        return shown
 
     def _write_result_duration(self, duration_seconds: float) -> None:
         # Keep the caption inside the contiguous panel with a breathing row.
@@ -967,7 +1047,13 @@ class _ToolLoopRenderer:
         content: str | None,
         details: Mapping[str, Any] | None,
         is_error: bool,
+        tool_call_id: str,
+        duration_ms: float | None = None,
     ) -> list[str] | None:
+        """Draw one phase once. These rows are written as they come, so
+        ``invalidate`` cannot draw them again and ``last_component`` is
+        always None."""
+
         style = chrome_style_for(self._error_stream)
         ctx = ToolRenderContext(
             tool_name=self._last_tool_name,
@@ -980,8 +1066,59 @@ class _ToolLoopRenderer:
             width=80,
             theme=build_tool_render_theme(style),
             state=state,
+            tool_call_id=tool_call_id,
+            cwd=self._cwd,
+            execution_started=self._execution_started,
+            is_partial=not is_result,
+            duration_ms=duration_ms,
+            _own_rows=lambda own, phase, label: self._own_lines(own, phase, label),
         )
         return render_tool_phase(renderer, ctx)
+
+    def _own_lines(
+        self, ctx: ToolRenderContext, phase: str, mcp_label: str | None
+    ) -> list[str] | None:
+        """This renderer's own lines of the current call, for a renderer
+        that wraps them: the call header as built-in or MCP rows draw it,
+        or the result preview, after the edit diff or write content of a
+        built-in call, or after a codemode script's nested calls. Plain
+        text; the panel styles them. Drawn from the arguments, result and
+        ``is_partial`` of the context the wrapper passed
+        (``ToolRenderContext._own_rows``), as Pi's renderers draw what they
+        are given: ``content`` None is no output, and a partial codemode
+        result has no output, as Pi's codemode renderer. These rows are
+        always collapsed. None for a result phase without a result."""
+
+        args = ctx.args
+        details = ctx.details
+        is_error = ctx.is_error
+        if phase == "call":
+            segments = self._format_pi_call_header_rich(
+                self._last_tool_name,
+                json.dumps(dict(args)),
+                mcp_label=mcp_label,
+                own_rows=mcp_label is None,
+            )
+            return ["".join(text for text, _style in segments)]
+        if not ctx.is_result:
+            return None
+        codemode = mcp_label is None and self._last_tool_name == "codemode"
+        output = (
+            []
+            if codemode and ctx.is_partial
+            else self._default_result_lines(ctx.content or "", is_error)
+        )
+        preview = (
+            ""
+            if mcp_label is not None
+            else self._mutation_preview(is_error, details, args)
+        )
+        nested = nested_lines_from_details(details) if codemode else ()
+        return [
+            *("  " + nested_line_text(line, expanded=False) for line in nested),
+            *(preview.split("\n") if preview else ()),
+            *(text for text, _style in output),
+        ]
 
     def _tool_panel_line(
         self,
@@ -1069,7 +1206,12 @@ class _ToolLoopRenderer:
         return f":{start_line}"
 
     def _format_pi_call_header_rich(
-        self, tool_name: str, arguments_json: str
+        self,
+        tool_name: str,
+        arguments_json: str,
+        *,
+        mcp_label: str | None = None,
+        own_rows: bool = True,
     ) -> list[tuple[str, str]]:
         """Return a list of (text, style) segments for a tool-call header.
 
@@ -1091,7 +1233,7 @@ class _ToolLoopRenderer:
         bold = self._ANSI_BOLD
         plain = ""
         yellow = self._ANSI_YELLOW
-        if tool_name == "read":
+        if own_rows and tool_name == "read":
             path = str(data.get("path", ""))
             verb = "read resource" if path.startswith("/") else "read"
             range_label = self._read_range_label(data)
@@ -1101,10 +1243,17 @@ class _ToolLoopRenderer:
                 (path, plain),
                 (range_label, yellow),
             ]
-        header = pi_tool_call_header(tool_name, data)
+        header = pi_tool_call_header(tool_name, data) if own_rows else None
         if header is not None:
             title, rest = header
             return [(title, bold), (" ", plain), (rest, plain)]
+        if mcp_label is not None:
+            # Pi `createMcpToolRenderers`: `<server>/<tool>` and the arguments.
+            pairs = collapsed_tool_args(data)
+            return [
+                (mcp_label, bold),
+                *([(" ", plain), (pairs, plain)] if pairs else []),
+            ]
         preview = self._argument_preview(arguments_json)
         return [(f"{tool_name}({preview})", bold)]
 

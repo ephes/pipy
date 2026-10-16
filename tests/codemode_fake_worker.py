@@ -71,6 +71,11 @@ def call(call_id: int, name: str, args: dict) -> dict:
     return recv()
 
 
+def discover(call_id: int, name: str, args: dict) -> dict:
+    send({"type": "discover", "id": call_id, "name": name, "args": args})
+    return recv()
+
+
 def done(ok: bool = True) -> None:
     send({"type": "done", "ok": ok})
 

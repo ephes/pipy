@@ -15,6 +15,9 @@ workspace and returns combined, bounded stdout/stderr to the model. See
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
+
 from pipy_harness.native.tools.base import ToolPort
 
 
@@ -44,3 +47,27 @@ def production_tool_registry() -> dict[str, ToolPort]:
             "bash": BashTool(),
         }
     )
+
+
+def with_image_auto_resize(
+    registry: dict[str, ToolPort], auto_resize: Callable[[], bool]
+) -> dict[str, ToolPort]:
+    """``registry`` with its ``read`` tool asking ``auto_resize`` whether to
+    resize an image it reads (Pi passes ``images.autoResize`` to ``read``).
+
+    A copy of the same kind, so production defaults stay recognizable; the
+    registry itself when it has no built-in ``read``.
+    """
+
+    from pipy_harness.native.tools.read import ReadTool
+
+    read = registry.get("read")
+    if not isinstance(read, ReadTool):
+        return registry
+    updated = (
+        ProductionToolRegistry(registry)
+        if isinstance(registry, ProductionToolRegistry)
+        else dict(registry)
+    )
+    updated["read"] = replace(read, auto_resize_images=auto_resize)
+    return updated

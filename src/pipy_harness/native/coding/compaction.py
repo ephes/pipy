@@ -125,9 +125,14 @@ def _summary_message(message: AgentMessage) -> AgentMessage:
     if not isinstance(message, AgentToolResultMessage):
         return message
     content = truncate_for_summary(message.content.value, SUMMARY_TOOL_RESULT_MAX_CHARS)
-    if content == message.content.value and message.details is None:
+    if (
+        content == message.content.value
+        and message.details is None
+        and not message.blocks
+    ):
         return message
-    return replace(message, content=ProductContent(content), details=None)
+    # Pi ``serializeConversation`` quotes a tool result's text only.
+    return replace(message, content=ProductContent(content), details=None, blocks=())
 
 
 MAX_DIRECT_ARGUMENT_BYTES = 1024 * 1024

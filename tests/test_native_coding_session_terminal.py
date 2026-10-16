@@ -154,6 +154,7 @@ class _ExitOnlyUi:
     def __init__(self) -> None:
         self.closed = False
         self.started = False
+        self.terminal_stream = io.StringIO()
         # Real owners over one throwaway editor: session startup publishes the
         # command surface and reads queue/clipboard wiring through owner handles.
         editor = EditorState()
@@ -263,6 +264,7 @@ class _ExitOnlyUi:
                 external_io_suspension=noop_scope,
                 defer_paints=noop,
                 set_border_level_source=lambda _source: None,
+                set_idle_work=lambda _work: None,
             ),
             overlays=SimpleNamespace(),
             input_editor=self.input_editor,

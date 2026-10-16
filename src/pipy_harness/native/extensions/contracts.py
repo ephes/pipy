@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pipy_harness.native.extension_types import (
     ExtensionFlag,
@@ -16,8 +16,13 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    ToolRendererResolver,
 )
 from pipy_harness.native.extensions import message_routing as _message_routing
+from pipy_harness.native.mcp.registry import McpServerRegistry, RegisteredMcpServer
+
+if TYPE_CHECKING:
+    from pipy_harness.native.extensions.live_tools import LiveToolRegistry
 
 CommandHandler = Callable[..., object]
 HookHandler = Callable[..., object]
@@ -81,6 +86,14 @@ class PipyExtensionAPI(Protocol):
         custom_type: str,
         renderer: Callable[..., object],
     ) -> None: ...
+
+    def register_tool_renderer(self, resolver: ToolRendererResolver) -> None: ...
+
+    def register_mcp_server(self, name: str, config: Mapping[str, object]) -> None: ...
+
+    def unregister_mcp_server(self, name: str) -> None: ...
+
+    def get_mcp_servers(self) -> list[RegisteredMcpServer]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +169,8 @@ class _ActivationHost(Protocol):
 
     def _dispose(self) -> bool: ...
 
+    def _bind_live_tools(self, live: LiveToolRegistry) -> None: ...
+
 
 class _PendingActivationHost(Protocol):
     """Narrow pending holder shape needed to discover message routing."""
@@ -187,6 +202,9 @@ class ActivatedExtension:
     flags: tuple[RegisteredFlag, ...] = ()
     message_renderers: tuple[RegisteredMessageRenderer, ...] = ()
     entry_renderers: tuple[RegisteredEntryRenderer, ...] = ()
+    tool_renderers: tuple[ToolRendererResolver, ...] = ()
+    # The MCP servers registered while the extension loaded.
+    mcp_servers: tuple[RegisteredMcpServer, ...] = ()
     custom_messages: tuple[QueuedCustomMessage, ...] = ()
     _activation_key: str | None = field(default=None, repr=False, compare=False)
     _pending_activation: _PendingActivationHost | None = field(
@@ -210,8 +228,14 @@ class ExtensionActivationBatch:
         custom_message_outbox: list[QueuedCustomMessage],
         pending: bool = False,
         message_routing: _message_routing.GenerationMessageRouting | None = None,
+        mcp_servers: McpServerRegistry | None = None,
     ) -> None:
         self.activated, self.pending = activated, pending
+        # The registry every activation host of the batch registers MCP
+        # servers in; a final batch keeps the one of its pending batch.
+        self.mcp_servers = (
+            mcp_servers if mcp_servers is not None else McpServerRegistry()
+        )
         self.message_outbox, self.custom_message_outbox = (
             message_outbox,
             custom_message_outbox,
@@ -222,6 +246,18 @@ class ExtensionActivationBatch:
             custom_message_outbox,
             supplied=message_routing,
         )
+
+
+def _batch_mcp_servers(
+    preloaded: ExtensionActivationBatch | None,
+    supplied: McpServerRegistry | None,
+) -> McpServerRegistry:
+    """The registry the hosts of a batch register MCP servers in: the one
+    of its pending batch, whose hosts already have it, else the caller's."""
+
+    if preloaded is not None:
+        return preloaded.mcp_servers
+    return supplied if supplied is not None else McpServerRegistry()
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +291,16 @@ class _ExtensionRuntime:
     custom_messages: tuple[QueuedCustomMessage, ...]
     activation_hosts: tuple[_ActivationHost, ...]
     message_routing: _message_routing.GenerationMessageRouting
+    # Tool renderer resolvers, in extension load order.
+    tool_renderers: tuple[ToolRendererResolver, ...] = ()
+    # Every activated extension's name in load order, with the resolvers it
+    # registered while loading (``tool_renderers`` grouped): the order a
+    # resolver or tool registered while the session runs takes its place in.
+    # Empty: ``tool_renderers`` belong to one extension that loaded first.
+    tool_renderer_groups: tuple[tuple[str, tuple[ToolRendererResolver, ...]], ...] = ()
+    # The MCP servers the extensions registered: those of the activation
+    # hosts, which register in it for as long as the generation is live.
+    mcp_servers: McpServerRegistry = field(default_factory=McpServerRegistry)
 
     def __post_init__(self) -> None:
         if (

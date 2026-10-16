@@ -27,21 +27,63 @@ from pipy_harness.native.tools.registry import production_tool_registry
 def test_definition_literal_contract_and_fallback(tmp_path: Path) -> None:
     definition = CodemodeTool().definition
     assert definition.name == "codemode"
-    assert definition.description.startswith(
+    # Byte-pinned: the registered description names no tool, so it is the same
+    # whatever is registered (MCP parity plan CMD-18, CMD-21).
+    assert definition.description == (
         "Run a Python script that calls other tools. The script runs in an isolated "
         "Python 3.14 interpreter with no file system, network or process access of "
         "its own. All effects go through `tools.<name>(args)`, which runs the named "
-        "tool exactly as a direct call would, with the same JSON arguments. It "
-        "returns the tool's text output or raises `ToolError`. Calls run one at a "
-        "time. `text(value)` emits output: strings as-is, anything else as JSON. "
-        "`print()` output is included as well. Unavailable modules: subprocess, "
-        "socket networking, ssl, threading, ctypes, zlib/gzip/bz2/lzma, sqlite3. "
-        "Limits: 120 s wall time, 256 MiB memory, about 10k tokens of output. Tool "
-        "calls already made are not undone when the script fails. Callable tools: "
-        "read, ls, grep, find, write, edit, bash."
+        "tool exactly as a direct call would, with the same JSON arguments.\n"
+        "- `tools.<name>(args)` returns a string, or a structured value if the "
+        "tool's declaration says so, and raises `ToolError` on failure. A tool whose "
+        "declaration returns a structured value returns it on failure too when the "
+        "failed result carries one; check its fields. `tools.<name>.submit(args)` "
+        "starts the call and returns at once; its `.result()` returns or raises as "
+        "the call would, so calls submitted together run at the same time. Calls "
+        "still running when the script ends are cancelled.\n"
+        '- Optional first line: `// @options: {"max_output_tokens": 10000, '
+        '"timeout_ms": 60000}`\n'
+        "- Unavailable modules: subprocess, socket networking, ssl, threading, "
+        "ctypes, zlib/gzip/bz2/lzma, sqlite3. Limits: 256 MiB memory, about 10k "
+        "tokens of output; no wall time limit unless `timeout_ms` sets one. Tool "
+        "calls already made are not undone when the script fails.\n"
+        "\n"
+        "Globals:\n"
+        "- `text(value)` emits output: strings as-is, anything else as JSON. "
+        "`print()` output is included as well. With several `text()` items, each "
+        "starts with a `==> text N/M <==` line, and `print()` output follows the "
+        "other output in one `<console_output>` block.\n"
+        "- `image(value)` adds an image to the output: a base64 `data:` URL, a dict "
+        'with `image_url`, or an image block `{"type": "image", "data", '
+        '"mimeType"}` as MCP tools return it. PNG, JPEG, GIF and WebP are accepted; '
+        "remote URLs are not. The image is also saved to a temp file and the result "
+        "names its path.\n"
+        "- `store(key, value)` and `load(key)` keep JSON values across codemode "
+        "calls; `store(key, None)` deletes a key.\n"
+        "- `ALL_TOOLS`, `search_tools(query, limit=8, namespace=None)`, "
+        "`describe_tool(name)`, `describe_namespace(name)`: find unlisted tools, "
+        "such as MCP tools.\n"
+        "\n"
+        "A string result is the tool's text, not a result object. For a text file, "
+        "tools.read returns file text as str (possibly with paging/truncation "
+        "notices); use splitlines() to process lines. JSON-decode only content that "
+        "is actually JSON. Follow read's offset/limit continuation notices when the "
+        "file is incomplete. For read/filter tasks, keep intermediate results in "
+        "Python, filter there, and text() only the final compact answer. Do not "
+        "print types, dump raw reads, or deliberately raise with their contents just "
+        "to probe this documented format. Combine the required reads and processing "
+        "in one script when practical. Example for two small text files:\n"
+        "\n"
+        "```python\n"
+        "matches = []\n"
+        'for path in ("alpha.txt", "beta.txt"):\n'
+        '    content = tools.read({"path": path})\n'
+        "    for line in content.splitlines():\n"
+        '        if line.startswith("KEEP "):\n'
+        '            matches.append({"file": path, "value": line[5:]})\n'
+        'text({"matches": matches, "count": len(matches)})\n'
+        "```"
     )
-    assert "Tool results are strings, not result objects" in definition.description
-    assert "keep intermediate results in Python" in definition.description
     assert definition.input_schema == {
         "type": "object",
         "properties": {
@@ -237,7 +279,6 @@ def test_injected_definition_identity_guard_excludes_overrides(tmp_path: Path) -
     assert frozen.composite_enabled()
     capabilities.publish(capabilities.prepare_extensions({"codemode": CodemodeTool()}))
     replaced = capabilities.snapshot_for_projection(capabilities.state)
-    assert (
-        not replaced.composite_enabled() and "codemode" not in replaced.eligible_names()
-    )
+    assert not replaced.composite_enabled()
+    assert "codemode" not in replaced.callable_names()
     assert frozen.composite_enabled()

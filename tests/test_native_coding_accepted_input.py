@@ -13,6 +13,7 @@ image bytes, and injected system-prompt context ride the returned turn only).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 
@@ -118,6 +119,15 @@ def _no_context() -> tuple[ProductContent, ...]:
     return ()
 
 
+class _Preparer(CodingAcceptedInputPreparer):
+    """A preparer whose hooks never handle the prompt."""
+
+    def prepare(self, **kwargs: Any) -> CodingAcceptedTurn:
+        turn = super().prepare(**kwargs)
+        assert turn is not None
+        return turn
+
+
 def _make_preparer(
     *,
     transform_input=lambda prompt: prompt,
@@ -127,8 +137,8 @@ def _make_preparer(
     next_turn_context=_no_context,
     emit_diagnostic=lambda message: None,
     state_recorder=None,
-) -> CodingAcceptedInputPreparer:
-    return CodingAcceptedInputPreparer(
+) -> _Preparer:
+    return _Preparer(
         transform_input=transform_input,
         resolve_file_references=resolve_file_references,
         resolve_image_attachments=resolve_image_attachments,
@@ -194,6 +204,40 @@ def test_literal_turn_transforms_provider_text_only() -> None:
     # (rendered panel / prompt history / product session tree) keeps the literal.
     assert turn.provider_user_input == "hello-transformed"
     assert turn.turn_user_message.content == ProductContent("hello")
+
+
+def test_a_handled_prompt_is_no_turn_and_records_nothing() -> None:
+    # Pi `prompt`: an `input` handler that returns "handled" ends it.
+    calls: list[str] = []
+    recorder = _RecordingRecorder(AgentToolPolicyState(tool_budget=7))
+
+    def _files(prompt: str) -> FileReferenceResolution:
+        calls.append("files")
+        return FileReferenceResolution()
+
+    def _suffix(base: str) -> str | None:
+        calls.append("suffix")
+        return None
+
+    turn = CodingAcceptedInputPreparer(
+        transform_input=lambda prompt: None,
+        resolve_file_references=_files,
+        resolve_image_attachments=_empty_images,
+        system_prompt_suffix=_suffix,
+        next_turn_context=_no_context,
+        emit_diagnostic=lambda message: None,
+        state_recorder=recorder,
+    ).prepare(
+        user_input="@notes.md hello",
+        resource_provider_text=None,
+        selected_provider_content=None,
+        base_system_prompt="base",
+    )
+
+    assert turn is None
+    assert calls == []
+    assert recorder.file_calls == []
+    assert recorder.image_calls == []
 
 
 def test_selected_provider_content_becomes_accepted_message() -> None:
@@ -332,6 +376,47 @@ def test_before_agent_start_suffix_appended_once() -> None:
 
     assert suffix_inputs == ["BASE"]
     assert turn.agent_system_prompt == "BASE\ninjected context"
+
+
+def test_the_base_prompt_is_what_the_hooks_left() -> None:
+    # A hook that changed the prompt's sections did not force a prompt: the
+    # changed rendering is the run's base, and a suffix is appended to it.
+    calls: list[str] = []
+
+    def _suffix(base_prompt: str) -> str | None:
+        calls.append(f"suffix:{base_prompt}")
+        return None
+
+    def _after_hooks() -> str:
+        calls.append("after")
+        return "CHANGED"
+
+    def _prepare(suffix) -> CodingAcceptedTurn:
+        return _Preparer(
+            transform_input=lambda prompt: prompt,
+            resolve_file_references=_empty_files,
+            resolve_image_attachments=_empty_images,
+            system_prompt_suffix=suffix,
+            next_turn_context=_no_context,
+            emit_diagnostic=lambda message: None,
+            state_recorder=_RecordingRecorder(AgentToolPolicyState(tool_budget=25)),
+            system_prompt_after_hooks=_after_hooks,
+        ).prepare(
+            user_input="hi",
+            resource_provider_text=None,
+            selected_provider_content=None,
+            base_system_prompt=lambda: "BASE",
+        )
+
+    turn = _prepare(_suffix)
+
+    assert calls == ["suffix:BASE", "after"]
+    assert (turn.base_system_prompt, turn.agent_system_prompt) == ("CHANGED",) * 2
+
+    forced = _prepare(lambda _: "injected")
+
+    assert forced.base_system_prompt == "CHANGED"
+    assert forced.agent_system_prompt == "CHANGED\ninjected"
 
 
 def test_empty_before_agent_start_suffix_leaves_base_prompt() -> None:

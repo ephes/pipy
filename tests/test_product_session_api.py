@@ -1506,7 +1506,9 @@ def test_public_fork_gate_preserves_lifetime_and_uses_canonical_vocabulary(
     body: str,
     expected_status: str,
 ) -> None:
-    """Public fork/clone shares the terminal gate but never restarts its lifetime."""
+    """Public fork/clone shares the terminal gate; a completed one replaces
+    the session as Pi's runtime does (``session_shutdown`` and
+    ``session_start`` with reason ``fork``), a refused one sends neither."""
 
     tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "private-tree")
     selected = tree.append_message(AgentUserMessage(ProductContent("source")))
@@ -1521,7 +1523,8 @@ def test_public_fork_gate_preserves_lifetime_and_uses_canonical_vocabulary(
         "def activate(api):\n"
         "    @api.on('session_start')\n"
         "    def start(event, ctx):\n"
-        "        with PROOF.open('a') as output: output.write('start\\n')\n"
+        "        with PROOF.open('a') as output:\n"
+        "            output.write(f'start:{event.reason}\\n')\n"
         "    @api.on('session_before_fork')\n"
         "    def gate(event, ctx):\n"
         "        with PROOF.open('a') as output:\n"
@@ -1529,7 +1532,8 @@ def test_public_fork_gate_preserves_lifetime_and_uses_canonical_vocabulary(
         f"{body}"
         "    @api.on('session_shutdown')\n"
         "    def stop(event, ctx):\n"
-        "        with PROOF.open('a') as output: output.write('shutdown\\n')\n",
+        "        with PROOF.open('a') as output:\n"
+        "            output.write(f'shutdown:{event.reason}\\n')\n",
         encoding="utf-8",
     )
     resources = RuntimeResourceOptions(extension_paths=(extension,))
@@ -1541,14 +1545,20 @@ def test_public_fork_gate_preserves_lifetime_and_uses_canonical_vocabulary(
     )
     result = session.clone() if method == "clone" else session.fork(selected.id)
     assert result.status == expected_status
-    assert proof.read_text().splitlines() == [
-        "start",
-        f"gate:fork:{selected.id}",
-    ]
     if expected_status == "completed":
+        assert proof.read_text().splitlines() == [
+            "start:startup",
+            f"gate:fork:{selected.id}",
+            "shutdown:fork",
+            "start:fork",
+        ]
         assert result.active.session_path is not None
         assert result.active.session_path != source_path
     else:
+        assert proof.read_text().splitlines() == [
+            "start:startup",
+            f"gate:fork:{selected.id}",
+        ]
         assert result.refusal == "extension_refusal"
         assert list(source_path.parent.glob("*.jsonl")) == [source_path]
         with pytest.raises(RuntimeError, match="already active"):
@@ -1562,9 +1572,9 @@ def test_public_fork_gate_preserves_lifetime_and_uses_canonical_vocabulary(
             == "answer"
         )
     session.close()
-    assert proof.read_text().splitlines()[-1] == "shutdown"
-    assert proof.read_text().count("start\n") == 1
-    assert proof.read_text().count("shutdown\n") == 1
+    assert proof.read_text().splitlines()[-1] == "shutdown:quit"
+    assert proof.read_text().count("start:startup\n") == 1
+    assert proof.read_text().count("shutdown:quit\n") == 1
 
 
 def test_public_fork_publish_failure_aborts_candidate_and_keeps_source_usable(

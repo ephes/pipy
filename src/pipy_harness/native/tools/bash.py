@@ -12,8 +12,11 @@ runs in the workspace root with the inherited environment.
 
 Like Pi, output is *streamed* as it is produced: when the loop supplies a
 :attr:`~pipy_harness.native.tools.base.ToolContext.output_sink`, the tool emits
-incremental chunks (throttled) so the live UI shows e.g. pytest dots scrolling
-in real time. Streaming uses a single-thread ``selectors`` poll loop on the
+partial results (throttled) so the live UI shows e.g. pytest dots scrolling
+in real time. Each is Pi's ``onUpdate`` value: the output so far, cut like the
+result (the last 2000 lines or 50 KB), with ``details`` holding the
+``truncation`` once it is cut and the ``fullOutputPath`` of the temp file;
+its ``appended`` is the text the update added, which a live row appends. Streaming uses a single-thread ``selectors`` poll loop on the
 calling thread (no reader thread): it reads whatever the process has flushed,
 emits it, and enforces the timeout from one monotonic deadline — so the
 timeout/kill path stays free of thread-join races. The truncated output is
@@ -25,6 +28,14 @@ otherwise an error result with Pi's status after a blank line —
 ``Command timed out after N seconds`` or ``Command aborted`` (the last two
 without the ``(no output)`` placeholder). The loop treats these as tool
 execution errors, not malformed provider tool calls.
+
+Every result of a command that ran to its exit also carries Pi's structured
+content (``BASH_OUTPUT_SCHEMA``) for programmatic callers such as codemode
+scripts: the output, not cut like the model's text but up to 1 MiB
+(``STRUCTURED_OUTPUT_MAX_BYTES``, the first and last half around an omission
+marker beyond that), whether it was cut, the full-output file then, the exit
+code and the wall time. A non-zero exit is an error result for the model, but
+a script still receives this value.
 
 The ``!``/``!!`` editor shortcut runs through :func:`run_local_command`, which
 keeps its output like Pi's ``bash-executor.ts``
@@ -38,6 +49,7 @@ archived.
 from __future__ import annotations
 
 import codecs
+import math
 import os
 import selectors
 import shutil
@@ -50,10 +62,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    NoStructuredContent,
+    ToolPartialResult,
+)
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolOutputSink,
     ToolRequest,
 )
 from pipy_harness.native.tools.bash_executor import ExecutorOutput
@@ -61,6 +79,7 @@ from pipy_harness.native.tools.output_accumulator import (
     OutputAccumulator,
     OutputSnapshot,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tools.truncate import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_LINES,
@@ -71,6 +90,28 @@ from pipy_harness.native.tools.truncate import (
 _MAX_TIMEOUT_SECONDS = 2_147_483
 _STREAM_THROTTLE_SECONDS = 0.1
 _READ_CHUNK_BYTES = 64 * 1024
+# Pi: the output limit of ``structuredContent.output``, which programmatic
+# callers such as codemode scripts receive.
+STRUCTURED_OUTPUT_MAX_BYTES = 1024 * 1024
+
+# Pi ``bashOutputSchema``.
+BASH_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "output": {
+            "type": "string",
+            "description": "Combined stdout and stderr, possibly truncated",
+        },
+        "truncated": {"type": "boolean"},
+        "full_output_path": {
+            "type": "string",
+            "description": "Full output, when truncated",
+        },
+        "exit_code": {"type": "number"},
+        "wall_time_seconds": {"type": "number"},
+    },
+    "required": ["output", "truncated", "exit_code", "wall_time_seconds"],
+}
 
 
 BASH_TOOL_DESCRIPTION = (
@@ -104,6 +145,8 @@ class BashTool:
         return ToolDefinition(
             name="bash",
             description=BASH_TOOL_DESCRIPTION,
+            prompt_snippet=BUILTIN_TOOL_PROMPTS["bash"].snippet,
+            prompt_guidelines=BUILTIN_TOOL_PROMPTS["bash"].guidelines,
             input_schema={
                 "type": "object",
                 "properties": {
@@ -123,6 +166,7 @@ class BashTool:
                 "required": ["command"],
                 "additionalProperties": False,
             },
+            output_schema=BASH_OUTPUT_SCHEMA,
         )
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
@@ -142,6 +186,7 @@ class BashTool:
                 "Cannot execute bash commands.",
                 is_error=True,
             )
+        started = time.monotonic()
         try:
             proc = subprocess.Popen(  # noqa: S603 - intentional real shell, Pi parity
                 [shell, "-c", command],
@@ -158,9 +203,11 @@ class BashTool:
         accumulator = OutputAccumulator(temp_file_prefix="pipy-bash")
         timed_out, cancelled = _stream_output(
             proc,
-            sink=context.output_sink,
+            sink=_partial_results(context.output_sink, accumulator),
             timeout=timeout,
             store=accumulator,
+            # The last update holds the output's end, decoded in full.
+            finish_store=accumulator.finish,
             cancel_event=context.cancel_event,
         )
         accumulator.finish()
@@ -189,14 +236,34 @@ class BashTool:
             if snapshot.full_output_path is not None:
                 details["fullOutputPath"] = snapshot.full_output_path
         exit_code = shell_exit_code(proc.returncode)
+        # Pi ``Math.round(ms / 100) / 10``: tenths of a second, halves up.
+        wall_time_seconds = math.floor((time.monotonic() - started) * 10 + 0.5) / 10
+        full_output, full_truncated = accumulator.read_full_output(
+            STRUCTURED_OUTPUT_MAX_BYTES
+        )
+        structured: dict[str, object] = {
+            "output": full_output,
+            "truncated": full_truncated,
+        }
+        if full_truncated and snapshot.full_output_path is not None:
+            structured["full_output_path"] = snapshot.full_output_path
+        structured["exit_code"] = exit_code
+        structured["wall_time_seconds"] = wall_time_seconds
         if exit_code != 0:
             return self._result(
                 request,
                 _append_status(text, f"Command exited with code {exit_code}"),
                 is_error=True,
                 details=details,
+                structured_content=structured,
             )
-        return self._result(request, text, is_error=False, details=details)
+        return self._result(
+            request,
+            text,
+            is_error=False,
+            details=details,
+            structured_content=structured,
+        )
 
     def _resolve_shell(self) -> str | None:
         if self.shell_path is not None:
@@ -212,6 +279,9 @@ class BashTool:
         *,
         is_error: bool,
         details: dict[str, object] | None = None,
+        structured_content: dict[str, object] | NoStructuredContent = (
+            NO_STRUCTURED_CONTENT
+        ),
     ) -> ToolExecutionResult:
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
@@ -219,6 +289,7 @@ class BashTool:
             is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
             details=details,
+            structured_content=structured_content,
         )
 
 
@@ -353,12 +424,15 @@ def _stream_output(
     store: _OutputStore,
     cancel_event: "threading.Event | None" = None,
     sanitize: Callable[[str], str] | None = None,
+    finish_store: Callable[[], None] | None = None,
 ) -> tuple[bool, bool]:
     """Drain stdout into ``store``, stream chunks, and enforce one deadline.
 
     ``store`` bounds what is kept while the optional live sink receives all
     decoded chunks in order. Timeout and cancellation kill the process group and
     drain bytes already available from the pipe before final decoder flush.
+    ``finish_store``, when given, finishes ``store`` before the last
+    emission, so a sink that reads the store sees all of the output.
     Returns ``(timed_out, cancelled)``.
     """
 
@@ -385,6 +459,8 @@ def _stream_output(
         _drain_nonblocking(selector, fd, state)
 
     state.finish_decoder()
+    if finish_store is not None:
+        finish_store()
     state.emit(force=True)
     selector.close()
     try:
@@ -481,6 +557,33 @@ def run_local_command(
         started=True,
         full_output_path=result.full_output_path,
     )
+
+
+def _partial_results(
+    sink: ToolOutputSink | None, accumulator: OutputAccumulator
+) -> Callable[[str], None] | None:
+    """Pi ``emitOutputUpdate``: each streamed piece becomes a partial result
+    with the output so far (the accumulator's tail snapshot, the temp file
+    kept once it is cut) and the piece as its ``appended`` text."""
+
+    if sink is None:
+        return None
+
+    def publish(chunk: str) -> None:
+        snapshot = accumulator.snapshot(persist_if_truncated=True)
+        if snapshot.full_output_path is not None:
+            # The file the update names holds the output so far; a failed
+            # write drops it, and the update then names none.
+            accumulator.flush_temp_file()
+            snapshot = accumulator.snapshot()
+        details: dict[str, object] = {}
+        if snapshot.truncation.truncated:
+            details["truncation"] = snapshot.truncation.to_details()
+        if snapshot.full_output_path is not None:
+            details["fullOutputPath"] = snapshot.full_output_path
+        sink(ToolPartialResult(snapshot.content, details, appended=chunk))
+
+    return publish
 
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:

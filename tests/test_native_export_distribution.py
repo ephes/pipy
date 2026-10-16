@@ -125,7 +125,10 @@ def _run_commands(tree: NativeSessionTree, cwd: Path, commands: str) -> str:
 
 
 def _decode_html_payload(path: Path) -> dict[str, Any]:
-    html = path.read_text(encoding="utf-8")
+    return _decode_html(path.read_text(encoding="utf-8"))
+
+
+def _decode_html(html: str) -> dict[str, Any]:
     marker = '<script id="pipy-session-data" type="application/pipy-session+base64">'
     encoded = html.split(marker, 1)[1].split("</script>", 1)[0]
     return json.loads(base64.b64decode(encoded).decode("utf-8"))
@@ -141,6 +144,77 @@ def test_redaction_covers_json_quoted_secret_assignments() -> None:
     assert '"password": "[REDACTED]"' in redacted
     assert '"token":"[REDACTED]"' in redacted
     assert '"safe":"ok"' in redacted
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"password":"correct horse battery staple',
+        "{'password': 'correct horse battery staple",
+        '{"password":"correct horse battery staple\\',
+        'password="correct horse battery staple',
+        "password='correct horse battery staple",
+    ],
+)
+def test_redaction_covers_a_quoted_value_the_text_cuts_short(text: str) -> None:
+    # Goal check r8, D1 review: a nested call's argument preview (and an
+    # error cut to its bound) can end inside a quoted secret; the value
+    # runs to the end of the text, so no word of it survives.
+    redacted = redact_export_value(text)
+    assert "horse" not in redacted and "staple" not in redacted
+    assert "[REDACTED]" in redacted
+
+
+def test_exports_redact_a_cut_short_argument_preview(tmp_path: Path) -> None:
+    # The preview of arguments a nestedCalls record left out is the first
+    # 200 characters of their JSON, which can end inside a credential.
+    secret = "correct horse battery staple " * 10
+    preview = ('{"user":"me","password":"' + secret)[:197] + "..."
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    tree.append_message(
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(
+                AgentToolCall(
+                    provider_correlation_id="c1",
+                    tool_name="codemode",
+                    arguments_json=ProductContent("{}"),
+                ),
+            ),
+        )
+    )
+    tree.append_message(
+        AgentToolResultMessage(
+            tool_request_id="pipy-tool-1",
+            tool_name="codemode",
+            content=ProductContent("Script completed"),
+            provider_correlation_id="c1",
+            details={
+                "argumentPreviews": {"c1/1": preview},
+                "nestedCalls": {
+                    "calls": [
+                        {
+                            "id": "c1/1",
+                            "name": "login",
+                            "status": "ok",
+                            "durationMs": 1,
+                            "argumentsBytes": 9000,
+                        }
+                    ],
+                    "complete": False,
+                },
+            },
+        )
+    )
+    jsonl = export_native_branch_to_jsonl(tree, tmp_path / "e.jsonl")
+    html = export_native_session_to_html(tree, tmp_path / "e.html")
+    exported = [
+        json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    for payload in (exported, _decode_html_payload(html)):
+        text = json.dumps(payload)
+        assert "horse" not in text and "staple" not in text
+        assert '{\\"user\\":\\"me\\",\\"password\\":\\"[REDACTED]' in text
 
 
 @pytest.mark.parametrize(
@@ -316,9 +390,13 @@ def test_tool_loop_share_command_uses_token_and_share_boundary(
     cwd = Path(tree.get_header().cwd)
     calls: list[str] = []
 
-    def fake_share(session_tree: NativeSessionTree, **kwargs: object) -> ShareResult:
+    def fake_share(
+        session_tree: NativeSessionTree, html: str, **kwargs: object
+    ) -> ShareResult:
         assert session_tree.session_id == tree.session_id
         assert kwargs["token"] == "ghp_UPLOAD_TOKEN_123456789"
+        # The page is the HTML export, with the session's system prompt.
+        assert _decode_html(html)["systemPrompt"] == "SHARE SYSTEM PROMPT"
         calls.append("share")
         return ShareResult(
             gist_id="gist123",
@@ -331,7 +409,15 @@ def test_tool_loop_share_command_uses_token_and_share_boundary(
         "pipy_harness.native.repl.session_transfer.share_native_session", fake_share
     )
 
-    err = _run_commands(tree, cwd, "/share\n/exit\n")
+    err_stream = io.StringIO()
+    CodingSession(provider=_NoTurnProvider(), native_session=tree).run(
+        workspace_root=cwd,
+        input_stream=io.StringIO("/share\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=err_stream,
+        system_prompt="SHARE SYSTEM PROMPT",
+    )
+    err = err_stream.getvalue()
 
     assert calls == ["share"]
     assert "gist URL: https://gist.github.com/u/gist123" in err
@@ -528,7 +614,10 @@ def test_share_gist_cancelled_before_network_post() -> None:
 
 
 def test_share_native_session_redacts_bare_tokens_in_gist_body(tmp_path: Path) -> None:
-    from pipy_harness.native.export_distribution import share_native_session
+    from pipy_harness.native.export_distribution import (
+        share_native_session,
+        share_session_html,
+    )
 
     tree = _tree(tmp_path)
     captured: dict[str, Any] = {}
@@ -545,7 +634,12 @@ def test_share_native_session_redacts_bare_tokens_in_gist_body(tmp_path: Path) -
         captured["body"] = request.data.decode("utf-8")
         return Response()
 
-    share_native_session(tree, token="ghp_UPLOAD_TOKEN_123456789", opener=opener)
+    share_native_session(
+        tree,
+        share_session_html(tree),
+        token="ghp_UPLOAD_TOKEN_123456789",
+        opener=opener,
+    )
 
     assert "ghp_BARETOKENSHOULDNOTLEAK" not in captured["body"]
     assert "github_pat_BARETOKENSHOULDNOTLEAK" not in captured["body"]
@@ -582,7 +676,9 @@ def test_tool_loop_tui_share_command_cancels_worker_with_cancel_token(
     ui = CancelUi()
     observed: list[str] = []
 
-    def fake_share(session_tree: NativeSessionTree, **kwargs: object) -> ShareResult:
+    def fake_share(
+        session_tree: NativeSessionTree, html: str, **kwargs: object
+    ) -> ShareResult:
         assert session_tree.session_id == tree.session_id
         assert kwargs["token"] == "ghp_UPLOAD_TOKEN_123456789"
         cancel_token = kwargs["cancel_token"]

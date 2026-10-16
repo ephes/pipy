@@ -11,6 +11,7 @@ nav = [
   {"Providers and models" = "providers.md"},
   {"Settings" = "settings.md"},
   {"Python codemode" = "codemode.md"},
+  {"MCP" = "mcp.md"},
   {"Keybindings" = "keybindings.md"},
   {"Customization" = "customization.md"},
   {"Packages" = "packages.md"},

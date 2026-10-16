@@ -16,6 +16,7 @@ import ast
 from pathlib import Path
 
 import pipy_harness.extensions as public_extensions
+import pipy_harness.native.agent.content as agent_content
 import pipy_harness.native.extension_hooks as extension_hooks
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
@@ -27,12 +28,18 @@ import pipy_harness.native.extensions.custom_payloads as extension_custom_payloa
 import pipy_harness.native.extensions.dispatch as extension_dispatch
 import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.extensions.session_views as extension_session_views
+import pipy_harness.native.mcp.registry as mcp_registry
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
+import pipy_harness.native.tools.base as tools_base
+import pipy_harness.native.tools.loadout as tools_loadout
 
 _PUBLIC_EXTENSION_NAMES = (
     "PipyExtensionAPI",
     "CommandContext",
+    "ExtensionToolContext",
+    "ToolLoadout",
+    "ToolLoadoutChanges",
     "ConversationView",
     "AssistantMessageView",
     "SessionEntryView",
@@ -61,9 +68,11 @@ _PUBLIC_EXTENSION_NAMES = (
     "ToolCallEvent",
     "LifecycleEvent",
     "InputEvent",
+    "InputHandled",
     "InputTransform",
     "BeforeAgentStartEvent",
     "BeforeAgentStartResult",
+    "SystemPromptOptions",
     "QueuedUserMessage",
     "QueuedCustomMessage",
     "ExtensionTool",
@@ -74,6 +83,11 @@ _PUBLIC_EXTENSION_NAMES = (
     "RegisteredProvider",
     "RegisteredFlag",
     "ToolResult",
+    "ToolCallInfo",
+    "ToolCallOutcome",
+    "TextContent",
+    "NO_STRUCTURED_CONTENT",
+    "ImageContent",
     "RegisteredTool",
     "ToolResultEvent",
     "ToolResultTransform",
@@ -94,6 +108,8 @@ _PUBLIC_EXTENSION_NAMES = (
     "ThemeColor",
     "ToolRenderComponent",
     "ToolRenderContext",
+    "ToolRendererResolver",
+    "ToolRenderers",
     "ToolRenderTheme",
     "coerce_tool_render_lines",
     "lines_component",
@@ -128,9 +144,30 @@ _PUBLIC_EXTENSION_NAMES = (
     "discover_extensions",
     "safe_extension_metadata",
     "apply_provider_headers",
+    "ToolAnnotations",
+    "ToolExecutionMode",
+    "ToolExposure",
+    "ToolInfo",
+    "ToolNamespace",
+    "McpServerRegistrationError",
+    "RegisteredMcpServer",
+    "McpServersChangeEvent",
 )
 
 _OWNER_GROUPS = (
+    (agent_content, ("ImageContent", "NO_STRUCTURED_CONTENT", "TextContent")),
+    (
+        tools_base,
+        (
+            "ToolAnnotations",
+            "ToolExecutionMode",
+            "ToolExposure",
+            "ToolInfo",
+            "ToolNamespace",
+        ),
+    ),
+    (mcp_registry, ("McpServerRegistrationError", "RegisteredMcpServer")),
+    (tools_loadout, ("ToolLoadout", "ToolLoadoutChanges")),
     (
         extension_activation,
         ("activate_extensions", "safe_activation_metadata"),
@@ -199,8 +236,10 @@ _OWNER_GROUPS = (
             "ExtensionUiDriver",
             "FooterData",
             "InputEvent",
+            "InputHandled",
             "InputTransform",
             "LifecycleEvent",
+            "McpServersChangeEvent",
             "MessageRenderComponent",
             "MessageRenderContext",
             "ProviderContext",
@@ -213,11 +252,16 @@ _OWNER_GROUPS = (
             "RenderedCustomEntry",
             "SessionBeforeEvent",
             "SessionDecision",
+            "SystemPromptOptions",
             "ThemeColor",
             "ToolBlock",
             "ToolCallEvent",
+            "ToolCallInfo",
+            "ToolCallOutcome",
             "ToolRenderComponent",
             "ToolRenderContext",
+            "ToolRendererResolver",
+            "ToolRenderers",
             "ToolRenderTheme",
             "ToolResult",
             "ToolResultEvent",
@@ -232,7 +276,7 @@ _OWNER_GROUPS = (
     (extension_ui, ("coerce_tool_render_lines", "lines_component")),
     (
         extension_command_context,
-        ("CommandContext", "ExtensionCapabilityError"),
+        ("CommandContext", "ExtensionCapabilityError", "ExtensionToolContext"),
     ),
     (
         extension_session_views,
@@ -404,10 +448,10 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
-    assert len(_PUBLIC_EXTENSION_NAMES) == 97
+    assert len(_PUBLIC_EXTENSION_NAMES) == 117
 
     owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
-    assert len(owned_names) == len(set(owned_names)) == 97
+    assert len(owned_names) == len(set(owned_names)) == 117
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
         for name in names:
@@ -428,7 +472,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
         if (alias.asname or alias.name) in expected_owners
     ]
 
-    assert len(direct_imports) == len(dict(direct_imports)) == 97
+    assert len(direct_imports) == len(dict(direct_imports)) == 117
     assert dict(direct_imports) == expected_owners
 
 

@@ -3,14 +3,18 @@
 An activation pass reserves every accepted contribution name (commands,
 tools, providers, shortcuts, flags, message/entry renderers) before it
 commits an extension, so two extensions can never claim the same name and
-a reserved built-in name can never be shadowed. This module owns the two
+a reserved built-in name can never be shadowed. Tools are the exception
+to the first rule, as in Pi: the activation band leaves out a tool whose
+name an earlier extension has before it checks the names here, so only a
+reserved tool name is a collision. This module owns the two
 immutable records of that protocol — :class:`_ContributionNames` (the
 names one extension contributes, grouped in collision-check order) and
 :class:`_TakenContributionState` (the reservation snapshot an activation
 pass threads through) — plus the pure functions over them: normalization
 (exact-string copies, intra-extension duplicate rejection), the
-reserved/duplicate collision checks, and the non-mutating successor-state
-builder a commit publishes.
+reserved/duplicate collision checks, the first-registration-wins filter
+for tools (`_first_tools`), and the non-mutating successor-state builder a
+commit publishes.
 
 Everything here is value-level: no host, no activation state, no I/O. The
 projections that *produce* a :class:`_ContributionNames` from an activated
@@ -31,9 +35,9 @@ from pipy_harness.native.extension_types import (
     REASON_DUPLICATE_MESSAGE_RENDERER,
     REASON_DUPLICATE_PROVIDER,
     REASON_DUPLICATE_SHORTCUT,
-    REASON_DUPLICATE_TOOL,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_TOOL,
+    RegisteredTool,
 )
 
 
@@ -107,15 +111,10 @@ def _preloaded_collision_reason(
     )
     if reason is not None:
         return reason
-    reason = _reserved_or_taken_collision(
-        names.tools,
-        reserved=reserved_tools,
-        taken=taken.tools,
-        reserved_reason=REASON_RESERVED_TOOL,
-        duplicate_reason=REASON_DUPLICATE_TOOL,
-    )
-    if reason is not None:
-        return reason
+    # A tool name an earlier extension has is not a collision: the later
+    # tool is left out before this check (first registration wins).
+    if any(name in reserved_tools for name in names.tools):
+        return REASON_RESERVED_TOOL
     collision_categories = (
         (names.providers, taken.providers, REASON_DUPLICATE_PROVIDER),
         (names.shortcuts, taken.shortcuts, REASON_DUPLICATE_SHORTCUT),
@@ -140,6 +139,17 @@ def _preloaded_collision_reason(
         if reason is not None:
             return reason
     return None
+
+
+def _first_tools(
+    tools: tuple[RegisteredTool, ...], taken: _TakenContributionState
+) -> tuple[RegisteredTool, ...]:
+    """``tools`` without those whose name an extension that loaded earlier
+    registered: the first registration of a name wins and the later one is
+    left out silently, its extension staying enabled (Pi
+    ``getAllRegisteredTools``)."""
+
+    return tuple(item for item in tools if item.tool.name not in taken.tools)
 
 
 def _normalize_contribution_name_category(

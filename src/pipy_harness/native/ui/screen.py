@@ -6,8 +6,8 @@ import select
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
-from typing import Generic, Literal, Protocol, TextIO, TypeVar
+from dataclasses import dataclass, field, replace
+from typing import Final, Generic, Literal, Protocol, TextIO, TypeVar
 
 from pipy_harness.native.chrome import ChromeStyle, chrome_style_for
 from pipy_harness.native.frame_renderer import (
@@ -30,6 +30,7 @@ from pipy_harness.native.frame_renderer import (
 )
 from pipy_harness.native.overlay_state import OverlayState
 from pipy_harness.native.terminal_driver import _RESIZE_POLL_SECONDS, TerminalDriver
+from pipy_harness.native.terminal_image import delete_kitty_image
 from pipy_harness.native.tool_renderers import build_tool_render_theme
 from pipy_harness.native.ui.components.custom_overlay import custom_overlay_region_lines
 from pipy_harness.native.ui.components.model_selector import (
@@ -51,6 +52,9 @@ from pipy_harness.native.ui.components.tree_selector import tree_selector_region
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 T = TypeVar("T")
+# What ``Screen.read_key_polling_resize`` returns in place of a key when the
+# ``poll`` it was given ended the waiting. No decoded key has this name.
+KEY_WAIT_ENDED: Final = "\x00wait-ended"
 ContributorName = Literal[
     "popup",
     "pending",
@@ -122,6 +126,9 @@ class ScreenState:
     painting: bool = False
     paint_requested_during_paint: bool = False
     last_painted_size: tuple[int, int] = (0, 0)
+    # Kitty images on the screen or in its scrollback (pi-tui
+    # `previousKittyImageIds`): deleted before the screen is drawn again.
+    kitty_image_ids: set[int] = field(default_factory=set)
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +208,10 @@ class DriveOwner(Generic[T]):
     is_finished: Callable[[], bool] = lambda: False
     dispose: Callable[[], T] | None = None
     consume_paste: Callable[[], object] | None = None
+    # Called on the key loop's thread while the modal waits for a key, about
+    # ten times a second, for a modal that follows what other threads do.
+    # ``True`` ends the waiting, so that ``is_finished`` is asked again.
+    poll: Callable[[], bool] | None = None
 
 
 class Screen:
@@ -222,6 +233,9 @@ class Screen:
         self._sources: FrameSources | None = None
         # The live thinking level for the editor border colour.
         self._border_level: Callable[[], str] = lambda: "off"
+        # Run while a key is waited for: what other threads left for the
+        # user is shown at once (the notices of the MCP servers).
+        self._idle_work: Callable[[], None] = lambda: None
         self.render_inputs = ScreenRenderInputs(
             self.frame_width, terminal_stream, self.tools_expanded
         )
@@ -263,6 +277,12 @@ class Screen:
 
         with self._paint_lock:
             self._border_level = source
+
+    def set_idle_work(self, work: Callable[[], None]) -> None:
+        """Install what runs about ten times a second while a key is waited
+        for, on the thread that waits."""
+
+        self._idle_work = work
 
     def frame_width(self) -> int:
         return self._driver.size()[0]
@@ -418,12 +438,22 @@ class Screen:
             if self._state.deferred:
                 # Nothing is on the screen yet; the first paint draws it all.
                 return
-            if not self._driver.write_deferred(clear):
+            if not self._driver.write_deferred(self._kitty_deletion() + clear):
                 return
+            self._state.kitty_image_ids.clear()
             self._reset_live_state()
             # Keep the deferred clear, reset, and reentrant paint in one
             # transaction so no terminal owner can observe the blank screen.
             self.paint()
+
+    def _kitty_deletion(self) -> str:
+        """pi-tui's full render deletes the Kitty images it drew by id before
+        it clears the screen; the redraw places them again."""
+
+        return "".join(
+            delete_kitty_image(image_id)
+            for image_id in sorted(self._state.kitty_image_ids)
+        )
 
     def _reset_live_state(self) -> None:
         self._state.painted_block_count = 0
@@ -506,6 +536,7 @@ class Screen:
         self._state.live_height = plan.live_height
         self._state.live_input_row = plan.live_input_row
         self._state.last_painted_size = plan.painted_size
+        self._state.kitty_image_ids.update(plan.kitty_image_ids)
 
     def _write_plan(self, plan: PaintPlan) -> None:
         self._driver.write_frame(
@@ -564,7 +595,8 @@ class Screen:
         sources = self._require_sources()
         transcript = sources.transcript
         history = tuple(
-            FrameBlock(kind, tuple(lines)) for kind, lines in transcript.history_blocks
+            FrameBlock(block[0], tuple(block[1]), getattr(block, "images", ()))
+            for block in transcript.history_blocks
         )
         return FrameSnapshot(
             width=request.width,
@@ -597,9 +629,16 @@ class Screen:
             )
         return key
 
-    def read_key_polling_resize(self, fd: int) -> str | None:
+    def read_key_polling_resize(
+        self, fd: int, poll: Callable[[], bool] | None = None
+    ) -> str | None:
+        """The next key. With ``poll``, which is called before every look at
+        the input, ``KEY_WAIT_ENDED`` as soon as it returns ``True``."""
+
         while True:
             self._poll_idle_sources()
+            if poll is not None and poll():
+                return KEY_WAIT_ENDED
             if self._driver.has_pending_input():
                 return self.read_driver_key(self._driver.read_key(fd))
             readable, _, _ = select.select([fd], [], [], _RESIZE_POLL_SECONDS)
@@ -608,6 +647,7 @@ class Screen:
 
     def _poll_idle_sources(self) -> None:
         self._require_sources().poll_idle()
+        self._idle_work()
         self.poll_resize_repaint()
 
     def poll_resize_repaint(self) -> bool:
@@ -621,8 +661,11 @@ class Screen:
         with self._paint_lock:
             if self._state.closed or self._state.deferred:
                 return
-            if not self._driver.write_deferred("\x1b[2J\x1b[H"):
+            if not self._driver.write_deferred(
+                self._kitty_deletion() + "\x1b[2J\x1b[H"
+            ):
                 return
+            self._state.kitty_image_ids.clear()
             # Tool rows are drawn at a width (Pi re-renders every component at
             # the new width), so redraw them before the frame repaints.
             self._require_sources().transcript.refresh_tool_rows()
@@ -652,7 +695,13 @@ class Screen:
 
     def _drive_keys(self, owner: DriveOwner[T], fd: int) -> DriveResult[T] | None:
         while not owner.is_finished():
-            key = self.read_key_polling_resize(fd)
+            key = (
+                self.read_key_polling_resize(fd)
+                if owner.poll is None
+                else self.read_key_polling_resize(fd, owner.poll)
+            )
+            if key == KEY_WAIT_ENDED:
+                continue
             if key == "paste" and owner.consume_paste is not None:
                 owner.consume_paste()
                 continue

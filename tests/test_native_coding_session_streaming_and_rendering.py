@@ -21,11 +21,12 @@ These tests cover behavior the previous tool-loop suite did not pin:
 from __future__ import annotations
 
 import io
+import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import TextIO, cast
+from typing import Any, TextIO, cast
 
 import pytest
 
@@ -727,6 +728,7 @@ def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
             call: AgentToolCall,
             context: ToolContext,
             wait_for_interrupt: ToolInterruptWaiter | None = None,
+            arguments: Any = None,
         ) -> ToolExecutionOutcome:
             del wait_for_interrupt
             assert context.output_sink is not None
@@ -743,6 +745,11 @@ def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
                     provider_correlation_id=call.provider_correlation_id,
                 )
             )
+
+        def validated_arguments(
+            self, call: AgentToolCall, /
+        ) -> dict[str, object] | ToolExecutionOutcome:
+            return dict(json.loads(call.arguments_json.value))
 
     class UpdateSink:
         def emit(self, event: AgentEvent) -> None:
@@ -776,7 +783,9 @@ def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
         (
             event.turn_index,
             event.call.provider_correlation_id,
-            event.update.value,
+            event.update.value
+            if isinstance(event.update, ProductContent)
+            else event.update,
         )
         for event in updates
     ] == [

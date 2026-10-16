@@ -24,25 +24,100 @@ from pipy_harness.native.agent import (
     AgentTranscriptMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.agent.content import TextContent, ThinkingContent
+from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
+    ProductContent,
+    TextContent,
+    ThinkingContent,
+    ToolPartialResult,
+)
 from pipy_harness.native.agent.messages import AgentContentBlock
 from pipy_harness.native.agent.system_messages import system_message_to_json
 from pipy_harness.native.agent.usage_json import usage_to_json
+from pipy_harness.native.assistant_blocks_json import tool_result_blocks_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
-def codemode_parent_details(message: AgentToolResultMessage) -> dict[str, Any]:
-    """Expose metadata only for composite parents carrying canonical records."""
+def nested_call_fields(message: AgentToolResultMessage) -> dict[str, Any]:
+    """The ``nestedCalls`` and ``details`` of a result that carries a
+    nested-call record.
+
+    Every calling tool's result has the record (``codemode`` and an
+    extension tool that ran others with ``ctx.execute_tool``), kept in its
+    ``details``. Pi's ``_handleAgentEvent`` puts it on every tool result
+    message its recorder has a summary for as the message's own
+    ``nestedCalls`` field, beside the tool's ``details``, which do not hold
+    it. Such a message also has the rest of the result's details, when there
+    are any; other results keep their details to ``tool_execution_end``.
+    """
     details = message.details
     if (
-        message.tool_name == "codemode"
-        and details is not None
+        details is not None
         and type(record := details.get("nestedCalls")) is dict
         and type(record.get("calls")) is list
         and type(record.get("complete")) is bool
     ):
-        return {"details": dict(details)}
+        rest = {key: value for key, value in details.items() if key != "nestedCalls"}
+        return {
+            **({"details": rest} if rest else {}),
+            "nestedCalls": dict(record),
+        }
     return {}
+
+
+def tool_result_content(message: AgentToolResultMessage) -> list[dict[str, Any]]:
+    """Pi's ``content`` of a tool result: one text block, or the ordered
+    text and image blocks when the result has an image."""
+
+    return tool_result_blocks_to_json(message.blocks) or [
+        {"type": "text", "text": message.content.value}
+    ]
+
+
+def tool_result_json(message: AgentToolResultMessage) -> dict[str, Any]:
+    """Pi's ``AgentToolResult`` of a finished call (``tool_execution_end``
+    ``result``): ``content``, ``details`` when the result has them, the
+    tool's ``structuredContent`` when it gave one, and ``terminate`` when
+    the result asks the agent to stop after the batch."""
+
+    result: dict[str, Any] = {"content": tool_result_content(message)}
+    if message.details is not None:
+        result["details"] = dict(message.details)
+    if message.structured_content is not NO_STRUCTURED_CONTENT:
+        result["structuredContent"] = message.structured_content
+    if message.terminate:
+        result["terminate"] = True
+    return result
+
+
+def partial_result_json(update: ProductContent | ToolPartialResult) -> dict[str, Any]:
+    """Pi's partial ``AgentToolResult`` (``tool_execution_update``
+    ``partialResult``).
+
+    A partial result keeps its ``details`` and replaces the previous one:
+    an MCP tool's progress, or ``bash``'s output so far (Pi's
+    ``emitOutputUpdate``). A bare chunk of text, which no built-in tool
+    sends, is a partial result with that chunk as its text and empty
+    ``details``.
+    """
+
+    if isinstance(update, ToolPartialResult):
+        partial: dict[str, Any] = {
+            "content": [{"type": "text", "text": update.content}]
+        }
+        if update.details is not None:
+            partial["details"] = dict(update.details)
+        return partial
+    return {"content": [{"type": "text", "text": update.value}], "details": {}}
+
+
+def duration_ms(execution_seconds: float | None) -> dict[str, int]:
+    """Pi's ``durationMs`` field: how long the tool ran, in whole
+    milliseconds; absent when it never started."""
+
+    if execution_seconds is None:
+        return {}
+    return {"durationMs": round(execution_seconds * 1000)}
 
 
 def parse_tool_arguments(arguments_json: str) -> Any:
@@ -137,10 +212,11 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
         return assistant
     if isinstance(message, AgentToolResultMessage):
         return {
-            **codemode_parent_details(message),
             "role": "toolResult",
             "toolCallId": message.provider_correlation_id,
-            "content": [{"type": "text", "text": message.content.value}],
+            # Pi's ordered text and image blocks when the result has an image.
+            "content": tool_result_content(message),
+            **nested_call_fields(message),
             "isError": message.is_error,
         }
     raise TypeError(f"unserializable loop message: {type(message)!r}")

@@ -38,9 +38,15 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import Self, cast
 
 from pipy_harness.native.agent import NestedToolCallCompleted, NestedToolCallStarted
+from pipy_harness.native.agent.nested_record import (
+    MAX_ARGUMENT_BYTES,
+    MAX_CALLS,
+    MAX_TOTAL_ARGUMENT_BYTES,
+)
 from pipy_harness.native.agent.nested_status import NestedCallStatus
 from pipy_harness.native.chrome import chrome_style_for
 from pipy_harness.native.extensions.contracts import (
@@ -52,6 +58,15 @@ from pipy_harness.native.extensions.custom_payloads import (
     render_extension_message,
 )
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.terminal_image import (
+    DEFAULT_IMAGE_SIZE,
+    ImageProtocol,
+    TerminalImage,
+    allocate_image_id,
+    clean_base64,
+    kitty_png,
+)
+from pipy_harness.native.tool_result_display import image_dimensions
 from pipy_harness.native.tool_rows import (
     BoxRow,
     EditPreview,
@@ -65,6 +80,7 @@ from pipy_harness.native.tool_rows import (
     bounded_nested_text,
     encode_rows,
     is_builtin_edit,
+    is_nested_under,
     is_running_builtin_bash,
     nested_lines_from_details,
     render_box_row,
@@ -86,16 +102,29 @@ HistoryBlock = tuple[str, tuple[str, ...]]
 
 
 class HistoryBlockTuple(tuple[str, tuple[str, ...]]):
-    """Tuple-compatible history block with optional live render metadata."""
+    """Tuple-compatible history block with optional live render metadata
+    and the inline images a tool row draws after its box."""
 
     state: object | None
+    images: tuple[TerminalImage, ...]
 
     def __new__(
-        cls, kind: str, lines: tuple[str, ...], state: object | None = None
+        cls,
+        kind: str,
+        lines: tuple[str, ...],
+        state: object | None = None,
+        images: tuple[TerminalImage, ...] = (),
     ) -> Self:
         obj = tuple.__new__(cls, (kind, lines))
         obj.state = state
+        obj.images = images
         return obj
+
+
+def _images(block: HistoryBlock) -> tuple[TerminalImage, ...]:
+    """The inline images a rebuilt block keeps."""
+
+    return getattr(block, "images", ())
 
 
 @dataclass(slots=True)
@@ -190,6 +219,13 @@ class TranscriptComponent:
         # drawn in the live region until its result commits the whole row.
         self.pending_tool: ToolRowState | None = None
         self.pending_tool_lines: tuple[str, ...] = ()
+        # The tool rows being drawn now; guarded by the paint lock.
+        self._drawing_rows: list[ToolRowState] = []
+        # Pi `getCapabilities().images`, `terminal.showImages` and
+        # `terminal.imageWidthCells`: whether tool rows draw their images.
+        self._image_protocol: ImageProtocol | None = None
+        self._show_images = True
+        self._image_width_cells = 60
 
     # -- seeding -------------------------------------------------------------
 
@@ -220,6 +256,15 @@ class TranscriptComponent:
 
         replacement = list(blocks)
         with self._paint_lock:
+            for index, block in enumerate(replacement):
+                state = getattr(block, "state", None)
+                if isinstance(state, ToolRowState):
+                    # Rows replayed into a scratch transcript are drawn here
+                    # now. Bound and drawn again under the paint lock, so a
+                    # redraw an extension asked for in between is not lost.
+                    state.invalidate = partial(self.invalidate_tool, state)
+                    if state.extension is not None:
+                        replacement[index] = self._tool_block(block[0], state, block)
             boundary = min(self.startup_block_count, len(self.history_blocks))
             replaced_rows = len(self.history_blocks) > boundary
             self.assistant_text = ""
@@ -508,6 +553,7 @@ class TranscriptComponent:
         commits it once.
         """
 
+        state.invalidate = partial(self.invalidate_tool, state)
         with self._paint_lock:
             self._settle_reasoning_locked()
             self.working_text = ""
@@ -531,7 +577,9 @@ class TranscriptComponent:
             if (
                 state is None
                 or state.tool_name != "codemode"
-                or state.correlation_id != event.parent_correlation_id
+                or not is_nested_under(
+                    state.correlation_id, event.parent_correlation_id
+                )
             ):
                 return
             index = next(
@@ -543,16 +591,35 @@ class TranscriptComponent:
                 None,
             )
             if isinstance(event, NestedToolCallStarted):
-                if index is not None or len(state.nested_lines) >= 256:
+                if index is not None:
                     return
-                remaining = 32768 - sum(
+                if len(state.nested_lines) >= MAX_CALLS:
+                    # Pi keeps every call (cm/execute.ts) and shows the latest;
+                    # the row keeps the latest calls and counts the others.
+                    # The oldest finished call goes first, so a call still
+                    # running can settle in place.
+                    drop = next(
+                        (
+                            i
+                            for i, line in enumerate(state.nested_lines)
+                            if line.status != "unfinished"
+                        ),
+                        0,
+                    )
+                    state.nested_lines = (
+                        *state.nested_lines[:drop],
+                        *state.nested_lines[drop + 1 :],
+                    )
+                    state.nested_dropped += 1
+                remaining = MAX_TOTAL_ARGUMENT_BYTES - sum(
                     len(line.arguments.encode("utf-8")) for line in state.nested_lines
                 )
                 line = NestedToolLine(
                     event.call.provider_correlation_id,
                     bounded_nested_text(event.call.tool_name, 80),
                     bounded_nested_text(
-                        event.call.arguments_json.value, min(8192, remaining)
+                        event.call.arguments_json.value,
+                        min(MAX_ARGUMENT_BYTES, remaining),
                     ),
                 )
                 state.nested_lines += (line,)
@@ -633,9 +700,7 @@ class TranscriptComponent:
                     apply_edit_result(state)
                 self.pending_tool = None
                 self.pending_tool_lines = ()
-                self.history_blocks.append(
-                    HistoryBlockTuple("tool_box", self._tool_row_lines(state), state)
-                )
+                self.history_blocks.append(self._tool_block("tool_box", state))
         if cancel is not None:
             cancel()
         if state is not None:
@@ -651,7 +716,7 @@ class TranscriptComponent:
 
         with self._paint_lock:
             self.history_blocks = [
-                HistoryBlockTuple(block[0], self._tool_row_lines(state), state)
+                self._tool_block(block[0], state, block)
                 if isinstance(
                     state := getattr(block, "state", None),
                     ToolRowState | SummaryBox | SkillInvocationBox,
@@ -661,6 +726,38 @@ class TranscriptComponent:
             ]
             if self.pending_tool is not None:
                 self.pending_tool_lines = self._tool_row_lines(self.pending_tool)
+
+    def invalidate_tool(self, state: ToolRowState) -> None:
+        """Draw one tool row again (Pi ``ctx.invalidate``: the component
+        renders again and the TUI repaints).
+
+        An extension renderer may call it from any thread, also while its
+        row is being drawn: that call is skipped, since the drawing under
+        way already uses what changed. A committed row that now looks
+        different is redrawn with the scrollback, as a Ctrl+O change is.
+        """
+
+        committed_changed = False
+        with self._paint_lock:
+            if any(row is state for row in self._drawing_rows):
+                return
+            if state is self.pending_tool:
+                self.pending_tool_lines = self._tool_row_lines(state)
+            else:
+                for index, block in enumerate(self.history_blocks):
+                    if getattr(block, "state", None) is state:
+                        rebuilt = self._tool_block(block[0], state, block)
+                        if rebuilt[1] == block[1]:
+                            return
+                        self.history_blocks[index] = rebuilt
+                        committed_changed = True
+                        break
+                else:
+                    return
+        if committed_changed:
+            self._reset_scrollback()
+        else:
+            self._repaint()
 
     def apply_tool_preview(self, state: ToolRowState, preview: EditPreview) -> None:
         """Pi's asynchronous edit preview arriving for a still-running call.
@@ -703,6 +800,114 @@ class TranscriptComponent:
         self.pending_tool_lines = ()
         return True
 
+    def set_image_options(
+        self, protocol: ImageProtocol | None, *, show: bool, width_cells: int
+    ) -> None:
+        """Whether tool rows draw their images, and how wide (Pi
+        ``setShowImages``/``setImageWidthCells`` on every tool row)."""
+
+        with self._paint_lock:
+            options = (protocol, show, width_cells)
+            if options == (
+                self._image_protocol,
+                self._show_images,
+                self._image_width_cells,
+            ):
+                return
+            show_changed = show != self._show_images
+            self._image_protocol, self._show_images, self._image_width_cells = options
+            # A row with images is drawn again; so is an extension's row when
+            # `show_images` of its render context changed.
+            affected = any(
+                isinstance(state := getattr(block, "state", None), ToolRowState)
+                and (
+                    (state.result is not None and state.result.images is not None)
+                    or (show_changed and state.extension is not None)
+                )
+                for block in self.history_blocks
+            )
+            pending = self.pending_tool
+            redraw_pending = (
+                not affected
+                and show_changed
+                and pending is not None
+                and pending.extension is not None
+            )
+            if redraw_pending:
+                assert pending is not None
+                self.pending_tool_lines = self._tool_row_lines(pending)
+        if affected:
+            self.refresh_tool_rows()
+            self._reset_scrollback()
+        elif redraw_pending:
+            self._repaint()
+
+    @property
+    def image_options(self) -> tuple[ImageProtocol | None, bool, int]:
+        """``(protocol, show, width_cells)`` as ``set_image_options`` took them."""
+
+        with self._paint_lock:
+            return self._image_protocol, self._show_images, self._image_width_cells
+
+    @property
+    def _inline_images(self) -> bool:
+        return self._image_protocol is not None and self._show_images
+
+    def _tool_block(
+        self, kind: str, state: ToolRowState | BoxRow, block: HistoryBlock | None = None
+    ) -> HistoryBlockTuple:
+        """A tool row's block: its lines and the images it draws after them."""
+
+        images = (
+            self._row_images(state)
+            if isinstance(state, ToolRowState)
+            else _images(block)
+            if block is not None
+            else ()
+        )
+        return HistoryBlockTuple(kind, self._tool_row_lines(state), state, images)
+
+    def _row_images(self, state: ToolRowState) -> tuple[TerminalImage, ...]:
+        """Pi ``updateDisplay``: an ``Image`` per result image, when the
+        terminal draws images and ``showImages`` is on."""
+
+        protocol = self._image_protocol
+        result = state.result
+        if protocol is None or not self._show_images or result is None:
+            return ()
+        if result.images is None:
+            return ()
+        images = result.images.images
+        while len(state.image_ids) < len(images):
+            state.image_ids.append(allocate_image_id())
+        theme = row_theme(chrome_style_for(self._render_inputs.stream))
+        drawn: list[TerminalImage] = []
+        for image, image_id in zip(images, state.image_ids, strict=False):
+            size = image_dimensions(image.data, image.mime_type) or DEFAULT_IMAGE_SIZE
+            # pi-tui `Image` names the size it assumed for an unreadable one.
+            fallback = f"[Image: [{image.mime_type}] {size[0]}x{size[1]}]"
+            data: str | None = image.data
+            mime_type, drawn_size = image.mime_type, size
+            if protocol == "kitty" and mime_type != "image/png":
+                # Kitty takes PNG only. The conversion may turn the image by
+                # its EXIF orientation, so the PNG's own size counts.
+                data = kitty_png(image.data)
+                if data is not None:
+                    mime_type = "image/png"
+                    drawn_size = image_dimensions(data, mime_type) or size
+            drawn.append(
+                TerminalImage(
+                    data=None if data is None else clean_base64(data),
+                    mime_type=mime_type,
+                    protocol=protocol,
+                    max_width_cells=self._image_width_cells,
+                    image_id=image_id,
+                    size=drawn_size,
+                    fallback=theme.fg("toolOutput", fallback),
+                )
+            )
+        return tuple(drawn)
+
     def _tool_row_lines(self, state: ToolRowState | BoxRow) -> tuple[str, ...]:
         style = chrome_style_for(self._render_inputs.stream)
         if isinstance(state, SummaryBox | SkillInvocationBox):
@@ -715,8 +920,15 @@ class TranscriptComponent:
             theme=row_theme(style),
             extension_theme=self._render_inputs.theme(),
             now=self._clock(),
+            inline_images=self._inline_images,
+            show_images=self._show_images,
         )
-        return encode_rows(render_tool_row(state, inputs))
+        # Callers hold the paint lock, so only this thread sees the mark.
+        self._drawing_rows.append(state)
+        try:
+            return encode_rows(render_tool_row(state, inputs))
+        finally:
+            self._drawing_rows.pop()
 
     def append_tool_output(self, chunk: str) -> None:
         """Stream incremental tool output into the live region as produced.
@@ -1020,12 +1232,12 @@ class TranscriptComponent:
                 continue
             if isinstance(state, ToolRowState | SummaryBox | SkillInvocationBox):
                 # Pi `setExpanded` on every ToolExecutionComponent and summary.
-                next_lines = self._tool_row_lines(state)
-                changed = changed or next_lines != lines
-                rebuilt.append(HistoryBlockTuple(kind, next_lines, state))
+                next_block = self._tool_block(kind, state, block)
+                changed = changed or next_block[1] != lines
+                rebuilt.append(next_block)
                 continue
             if state is None:
-                rebuilt.append(HistoryBlockTuple(kind, lines, state))
+                rebuilt.append(HistoryBlockTuple(kind, lines, state, _images(block)))
                 continue
             state = cast(CustomMessageRenderState, state)
             next_block = self._rerendered_block(state, width=width, theme=theme)

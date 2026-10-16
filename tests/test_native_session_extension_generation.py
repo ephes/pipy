@@ -70,6 +70,7 @@ from pipy_harness.native.extensions.contracts import (
     _ExtensionRuntime,
 )
 from pipy_harness.native.extensions.dispatch import dispatch_extension_command
+from pipy_harness.native.extensions.live_tools import LiveToolRenderers
 from pipy_harness.native.extensions.message_routing import (
     GenerationMessageRetirement,
     GenerationMessageRouting,
@@ -526,10 +527,13 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
         "unregistered_providers": "providers",
         "message_renderers": "renderers",
         "entry_renderers": "renderers",
+        "tool_renderers": "renderers",
+        "tool_renderer_groups": "renderers",
         "custom_messages": "runtime_flags",
     }
     omitted_runtime_fields = {
-        "activation_hosts": "R1 mutable activation ownership state"
+        "activation_hosts": "R1 mutable activation ownership state",
+        "mcp_servers": "mutable registry the activation hosts register in",
     }
     runtime_fields = {field.name for field in fields(_ExtensionRuntime)}
 
@@ -538,7 +542,8 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
         runtime_fields
     )
     assert omitted_runtime_fields == {
-        "activation_hosts": "R1 mutable activation ownership state"
+        "activation_hosts": "R1 mutable activation ownership state",
+        "mcp_servers": "mutable registry the activation hosts register in",
     }
 
 
@@ -1144,6 +1149,7 @@ def test_production_projection_tool_port_is_detached_and_stable(
         has_ui=has_ui,
         notify_sink=notify,
         set_active_tools=set_active_tools,
+        get_all_tools=lambda: (),
         project_trusted=project_trusted,
         prepare_capability=prepare,
         chrome=None,
@@ -1293,6 +1299,7 @@ def test_invalid_builder_results_fail_before_returning_a_projection(
             has_ui=False,
             notify_sink=lambda *_args: None,
             set_active_tools=lambda _generation_id, _names: True,
+            get_all_tools=lambda: (),
             flags=flags,
             project_trusted=True,
         )
@@ -1374,7 +1381,6 @@ def test_successor_projections_share_no_mutable_mapping_or_list(
         old.hooks.lifecycle,
         old.tools.ports,
         old.tools.capability_state.extension_registry,
-        old.renderers.tools,
         old.renderers.messages,
         old.renderers.entries,
     )
@@ -1386,13 +1392,17 @@ def test_successor_projections_share_no_mutable_mapping_or_list(
         candidate.hooks.lifecycle,
         candidate.tools.ports,
         candidate.tools.capability_state.extension_registry,
-        candidate.renderers.tools,
         candidate.renderers.messages,
         candidate.renderers.entries,
     )
 
     assert all(isinstance(value, MappingProxyType) for value in old_mappings)
     assert all(isinstance(value, MappingProxyType) for value in candidate_mappings)
+    # The tool renderers are a read-only view of each generation's own live
+    # tool registry (tools registered after loading draw with theirs).
+    assert isinstance(old.renderers.tools, LiveToolRenderers)
+    assert isinstance(candidate.renderers.tools, LiveToolRenderers)
+    assert old.tools.live is not candidate.tools.live
     assert not {id(value) for value in old_mappings}.intersection(
         id(value) for value in candidate_mappings
     )

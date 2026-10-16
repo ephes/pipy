@@ -214,7 +214,7 @@ survives restarts.
 Every Copilot request carries Copilot's editor headers plus `X-Initiator`
 (`agent` after a tool or assistant turn, else `user`), `Openai-Intent:
 conversation-edits`, and `Copilot-Vision-Request: true` when the request sends
-an image. Claude models authenticate with a Bearer token.
+an image, a tool result's image included. Claude models authenticate with a Bearer token.
 
 Pipy does not offer Pi's xAI OAuth login (SuperGrok or X Premium); use
 `XAI_API_KEY`.
@@ -454,6 +454,86 @@ level, pipy falls back safely rather than inventing unsupported parameters.
 Images are accepted only for rows marked `images yes`; attach files using the
 current image/file-reference workflows described in [Using pipy](usage.md).
 
+A tool result can hold images (an MCP tool's screenshot, for example). They
+are sent to the model as Pi sends them:
+
+| Adapter family | Where the images go |
+| --- | --- |
+| Anthropic Messages, Bedrock | Inside the `tool_result`, text and image blocks in the tool's order. A result that is images only starts with the text `(see attached image)`. |
+| OpenAI Responses, Azure, Codex | The `function_call_output` is a list: the result's text as one `input_text`, then one `input_image` per image. |
+| Gemini, Vertex | Inside the function response (`parts`) for Gemini 3 and later and for models that are not Gemini. For Gemini before 3, in a user turn `Tool result image:` after the function response. |
+| Chat Completions (OpenAI-compatible, OpenRouter, Mistral, Cloudflare, ds4) | The `tool` message keeps the text (`(see attached image)` for images only). The images of a run of tool results follow it in one user message `Attached image(s) from tool result:`. |
+
+A model whose row says `images no` gets the text `(tool image omitted: model
+does not support images)` in place of each run of images. The session keeps
+the images, so a later switch to a model that takes them sends them. A model
+that no catalog row describes is sent the images, also when its provider is
+a known one.
+
+Different from Pi: Pi's Mistral adapter puts the images into the `tool`
+message itself and marks an error result's text with `[tool error]`; pipy's
+Mistral adapter is a Chat Completions adapter and sends them as that family
+does. Pi's Chat Completions adapter adds an assistant message before the image
+message for models that need one (`requiresAssistantAfterToolResult`); pipy
+has no such switch.
+
+### Size of tool result images and `images` settings
+
+Tools that make images themselves (MCP servers, codemode scripts, extension
+tools) can return images of any size, and a provider that rejects one rejects
+every later request of the session, since the result is stored. As in Pi,
+every image of a tool result is therefore processed once, after the
+`tool_result` hooks and before it is shown, stored or sent; this holds for a
+call a script or another tool made as well:
+
+- PNG, JPEG, GIF and WebP stay in their type (`image/jpg` is renamed
+  `image/jpeg`). Another type pipy can decode (BMP, ICO, TIFF, TGA, PNM, DDS)
+  becomes a PNG, followed by the text `[Image converted from <type> to
+  <new type>.]`.
+- With `images.autoResize` (default `true`), an image wider or taller than
+  2000 pixels, or with more than 4.5 MB of base64 data, is scaled down to fit
+  (a JPEG or WebP is first turned upright by its EXIF orientation). It is
+  then sent as a PNG or, if that is too large, as a JPEG of falling quality,
+  whichever first fits under 4.5 MB; failing that, the size shrinks by a
+  quarter at a time. A text follows the image: `[Image: original 3000x1000,
+  displayed at 2000x667. Multiply coordinates by 1.50 to map to original
+  image.]`.
+- An image that cannot be decoded or made small enough is kept as the tool
+  returned it.
+
+The built-in `read` tool processes an image file the same way before it
+returns it, as Pi's `read` does: a BMP is converted to PNG and, with
+`images.autoResize`, a larger image is resized, and the hint lines follow its
+`Read image file [<type>]` line. An image file it cannot convert or resize is
+not attached; `read` returns that line and Pi's text for it, such as
+`[Image omitted: could not be resized below the inline image size limit.]`.
+
+This needs Pillow, from the `images` extra (`uv sync --extra images` in a
+checkout, `uv tool install '.[images]'` as a tool). Without it every image
+is kept as the tool returned it, which is also what Pi does when its image
+library cannot load. `read` then attaches a PNG, JPEG, GIF or WebP file that
+already fits the limits (with `images.autoResize` off, any such file) and
+returns Pi's `[Image omitted: ...]` text for a larger one or a BMP.
+
+With `images.blockImages` set to `true`, no tool result image is sent: each
+image becomes the text `Image reading is disabled.`, and of several such
+texts in a row only the first remains. The `@image` attachments of the
+user's turn are not sent either: the user message gains one line `Image
+reading is disabled.` in their place, as Pi replaces a user message's
+images. The setting is read for every request, so it takes effect at once,
+and the session keeps the images.
+
+Different from Pi:
+
+- Pi takes the limits from the model's catalog row (`inputLimits`); pipy's
+  catalog has none and uses Pi's defaults, which every row of Pi's catalog
+  repeats.
+- Pi resizes with Photon, pipy with Pillow: the resized bytes differ, and an
+  image of more than about 89 million pixels is kept as it is rather than
+  decoded.
+- A note that would take a result's text past 64 KiB is left out; the image
+  is still resized.
+
 ## Session cost
 
 Every turn is priced from the selected model's catalog row, with Pi's
@@ -485,9 +565,12 @@ and custom models (which cost nothing unless they set `cost`).
 
 ## Credential command helpers
 
-Configured auth `!command` helpers require strict UTF-8 stdout. Invalid encoding,
-nonzero exits, timeouts and output above 64 KiB (stdout plus stderr) quietly
-resolve as unavailable, without logging output. Helpers run in an owned POSIX
+Configured auth `!command` helpers print the value on stdout, read as UTF-8
+with invalid bytes replaced by U+FFFD and trimmed as JavaScript's `trim()`
+trims (which also drops a byte order mark), as in Pi. Nonzero exits, timeouts,
+empty output and stdout above 1 MiB (Node's `maxBuffer`, as in Pi) quietly
+resolve as unavailable, without logging output. As in Pi, a helper's
+stderr is discarded and does not count toward that limit. Helpers run in an owned POSIX
 process group with a ten-second deadline; cleanup sends TERM, waits up to
 0.2 seconds for the whole group (even when the direct child already exited),
 then sends KILL only if members remain and waits up to 0.2 seconds more.
@@ -495,6 +578,12 @@ Descendants must stay in that group; deliberately detached helpers are unsupport
 
 Successful completed helpers retain background work with redirected stdio.
 Helpers run as background jobs; interactive terminal input is unsupported.
+
+A helper stored as an API key in `auth.json` (`pipy auth` or `/login`) runs
+once per process, as in Pi: its first result, also a failure, is kept for
+every later model request and MCP `auth.provider` request until pipy exits.
+A `models.json` `apiKey` or header helper runs every time it is resolved, as
+in Pi.
 
 ## Follow-ons
 

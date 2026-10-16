@@ -11,6 +11,7 @@ import io
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import TracebackType
 from typing import Never, TextIO, cast
@@ -20,6 +21,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentEventSink, ProductContent
 from pipy_harness.native.coding.input_queue import _ExternalAbortSignalView
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
+from pipy_harness.native.mcp.options import McpOptions
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.session_transition import (
     CanonicalSessionLeaseRegistry,
@@ -31,6 +33,7 @@ from pipy_harness.native.repl.session_transition import (
 )
 from pipy_harness.native.repl.wiring import _PreparedCodingSession
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.session_builtins import CodemodeOptions, SessionBuiltins
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tools import ToolPort
@@ -134,7 +137,14 @@ class ProductSession:
             self._entry_in_progress = False
 
     def submit(self, content: str) -> CodingSessionResultSnapshot:
-        """Run literal provider-visible content through continuations to true idle."""
+        """Handle ``content`` as Pi's SDK ``session.prompt()`` and drive to true idle.
+
+        A text that starts with ``/`` and names an extension command (``/mcp``
+        while the session has MCP) runs that command and starts no run; otherwise
+        the ``input`` hooks see it and may change or handle it, and a skill
+        command or prompt template is expanded. Built-in commands of the
+        interactive session and a leading ``!`` reach the model as text.
+        """
 
         with self._entry():
             if self._scope is None:
@@ -283,6 +293,18 @@ def _validate_product_session_inputs(
     return resolved_workspace
 
 
+def _session_builtins(
+    codemode: CodemodeOptions | None, tool_search: bool, mcp: McpOptions | None
+) -> SessionBuiltins:
+    if codemode is not None and not isinstance(codemode, CodemodeOptions):
+        raise TypeError("codemode must be CodemodeOptions or None")
+    if not isinstance(tool_search, bool):
+        raise TypeError("tool_search must be a bool")
+    if mcp is not None and not isinstance(mcp, McpOptions):
+        raise TypeError("mcp must be McpOptions or None")
+    return SessionBuiltins(codemode=codemode, tool_search=tool_search, mcp=mcp)
+
+
 def _create_product_session(
     *,
     workspace: Path,
@@ -294,6 +316,7 @@ def _create_product_session(
     observer: AgentEventSink | None,
     diagnostic_sink: Callable[[str], None] | None,
     load_context_files: bool,
+    builtins: SessionBuiltins,
     lease_slot: CanonicalSessionLeaseSlot | None,
 ) -> ProductSession:
     abort = _ExternalAbortSignalView()
@@ -301,7 +324,9 @@ def _create_product_session(
         provider=provider,
         tool_registry=tools,
         settings_manager=settings,
-        resource_options=resources,
+        resource_options=replace(
+            resources or RuntimeResourceOptions.empty(), builtins=builtins
+        ),
         native_session=tree,
         agent_event_sink=observer,
         abort_event=abort,
@@ -327,12 +352,18 @@ def create_product_session(
     observer: AgentEventSink | None = None,
     diagnostic_sink: Callable[[str], None] | None = None,
     load_context_files: bool = True,
+    codemode: CodemodeOptions | None = None,
+    tool_search: bool = False,
+    mcp: McpOptions | None = None,
 ) -> ProductSession:
     """Start an ephemeral product lifetime with an explicit tool-capable provider.
 
     Inject a private tree for persistence. Mutable injected settings and other
     resources must not be shared across simultaneously active lifetimes.
     Diagnostic sinks receive individual nonempty write fragments, synchronously.
+
+    The session has no ``codemode``, no ``tool_search`` and no MCP servers
+    unless ``codemode``, ``tool_search`` or ``mcp`` asks for it.
     """
 
     resolved_workspace = _validate_product_session_inputs(
@@ -340,6 +371,7 @@ def create_product_session(
         load_context_files=load_context_files,
         diagnostic_sink=diagnostic_sink,
     )
+    builtins = _session_builtins(codemode, tool_search, mcp)
     persistent_path = _persistent_tree_path(tree)
     lease = (
         CanonicalSessionLeaseRegistry.claim(persistent_path)
@@ -362,6 +394,7 @@ def create_product_session(
             observer=observer,
             diagnostic_sink=diagnostic_sink,
             load_context_files=load_context_files,
+            builtins=builtins,
             lease_slot=lease_slot,
         )
     except BaseException:
@@ -381,6 +414,9 @@ def open_product_session(
     observer: AgentEventSink | None = None,
     diagnostic_sink: Callable[[str], None] | None = None,
     load_context_files: bool = True,
+    codemode: CodemodeOptions | None = None,
+    tool_search: bool = False,
+    mcp: McpOptions | None = None,
 ) -> ProductSession:
     """Open one exact persistent native product session under ``workspace``.
 
@@ -394,6 +430,7 @@ def open_product_session(
         load_context_files=load_context_files,
         diagnostic_sink=diagnostic_sink,
     )
+    builtins = _session_builtins(codemode, tool_search, mcp)
     if not isinstance(session_path, Path):
         raise TypeError("session_path must be a Path")
     lease = CanonicalSessionLeaseRegistry.claim(session_path)
@@ -416,6 +453,7 @@ def open_product_session(
             observer=observer,
             diagnostic_sink=diagnostic_sink,
             load_context_files=load_context_files,
+            builtins=builtins,
             lease_slot=lease_slot,
         )
     except BaseException:

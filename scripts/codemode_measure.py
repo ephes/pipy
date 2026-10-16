@@ -336,7 +336,7 @@ def execute(root, run_label="paired-1"):
             report["failure"] = "runtime_unavailable"
             return report
         start = time.perf_counter()
-        outcome = run_script("text(1)", call_tool=lambda *_: None, tool_names=())
+        outcome = run_script("text(1)", call_tool=lambda *_: None, tools=())
         report["fresh_minimal_worker_seconds"] = time.perf_counter() - start
         if outcome.error is not None:
             report["failure"] = "minimal_worker_failed"

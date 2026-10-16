@@ -147,13 +147,21 @@ the REPL composition seam for both interactive and headless/RPC waiters. A froze
 product identity guard requires an advertised native builtin `codemode`, excluding
 extension overrides. T8b registers the public definition only when selected and available. Existing internal test ports can omit the optional guard.
 
-Each admitted parent owns a fresh sequential service on the session thread.
+Each admitted parent owns a fresh service on the session thread. A script's
+calls go through its `NestedCallBatch` (MCP parity plan G3): the session thread
+begins each call in the order the script made it (admission, hooks, readiness,
+budget, id and record place) and runs its tool on a thread of its own; while
+it waits for guest activity, `NestedCallBatch.pump` settles the calls whose
+tools returned and serves the calls those tools make. A plain
+`tools.<name>(args)` waits for its own reply, so it behaves as before.
 Child calls reuse shared admission/settlement policy, product hooks, the normal
 executor and waiter, and result transformation/validation. Eligibility is a
-separate injectable port, read once from the frozen projection: only builtins
-`read`, `ls`, `grep`, `find`, `write`, `edit`, `bash` can execute, and extension
-replacements, extension names and recursion are refused. Hidden builtin names
-remain unauthorized against the parent's request snapshot. Definitions are never
+separate injectable port (`NestedToolEligibility.callable_snapshot()`), read
+once per parent after its `tool_call` hooks from the live capability value: the
+active `direct` tools and every registered `codemode` or `deferred` tool, bound
+to that value's executor (MCP parity plan 4.3). `codemode` itself, `model-only`
+and `hidden` tools, inactive `direct` tools and tools a request hook withheld
+from the parent's request are refused before admission. Definitions are never
 refreshed inside a parent, preserving tool and hook generations.
 
 Every validated child settlement publishes policy state through the existing
@@ -214,8 +222,8 @@ attempts, not proof that file effects succeeded.
 
 T6b adds `coding/codemode_runner.py` outside the standalone sandbox core. It
 validates the parent's `code` object with normal schema semantics and returns
-`format_result` text under the parent identity. Only the seven eligible builtins
-also advertised in the frozen parent request are offered to the guest. Results
+`format_result` text under the parent identity. The names of the parent's
+callable snapshot are offered to the guest. Results
 are validated post-transform model text; malformed, budget and policy errors
 become catchable `ToolError` values. Completed effects remain after failure.
 
@@ -227,9 +235,12 @@ Every I/O-thread exit publishes completion and wakes activity in a narrow final
 path, including failures during kill, diagnostics or finish signalling. A dead
 I/O thread without completion fails closed as a sandbox error. Cleanup retries
 signal faults through the same owned process group before the bounded reap.
-During a child tool, a monitor signals events for completion or the fresh
-script stop event; it never reads or writes canonical or service state. The
-session thread combines that signal with the existing operator waiter. The
+A running child tool's executor waits on the fresh script stop event (the
+host's `tool_stop`), and the session thread waits for activity with the
+existing operator waiter; an operator interruption there ends every running
+child with it. When the run ends, after a `done` once the calls made before it
+were begun, the stop event is set and `NestedCallBatch.end` settles the
+children still running. The
 explicit `SCRIPT_STOP` waiter value makes the executor cancel and bound its
 join, then return an ordinary error observation with typed cancellation evidence rather
 than operator interruption. T7a projects the in-flight child as cancelled.
@@ -304,7 +315,13 @@ to WASI, under wasmtime, in a fresh worker process per script. The guest has:
 
 A script calls `tools.<name>(dict)` or `tools.<name>(**kwargs)` to run a nested
 tool through the host, emits its result with `text(value)` or `print(...)`, and
-sees a failed call as `ToolError`. Nested calls are sequential.
+sees a failed call as `ToolError`. A call returns the tool's text, or the
+structured content of a tool that declares an output schema (also for a failed
+result that carries one). `tools.<name>.submit(args)` starts a call without
+waiting; its `.result()` returns the same, so submitted calls run at the same
+time (at most 16 unanswered requests).
+`store(key, value)` and `load(key)` keep JSON values between scripts on
+one session branch (MCP parity plan G4).
 
 ## Installing
 
@@ -383,8 +400,9 @@ continues with the remaining tools. There is no
 automatic download or interpreter fallback. After installing a missing runtime
 or extra, start a new session. A custom extension named `codemode` remains an
 ordinary extension and does not trigger the builtin probe or composite dispatch.
-The stable public description, prompt snippet and guideline appear only for the
-advertised builtin. Completed effects survive script errors; scripts are not
+The public description (with its listing of callable tools and the
+`Codemode:` line it adds to other tools' descriptions), prompt snippet and
+guidelines appear only for the advertised builtin. Completed effects survive script errors; scripts are not
 retried automatically after effects.
 
 ## Availability
@@ -424,15 +442,25 @@ is qualified by transient EPERM signal issues. See the
 ## Running a script (API)
 
 ```python
-from pipy_harness.native.codemode import CallResult, ScriptLimits, run_script
+from pipy_harness.native.codemode import (
+    CallResult,
+    DiscoveryResult,
+    ScriptLimits,
+    ScriptTool,
+    run_script,
+)
 
 def call_tool(name: str, args_json: str) -> CallResult:
     return CallResult(ok=True, text="...")
 
+def discover(helper: str, arguments: dict) -> DiscoveryResult:
+    return DiscoveryResult([])   # or DiscoveryResult(error="...")
+
 outcome = run_script(
     "text(tools.read(path='README.md')[:100])",
     call_tool=call_tool,
-    tool_names=("read",),
+    tools=(ScriptTool("read", "Read a file."),),
+    discover=discover,        # optional; answers search_tools() and friends
     limits=ScriptLimits(),
     cancel=cancel_event,      # optional threading.Event; set = aborted
     tool_stop=stop_event,     # optional, fresh per run; set when the run ends
@@ -448,8 +476,26 @@ time and, on failure, a `ScriptError` whose kind is `script`, `timeout`,
 time, the output truncated to a token budget, and on failure the error and the
 list of tool calls that are not undone.
 
-`call_tool` runs on the calling thread, one call at a time, and only for names
-in `tool_names`. It must honour `cancel` and `tool_stop` itself. Checking
+`call_tool` runs on the calling thread, one call at a time, and only for the
+names in `tools`. Instead of it a caller may pass
+`start_tool(name, args_json, settle)`, which starts a call and returns; it
+calls `settle(CallResult)` once on the calling thread, at once or later from
+its `activity_waiter`. Calls the script submits then run at the same time, the
+outcome's calls keep the order the script made them, and a call that did not
+settle before the run ended is recorded as `cancelled`. After a `done` the
+calls made before it are still started and `tool_stop` is set after them;
+after any other end it is set by the I/O thread at once. `tools` is ordered: the script sees each entry in `ALL_TOOLS`
+under its identifier, with the given description. `discover` runs on the same
+thread for `search_tools`, `describe_tool` and `describe_namespace`; it gets
+the helper's name and the script's arguments unchecked, and its calls are not
+part of the outcome's calls. In a session the product builds both from the
+parent's callable tools (`coding/codemode_discovery.py`). `call_tool` must
+honour `cancel` and `tool_stop` itself. `store` (JSON values by key) is
+what `load()` reads; a successful run reports what the script changed as the
+outcome's `store_writes`, checked by the host against the store's limits, and
+the product keeps them as a `codemode-store` custom entry through
+the `CodemodeStore` port of `coding/codemode_store.py`
+(`repl/codemode_session_store.py` in a session). Checking
 availability first is the caller's job, but the runner fails closed regardless.
 The optional `activity_waiter(activity_event, cancel_event)` runs on that same
 thread while waiting for a queued call or completion. It returns when activity
@@ -467,13 +513,14 @@ waiter preserves standalone polling behavior.
 
 | Limit | Default | When exceeded |
 | --- | --- | --- |
-| `wall_seconds` | 120 s, nested tool time included | `timeout` |
+| `wall_seconds` | none (`None`); a script's `timeout_ms` option sets it, nested tool time included | `timeout` |
 | `memory_bytes` | 256 MiB guest memory (max 4 GiB) | `MemoryError` in the script (catchable; uncaught it is a `script` error) |
 | `code_bytes` | 256 KiB of script source | `script`, before a worker starts |
-| `line_bytes` | 1 MiB per protocol line | `sandbox` |
-| `output_bytes` / `output_messages` | 1 MiB / 100,000 | `script`, with guidance to filter output |
+| `line_bytes` | 1 MiB per line the guest sends (text goes in pieces of 64 Ki characters; an image line may be as long as `output_chars`) | `sandbox` |
+| `reply_bytes` | 16 MiB per tool reply line the host sends | `ToolError` in the script for that call |
+| `output_chars` / `output_messages` | 16 Mi characters of text and image data / 100,000 (Pi's limits; MCP parity plan G5) | `script`, with Pi's guidance to print a summary |
 | `stderr_bytes` | 64 KiB kept for diagnostics | truncated |
-| `cpu_margin_seconds` | 5 s | guest CPU backstop at `wall_seconds` + margin |
+| `cpu_margin_seconds` | 5 s | guest CPU backstop at `wall_seconds` + margin, or `CPU_SECONDS_MAX` (25 days) without a deadline |
 
 The worker runs in its own process group, which the host always kills and
 reaps. If the host itself dies, the worker notices within one 10 ms tick and
@@ -488,8 +535,10 @@ installing it).
 
 ## T8a definition and result delivery
 
-`CodemodeTool` defines the stable §4.8 description and exact `code` object
-schema, shared with composite validation. T8b composes it into public production
+`CodemodeTool` defines the fixed part of the §4.8 description and the exact
+`code` object schema, shared with composite validation. The listing of
+callable tools is added per request (`coding/codemode_description.py`,
+applied by `tool_capabilities.py`). T8b composes it into public production
 capabilities only when selected and available; direct invocation fails closed
 because execution requires the canonical composite service. Installing the
 runtime alone does not enable a model tool.
@@ -503,7 +552,7 @@ honest character/UTF-8 byte truncation metadata and `nestedCalls`. These host
 files remain for later reading; the guest gains no filesystem authority.
 Open/write/close failures publish no full-output path, add a bounded diagnostic,
 and preserve script success/error, interruption and nested records. The existing
-1 MiB host output cap remains unchanged. Internal real-WASI acceptance C covers
+host output cap (1 MiB then, 16 Mi characters since MCP parity plan G5) is unchanged by the spill. Internal real-WASI acceptance C covers
 write-then-raise with retained effects and records; public C is exercised by T8b
 and retained in runtime-required CI. T9 automated PTY evidence is implemented;
 selected-frame tmux inspection is recorded in the acceptance note.

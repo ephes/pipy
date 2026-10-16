@@ -281,8 +281,13 @@ as `retry.provider` are replaced wholesale):
   maxRetryDelayMs?: number=60000 } }`
 - `terminal?: { showImages?: boolean=true; imageWidthCells?: number=60;
   clearOnShrink?: boolean (env `PIPY_CLEAR_ON_SHRINK`=1); showTerminalProgress?:
-  boolean=false }`
+  boolean=false }`; `showImages` and `imageWidthCells` decide whether and how
+  wide tool-result images are drawn, see
+  [images in tool results](tui-workflow.md#images-in-tool-results)
 - `images?: { autoResize?: boolean=true; blockImages?: boolean=false }`
+  (`autoResize` applies to tool result images, `blockImages` also to the
+  `@image` attachments of the user's turn, see
+  [providers](providers.md#size-of-tool-result-images-and-images-settings))
 - `thinkingBudgets?: { minimal?; low?; medium?; high? }`
 - `markdown?: { codeBlockIndent?: string="  " }`
 - `warnings?: { anthropicExtraUsage?: boolean=true }`
@@ -304,14 +309,16 @@ Project-local settings and resources are now gated by the first runtime slice
 of the reviewed
 [project-trust design](specs/2026-07-15-project-trust-design.md)
 for the final runtime cwd before `.pipy/settings.json` is read. Decisions use a
-closest-ancestor boolean entry in global `<config>/trust.json`; global-only
+closest-ancestor boolean entry in global `<config>/trust.json` (read past a
+leading UTF-8 byte order mark, as Pi's `stripBom` does); global-only
 `defaultProjectTrust: "ask"|"always"|"never"` (default `"ask"`); and per-run
 `--approve`/`--no-approve` override without persistence. An untrusted settings
 manager exposes an empty project scope and refuses project writes while global,
 base-default, and CLI/env layers remain usable.
 
 Protected project defaults are `.pipy/settings.json`, extensions, skills,
-templates, commands, `SYSTEM.md`, and `APPEND_SYSTEM.md`. Standalone
+templates, commands, `SYSTEM.md`, `APPEND_SYSTEM.md`, and `mcp.json` (the
+project's [MCP servers](mcp.md#configure-servers), which start processes). Standalone
 `.pipy/themes` is not a discovery source today; project-package themes are gated
 through project settings. Global
 resources and packages plus explicit `--extension`, `--skill`,
@@ -428,6 +435,8 @@ pipy ships the same default app-binding table Pi defines in
 - `app.thinking.toggle` = `ctrl+t` — toggle thinking blocks
 - `app.session.toggleNamedFilter` = `ctrl+n`
 - `app.editor.external` = `ctrl+g` — open external editor
+- `app.message.copy` = `ctrl+x` — on the MCP sign-in screen, copy the
+  sign-in URL (Pi also copies the last assistant message with it)
 - `app.message.followUp` = `alt+enter` — queue follow-up
 - `app.message.dequeue` = `alt+up` — restore queued messages
 - `app.clipboard.pasteImage` = `ctrl+v` (`alt+v` on Windows)
@@ -626,6 +635,8 @@ runtime has no matching surface yet) is:
     `0` disabled semantics, WS-first `auto`/`websocket`, and Pi-shaped pre-event
     SSE fallback. Providers without a multi-transport surface still preserve and
     report these settings without using them.
+  - `codemode.mode` and `codemode.inlineBudget` — the `codemode` tool's
+    description and, with `only`, the tool declarations a request carries.
 - **Accepted + round-tripped + reported, currently inert** (no matching pipy
   surface; preserved so Pi-written/forward config survives):
   - `compaction.keepRecentTokens` — whole-group retention remains fixed rather
@@ -731,6 +742,11 @@ and their resolved enabled state; `pipy config enable|disable <skill|prompt|
 theme|extension> <name> [--scope global|project]` writes a `+name`/`-name` entry
 into the relevant settings array (via
 `pipy_harness.native.resource_enablement`), never removing the discovered path.
+For the built-in extensions, `pipy config enable|disable builtin <name>`
+writes `+builtin:<name>`/`-builtin:<name>`, and `pipy config inherit builtin
+<name>` removes the project's entries that name it, so the user settings
+decide again (Pi's inherit state; see
+[turning MCP off](mcp.md#turning-mcp-off)).
 `WorkspaceResources.with_enablement` applies those directives at session startup
 so a disabled skill/prompt is dropped from what is registered (last matching
 directive wins; bare source-path entries are ignored for enablement and remain
@@ -788,6 +804,10 @@ editor-padding / hardware-cursor / clear-on-shrink / HTTP-idle-timeout settings
 listed above are re-read from settings on the next use but have no live
 re-application surface yet (they are accepted + reported, per the honoring-status
 note in the Compaction/Retry section).
+
+An accepted `/reload` also closes the MCP servers and starts the ones that
+`mcp.json` and the `builtin:mcp` entry name now; see
+[Reloading](mcp.md#reloading).
 
 ## `/changelog`
 
@@ -1151,6 +1171,9 @@ For example, a global `{"defaultTools": ["read", "bash"]}` plus a trusted projec
 `pipy --tools +codemode` modifies that resolved selection; `pipy --tools read,codemode`
 overrides it with a plain allowlist. If selected codemode is unavailable, one
 warning is emitted and the remaining tools continue; nothing installs automatically.
+`{"defaultTools": ["+tool_search"]}` activates the optional
+[`tool_search`](mcp.md#tool-search) builtin, which is registered inactive and
+needs no runtime.
 
 Settings layers apply base defaults, global settings, trusted project settings,
 then run overrides. A list containing plain names replaces inherited entries. A list
@@ -1160,20 +1183,30 @@ An empty list inherits a lower-layer list. Without an inherited list, it selects
 no builtins. Other arrays still replace wholesale, and other object settings
 retain the existing one-level merge.
 Unknown/malformed values survive round-trip; the typed getter ignores nonstring
-list entries and treats a non-list value as an empty selection. Unknown selected
-names are rejected at normal startup after extensions load. Recognized but
-unavailable builtin codemode is omitted without becoming an unknown-name error.
+list entries and treats a non-list value as an empty selection. As in Pi, a selected
+name that no tool has is ignored: after extensions load, pipy names such names
+in one notice and starts (also after `/reload`), so a global `defaultTools`
+may name a tool that only some projects' extensions register. Recognized but
+unavailable builtin codemode is omitted without such a notice.
 
 This setting selects initial builtins; default extension visibility remains.
 Caller-injected plain registries keep their ownership and are not replaced or
 widened by product defaults. CLI `--tools +codemode,-read` applies exact modifiers
 on the resolved setting/default selection. A plain CLI allowlist overrides the
 setting and retains existing builtin/extension filtering. Mixing plain names and
-modifiers, or using wildcard modifiers, is an error. `--no-tools`,
-`--no-builtin-tools` and `--exclude-tools` retain their existing precedence.
+modifiers, or using wildcard modifiers, is an error. `--no-tools` and
+`--no-builtin-tools` empty the default selection, so the setting is not read
+with them and `+name` entries start from nothing; `--exclude-tools` applies
+last (see [tool options](usage.md#tool-options)).
+Allowlist and exclusion entries may be patterns in which `*` matches any
+characters, and an allowlist of plain names keeps MCP tools registered; see
+[tool options](usage.md#tool-options).
 
 At a successful reload generation boundary, only newly added default names are
-activated. New extension names remain visible under the initial default selection;
+activated. New extension tools with exposure `direct` or `model-only` remain
+visible under the initial default selection; tools with another exposure are not
+activated by being registered
+(see [tool model](extension-api.md#tool-model));
 an explicit active-tool API selection keeps its existing ownership. Removed defaults stay active; tools disabled with `set_active_tools`
 stay disabled unless the setting newly adds them. Optional registered ports stay
 in the session registry, and the first selected availability result is reused for
@@ -1183,5 +1216,7 @@ Unavailable startup/reload presents one bounded transcript notice in a terminal
 UI, or one stderr line headlessly, outside the session and probe locks. Unfiltered publication carries the latest live active selection under
 the shared session lock, so preparation cannot overwrite an extension's accepted
 selection. Explicit existing CLI filters retain their reload policy. A running
-parent keeps its advertised definitions and builtin identities frozen across
-reload; extension replacements remain ineligible for nested calls.
+codemode parent keeps the callable tools and the executor of the snapshot it
+took when it started, so a reload or a selection change does not reach it; an
+extension tool that replaces a built-in is callable from scripts by its exposure
+like any other tool (see [codemode](codemode.md#writing-a-script)).

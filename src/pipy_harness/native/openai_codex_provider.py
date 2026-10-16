@@ -725,6 +725,12 @@ class FileOpenAICodexCredentialStore:
         return True
 
 
+# Held by ``OpenAICodexAuthManager.get_credentials`` across load, refresh and
+# save. One lock for the process: every manager of a session reads the same
+# login file.
+_CREDENTIALS_LOCK = threading.Lock()
+
+
 @dataclass(slots=True)
 class OpenAICodexAuthManager:
     """OAuth auth boundary for OpenAI Codex subscription access."""
@@ -737,14 +743,19 @@ class OpenAICodexAuthManager:
     timeout_seconds: float = 60.0
 
     def get_credentials(self) -> OpenAICodexCredentials | None:
-        credentials = self.store.load()
-        if credentials is None:
-            return None
-        if not credentials.is_expiring():
-            return credentials
-        refreshed = self.refresh(credentials.refresh_token)
-        self.store.save(refreshed)
-        return refreshed
+        # Model requests and MCP requests (``auth.provider``) ask from
+        # different threads. The refresh token rotates, so the load, the
+        # refresh and the save run under one lock: the next caller loads the
+        # saved login instead of sending the used refresh token again.
+        with _CREDENTIALS_LOCK:
+            credentials = self.store.load()
+            if credentials is None:
+                return None
+            if not credentials.is_expiring():
+                return credentials
+            refreshed = self.refresh(credentials.refresh_token)
+            self.store.save(refreshed)
+            return refreshed
 
     def refresh(self, refresh_token: str) -> OpenAICodexCredentials:
         token_response = self.oauth_client.post_form(

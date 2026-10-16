@@ -30,8 +30,9 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSink,
     ExtensionChromeSnapshot,
 )
-from pipy_harness.native.extension_types import QueuedCustomMessage
+from pipy_harness.native.extension_types import QueuedCustomMessage, RegisteredTool
 from pipy_harness.native.extensions.activation import _ExtensionCandidate
+from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.extensions.contracts import _ExtensionRuntime
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl.execution_projections import (
@@ -63,6 +64,7 @@ from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolCapabilityState,
 )
+from pipy_harness.native.tools import ToolPort
 
 
 class ChromeAcceptance(Protocol):
@@ -277,6 +279,7 @@ def _build_projection_and_route(
         has_ui=inputs.has_ui,
         notify_sink=inputs.notify_sink,
         set_active_tools=inputs.set_active_tools,
+        get_all_tools=inputs.tool_capabilities.all_tools,
         project_trusted=inputs.project_trusted,
         prepare_capability=inputs.tool_capabilities.prepare_extensions,
         chrome=(
@@ -290,6 +293,10 @@ def _build_projection_and_route(
     attempt.projection = projection
     gate = OrderedDeliveryGate(inputs.state_lock)
     projection.queues.install_candidate_route(gate)
+    # From here a host registers tools in the candidate's registry; they are
+    # published with it (a reload's `session_start` runs before that).
+    for host in inputs.runtime.activation_hosts:
+        host._bind_live_tools(projection.tools.live)
     return gate
 
 
@@ -321,6 +328,7 @@ def _attach_startup_generation(
             "extension candidate ownership is unavailable", None
         )
     attempt.published = True
+    _bind_live_tools(inputs, projection)
     return StartupGenerationAttachment(
         generation_ref,
         projection,
@@ -418,6 +426,7 @@ def _accept_reload_generation(
         if failure is not None:
             return failure
         attempt.published = True
+        _bind_live_tools(inputs, attempt.require_projection())
         attempt.chrome_retirement, chrome_close_error = (
             retired_chrome.close_nonraising() if retired_chrome else (None, None)
         )
@@ -431,6 +440,55 @@ def _accept_reload_generation(
         cleanup_error = finish_chrome_retirement(attempt.chrome_retirement)
         raise_first((delivery_error, cleanup_error, chrome_close_error))
     return None
+
+
+def _bind_live_tools(
+    inputs: ExtensionAttachInput, projection: ExtensionProjection
+) -> None:
+    """Let the published generation's extensions register tools while it
+    runs (Pi ``registerTool`` and ``refreshTools``): each registration
+    publishes the generation's tools again, built from the registry under
+    the capability lock, so the latest registration wins; once a reload
+    replaced the generation nothing is published. What the candidate's
+    hosts registered before publication is published now."""
+
+    tools = projection.tools
+    registry = tools.live
+    # The ports of the current registrations only; guarded by the
+    # capability lock `current_ports` runs under.
+    ports: dict[int, tuple[RegisteredTool, ToolPort]] = {}
+
+    def current_ports() -> Mapping[str, ToolPort]:
+        current = dict(tools.ports)
+        kept_ports: dict[int, tuple[RegisteredTool, ToolPort]] = {}
+        for registered in registry.registrations():
+            # A registration keeps its port, so publishing again for
+            # another tool leaves the others' ports as they are.
+            kept = ports.get(id(registered))
+            if kept is None or kept[0] is not registered:
+                kept = (registered, tools.build_port(registered))
+            kept_ports[id(registered)] = kept
+            current[registered.tool.name] = kept[1]
+        ports.clear()
+        ports.update(kept_ports)
+        return current
+
+    def publish() -> None:
+        if not inputs.tool_capabilities.publish_extension_tools(
+            current_ports,
+            extension_generation=tools.capability_state.extension_generation,
+        ):
+            # A reload replaced the generation: its extensions' API no
+            # longer registers tools (Pi: a stale extension context).
+            registry.close()
+            raise ExtensionCapabilityError(
+                "tools can no longer be registered here: "
+                "the extensions were loaded again or their session ended"
+            )
+
+    registry.set_change_listener(publish)
+    if registry.registrations():
+        publish()
 
 
 def _deliver_reload_staged(
@@ -573,6 +631,8 @@ def _retire_projection_and_chrome(
     chrome_error: BaseException | None = None
     try:
         if projection is not None:
+            # An unpublished candidate's hosts register no tools.
+            projection.tools.live.close()
             projection.queues.retire_route()
     except BaseException as error:  # noqa: BLE001 - cleanup continues through every owner
         route_error = error

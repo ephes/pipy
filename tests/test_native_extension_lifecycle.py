@@ -401,11 +401,11 @@ def test_lifecycle_events_fire_through_the_session(tmp_path, monkeypatch) -> Non
     assert "turn_end:" in recorded
     assert "agent_end:" in recorded
     assert "agent_settled:" in recorded
-    assert "session_shutdown:" in recorded
+    assert "session_shutdown:quit" in recorded
     # Ordering: session brackets the agent run.
     assert recorded.index("session_start:startup") < recorded.index("agent_start:")
     assert recorded.index("agent_end:") < recorded.index("agent_settled:")
-    assert recorded.index("agent_settled:") < recorded.index("session_shutdown:")
+    assert recorded.index("agent_settled:") < recorded.index("session_shutdown:quit")
 
 
 def test_agent_settled_waits_for_extension_queued_continuation(

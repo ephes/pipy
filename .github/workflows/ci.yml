@@ -175,4 +175,4 @@ jobs:
       - name: Install the pinned codemode runtime
         run: uv run python -m pipy_harness.native.codemode install
       - name: Run codemode isolation and production delivery probes
-        run: uv run pytest -rs tests/test_native_codemode_runtime.py tests/test_native_codemode_worker.py tests/test_native_codemode_isolation.py tests/test_native_codemode_host.py tests/test_native_codemode_host_runtime.py tests/test_native_codemode_composite.py tests/test_native_codemode_t8b.py tests/test_native_codemode_delivery.py tests/test_native_codemode_delivery_pty.py
+        run: uv run pytest -rs tests/test_native_codemode_runtime.py tests/test_native_codemode_worker.py tests/test_native_codemode_isolation.py tests/test_native_codemode_host.py tests/test_native_codemode_host_runtime.py tests/test_native_codemode_composite.py tests/test_native_codemode_t8b.py tests/test_native_codemode_delivery.py tests/test_native_codemode_delivery_pty.py tests/test_native_codemode_images.py

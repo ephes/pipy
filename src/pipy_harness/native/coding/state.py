@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from math import isfinite
 
 import pipy_harness.native.agent.usage as agent_usage
-from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.content import (
+    ProductContent,
+    require_tool_result_blocks,
+)
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 from pipy_harness.native.agent.loop_policy import (
     MAX_AGENT_TOOL_BUDGET,
@@ -1105,6 +1108,7 @@ def _require_tool_result_message(
     )
     if type(message.is_error) is not bool:
         raise TypeError(f"{field_name}.is_error must be an exact bool")
+    require_tool_result_blocks(message.blocks, message.content.value, field_name)
 
 
 def _require_tool_call(call: object, field_name: str) -> None:

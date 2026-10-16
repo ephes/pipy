@@ -146,7 +146,9 @@ class _RequestPolicy:
 
 
 class _ToolPolicy:
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
         del call
         return AgentToolPolicyDecision()
 
@@ -154,6 +156,8 @@ class _ToolPolicy:
         self,
         call: AgentToolCall,
         result: AgentToolResultMessage,
+        arguments: Any,
+        parent_call_id: str | None,
         /,
     ) -> ProductContent:
         del call, result
@@ -164,9 +168,11 @@ class _CountingToolPolicy(_ToolPolicy):
     def __init__(self) -> None:
         self.before_execute_count = 0
 
-    def before_execute(self, call: AgentToolCall, /) -> AgentToolPolicyDecision:
+    def before_execute(
+        self, call: AgentToolCall, arguments: Any, parent_call_id: str | None, /
+    ) -> AgentToolPolicyDecision:
         self.before_execute_count += 1
-        return super().before_execute(call)
+        return super().before_execute(call, arguments, parent_call_id)
 
 
 def _admit_with_policy(
@@ -180,7 +186,7 @@ def _admit_with_policy(
         return admission
     return apply_tool_policy_decision(
         admission.state,
-        policy.before_execute(_call()),
+        policy.before_execute(_call(), {}, None),
     )
 
 
@@ -194,10 +200,10 @@ def test_request_and_tool_policy_protocols_are_runtime_checkable(
     assert isinstance(request_policy, AgentProviderRequestPolicy)
     assert request_policy.prepare(policy_input).request == policy_input.baseline
     assert isinstance(tool_policy, AgentToolPolicy)
-    assert tool_policy.before_execute(_call()) == AgentToolPolicyDecision()
-    assert tool_policy.transform_result(_call(), _tool_result()) == ProductContent(
-        "transformed"
-    )
+    assert tool_policy.before_execute(_call(), {}, None) == AgentToolPolicyDecision()
+    assert tool_policy.transform_result(
+        _call(), _tool_result(), {}, None
+    ) == ProductContent("transformed")
     assert not isinstance(object(), AgentProviderRequestPolicy)
     assert not isinstance(object(), AgentToolPolicy)
 
@@ -239,7 +245,7 @@ def test_tool_policy_can_transform_content_but_not_result_identity() -> None:
     call = _call()
     result = _tool_result(is_error=True)
 
-    transformed = policy.transform_result(call, result)
+    transformed = policy.transform_result(call, result, {}, None)
 
     assert transformed == ProductContent("transformed")
     assert result.tool_request_id == "pipy-tool-fixture"
@@ -1058,35 +1064,39 @@ def test_nested_settlement_preserves_direct_streak_and_parent_slot(
         ToolExecutionOutcome(_tool_result(is_error=is_error)),
         mode=AgentToolInvocationMode.NESTED,
     )
-    assert settled.state == replace(
-        state, invocations_this_turn=1, tool_invocation_count=1
-    )
+    # A nested call takes no place in the tool budget (Pi has none).
+    assert settled.state == replace(state, tool_invocation_count=1)
     assert settled.failure is None
 
 
 @pytest.mark.parametrize("authorized", [False, True])
-def test_nested_budget_precedes_authorization_and_preserves_parent(
+def test_nested_calls_never_meet_the_budget_and_preserve_parent(
     authorized: bool,
 ) -> None:
+    # The parent holds the only place of a budget of 1; its nested calls
+    # still run, as Pi has no limit on the calls a tool makes.
     state = _reserved_state(1)
-    exhausted = decide_tool_admission(
+    admitted = decide_tool_admission(
         state,
         _snapshot(authorized=authorized),
         _call(),
         mode=AgentToolInvocationMode.NESTED,
     )
-    assert exhausted.action is AgentToolPolicyAction.BUDGET_EXHAUSTED
-    assert exhausted.state == replace(state, budget_exhausted_count=1)
-    assert exhausted.failure is None
+    assert admitted.action is (
+        AgentToolPolicyAction.EXECUTE
+        if authorized
+        else AgentToolPolicyAction.UNAUTHORIZED
+    )
+    assert admitted.state == state
+    assert admitted.failure is None
     parent = settle_tool_execution(
-        exhausted.state,
+        admitted.state,
         ToolExecutionOutcome(_tool_result()),
         mode=AgentToolInvocationMode.PARENT,
     )
     assert parent.state == replace(
         state,
         reserved_parent_slot=False,
-        budget_exhausted_count=1,
         invocations_this_turn=1,
         tool_invocation_count=1,
         consecutive_malformed_streak=0,
@@ -1100,7 +1110,7 @@ def test_nested_budget_precedes_authorization_and_preserves_parent(
 
 
 @pytest.mark.parametrize("blocked", [False, True])
-def test_nested_rejections_consume_only_turn_budget(blocked: bool) -> None:
+def test_nested_rejections_consume_no_budget(blocked: bool) -> None:
     state = _reserved_state()
     if blocked:
         transition = apply_tool_policy_decision(
@@ -1117,12 +1127,12 @@ def test_nested_rejections_consume_only_turn_budget(blocked: bool) -> None:
             mode=AgentToolInvocationMode.NESTED,
         )
         assert transition.action is AgentToolPolicyAction.UNAUTHORIZED
-    assert transition.state == replace(state, invocations_this_turn=1)
+    assert transition.state == state
 
 
-def test_nested_malformed_is_separate_nonfatal_and_budgeted() -> None:
-    state = _reserved_state(5)
-    for count in range(1, 5):
+def test_nested_malformed_is_separate_nonfatal_and_unbudgeted() -> None:
+    state = _reserved_state(2)
+    for count in range(1, 6):
         transition = settle_tool_execution(
             state,
             ToolExecutionOutcome(_tool_result(is_error=True), malformed_arguments=True),
@@ -1130,20 +1140,13 @@ def test_nested_malformed_is_separate_nonfatal_and_budgeted() -> None:
         )
         assert transition.action is AgentToolPolicyAction.NESTED_MALFORMED
         assert transition.failure is None
-        assert transition.state == replace(
-            state, invocations_this_turn=count, nested_malformed_count=count
-        )
+        assert transition.state == replace(state, nested_malformed_count=count)
         state = transition.state
-    exhausted = decide_tool_admission(
+    assert state.invocations_this_turn == 0
+    admitted = decide_tool_admission(
         state, _snapshot(authorized=True), _call(), mode=AgentToolInvocationMode.NESTED
     )
-    assert exhausted.action is AgentToolPolicyAction.BUDGET_EXHAUSTED
-    with pytest.raises(ValueError, match="budget"):
-        settle_tool_execution(
-            state,
-            ToolExecutionOutcome(_tool_result(), malformed_arguments=True),
-            mode=AgentToolInvocationMode.NESTED,
-        )
+    assert admitted.action is AgentToolPolicyAction.EXECUTE
 
 
 @pytest.mark.parametrize(
@@ -1233,29 +1236,36 @@ def test_reservation_rejects_invalid_lifecycle_and_forged_values() -> None:
             )
 
 
-def test_nested_children_cannot_spend_parent_settlement_slot() -> None:
+def test_nested_calls_past_the_budget_leave_the_parent_its_place() -> None:
+    # More nested calls than the budget has places: none of them is refused
+    # and the parent still settles in the place it reserved.
     state = _reserved_state(3)
-    for count in (1, 2):
-        state = settle_tool_execution(
+    for count in range(1, 6):
+        admitted = decide_tool_admission(
             state,
+            _snapshot(authorized=True),
+            _call(),
+            mode=AgentToolInvocationMode.NESTED,
+        )
+        assert admitted.action is AgentToolPolicyAction.EXECUTE
+        state = settle_tool_execution(
+            admitted.state,
             ToolExecutionOutcome(_tool_result()),
             mode=AgentToolInvocationMode.NESTED,
         ).state
-        assert state.invocations_this_turn == count
-    exhausted = decide_tool_admission(
-        state, _snapshot(authorized=True), _call(), mode=AgentToolInvocationMode.NESTED
-    )
-    assert exhausted.action is AgentToolPolicyAction.BUDGET_EXHAUSTED
+        assert (state.invocations_this_turn, state.tool_invocation_count) == (
+            0,
+            count,
+        )
     settled = settle_tool_execution(
-        exhausted.state,
+        state,
         ToolExecutionOutcome(_tool_result()),
         mode=AgentToolInvocationMode.PARENT,
     )
     assert settled.state == replace(
         state,
         reserved_parent_slot=False,
-        invocations_this_turn=3,
-        tool_invocation_count=3,
+        invocations_this_turn=1,
+        tool_invocation_count=6,
         consecutive_malformed_streak=0,
-        budget_exhausted_count=1,
     )

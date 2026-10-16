@@ -28,12 +28,20 @@ from pathlib import Path
 from typing import TextIO
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native.agent import AgentSystemMessage, ProductContent
+from pipy_harness.native.agent import (
+    AgentMessage,
+    AgentSystemMessage,
+    ProductContent,
+)
 from pipy_harness.native.agent.history import (
     AgentHistoryCompaction,
     compact_agent_history,
     compact_agent_history_tool_cycles,
     estimate_context_tokens,
+)
+from pipy_harness.native.agent.messages import (
+    without_blocked_images,
+    without_tool_result_images,
 )
 from pipy_harness.native.agent.provider_retry import ProviderManagedRetryPolicy
 from pipy_harness.native.agent.provider_turn import (
@@ -739,6 +747,15 @@ class ProviderMutationEffects:
     ) -> bool:
         """Restrict future tools only for the context's live generation."""
 
+        if "codemode" in tool_names:
+            # The built-in is registered with the selection, after a runtime
+            # probe (a child process) that must not run under the generation
+            # lock, which is the session's state lock. A retired context
+            # neither probes nor registers anything.
+            with self.ctl.generation_ref.lock:
+                if not self._generation_admitted_locked(generation_id):
+                    return False
+            self.tool_capabilities.probe_codemode()
         with self.ctl.generation_ref.lock:
             if not self._generation_admitted_locked(generation_id):
                 return False
@@ -862,6 +879,7 @@ class ProviderMutationEffects:
             set_thinking_level_fn=partial(
                 self.extension_set_thinking_level, generation_id
             ),
+            get_all_tools_fn=self.tool_capabilities.all_tools,
         )
 
     def _prepare_model_mutation(
@@ -1347,6 +1365,33 @@ class ProviderMutationEffects:
             NativeModelSelection(binding.provider_name, binding.model_id)
         )
         return spec.declared_context_window if spec is not None else None
+
+    def model_takes_images(self, binding: CodingProviderBinding) -> bool:
+        """Pi ``model.input.includes("image")`` for the bound model.
+
+        A model no catalog row describes takes them: the row another model
+        of its provider lends it (``resolve_spec``) says nothing about it.
+        """
+
+        state = self.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return True
+        spec = state.model_runtime.catalog.find(binding.provider_name, binding.model_id)
+        return spec is None or "image" in spec.input
+
+    def request_history(
+        self, binding: CodingProviderBinding, messages: tuple[AgentMessage, ...]
+    ) -> tuple[AgentMessage, ...]:
+        """History as a request to the bound model holds it: without tool
+        result images when ``images.blockImages`` is set (Pi
+        ``convertToLlmWithBlockImages``, read per request) or the model takes
+        none (Pi ``transformMessages``)."""
+
+        if self.settings.get_block_images():
+            messages = without_blocked_images(messages)
+        if self.model_takes_images(binding):
+            return messages
+        return without_tool_result_images(messages)
 
     def apply_compaction(self, trigger: str) -> CodingCompactionOutcome:
         """Settle manual input: this command has no later canonical settlement.
@@ -1899,7 +1944,12 @@ class ProviderMutationEffects:
             retained_request = freeze_provider_request(
                 replace(
                     automatic.baseline,
-                    messages=automatic.active_input.request_messages(cut.messages),
+                    # As the turn's own request holds them, so the retained
+                    # history is measured as it will be sent.
+                    messages=self.request_history(
+                        context.binding,
+                        automatic.active_input.request_messages(cut.messages),
+                    ),
                 )
             )
         except ValueError:

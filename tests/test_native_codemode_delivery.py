@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,19 @@ from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tools.codemode import CodemodeTool
-from pipy_harness.sdk import create_product_session
+from pipy_harness.sdk import CodemodeOptions, create_product_session
+
+
+def _declared_codemode():
+    # A request carries what a provider sees; the reach function stays with
+    # the registered definition, as do the prompt snippet and guidelines.
+    return replace(
+        CodemodeTool().definition,
+        reaches_tools=None,
+        exposure="direct",
+        prompt_snippet=None,
+        prompt_guidelines=(),
+    )
 
 
 def wait_until(predicate, timeout=10):
@@ -156,6 +169,7 @@ def test_advertised_read_filter_example_runs_without_bulk_output(
         tree=tree,
         observer=sink,
         load_context_files=False,
+        codemode=CodemodeOptions(),
     ) as session:
         result = session.submit("filter the small fixture files")
         assert result.provider_failure is result.preparation_failure is None
@@ -220,7 +234,7 @@ def test_public_multifile_summary_and_durable_replay(
     )
     assert (
         next(t for t in requests[0].available_tools if t.name == "codemode")
-        == CodemodeTool().definition
+        == _declared_codemode()
     )
     results = [m for m in requests[1].messages if isinstance(m, AgentToolResultMessage)]
     assert len(results) == 1 and results[0].provider_correlation_id == "parent"
@@ -313,7 +327,7 @@ def test_cli_modes_real_delivery(tmp_path, monkeypatch, capfd, runtime, mode):
     assert cli.main(args) == 0
     assert (
         next(t for t in requests[0].available_tools if t.name == "codemode")
-        == CodemodeTool().definition
+        == _declared_codemode()
     )
     results = [m for m in requests[1].messages if isinstance(m, AgentToolResultMessage)]
     assert len(results) == 1 and results[0].provider_correlation_id == "parent"
@@ -340,7 +354,7 @@ def test_cli_modes_real_delivery(tmp_path, monkeypatch, capfd, runtime, mode):
         for e in events
         if e["type"] == "tool_execution_end" and e["toolCallId"] == "parent"
     )
-    assert len(end["details"]["nestedCalls"]["calls"]) == 3
+    assert len(end["result"]["details"]["nestedCalls"]["calls"]) == 3
     messages = next(e["messages"] for e in events if e["type"] == "agent_end")
     assert [m["toolCallId"] for m in messages if m["role"] == "toolResult"] == [
         "parent"
@@ -354,6 +368,9 @@ def test_product_extension_hooks_frozen_builtins(
 ):
     # Reuse the product extension fixture writer and ToolBlock/transform
     # patterns from the existing tool_call/tool_result conformance fixtures.
+    # The selection made while the parent runs changes the next request, not
+    # the parent's callable snapshot (nested) or the request that declared
+    # `read` (direct).
     _write_ext(
         tmp_path,
         "hooks",
@@ -361,9 +378,8 @@ def test_product_extension_hooks_frozen_builtins(
 def activate(api):
     @api.on('tool_call')
     def gate(event, ctx):
-        if event.tool_name == 'codemode':
-            assert ctx.set_active_tools(['codemode'])
         if event.tool_name == 'write':
+            assert ctx.set_active_tools(['codemode'])
             return ToolBlock(reason='T9 denied')
     @api.on('tool_result')
     def transform(event, ctx):
@@ -434,7 +450,12 @@ text(tools.read(path='alpha.txt'))
         assert parents[-1].details is None
 
 
-def test_public_malformed_and_budget_errors_are_catchable(tmp_path, runtime):
+def test_public_malformed_errors_are_catchable_and_calls_take_no_budget(
+    tmp_path, runtime
+):
+    # The parent holds the only place of a budget of 1; the script's calls
+    # take none, as Pi has no limit on the calls a tool makes (goal check
+    # r3 D1).
     (tmp_path / "alpha.txt").write_text("kept")
     sink = _CollectingAgentEventSink()
     code = """for i in range(3):
@@ -442,16 +463,13 @@ def test_public_malformed_and_budget_errors_are_catchable(tmp_path, runtime):
         tools.read(path=42)
     except ToolError:
         text('malformed caught')
-text(tools.read(path='alpha.txt'))
-try:
-    tools.read(path='alpha.txt')
-except ToolError:
-    text('budget caught')
+for i in range(5):
+    text(tools.read(path='alpha.txt'))
 text('continued')
 """
     result = CodingSession(
         provider=provider(code),
-        tool_budget=5,
+        tool_budget=1,
         settings_manager=settings(tmp_path),
         agent_event_sink=sink,
     ).run(
@@ -463,13 +481,14 @@ text('continued')
     parent = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
     assert not parent.is_error
     assert parent.content.value.count("malformed caught") == 3
-    assert (
-        "budget caught" in parent.content.value and "continued" in parent.content.value
-    )
+    assert parent.content.value.count("kept") == 5
+    assert "continued" in parent.content.value
+    assert "budget" not in parent.content.value
     assert [c["status"] for c in parent.details["nestedCalls"]["calls"]] == [
         "error"
-    ] * 3 + ["ok", "error"]
-    assert result.tool_invocation_count == 2
+    ] * 3 + ["ok"] * 5
+    assert result.tool_invocation_count == 6
+    assert result.budget_exhausted_count == 0
 
 
 @pytest.mark.parametrize("phase", ["bash", "compute"])
@@ -532,9 +551,10 @@ def test_rpc_live_abort_reaps_and_next_turn_succeeds(
             for e in records
             if e["type"] == "tool_execution_end" and e["toolCallId"] == "parent"
         )
-        assert parent["isError"] and "Script aborted" in parent["result"]
+        assert parent["isError"]
+        assert "Script aborted" in parent["result"]["content"][0]["text"]
         assert all(group_is_gone(pid) for pid in runtime)
-        calls = parent["details"]["nestedCalls"]["calls"]
+        calls = parent["result"]["details"]["nestedCalls"]["calls"]
         assert [c["status"] for c in calls] == (
             ["cancelled"] if phase == "bash" else []
         )
@@ -545,7 +565,8 @@ def test_rpc_live_abort_reaps_and_next_turn_succeeds(
             for e in fresh
             if e["type"] == "tool_execution_end" and e["toolCallId"] == "fresh"
         )
-        assert not end["isError"] and "cherry" in end["result"]
+        assert not end["isError"]
+        assert "cherry" in end["result"]["content"][0]["text"]
         saved = [json.loads(line) for line in client.tree.path.read_text().splitlines()]
         results = [
             e["message"]
@@ -553,6 +574,6 @@ def test_rpc_live_abort_reaps_and_next_turn_succeeds(
             if e.get("type") == "message" and e["message"]["role"] == "tool"
         ]
         assert [r["provider_correlation_id"] for r in results] == ["parent", "fresh"]
-        assert results[0]["details"] == parent["details"]
+        assert results[0]["details"] == parent["result"]["details"]
     finally:
         client.close()

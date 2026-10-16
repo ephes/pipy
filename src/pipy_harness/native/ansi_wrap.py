@@ -9,9 +9,10 @@ a word longer than the width is broken, trailing whitespace trimmed) and
 
 Simplifications, as the rest of pipy's frame renderer measures text: every
 code point is one column (no East Asian width, no grapheme clusters, no CJK
-break opportunities) and only SGR sequences are recognized (the frame
-renderer has already dropped every other escape). Pi's OSC 8 hyperlink
-tracking has no counterpart because pipy draws no links.
+break opportunities) and only SGR sequences and OSC 8 hyperlinks (the
+``ESC ]8;;<url> ESC \\`` form ``hyperlink`` writes) are recognized; the
+frame renderer drops every other escape. As in Pi, a link open at the end
+of a wrapped line is closed there and opened again on the next one.
 """
 
 from __future__ import annotations
@@ -32,13 +33,25 @@ JS_WHITESPACE = "\t\n\x0b\x0c\r \xa0" + "".join(
         0xFEFF,
     )
 )
-_SGR = re.compile(r"\x1b\[([0-9;]*)m")
+# An SGR sequence (group 1: its parameters) or an OSC 8 hyperlink (group 2:
+# the URL, empty to close the link), terminated by ST.
+_ESCAPE = re.compile(r"\x1b\[([0-9;]*)m|\x1b\]8;;([!-~]{0,4096})\x1b\\")
+OSC8_CLOSE = "\x1b]8;;\x1b\\"
+
+
+def hyperlink(text: str, url: str) -> str:
+    """Pi ``hyperlink``: ``text`` as an OSC 8 link to ``url``.
+
+    ``url`` must be printable ASCII without spaces, or the frame renderer
+    will not keep the link."""
+
+    return f"\x1b]8;;{url}\x1b\\{text}{OSC8_CLOSE}"
 
 
 class SgrTracker:
     """Pi ``AnsiCodeTracker`` for SGR codes."""
 
-    __slots__ = ("_flags", "bg", "fg")
+    __slots__ = ("_flags", "bg", "fg", "link")
 
     _FLAG_ON = {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 7: "7", 8: "8", 9: "9"}
     _FLAG_OFF: dict[int, tuple[str, ...]] = {
@@ -56,6 +69,8 @@ class SgrTracker:
         self._flags: set[str] = set()
         self.fg: str | None = None
         self.bg: str | None = None
+        # The URL of the OSC 8 link that is open; an SGR reset keeps it.
+        self.link: str | None = None
 
     def reset(self) -> None:
         self._flags.clear()
@@ -112,9 +127,17 @@ class SgrTracker:
         elif 40 <= code <= 47 or 100 <= code <= 107:
             self.bg = str(code)
 
-    def update(self, text: str) -> None:
-        for match in _SGR.finditer(text):
+    def apply(self, match: re.Match[str]) -> None:
+        """Apply one match of the escape pattern: SGR or OSC 8."""
+
+        if match.group(1) is not None:
             self.process(match.group(1))
+        else:
+            self.link = match.group(2) or None
+
+    def update(self, text: str) -> None:
+        for match in _ESCAPE.finditer(text):
+            self.apply(match)
 
     def active_codes(self) -> str:
         codes = [flag for flag in "12345789" if flag in self._flags]
@@ -122,14 +145,16 @@ class SgrTracker:
             codes.append(self.fg)
         if self.bg:
             codes.append(self.bg)
-        return f"\x1b[{';'.join(codes)}m" if codes else ""
+        sgr = f"\x1b[{';'.join(codes)}m" if codes else ""
+        return sgr + (f"\x1b]8;;{self.link}\x1b\\" if self.link else "")
 
     def line_end_reset(self) -> str:
-        return "\x1b[24m" if "4" in self._flags else ""
+        underline = "\x1b[24m" if "4" in self._flags else ""
+        return underline + (OSC8_CLOSE if self.link else "")
 
 
 def visible_width(text: str) -> int:
-    return len(_SGR.sub("", text))
+    return len(_ESCAPE.sub("", text))
 
 
 def _js_trim_end(text: str) -> str:
@@ -161,7 +186,7 @@ def _tokens(text: str) -> list[str]:
     pending = ""
     index = 0
     while index < len(text):
-        match = _SGR.match(text, index)
+        match = _ESCAPE.match(text, index)
         if match is not None:
             pending += match.group(0)
             index = match.end()
@@ -195,10 +220,10 @@ def _break_long_word(word: str, width: int, tracker: SgrTracker) -> list[str]:
     current_width = 0
     index = 0
     while index < len(word):
-        match = _SGR.match(word, index)
+        match = _ESCAPE.match(word, index)
         if match is not None:
             current += match.group(0)
-            tracker.process(match.group(1))
+            tracker.apply(match)
             index = match.end()
             continue
         if current_width + 1 > width:
@@ -266,7 +291,9 @@ def wrap_text_with_ansi(text: str, width: int) -> list[str]:
 
 
 __all__ = [
+    "OSC8_CLOSE",
     "SgrTracker",
+    "hyperlink",
     "split_lines_with_carry",
     "visible_width",
     "wrap_text_with_ansi",

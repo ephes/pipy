@@ -17,6 +17,11 @@ import os
 
 import pytest
 
+from pipy_harness.native.auth_store import clear_stored_command_results
+
+# Fails a module whose tests leave a fake MCP server process running.
+pytest_plugins = ["mcp_fake_server_guard"]
+
 
 @pytest.fixture(autouse=True)
 def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyped-def]
@@ -36,6 +41,17 @@ def _isolated_user_home(tmp_path_factory, monkeypatch):  # type: ignore[no-untyp
     monkeypatch.delenv("PIPY_CONFIG_HOME", raising=False)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     return fake_home
+
+
+@pytest.fixture(autouse=True)
+def _fresh_stored_command_results():  # type: ignore[no-untyped-def]
+    """A stored ``auth.json`` ``!command`` key runs once per process (Pi
+    ``commandResultCache``); each test starts without results, as Pi's tests
+    call ``clearConfigValueCache``."""
+
+    clear_stored_command_results()
+    yield
+    clear_stored_command_results()
 
 
 @pytest.fixture(autouse=True)

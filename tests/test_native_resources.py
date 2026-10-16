@@ -14,6 +14,7 @@ from pathlib import Path
 from pipy_harness.native.coding.command_registry import builtin_command_names
 from pipy_harness.native.resources import (
     DISPATCH_COMMAND_RUN,
+    DISPATCH_PASS_THROUGH,
     DISPATCH_REJECT,
     DISPATCH_SKILL_RUN,
     DISPATCH_TEMPLATE_RUN,
@@ -224,14 +225,36 @@ def test_skill_is_read_again_at_invocation(tmp_path: Path) -> None:
     assert "\n\nEDITED\n</skill>" in result.provider_text
 
 
-def test_skill_unknown_or_unreadable_rejects(tmp_path: Path) -> None:
+def test_skill_unknown_or_unreadable_passes_through(tmp_path: Path) -> None:
+    # Pi `_expandSkillCommand` leaves the text unchanged for both.
     resources = _resources(tmp_path)
     result = dispatch_resource_command("/skill:nope", resources)
-    assert result is not None and result.kind == DISPATCH_REJECT
+    assert result is not None and result.kind == DISPATCH_PASS_THROUGH
+    assert result.is_pass_through and not result.is_reject and not result.is_run
     assert result.provider_text is None
+    assert result.message == "pipy: no skill named 'nope'."
     next(s for s in resources.skills if s.name == "lint").absolute_path.unlink()
     result = dispatch_resource_command("/skill:lint", resources)
-    assert result is not None and result.kind == DISPATCH_REJECT
+    assert result is not None and result.kind == DISPATCH_PASS_THROUGH
+    assert result.message == "pipy: could not read skill 'lint'."
+
+
+def test_an_empty_template_or_command_is_rejected(tmp_path: Path) -> None:
+    # Unlike a skill that cannot run, an expansion to empty text fails closed.
+    _resources(tmp_path)
+    pipy = tmp_path / "ws" / ".pipy"
+    _write(pipy / "templates", "blank.md", name="blank", description="b", body="")
+    _write(pipy / "commands", "hollow.md", name="hollow", description="h", body="")
+    resources = WorkspaceResources.discover(
+        tmp_path / "ws",
+        config_home_env={},
+        home_dir=tmp_path / "ws",
+        include_workspace_defaults=True,
+    )
+    for line in ("/blank", "/hollow"):
+        result = dispatch_resource_command(line, resources)
+        assert result is not None and result.kind == DISPATCH_REJECT, line
+        assert result.is_reject and not result.is_pass_through
 
 
 def test_skill_empty_body_sends_an_empty_block(tmp_path: Path) -> None:
@@ -396,4 +419,4 @@ def test_multi_word_skill_name_is_not_a_command(tmp_path: Path) -> None:
     # Pi splits `/skill:<name>` at the first space, so `code review` cannot
     # run: `/skill:code review` looks up `code` with the argument `review`.
     result = dispatch_resource_command("/skill:code review", resources)
-    assert result is not None and result.kind == DISPATCH_REJECT
+    assert result is not None and result.kind == DISPATCH_PASS_THROUGH

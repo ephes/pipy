@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from math import isfinite
 from typing import Any, ClassVar
@@ -14,9 +14,12 @@ from pipy_harness.native.agent._validation import (
     require_non_negative_int,
 )
 from pipy_harness.native.agent.content import (
+    NO_STRUCTURED_CONTENT,
     ProductContent,
     TextContent,
     ThinkingContent,
+    ToolResultBlock,
+    normalized_tool_result_blocks,
 )
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
@@ -280,7 +283,14 @@ def _validate_turn_metadata(message: AgentAssistantMessage) -> None:
 
 @dataclass(frozen=True, slots=True)
 class AgentToolResultMessage:
-    """One provider-visible result carrying both tool identity domains."""
+    """One provider-visible result carrying both tool identity domains.
+
+    ``blocks`` is Pi's ordered ``content`` (text and image blocks) for a
+    result that has an image; ``content`` is then its text blocks joined by
+    newlines, which is what every reader that shows or measures text uses.
+    A result without an image stores no blocks. Images are sent to the
+    provider, so ``blocks`` takes part in history equality.
+    """
 
     tool_request_id: str
     tool_name: str
@@ -290,6 +300,19 @@ class AgentToolResultMessage:
     # Pi ``ToolResultMessage.details``: stored and rendered, never sent to a
     # provider, so it takes no part in history equality.
     details: Mapping[str, Any] | None = field(default=None, compare=False)
+    # Pi ``AgentToolResult.structuredContent``: the machine-readable result for
+    # programmatic callers (codemode scripts). Pi keeps it on the tool result
+    # and leaves it out of the ``ToolResultMessage`` it stores, so it is never
+    # sent to a provider and never written to the session file. The executor
+    # copies it from a validated ``ToolExecutionResult``. ``None`` is the
+    # JSON value null; NO_STRUCTURED_CONTENT means the tool gave none.
+    structured_content: Any = field(default=NO_STRUCTURED_CONTENT, compare=False)
+    blocks: tuple[ToolResultBlock, ...] = ()
+    # Pi ``AgentToolResult.terminate``: the result asks the agent to stop
+    # after the current tool batch, which it does when every result of the
+    # batch asks. Like ``structured_content`` it stays on the tool result:
+    # never sent to a provider, never written to the session file.
+    terminate: bool = field(default=False, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
@@ -307,6 +330,7 @@ class AgentToolResultMessage:
                 f"{self.CONTENT_MAX_LENGTH} characters"
             )
         require_bool(self.is_error, "AgentToolResultMessage.is_error")
+        require_bool(self.terminate, "AgentToolResultMessage.terminate")
         require_non_empty_string(
             self.provider_correlation_id,
             "AgentToolResultMessage.provider_correlation_id",
@@ -316,6 +340,13 @@ class AgentToolResultMessage:
                 "AgentToolResultMessage.tool_request_id must be pipy-owned "
                 f"(prefix '{AGENT_TOOL_REQUEST_ID_PREFIX}')"
             )
+        object.__setattr__(
+            self,
+            "blocks",
+            normalized_tool_result_blocks(
+                self.blocks, self.content.value, "AgentToolResultMessage"
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,6 +461,135 @@ def provider_replay_messages(
     if len(kept) == len(messages) and isinstance(messages, tuple):
         return messages  # nothing to drop: keep the caller's exact tuple
     return kept
+
+
+NON_VISION_TOOL_IMAGE_PLACEHOLDER = (
+    "(tool image omitted: model does not support images)"
+)
+"""Pi ``transform-messages.ts``: what a model without image input is sent."""
+
+
+def without_tool_result_images(
+    messages: Sequence[AgentMessage],
+) -> tuple[AgentMessage, ...]:
+    """History for a model that takes no images (Pi ``downgradeUnsupportedImages``).
+
+    In every tool result each run of images becomes one placeholder text
+    block, so the result is text only. The stored history is not changed:
+    a model that takes images gets them again.
+    """
+
+    downgraded = tuple(
+        _without_images(message)
+        if isinstance(message, AgentToolResultMessage) and message.blocks
+        else message
+        for message in messages
+    )
+    if isinstance(messages, tuple) and all(
+        new is old for new, old in zip(downgraded, messages, strict=True)
+    ):
+        return messages  # nothing to drop: keep the caller's exact tuple
+    return downgraded
+
+
+def _without_images(message: AgentToolResultMessage) -> AgentToolResultMessage:
+    texts: list[str] = []
+    previous_was_placeholder = False
+    for block in message.blocks:
+        if isinstance(block, TextContent):
+            texts.append(block.text)
+            previous_was_placeholder = block.text == NON_VISION_TOOL_IMAGE_PLACEHOLDER
+            continue
+        if not previous_was_placeholder:
+            texts.append(NON_VISION_TOOL_IMAGE_PLACEHOLDER)
+        previous_was_placeholder = True
+    # A placeholder may take the text past the cap a result's text has.
+    text = "\n".join(texts)[: message.CONTENT_MAX_LENGTH]
+    return replace(message, content=ProductContent(text), blocks=())
+
+
+BLOCKED_IMAGE_PLACEHOLDER = "Image reading is disabled."
+"""Pi ``sdk.ts`` ``convertToLlmWithBlockImages``: what replaces an image."""
+
+
+def without_blocked_images(
+    messages: Sequence[AgentMessage],
+) -> tuple[AgentMessage, ...]:
+    """History with ``images.blockImages`` set (Pi ``convertToLlmWithBlockImages``).
+
+    In every tool result each image becomes the text
+    :data:`BLOCKED_IMAGE_PLACEHOLDER`, and of consecutive text blocks with
+    that text only the first is kept (also a text the tool wrote). The
+    stored history is not changed.
+    """
+
+    blocked = tuple(
+        _with_images_blocked(message)
+        if isinstance(message, AgentToolResultMessage) and message.blocks
+        else message
+        for message in messages
+    )
+    if isinstance(messages, tuple) and all(
+        new is old for new, old in zip(blocked, messages, strict=True)
+    ):
+        return messages
+    return blocked
+
+
+def with_user_images_blocked(
+    messages: Sequence[AgentMessage], user_prompt: str
+) -> tuple[tuple[AgentMessage, ...], str]:
+    """The current turn's request with ``images.blockImages`` set and its
+    ``@image`` attachments left out (Pi ``convertToLlmWithBlockImages`` for
+    a user message).
+
+    The adapters attach a turn's images to the latest user message, or to
+    ``user_prompt`` when there are no messages. That text gains the line
+    :data:`BLOCKED_IMAGE_PLACEHOLDER` instead, once for all its images, as
+    Pi keeps one of consecutive placeholders. The stored history is not
+    changed.
+    """
+
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, AgentUserMessage):
+            blocked = replace(
+                message,
+                content=ProductContent(
+                    _with_placeholder_line(
+                        message.content.value, message.CONTENT_MAX_LENGTH
+                    )
+                ),
+            )
+            return (*messages[:index], blocked, *messages[index + 1 :]), user_prompt
+    return tuple(messages), _with_placeholder_line(user_prompt, None)
+
+
+def _with_placeholder_line(text: str, limit: int | None) -> str:
+    joined = (
+        f"{text}\n{BLOCKED_IMAGE_PLACEHOLDER}" if text else BLOCKED_IMAGE_PLACEHOLDER
+    )
+    # A placeholder may take the text past the cap a user message has.
+    return joined if limit is None else joined[:limit]
+
+
+def _with_images_blocked(message: AgentToolResultMessage) -> AgentToolResultMessage:
+    mapped = [
+        block.text if isinstance(block, TextContent) else BLOCKED_IMAGE_PLACEHOLDER
+        for block in message.blocks
+    ]
+    texts = [
+        text
+        for index, text in enumerate(mapped)
+        if not (
+            text == BLOCKED_IMAGE_PLACEHOLDER
+            and index > 0
+            and mapped[index - 1] == BLOCKED_IMAGE_PLACEHOLDER
+        )
+    ]
+    # A placeholder may take the text past the cap a result's text has.
+    text = "\n".join(texts)[: message.CONTENT_MAX_LENGTH]
+    return replace(message, content=ProductContent(text), blocks=())
 
 
 _AGENT_MESSAGE_TYPES = (

@@ -326,7 +326,8 @@ openai-completions) construct from the catalog via `native/provider_construction
   - all three adapters add Pi's Copilot headers after the row headers:
     `X-Initiator` (`agent` when the last message is not a user message),
     `Openai-Intent: conversation-edits`, and `Copilot-Vision-Request: true` when
-    the adapter sends an image (the Chat Completions adapter sends none);
+    the request holds an image: an attachment the adapter sends (the Chat
+    Completions adapter sends none) or an image in a tool result;
   - the Anthropic adapter authenticates Copilot with `Authorization: Bearer`,
     never `x-api-key`, and sends no session-affinity header;
   - the Chat Completions default ("openai" format) branch sends

@@ -18,7 +18,7 @@ import json
 import threading
 from collections.abc import Mapping
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO, cast
@@ -80,8 +80,8 @@ from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.system_prompt_sections import (
-    BUILTIN_TOOL_PROMPTS,
     SystemPromptTemplate,
+    pipy_docs_info,
     render_system_prompt,
 )
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -93,6 +93,7 @@ from pipy_harness.native.tools import (
     ToolPort,
     ToolRequest,
 )
+from pipy_harness.native.tools.prompts import BUILTIN_TOOL_PROMPTS
 from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
@@ -792,6 +793,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "diag",
             "current_session_dir",
             "import_transition",
+            "tool_renderers",
         },
         "ReloadCommandEffects": {
             "implicit_trust",
@@ -813,6 +815,9 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
             "redraw_custom_entries_for_active_branch",
             "extension_send_message",
             "extension_ui_driver",
+            "ui_driver",
+            "session_commands",
+            "mcp",
         },
         "BuiltinCommandInterpreter": {
             "session_effects",
@@ -869,6 +874,7 @@ def test_transfer_reload_and_attach_owners_are_closed_and_exact() -> None:
         "_attach_reload_generation",
         "_prepare_reload_generation",
         "_accept_reload_generation",
+        "_bind_live_tools",
         "_deliver_reload_staged",
         "_report_reload_presentation",
         "_diagnose_reload_refusal",
@@ -1246,7 +1252,16 @@ def test_production_tool_inventories_match_exact_pi_manifest() -> None:
         "edit",
         "bash",
     )
-    sections = dict(SystemPromptTemplate(cwd="/w").sections(tuple(registry)))
+    # The docs section names the checkout's own paths. Fixed paths keep the
+    # whole-prompt assertions below independent of where the repository lives.
+    docs = replace(
+        pipy_docs_info(),
+        readme="/p/README.md",
+        docs="/p/docs",
+        examples="/p/docs/examples",
+    )
+    template = SystemPromptTemplate(cwd="/w", docs=docs)
+    sections = dict(template.sections(tuple(registry)))
     prompt_tool_section = sections["tools"].split("\n\n", maxsplit=1)[0]
     prompt_names = tuple(
         line.removeprefix("<tools>\n").removeprefix("- ").split(":", maxsplit=1)[0]
@@ -1266,12 +1281,14 @@ def test_production_tool_inventories_match_exact_pi_manifest() -> None:
         "find",
         "ls",
         "codemode",
+        "tool_search",
     )
-    assert set(BUILTIN_TOOL_PROMPTS) == set(expected) | {"codemode"}
+    assert set(BUILTIN_TOOL_PROMPTS) == set(expected) | {"codemode", "tool_search"}
     assert prompt_names == ("<tools>", *expected)
     assert "edit_diff" not in prompt
     assert "truncate" not in prompt
     assert "codemode" not in prompt  # optional prompt contribution is selected-only
+    assert "tool_search" not in prompt
 
 
 @pytest.mark.parametrize("removed_name", ["truncate", "edit_diff"])
@@ -2296,8 +2313,10 @@ def test_model_command_does_not_dispatch_deferred_extension_model_select(
 
 
 def test_state_owned_provider_survives_setup_failure_for_the_next_run(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import pipy_harness.native.repl.wiring as repl_wiring
+
     seen: list[tuple[str, str]] = []
     state = _scoped_models_state(tmp_path, seen)
     session = CodingSession(
@@ -2314,16 +2333,19 @@ def test_state_owned_provider_survives_setup_failure_for_the_next_run(
     assert session.provider_port.name == "anthropic"
     assert "provider" not in vars(session)
 
-    session.tool_filter_options = ToolFilterOptions(exclude=("missing",))
-    with pytest.raises(ValueError, match="unknown tool name"):
-        session.run(
-            workspace_root=tmp_path,
-            input_stream=io.StringIO("ignored\n"),
-            output_stream=io.StringIO(),
-            error_stream=io.StringIO(),
-        )
+    def fail_setup(*_args: object) -> None:
+        raise ValueError("injected setup failure")
 
-    session.tool_filter_options = ToolFilterOptions.empty()
+    with monkeypatch.context() as patch:
+        patch.setattr(repl_wiring, "_notify_unknown_startup_tool_filters", fail_setup)
+        with pytest.raises(ValueError, match="injected setup failure"):
+            session.run(
+                workspace_root=tmp_path,
+                input_stream=io.StringIO("ignored\n"),
+                output_stream=io.StringIO(),
+                error_stream=io.StringIO(),
+            )
+
     result = session.run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("after failure\n/exit\n"),
@@ -2362,7 +2384,7 @@ def test_startup_composition_cleanup_failure_preserves_primary(
 
     monkeypatch.setattr(StartupGenerationAttachment, "abort", abort_after_cleanup)
     failure_target = (
-        "_raise_unknown_startup_tool_filters"
+        "_notify_unknown_startup_tool_filters"
         if failure_owner == "extension-phase"
         else "_compose_product_session"
     )
@@ -3890,20 +3912,28 @@ def test_reload_reports_configured_extension_tool_that_disappeared(
     )
 
 
-def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
+def test_tool_filter_options_unknown_name_is_ignored_with_a_notice(tmp_path: Path):
+    # Pi ignores a name no tool has; a global `defaultTools` may name a tool
+    # only one project's extension registers, and other projects must start.
     session = CodingSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"echo": _FixtureEchoTool()},
         tool_filter_options=ToolFilterOptions(exclude=("missing",)),
     )
+    error_stream = io.StringIO()
 
-    with pytest.raises(ValueError, match="unknown tool name"):
-        session.run(
-            workspace_root=tmp_path,
-            input_stream=io.StringIO("go\n"),
-            output_stream=io.StringIO(),
-            error_stream=io.StringIO(),
-        )
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("go\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert (
+        "pipy: unknown tool name(s): missing. Known tools: echo"
+        in error_stream.getvalue().splitlines()
+    )
 
 
 def test_extension_command_persists_session_name_and_label(

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -568,6 +569,24 @@ def test_step_rejects_inconsistent_construction() -> None:
         CodingLoopStep(
             CodingLoopStepKind.FRESH_LINE, "x\n", True, keyboard_interrupt=True
         )
+    with pytest.raises(ValueError, match="only unqueued provider content"):
+        CodingLoopStep(CodingLoopStepKind.FRESH_LINE, "x\n", True, external_prompt=True)
+    with pytest.raises(ValueError, match="only unqueued provider content"):
+        content = ProductContent("x")
+        CodingLoopStep.provider_content(
+            "x\n",
+            content,
+            AgentQueuedInput(content, AgentQueuedInputKind.FOLLOW_UP),
+            True,
+            external_prompt=True,
+        )
+    with pytest.raises(TypeError, match="external_prompt must be an exact bool"):
+        CodingLoopStep(
+            CodingLoopStepKind.FRESH_LINE,
+            "x\n",
+            True,
+            external_prompt=1,  # type: ignore[arg-type]
+        )
 
 
 # --- command dispatch precedence ---------------------------------------------
@@ -581,15 +600,20 @@ class _FakeCommandEffects:
         *,
         resource: ResourceDispatchResolution | None = None,
         extension: ExtensionDispatchResolution | None = None,
+        input_hooks: Callable[[str], str | None] = lambda text: text,
     ) -> None:
         self._resource = resource
         self._extension = extension
+        self._input_hooks = input_hooks
+        self.input_hook_texts: list[str] = []
+        self.resource_prompt_flags: list[bool] = []
         self.diagnostics: list[str] = []
         self.footer_calls = 0
         self.resource_invocations = 0
         self.resource_dispatches: list[str] = []
         self.extension_dispatches: list[str] = []
         self.interpretations: list[CodingCommandOutcome] = []
+        self.extension_errors: list[tuple[str, str, str]] = []
 
     def emit_diagnostic(self, message: str) -> None:
         self.diagnostics.append(message)
@@ -603,15 +627,27 @@ class _FakeCommandEffects:
     def record_resource_invocation(self) -> None:
         self.resource_invocations += 1
 
-    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
         self.resource_dispatches.append(command_text)
+        self.resource_prompt_flags.append(prompt)
         return self._resource
+
+    def run_input_hooks(self, text: str) -> str | None:
+        self.input_hook_texts.append(text)
+        return self._input_hooks(text)
 
     def dispatch_extension(
         self, command_text: str
     ) -> ExtensionDispatchResolution | None:
         self.extension_dispatches.append(command_text)
         return self._extension
+
+    def report_extension_error(
+        self, extension_path: str, event: str, error: str
+    ) -> None:
+        self.extension_errors.append((extension_path, event, error))
 
 
 def _dispatch(
@@ -883,7 +919,9 @@ def test_dispatch_command_rejects_non_effects_port() -> None:
 
 def test_dispatch_command_rejects_wrong_resource_result_type() -> None:
     class _BadResource(_FakeCommandEffects):
-        def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution:
+        def dispatch_resource(
+            self, command_text: str, *, prompt: bool = False
+        ) -> ResourceDispatchResolution:
             return object()  # type: ignore[return-value]
 
     controller, _ = _controller(CodingInputQueue())
@@ -910,6 +948,160 @@ def test_dispatch_command_rejects_wrong_extension_result_type() -> None:
             user_input="/x",
             selected_provider_content=None,
             effects=_BadExtension(),
+        )
+
+
+def _dispatch_prompt(
+    text: str,
+    effects: _FakeCommandEffects,
+    selected: ProductContent | None = None,
+) -> CommandDispatchResolution:
+    controller, _ = _controller(CodingInputQueue())
+    return controller.dispatch_prompt(
+        user_input=text, selected_provider_content=selected, effects=effects
+    )
+
+
+def test_prompt_runs_an_extension_command_before_any_resource() -> None:
+    # Pi `AgentSession.prompt`: extension commands first, and no run.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        extension=ExtensionDispatchResolution(name="note", ran=True),
+    )
+
+    resolution = _dispatch_prompt("/note x", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.extension_dispatches == ["/note x"]
+    assert effects.resource_dispatches == []
+    assert effects.interpretations == []
+
+
+def test_prompt_reports_a_failed_extension_command_and_starts_no_run() -> None:
+    # Pi `_tryExecuteExtensionCommand`: an extension error with the
+    # exception's text, and the prompt counts as handled.
+    effects = _FakeCommandEffects(
+        extension=ExtensionDispatchResolution(
+            name="note", ran=False, error="ValueError", message="boom"
+        )
+    )
+
+    resolution = _dispatch_prompt("/note", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.extension_errors == [("command:note", "command", "boom")]
+    assert effects.diagnostics == []
+
+
+def test_prompt_input_hooks_see_the_unexpanded_text() -> None:
+    # Pi `prompt`: extension commands, then the `input` handlers on the
+    # text as sent, then skill and template expansion of what they left.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        input_hooks=lambda text: "/review " + text[len("/rv ") :],
+    )
+
+    resolution = _dispatch_prompt("/rv the diff", effects)
+
+    assert effects.extension_dispatches == ["/rv the diff"]
+    assert effects.input_hook_texts == ["/rv the diff"]
+    assert effects.resource_dispatches == ["/review the diff"]
+    assert effects.resource_prompt_flags == [True]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/review the diff"
+    assert resolution.resource_provider_text == "expanded"
+
+
+def test_prompt_handled_by_an_input_hook_starts_no_run() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "expanded"),
+        input_hooks=lambda text: None,
+    )
+
+    resolution = _dispatch_prompt("/skill:lint now", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.resource_dispatches == []
+
+
+def test_prompt_with_changed_text_carries_new_content() -> None:
+    selected = ProductContent("hello")
+    effects = _FakeCommandEffects(input_hooks=lambda text: text.upper())
+
+    resolution = _dispatch_prompt("hello", effects, selected)
+
+    assert resolution.user_input == "HELLO"
+    assert resolution.selected_provider_content == ProductContent("HELLO")
+    assert effects.extension_dispatches == []
+
+
+def test_prompt_never_interprets_a_builtin_or_reports_an_unknown_name() -> None:
+    for text in ("/exit", "/model x", "/nosuch", "!ls"):
+        effects = _FakeCommandEffects()
+
+        resolution = _dispatch_prompt(text, effects)
+
+        assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+        assert resolution.user_input == text
+        assert resolution.resource_provider_text is None
+        assert effects.interpretations == []
+        assert effects.diagnostics == []
+
+
+def test_prompt_without_a_slash_asks_no_command_port() -> None:
+    effects = _FakeCommandEffects(
+        extension=ExtensionDispatchResolution(name="note", ran=True)
+    )
+    selected = ProductContent(" /note")
+
+    resolution = _dispatch_prompt(" /note", effects, selected)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.selected_provider_content is selected
+    assert effects.extension_dispatches == []
+    assert effects.resource_dispatches == []
+
+
+def test_prompt_expands_a_resource_and_counts_it() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.RUN, "pipy: ran prompt template 'review'.", "Review."
+        )
+    )
+
+    resolution = _dispatch_prompt("/review", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.resource_provider_text == "Review."
+    assert effects.resource_invocations == 1
+    assert effects.diagnostics == ["pipy: ran prompt template 'review'."]
+
+
+def test_prompt_with_a_rejected_resource_stays_the_prompt() -> None:
+    # Pi leaves `/skill:<unknown>` as it is; pipy also says why.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.REJECT, "pipy: no skill named 'x'."
+        )
+    )
+
+    resolution = _dispatch_prompt("/skill:x go", effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/skill:x go"
+    assert resolution.resource_provider_text is None
+    assert effects.resource_invocations == 0
+    assert effects.diagnostics == ["pipy: no skill named 'x'."]
+
+
+def test_dispatch_prompt_rejects_non_effects_port() -> None:
+    controller, _ = _controller(CodingInputQueue())
+
+    with pytest.raises(TypeError, match="effects must implement CodingCommandEffects"):
+        controller.dispatch_prompt(
+            user_input="/x",
+            selected_provider_content=None,
+            effects=object(),  # type: ignore[arg-type]
         )
 
 
@@ -1395,7 +1587,7 @@ def test_external_operation_settles_exact_claim_once_on_each_exit(
     if exit_kind == "enqueue":
         monkeypatch.setattr(
             CodingInputQueue,
-            "enqueue_seed",
+            "enqueue_submitted_prompt",
             lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
         )
     lifetime = _CodingSessionLifetime(
@@ -1483,7 +1675,7 @@ def test_operation_primary_survives_settlement_and_retirement_failures(
     if primary_stage == "enqueue":
         monkeypatch.setattr(
             CodingInputQueue,
-            "enqueue_seed",
+            "enqueue_submitted_prompt",
             lambda self, content: (_ for _ in ()).throw(LookupError("enqueue failed")),
         )
     lifetime = _CodingSessionLifetime(
@@ -1815,6 +2007,47 @@ def test_control_bridge_consumes_the_exact_worker_claim_once() -> None:
         bridge.consume_agent_end(claim)
 
 
+def test_control_bridge_settles_a_handled_prompt_through_its_handler() -> None:
+    # A prompt that an extension command handled starts no run; the
+    # transport's handler consumes the claim (MCP parity plan X1).
+    bridge = _NativeSessionControlBridge()
+    control = _NativeSessionControl(CodingInputQueue())
+    bridge.publish_ready(
+        control,
+        control.abort_view,
+        _ControllerReadinessPort(control),
+        _DUMMY_CONFIGURATION_PORT,
+        _DUMMY_COMPACTION_PORT,
+        _DUMMY_RETRY_PORT,
+        _DUMMY_TRANSITION_PORT,
+    )
+    # Nothing attached: nothing to settle, and no handler is needed.
+    bridge.settle_handled_prompt()
+    assert bridge.attached_content() is None
+
+    content = ProductContent("/note")
+    admitted = bridge.admit_prompt(content)
+    assert admitted.reservation is not None
+    assert bridge.attach_selected_claim(admitted.reservation) is not None
+    assert bridge.attached_content() is content
+    with pytest.raises(RuntimeError, match="handled prompt handler is not bound"):
+        bridge.settle_handled_prompt()
+
+    settled: list[object] = []
+    bridge.bind_handled_prompt_handler(
+        lambda: settled.append(bridge.consume_attached_agent_end())
+    )
+    with pytest.raises(RuntimeError, match="already bound"):
+        bridge.bind_handled_prompt_handler(lambda: None)
+    with pytest.raises(TypeError, match="must be callable"):
+        _NativeSessionControlBridge().bind_handled_prompt_handler(None)  # type: ignore[arg-type]
+    bridge.settle_handled_prompt()
+
+    assert len(settled) == 1
+    assert bridge.attached_content() is None
+    assert control.snapshot().reservation is None
+
+
 def test_control_bridge_foreign_or_mismatched_claim_fails_closed() -> None:
     bridge = _NativeSessionControlBridge()
     control = _NativeSessionControl(CodingInputQueue())
@@ -2083,3 +2316,161 @@ def test_bridge_transition_operation_is_idle_only_and_settles_exact_claim() -> N
     successor = bridge.admit_transition_operation()
     assert successor is not None
     assert bridge.settle_transition_operation(successor).reservation is None
+
+
+# -- R3 (goal check r2, S9): a typed skill or template line meets the hooks --
+
+
+class _TemplateEffects(_FakeCommandEffects):
+    """Runs a resource only for a line that starts with ``/review``."""
+
+    def dispatch_resource(
+        self, command_text: str, *, prompt: bool = False
+    ) -> ResourceDispatchResolution | None:
+        super().dispatch_resource(command_text, prompt=prompt)
+        if command_text.startswith("/review"):
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.RUN, "", f"expanded {command_text}"
+            )
+        return None
+
+
+def test_a_typed_template_line_meets_the_input_hooks_before_expansion() -> None:
+    # Pi `prompt`: the `input` handlers see the line as typed, then the
+    # template their text names is expanded; the turn does not run them again.
+    effects = _TemplateEffects(input_hooks=lambda text: text + " carefully")
+
+    resolution = _dispatch(
+        command_text="/review the diff", user_input="/review the diff", effects=effects
+    )
+
+    assert effects.input_hook_texts == ["/review the diff"]
+    assert effects.resource_dispatches == [
+        "/review the diff",
+        "/review the diff carefully",
+    ]
+    assert effects.resource_invocations == 1
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.resource_provider_text == "expanded /review the diff carefully"
+
+
+def test_a_typed_template_line_the_hooks_leave_is_expanded_once() -> None:
+    effects = _TemplateEffects()
+
+    resolution = _dispatch(
+        command_text="/review it", user_input="/review it", effects=effects
+    )
+
+    assert effects.input_hook_texts == ["/review it"]
+    assert effects.resource_dispatches == ["/review it"]
+    assert effects.resource_invocations == 1
+    assert resolution.resource_provider_text == "expanded /review it"
+
+
+def test_a_typed_template_line_a_hook_handled_starts_no_run() -> None:
+    effects = _TemplateEffects(input_hooks=lambda text: None)
+
+    resolution = _dispatch(
+        command_text="/review it", user_input="/review it", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.resource_invocations == 0
+    assert effects.extension_dispatches == []
+
+
+def test_a_typed_template_line_the_hooks_turn_into_text_is_that_text() -> None:
+    effects = _TemplateEffects(input_hooks=lambda text: "just this")
+
+    resolution = _dispatch(
+        command_text="/review it", user_input="/review it", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "just this"
+    assert resolution.resource_provider_text is None
+    assert resolution.input_hooks_ran is True
+    assert effects.resource_invocations == 0
+
+
+def test_a_rejected_resource_line_meets_the_hooks_first() -> None:
+    # Pi `prompt` runs the `input` handlers before any expansion; an empty
+    # template or custom command then still fails closed in pipy.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.REJECT, "nope", None)
+    )
+
+    resolution = _dispatch(command_text="/blank", user_input="/blank", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.input_hook_texts == ["/blank"]
+    assert effects.diagnostics == ["nope"]
+    assert effects.footer_calls == 1
+
+
+def test_a_typed_unknown_skill_meets_the_hooks_and_goes_to_the_model() -> None:
+    # Goal check r3 S3. Pi: the `input` handlers run first, then
+    # `_expandSkillCommand` passes an unknown skill through unchanged.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.PASS_THROUGH, "pipy: no skill named 'missing'."
+        )
+    )
+
+    resolution = _dispatch(
+        command_text="/skill:missing now",
+        user_input="/skill:missing now",
+        effects=effects,
+    )
+
+    assert effects.input_hook_texts == ["/skill:missing now"]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/skill:missing now"
+    assert resolution.resource_provider_text is None
+    assert resolution.input_hooks_ran is True
+    assert effects.diagnostics == ["pipy: no skill named 'missing'."]
+    assert effects.resource_invocations == 0
+    assert effects.extension_dispatches == []
+
+
+def test_a_typed_unknown_skill_a_hook_handled_starts_no_run() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.PASS_THROUGH, "pipy: no skill named 'missing'."
+        ),
+        input_hooks=lambda text: None,
+    )
+
+    resolution = _dispatch(
+        command_text="/skill:missing", user_input="/skill:missing", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.diagnostics == []
+
+
+def test_a_typed_line_a_hook_rewrites_into_an_unknown_skill_goes_as_rewritten() -> None:
+    class Effects(_FakeCommandEffects):
+        def dispatch_resource(
+            self, command_text: str, *, prompt: bool = False
+        ) -> ResourceDispatchResolution | None:
+            super().dispatch_resource(command_text, prompt=prompt)
+            if command_text.startswith("/skill:"):
+                return ResourceDispatchResolution(
+                    ResourceDispatchKind.PASS_THROUGH, "pipy: no skill named 'x'."
+                )
+            return ResourceDispatchResolution(ResourceDispatchKind.RUN, "", "exp")
+
+    effects = Effects(input_hooks=lambda text: "/skill:x go")
+
+    resolution = _dispatch(
+        command_text="/review", user_input="/review", effects=effects
+    )
+
+    assert effects.resource_dispatches == ["/review", "/skill:x go"]
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "/skill:x go"
+    assert resolution.resource_provider_text is None
+    assert resolution.input_hooks_ran is True
+    assert effects.resource_invocations == 0
+    assert effects.diagnostics == ["pipy: no skill named 'x'."]
