@@ -1468,7 +1468,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 125 of them
+  that pin it and where pipy differs from Pi. All are closed, 127 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
@@ -1562,6 +1562,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
   from the row's own arguments and result (DEV-95, a proposal until now).
   The [backlog](docs/backlog.md) has both as follow-ons. CMD-26 is closed
   with a limit, so 167 rows are closed with a test and 125 with a limit.
+
+- The MCP parity plan records the decision on the eighth goal check
+  (section 7, Q17): seven of its findings are accepted as deviations, and
+  the goal checks end with one final check after the fix slices of that
+  triage. That check asks for each area whether the goal is reached, with
+  no Critical gap and no gap a user would notice in normal use; edge cases
+  it still finds go to the [backlog](docs/backlog.md). The new DEV-97 to
+  DEV-101 record that an SSE `retry` field of more than 18 digits is
+  ignored, that an exposure change taking an excluded tool out of the
+  selection drops the pending tool restorations, that a tool result whose
+  blocks are all text reaches the hooks as its joined text, that an empty
+  `prepare_loadout` description is ignored, and that `api.on()` works only
+  while an extension loads. DEV-36 (a further hash suffix for a name that
+  belongs to another tool) and DEV-37 (an exposure change while a server
+  is not connected) are accepted in those parts. The backlog has the
+  follow-ons. HTP-07 and EXP-09 are closed with a limit, so 165 rows are
+  closed with a test and 127 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

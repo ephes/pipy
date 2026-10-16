@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(125 of them with a recorded limit or deviation); see section 3.2 and the
+(127 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -515,9 +515,11 @@ check (2026-10-15), DEV-79 when R2 was merged (INT4; closed by V3), DEV-80 to DE
 the triage of the third goal check (2026-10-15), DEV-86 to DEV-93 by the
 triage of the fourth goal check (2026-10-15), DEV-94 when X2 of the fifth
 goal check was merged (INT7), DEV-95 when Y3 of the sixth goal check was
-merged (INT8), DEV-96 by the triage of the seventh goal check (2026-10-16).
-A row that section 7, Q11, Q12, Q13, Q14, Q15 or Q16, names is accepted by
-the owner; every other row is still a proposal (Q15 names none).
+merged (INT8), DEV-96 by the triage of the seventh goal check (2026-10-16),
+DEV-97 to DEV-101 by the triage of the eighth goal check (2026-10-16).
+A row that section 7, Q11, Q12, Q13, Q14, Q15, Q16 or Q17, names is
+accepted by the owner; every other row is still a proposal (Q15 names
+none).
 
 "Rows" names the checklist rows whose behaviour a difference changes, or
 `none` when it lies beside every row. "Kind" says how pipy differs:
@@ -549,8 +551,8 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-33 | SES-11, SES-13, EXT-03 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. `get_all_tools()` does not list `codemode` before something registers it, where Pi always registers it inactive (goal check r4, U2; this part accepted in Q13). Since V2 an extension's `set_active_tools` naming `codemode` registers it then, so the selection activates it as Pi's does. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure"; goal check r4 (U2), fixed in V2 except the listing |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
 | DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built, and its result has only `append_system_prompt`: Pi's `systemPrompt` (replace the whole prompt) and `message` (a custom message for the run) are not built (an extension-API item in `docs/backlog.md`). `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
-| DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. Pi resolves a name shared by an MCP tool and an extension tool by load order; with the default order the extension wins in Pi too, so they differ only when `builtin:mcp` loads first (`-e builtin:mcp`). | stricter | Decided in S16, S17 |
-| DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21 |
+| DEV-36 | SES-02, TLS-03, TLS-05 | An MCP tool never replaces a built-in or extension tool of its name: it is left out and reported once. A tool whose input schema declares a type other than `object` is left out and reported; Pi registers it as it is. A name with a hash suffix that already belongs to another tool gets another suffix, so no name ever changes its owner. Pi resolves a name shared by an MCP tool and an extension tool by load order; with the default order the extension wins in Pi too, so they differ only when `builtin:mcp` loads first (`-e builtin:mcp`). | stricter | Decided in S16, S17; goal check r8 (U3, the further suffix), accepted in Q17 |
+| DEV-37 | SES-14, SES-15 | Enabling a server that is enabled saves the change and opens nothing; Pi would open a second connection. An exposure change registers the server's tools again whenever the server has a connection, in any state; Pi does so only while it is connected. Only names an MCP tool has are taken out of the selection. | stricter | Decided in S21; goal check r8 (U4, an exposure change while not connected), accepted in Q17 |
 | DEV-38 | SLH-01, SLH-02, SLH-06 | For a line typed into a session the order is built-in command, prompt template or custom command, extension command, `/mcp`, so a template or custom command named `mcp` takes the command's place; in Pi only an extension command does. For a prompt of print, JSON and RPC mode the order is Pi's. An unknown action prints the usage without waiting for the startup connections. | other form | Decided in S21, X1 |
 | DEV-39 (closed by N2) | SLH-07 | Was: a failing command was a `pipy: extension command /<name> failed (<error>)` line on stderr in every mode. Since N2 it is Pi's extension error: `Extension error (command:<name>): <message>` on stderr in print and JSON mode and an `extension_error` object in RPC mode. | closed | Decided in X1, N2 |
 | DEV-40 | SLH-09 | Custom commands (`.pipy/commands`) expand like templates; an unknown or unreadable skill is reported on stderr (Pi says nothing for an unknown one) and the text then goes to the model as it stands, after the `input` hooks, as in Pi (a typed line too since T5); a typed line a hook handled stays in the transcript, because the terminal drew it before the hooks ran; a typed line that names no skill or template meets the hooks when its turn is prepared (pipy's typed order, DEV-38), so a skill or template the hooks' text names is not expanded and the transcript keeps the typed text. A typed skill or template line meets the hooks before its expansion, as in Pi (since R3; also a custom command line and one that cannot run since T5); prompts of print, JSON and RPC mode run the hooks first, as Pi does (since N2). | other form | Decided in X1, N2, R3, T5 |
@@ -610,6 +612,11 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-94 | TSR-07, SES-02 | The MCP tools are ordered by server, the servers in configuration order, and within a server in the order the names were first published; the resource tools come after them. Pi keeps every MCP tool in one `Map` in the order of first registration, so the servers follow each other in the order they connected, the resource tools come after the tools registered before the first server with resources, and a server's new tool comes after every tool registered before it, also other servers'. Within a server pipy follows Pi's rule (a name registered again keeps its place). Only ties in `tool_search` across servers and the order of the declared tools differ; pipy's order does not depend on connection timing. (The order across servers was configuration order since S15; X2 records it.) | other form | Decided in X2 (goal check r5, U2); recorded in INT7, accepted in Q14 |
 | DEV-95 | EXT-15 | pipy's own rows that a resolver wraps draw the context they are called with (since goal check r6, Y3), with two exceptions for `edit`: its diff preview is computed once from the call's own arguments, off the paint thread, and is left out when a wrapper passes other arguments, where Pi's edit renderer computes a preview for the arguments it is given; and the call part of a wrapped `edit` row shows the diff of the row's own result, where Pi's edit `renderResult` updates the call box from the result it is given. | narrower | Decided in Y3 (goal check r6, D1); recorded in INT8; goal check r7 (S1), accepted in Q16 |
 | DEV-96 | RND-04, CMD-26 | The live codemode row keeps the latest 256 nested calls while the script runs: past that it lets the oldest finished call go for each new one (a call still running stays), and the expanded row starts with `... (N earlier calls, not kept)`. Pi's renderer keeps every call of the script in the result's `details.calls`, and its expanded row shows them all. A restored or exported row draws pipy's durable nested-call record, whose bound of 256 calls is that of Pi's record (`NESTED_CALL_LIMITS.maxCalls`), where Pi's draws the `details.calls` it saved with the result. Only a script that makes more than 256 nested calls notices it. The bound keeps the memory of a live row finite (section 5.3, T4: D6). | narrower | Decided in T4 (goal check r3, D6); goal check r7 (D1), accepted in Q16 |
+| DEV-97 | HTP-07 | A `retry` field of more than 18 digits is ignored, also a small delay padded with zeros (`retry: 0000000000000000005`). Pi reads any run of digits as a number (`Number(value)`), so that field sets a delay of 5 ms there. The bound keeps the conversion of an absurdly long field bounded; no server is known to pad its `retry` value. | stricter | Goal check r8 (P4), accepted in Q17 |
+| DEV-98 | TSR-10, EXP-09 | A tool that `--exclude-tools` removes can still be in pipy's internal active selection. When an exposure change takes such a tool out of the selection, the pending names of every server are dropped, so a tool `tool_search` loaded before a resume or `/reload` is not declared again when its own server reconnects. Pi never registers an excluded tool (`_isAllowedTool`), so the exposure change finds nothing to take out and keeps the pending names (`setExposure`, `setActiveToolsByName`). Only an exposure change of a server with an excluded active tool while another server's restored tools are still pending notices it. | narrower | Goal check r8 (U1), accepted in Q17 |
+| DEV-99 | TLS-11, RES-09 | A tool or resource result whose blocks are all text keeps only their text, joined by newlines: `tool_result` hooks get `blocks=()` with that text, and the request to the provider carries that text. Pi keeps every content block (`convertMcpResult`) and passes them to the hooks (`_afterToolCall`). The model reads the same text; only an extension that inspects or changes the sequence of text blocks notices it. A result with an image keeps its blocks in pipy too. | other form | Goal check r8 (U2), accepted in Q17 |
+| DEV-100 | EXT-12 | An empty replacement description from `prepare_loadout` is ignored and the tool is declared with its own description, since every pipy tool definition has a non-empty description. Pi declares the tool with the empty description (`_applyToolLoadout`). | stricter | Goal check r8 (S1), accepted in Q17 |
+| DEV-101 | EXT-10 | `api.on()` registers a hook only while the extension loads: once its activation is over, the call raises `extension contribution registration is closed`, so a handler (for example of `session_start`) cannot subscribe to `mcp_servers_change` or another event later. Pi's `on()` works while the extension is active and returns a function that removes the handler; pipy's returns the handler. This is the general extension API, not MCP: an extension subscribes while it loads. | narrower | Goal check r8 (S2), accepted in Q17 |
 
 The two rows the audit left open were built after it: SLH-13 (commands
 and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
@@ -626,8 +633,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 167 | see the note |
-| Closed with a limit or deviation | 125 | each names its DEV rows or its limit in the note |
+| Closed with a test | 165 | see the note |
+| Closed with a limit or deviation | 127 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -675,10 +682,15 @@ Updated after the triage of the seventh goal check (2026-10-16): Q16
 accepts DEV-95 (r7 S1) and the new DEV-96 (r7 D1, the live codemode row
 keeps the latest 256 nested calls), which names RND-04 and CMD-26 and sets
 CMD-26 to closed with a limit.
-The 125 rows
+Updated after the triage of the eighth goal check (2026-10-16): Q17
+accepts the new DEV-97 to DEV-101 (r8 P4, U1, U2, S1, S2), which set HTP-07
+and EXP-09 to closed with a limit and name TSR-10, TLS-11, RES-09, EXT-12
+and EXT-10 too, and the further hash suffix of DEV-36 (r8 U3) and the
+exposure change while not connected of DEV-37 (r8 U4).
+The 127 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11 to
-Q14 and Q16, accept the DEV rows they name (Q15 names none). Not rows, and still outstanding: the
+Q14, Q16 and Q17, accept the DEV rows they name (Q15 names none). Not rows, and still outstanding: the
 live evidence of section 6.5, which needs the owner's provider login and an
 account at an OAuth MCP server.
 
@@ -5141,6 +5153,18 @@ whose parts they fix (DEV-20 among them) as they land.
 | --- | --- | --- |
 | Q16 | Goal-check round 7 (goal-r7.md, at `06bdb145`): findings that remain after the triage of 2026-10-16. | **Accepted as deviations** (owner decided 2026-10-16 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. One is a deliberate memory bound of codemode's live row, the other general extension-API rendering of one built-in tool, not MCP: D1 (DEV-96, the live codemode row keeps the latest 256 nested calls, where Pi's renderer keeps every call; only a script with more than 256 nested calls notices it, and the durable record is bounded at 256 calls in Pi too, as section 5.3, T4: D6, says; backlog); S1 (DEV-95, the diff preview of a wrapped `edit` row comes from the row's own arguments and result, not from what the wrapper passes; backlog). Fixed by the slices Z1 and Z2: U1, U2, D2, D3. Every DEV row named here counts as accepted. |
 
-A DEV row of section 3 or 3.1 that Q11, Q12, Q13, Q14, Q15 or Q16 names is
-accepted; Q15 names none. One none of them names stays a proposal for the
-final judgement.
+Recorded 2026-10-16, after the eighth goal check (`goal-r8.md`, at
+`4b12ab18`) and its triage, from the owner's decision in chat. The goal
+check ran twice on that commit; the triage names the three findings of the
+first run A, B and C, and `goal-r8.md` has those of the second. The fix
+slices K1 to K3 of that triage change the rows and the design text whose
+parts they fix as they land.
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| Q17 | Goal-check round 8 (goal-r8.md and the first run, at `4b12ab18`): findings that remain after the triage of 2026-10-16, and when the goal checks end. | **Accepted as deviations, and the bar changes** (owner decided 2026-10-16 in chat; request #242 was withdrawn). The bar: after the fix slices K1 to K3, one final goal check asks for each area whether the goal is reached, meaning no Critical gap and no gap a user would notice in normal use. Edge cases it still finds go to the backlog (`docs/backlog.md`), not to another round of fix slices. After that check the owner is asked about the merge to `main` (Q5). The following findings are settled and are not functional gaps for the parity goal. They are edge cases, or differences where pipy is deliberately stricter: P4 (DEV-97, a `retry` field of more than 18 digits is ignored, also a small delay padded with zeros; backlog); U1 (DEV-98, an exposure change that takes an excluded tool out of the selection drops every pending restoration; backlog); U2 (DEV-99, a result whose blocks are all text reaches the hooks as its joined text; backlog); U3 (DEV-36, the further hash suffix for a suffixed name that already belongs to another tool only, so that no name changes its owner; backlog); U4 (DEV-37, registering a server's tools again on an exposure change while the server is not connected only; backlog); S1 (DEV-100, an empty `prepare_loadout` description is ignored; backlog); S2 (DEV-101, `api.on()` only while the extension loads; extension-API backlog). Fixed by the slices K1 to K3: A, B, C, P1, P2, P3, D1, U5. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts stay as an earlier decision left them (Q12 accepts DEV-36's precedence by load order) or stay proposals. |
+
+A DEV row of section 3 or 3.1 that Q11, Q12, Q13, Q14, Q15, Q16 or Q17
+names is accepted; Q15 names none. One none of them names stays a proposal
+for the final judgement. After Q17 the goal checks end with the final one
+Q17 describes; what it finds below its bar goes to the backlog.

@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-16, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 167 are closed with a
-test and 125 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 165 are closed with a
+test and 127 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,13 +128,19 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-96) that plan
-  section 7, Q11 to Q16, do not name are accepted. Q11 (2026-10-15)
+  differences from Pi (plan section 3.1, DEV-15 to DEV-101) that plan
+  section 7, Q11 to Q17, do not name are accepted. Q11 (2026-10-15)
   accepts the findings of the second goal check that its triage neither
   fixes nor refutes; Q12, Q13 and Q14 (2026-10-15) do the same for the
   third, fourth and fifth goal checks, Q15 (2026-10-16) records that
-  the sixth goal check left nothing to accept, and Q16 (2026-10-16)
-  accepts DEV-95 and DEV-96 for the seventh. The fix slices T1 to T6 of
+  the sixth goal check left nothing to accept, Q16 (2026-10-16)
+  accepts DEV-95 and DEV-96 for the seventh, and Q17 (2026-10-16) accepts
+  DEV-97 to DEV-101 and parts of DEV-36 and DEV-37 for the eighth. Q17
+  also sets the bar for the end: after the fix slices K1 to K3 of the
+  eighth triage, one final goal check asks for each area whether the goal
+  is reached (no Critical gap and no gap a user would notice in normal
+  use); edge cases it still finds go to this backlog, and then the owner is
+  asked about the merge. The fix slices T1 to T6 of
   the third triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5),
   and so are the fix slices V1 to V3 of the fourth triage (V3 merged in
   INT6), the fix slices X1 to X3 of the fifth triage (X2 merged in INT7,
@@ -587,6 +593,34 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   nested calls beside the bounded record, as Pi's `details.calls`, if a
   script with more than 256 calls ever needs all of them inspectable. The
   durable record stays bounded at 256 calls, as Pi's. Codemode track.
+- **Zero-padded SSE `retry` values** (MCP1 goal check r8, finding P4; plan
+  DEV-97, low): read a `retry` field of more than 18 digits by its value,
+  as Pi's `Number(value)` does, so that a small delay padded with zeros is
+  honoured, while still bounding the conversion. MCP track.
+- **Pending restorations past an excluded tool** (MCP1 goal check r8,
+  finding U1; plan DEV-98): keep tools that `--exclude-tools` removes out of
+  the internal active selection, as Pi never registers them, so that an
+  exposure change of their server keeps the pending names of other servers'
+  restored tools. MCP track.
+- **Text blocks of a tool result** (MCP1 goal check r8, finding U2; plan
+  DEV-99): keep a text-only result's blocks for `tool_result` hooks and the
+  provider request, as Pi's `convertMcpResult` and `_afterToolCall` do,
+  instead of only their joined text. Extension-API track.
+- **Pi's MCP name and exposure timing** (MCP1 goal check r8, findings U3
+  and U4; plan DEV-36, DEV-37, low): pipy gives a suffixed name that
+  already belongs to another tool a further suffix, and applies an exposure
+  change to a server that is not connected at once; Pi reuses the name
+  (the second tool replaces the first) and waits for the reconnect. Both
+  are kept as the safer behaviour; revisit only if exact Pi names or timing
+  matter to someone. MCP track.
+- **Empty `prepare_loadout` descriptions** (MCP1 goal check r8, finding
+  S1; plan DEV-100, low): let a loadout blank a tool's description, as Pi
+  does, which needs declared copies to allow an empty description.
+  Extension-API track.
+- **`api.on()` after loading** (MCP1 goal check r8, finding S2; plan
+  DEV-101): let an active extension subscribe to events after it has
+  loaded (for example from `session_start`) and return a function that
+  removes the handler, as Pi's `on()` does. Extension-API track.
 - **Proxy support, pipy-wide** (MCP1 goal check r3, finding F2; plan
   DEV-82): Pi's `httpProxy` setting (global only) applied as
   `HTTP_PROXY`/`HTTPS_PROXY`, honoured by the MCP HTTP transport and the
