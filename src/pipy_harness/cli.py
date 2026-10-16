@@ -1992,7 +1992,15 @@ def _cmd_config(args: Any) -> int:
             manager.set_resource_patterns(
                 "extensions",
                 set_builtin_extension_entry(
-                    scope_patterns, builtin, enabled=action == "enable"
+                    scope_patterns,
+                    builtin,
+                    enabled=action == "enable",
+                    base_dir=(
+                        manager.global_path
+                        if scope == SCOPE_GLOBAL
+                        else manager.project_path or cwd / ".pipy" / "settings.json"
+                    ).parent,
+                    workspace=cwd,
                 ),
                 scope=scope,
             )

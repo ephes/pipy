@@ -41,6 +41,19 @@ def test_glob_disable() -> None:
     assert is_resource_enabled("review", ["-draft-*"]) is True
 
 
+def test_patterns_match_as_minimatch() -> None:
+    # Goal check r5 U1: braces and extended globs, as Pi's minimatch.
+    assert is_resource_enabled("draft-pr", ["-{draft,wip}-*"]) is False
+    assert is_resource_enabled("wip-1", ["-{draft,wip}-*"]) is False
+    assert is_resource_enabled("review", ["-{draft,wip}-*"]) is True
+    assert is_resource_enabled("draft-pr", ["-+(draft|wip)-*"]) is False
+    assert is_resource_enabled("draft-pr", ["-draft-!(pr)"]) is True
+    assert is_resource_enabled("draft-x", ["-draft-!(pr)"]) is False
+    # A `*` does not cross a `/`, and an exact name always matches itself.
+    assert is_resource_enabled("team/draft", ["-*"]) is True
+    assert is_resource_enabled("a[b", ["-a[b"]) is False
+
+
 def test_globstar_also_matches_no_directory() -> None:
     # Goal check r4 U4: as in Pi's minimatch, `**/` matches zero or more
     # directories, at the start of a pattern and after a `/`.

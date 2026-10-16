@@ -249,8 +249,8 @@ are closed.
 | EXP-09 | `--exclude-tools` removes matching MCP tools; `--exclude-tools 'mcp__*'` removes all server tools. `--no-tools` starts with MCP tools disabled as well. | `core/agent-session.ts` `_isAllowedTool`; `docs/cli.md` "Tools" | S10 |
 | EXP-10 | The three resource tools count as MCP tools for these rules. | `core/mcp-servers.ts` `isMcpToolName` | S23 |
 | EXP-11 | `--no-mcp` turns MCP off for one run: no `mcp.json` is read, no server connects, there are no MCP tools and no `/mcp` command. | `cli/args.ts` (`--no-mcp`); `main.ts` (`disabledBuiltinExtensions`) | S19 |
-| EXP-12 | MCP can be turned off in settings with `"extensions": ["-builtin:mcp"]` (project value on top of the user value), shown and toggled in the config command's Built-in list. `--no-extensions` turns it off too, and `-e builtin:mcp` turns it on again for that run. | `docs/mcp.md` "Replace the built-in MCP support"; coding-agent `CHANGELOG.md` 0.99.0 "Built-in section in pi config" | S19 |
-| EXP-13 | `codemode` and `tool_search` are the built-in extensions `builtin:codemode` and `builtin:tool-search`: `"-builtin:codemode"`, `"-builtin:tool-search"` in `extensions`, `--no-extensions` and `-e builtin:<name>` apply to them as to `mcp`, and a reload reads the entries again. | `extensions/index.ts`; `core/resource-loader.ts` (`disabledBuiltinExtensions`, `builtin:<name>`) | G8 |
+| EXP-12 | MCP can be turned off in settings with `"extensions": ["-builtin:mcp"]` (project value on top of the user value), shown and toggled in the config command's Built-in list. `--no-extensions` turns it off too, and `-e builtin:mcp` turns it on again for that run. | `docs/mcp.md` "Replace the built-in MCP support"; coding-agent `CHANGELOG.md` 0.99.0 "Built-in section in pi config"; `core/package-manager.ts` (`matchesAnyPattern`) | S19, goal check r5 (X3) |
+| EXP-13 | `codemode` and `tool_search` are the built-in extensions `builtin:codemode` and `builtin:tool-search`: `"-builtin:codemode"`, `"-builtin:tool-search"` in `extensions`, `--no-extensions` and `-e builtin:<name>` apply to them as to `mcp`, and a reload reads the entries again. | `extensions/index.ts`; `core/resource-loader.ts` (`disabledBuiltinExtensions`, `builtin:<name>`) | G8, goal check r5 (X3) |
 
 ### 2.10 `tool_search` (TSR)
 
@@ -543,7 +543,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
 | DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. Since goal check r3 (U2) a selection that is set drops a name the `--tools` allowlist does not let be activated, as Pi's `_applyToolLoadout` does; what is kept is narrowed when read, so a reload that changes an exposure takes a tool out. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 and T3 |
-| DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` entry follows Pi's override rules since goal check r3 (F1); a `!` glob is matched with `fnmatch` against the name `builtin:<name>` alone, where a `**/` segment also matches no directory as in minimatch since goal check r4 (U4); minimatch's brace and extended forms (`{a,b}`, `+(a\|b)`) are not supported, and Pi also tries the path relative to the settings directory. | other form | Decided in S19, G8, T3 |
+| DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` entry follows Pi's override rules since goal check r3 (F1). Since goal check r5 (U1) a `!` glob is read as Pi's minimatch reads it, braces (`{a,b}`), extended globs (`+(a\|b)`) and globstar included, and the entries are also tried on the path relative to the settings directory, as in Pi; the only differences left are that braces nested beyond Python's recursion limit (several hundred levels) match nothing, that a pattern Python's `re` cannot compile (minimatch raises for most of them) matches nothing, that the POSIX classes use Node 26's Unicode tables (17.0), and that a pathological pattern can take another time to match, since Python's and JavaScript's regular expressions backtrack differently. | other form | Decided in S19, G8, T3, X3 ([minimatch decision](../decisions/2026-10-15-minimatch-globs.md)) |
 | DEV-33 | SES-11, SES-13, EXT-03 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. `get_all_tools()` does not list `codemode` before something registers it, where Pi always registers it inactive (goal check r4, U2; this part accepted in Q13). Since V2 an extension's `set_active_tools` naming `codemode` registers it then, so the selection activates it as Pi's does. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure"; goal check r4 (U2), fixed in V2 except the listing |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
 | DEV-35 | SEC-06, EXT-16 | The `mcp_servers` section is rendered once per run; a queued follow-up or steering message inside a run does not render it again. `before_agent_start` has `system_prompt_options.sections` only; Pi's other option fields and the event's `messageType`, `prompt` and `images` are not built, and its result has only `append_system_prompt`: Pi's `systemPrompt` (replace the whole prompt) and `message` (a custom message for the run) are not built (an extension-API item in `docs/backlog.md`). `event.system_prompt` is rendered on every read as in Pi (since G9) but also holds the text earlier handlers appended, and an invalid section entry is reported and left out, where Pi fails the prompt. | narrower | Decided in S20, G9; `docs/extension-api.md` |
@@ -654,8 +654,10 @@ S7); EXT-01 keeps its limit through DEV-85, so no row changed its state.
 Updated after the triage of the fifth goal check (2026-10-15): DEV-57 now
 also names CMDL-06 (`add --local` with a trust store that cannot be read,
 r5 F2), which sets it to closed with a limit; DEV-25 and DEV-55 say what r5
-U3 and F3 found. The fix slice X1 of that triage (P1, P2, F1) changed no
-row's state.
+U3 and F3 found. The fix slices X1 (P1, P2, F1) and X3 (U1, which
+narrowed DEV-32 to the config command and the limits of the minimatch
+port) of that
+triage changed no row's state.
 The 123 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
@@ -1145,7 +1147,10 @@ Decided in S19 (`discovery.py`, the startup report, the switches):
   `is_builtin_extension_enabled`: the user-level array decides unless the
   project array has a `+`/`-` directive that matches, with pipy's pattern
   rules (last matching directive wins, `fnmatch`) in place of Pi's
-  (`!pattern`, exact `+`/`-`).
+  (`!pattern`, exact `+`/`-`). Since goal check r3 (F1) the rules are Pi's,
+  and since goal check r5 (U1) the globs are minimatch's
+  (`pipy_harness.native.minimatch`) and the entries are also tried on the
+  path relative to the settings file's directory.
 - The config command has no interactive list in pipy. `pipy config list`
   shows `built-in:` with `builtin:mcp` (JSON key `builtin`), and
   `pipy config enable|disable builtin mcp` writes `+builtin:mcp` or
@@ -4679,6 +4684,40 @@ output. Before, Python's `webbrowser.open` ran on the sign-in's thread. Tests:
 `test_native_mcp_stdio.py`, `test_native_mcp_connection.py`,
 `test_native_mcp_http.py`,
 `test_native_mcp_sign_in.py`, `test_native_mcp_shell_cli.py`.
+
+**X3 of the fifth goal check: minimatch globs.** Finding U1 of goal check r5
+(EXP-12, EXP-13, DEV-32). `pipy_harness.native.minimatch.minimatch(path,
+pattern)` reads a glob as Pi's minimatch 10.2.6 with its default options,
+from three ports and no new dependency
+([decision](../decisions/2026-10-15-minimatch-globs.md)):
+`brace_expansion.expand` ports brace-expansion 5.0.9 (its escapes, `${...}`
+and `{a}` rules, JavaScript numbers in sequences, and its cut at 100 000
+results and 4 000 000 UTF-16 code units); `glob_segment.segment_matcher`
+ports minimatch's `AST` (extended globs merged into their parents, read as
+text beyond two levels, `!(...)` with the rest of the pattern),
+`parseClass`, `unescape` and the fast tests, and builds the same regular
+expression for Python's `re` (`$` as `\Z`, Unicode properties as lists of
+characters from Node 26's tables in `unicode_properties`, written by
+`scripts/unicode_properties.py`, UTF-16 code units without the `u` flag,
+`search` as JavaScript's `test`); and `minimatch` applies the leading `!`
+run and `#` comment rules, splits the pattern and the path at `/` (`..` and
+adjacent `**` folded as minimatch's `levelOneOptimize`) and walks the `**`
+segments as minimatch's `#matchGlobstar`: head, tail, no dot segment passed
+over, the 200-section limit and minimatch's bound for each section's last
+start, as one pass per section so nothing recurses. Results are cached per
+path and pattern. The built-in extensions' `!` entries use it, and so do
+pipy's `-`/`+` resource directives (`is_resource_enabled`), whose
+exact-name match stays. `is_builtin_extension_enabled` takes the
+directories of the two settings files and also tries each entry on
+`os.path.relpath(<workspace>/builtin:<name>, <directory>)`, as Pi's
+`path.relative` against its working directory; the settings manager
+passes them (`workspace_root`, the directory of `.pipy`), and the config
+command's toggle drops the `+`/`-` entries that name it that way too. `wcmatch` was tried
+first and dropped (the decision says why). Three commits: the brace port,
+the segment port, then the matcher with its use and the docs. Tests:
+`test_native_brace_expansion.py`, `test_native_glob_segment.py`,
+`test_native_minimatch.py`, `test_native_resource_enablement.py`,
+`test_native_mcp_discovery.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

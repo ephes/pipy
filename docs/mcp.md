@@ -577,8 +577,11 @@ Different from Pi:
   connects and there are no MCP tools.
 - `"extensions": ["-builtin:mcp"]` in the [settings](settings.md) turns it off
   until you remove the entry; so does a `!` glob that matches it, such as
-  `!builtin:*` or Pi's `!**/builtin:mcp` (a `**/` also matches no
-  directory), unless a `+builtin:mcp` entry turns it on again. A
+  `!builtin:*`, Pi's `!**/builtin:mcp` (a `**/` also matches no
+  directory), `!builtin:{mcp,codemode}` or `!builtin:+(mcp|codemode)`,
+  unless a `+builtin:mcp` entry turns it on again. The globs are read as
+  Pi's minimatch reads them
+  ([decision](decisions/2026-10-15-minimatch-globs.md)). A
   `+builtin:mcp`, `-builtin:mcp` or matching `!` entry in the settings of a
   trusted project decides over the user-level entries.
   `pipy config disable builtin mcp` and `pipy config enable builtin mcp`

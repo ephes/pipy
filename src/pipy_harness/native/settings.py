@@ -912,7 +912,10 @@ class SettingsManager:
 
         The user-level array decides unless a ``!``, ``+`` or ``-`` entry of
         the project array matches ``builtin:<name>``, for example
-        ``-builtin:mcp`` or ``!builtin:*`` (Pi's override rules).
+        ``-builtin:mcp`` or ``!builtin:*`` (Pi's override rules). Each
+        scope's entries are also tried on the path relative to its file's
+        directory, resolved against the workspace, as Pi's are against its
+        working directory.
         """
 
         from pipy_harness.native.resource_enablement import (
@@ -929,6 +932,19 @@ class SettingsManager:
             name,
             user_patterns=patterns(SCOPE_GLOBAL),
             project_patterns=patterns(SCOPE_PROJECT),
+            user_base_dir=self.global_path.parent,
+            project_base_dir=(
+                self.project_path.parent if self.project_path is not None else None
+            ),
+            workspace=self.workspace_root,
+        )
+
+    @property
+    def workspace_root(self) -> Path | None:
+        """The directory whose ``.pipy/settings.json`` is the project file."""
+
+        return (
+            self.project_path.parent.parent if self.project_path is not None else None
         )
 
     def get_enable_skill_commands(self) -> bool:

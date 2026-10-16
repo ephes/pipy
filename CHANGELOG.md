@@ -63,6 +63,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `"extensions": ["!**/builtin:mcp"]` now turns MCP off, where before it
   matched nothing and the servers still started. See
   [turning MCP off](docs/mcp.md#turning-mcp-off).
+- A `!` glob in the `extensions` setting is read as Pi's minimatch reads
+  it, braces and extended globs included: `"extensions":
+  ["!builtin:{mcp,codemode}"]` or `["!builtin:+(mcp|codemode)"]` now turns
+  MCP and codemode off, where before both matched nothing and the MCP
+  servers still started. As in Pi, the `!`, `+` and `-` entries for a
+  built-in extension are also tried on the path relative to the settings
+  file's directory (`!../builtin:mcp` in a project's settings), and
+  `pipy config enable|disable builtin` replaces such entries too. pipy's own
+  `-` and `+` entries in `skills`, `prompts`, `themes` and `extensions` use
+  the same globs, so a `*` there no longer crosses a `/` or matches a
+  leading dot. pipy ports minimatch and brace-expansion for this
+  ([decision](docs/decisions/2026-10-15-minimatch-globs.md)). See
+  [turning MCP off](docs/mcp.md#turning-mcp-off).
 - An unknown `--extension builtin:<name>`, Pi's `builtin:llama.cpp`
   included, ends the startup as in Pi: `Error: Failed to load extension
   "builtin:<name>": Unknown built-in extension: builtin:<name>`, the hint

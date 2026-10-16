@@ -474,6 +474,14 @@ def test_activate_tools_ignores_unknown_names_and_keeps_an_unset_selection(
         (["!**/builtin:*"], [], False),
         (["!**/builtin:codemode"], [], True),
         ([], ["!**/builtin:mcp"], False),
+        # Goal check r5 U1, minimatch: braces and extended globs.
+        (["!builtin:{mcp,codemode}"], [], False),
+        (["!builtin:{codemode,tool-search}"], [], True),
+        (["!builtin:+(mcp|codemode)"], [], False),
+        (["!builtin:@(codemode|tool-*)"], [], True),
+        (["!builtin:!(codemode)"], [], False),
+        ([], ["!builtin:{mcp,codemode}", "+builtin:mcp"], True),
+        (["!builtin:{mcp,codemode}", "+builtin:mcp"], [], True),
         # Pi applyAutoloadDisabledPatterns: a matching project `!`, `+` or
         # `-` entry decides over the user array, the last one winning.
         ([], ["!builtin:*"], False),
@@ -527,6 +535,46 @@ def test_settings_read_the_builtin_entry_per_scope(tmp_path: Path) -> None:
     project_path.write_text('{"extensions": []}')
     global_path.write_text('{"extensions": ["!**/builtin:mcp"]}')
     assert not enabled(trusted=True)
+    # Goal check r5 U1: braces, as Pi's minimatch.
+    global_path.write_text('{"extensions": ["!builtin:{mcp,codemode}"]}')
+    assert not enabled(trusted=True)
+
+
+@pytest.mark.parametrize(
+    ("user", "project", "enabled"),
+    [
+        ([], ["!../builtin:mcp"], False),
+        ([], ["!../*"], False),
+        (["-builtin:mcp"], ["+../builtin:mcp"], True),
+        ([], ["-./../builtin:mcp"], False),
+        (["!../work/builtin:*"], [], False),
+        (["-../work/builtin:mcp"], [], False),
+        (["!../builtin:mcp"], [], True),
+        # A negated glob: the relative path is not `builtin:mcp`.
+        (["!!builtin:mcp"], [], False),
+    ],
+)
+def test_builtin_entries_also_match_the_path_relative_to_the_settings_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    user: list[str],
+    project: list[str],
+    enabled: bool,
+) -> None:
+    # Pi's matchesAnyPattern and matchesAnyExactPattern also try
+    # `path.relative(baseDir, "builtin:mcp")`, resolved against the working
+    # directory: `../builtin:mcp` from the project's settings directory.
+    work = tmp_path / "work"
+    global_path = tmp_path / "config" / "settings.json"
+    project_path = work / ".pipy" / "settings.json"
+    global_path.parent.mkdir(parents=True)
+    project_path.parent.mkdir(parents=True)
+    global_path.write_text(json.dumps({"extensions": user}))
+    project_path.write_text(json.dumps({"extensions": project}))
+    monkeypatch.chdir(work)
+    manager = SettingsManager(global_path=global_path, project_path=project_path)
+
+    assert manager.builtin_extension_enabled("mcp") is enabled
 
 
 @pytest.mark.parametrize(
@@ -719,6 +767,27 @@ def test_config_command_replaces_every_exact_entry_of_the_builtin(
         "-builtin:mcp",
     ]
     assert _builtin_report(capfd, workspace) == _builtins(mcp=False, tool_search=False)
+
+
+def test_config_command_drops_entries_that_name_the_builtin_by_relative_path(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Goal check r5 U1: an entry also names the built-in by its path relative
+    # to the settings directory, resolved against the workspace (`--cwd`).
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    user_file = config_home / "settings.json"
+    user_file.write_text('{"extensions": ["-../ws/builtin:mcp"]}')
+    cwd = ["--cwd", str(workspace)]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=False)
+
+    assert main(["config", "enable", "builtin", "mcp", *cwd]) == 0
+
+    assert json.loads(user_file.read_text())["extensions"] == ["+builtin:mcp"]
+    assert _builtin_report(capfd, workspace) == _builtins()
 
 
 def test_config_command_refuses_an_unknown_builtin(
