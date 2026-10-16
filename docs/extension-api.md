@@ -1497,7 +1497,8 @@ result, so there its `is_error` is false, as in Pi's export.
 - `tool_call_id`: the call's id, the same for its call and result renders.
 - `cwd`: the session's directory.
 - `execution_started`: the call started running in this session; False for
-  a call drawn from the session file.
+  a call drawn from the session file in the terminal. The HTML export tells
+  renderers True for every call, as Pi's export does.
 - `args_complete`: always True, since pipy draws a call once its arguments
   are complete.
 - `is_partial`: the call has no final result yet. `is_result` is True also
@@ -1566,9 +1567,22 @@ def activate(api):
   `render_call` and `render_result` are called again; `render_result` is
   called from the start, with empty `content`, as Pi's bash tool sends an
   empty update first). For `codemode` the result part is, in the terminal
-  and the HTML export, the script's output without the `Script completed`
-  header, as Pi's codemode renderer draws it; the nested calls stay in the
-  row between the two parts. Called
+  and the HTML export, the script's nested calls and its output without the
+  `Script completed` header, as Pi's codemode renderer draws them; while
+  the script runs `render_result` is called with empty `content` once it
+  made a call, as Pi's codemode tool sends its calls as partial results.
+  Renderers that replace codemode's draw no nested calls of pipy's
+  (captured output, written as it comes, writes the calls of codemode's own
+  rows as they run, and a wrapper gets them with the result, from its
+  `details`). These
+  rows draw the context they are called with: its `args`, `content`,
+  `details`, `is_error`, `is_partial` and `expanded`, so a wrapper can pass
+  `dataclasses.replace(ctx, args=..., content=...)` to change or withhold
+  what they show, as Pi's built-in, MCP and codemode renderers draw the
+  arguments, result and options they are given. The `edit` diff preview is
+  computed from the call's own arguments and is left out under others;
+  the nested calls of a running `codemode` row are the ones it keeps,
+  while other `details` show the calls they record. Called
   with a context pipy did not make, they return `None`. For every other
   name it is `None`.
 

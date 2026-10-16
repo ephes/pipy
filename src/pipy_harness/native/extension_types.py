@@ -360,13 +360,15 @@ class ToolRenderContext:
     last_component: object | None = field(
         default=None, kw_only=True, repr=False, compare=False
     )
-    # How the row that asked draws pipy's own rows of this call:
-    # ``(phase, mcp_label) -> lines`` with phase ``"call"`` or ``"result"``
-    # and the MCP title, or None for a built-in tool's rows. What
-    # ``BuiltinToolRows`` and ``McpToolRows`` call; not for extensions.
-    _own_rows: "Callable[[str, str | None], Sequence[str] | None] | None" = field(
-        default=None, kw_only=True, repr=False, compare=False
-    )
+    # How the row that asked draws pipy's own rows of a call:
+    # ``(ctx, phase, mcp_label) -> lines`` with the context they are drawn
+    # from (its args, result and expanded flag, which a wrapper may have
+    # replaced), phase ``"call"`` or ``"result"`` and the MCP title, or None
+    # for a built-in tool's rows. What ``BuiltinToolRows`` and
+    # ``McpToolRows`` call; not for extensions.
+    _own_rows: (
+        Callable[[ToolRenderContext, str, str | None], Sequence[str] | None] | None
+    ) = field(default=None, kw_only=True, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)

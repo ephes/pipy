@@ -10,6 +10,7 @@ are not registered" (``10285-mcp-tool-renderers.test.ts``).
 
 from __future__ import annotations
 
+import dataclasses
 import io
 from pathlib import Path
 from typing import Any
@@ -853,3 +854,236 @@ def test_the_line_renderer_lets_a_resolver_wrap_codemodes_rows() -> None:
     lines = [line.strip() for line in stream.getvalue().splitlines() if line.strip()]
     assert lines[:2] == ["[call]", 'codemode(code="x")']
     assert "[result]" in lines and "done" in lines
+
+
+# -- what a wrapper passes is drawn (goal check r6, D1) --------------------------
+
+
+def _passing(**changes: Any) -> Any:
+    """A resolver that calls `next()`'s renderers with a changed context, as
+    a Pi wrapper calls the MCP renderers with other arguments or result."""
+
+    def resolve(name: str, following: Any) -> object | None:
+        inner = following()
+        if inner is None:
+            return None
+
+        def call(ctx: ToolRenderContext) -> object:
+            return inner.render_call(dataclasses.replace(ctx, **changes))
+
+        def result(ctx: ToolRenderContext) -> object:
+            return inner.render_result(dataclasses.replace(ctx, **changes))
+
+        return ToolRenderers(render_call=call, render_result=result)
+
+    return resolve
+
+
+def test_a_wrapper_redacts_an_mcp_rows_arguments_and_result(tmp_path: Path) -> None:
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(
+            mcp_labels={"mcp__docs__search": "docs/search"},
+            resolvers=(_passing(args={"query": "REDACTED"}, content="REDACTED"),),
+        )
+    )
+
+    live.call("mcp__docs__search", {"query": "secret question"})
+    live.renderer.render_tool_result(output_text="secret answer", is_error=False)
+
+    (row,) = live.rows()
+    assert row == ['docs/search query="REDACTED"', "REDACTED"]
+    assert "secret" not in "\n".join(row)
+
+
+def test_a_wrapper_chooses_the_expansion_of_own_rows(tmp_path: Path) -> None:
+    hits = "\n".join(f"hit {n}" for n in range(7))
+    for changes, shown in (({}, 5), ({"expanded": True}, 7)):
+        live = _Live(tmp_path)
+        live.width = 100
+        live.renderer.refresh_tool_renderers(
+            ToolRendererLookup(
+                mcp_labels={"mcp__docs__search": "docs/search"},
+                resolvers=(_passing(**changes),),
+            )
+        )
+
+        live.call("mcp__docs__search", {"query": "pi"})
+        live.renderer.render_tool_result(output_text=hits, is_error=False)
+
+        # The rows are collapsed; a wrapper that passes `expanded=True`
+        # gets every line, as Pi's MCP renderer reads `options.expanded`.
+        assert live.transcript.tools_expanded is False
+        (row,) = live.rows()
+        assert [line for line in row if line.startswith("hit")] == [
+            f"hit {n}" for n in range(shown)
+        ]
+
+
+def test_a_wrapper_changes_a_built_in_tools_rows(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("a = 1\n")
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(
+            resolvers=(_passing(args={"path": "elsewhere"}, content="b.py"),)
+        )
+    )
+
+    live.call("ls", {"path": "src"})
+    live.renderer.render_tool_result(output_text="a.py", is_error=False)
+    assert live.rows() == [["ls elsewhere", "b.py"]]
+
+    # The edit preview was computed from the call's own arguments, so it is
+    # not shown under others.
+    live.call(
+        "edit", {"path": "a.py", "edits": [{"oldText": "a = 1", "newText": "a = 2"}]}
+    )
+    thread = live.renderer._preview_thread
+    assert thread is not None
+    thread.join(2)
+    assert _plain(live.transcript.pending_tool_lines) == ["edit elsewhere"]
+
+
+def test_a_wrapper_redacts_codemodes_rows(tmp_path: Path) -> None:
+    live = _Live(tmp_path)
+    live.width = 100
+    live.renderer.refresh_tool_renderers(
+        ToolRendererLookup(
+            resolvers=(
+                _passing(args={"code": "REDACTED"}, content=_SCRIPT + "REDACTED"),
+            )
+        )
+    )
+
+    live.call("codemode", {"code": "secret()"})
+    live.renderer.render_tool_result(output_text=_SCRIPT + "secret", is_error=False)
+
+    assert live.rows() == [['codemode code="REDACTED"', "REDACTED"]]
+
+
+def test_the_line_renderer_draws_what_a_wrapper_passes() -> None:
+    passing = _passing(
+        args={"path": "b.py", "content": "OTHER BODY"},
+        content="redacted",
+        is_error=True,
+    )
+
+    assert _line_rows(passing, [_WRITE]) == [
+        "write b.py",
+        "redacted",
+        "[error] tool reported a failure",
+    ]
+    assert _line_rows(
+        _passing(args={"path": "b.py", "content": "OTHER BODY"}), [_WRITE]
+    ) == ["write b.py", "OTHER BODY", "wrote"]
+    # A withheld result is no output, not the call's own.
+    assert _line_rows(_passing(content=None), [_LS]) == ["ls src"]
+    # A partial codemode result has no output, as Pi's codemode renderer.
+    codemode = ("codemode", '{"code": "x"}', "secret", None)
+    assert _line_rows(_passing(is_partial=True), [codemode]) == ['codemode(code="x")']
+
+
+# -- codemode's nested calls belong to its result (goal check r6, D2) ------------
+
+
+def _nested_codemode(live: _Live, *, settle: bool) -> None:
+    """A live codemode call whose script made one call to `read`."""
+
+    from test_native_nested_lifecycle import _child, _end
+
+    from pipy_harness.native.agent import NestedToolCallStarted
+
+    live.call("codemode", {"code": "x"})
+    child = _child("c-codemode", args='{"path": "nested.txt"}')
+    live.renderer.render_nested_tool_call(NestedToolCallStarted(0, "c-codemode", child))
+    live.renderer.render_nested_tool_call(_end(child))
+    if settle:
+        live.renderer.render_tool_result(output_text=_SCRIPT + "1", is_error=False)
+
+
+def test_renderers_that_replace_codemodes_draw_no_nested_calls(
+    tmp_path: Path,
+) -> None:
+    # Pi draws the nested calls in `codemodeRenderers.renderResult` only;
+    # the row itself has none.
+    for resolver in (
+        lambda name, following: _renderers("mine"),
+        lambda name, following: None,
+    ):
+        live = _Live(tmp_path)
+        live.width = 100
+        live.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(resolver,)))
+        _nested_codemode(live, settle=False)
+        assert "nested.txt" not in "\n".join(_plain(live.transcript.pending_tool_lines))
+        live.renderer.render_tool_result(output_text=_SCRIPT + "1", is_error=False)
+        (row,) = live.rows()
+        assert "nested.txt" not in "\n".join(row)
+
+
+def test_codemodes_own_rows_draw_the_nested_calls_in_their_result(
+    tmp_path: Path,
+) -> None:
+    for resolvers, header in (((), []), ((_wrapping,), ["[call]"])):
+        live = _Live(tmp_path)
+        live.width = 100
+        live.renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=resolvers))
+        _nested_codemode(live, settle=False)
+        # While the script runs, the result part is the nested calls (Pi's
+        # codemode tool sends them as partial results).
+        nested = '✓ read {"path": "nested.txt"} 125ms'
+        result = ["[result]"] if resolvers else []
+        assert _plain(live.transcript.pending_tool_lines) == [
+            *header,
+            'codemode code="x"',
+            *result,
+            nested,
+        ]
+        live.renderer.render_tool_result(output_text=_SCRIPT + "1", is_error=False)
+        assert live.rows() == [[*header, 'codemode code="x"', *result, nested, "1"]]
+
+
+def test_the_line_renderer_writes_nested_calls_only_for_codemodes_own_rows() -> None:
+    from test_native_nested_lifecycle import _child, _end
+
+    from pipy_harness.native.agent import NestedToolCallStarted
+
+    details = {
+        "nestedCalls": {
+            "calls": [
+                {
+                    "id": "c0/1",
+                    "name": "read",
+                    "status": "ok",
+                    "durationMs": 125,
+                    "arguments": {"path": "nested.txt"},
+                }
+            ],
+            "complete": True,
+        }
+    }
+    nested = '✓ read {"path":"nested.txt"} 125ms'
+
+    def run(resolver: Any) -> list[str]:
+        stream = io.StringIO()
+        renderer = _ToolLoopRenderer(output_stream=io.StringIO(), error_stream=stream)
+        renderer.refresh_tool_renderers(ToolRendererLookup(resolvers=(resolver,)))
+        renderer.render_tool_call(
+            AgentToolCall("c0", "codemode", ProductContent('{"code": "x"}'))
+        )
+        child = _child("c0", args='{"path":"nested.txt"}')
+        renderer.render_nested_tool_call(NestedToolCallStarted(0, "c0", child))
+        renderer.render_nested_tool_call(_end(child))
+        renderer.render_tool_result(output_text="1", is_error=False, details=details)
+        return [line.strip() for line in stream.getvalue().splitlines() if line.strip()]
+
+    # Own rows write them as they run.
+    assert nested in run(lambda name, following: following())
+    # A wrapper gets them with the result, from its record.
+    assert run(_wrapping) == ["[call]", 'codemode(code="x")', "[result]", nested, "1"]
+    # Renderers that replace codemode's draw their own.
+    assert run(lambda name, following: _renderers("mine")) == [
+        "mine call codemode {'code': 'x'}",
+        "mine result 1 error=False",
+    ]

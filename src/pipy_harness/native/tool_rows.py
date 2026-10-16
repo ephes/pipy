@@ -1177,8 +1177,8 @@ def _codemode_result_rows(
     The script's output without the ``Script completed``/``Wall time``/
     ``Output:`` header (input that was rejected has none), nothing while the
     script runs, and collapsed the first 5 visual lines, because script
-    output is often one long JSON line. The nested calls are drawn above by
-    ``render_tool_row``.
+    output is often one long JSON line. The nested calls before it are
+    ``_nested_rows``.
     """
 
     if partial:
@@ -1199,6 +1199,36 @@ def _codemode_result_rows(
         *_preview_rows(styled, theme, key, bg, width, _CODEMODE_PREVIEW_LINES),
         *_full_output_rows(result, theme, bg),
     ]
+
+
+def _nested_rows(
+    state: ToolRowState, bg: RowBackground, *, expanded: bool
+) -> list[RowLine]:
+    """The calls part of Pi ``codemodeRenderers.renderResult``: the latest 8
+    nested calls the row keeps, all of them expanded, with their errors."""
+
+    lines = state.nested_lines
+    if not lines:
+        return []
+    shown = lines if expanded else lines[-8:]
+    hidden = state.nested_dropped + len(lines) - len(shown)
+    rows: list[RowLine] = []
+    if hidden:
+        hint = "not kept" if len(shown) == len(lines) else "ctrl+o to expand"
+        rows.append(RowLine(f"... ({hidden} earlier calls, {hint})", bg))
+    for line in shown:
+        rows.append(RowLine(nested_line_text(line, expanded=expanded), bg))
+        if expanded and line.error:
+            rows.append(RowLine("    " + line.error, bg))
+    return rows
+
+
+def _has_nested_calls(state: ToolRowState) -> bool:
+    """Whether a ``codemode`` row has nested calls to show."""
+
+    return state.tool_name == "codemode" and bool(
+        state.nested_lines or state.nested_dropped
+    )
 
 
 def _bash_warnings(
@@ -1299,6 +1329,9 @@ class RowRenderInputs:
     # Pi's `terminal.showImages` setting, told to extension renderers
     # (`ToolRenderContext.show_images`).
     show_images: bool = False
+    # Rows drawn for the HTML export: as Pi's export, renderers are told
+    # that every call started executing (`execution_started`).
+    exported: bool = False
 
 
 def _render_extension(
@@ -1342,7 +1375,7 @@ def _render_extension(
         state=state.renderer_state,
         tool_call_id=state.correlation_id or "",
         cwd=str(state.cwd),
-        execution_started=state.started_at is not None,
+        execution_started=inputs.exported or state.started_at is not None,
         is_partial=unsettled,
         show_images=inputs.show_images,
         duration_ms=(
@@ -1352,8 +1385,8 @@ def _render_extension(
         ),
         invalidate=lambda: _redraw(state),
         last_component=state.last_components.get(phase),
-        _own_rows=lambda own_phase, label: _own_lines(
-            state, inputs, result, own_phase, label
+        _own_rows=lambda own_ctx, own_phase, label: _own_lines(
+            state, inputs, result, own_ctx, own_phase, label
         ),
     )
 
@@ -1367,6 +1400,7 @@ def _own_lines(
     state: ToolRowState,
     inputs: RowRenderInputs,
     result: ToolRowResult | None,
+    ctx: ToolRenderContext,
     phase: str,
     mcp_label: str | None,
 ) -> list[str] | None:
@@ -1374,16 +1408,44 @@ def _own_lines(
     (``BuiltinToolRows``, ``McpToolRows``): the built-in tool's rows, or
     the MCP rows titled ``mcp_label``. Wrapped at the content width, since
     a renderer's lines are drawn as they are. None for a result phase
-    without a result."""
+    without a result.
 
+    Drawn from ``ctx``, the context the wrapper passed, as Pi's renderers
+    draw the arguments, result and options they are given: its ``args``,
+    ``content``, ``details``, ``is_error``, ``is_partial`` and ``expanded``.
+    ``result`` is the row's own result in that phase. What the row keeps
+    beyond them stays the row's: the ``edit`` diff preview, computed from
+    the call's own arguments, is left out under other arguments. The nested
+    calls a ``codemode`` row keeps (live, up to the latest 256) stand for
+    the row's own details; other details, and the details of a row that
+    keeps none (the HTML export's), show the calls they record.
+    """
+
+    drawn: ToolRowResult | None = None
+    if phase == "result":
+        if not ctx.is_result:
+            return None
+        drawn = ToolRowResult(ctx.content or "", ctx.details, ctx.is_error)
+    own_args = dict(ctx.args)
+    nested = state.nested_lines, state.nested_dropped
+    own_details = result.details if result is not None else None
+    if phase == "result" and (ctx.details != own_details or not any(nested)):
+        nested = nested_lines_from_details(ctx.details), 0
     own = replace(
         state,
+        args=own_args,
         extension=None,
         mcp_label=mcp_label,
         renderer_state={},
+        preview=state.preview if own_args == state.args else None,
+        # The call part of an `edit` row shows what its result changed.
+        result=drawn if drawn is not None else state.result,
+        nested_lines=nested[0],
+        nested_dropped=nested[1],
         last_components={},
         invalidate=None,
     )
+    own_inputs = replace(inputs, expanded=ctx.expanded)
     bg: RowBackground = "pending"
     if state.result is not None:
         bg = "error" if state.result.is_error else "success"
@@ -1409,12 +1471,10 @@ def _own_lines(
             rows = _text_rows("\n".join(box), bg)
         else:
             rows = _text_rows(_edit_result(own, theme) or "", bg)
-    elif phase == "call":
-        rows = _call_rows(own, inputs, bg)
-    elif result is None:
-        return None
+    elif drawn is None:
+        rows = _call_rows(own, own_inputs, bg)
     else:
-        rows = _result_rows(own, inputs, result, bg, partial=state.result is None)
+        rows = _result_rows(own, own_inputs, drawn, bg, partial=ctx.is_partial)
     width = max(1, inputs.width - 2)
     return [
         wrapped
@@ -1447,9 +1507,12 @@ def render_tool_row(
     result = state.result
     if result is not None and result.images is not None and inputs.inline_images:
         result = replace(result, content=result.images.text)
-    if result is None and (state.partial_output or _bash_started(state)):
+    if result is None and (
+        state.partial_output or _bash_started(state) or _has_nested_calls(state)
+    ):
         # Pi's bash tool sends an empty update as it starts, so its row shows
-        # the result part (`Elapsed`) before any output.
+        # the result part (`Elapsed`) before any output; Pi's codemode tool
+        # sends one with its nested calls as they run.
         result = ToolRowResult(state.partial_output, None, False)
     if state.extension is None and is_builtin_edit(state):
         return (*_edit_rows(state, inputs.theme), RowLine("", "none"))
@@ -1457,21 +1520,6 @@ def render_tool_row(
     if not partial:
         bg = "error" if result is not None and result.is_error else "success"
     rows: list[RowLine] = [RowLine("", bg), *_call_rows(state, inputs, bg)]
-    if state.nested_lines:
-        # Pi's codemode renderer: the latest 8 calls, all of them expanded.
-        shown = state.nested_lines if inputs.expanded else state.nested_lines[-8:]
-        hidden = state.nested_dropped + len(state.nested_lines) - len(shown)
-        if hidden:
-            hint = (
-                "not kept"
-                if len(shown) == len(state.nested_lines)
-                else "ctrl+o to expand"
-            )
-            rows.append(RowLine(f"... ({hidden} earlier calls, {hint})", bg))
-        for line in shown:
-            rows.append(RowLine(nested_line_text(line, expanded=inputs.expanded), bg))
-            if inputs.expanded and line.error:
-                rows.append(RowLine("    " + line.error, bg))
     if result is not None:
         rows.extend(_result_rows(state, inputs, result, bg, partial=partial))
     rows.append(RowLine("", bg))
@@ -1702,15 +1750,21 @@ def _other_result_rows(
             width=inputs.width,
         )
     if state.tool_name == "codemode":
-        return _codemode_result_rows(
-            result,
-            theme,
-            key,
-            bg,
-            expanded=expanded,
-            partial=partial,
-            width=inputs.width,
-        )
+        # The nested calls are part of codemode's result (Pi
+        # `codemodeRenderers.renderResult`): renderers that replace
+        # codemode's draw their own.
+        return [
+            *_nested_rows(state, bg, expanded=expanded),
+            *_codemode_result_rows(
+                result,
+                theme,
+                key,
+                bg,
+                expanded=expanded,
+                partial=partial,
+                width=inputs.width,
+            ),
+        ]
     if state.tool_name not in BUILTIN_RENDERED_TOOLS:
         return _text_rows(_result_fallback(theme, result, key, expanded=expanded), bg)
     return None

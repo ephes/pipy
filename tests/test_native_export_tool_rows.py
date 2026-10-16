@@ -692,7 +692,9 @@ def test_export_renderers_are_told_each_calls_id(tmp_path: Path) -> None:
     _rendered(tree, lookup)
 
     assert {ctx.tool_call_id for ctx in seen} == {"c1", "c2"}
-    assert all(ctx.execution_started is False for ctx in seen)
+    # Goal check r6, D3: Pi's export renders with `executionStarted: true`
+    # and `argsComplete: true`.
+    assert all(ctx.execution_started and ctx.args_complete for ctx in seen)
 
 
 def test_a_resolver_wraps_codemodes_rows_in_the_export(tmp_path: Path) -> None:
@@ -728,6 +730,54 @@ def test_a_resolver_wraps_codemodes_rows_in_the_export(tmp_path: Path) -> None:
     assert _text(rendered["c1"]["resultHtmlExpanded"]) == ["[wrapped]", "", "1"]
     # Without a resolver the page draws codemode's call itself, as before.
     assert _rendered(tree) == {}
+
+
+def test_wrapped_codemode_rows_draw_the_recorded_nested_calls(
+    tmp_path: Path,
+) -> None:
+    # Goal check r6, D2: the nested calls are part of codemode's result
+    # (Pi `codemodeRenderers.renderResult` draws `details.calls`), so a
+    # wrapper of codemode's rows gets them from the result's record.
+    record = {
+        "nestedCalls": {
+            "calls": [
+                {
+                    "id": "c1/1",
+                    "name": "read",
+                    "status": "ok",
+                    "durationMs": 7,
+                    "arguments": {"path": "a.txt"},
+                }
+            ],
+            "complete": True,
+        }
+    }
+
+    def wrapped(name: str, following: Any) -> object | None:
+        inner = following()
+        return ToolRenderers(
+            render_call=inner.render_call, render_result=inner.render_result
+        )
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(_call("c1", "codemode", '{"code": "x"}'),),
+        ),
+        _result("c1", "codemode", "1", details=record),
+    )
+
+    rendered = _rendered(tree, ToolRendererLookup(resolvers=(wrapped,)))
+
+    assert _text(rendered["c1"]["resultHtmlExpanded"]) == [
+        '✓ read {"path":"a.txt"} 7ms',
+        "",
+        "1",
+    ]
+    # Codemode's own rows are left to the page, which draws the record.
+    keeping = ToolRendererLookup(resolvers=(lambda name, following: following(),))
+    assert _rendered(tree, keeping) == {}
 
 
 def test_a_rendererless_codemode_replacement_is_left_to_the_page(

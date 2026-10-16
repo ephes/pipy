@@ -214,6 +214,8 @@ def _parts(
             width=EXPORT_ROW_WIDTH,
             theme=row_theme(style),
             extension_theme=build_tool_render_theme(style),
+            # Pi `createToolHtmlRenderer`: `executionStarted: true`.
+            exported=True,
         ),
         with_call=with_call,
     )
