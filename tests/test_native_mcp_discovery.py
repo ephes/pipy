@@ -790,6 +790,95 @@ def test_config_command_drops_entries_that_name_the_builtin_by_relative_path(
     assert _builtin_report(capfd, workspace) == _builtins()
 
 
+def test_config_command_puts_a_project_s_builtin_entry_back_to_inherit(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Goal check r8 (A): Pi's config selector cycles a project's built-in
+    # through inherit, +, -; inherit drops the project's `!`, `+` and `-`
+    # entries that name it, and a bare one (`setProjectTopLevelOverride`).
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    workspace = tmp_path / "ws"
+    (workspace / ".pipy").mkdir(parents=True)
+    (config_home / "settings.json").write_text('{"extensions": ["-builtin:mcp"]}')
+    project_file = workspace / ".pipy" / "settings.json"
+    project_file.write_text(
+        json.dumps(
+            {
+                "extensions": [
+                    "-../builtin:mcp",
+                    "!builtin:mcp",
+                    "+builtin:codemode",
+                    "builtin:mcp",
+                    "ext.py",
+                    "+./builtin:mcp",
+                ]
+            }
+        )
+    )
+    cwd = ["--cwd", str(workspace)]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=True)
+
+    # Without --scope, inherit writes the project settings.
+    assert main(["config", "inherit", "builtin", "mcp", "--approve", *cwd]) == 0
+
+    assert "removed the entries that name built-in 'mcp'" in capfd.readouterr().out
+    assert json.loads(project_file.read_text())["extensions"] == [
+        "+builtin:codemode",
+        "ext.py",
+    ]
+    assert _builtin_report(capfd, workspace) == _builtins(mcp=False)
+
+    # Nothing left to remove: the file stays as it is.
+    before = project_file.read_text()
+    assert (
+        main(["config", "inherit", "builtin", "builtin:mcp", "-l", "--approve", *cwd])
+        == 0
+    )
+    assert "have no entry that names built-in 'mcp'" in capfd.readouterr().out
+    assert project_file.read_text() == before
+
+    # A glob that matches without naming it stays, as in Pi.
+    project_file.write_text('{"extensions": ["!builtin:*", "-builtin:tool-search"]}')
+    assert main(["config", "inherit", "builtin", "tool-search", "--approve", *cwd]) == 0
+    assert json.loads(project_file.read_text())["extensions"] == ["!builtin:*"]
+    assert _builtin_report(capfd, workspace) == [
+        {"name": "builtin:codemode", "enabled": False},
+        {"name": "builtin:tool-search", "enabled": False},
+        {"name": "builtin:mcp", "enabled": False},
+    ]
+
+
+def test_config_command_inherit_writes_no_settings_it_cannot(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_home = tmp_path / "cfg"
+    config_home.mkdir()
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
+    workspace = tmp_path / "ws"
+    (workspace / ".pipy").mkdir(parents=True)
+    project_file = workspace / ".pipy" / "settings.json"
+    project_file.write_text('{"extensions": ["-builtin:mcp", "-review"]}')
+    before = project_file.read_text()
+    cwd = ["--cwd", str(workspace)]
+    capfd.readouterr()
+
+    # The user settings have no project to inherit from.
+    assert main(["config", "inherit", "builtin", "mcp", "--scope", "global", *cwd]) == 2
+    assert "has no global form" in capfd.readouterr().err
+    # Only a built-in has an inherit state here.
+    assert main(["config", "inherit", "extension", "review", "--approve", *cwd]) == 2
+    assert "applies to built-in extensions" in capfd.readouterr().err
+    assert main(["config", "inherit", "builtin", "nope", "--approve", *cwd]) == 2
+    assert "unknown built-in 'nope'" in capfd.readouterr().err
+    # An untrusted project's settings are not written.
+    assert main(["config", "inherit", "builtin", "mcp", "--no-approve", *cwd]) == 1
+    assert "project is not trusted" in capfd.readouterr().err
+    assert project_file.read_text() == before
+    assert not (config_home / "settings.json").exists()
+
+
 def test_config_command_refuses_an_unknown_builtin(
     tmp_path: Path, capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

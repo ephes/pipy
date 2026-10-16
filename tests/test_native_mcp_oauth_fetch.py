@@ -285,6 +285,24 @@ def test_a_redirect_to_a_malformed_url_is_a_network_failure(
     assert server.paths == ["/a"]
 
 
+def test_the_body_of_a_redirect_that_is_followed_is_not_waited_for(
+    server: FakeOAuthServer,
+) -> None:
+    # As fetch, which goes on to the redirect's target at its headers: the
+    # body announced here never arrives, and is never read.
+    server.route(
+        "/a", Reply(302, {"Location": "/b"}, b"", content_length=100, stall=True)
+    )
+    server.route("/b", Reply(200, {}, b"there"))
+    fetch = create_oauth_fetch(timeout_ms=_WAIT_SECONDS * 1000)
+    assert fetch(f"{server.origin}/a").text() == "there"
+    # Nor is it limited: it is not read.
+    fetch = create_oauth_fetch(max_response_bytes=4)
+    server.route("/c", Reply(307, {"Location": "/d"}, b"more than four"))
+    server.route("/d", Reply(200, {}, b"done"))
+    assert fetch(f"{server.origin}/c").text() == "done"
+
+
 # -- content codings ------------------------------------------------------------
 
 
@@ -510,6 +528,39 @@ def test_a_body_over_the_limit_is_refused(server: FakeOAuthServer) -> None:
         fetch(f"{server.origin}/large")
     assert str(raised.value) == "OAuth response exceeds 8 bytes"
     assert not is_network_error(raised.value)
+
+
+@pytest.mark.parametrize("status", [302, 404, 500, 502])
+def test_with_discard_unless_ok_the_body_of_a_failure_is_not_waited_for(
+    server: FakeOAuthServer, status: int
+) -> None:
+    # Pi's discovery cancels such a body (`discard`) and moves on. A 302
+    # without a `Location` is the response, and no 2xx either.
+    server.route(
+        "/a",
+        Reply(status, {"X-Test": "1"}, b"", content_length=100, stall=True),
+    )
+    fetch = create_oauth_fetch(timeout_ms=_WAIT_SECONDS * 1000)
+    response = fetch(f"{server.origin}/a", discard_unless_ok=True)
+    assert (response.status, response.header("x-test"), response.body) == (
+        status,
+        "1",
+        b"",
+    )
+    # Neither decoded nor limited.
+    server.route("/b", _encoded("gzip", b"not gzip", 404))
+    fetch = create_oauth_fetch(max_response_bytes=2)
+    response = fetch(f"{server.origin}/b", discard_unless_ok=True)
+    assert (response.status, response.body) == (404, b"")
+
+
+def test_with_discard_unless_ok_a_2xx_body_is_read(server: FakeOAuthServer) -> None:
+    server.route("/a", _encoded("gzip", gzip.compress(b"document"), 203))
+    response = oauth_fetch(f"{server.origin}/a", discard_unless_ok=True)
+    assert (response.status, response.body) == (203, b"document")
+    server.route("/b", Reply(200, {}, b"short", content_length=50))
+    with pytest.raises(http.client.IncompleteRead):
+        oauth_fetch(f"{server.origin}/b", discard_unless_ok=True)
 
 
 def test_errors_that_are_no_network_failure() -> None:

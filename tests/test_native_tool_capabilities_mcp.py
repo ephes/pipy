@@ -205,7 +205,7 @@ def test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back(
     assert _declared(tools) == ("read", "bash", "mcp__docs__search")
     assert "mcp__docs__find" not in tools.registered_names
     assert "mcp__docs__find" not in _callable(tools)
-    assert _run(tools, "mcp__docs__find") == "unknown tool: mcp__docs__find"
+    assert _run(tools, "mcp__docs__find") == "Tool mcp__docs__find not found"
 
     tools.publish_mcp_tools({})
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred"))

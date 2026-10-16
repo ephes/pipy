@@ -930,7 +930,7 @@ The exposure decides two sets:
   `deferred` tool is not activated by being registered; it is declared only
   after something names it, such as `ctx.set_active_tools([...])`. The model
   cannot call a tool that is not declared: a call to it is answered with
-  `unknown tool: <name>`. A tool that `--tools`, `--exclude-tools` or
+  Pi's `Tool <name> not found`. A tool that `--tools`, `--exclude-tools` or
   `--no-tools` removed is not declared when something names it, and neither
   is an [MCP tool](usage.md#mcp-tools) that a `--tools` list keeps without
   naming it (unless `tool_search` could load it).
@@ -1237,7 +1237,7 @@ def gate(event, ctx):
 with `exposure="hidden"` to withdraw it: the tool stays registered and
 `get_all_tools()` reports it as `hidden`, but no request declares it,
 `ctx.set_active_tools(...)` cannot bring it back, and a model call to it is
-answered with `unknown tool`. As in Pi it leaves the active tools: registered
+answered with `Tool <name> not found`. As in Pi it leaves the active tools: registered
 again as `codemode` or `deferred`, it is declared only once something names
 it again. As in Pi, `api.register_tool` stays usable while
 the session runs the extension, for example from a command: the tool is

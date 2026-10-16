@@ -334,7 +334,7 @@ class ToolExecutor:
         tool = self._registry.get(call.tool_name)
         if tool is None:
             return ToolExecutionOutcome(
-                self.error_result(call, f"unknown tool: {call.tool_name}"),
+                self.error_result(call, f"Tool {call.tool_name} not found"),
                 malformed_arguments=True,
             )
         try:

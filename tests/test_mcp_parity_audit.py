@@ -545,6 +545,42 @@ def test_q17_accepts_the_rows_of_the_eighth_triage_and_sets_the_last_bar() -> No
     assert "goal check r8, findings U3 and U4; plan DEV-36, DEV-37" in backlog
 
 
+def test_the_fixes_of_the_eighth_triage_read_drew_and_answered_as_pi() -> None:
+    # INT9 folded K2 and K3 (docs/specs/2026-10-16-mcp-gaps-r8-notes.md):
+    # C leaves the bodies of discovery's misses and of followed redirects
+    # unread (DEV-72), A adds `pipy config inherit` (DEV-32), B puts the
+    # record on the message's own `nestedCalls`, D1 keeps a preview of
+    # left-out arguments (DEV-66, DEV-96), U5 answers `Tool <name> not
+    # found`. No DEV row was added and no row changed its state.
+    assert len(_deviations()) == 101
+    assert "since goal check r8 (C)" in _deviation(72)
+    assert "`pipy config inherit builtin <name>`" in _deviation(32)
+    assert "`details.argumentPreviews`" in _deviation(96)
+    assert "(goal check r8, D1)" in _deviation(66)
+    plan = _PLAN.read_text()
+    exp03 = next(line for line in plan.splitlines() if line.startswith("| EXP-03 |"))
+    assert "`Tool <name> not found` (goal check r8, U5)" in exp03
+    for row, fix in (
+        ("OAU-02", "(r8 C)"),
+        ("OAU-03", "(r8 C)"),
+        ("EXP-12", "(r8 A)"),
+        ("EXP-13", "(r8 A, for tool-search)"),
+        ("CMD-26", "(r8 B)"),
+        ("CMD-26", "(r8 D1)"),
+        ("RND-04", "(r8 D1)"),
+        ("EXP-03", "(r8 U5, "),
+    ):
+        line = next(
+            line for line in _NOTE.read_text().splitlines() if f"| {row} |" in line
+        )
+        assert fix in line, (row, fix)
+    lines = _NOTE.read_text().splitlines()
+    for row in ("EXP-12", "EXP-13"):
+        line = next(line for line in lines if f"| {row} |" in line)
+        assert "enable\\|disable\\|inherit builtin" in line, row
+    assert not (_DOCS / "specs" / "2026-10-16-mcp-gaps-r8-notes.md").exists()
+
+
 def _rows_of(cell: str) -> list[str]:
     """The rows a "Rows" cell names: ``A-01, B-02 to B-04``."""
 

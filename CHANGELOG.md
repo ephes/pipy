@@ -8,6 +8,42 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- OAuth discovery no longer waits for the body of an answer it does not
+  use, as Pi's discovery cancels it: a 404, 502 or other failure status of
+  a metadata URL is acted on at its headers, so a server whose error body
+  stalls no longer holds the sign-in up until the request's time limit (and
+  then fails it). The OAuth fetch also follows a redirect without waiting
+  for the redirect's body, as Node's `fetch` does, also for registration and
+  token requests. A fetch passed to the OAuth library
+  (`adapt_oauth_provider(provider, fetch=...)`) takes the new
+  `discard_unless_ok` argument. See
+  [the OAuth library](docs/mcp.md#the-oauth-library).
+- In JSON and RPC mode, the `toolResult` message of a tool that ran other
+  tools (a `codemode` script, or an extension tool through
+  `ctx.execute_tool`) carries the record of those calls as its own
+  `nestedCalls` field, as Pi's `ToolResultMessage` does, in `turn_end`,
+  `agent_end` and `get_messages`. Before, it was inside the message's
+  `details`, which no longer hold it; the message keeps the rest of the
+  result's details. `tool_execution_end` still has the record in its
+  `result.details`. See
+  [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
+- A codemode call's nested call whose arguments are over 8 KiB (or past
+  the record's 32 KiB in all) shows the first 200 characters of them in a
+  resumed session's row and in the HTML export, as Pi's codemode rows show
+  each call's `args` preview, instead of only `[<n> argument bytes]`: the
+  codemode result keeps them in `details.argumentPreviews` beside the
+  `nestedCalls` record, whose arguments stay bounded. See
+  [codemode](docs/codemode.md#nested-evidence-and-availability).
+- The export's credential redaction withholds a quoted value that the text
+  ends inside to the end of the text: a 200-character argument preview (or
+  an error cut to its bound) that stops inside a password no longer shows
+  the rest of it after the first word. See
+  [the export](docs/export-distribution.md).
+- A call to a tool that is not declared, or not callable from a codemode
+  script or `ctx.execute_tool`, is answered `Tool <name> not found`, Pi's
+  text (`agent-loop.ts` `prepareToolCall`), instead of
+  `unknown tool: <name>`. See
+  [tool exposure](docs/extension-api.md#tool-model).
 - An MCP request that is cancelled or times out keeps its HTTP event
   stream, as in Pi: pipy sends `notifications/cancelled` and goes on
   reading, and resuming, the stream that answers the request, so a log
@@ -27,9 +63,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   is kept, as in Pi, also when it was asked for first. See
   [server connections](docs/mcp.md#server-connections).
 - In JSON and RPC mode the `toolResult` message of an extension tool that
-  ran other tools with `ctx.execute_tool` carries the result's `details`
-  with its `nestedCalls` record in `turn_end`, `agent_end` and
-  `get_messages`, as a `codemode` result's message does and as Pi records
+  ran other tools with `ctx.execute_tool` carries its nested-call record
+  (the message's `nestedCalls` field, see above) and the rest of the
+  result's `details` in `turn_end`, `agent_end` and `get_messages`, as a
+  `codemode` result's message does and as Pi records
   the nested calls on every tool result message. Before, only `codemode`
   messages had it; the record was in `tool_execution_end` only. See
   [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
@@ -495,6 +532,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `pipy config inherit builtin <name>` puts a project's setting for a
+  built-in extension (`mcp`, `codemode`, `tool-search`) back to inherit, as
+  the inherit state of Pi's config list does: it removes the `+`, `-` and
+  `!` entries of `.pipy/settings.json` that name `builtin:<name>`, and a
+  bare `builtin:<name>`, so the user settings decide again. A `!` glob that
+  only matches it, such as `!builtin:*`, stays. `inherit` always writes the
+  project settings (`--scope global` is refused) and needs a trusted
+  project. Before, a project's entry could only be flipped between `+` and
+  `-`. See [turning MCP off](docs/mcp.md#turning-mcp-off).
 - `ExtensionTool(prepare_arguments=...)` (Pi `prepareArguments`): a callback
   that receives a call's parsed arguments before validation and returns the
   arguments to validate and run. If it raises, the call ends with the

@@ -229,12 +229,20 @@ an image, Pi's ordered blocks: `{"type":"text","text"}` and
 
 The `toolResult` message of a tool that ran other tools (a `codemode`
 script, or an extension tool through `ctx.execute_tool`) carries the
-result's `details`, with the bounded `nestedCalls` record of those calls,
-in `turn_end`, `agent_end` and `get_messages`, as Pi puts the record on
-the tool result message of every tool that made calls (Pi as the message's
-`nestedCalls` field, pipy inside `details`, where `tool_execution_end` has
-it too). Other `toolResult` messages have no `details`; their details are
-in the `result` of `tool_execution_end`.
+bounded record of those calls as its `nestedCalls` field, in `turn_end`,
+`agent_end` and `get_messages`, as Pi's `ToolResultMessage` does for every
+tool that made calls: `{"calls": [{"id", "name", "arguments" or
+"argumentsBytes", "status", "durationMs", "error"?}], "complete"}`. Such a
+message also has
+the rest of the result's `details`, when there are any, which do not
+hold the record, as in Pi. Other `toolResult` messages have no `details`;
+their details are in the `result` of `tool_execution_end`, where pipy
+also keeps the record in `details.nestedCalls` (Pi's `result` has no
+record).
+
+```json
+{"role":"toolResult","toolCallId":"call_1","content":[{"type":"text","text":"Script completed\nWall time 0.1 seconds\nOutput:\n2"}],"nestedCalls":{"calls":[{"id":"call_1/1","name":"read","status":"ok","durationMs":3.2,"arguments":{"path":"a.txt"}}],"complete":true},"isError":false}
+```
 
 ### Canonical `--mode json` sequence (deterministic fake provider, no tools)
 

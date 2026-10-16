@@ -620,7 +620,11 @@ carry `parentToolCallId`. Only the parent result
 enters provider and durable product history, with a bounded `nestedCalls` record:
 256 calls, 8 KiB arguments per call, 32 KiB total arguments and 500 characters
 per error. Omitted evidence marks the record incomplete; nested result bodies
-are not stored there. Resume/tree reconstruct children from the parent. Host
+are not stored there. For a call whose arguments the record leaves out, the
+result's `details` keep the first 200 characters of their JSON in
+`argumentPreviews` (by call id), as Pi's `details.calls` keep each call's
+`args`, so the call's row still shows them after a resume and in the export.
+Resume/tree reconstruct children from the parent. Host
 crashes mid-script can lose parent evidence; per-call `CustomEntry` durability
 remains a follow-on owner decision.
 

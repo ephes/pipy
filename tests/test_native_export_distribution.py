@@ -147,6 +147,77 @@ def test_redaction_covers_json_quoted_secret_assignments() -> None:
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        '{"password":"correct horse battery staple',
+        "{'password': 'correct horse battery staple",
+        '{"password":"correct horse battery staple\\',
+        'password="correct horse battery staple',
+        "password='correct horse battery staple",
+    ],
+)
+def test_redaction_covers_a_quoted_value_the_text_cuts_short(text: str) -> None:
+    # Goal check r8, D1 review: a nested call's argument preview (and an
+    # error cut to its bound) can end inside a quoted secret; the value
+    # runs to the end of the text, so no word of it survives.
+    redacted = redact_export_value(text)
+    assert "horse" not in redacted and "staple" not in redacted
+    assert "[REDACTED]" in redacted
+
+
+def test_exports_redact_a_cut_short_argument_preview(tmp_path: Path) -> None:
+    # The preview of arguments a nestedCalls record left out is the first
+    # 200 characters of their JSON, which can end inside a credential.
+    secret = "correct horse battery staple " * 10
+    preview = ('{"user":"me","password":"' + secret)[:197] + "..."
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    tree.append_message(
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(
+                AgentToolCall(
+                    provider_correlation_id="c1",
+                    tool_name="codemode",
+                    arguments_json=ProductContent("{}"),
+                ),
+            ),
+        )
+    )
+    tree.append_message(
+        AgentToolResultMessage(
+            tool_request_id="pipy-tool-1",
+            tool_name="codemode",
+            content=ProductContent("Script completed"),
+            provider_correlation_id="c1",
+            details={
+                "argumentPreviews": {"c1/1": preview},
+                "nestedCalls": {
+                    "calls": [
+                        {
+                            "id": "c1/1",
+                            "name": "login",
+                            "status": "ok",
+                            "durationMs": 1,
+                            "argumentsBytes": 9000,
+                        }
+                    ],
+                    "complete": False,
+                },
+            },
+        )
+    )
+    jsonl = export_native_branch_to_jsonl(tree, tmp_path / "e.jsonl")
+    html = export_native_session_to_html(tree, tmp_path / "e.html")
+    exported = [
+        json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    for payload in (exported, _decode_html_payload(html)):
+        text = json.dumps(payload)
+        assert "horse" not in text and "staple" not in text
+        assert '{\\"user\\":\\"me\\",\\"password\\":\\"[REDACTED]' in text
+
+
+@pytest.mark.parametrize(
     "key",
     [
         "api_key",

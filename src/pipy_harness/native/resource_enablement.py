@@ -208,6 +208,33 @@ def set_builtin_extension_entry(
     return result
 
 
+def inherit_builtin_extension_entry(
+    patterns: list[str],
+    name: str,
+    *,
+    base_dir: Path | None = None,
+    workspace: Path | None = None,
+) -> list[str]:
+    """``patterns`` without the entries that name ``builtin:<name>``, so in
+    a project's settings the user-level entries decide about it again (the
+    inherit state of Pi's config selector, ``setProjectTopLevelOverride``).
+
+    Dropped are the ``!``, ``+`` and ``-`` entries that name it exactly, as
+    :func:`set_builtin_extension_entry` reads them, and a bare
+    ``builtin:<name>``. A ``!`` glob that matches it without naming it, such
+    as ``!builtin:*``, stays, as in Pi, and the project still decides then.
+    """
+
+    resource = BUILTIN_EXTENSION_PREFIX + name
+    paths = _resource_paths(resource, base_dir, workspace)
+    return [
+        entry
+        for entry in patterns
+        if entry != resource
+        and not (entry[:1] in ("!", "+", "-") and _matches_exactly(paths, entry[1:]))
+    ]
+
+
 def _override_matches(paths: Sequence[str], entry: str) -> bool:
     """A ``!`` entry is a minimatch glob, a ``+`` or ``-`` entry an exact
     path (Pi)."""

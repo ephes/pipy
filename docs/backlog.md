@@ -148,7 +148,9 @@ MCP conformance suite gives the same result for pipy as for Pi
   in Q14) and the fix slices Y1 to Y3 of the sixth triage (Y3 merged in
   INT8, which added DEV-95, two limits of a wrapped `edit` row, accepted
   in Q16), and so are the fix slices Z1 and Z2 of the seventh triage
-  (Z2 narrowed DEV-20 to the 64 KiB result text).
+  (Z2 narrowed DEV-20 to the 64 KiB result text) and the fix slices K1 to
+  K3 of the eighth triage (K2 and K3 merged in INT9). What is left is the
+  final goal check Q17 describes.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -303,10 +305,11 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **TOOLS3b, what TOOLS3 left of tool rows** (see the TOOLS3 Done row):
   - no syntax highlighting in `read`/`write` rows (Pi uses highlight.js), no
     OSC 8 file links (DF1-F7 added the ticking `Elapsed`);
-  - JSON/RPC `toolResult` messages carry `details` only for codemode
-    parents (`tool_execution_end.result` carries them for every tool since
-    MCP1 goal check r2); Pi's thrown tool errors store `details: {}`, pipy
-    stores none;
+  - JSON/RPC `toolResult` messages carry `details` only for the parents of
+    nested calls (minus the record, which is the message's `nestedCalls`
+    field since MCP1 goal check r8, B; `tool_execution_end.result` carries
+    them for every tool since MCP1 goal check r2); Pi's thrown tool errors
+    store `details: {}`, pipy stores none;
   - `edit` stores no `details.patch` (jsdiff `createTwoFilesPatch`);
   - a hallucinated tool name gets the generic `name key=value` row where Pi,
     knowing no definition, prints the arguments as JSON;

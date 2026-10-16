@@ -590,6 +590,13 @@ Different from Pi:
   `pipy config disable builtin mcp` and `pipy config enable builtin mcp`
   write the entry (with `--scope project` into the project's settings), and
   `pipy config list` shows the state under `built-in`.
+  `pipy config inherit builtin mcp` puts a project back to the user-level
+  entries, as the inherit state of Pi's config list does: it removes the
+  project's `+`, `-` and `!` entries that name `builtin:mcp` (also as
+  `./builtin:mcp` or by the path relative to `.pipy`) and a bare
+  `builtin:mcp`. A `!` glob that matches it without naming it, such as
+  `!builtin:*`, stays and still decides. `inherit` always writes the
+  project's settings; it has no global form.
 - `--no-extensions` turns MCP off as well. `--extension builtin:mcp` turns it
   on for the run, also against the settings entry and `--no-extensions`:
   `pipy -ne -e builtin:mcp` runs without extensions and with MCP.
@@ -2177,7 +2184,7 @@ describes what the modules do for those who read or build on the code.
 | Module | What it does |
 | --- | --- |
 | `types`, `errors` | The OAuth documents (server metadata, client information, tokens) with their checks, and the error types. |
-| `fetch` | The HTTP client of the library, with a 1 MiB limit on a response body. The fetch the other modules use by default has no time limit; `create_oauth_fetch(timeout_ms=...)` makes one that has. |
+| `fetch` | The HTTP client of the library, with a 1 MiB limit on a response body. The fetch the other modules use by default has no time limit; `create_oauth_fetch(timeout_ms=...)` makes one that has. A call with `discard_unless_ok=True` returns a response whose status is not 2xx at its headers, with an empty body, and does not wait for the body; discovery makes its requests so, as Pi's discovery cancels such a body, so a miss whose body stalls does not hold discovery up. A fetch passed to the library takes this argument too. |
 | `discovery` | Parsing of `WWW-Authenticate`, and discovery of protected-resource and authorization-server metadata with the issuer check. |
 | `flow` | `authorize_mcp`: one pass of the authorization code flow for a provider. Also the single steps: `register_client`, `start_authorization`, `exchange_authorization_code`, `refresh_authorization`, and `step_up_scope`. `adapt_oauth_provider`: the auth provider of an HTTP transport for any provider. |
 | `provider` | `McpOAuthProvider`: the provider the flow is run with. It keeps one server's client registration, tokens, PKCE verifier, `state` value and discovery result as one document in a store its caller supplies. |
@@ -2363,7 +2370,8 @@ build on it:
   `close()`, and it is handed a cancel token instead of an abort signal.
 - The OAuth fetch follows redirects by the same rules of Node's `fetch`,
   also with a body: a registration or token request that the server answers
-  with 307 or 308 is sent again where it moved. It asks for `gzip` and
+  with 307 or 308 is sent again where it moved. As with `fetch`, the body of
+  a redirect it follows is not waited for. It asks for `gzip` and
   `deflate` and decodes an answer in those codings. It limits a response
   body to 1 MiB, compressed and decoded. It does not ask for `br` and
   `zstd` and does not decode them, and it has no proxy support.

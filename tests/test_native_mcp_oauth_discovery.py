@@ -612,6 +612,72 @@ def test_a_time_limit_loading_resource_metadata_means_none(
     assert info == OAuthServerInfo(f"{server.origin}/", metadata, None)
 
 
+def _stalled(status: int, headers: Mapping[str, str] | None = None) -> Reply:
+    """An answer whose body never arrives: 100 bytes are announced, none sent."""
+
+    return Reply(status, dict(headers or {}), content_length=100, stall=True)
+
+
+def test_a_stalled_body_of_a_miss_does_not_hold_discovery_up(
+    server: FakeOAuthServer,
+) -> None:
+    # Goal check r8 (C): Pi cancels the body of a miss, an error and a
+    # redirect (`discard`, and fetch does not wait for a redirect's body)
+    # and asks the next URL at once. The time limit is far longer than the
+    # test, and is what would end it if discovery waited for a body.
+    resource = {
+        "resource": f"{server.origin}/mcp",
+        "authorization_servers": [f"{server.origin}/t"],
+    }
+    metadata = _metadata(f"{server.origin}/t")
+    server.route(f"{_PRM}/mcp", _stalled(404))
+    server.route(_PRM, _stalled(307, {"Location": "/resource.json"}))
+    server.json("/resource.json", resource)
+    server.route(f"{_AS}/t", _stalled(502))
+    server.route(f"{_OIDC}/t", _stalled(301, {"Location": "/t/meta.json"}))
+    server.json("/t/meta.json", metadata)
+    fetch = create_oauth_fetch(timeout_ms=_WAIT_SECONDS * 1000)
+    started = time.monotonic()
+
+    info = discover_oauth_server_info(f"{server.origin}/mcp", fetch=fetch)
+
+    assert time.monotonic() - started < _WAIT_SECONDS / 2
+    assert info == OAuthServerInfo(f"{server.origin}/t", metadata, resource)
+    assert server.paths == [
+        f"{_PRM}/mcp",
+        _PRM,
+        "/resource.json",
+        f"{_AS}/t",
+        f"{_OIDC}/t",
+        "/t/meta.json",
+    ]
+
+
+def test_a_stalled_body_of_a_failure_status_does_not_hold_discovery_up(
+    server: FakeOAuthServer,
+) -> None:
+    # The resource metadata fails with a 500 (no metadata) and the
+    # authorization server's with a 503 (an error), each without its body.
+    server.route(f"{_PRM}/mcp", _stalled(500))
+    server.route(_PRM, _stalled(500))
+    server.route(_AS, _stalled(503))
+    fetch = create_oauth_fetch(timeout_ms=_WAIT_SECONDS * 1000)
+    with pytest.raises(OAuthFlowError) as raised:
+        discover_oauth_server_info(f"{server.origin}/mcp", fetch=fetch)
+    assert str(raised.value) == (
+        f"HTTP 503 loading authorization server metadata from {server.origin}{_AS}"
+    )
+    url = f"{server.origin}/idp.json"
+    server.route("/idp.json", _stalled(404))
+    with pytest.raises(OAuthFlowError) as raised:
+        discover_oauth_server_info(
+            f"{server.origin}/mcp", authorization_server_metadata_url=url, fetch=fetch
+        )
+    assert str(raised.value) == (
+        f"HTTP 404 loading authorization server metadata from {url}"
+    )
+
+
 def test_stops_when_cancelled_without_asking_further(server: FakeOAuthServer) -> None:
     # Pi: "stops when its signal aborts, without falling back to a redirect"
     # (#10565), the discovery part: the server accepts the request and never
@@ -725,7 +791,7 @@ def test_every_request_goes_through_the_given_fetch() -> None:
         f"{origin}{_AS}": _metadata(origin),
     }
     cancel = threading.Event()
-    calls: list[tuple[str, str, threading.Event | None]] = []
+    calls: list[tuple[str, str, threading.Event | None, bool]] = []
 
     def fetch(
         url: str,
@@ -734,16 +800,18 @@ def test_every_request_goes_through_the_given_fetch() -> None:
         headers: Mapping[str, str] | None = None,
         body: bytes | None = None,
         cancel_event: threading.Event | None = None,
+        discard_unless_ok: bool = False,
     ) -> OAuthResponse:
         assert body is None
-        calls.append((method, url, cancel_event))
+        calls.append((method, url, cancel_event, discard_unless_ok))
         return OAuthResponse(200, {}, json.dumps(documents[url]).encode())
 
     info = discover_oauth_server_info(f"{origin}/mcp", fetch=fetch, cancel_event=cancel)
     assert info == OAuthServerInfo(origin, _metadata(origin), resource)
+    # Discovery reads only the body of a 2xx answer (Pi's `discard`).
     assert calls == [
-        ("GET", f"{origin}{_PRM}/mcp", cancel),
-        ("GET", f"{origin}{_AS}", cancel),
+        ("GET", f"{origin}{_PRM}/mcp", cancel, True),
+        ("GET", f"{origin}{_AS}", cancel, True),
     ]
 
 

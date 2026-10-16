@@ -674,7 +674,7 @@ def test_hidden_re_registration_withdraws_the_tool(tmp_path, monkeypatch) -> Non
     # A model that calls it anyway is told the tool does not exist.
     (tool_result,) = _tool_results(provider.requests[1])
     assert tool_result.is_error is True
-    assert tool_result.content.value == "unknown tool: lookup"
+    assert tool_result.content.value == "Tool lookup not found"
 
 
 @pytest.mark.parametrize("available", [True, False])
@@ -868,7 +868,7 @@ def test_a_tool_registered_while_the_session_runs_takes_effect_at_once(
     assert second.system_messages[-1].message.tools_removed == ("lookup",)
     (withdrawn,) = _tool_results(after_call)
     assert withdrawn.is_error is True
-    assert withdrawn.content.value == "unknown tool: lookup"
+    assert withdrawn.content.value == "Tool lookup not found"
     # Registered again as `direct`, and a new tool: both are declared and
     # run; the description is the latest registration's.
     names = _tool_names(third)

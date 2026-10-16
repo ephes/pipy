@@ -35,7 +35,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from pipy_harness.native.agent.nested_record import argument_json, parse_nested_record
+from pipy_harness.native.agent.nested_record import (
+    argument_json,
+    parse_argument_previews,
+    parse_nested_record,
+)
 from pipy_harness.native.ansi_wrap import (
     split_lines_with_carry,
     visible_width,
@@ -175,14 +179,21 @@ def is_nested_under(parent_id: str | None, caller_id: str) -> bool:
 
 
 def nested_lines_from_details(details: object) -> tuple[NestedToolLine, ...]:
-    """Replay bounded data through the same retained row state as live children."""
+    """Replay bounded data through the same retained row state as live children.
+
+    A call whose arguments the record left out shows the start of them from
+    the result's ``argumentPreviews`` (Pi's codemode rows show the preview
+    in ``details.calls``), else their byte count.
+    """
     lines = []
+    previews = parse_argument_previews(details)
     for call in parse_nested_record(details):
         text = argument_json(call.get("arguments"))
         args = (
             text
             if text is not None
-            else f"[{call.get('argumentsBytes', '?')} argument bytes]"
+            else previews.get(call["id"])
+            or f"[{call.get('argumentsBytes', '?')} argument bytes]"
         )
         lines.append(
             NestedToolLine(

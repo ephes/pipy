@@ -1045,7 +1045,7 @@ class AgentLoop:
             self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
         if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
-            result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
+            result = self._tools.error_result(call, f"Tool {call.tool_name} not found")
             _validate_tool_result_for_call(result, call)
             self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
@@ -1224,7 +1224,7 @@ class AgentLoop:
             callable_names=eligible,
         )
         if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
-            result = self._tools.error_result(call, f"unknown tool: {call.tool_name}")
+            result = self._tools.error_result(call, f"Tool {call.tool_name} not found")
             _validate_tool_result_for_call(result, call)
             return _SettledToolCall(result, admission)
         assert tools is not None  # nothing is eligible without it

@@ -1124,7 +1124,7 @@ def test_final_retained_history_is_validated_before_terminal_completion(
 @pytest.mark.parametrize(
     ("authorized", "blocked", "expected_text", "expected_policy_calls"),
     [
-        (False, False, "unknown tool: fixture", 0),
+        (False, False, "Tool fixture not found", 0),
         (True, True, "blocked by extension: fixture block", 1),
     ],
 )
