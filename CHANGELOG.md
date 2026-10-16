@@ -1442,7 +1442,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md): for each of
   the 292 behaviours of the
   [parity plan](docs/specs/2026-10-12-mcp-parity-plan.md) it names the tests
-  that pin it and where pipy differs from Pi. All are closed, 123 of them
+  that pin it and where pipy differs from Pi. All are closed, 125 of them
   with a recorded limit or deviation. The plan lists every recorded
   difference from Pi (section 3.1) and the result (section 3.2); the
   [backlog](docs/backlog.md) says what is open, which is live use with a
@@ -1527,6 +1527,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   shows the diff of the row's own result. The rows the slices touch name
   their new tests in the acceptance note; no row changes its state: 168
   rows are closed with a test and 124 with a limit.
+
+- The MCP parity plan records the decision on the seventh goal check
+  (section 7, Q16): the two findings its triage does not fix are accepted
+  as deviations. The live codemode row keeps the latest 256 nested calls of
+  a script, where Pi's renderer keeps every call (the new DEV-96, which
+  names RND-04 and CMD-26); the diff preview of a wrapped `edit` row comes
+  from the row's own arguments and result (DEV-95, a proposal until now).
+  The [backlog](docs/backlog.md) has both as follow-ons. CMD-26 is closed
+  with a limit, so 167 rows are closed with a test and 125 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

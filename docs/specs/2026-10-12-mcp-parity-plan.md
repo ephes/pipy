@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(124 of them with a recorded limit or deviation); see section 3.2 and the
+(125 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -515,9 +515,9 @@ check (2026-10-15), DEV-79 when R2 was merged (INT4; closed by V3), DEV-80 to DE
 the triage of the third goal check (2026-10-15), DEV-86 to DEV-93 by the
 triage of the fourth goal check (2026-10-15), DEV-94 when X2 of the fifth
 goal check was merged (INT7), DEV-95 when Y3 of the sixth goal check was
-merged (INT8). A row that section 7, Q11, Q12, Q13, Q14 or Q15, names is
-accepted by the owner; every other row is still a proposal (Q15 names
-none).
+merged (INT8), DEV-96 by the triage of the seventh goal check (2026-10-16).
+A row that section 7, Q11, Q12, Q13, Q14, Q15 or Q16, names is accepted by
+the owner; every other row is still a proposal (Q15 names none).
 
 "Rows" names the checklist rows whose behaviour a difference changes, or
 `none` when it lies beside every row. "Kind" says how pipy differs:
@@ -608,7 +608,8 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-92 | EXT-02 | An extension tool result's `details` is kept only when it is a JSON object; an array, string or number becomes `None`. Pi's `details` may be any value (extension-API backlog). | narrower | Goal check r4 (S8), accepted in Q13 |
 | DEV-93 | SLH-09 | An exception raised by an `input` handler is ignored without a diagnostic and the current text goes on, as with pipy's other fail-safe hooks (`before_agent_start`, `tool_result`, observers). Pi also goes on but emits an extension error naming the extension (extension-API backlog). | other form | Goal check r4 (S9), accepted in Q13 |
 | DEV-94 | TSR-07, SES-02 | The MCP tools are ordered by server, the servers in configuration order, and within a server in the order the names were first published; the resource tools come after them. Pi keeps every MCP tool in one `Map` in the order of first registration, so the servers follow each other in the order they connected, the resource tools come after the tools registered before the first server with resources, and a server's new tool comes after every tool registered before it, also other servers'. Within a server pipy follows Pi's rule (a name registered again keeps its place). Only ties in `tool_search` across servers and the order of the declared tools differ; pipy's order does not depend on connection timing. (The order across servers was configuration order since S15; X2 records it.) | other form | Decided in X2 (goal check r5, U2); recorded in INT7, accepted in Q14 |
-| DEV-95 | EXT-15 | pipy's own rows that a resolver wraps draw the context they are called with (since goal check r6, Y3), with two exceptions for `edit`: its diff preview is computed once from the call's own arguments, off the paint thread, and is left out when a wrapper passes other arguments, where Pi's edit renderer computes a preview for the arguments it is given; and the call part of a wrapped `edit` row shows the diff of the row's own result, where Pi's edit `renderResult` updates the call box from the result it is given. | narrower | Decided in Y3 (goal check r6, D1); recorded in INT8 |
+| DEV-95 | EXT-15 | pipy's own rows that a resolver wraps draw the context they are called with (since goal check r6, Y3), with two exceptions for `edit`: its diff preview is computed once from the call's own arguments, off the paint thread, and is left out when a wrapper passes other arguments, where Pi's edit renderer computes a preview for the arguments it is given; and the call part of a wrapped `edit` row shows the diff of the row's own result, where Pi's edit `renderResult` updates the call box from the result it is given. | narrower | Decided in Y3 (goal check r6, D1); recorded in INT8; goal check r7 (S1), accepted in Q16 |
+| DEV-96 | RND-04, CMD-26 | The live codemode row keeps the latest 256 nested calls while the script runs: past that it lets the oldest finished call go for each new one (a call still running stays), and the expanded row starts with `... (N earlier calls, not kept)`. Pi's renderer keeps every call of the script in the result's `details.calls`, and its expanded row shows them all. A restored or exported row draws pipy's durable nested-call record, whose bound of 256 calls is that of Pi's record (`NESTED_CALL_LIMITS.maxCalls`), where Pi's draws the `details.calls` it saved with the result. Only a script that makes more than 256 nested calls notices it. The bound keeps the memory of a live row finite (section 5.3, T4: D6). | narrower | Decided in T4 (goal check r3, D6); goal check r7 (D1), accepted in Q16 |
 
 The two rows the audit left open were built after it: SLH-13 (commands
 and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
@@ -625,8 +626,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 168 | see the note |
-| Closed with a limit or deviation | 124 | each names its DEV rows or its limit in the note |
+| Closed with a test | 167 | see the note |
+| Closed with a limit or deviation | 125 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -670,10 +671,14 @@ eight of its findings, and Q15 accepts nothing: Y1 narrowed DEV-52, Y2
 narrowed DEV-31, Y3 (merged in INT8) changed DEV-66's wording, and INT8
 added DEV-95 (two limits of a wrapped `edit` row, EXT-15, a proposal). No
 row changed its state.
-The 124 rows
+Updated after the triage of the seventh goal check (2026-10-16): Q16
+accepts DEV-95 (r7 S1) and the new DEV-96 (r7 D1, the live codemode row
+keeps the latest 256 nested calls), which names RND-04 and CMD-26 and sets
+CMD-26 to closed with a limit.
+The 125 rows
 count as closed only if the final
-judgement accepts the deviation or limit each one names; section 7, Q11,
-Q12, Q13 and Q14, accept the DEV rows they name. Not rows, and still outstanding: the
+judgement accepts the deviation or limit each one names; section 7, Q11 to
+Q14 and Q16, accept the DEV rows they name (Q15 names none). Not rows, and still outstanding: the
 live evidence of section 6.5, which needs the owner's provider login and an
 account at an OAuth MCP server.
 
@@ -4706,7 +4711,7 @@ and is still narrowed when read, for reloads (U2, EXP-06, DEV-31);
 that wraps pipy's own `edit` or `bash` rows keeps the live preview and the
 ticking time (S11, DEV-45, EXT-15); the live codemode row keeps the latest
 256 calls, where Pi keeps every call, and the bound of 256 is the durable
-record's (D6, CMD-26). T6: the stdio transport waits for an exited server
+record's (D6, CMD-26; DEV-96, accepted in Q16). T6: the stdio transport waits for an exited server
 with a kqueue where Python has no `os.waitid` (P1, STD-05; see G1). The
 tests are named in the acceptance note's rows.
 
@@ -5067,6 +5072,15 @@ triage, through the campaign coordinator.
 | --- | --- | --- |
 | Q15 | Goal-check round 6 (goal-r6.md, at `c2e54cb7`): findings that remain after the triage of 2026-10-16. | **None remain; nothing is accepted** (owner decided 2026-10-16 via the standing triage decision). The goal check found 8 Warnings and no Critical finding, all on the MCP path, in codemode rendering, or cheap to fix. Fixed by the slices Y1 to Y3: Q1, Q2, S2, U1, S1, D1, D2, D3. Y1 and Y2 landed on `feat/mcp-parity`, Y3 on a parallel track merged in INT8. The difference INT8 recorded for Y3's `edit` rows is a proposal for the final judgement like the other rows no decision names. |
 
-A DEV row of section 3 or 3.1 that Q11, Q12, Q13, Q14 or Q15 names is accepted;
-Q15 names none. One none of them names stays a proposal for the final
-judgement.
+Recorded 2026-10-16, after the seventh goal check (`goal-r7.md`, at
+`06bdb145`) and its triage, through the campaign coordinator. The fix
+slices Z1 and Z2 of that triage change the DEV rows and the design text
+whose parts they fix (DEV-20 among them) as they land.
+
+| ID | Question | Decision |
+| --- | --- | --- |
+| Q16 | Goal-check round 7 (goal-r7.md, at `06bdb145`): findings that remain after the triage of 2026-10-16. | **Accepted as deviations** (owner decided 2026-10-16 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. One is a deliberate memory bound of codemode's live row, the other general extension-API rendering of one built-in tool, not MCP: D1 (DEV-96, the live codemode row keeps the latest 256 nested calls, where Pi's renderer keeps every call; only a script with more than 256 nested calls notices it, and the durable record is bounded at 256 calls in Pi too, as section 5.3, T4: D6, says; backlog); S1 (DEV-95, the diff preview of a wrapped `edit` row comes from the row's own arguments and result, not from what the wrapper passes; backlog). Fixed by the slices Z1 and Z2: U1, U2, D2, D3. Every DEV row named here counts as accepted. |
+
+A DEV row of section 3 or 3.1 that Q11, Q12, Q13, Q14, Q15 or Q16 names is
+accepted; Q15 names none. One none of them names stays a proposal for the
+final judgement.

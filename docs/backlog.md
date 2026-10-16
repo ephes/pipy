@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-16, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 168 are closed with a
-test and 124 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 167 are closed with a
+test and 125 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,19 +128,21 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-95) that plan
-  section 7, Q11 to Q15, do not name are accepted. Q11 (2026-10-15)
+  differences from Pi (plan section 3.1, DEV-15 to DEV-96) that plan
+  section 7, Q11 to Q16, do not name are accepted. Q11 (2026-10-15)
   accepts the findings of the second goal check that its triage neither
   fixes nor refutes; Q12, Q13 and Q14 (2026-10-15) do the same for the
-  third, fourth and fifth goal checks, and Q15 (2026-10-16) records that
-  the sixth goal check left nothing to accept. The fix slices T1 to T6 of
+  third, fourth and fifth goal checks, Q15 (2026-10-16) records that
+  the sixth goal check left nothing to accept, and Q16 (2026-10-16)
+  accepts DEV-95 and DEV-96 for the seventh. The fix slices T1 to T6 of
   the third triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5),
   and so are the fix slices V1 to V3 of the fourth triage (V3 merged in
   INT6), the fix slices X1 to X3 of the fifth triage (X2 merged in INT7,
   which added DEV-94, the order of the MCP tools across servers, accepted
   in Q14) and the fix slices Y1 to Y3 of the sixth triage (Y3 merged in
-  INT8, which added DEV-95, two limits of a wrapped `edit` row, a
-  proposal).
+  INT8, which added DEV-95, two limits of a wrapped `edit` row, accepted
+  in Q16); the fix slices Z1 and Z2 of the seventh triage are the rest of
+  MCP1.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -574,6 +576,17 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   `sourceInfo` (`path`, `source`, `scope`, `origin`, `base_dir`), so an
   extension can tell which built-in, extension path or SDK call registered a
   tool. Extension-API track.
+- **Wrapped `edit` row diff** (MCP1 goal check r7, finding S1; plan
+  DEV-95): build the diff preview of a wrapped `edit` row from the
+  arguments and the result the wrapper supplies, as Pi's edit renderer does
+  (`computeEditsDiff` for the arguments it is given, `setEditPreview` from
+  the result's `details.diff`), so that a wrapper can change or redact it.
+  Extension-API track.
+- **Every nested call in the live codemode row** (MCP1 goal check r7,
+  finding D1; plan DEV-96): keep a full renderer history of a script's
+  nested calls beside the bounded record, as Pi's `details.calls`, if a
+  script with more than 256 calls ever needs all of them inspectable. The
+  durable record stays bounded at 256 calls, as Pi's. Codemode track.
 - **Proxy support, pipy-wide** (MCP1 goal check r3, finding F2; plan
   DEV-82): Pi's `httpProxy` setting (global only) applied as
   `HTTP_PROXY`/`HTTPS_PROXY`, honoured by the MCP HTTP transport and the

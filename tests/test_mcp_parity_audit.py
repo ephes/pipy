@@ -158,7 +158,7 @@ def _deviations() -> list[str]:
 def test_the_deviations_are_numbered_without_a_gap() -> None:
     deviations = _deviations()
 
-    assert deviations == [f"DEV-{number:02d}" for number in range(1, 96)]
+    assert deviations == [f"DEV-{number:02d}" for number in range(1, 97)]
     # A closed deviation keeps its number and says so.
     section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
     closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
@@ -175,8 +175,8 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    # DEV-15 to DEV-95 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
-    assert len(cells) == 77
+    # DEV-15 to DEV-96 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
+    assert len(cells) == 78
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
@@ -352,7 +352,7 @@ def test_q14_accepts_the_rows_of_the_fifth_triage() -> None:
     backlog = (_DOCS / "backlog.md").read_text()
     assert "finding U3; plan DEV-25" in backlog
     assert "`source_info` on `ToolInfo`" in backlog
-    assert "Q11, Q12, Q13, Q14 or Q15 names is accepted;" in _PLAN.read_text()
+    assert "Q11, Q12, Q13, Q14, Q15 or Q16 names is\naccepted;" in _PLAN.read_text()
 
 
 def test_the_fixes_of_the_fifth_triage_ordered_and_drew_as_pi() -> None:
@@ -390,12 +390,10 @@ def test_q15_accepts_nothing_of_the_sixth_triage() -> None:
     fixed = q15.split("Fixed by the slices Y1 to Y3: ")[1].split(". ")[0]
     assert fixed.split(", ") == ["Q1", "Q2", "S2", "U1", "S1", "D1", "D2", "D3"]
     plan = _PLAN.read_text()
-    assert "Q11, Q12, Q13, Q14 or Q15 names is accepted;\nQ15 names none." in plan
+    assert "Q16 names is\naccepted; Q15 names none." in plan
     recorded = plan.split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     assert "in Q15" not in recorded
-    assert "Q11 to Q15 do not name" in _NOTE.read_text()
-    assert "section 7, Q11 to Q15, do not name" in (_DOCS / "backlog.md").read_text()
 
 
 def test_the_fixes_of_the_sixth_triage_drew_and_activated_as_pi() -> None:
@@ -405,9 +403,8 @@ def test_the_fixes_of_the_sixth_triage_drew_and_activated_as_pi() -> None:
     # result part, which DEV-66 now says; D3 tells export renderers that the
     # call started. Y1 and Y2 narrowed DEV-52 and DEV-31.
     assert "| DEV-95 | EXT-15 |" in _deviation(95)
-    assert _deviation(95).endswith(
-        "Decided in Y3 (goal check r6, D1); recorded in INT8 |"
-    )
+    assert _deviation(95).startswith("| DEV-95 | EXT-15 |")
+    assert "Decided in Y3 (goal check r6, D1); recorded in INT8" in _deviation(95)
     assert "at the start of the result part" in _deviation(66)
     assert "between the call and the output" not in _deviation(66)
     assert "narrowed by R4, T3 and Y2 |" in _deviation(31)
@@ -421,6 +418,53 @@ def test_the_fixes_of_the_sixth_triage_drew_and_activated_as_pi() -> None:
     rnd03 = next(line for line in lines if "| RND-03 |" in line)
     assert "`test_export_renderers_are_told_each_calls_id` (r6 D3)" in rnd03
     assert not (_DOCS / "specs" / "2026-10-16-mcp-gaps-r6-notes.md").exists()
+
+
+def test_q16_accepts_the_rows_of_the_seventh_triage() -> None:
+    # Goal check r7 (at 06bdb145) left two findings the triage accepts: D1,
+    # the live codemode row's bound of 256 nested calls (the new DEV-96,
+    # which section 5.3 records under T4, D6), and S1, the diff of a
+    # wrapped `edit` row (DEV-95, a proposal until then). Z1 and Z2 fix the
+    # other four.
+    q16 = _decision("Q16")
+    accepted = set(re.findall(r"DEV-\d{2}", q16))
+
+    assert accepted == {"DEV-95", "DEV-96"}
+    assert "D1 (DEV-96, the live codemode row keeps the latest 256" in q16
+    assert "S1 (DEV-95, the diff preview of a wrapped `edit` row" in q16
+    assert "section 5.3, T4: D6" in q16
+    fixed = q16.split("Fixed by the slices Z1 and Z2: ")[1].split(". ")[0]
+    assert fixed.split(", ") == ["U1", "U2", "D2", "D3"]
+    plan = _PLAN.read_text()
+    assert "record's (D6, CMD-26; DEV-96, accepted in Q16)." in plan
+    recorded = plan.split("### 3.1 Differences the slices recorded")[1]
+    recorded = recorded.split("### 3.2 Audit result")[0]
+    for deviation, source in re.findall(
+        r"^\| (DEV-\d{2}) \|.*\| ([^|]*) \|$", recorded, flags=re.MULTILINE
+    ):
+        if "in Q16" in source:
+            assert deviation in accepted, deviation
+        if deviation in accepted:
+            assert "in Q16" in source, deviation
+            assert "proposal" not in source, deviation
+    assert "| DEV-96 | RND-04, CMD-26 |" in _deviation(96)
+    assert _deviation(96).endswith(
+        "Decided in T4 (goal check r3, D6); goal check r7 (D1), accepted in Q16 |"
+    )
+    assert _deviation(95).endswith("goal check r7 (S1), accepted in Q16 |")
+    # DEV-96 sets CMD-26 to closed with a limit; RND-04 already had DEV-66.
+    states = {row: state for row, state, _tests in _audit()}
+    assert states["CMD-26"] == states["RND-04"] == "closed, with limits"
+    lines = _NOTE.read_text().splitlines()
+    for row in ("CMD-26", "RND-04"):
+        line = next(line for line in lines if f"| {row} |" in line)
+        assert line.endswith("DEV-96. |"), row
+    assert "Q11 to Q16 do not name" in _NOTE.read_text()
+    # The backlog carries both follow-ons.
+    backlog = (_DOCS / "backlog.md").read_text()
+    assert "section 7, Q11 to Q16, do not name" in backlog
+    assert "finding S1; plan\n  DEV-95" in backlog
+    assert "finding D1; plan DEV-96" in backlog
 
 
 def _rows_of(cell: str) -> list[str]:

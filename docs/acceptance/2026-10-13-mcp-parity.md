@@ -2,8 +2,8 @@
 
 Status: **implemented on `feat/mcp-parity`, not merged.** Of the 292
 checklist rows of the
-[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 168 are
-closed with a test and 124 are closed with a recorded limit or
+[MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 167 are
+closed with a test and 125 are closed with a recorded limit or
 deviation; no row is open. The official MCP
 client conformance suite gives the same result for pipy as for Pi. Live use
 with a real server and a real model (plan section 6.5) has **not** been
@@ -14,10 +14,11 @@ implemented the slice, from the tests and documents in the repository: a
 first pass on 2026-10-13 and a second one on 2026-10-14 that checked the
 first. It is evidence for the owner's final judgement, not that judgement.
 
-The 124 rows that are closed with a limit count as closed only if the
+The 125 rows that are closed with a limit count as closed only if the
 judgement accepts the deviation or limit each one names (plan section 3).
 The owner accepted the DEV rows that plan section 7, Q11, Q12, Q13 and
-Q14, name (2026-10-15); Q15 (2026-10-16) names none.
+Q14, name (2026-10-15); Q15 (2026-10-16) names none, and Q16 (2026-10-16)
+accepts DEV-95 and DEV-96.
 
 Updated on 2026-10-15 (INT3), when the goal-check tracks L and N were merged:
 five rows were added (TLS-20, TLS-21, EXP-13, TSR-12, OAU-37), SLH-13 and the
@@ -124,6 +125,14 @@ preview under other arguments, and its call part shows the diff of its own
 result) is a proposal and adds to EXT-15's limits. No row changes its
 state.
 
+Updated again on 2026-10-16 after the triage of the seventh goal check:
+the owner accepted the DEV rows plan section 7, Q16, names. DEV-95 (r7 S1,
+the diff of a wrapped `edit` row) is no longer a proposal, and the new
+DEV-96 (r7 D1: the live codemode row keeps the latest 256 nested calls,
+where Pi's renderer keeps every call) names RND-04 and CMD-26, which sets
+CMD-26 to `closed, with limits`. The fix slices of that triage (Z1, Z2)
+change the rows they fix when they land.
+
 ## Reference
 
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
@@ -188,7 +197,7 @@ Plan section 3 lists DEV-01 to DEV-14, which were proposed before or while
 the slices were built. They hold as written.
 
 The slices recorded further differences from Pi. Plan section 3.1 now lists
-them as DEV-15 to DEV-95, each with the rows it changes, its kind (narrower,
+them as DEV-15 to DEV-96, each with the rows it changes, its kind (narrower,
 other form, stricter) and where it is recorded. Every row named there names
 the DEV row in the "Limits and deviations" column of the tables below and
 is `closed, with limits`. The ones a user is most likely to meet:
@@ -218,9 +227,10 @@ among them DEV-80 to DEV-85, DEV-59 and DEV-66, Q13 (2026-10-15, the
 fourth goal check) among them DEV-86 to DEV-93 and the listing part of
 DEV-33, and Q14 (2026-10-15, the fifth goal check) DEV-55, DEV-57,
 DEV-94 and, again, DEV-25; Q15 (2026-10-16, the sixth goal check) names
-none, since the fix slices Y1 to Y3 fixed every finding. The
+none, since the fix slices Y1 to Y3 fixed every finding, and Q16
+(2026-10-16, the seventh goal check) accepts DEV-95 and DEV-96. The
 others of DEV-15 to DEV-68, except the closed DEV-39, DEV-42 and DEV-65,
-and DEV-95 are still proposals for the final judgement. DEV-06, DEV-07 and DEV-09 are owner decisions since 2026-10-14
+are still proposals for the final judgement. DEV-06, DEV-07 and DEV-09 are owner decisions since 2026-10-14
 (plan section 7, Q1 and Q7).
 
 ## Conformance suite
@@ -525,7 +535,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CMD-23 | S16 | closed | `test_native_mcp_tools.py`: `test_a_direct_tool_tells_scripts_what_a_call_resolves_to` |  |
 | CMD-24 | S03, G6, R5, T5 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_tool_call_hook_arguments.py`: `test_a_tool_call_hook_sees_the_call_id_and_the_calling_tools_id` (G6); `test_native_agent_nested_calls.py`: `test_nested_calls_are_validated_and_the_policy_gets_their_parent_id` (G6); `test_native_agent_nested_calls.py`: `test_nested_pipeline_statuses_unbudgeted_and_parent_only_records`, `test_concurrent_nested_calls_run_past_the_budget` (T5); `test_native_mcp_session.py`: `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model`; `test_native_codemode_composite.py`: `test_submitted_calls_run_at_the_same_time_and_the_record_keeps_their_order`, `test_a_script_makes_more_calls_than_the_tool_budget_has_places` (G3, T5); `test_native_codemode_host_runtime.py`: `test_a_call_may_carry_more_than_the_line_limit` (R1); `test_native_agent_event_adapters.py`: `test_automation_projection_emits_pi_tool_result_objects`; `test_native_automation_json_mode.py`: `test_json_mode_tool_events_carry_pi_result_objects` (R5) |  |
 | CMD-25 | S04, G6 | closed, with limits | `test_native_extension_tool_result_hooks.py`: `test_tool_result_hooks_see_and_decide_the_structured_content`, `test_a_tool_result_hook_sees_the_call_and_changes_every_field` (G6); `test_native_agent_nested_calls.py`: `test_structured_content_follows_the_result_policy_and_the_output_schema` | Pi's transform can also replace usage; pipy counts no usage of tools. DEV-22. |
-| CMD-26 | S03 | closed | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_transient_records_bound_argument_bytes_and_drop_mutable_details`; `test_native_nested_lifecycle.py`: `test_the_live_row_keeps_the_latest_calls_past_the_record_bound`, `test_live_status_args_bounds_sanitize_and_parent_mismatch` (r3 D6) |  |
+| CMD-26 | S03 | closed, with limits | `test_native_codemode_extension_tools.py`: `test_script_calls_extension_tools_through_the_hooks`; `test_native_agent_nested_calls.py`: `test_transient_records_bound_argument_bytes_and_drop_mutable_details`; `test_native_nested_lifecycle.py`: `test_the_live_row_keeps_the_latest_calls_past_the_record_bound`, `test_live_status_args_bounds_sanitize_and_parent_mismatch` (r3 D6) | The live codemode row keeps the latest 256 nested calls; Pi's renderer keeps every call. The durable record's bound of 256 calls is Pi's. DEV-96. |
 | CMD-27 | S08 | closed, with limits | `test_native_codemode_description.py`: `test_prompt_contribution_is_one_snippet_and_does_not_depend_on_tools` | Pipy's contribution has two guideline lines; the second predates this plan (codemode adherence). MCP adds nothing. DEV-24. |
 | CMD-28 | S39 | closed | `test_native_codemode_images.py`: `test_image_accepts_data_urls_image_url_objects_and_image_blocks`, `test_image_rejects_everything_else_with_pis_messages`, `test_a_real_script_shows_images_and_gets_errors_for_what_is_not_one` |  |
 | CMD-29 | S39 | closed, with limits | `test_native_codemode_images.py`: `test_images_stay_in_output_order_each_after_its_saved_path`, `test_a_saved_image_is_a_file_only_its_user_can_read`, `test_a_failed_save_is_named_and_keeps_the_image`, `test_a_session_attaches_only_the_images_the_script_shows`; `test_native_codemode_result.py`: `test_text_items_are_marked_and_console_output_comes_last` (R1); `test_native_codemode_host_runtime.py`: `test_printed_output_is_console_output_and_text_items_are_marked` (R1) | Text and images share Pi's output limit of 16 Mi characters; the `==> text N/M <==` lines and the `<console_output>` block of Pi's `formatOutput` since R1. A script that shows some hundreds of images overflows the result's 64 KiB of text. DEV-20. |
@@ -647,7 +657,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | RND-01 | S35 | closed, with limits | `test_native_tool_rows.py`: `test_mcp_call_is_titled_server_tool_with_its_arguments`, `test_a_registered_mcp_tool_is_titled_with_its_exact_names`; `test_native_mcp_rows_pty.py`: `test_an_mcp_call_has_its_own_row_and_ctrl_o_expands_it` | DEV-44. |
 | RND-02 | S35 | closed, with limits | `test_native_tool_rows.py`: `test_mcp_result_collapsed_shows_the_first_five_lines`, `test_mcp_result_counts_wrapped_lines_at_the_box_width`, `test_mcp_result_names_the_full_output_file_when_collapsed`, `test_mcp_error_result_uses_the_error_colour` | While a call runs the row shows the last progress line (Pi replaces the partial result). DEV-18. |
 | RND-03 | S35 | closed, with limits | `test_native_session_history_render.py`: `test_restored_mcp_calls_get_mcp_rows_without_their_server`; `test_native_tool_rows.py`: `test_calls_to_mcp_tools_that_are_not_registered_get_mcp_rows`; `test_native_export_tool_rows.py`: `test_an_mcp_call_without_its_tool_is_drawn_like_in_the_transcript`, `test_an_exported_file_has_the_rows_and_the_page_shows_them`; `test_native_export_tool_rows.py`: `test_the_share_command_asks_the_loaded_extensions`, `test_share_draws_the_page_before_the_upload_thread_starts`, `test_share_session_html_has_the_prompt_and_the_drawn_calls`; `test_native_export_distribution.py`: `test_tool_loop_share_command_uses_token_and_share_boundary` (r4 D4); `test_native_export_tool_rows.py`: `test_export_renderers_are_told_each_calls_id` (r6 D3) | Pipy's export page is not Pi's page; it gained Pi's `renderedTools`. `pipy --export` runs no extension code; `/share` draws with the session's renderers like `/export` (r4 D4). DEV-44. |
-| RND-04 | S35, N3 | closed, with limits | `test_native_nested_lifecycle.py`: `test_nested_mcp_calls_are_rows_of_the_codemode_row`; `test_native_tool_rows.py`: `test_codemode_result_drops_the_script_header`, `test_codemode_result_counts_wrapped_lines_and_names_the_full_output`, `test_codemode_result_is_empty_while_the_script_runs`; `test_native_export_nested_calls.py`: `test_a_result_with_nested_calls_shows_them`, `test_a_drawn_call_shows_its_nested_calls_in_its_box`, `test_malformed_calls_are_left_out_and_the_page_goes_on`; `test_native_extension_tool_renderer_resolver.py`: `test_renderers_that_replace_codemodes_draw_no_nested_calls`, `test_codemodes_own_rows_draw_the_nested_calls_in_their_result`, `test_the_line_renderer_writes_nested_calls_only_for_codemodes_own_rows`, `test_a_wrapper_gets_and_can_withhold_the_calls_of_a_running_script` (INT8); `test_native_export_tool_rows.py`: `test_wrapped_codemode_rows_draw_the_recorded_nested_calls` (r6 D2) | Shown under the tool's pipy name; the codemode call is the generic row. DEV-66. |
+| RND-04 | S35, N3 | closed, with limits | `test_native_nested_lifecycle.py`: `test_nested_mcp_calls_are_rows_of_the_codemode_row`; `test_native_tool_rows.py`: `test_codemode_result_drops_the_script_header`, `test_codemode_result_counts_wrapped_lines_and_names_the_full_output`, `test_codemode_result_is_empty_while_the_script_runs`; `test_native_export_nested_calls.py`: `test_a_result_with_nested_calls_shows_them`, `test_a_drawn_call_shows_its_nested_calls_in_its_box`, `test_malformed_calls_are_left_out_and_the_page_goes_on`; `test_native_extension_tool_renderer_resolver.py`: `test_renderers_that_replace_codemodes_draw_no_nested_calls`, `test_codemodes_own_rows_draw_the_nested_calls_in_their_result`, `test_the_line_renderer_writes_nested_calls_only_for_codemodes_own_rows`, `test_a_wrapper_gets_and_can_withhold_the_calls_of_a_running_script` (INT8); `test_native_export_tool_rows.py`: `test_wrapped_codemode_rows_draw_the_recorded_nested_calls` (r6 D2) | Shown under the tool's pipy name; the codemode call is the generic row. DEV-66. The live row keeps the latest 256 nested calls, where Pi's keeps every call. DEV-96. |
 
 ### Extension API (EXT)
 
@@ -715,7 +725,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 1. The merge of `feat/mcp-parity` to `main` (Q5).
 2. The live evidence of plan section 6.5.
-3. Which of the DEV rows of plan section 3.1 that Q11 to Q15 do not name
+3. Which of the DEV rows of plan section 3.1 that Q11 to Q16 do not name
    are accepted. Until then the rows that name one are closed on that
    condition.
 
@@ -728,6 +738,7 @@ refutes are accepted as the DEV rows Q11 names, those of the third
 goal check as the DEV rows Q12 names, those of the fourth goal check
 as the DEV rows Q13 names, and those of the fifth goal check as the DEV
 rows Q14 names. Decided 2026-10-16: the sixth goal check leaves nothing
-to accept (Q15). SLH-13 and the hyperlink
+to accept (Q15), and the findings of the seventh goal check that its
+triage does not fix are accepted as the DEV rows Q16 names. SLH-13 and the hyperlink
 part of MGR-09 were built (N2, N3), and the startup report is shown behind the
 `/mcp` manager as it arises (N1).
