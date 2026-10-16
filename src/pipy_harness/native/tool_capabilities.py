@@ -230,10 +230,12 @@ class ToolCapabilityState:
     # one unless given. A value that differs only in its MCP tools or its
     # selection keeps it (``dataclasses.replace`` passes it on).
     extension_generation: object | None = None
-    # MCP tool names that were active before their servers were started
-    # again (``/reload``) or that a restored transcript declares, and that
-    # are not registered now or that the ``--tools`` allowlist did not let
-    # be active when they were restored (Pi ``_pendingToolNames``). A name
+    # Tool names that were declared before a ``/reload`` or that a restored
+    # transcript declares, and that the loadout did not apply then: their
+    # tool was not registered (an MCP server still connecting, an extension
+    # tool registered later), was ``hidden``, or the ``--tools`` allowlist
+    # did not let it be active (Pi ``_pendingToolNames``). The declared MCP
+    # tools are pending over a reload also while still active. A name
     # becomes active when its tool registers and may be active, and is
     # dropped when the next run starts.
     pending_tool_names: frozenset[str] = frozenset()
@@ -1181,39 +1183,39 @@ class NativeToolCapabilities:
             return "codemode" in self._state.registry
 
     def restore_active_tools(self, names: Sequence[str]) -> None:
-        """Pi ``setActiveToolsByName`` from a transcript's declared tools.
+        """Pi ``_restoreToolsFromTranscript`` for a transcript's declared tools.
 
-        Unlike :meth:`set_active_tools`, unknown names are dropped rather
-        than refused: Pi keeps only registered tools, and its registry
-        already excludes names a ``--allow``/``--exclude`` filter hides, so a
-        configured filter narrows the restored set too. Filtering and
-        assignment share one critical section.
-
-        An MCP tool the transcript declares may not be registered yet,
-        because its server is still connecting. Such a name is pending: it
-        becomes active when the tool registers before the next run starts
-        (Pi ``_restoreToolsFromTranscript``). So is a registered MCP tool
-        that the ``--tools`` allowlist does not let be active now (Pi
-        ``_applyToolLoadout`` does not apply it): it is not active, and
-        becomes active when a later registration makes it activatable
-        before the next run starts.
+        Every name the ``--tools``/``--exclude-tools`` filters keep is
+        pending, and the names the loadout applies (Pi ``_setActiveTools``)
+        become the selection and leave the pending set: the registered tools
+        that are not ``hidden`` and that the ``--tools`` allowlist lets be
+        active (Pi ``_applyToolLoadout``). A name the loadout does not apply
+        is pending only: a tool that is not registered yet (an MCP tool whose
+        server is still connecting, an extension tool registered in
+        ``before_agent_start``), one registered ``hidden`` (the resource
+        tools while no server offers resources) and one the allowlist does
+        not let be active now. It becomes active when a registration before
+        the next run starts makes it applicable, and is gone once the run
+        starts (:meth:`drop_pending_tools`). Filtering and assignment share
+        one critical section.
         """
 
         with self._state_lock:
             state = self._state
-            visible = _kept_names(state)
-            restored = frozenset(name for name in names if name in visible)
-            state = replace(
-                state,
-                active_tool_names=restored,
-                selection_initialized=True,
-                active_selection_customized=True,
+            kept = _filter_kept_names(state, names)
+            admits = _loadout_admits(state)
+            hidden = _hidden_names(state.registry)
+            applied = frozenset(
+                name
+                for name in kept
+                if name in state.registry and name not in hidden and admits(name)
             )
-            refused = _refused_names(state)
             self._state = replace(
                 state,
-                active_tool_names=restored - refused,
-                pending_tool_names=_unregistered_mcp_names(state, names) | refused,
+                active_tool_names=applied,
+                selection_initialized=True,
+                active_selection_customized=True,
+                pending_tool_names=kept - applied,
             )
 
     def restart_mcp_tools(self, *, keep_declared: bool = True) -> None:
@@ -1485,7 +1487,9 @@ class NativeToolCapabilities:
         With a configured filter the selection is derived from the filter
         again; the tools declared now that are not MCP tools stay active when
         the new value has them and the filters let them be active, so a tool
-        ``tool_search`` loaded is kept (Pi ``reload``).
+        ``tool_search`` loaded is kept (Pi ``reload``). Either way only names
+        the new value registers stay active, and every tool declared now is
+        pending unless the new value declares it (see the end of the method).
         """
 
         with self._state_lock:
@@ -1519,13 +1523,13 @@ class NativeToolCapabilities:
                         else frozenset(self._base_registry)
                     )
                     if active is None:
-                        active = activated_on_registration(live.registry) | (
-                            next_defaults - previous_defaults
-                        )
-                    else:
-                        active = (
-                            active | (next_defaults - previous_defaults)
-                        ) & frozenset(state.registry)
+                        active = activated_on_registration(live.registry)
+                    active |= next_defaults - previous_defaults
+                if live.selection_initialized and active is not None:
+                    # Pi ``_applyToolLoadout`` keeps only registered tools: a
+                    # tool the reloaded extensions register later is pending
+                    # (below), not active.
+                    active &= frozenset(state.registry)
                 if (
                     live.selection_initialized
                     and not live.active_selection_customized
@@ -1565,20 +1569,6 @@ class NativeToolCapabilities:
                         and admits(name)
                     ),
                 )
-            live = self._state
-            if live.active_tool_names is not None:
-                # Pi ``reload``: what was active is pending, with what was
-                # pending already. Here that is the declared MCP tools, read
-                # in this critical section because a configured filter
-                # derives the selection again and drops what ``tool_search``
-                # loaded. While their servers keep running the names are
-                # active as well and only wait for the next run to start;
-                # :meth:`restart_mcp_tools` is what unregisters the tools.
-                restorable = live.pending_tool_names | frozenset(
-                    name for name in _declared_names(live) if is_mcp_tool_name(name)
-                )
-                if restorable:
-                    state = replace(state, pending_tool_names=restorable)
             hidden = _hidden_names(state.registry)
             if state.active_tool_names is not None and state.active_tool_names & hidden:
                 # Pi ``_applyToolLoadout``: a tool the reload registered
@@ -1586,6 +1576,22 @@ class NativeToolCapabilities:
                 state = replace(
                     state, active_tool_names=state.active_tool_names - hidden
                 )
+            live = self._state
+            if live.selection_initialized and live.active_tool_names is not None:
+                # Pi ``reload``: every declared tool is pending, MCP tool or
+                # not, with what was pending already, read in this critical
+                # section. The names the new value declares leave the pending
+                # set (Pi ``_setActiveTools``); the others, such as an
+                # extension tool the reloaded extensions register only in
+                # ``before_agent_start``, become active when their tool
+                # registers before the next run starts. The MCP tools stay
+                # pending while active: their servers keep running until
+                # :meth:`restart_mcp_tools` unregisters the tools.
+                restorable = live.pending_tool_names | _loadout_names(live)
+                applied = _loadout_names(state).difference(
+                    _accepted_mcp_tools(state.registry, state.mcp_registry)
+                )
+                state = replace(state, pending_tool_names=restorable - applied)
             self._state = state
 
     def publish_extension_tools(
@@ -1737,12 +1743,35 @@ def _unregistered_mcp_names(
     """The names of MCP tools among ``names`` that no tool has in ``state``
     and that the filters would keep registered. Pure."""
 
-    missing = frozenset(
-        name for name in names if is_mcp_tool_name(name) and name not in state.registry
+    return _filter_kept_names(
+        state,
+        [
+            name
+            for name in names
+            if is_mcp_tool_name(name) and name not in state.registry
+        ],
     )
-    if not missing or not state.filter_configured:
-        return missing
-    return state.filter_options.provider_visible_names(registered_names=missing)
+
+
+def _filter_kept_names(
+    state: ToolCapabilityState, names: Collection[str]
+) -> frozenset[str]:
+    """The names among ``names`` that the ``--tools``/``--exclude-tools``
+    filters would keep registered, registered or not (Pi
+    ``_isAllowedTool``). Pure."""
+
+    kept = frozenset(str(name) for name in names if str(name))
+    if not kept or not state.filter_configured:
+        return kept
+    return state.filter_options.provider_visible_names(registered_names=kept)
+
+
+def _loadout_names(state: ToolCapabilityState) -> frozenset[str]:
+    """The names of the tools the next request declares: active, registered,
+    not ``hidden`` and let be declared by the filters (Pi
+    ``getActiveToolNames``). Pure."""
+
+    return frozenset(definition.name for definition in _definitions_for(state, None))
 
 
 def _active_names(state: ToolCapabilityState) -> frozenset[str]:

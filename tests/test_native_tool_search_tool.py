@@ -799,3 +799,60 @@ def test_a_reload_with_a_tool_filter_keeps_a_loaded_tool(
     assert _tool_names(first) == ["tool_search"]
     assert _tool_names(second) == ["tool_search", "docs_search"]
     assert _tool_names(third) == ["tool_search", "docs_search"]
+
+
+_LATE_EXTENSION = """from pipy_harness.extensions import ExtensionTool, ToolResult
+
+_QUERY = {'type': 'object', 'properties': {'query': {'type': 'string'}},
+          'required': ['query'], 'additionalProperties': False}
+
+
+def activate(api):
+    @api.on('before_agent_start')
+    def register(_event, _ctx):
+        api.register_tool(ExtensionTool(
+            name='docs_search', description='Search the docs.',
+            input_schema=_QUERY, exposure='deferred',
+            handler=lambda ctx, params: ToolResult(content='found')))
+"""
+
+
+@pytest.mark.parametrize("filtered", [True, False])
+def test_a_reload_keeps_a_loaded_tool_registered_before_the_next_run(
+    tmp_path: Path, monkeypatch, filtered: bool
+) -> None:
+    # TSR-10 (goal check r7, U2): the reloaded extension registers the tool
+    # `tool_search` loaded only in `before_agent_start`. Pi's `reload` makes
+    # every active name pending, and `_startRun` drops the pending names
+    # after `before_agent_start`, so the next request declares it again.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "late.py").write_text(_LATE_EXTENSION, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(
+                tool_calls=(
+                    ProviderToolCall(
+                        "c1", "tool_search", '{"query":"search the docs","limit":1}'
+                    ),
+                )
+            ),
+            _result(final_text="loaded"),
+            _result(final_text="after the reload"),
+        ]
+    )
+
+    result = _session_run(
+        tmp_path,
+        provider,
+        "find a docs tool\n/reload\nuse it\n",
+        default_tools=["tool_search"],
+        tool_filter_options=ToolFilterOptions(exclude=("bash",)) if filtered else None,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    first, second, third = provider.requests
+    assert _tool_names(first) == ["tool_search"]
+    assert _tool_names(second) == ["tool_search", "docs_search"]
+    assert _tool_names(third) == ["tool_search", "docs_search"]

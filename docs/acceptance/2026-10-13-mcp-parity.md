@@ -133,6 +133,12 @@ where Pi's renderer keeps every call) names RND-04 and CMD-26, which sets
 CMD-26 to `closed, with limits`. The fix slices of that triage (Z1, Z2)
 change the rows they fix when they land.
 
+Updated in Z1 of the seventh goal check (2026-10-16): TSR-10 and TSR-12
+name their new tests (r7 U1, U2): a name `/tree` restores while its tool
+is `hidden` is pending only, and `/reload` makes every declared tool
+pending, so an extension tool the reloaded extensions register in
+`before_agent_start` is declared again. No row changes its state.
+
 ## Reference
 
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
@@ -502,9 +508,9 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | TSR-07 | S06 | closed, with limits | `test_native_tool_search.py`: `test_bm25_scores_follow_the_okapi_formula`, `test_ranks_by_term_relevance_and_respects_the_limit`, `test_ties_keep_registration_order`, `test_only_matching_documents_are_returned`; `test_native_mcp_manager.py`: `test_a_refreshed_list_keeps_the_order_the_tools_were_registered_in` (r5 X2) | Ties across MCP servers follow the configuration order, not the order the servers connected. DEV-94. |
 | TSR-08 | S06 | closed, with limits | `test_native_tool_search.py`: `test_document_text_lists_name_description_and_schema_in_order`, `test_document_text_follows_items_and_schema_combinators`, `test_document_text_includes_namespace_description_and_instructions`, `test_a_server_description_ranks_that_servers_tools` | DEV-29. |
 | TSR-09 | S09 | closed, with limits | `test_native_tool_search_tool.py`: `test_session_loads_a_deferred_tool_and_keeps_it_declared_on_the_branch` | A session resumed in a new process starts from the configured tools, as in Pi's CLI and SDK. DEV-30. |
-| TSR-10 | S22 | closed, with limits | `test_native_mcp_reload.py`: `test_tools_tool_search_loaded_are_declared_again_after_reload`, `test_a_loaded_tool_that_registers_after_the_prompt_started_stays_inactive`; `test_native_tool_capabilities_mcp.py`: `test_a_restored_transcript_declares_its_tools_once_their_server_connects`, `test_a_reload_with_a_tool_filter_keeps_a_loaded_extension_tool` (r4 U1); `test_native_tool_search_tool.py`: `test_a_reload_with_a_tool_filter_keeps_a_loaded_tool` (r4 U1) | After resume in a new process nothing is restored from the transcript (Pi's CLI does the same); `/reload` and `/tree` restore. DEV-30. |
+| TSR-10 | S22 | closed, with limits | `test_native_mcp_reload.py`: `test_tools_tool_search_loaded_are_declared_again_after_reload`, `test_a_loaded_tool_that_registers_after_the_prompt_started_stays_inactive`; `test_native_tool_capabilities_mcp.py`: `test_a_restored_transcript_declares_its_tools_once_their_server_connects`, `test_a_reload_with_a_tool_filter_keeps_a_loaded_extension_tool` (r4 U1), `test_a_reload_keeps_a_loaded_extension_tool_that_registers_later` (r7 U2), `test_a_restored_tool_registered_hidden_is_pending_only` (r7 U1); `test_native_tool_search_tool.py`: `test_a_reload_with_a_tool_filter_keeps_a_loaded_tool` (r4 U1), `test_a_reload_keeps_a_loaded_tool_registered_before_the_next_run` (r7 U2) | After resume in a new process nothing is restored from the transcript (Pi's CLI does the same); `/reload` and `/tree` restore. DEV-30. |
 | TSR-11 | S09 | closed | `test_native_tool_search_tool.py`: `test_finds_nothing_when_every_match_is_already_declared` |  |
-| TSR-12 | G8 | closed | `test_native_mcp_manager.py`: `test_a_loaded_tool_is_not_declared_again_when_its_server_is_enabled_again`; `test_native_tool_capabilities_mcp.py`: `test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back`; `test_native_mcp_manager_resources.py`: `test_a_loaded_resource_tool_leaves_the_selection_when_it_is_hidden` (R4) |  |
+| TSR-12 | G8 | closed | `test_native_mcp_manager.py`: `test_a_loaded_tool_is_not_declared_again_when_its_server_is_enabled_again`; `test_native_tool_capabilities_mcp.py`: `test_a_withdrawn_tool_is_gone_and_has_to_be_loaded_again_when_it_comes_back`; `test_native_mcp_manager_resources.py`: `test_a_loaded_resource_tool_leaves_the_selection_when_it_is_hidden` (R4), `test_a_restored_resource_tool_is_pending_only_while_it_is_hidden` (r7 U1) |  |
 
 ### Codemode reaching other tools (CMD)
 

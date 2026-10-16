@@ -1012,9 +1012,10 @@ def test_a_second_reload_keeps_the_pending_tools(tmp_path: Path) -> None:
 def test_a_reload_with_a_tool_filter_keeps_a_loaded_extension_tool(
     tmp_path: Path, registered: bool
 ) -> None:
-    # TSR-10, r4 U1; Pi `reload` passes every active name on and keeps those
-    # the filters allow. A tool the reloaded extensions no longer register
-    # is not kept.
+    # TSR-10, r4 U1, r7 U2; Pi `reload` passes every active name on and keeps
+    # those the filters allow, and makes every active name pending. A tool
+    # the reloaded extensions do not register (yet) is not active but
+    # pending.
     tools = _session(
         tmp_path,
         ToolFilterOptions(exclude=("bash",)),
@@ -1030,7 +1031,7 @@ def test_a_reload_with_a_tool_filter_keeps_a_loaded_extension_tool(
     )
 
     assert _declared(tools) == (("read", "lookup") if registered else ("read",))
-    assert tools.state.pending_tool_names == frozenset()
+    assert tools.state.pending_tool_names == (frozenset() if registered else {"lookup"})
 
 
 def test_a_reload_with_a_tool_filter_keeps_what_tool_search_loaded(
@@ -1045,6 +1046,96 @@ def test_a_reload_with_a_tool_filter_keeps_what_tool_search_loaded(
     tools.publish_mcp_tools(_mcp(search="direct", find="deferred", fetch="deferred"))
 
     assert _declared(tools) == ("read", "mcp__docs__search", "mcp__docs__find")
+
+
+@pytest.mark.parametrize("run_started", [False, True])
+@pytest.mark.parametrize("config", ["filter and defaults", "defaults", "neither"])
+def test_a_reload_keeps_a_loaded_extension_tool_that_registers_later(
+    tmp_path: Path, config: str, run_started: bool
+) -> None:
+    # TSR-10, goal check r7 U2: `defaultTools: ["tool_search"]`,
+    # `--exclude-tools bash` and a `deferred` extension tool the reloaded
+    # extension registers only in `before_agent_start`. Pi `reload` makes
+    # every active name pending, MCP tool or not, and `_startRun` drops the
+    # pending names only after `before_agent_start`, so the loaded tool is
+    # declared again without another search; one that registers after the
+    # run started is not.
+    def docs_search() -> dict[str, ToolPort]:
+        return {"docs_search": _Tool("docs_search", "deferred")}
+
+    tools = NativeToolCapabilities(
+        ProductionToolRegistry({"read": _Tool("read"), "bash": _Tool("bash")})
+        if config != "neither"
+        else {"read": _Tool("read"), "bash": _Tool("bash")},
+        {},
+        workspace_root=tmp_path,
+        filter_options=ToolFilterOptions(exclude=("bash",))
+        if config == "filter and defaults"
+        else ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        default_tools=(lambda: ("tool_search",)) if config != "neither" else None,
+    )
+    tools.publish(tools.prepare_extensions(docs_search()))
+    assert tools.load_tools(("docs_search",)) == ("docs_search",)
+    before = _declared(tools)
+    assert "docs_search" in before
+
+    _reload(tools)
+
+    assert "docs_search" not in _declared(tools)
+    assert "docs_search" in tools.state.pending_tool_names
+    if run_started:
+        tools.drop_pending_tools()
+    # The reloaded extension registers the tool (in `before_agent_start`).
+    assert tools.publish_extension_tools(
+        docs_search, extension_generation=tools.state.extension_generation
+    )
+
+    assert _declared(tools) == (
+        tuple(name for name in before if name != "docs_search")
+        if run_started
+        else before
+    )
+
+
+@pytest.mark.parametrize("run_started", [False, True])
+def test_a_restored_tool_registered_hidden_is_pending_only(
+    tmp_path: Path, run_started: bool
+) -> None:
+    # TSR-10, TSR-12, goal check r7 U1: load `read_mcp_resource`, disable
+    # the last server with resources (the resource tools are registered
+    # again `hidden`), `/tree` back to the entry that declared the tool,
+    # start a prompt and enable the server again. Pi
+    # `_restoreToolsFromTranscript` makes every kept name pending and
+    # `_applyToolLoadout` does not apply a `hidden` tool, so the tool is
+    # pending only and the next run start drops it: it has to be loaded
+    # again. Before the run starts, the server's return applies it.
+    def resource_tools(exposure: ToolExposure) -> dict[str, ToolPort]:
+        return {
+            name: _Tool(name, exposure)
+            for name in (
+                "list_mcp_resources",
+                "list_mcp_resource_templates",
+                "read_mcp_resource",
+            )
+        }
+
+    tools = _session(tmp_path)
+    tools.publish_mcp_tools(resource_tools("deferred"))
+    assert tools.load_tools(("read_mcp_resource",)) == ("read_mcp_resource",)
+    recorded = _declared(tools)
+    assert recorded == ("read", "bash", "read_mcp_resource")
+    tools.publish_mcp_tools(resource_tools("hidden"))
+    assert _declared(tools) == ("read", "bash")
+
+    tools.restore_active_tools(recorded)
+
+    assert tools.state.active_tool_names == {"read", "bash"}
+    assert tools.state.pending_tool_names == {"read_mcp_resource"}
+    if run_started:
+        tools.drop_pending_tools()
+    tools.publish_mcp_tools(resource_tools("deferred"))
+    assert _declared(tools) == (recorded[:2] if run_started else recorded)
 
 
 def test_a_reload_without_a_selection_leaves_nothing_pending(tmp_path: Path) -> None:
@@ -1108,16 +1199,19 @@ def test_a_restored_transcript_declares_its_tools_once_their_server_connects(
     tmp_path: Path,
 ) -> None:
     # Pi: "declares tools tool_search loaded again on resume once their
-    # server connects". Only names of MCP tools wait; the filters apply.
+    # server connects". Every name the filters keep that is not registered
+    # waits, also one that is not an MCP tool's (Pi
+    # `_restoreToolsFromTranscript`, r7 U1); the filters apply.
     tools = _session(tmp_path, ToolFilterOptions(exclude=("mcp__docs__fetch",)))
 
     tools.restore_active_tools(
         ("read", "vanished", "mcp__docs__find", "mcp__docs__fetch")
     )
 
-    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+    assert tools.state.pending_tool_names == {"vanished", "mcp__docs__find"}
     tools.publish_mcp_tools(_mcp(find="deferred", fetch="deferred"))
     assert _declared(tools) == ("read", "mcp__docs__find")
+    assert tools.state.pending_tool_names == {"vanished"}
     # A later restore replaces what was pending.
     tools.restore_active_tools(("read",))
     assert tools.state.pending_tool_names == frozenset()

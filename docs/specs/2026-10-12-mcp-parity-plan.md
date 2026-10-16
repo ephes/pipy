@@ -265,9 +265,9 @@ are closed.
 | TSR-07 | Ranking is Okapi BM25 with k1 1.2 and b 0.75 over unique query terms; only tools with a positive score are returned, best first, ties in registration order, at most `limit`. | `ts/tool.ts` `Bm25Ranker.rank` | S06, goal check r5 (X2) |
 | TSR-08 | A tool's search text is its name, its name with `_` as spaces, its description, the descriptions and property names of its input schema (through `properties`, `items`, `anyOf`, `oneOf`, `allOf`) and its namespace name, description and instructions. A server `description` therefore ranks that server's tools. | `ts/tool.ts` `createToolSearchDocument`, `schemaText` | S06 |
 | TSR-09 | Loaded tools are recorded in the transcript as a tool change and stay declared on that branch through `/tree`, resume and fork. | `ts/tool.ts` header; `docs/cli.md` "Tool search" | S09 |
-| TSR-10 | After resume and after `/reload`, tools that `tool_search` loaded are declared again once their server has reconnected before the next prompt starts; a tool that registers after the next prompt started is not activated by the restore. | `core/agent-session.ts` `_pendingToolNames`; `test/suite/agent-session-mcp.test.ts` "MCP tools after resume and reload" | S22 |
+| TSR-10 | After resume and after `/reload`, tools that `tool_search` loaded are declared again once their server has reconnected before the next prompt starts; a tool that registers after the next prompt started is not activated by the restore. `/reload` makes every declared tool pending, MCP tool or not, so an extension tool the reloaded extensions register later (also in `before_agent_start`) is declared again too; a restored name the loadout does not apply (not registered, `hidden`, or not activatable under `--tools`) is pending only. | `core/agent-session.ts` `_pendingToolNames`, `_restoreToolsFromTranscript`, `_applyToolLoadout`, `reload`, `_startRun`, `_refreshToolRegistry`; `test/suite/agent-session-mcp.test.ts` "MCP tools after resume and reload" | S22, goal check r7 (Z1) |
 | TSR-11 | When every matching tool is already declared, nothing is loaded and the result is `No matching tools found.` | `test/suite/agent-session-mcp.test.ts` "finds nothing to load when every matching tool is already declared" | S09 |
-| TSR-12 | A tool whose server is disabled or stops offering it leaves the active tools; offered again, a `codemode` or `deferred` tool that `tool_search` had loaded has to be loaded again. | `extensions/mcp/index.ts` `registerTools`, `hideTools`; `core/agent-session.ts` `_applyToolLoadout` | G8 |
+| TSR-12 | A tool whose server is disabled or stops offering it leaves the active tools; offered again, a `codemode` or `deferred` tool that `tool_search` had loaded has to be loaded again. So does one that `/tree` restored while it was `hidden` once the next prompt has started: the restore keeps it pending only. | `extensions/mcp/index.ts` `registerTools`, `hideTools`; `core/agent-session.ts` `_applyToolLoadout`, `_restoreToolsFromTranscript` | G8, goal check r7 (Z1) |
 
 ### 2.11 Codemode reaching other tools (CMD)
 
@@ -1395,7 +1395,7 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   `session_shutdown`.
 - TSR-10: `ToolCapabilityState.pending_tool_names` (Pi `_pendingToolNames`).
   Names enter it in three places: `publish` on reload keeps the declared
-  MCP tools of the live value (a configured filter derives the selection
+  tools of the live value (a configured filter derives the selection
   again, so they are read in the critical section of the swap; since goal
   check r4, U1, the same swap keeps the declared tools that are not MCP
   tools active when the new value has them and the filters admit them, as
@@ -1404,8 +1404,11 @@ Decided in S22 (`repl/mcp_session.py`, `/reload`, pending tool names):
   `restart_mcp_tools` moves the MCP tools declared at that moment out of the
   selection in the critical section that unregisters them (so a publication
   of the old servers between the two cannot lose a name), and
-  `restore_active_tools` does it for `/tree`. Only names of MCP tools that no tool
-  has and that the filters keep are pending. `with_mcp_registry` activates a
+  `restore_active_tools` does it for `/tree`. Until goal check r7 only the
+  declared MCP tools were pending after `publish`, and only MCP tools that
+  no tool had (or that the allowlist refused) after `restore_active_tools`;
+  since Z1 both follow Pi, see 5.3, "Z1 of the seventh goal check".
+  `with_mcp_registry` activates a
   pending name when its tool is offered; `set_active_tools` and
   `deactivate_indirect_mcp_tools` drop the pending names when they deactivate
   a tool (one that was declared); `drop_pending_tools` clears
@@ -3585,10 +3588,10 @@ tool selection to the configured one.
 Tools that `tool_search` loaded are active names in the transcript. After
 `/tree` the names are restored through
 `NativeToolCapabilities.restore_active_tools`, which drops unknown names; a
-reload unregisters the MCP tools. For TSR-10 the names that look like MCP
-tools are kept as pending names in the capability value and activated when
-their tool registers before the next prompt starts; the pending set is
-cleared at prompt start. How S22 built this is in 4.1, "Decided in S22".
+reload unregisters the MCP tools. For TSR-10 the declared names are kept
+as pending names in the capability value (since Z1 every declared name,
+not only those of MCP tools) and activated when their tool registers before
+the next prompt starts; the pending set is cleared at prompt start. How S22 built this is in 4.1, "Decided in S22".
 
 ## 5. Ordered slices
 
@@ -4883,6 +4886,36 @@ S35"; DEV-66). D3: the HTML export tells renderers `execution_started=True`
 (`RowRenderInputs.exported`; see S35 Part 4). Tests:
 `test_native_extension_tool_renderer_resolver.py`,
 `test_native_export_tool_rows.py`.
+
+**Z1 of the seventh goal check: restored and reloaded tool names.**
+Findings U1 and U2 of goal check r7 (TSR-10, TSR-12; Pi
+`core/agent-session.ts` `_restoreToolsFromTranscript`, `_applyToolLoadout`,
+`_setActiveTools`, `reload`, `_startRun`, `_refreshToolRegistry`). U1:
+`restore_active_tools` makes every restored name the filters keep pending
+(`_filter_kept_names`, Pi `_isAllowedTool`) and stores as the selection
+only the names the loadout applies: registered, not `hidden`, and let be
+active by the `--tools` allowlist (`_loadout_admits`). The others are
+pending only, whatever their name: a tool that is not registered yet, also
+one that is not an MCP tool's, one that is registered `hidden`, and one the
+allowlist refuses. Before, a registered `hidden` name (the resource tools
+while no server offers resources) was stored as active, so it was declared
+when its server came back after the next run had started, without a new
+search; and an unregistered name that was not an MCP tool's was dropped.
+U2: `publish` makes every tool the live value declares pending
+(`_loadout_names`, Pi `getActiveToolNames`), MCP tool or not, with what was
+pending already, and takes out the names the new value declares, as Pi's
+`_setActiveTools` does; the declared MCP tools stay pending while active,
+because their servers keep running until `restart_mcp_tools` unregisters
+them. Without a configured filter the carried selection keeps only the
+names the new value registers, with or without configured default tools,
+as Pi's `_applyToolLoadout` stores only registered tools; before, a name
+the reloaded extensions had not registered yet stayed active without
+configured defaults and was dropped with them. So a `deferred` extension
+tool that `tool_search` loaded and that the reloaded extension registers
+only in `before_agent_start` is declared again in the next request, as
+`drop_pending_tools` runs after those hooks, and one that registers after
+the run started is not. Tests: `test_native_tool_capabilities_mcp.py`,
+`test_native_mcp_manager_resources.py`, `test_native_tool_search_tool.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

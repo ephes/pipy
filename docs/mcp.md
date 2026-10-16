@@ -529,11 +529,14 @@ name now, as at the start of a session:
   tools like a first prompt.
 - A tool that `tool_search` loaded, or that was declared for another
   reason, is declared again when its server has connected before the next
-  prompt starts. A tool of a server that connects later is not: it is
-  registered like a new tool, so a `direct` tool is declared anyway and a
-  `codemode` or `deferred` tool has to be loaded again. The same holds after
-  `/tree` to an entry that declares a tool of a server that is still
-  connecting.
+  prompt starts, and so is an extension tool that the reloaded extensions
+  register before then, also in a `before_agent_start` handler. A tool
+  that registers later is not: it is registered like a new tool, so a
+  `direct` tool is declared anyway and a `codemode` or `deferred` tool has
+  to be loaded again. The same holds after `/tree` to an entry that
+  declares a tool that is not registered now (its server is still
+  connecting) or that is `hidden` (its server is disabled, or no server
+  offers resources any more).
 - When `/reload` keeps the previous extensions because the new ones were
   refused (`pipy: keeping the previous extensions.`), it also keeps the
   servers as they are and does not use the `mcp.json` it read.
@@ -1414,9 +1417,10 @@ Loaded tools are recorded in the session like other tool changes, so they
 stay declared on that branch: `/tree` to an entry before the load drops the
 tool, and `/tree` to a later entry declares it again. After a `/reload` a
 loaded MCP tool is declared again once its server has connected, see
-[Reloading](#reloading); a loaded extension tool stays declared when the
-reloaded extensions register it again, also with `--tools` or
-`--exclude-tools` given, as in Pi. A tool whose server is disabled, or that its server
+[Reloading](#reloading); a loaded extension tool is declared again when
+the reloaded extensions register it before the next prompt starts (also in
+a `before_agent_start` handler), also with `--tools` or `--exclude-tools`
+given, as in Pi. A tool whose server is disabled, or that its server
 stops offering, is no longer declared; when it comes back, a `direct` tool is
 declared again, and a tool `tool_search` had loaded has to be loaded again,
 as in Pi. A session that is resumed in a new pipy process starts from the

@@ -8,6 +8,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- `/reload` declares again every tool that was declared before it, not
+  only MCP tools, once the tool registers before the next prompt starts:
+  a `deferred` extension tool that `tool_search` loaded and that the
+  reloaded extension registers in a `before_agent_start` handler is
+  declared in the next request without another search, as in Pi; one that
+  registers after the next prompt started has to be loaded again. Before,
+  such a tool was dropped when `--tools`, `--exclude-tools` or
+  `defaultTools` were given, and otherwise declared again whenever it
+  registered. A tool `/tree` restores while it is `hidden` (the
+  resource tools while no server offers resources, a tool of a disabled
+  server) is not declared, and once the next prompt has started it has to
+  be loaded again when it comes back, as in Pi; before, it was declared
+  again without a search. See [Reloading](docs/mcp.md#reloading).
 - A tool that `tool_search` loaded under a `--tools` list that does not
   name it, and that its server lists again or an extension registers again
   as `direct`, leaves the active tools for good, as Pi applies the loadout

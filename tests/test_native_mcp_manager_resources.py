@@ -246,6 +246,34 @@ def test_a_loaded_resource_tool_leaves_the_selection_when_it_is_hidden(
     }
 
 
+def test_a_restored_resource_tool_is_pending_only_while_it_is_hidden(
+    tmp_path: Path,
+    sessions: list[_Session],  # noqa: F811
+) -> None:
+    # Goal check r7, U1 (TSR-10, TSR-12): load `read_mcp_resource`, disable
+    # the last server with resources, `/tree` back to the loadout that
+    # declared it, start a prompt, enable the server again. Pi
+    # `_restoreToolsFromTranscript` keeps the hidden tool pending only, and
+    # `_startRun` drops it, so it has to be loaded again.
+    session = _Session(tmp_path, {"docs": _ResourceServer()})
+    sessions.append(session)
+    session.start()
+    assert session.tools.load_tools(["read_mcp_resource"]) == ("read_mcp_resource",)
+    recorded = session.declared()
+    assert session.manager.set_enabled("docs", False) is None
+
+    session.tools.restore_active_tools(recorded)
+
+    assert session.declared() == ("read",)
+    assert session.tools.state.pending_tool_names == {"read_mcp_resource"}
+    session.tools.drop_pending_tools()
+    session.servers = {"docs": _ResourceServer()}
+    assert session.manager.set_enabled("docs", True) is None
+
+    assert _exposures(session) == {"deferred"}
+    assert session.declared() == ("read",)
+
+
 def test_the_other_server_keeps_the_tools_when_one_is_disabled(
     tmp_path: Path,
     sessions: list[_Session],  # noqa: F811
