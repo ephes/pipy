@@ -179,18 +179,21 @@ class LiveToolRegistry:
 
 
 class LiveToolRenderers(Mapping[str, ExtensionTool]):
-    """The tools of a generation that have a renderer, by name, as they are
-    registered now: a re-registered tool draws with its latest renderers."""
+    """The tools of a generation, by name, as they are registered now: a
+    re-registered tool draws with its latest renderers.
+
+    A tool without renderers is here too, as Pi's ``getToolDefinition``
+    returns a registered definition whatever renderers it has: a resolver's
+    ``next()`` gets it, and its calls get the generic rows. So an extension
+    tool that replaces ``codemode`` without renderers is not drawn with the
+    built-in ``codemode`` rows.
+    """
 
     def __init__(self, registry: LiveToolRegistry) -> None:
         self._registry = registry
 
     def _current(self) -> dict[str, ExtensionTool]:
-        return {
-            item.tool.name: item.tool
-            for item in self._registry.tools()
-            if item.tool.render_call is not None or item.tool.render_result is not None
-        }
+        return {item.tool.name: item.tool for item in self._registry.tools()}
 
     def __getitem__(self, name: str) -> ExtensionTool:
         return self._current()[name]

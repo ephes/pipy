@@ -201,8 +201,8 @@ class CustomEntryRenderer:
     def replay_tool_renderers(self, live: ToolRendererLookup) -> ToolRendererLookup:
         """What draws stored tool calls when the transcript is drawn again.
 
-        The published generation's tools that have a renderer and its tool
-        renderer resolvers; the MCP titles are ``live``'s, those of the
+        The published generation's tools, with or without renderers, and
+        its tool renderer resolvers; the MCP titles are ``live``'s, those of the
         provider turn that last started. Without a published generation it
         is ``live``.
         """

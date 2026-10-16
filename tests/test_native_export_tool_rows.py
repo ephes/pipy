@@ -730,6 +730,41 @@ def test_a_resolver_wraps_codemodes_rows_in_the_export(tmp_path: Path) -> None:
     assert _rendered(tree) == {}
 
 
+def test_a_rendererless_codemode_replacement_is_left_to_the_page(
+    tmp_path: Path,
+) -> None:
+    # Goal check r5, S1: the export uses the same lookup as the terminal.
+    # Pi `exportToHtml` resolves the registered definition, which has no
+    # renderers, so the page draws the call; `next()` hands it out.
+    replacement = ExtensionTool(
+        name="codemode",
+        description="d",
+        input_schema={"type": "object"},
+        handler=lambda ctx, params: "",
+    )
+    seen: list[object | None] = []
+
+    def fill_in(name: str, following: Any) -> object | None:
+        seen.append(following())
+        return following() or ToolRenderers(
+            render_call=lambda ctx: lines_component(["mine"]), render_result=None
+        )
+
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(_call("c1", "codemode", '{"code": "print(1)"}'),),
+        ),
+        _result("c1", "codemode", "1"),
+    )
+
+    lookup = ToolRendererLookup(tools={"codemode": replacement}, resolvers=(fill_in,))
+
+    assert _rendered(tree, lookup) == {}
+    assert seen == [replacement]
+
+
 def test_an_exported_call_is_drawn_before_its_result(tmp_path: Path) -> None:
     # Pi `createToolHtmlRenderer.renderCall`: the call's context is partial
     # and not an error, also for a call that failed; the result's says so.

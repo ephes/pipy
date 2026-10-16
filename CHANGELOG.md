@@ -35,6 +35,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `next()` left codemode's own result rows in place instead of the generic
   row. An extension tool named `codemode` that has renderers keeps them.
   See [tool rendering](docs/extension-api.md#tool-rendering).
+- A registered extension tool without renderers is what a tool renderer
+  resolver's `next()` returns, as Pi's registered definition, so
+  `next() or mine` no longer fills in for it. An extension tool that
+  replaces `codemode` without renderers is drawn with the generic rows,
+  partial results included, in the terminal and left to the page in
+  `/export` and `/share`; before, it got the built-in codemode rows, which
+  hid its partial results and treated its output as a script's (see
+  [tool rendering](docs/extension-api.md#tool-rendering)).
 - `/share` uploads the page `/export` writes, as Pi's `/share` uploads its
   `exportToHtml` page: the session's system prompt, and the tool calls drawn
   with the loaded extensions' renderers and resolvers and the session's MCP
@@ -58,6 +66,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
   or whose server was disabled, with exposure `hidden`, as Pi's
   `getAllTools` does. It stays neither declared nor callable, and `/mcp`
   does not count it. See [when tools change](docs/mcp.md#when-tools-change).
+- An MCP server's tools keep the order they were registered in when the
+  server announces a new tool list, as Pi keeps the place of a tool it
+  registers again: a list that orders them another way, or drops a tool
+  and offers it again, leaves them where they were, and a new tool comes
+  after the server's others. Before, the new list's order replaced it, so
+  of two tools that match a `tool_search` query equally well the other one
+  could come first after the change (see
+  [MCP](docs/mcp.md#when-tools-change)).
 - A `!` glob in the `extensions`, `skills`, `prompts` or `themes` settings
   matches as Pi's minimatch does for `**/`, which also matches no directory:
   `"extensions": ["!**/builtin:mcp"]` now turns MCP off, where before it
@@ -1439,9 +1455,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   then stops with an error (DEV-57, which now also names CMDL-06);
   `pipy mcp logout` waits for a running token refresh, at most 25 s, so that
   a refresh that ends in that time cannot store the tokens again (DEV-55); `ctx.get_all_tools()`
-  has no `sourceInfo` (DEV-25). 169 rows are closed with a test and 123 with
-  a limit. The [backlog](docs/backlog.md) has tool source metadata as an
-  extension-API follow-on.
+  has no `sourceInfo` (DEV-25). The [backlog](docs/backlog.md) has tool
+  source metadata as an extension-API follow-on. When the fix slice X2 was
+  merged, Q14 also accepted the new DEV-94: pipy orders the MCP tools of
+  different servers by the configuration, where Pi's order follows the
+  order in which the servers connected. With it 168 rows are closed with a
+  test and 124 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;

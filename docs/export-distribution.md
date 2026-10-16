@@ -268,8 +268,9 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   page shows such a call as a dark box titled "Tool call"; a click on a
   result that has both forms switches between them, and the separate "Tool
   result" entry of that call is left out. The stored call and result stay in
-  `entries`. Calls to the built-in tools and to tools without renderers are
-  shown as before. The arguments, the result text and the details pass the
+  `entries`. Calls to the built-in tools and to tools without renderers
+  (an extension tool that replaces `codemode` without renderers included)
+  are shown as before. The arguments, the result text and the details pass the
   credential redaction before anything is drawn. The terminal text becomes
   HTML with the foreground colours of the active theme, bold, italic and
   underline as inline styles; backgrounds and every other escape sequence

@@ -119,8 +119,8 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-15, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 169 are closed with a
-test and 123 with a recorded limit or deviation; none is open. The official
+every slice is on `feat/mcp-parity`. Of the 292 rows, 168 are closed with a
+test and 124 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
 
@@ -128,14 +128,16 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-93) that plan
+  differences from Pi (plan section 3.1, DEV-15 to DEV-94) that plan
   section 7, Q11 to Q14, do not name are accepted. Q11 (2026-10-15)
   accepts the findings of the second goal check that its triage neither
   fixes nor refutes; Q12, Q13 and Q14 (2026-10-15) do the same for the
   third, fourth and fifth goal checks. The fix slices T1 to T6 of the third
   triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5), and so
-  are the fix slices V1 to V3 of the fourth triage (V3 merged in INT6); the
-  fix slices X1 to X3 of the fifth triage are the rest of MCP1.
+  are the fix slices V1 to V3 of the fourth triage (V3 merged in INT6) and
+  the fix slices X1 to X3 of the fifth triage (X2 merged in INT7, which
+  added DEV-94, the order of the MCP tools across servers, accepted in
+  Q14).
 
 ### CM1 — Python codemode (done 2026-10-09)
 

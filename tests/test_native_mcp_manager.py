@@ -471,6 +471,64 @@ def test_a_changed_list_adds_withdraws_and_restores_tools(
     assert session.port("mcp__docs__fetch").definition.exposure == "deferred"
 
 
+def test_a_refreshed_list_keeps_the_order_the_tools_were_registered_in(
+    tmp_path: Path, sessions: list[_Session]
+) -> None:
+    # Goal check r5, U2 (TSR-07). Pi registers every tool of a list with
+    # `pi.registerTool`, which sets it in the MCP extension's tool `Map`: a
+    # name set again keeps its place, a new one comes last, and
+    # `tool_search` ranks the tools in that order, ties included.
+    from pipy_harness.native.tool_search import ToolSearchTool
+
+    def shared(name: str) -> dict[str, Any]:
+        return _tool(name, description="shared")
+
+    server = _Server(tools=[shared("alpha"), shared("beta")])
+    session = _Session(
+        tmp_path, {"docs": server}, [_entry("docs", exposure="deferred")]
+    )
+    sessions.append(session)
+    session.start()
+
+    def search() -> list[str]:
+        found = ToolSearchTool(session.tools)._search_and_load("shared", 1)
+        session.tools.deactivate_indirect_mcp_tools(session.mcp_names())
+        return [tool.name for tool in found]
+
+    def refresh(*tools: dict[str, Any]) -> None:
+        published = len(session.published)
+        server.tools = list(tools)
+        server.notify("notifications/tools/list_changed")
+        _wait_until(lambda: len(session.published) > published)
+
+    assert session.mcp_names() == ("mcp__docs__alpha", "mcp__docs__beta")
+    assert search() == ["mcp__docs__alpha"]
+
+    refresh(shared("beta"), shared("alpha"))
+    assert session.mcp_names() == ("mcp__docs__alpha", "mcp__docs__beta")
+    assert search() == ["mcp__docs__alpha"]
+
+    # A new tool comes after the others, wherever the list has it.
+    refresh(shared("gamma"), shared("beta"), shared("alpha"))
+    assert session.mcp_names() == (
+        "mcp__docs__alpha",
+        "mcp__docs__beta",
+        "mcp__docs__gamma",
+    )
+
+    # A tool that is gone and comes back takes its place again.
+    refresh(shared("beta"), shared("gamma"))
+    assert session.mcp_names() == ("mcp__docs__beta", "mcp__docs__gamma")
+    assert search() == ["mcp__docs__beta"]
+    refresh(shared("gamma"), shared("beta"), shared("alpha"))
+    assert session.mcp_names() == (
+        "mcp__docs__alpha",
+        "mcp__docs__beta",
+        "mcp__docs__gamma",
+    )
+    assert search() == ["mcp__docs__alpha"]
+
+
 def test_withdrawn_and_disabled_tools_stay_listed_as_hidden(
     tmp_path: Path, sessions: list[_Session]
 ) -> None:

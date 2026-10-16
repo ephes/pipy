@@ -7,7 +7,7 @@ Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
-(123 of them with a recorded limit or deviation); see section 3.2 and the
+(124 of them with a recorded limit or deviation); see section 3.2 and the
 [acceptance note](../acceptance/2026-10-13-mcp-parity.md).
 
 ## 1. Goal, reference and how to read this plan
@@ -262,7 +262,7 @@ are closed.
 | TSR-04 | Result text: `Loaded <n> tool(s). They are available from your next call:` and one `- <name>: <first description line>` per tool, or `No matching tools found.` Details carry `loaded` names. | `ts/tool.ts` `createToolSearchToolDefinition` `execute` | S09 |
 | TSR-05 | An empty query fails with `query must not be empty`; a limit that is not a positive integer fails with `limit must be a positive integer`. | `ts/tool.ts` `execute` | S09 |
 | TSR-06 | Tokenization: split at camelCase boundaries and non-alphanumerics, lower-case, drop the 21 stop words, fold plurals (`ies` to `y`, `ches/shes/sses/xes/zes` lose `es`, a final `s` unless `ss`). | `ts/tool.ts` `tokenize`, `stem`, `STOP_WORDS` | S06 |
-| TSR-07 | Ranking is Okapi BM25 with k1 1.2 and b 0.75 over unique query terms; only tools with a positive score are returned, best first, ties in registration order, at most `limit`. | `ts/tool.ts` `Bm25Ranker.rank` | S06 |
+| TSR-07 | Ranking is Okapi BM25 with k1 1.2 and b 0.75 over unique query terms; only tools with a positive score are returned, best first, ties in registration order, at most `limit`. | `ts/tool.ts` `Bm25Ranker.rank` | S06, goal check r5 (X2) |
 | TSR-08 | A tool's search text is its name, its name with `_` as spaces, its description, the descriptions and property names of its input schema (through `properties`, `items`, `anyOf`, `oneOf`, `allOf`) and its namespace name, description and instructions. A server `description` therefore ranks that server's tools. | `ts/tool.ts` `createToolSearchDocument`, `schemaText` | S06 |
 | TSR-09 | Loaded tools are recorded in the transcript as a tool change and stay declared on that branch through `/tree`, resume and fork. | `ts/tool.ts` header; `docs/cli.md` "Tool search" | S09 |
 | TSR-10 | After resume and after `/reload`, tools that `tool_search` loaded are declared again once their server has reconnected before the next prompt starts; a tool that registers after the next prompt started is not activated by the restore. | `core/agent-session.ts` `_pendingToolNames`; `test/suite/agent-session-mcp.test.ts` "MCP tools after resume and reload" | S22 |
@@ -446,7 +446,7 @@ Pi-shaped camelCase alias where the API already offers both).
 | EXT-12 | A tool can adjust what the model sees while it is active with `prepare_loadout(loadout)`: replacement descriptions for declared tools and declarations to hide. | `docs/extensions.md` (`prepareLoadout`); `core/extensions/types.ts` `ToolLoadout` | S37 |
 | EXT-13 | An extension that registers a tool named `codemode` or `tool_search` replaces the built-in tool of that name. MCP activates the replacement, and waits for servers before its calls, only when it declares `reaches_tools`. | `docs/mcp.md` "Replace the built-in MCP support"; `ext/index.ts` `ensureDiscoveryActive` (`hasReachingTool`) | S37 |
 | EXT-14 | An extension that registers the `/mcp` command replaces built-in MCP for sessions: `mcp.json` is not read, no server connects, and `/mcp` belongs to the extension. The `pipy mcp` shell commands keep using the built-in implementation. | `docs/mcp.md` "Replace the built-in MCP support"; `extensions/index.ts` (`replaceable`) | S37 |
-| EXT-15 | `register_tool_renderer(resolver)` chooses renderers for calls to any tool name, including tools that are not registered. | `docs/extensions.md` "Tool rendering" | S35 |
+| EXT-15 | `register_tool_renderer(resolver)` chooses renderers for calls to any tool name, including tools that are not registered. | `docs/extensions.md` "Tool rendering" | S35, goal check r5 (X2) |
 | EXT-16 | A `before_agent_start` handler can read and change the named system prompt sections of the coming request. | `core/extensions/types.ts` `BeforeAgentStartEvent.systemPromptOptions` | S20 |
 
 ### 2.19 SDK (SDK)
@@ -513,7 +513,8 @@ documents. The closeout (S40) collected them here so that the final judgement
 has one list. DEV-69 to DEV-78 were added by the triage of the second goal
 check (2026-10-15), DEV-79 when R2 was merged (INT4; closed by V3), DEV-80 to DEV-85 by
 the triage of the third goal check (2026-10-15), DEV-86 to DEV-93 by the
-triage of the fourth goal check (2026-10-15). A row that section 7, Q11,
+triage of the fourth goal check (2026-10-15), DEV-94 when X2 of the fifth
+goal check was merged (INT7). A row that section 7, Q11,
 Q12, Q13 or Q14, names is accepted by the owner; every other row is still a
 proposal.
 
@@ -556,7 +557,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-42 (closed by N2) | none | Was: `get_commands` answered an empty list. Since N2 it lists the extension commands (with `/mcp`), prompt templates (with pipy's custom commands) and skills; `sourceInfo` has only `path`. | closed | Decided in X1, N2 |
 | DEV-43 | MGR-09 | The manager view: titles are not bold and the copy note has no colour of its own; the pasted URL is edited with the selector input's keys; a screen taller than the terminal shows the text above its controls through a window that PageUp/PageDown scroll, where Pi's output scrolls with the terminal; `app.message.copy` is used only on the sign-in screen (Pi also copies a `/tree` message and the last assistant message with it); a URL that is not printable ASCII up to 4096 characters stays plain text without the click hint (Pi links every URL), and the click and copy hints are part of the scrolled text; the cancel key ends the waiting also during the reconnect after a sign-in; a sign-out that fails is a message in the server's menu. | other form | Decided in S34, N3; `docs/mcp.md` "The `/mcp` manager" |
 | DEV-44 | RND-01, RND-03 | MCP rows are drawn by pipy itself, by the name rule, also with MCP turned off; Pi has the rule only while its MCP extension is loaded. A title is made printable. pipy's export page is its own page with Pi's `renderedTools` added: inputs are redacted before they are drawn, the rows sit in a dark box, a result's images are shown for every tool (Pi: for `read`), and `pipy --export` runs no extension code (`/share` draws its page with the session's renderers on the session's thread before the upload, since goal check r4, D4). | other form | Decided in S35, S39 (part 3), V3 |
-| DEV-45 | EXT-15 | A resolver's `next()` gives `None` for an extension tool without renderers. pipy's own rows are callable renderers a resolver can wrap (since G9; also `codemode`'s since goal check r4, D3), with the live `edit` preview and the ticking `bash` time (since goal check r3, S11). `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. An extension tool named `codemode` without renderers gets pipy's codemode rows from `next()` and without a resolver; Pi draws it with the generic rows. | narrower | Decided in S35, G9, T4, V3 |
+| DEV-45 | EXT-15 | pipy's own rows are callable renderers a resolver can wrap (since G9; also `codemode`'s since goal check r4, D3), with the live `edit` preview and the ticking `bash` time (since goal check r3, S11). `renderShell` is not ported. A resolver that raises, or returns something that is not renderers, is left out; Pi lets the exception through. | narrower | Decided in S35, G9, T4, V3; narrowed by X2 |
 | DEV-46 | EXT-07, EXT-09 | The owner of a registration is the extension's path label, not its absolute path. Extensions that load before the project is trusted do not see each other's registrations: a shared name disables the later one when they are finalized (`duplicate_mcp_server`), and a `project_trust` handler cannot register or list servers in between. One extension that registers `my-server` and `my_server` while it loads is refused the second. | other form | Decided in S36 |
 | DEV-47 | EXT-10 | The report of unhandled registrations appears when MCP is turned off and no extension has a hook for `mcp_servers_change`, because pipy's MCP support is not an extension that handles the event. The text is Pi's. | other form | Decided in S36 |
 | DEV-48 | EXT-11 | The callable tools are fixed, for every depth, when the tool the model called starts (section 4.3; owner decision Q6). Nested calls run concurrently, except that calls of a tool with `execution_mode="sequential"` (Pi `executionMode`) run one at a time through Pi's exclusive queue (H3), a waiting call emitting its start event at once as in Pi (T1); no setting selects Pi's session-wide sequential mode. Those still running when their calling tool returns are cancelled (G2, G3). Its outcome's `result.content` is the text, with the blocks in `result.blocks` when there is an image, and a partial result reaches `on_update` as a `ToolResult` whose `content` is its text (a `bash` partial result is the output so far, as in Pi, since T1). The outcome's `duration_ms` runs from the nested call's start to its outcome, hooks included; Pi's `durationMs` is the tool's `execute()` alone (the JSON/RPC `durationMs` follows Pi since R5). No event is emitted for a name that is not callable. An exception raised by a nested caller's `on_update` is ignored; Pi fails the nested call. Usage is DEV-13. | narrower | Decided in S37 |
@@ -605,6 +606,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-91 | SLH-07, SLH-08 | A print or JSON mode prompt's own trailing newlines are removed before it is handled, so `/name\n` runs the command `name`; Pi looks up `name\n`, finds no command and sends the text to the model. Pi trims piped stdin too, so only a prompt given on the command line that ends in a newline differs. | other form | Goal check r4 (S6), accepted in Q13 |
 | DEV-92 | EXT-02 | An extension tool result's `details` is kept only when it is a JSON object; an array, string or number becomes `None`. Pi's `details` may be any value (extension-API backlog). | narrower | Goal check r4 (S8), accepted in Q13 |
 | DEV-93 | SLH-09 | An exception raised by an `input` handler is ignored without a diagnostic and the current text goes on, as with pipy's other fail-safe hooks (`before_agent_start`, `tool_result`, observers). Pi also goes on but emits an extension error naming the extension (extension-API backlog). | other form | Goal check r4 (S9), accepted in Q13 |
+| DEV-94 | TSR-07, SES-02 | The MCP tools are ordered by server, the servers in configuration order, and within a server in the order the names were first published; the resource tools come after them. Pi keeps every MCP tool in one `Map` in the order of first registration, so the servers follow each other in the order they connected, the resource tools come after the tools registered before the first server with resources, and a server's new tool comes after every tool registered before it, also other servers'. Within a server pipy follows Pi's rule (a name registered again keeps its place). Only ties in `tool_search` across servers and the order of the declared tools differ; pipy's order does not depend on connection timing. (The order across servers was configuration order since S15; X2 records it.) | other form | Decided in X2 (goal check r5, U2); recorded in INT7, accepted in Q14 |
 
 The two rows the audit left open were built after it: SLH-13 (commands
 and expansion in queued RPC input) and the hyperlink part of MGR-09, both in
@@ -621,8 +623,8 @@ test suite.
 
 | State | Rows | Which |
 | --- | --- | --- |
-| Closed with a test | 169 | see the note |
-| Closed with a limit or deviation | 123 | each names its DEV rows or its limit in the note |
+| Closed with a test | 168 | see the note |
+| Closed with a limit or deviation | 124 | each names its DEV rows or its limit in the note |
 | Closed in part | 0 | MGR-09 was closed in part at the audit; N3 built the hyperlink |
 | Open | 0 | SLH-13 was open at the audit; N2 built it |
 
@@ -658,7 +660,10 @@ U3 and F3 found. The fix slices X1 (P1, P2, F1) and X3 (U1, which
 narrowed DEV-32 to the config command and the limits of the minimatch
 port) of that
 triage changed no row's state.
-The 123 rows
+INT7 merged the fix slice X2 (U2, S1) of that triage: DEV-45 got
+narrower, and the new DEV-94 (the order of the MCP tools across servers,
+accepted in Q14) sets TSR-07 to closed with a limit and names SES-02 too.
+The 124 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11,
 Q12, Q13 and Q14, accept the DEV rows they name. Not rows, and still outstanding: the
@@ -1933,8 +1938,8 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   to extension renderers has six colours and none of these.
 - `tool_renderer_lookup.ToolRendererLookup.resolve(name)` is Pi's
   `resolveToolRenderers`: the resolvers of `register_tool_renderer` in load
-  order, then what the tool itself has: the extension tool of that name
-  that has a renderer, `BuiltinToolRows()` for a built-in tool (and, since
+  order, then what the tool itself has: the registered extension tool of
+  that name, with or without renderers, `BuiltinToolRows()` for a built-in tool (and, since
   goal check r4, D3, for `codemode`: `tool_rows.OWN_ROWS_TOOLS`), else
   `McpToolRows(label)`. The label of a registered
   server tool is `McpToolPort.label`, read from the capability value the
@@ -1959,13 +1964,21 @@ Decided in S35 (rendering; `tool_rows.py`, `tool_renderer_lookup.py`,
   renderers; here the name rule is part of what the tool itself has, with
   the same effect. `next()` is computed once per resolver. A resolver that
   raises or returns something that is not renderers is left out (Pi lets
-  the exception through). `next()` gives a marker for pipy's own rows and
-  `None` for an extension tool without renderers, where Pi gives real
-  renderers and the tool's definition; `renderShell` is not ported.
+  the exception through). `next()` gives a marker for pipy's own rows
+  where Pi gives real renderers, and the registered extension tool, with
+  or without renderers, as Pi gives the tool's definition; `renderShell`
+  is not ported. Since goal check r5 (S1) `LiveToolRenderers` holds every
+  registered tool of the generation, with or without renderers (Pi
+  `getToolDefinition`), and the lookup returns it from `next()` and for the
+  row; only the built-in `codemode` gets the codemode rows. The seven
+  built-in tool names stay reserved, so their calls keep pipy's rows, which
+  is what Pi's `withBuiltInRenderers` gives a replacement of them without
+  renderers. `/export` and `/share` use the same lookup
+  (`published_tool_renderer_lookup`).
   Recorded in `docs/extension-api.md` "Tool rendering".
 - A transcript that is drawn again takes its lookup from the published
-  generation (`CustomEntryRenderer.replay_tool_renderers`: every extension
-  tool with a renderer, and the resolvers), with the MCP titles of the
+  generation (`CustomEntryRenderer.replay_tool_renderers`: every registered
+  extension tool, and the resolvers), with the MCP titles of the
   provider turn that last started. Before S35 it used the live renderer's
   map, which is empty until the first provider turn and holds only that
   turn's declared tools afterwards.
@@ -3102,6 +3115,13 @@ empties the list, as Pi's new MCP extension has registered nothing. The
 name-ownership map (TLS-03) lives in the manager for the session: it records
 which tool a name was assigned to, so a name is never handed to a different
 tool, while collision suffixes are recomputed from every new list as in Pi.
+
+Since goal check r5 (U2, TSR-07) the manager keeps each server's tools in
+the order their names were first published (`McpManager._order`, never
+shrunk, as Pi's tool `Map` never drops a key), so a refreshed list that
+reorders, drops or restores tools leaves the tie order of the ranking as it
+was; a new tool comes after the server's others. The servers follow each
+other in configuration order and the resource tools come last (DEV-94).
 
 A tool port holds the server name and tool name, not a connection: it asks the
 manager for the current connection when it runs (TLS-19).
@@ -4719,6 +4739,20 @@ the segment port, then the matcher with its use and the docs. Tests:
 `test_native_minimatch.py`, `test_native_resource_enablement.py`,
 `test_native_mcp_discovery.py`.
 
+**X2 of the fifth goal check: tool order on refresh, rendererless
+replacements.** Findings U2 and S1 of goal check r5 (not the X2 of the slice
+table), built on a parallel track and folded in INT7. U2 (TSR-07, DEV-94):
+`McpManager._merged_ports` orders each server's tools by `_order`, the
+names in the order of their first publication, so a refreshed list keeps
+the tie order of `tool_search` (see 4.4). S1 (EXT-15, EXT-13, DEV-45):
+`LiveToolRenderers` keeps every registered extension tool, also one without
+renderers, and `ToolRendererLookup._own` returns it, so a resolver's
+`next()` gets it and a rendererless replacement of `codemode` is drawn with
+the generic rows in the terminal and left to the page in `/export` and
+`/share` (see "Decided in S35"). Tests: `test_native_mcp_manager.py`,
+`test_native_extension_tool_renderer_resolver.py`,
+`test_native_export_tool_rows.py`, `test_native_extension_live_tools.py`.
+
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using
 `McpServerConnection` and `sign_in_mcp_server`, with a committed baseline;
@@ -4898,7 +4932,7 @@ among them) as they land.
 
 | ID | Question | Decision |
 | --- | --- | --- |
-| Q14 | Goal-check round 5 (goal-r5.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decided 2026-10-15 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. Two are recorded differences where pipy's outcome is the safer one, and one is general extension-API metadata, not MCP: F2 (DEV-57, `add --local` with a trust store that cannot be read writes nothing, where Pi writes the entry and then stops with an uncaught error); F3 (DEV-55 as it stands after V1, a sign-out waiting for a running refresh, at most 25 s, so that a refresh that ends in that time cannot store the tokens again; one still running after the wait can, as in Pi); U3 (DEV-25, the missing `sourceInfo` of `get_all_tools()`, which Q11 already accepted as r2 S15; backlog). Fixed by the slices X1 to X3: P1, P2, F1, U1, U2, S1. Every DEV row named here counts as accepted. |
+| Q14 | Goal-check round 5 (goal-r5.md): findings that remain after the triage of 2026-10-15. | **Accepted as deviations** (owner decided 2026-10-15 via the standing triage decision). The following findings are settled and are not functional gaps for the parity goal. Two are recorded differences where pipy's outcome is the safer one, and one is general extension-API metadata, not MCP: F2 (DEV-57, `add --local` with a trust store that cannot be read writes nothing, where Pi writes the entry and then stops with an uncaught error); F3 (DEV-55 as it stands after V1, a sign-out waiting for a running refresh, at most 25 s, so that a refresh that ends in that time cannot store the tokens again; one still running after the wait can, as in Pi); U3 (DEV-25, the missing `sourceInfo` of `get_all_tools()`, which Q11 already accepted as r2 S15; backlog). Fixed by the slices X1 to X3: P1, P2, F1, U1, U2, S1. Added by the coordinator after X2 (2026-10-15, same triage decision): U2's order across servers (DEV-94; X2 applies Pi's rule that a tool registered again keeps its place within each server and keeps the configuration order between servers, where Pi's follows the order in which the servers connected, which is not deterministic). Every DEV row named here counts as accepted. |
 
 A DEV row of section 3 or 3.1 that Q11, Q12, Q13 or Q14 names is accepted.
 One none of them names stays a proposal for the final judgement.

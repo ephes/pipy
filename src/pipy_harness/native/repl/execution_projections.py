@@ -258,8 +258,8 @@ class SessionExecutionProjections:
     def tool_renderer_lookup(
         self, advertised_names: Sequence[str]
     ) -> ToolRendererLookup:
-        """What draws this provider turn's tool calls: the renderers of its
-        advertised extension tools, the titles of its MCP server tools and
+        """What draws this provider turn's tool calls: its advertised
+        extension tools (with or without renderers), the titles of its MCP server tools and
         the resolvers its extension generation registered."""
 
         active = self._require_active()
@@ -271,8 +271,8 @@ class SessionExecutionProjections:
 
     def published_tool_renderer_lookup(self) -> ToolRendererLookup:
         """What draws stored tool calls outside a provider turn, as an export
-        does: every tool of the published generation that has a renderer, its
-        resolvers, and the titles of the MCP server tools registered now."""
+        does: every tool of the published generation, with or without
+        renderers, its resolvers, and the titles of the MCP server tools registered now."""
 
         with self._generation_ref.lock:
             projection = self._generation_ref.snapshot().generation.projection
@@ -304,9 +304,10 @@ class SessionExecutionProjections:
 def renderers_of(
     renderers: Mapping[str, ExtensionTool], names: Sequence[str]
 ) -> dict[str, ExtensionTool]:
-    """The renderers of ``names`` that have some. One ``get`` per name: the
-    renderers follow tools registered while the session runs, so a name's
-    membership and its renderers are read in one step."""
+    """The registered extension tools among ``names``, with or without
+    renderers. One ``get`` per name: the renderers follow tools registered
+    while the session runs, so a name's membership and its renderers are
+    read in one step."""
 
     chosen: dict[str, ExtensionTool] = {}
     for name in names:

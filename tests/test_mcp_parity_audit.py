@@ -158,7 +158,7 @@ def _deviations() -> list[str]:
 def test_the_deviations_are_numbered_without_a_gap() -> None:
     deviations = _deviations()
 
-    assert deviations == [f"DEV-{number:02d}" for number in range(1, 94)]
+    assert deviations == [f"DEV-{number:02d}" for number in range(1, 95)]
     # A closed deviation keeps its number and says so.
     section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
     closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
@@ -175,8 +175,8 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    # DEV-15 to DEV-93 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
-    assert len(cells) == 75
+    # DEV-15 to DEV-94 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
+    assert len(cells) == 76
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
@@ -325,7 +325,7 @@ def test_q14_accepts_the_rows_of_the_fifth_triage() -> None:
     q14 = _decision("Q14")
     accepted = set(re.findall(r"DEV-\d{2}", q14))
 
-    assert accepted == {"DEV-25", "DEV-55", "DEV-57"}
+    assert accepted == {"DEV-25", "DEV-55", "DEV-57", "DEV-94"}
     # U3 restates r2 S15, which Q11 accepted with all of DEV-25.
     assert "U3 (DEV-25, the missing `sourceInfo`" in q14
     assert "DEV-25" in set(re.findall(r"DEV-\d{2}", _q11()))
@@ -353,6 +353,31 @@ def test_q14_accepts_the_rows_of_the_fifth_triage() -> None:
     assert "finding U3; plan DEV-25" in backlog
     assert "`source_info` on `ToolInfo`" in backlog
     assert "Q11, Q12, Q13 or Q14 names is accepted." in _PLAN.read_text()
+
+
+def test_the_fixes_of_the_fifth_triage_ordered_and_drew_as_pi() -> None:
+    # INT7 folded X2 (docs/specs/2026-10-15-mcp-gaps-r5-notes.md): U2 keeps
+    # a server's tools in their first order, and the coordinator accepted
+    # the order across servers as DEV-94 under Q14; S1 left DEV-45 without
+    # its two rendererless cases.
+    assert "U2's order across servers (DEV-94;" in _decision("Q14")
+    assert "| DEV-94 | TSR-07, SES-02 |" in _deviation(94)
+    assert _deviation(94).endswith("recorded in INT7, accepted in Q14 |")
+    tsr07 = next(
+        line for line in _NOTE.read_text().splitlines() if "| TSR-07 |" in line
+    )
+    assert "| closed, with limits |" in tsr07
+    assert (
+        "`test_a_refreshed_list_keeps_the_order_the_tools_were_registered_in`" in tsr07
+    )
+    assert tsr07.endswith("DEV-94. |")
+    assert "without renderers" not in _deviation(45)
+    assert "narrowed by X2 |" in _deviation(45)
+    ext15 = next(
+        line for line in _NOTE.read_text().splitlines() if "| EXT-15 |" in line
+    )
+    assert "`test_a_rendererless_codemode_replacement_is_left_to_the_page`" in ext15
+    assert not (_DOCS / "specs" / "2026-10-15-mcp-gaps-r5-notes.md").exists()
 
 
 def _rows_of(cell: str) -> list[str]:
