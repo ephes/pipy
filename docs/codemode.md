@@ -606,7 +606,12 @@ row's width (script output is often one long JSON line), followed by
 `Full output: <path>`. Ctrl+O shows all of it, with the notice that ends a
 spilled result. Unlike Pi, the call is still drawn as `codemode code="…"`
 rather than as the highlighted script, and the row adds no `Model calls:`
-cost line.
+cost line. The nested calls and the output are the result part of
+codemode's rows, as in Pi, where `codemodeRenderers.renderResult` draws
+both: renderers of an extension that replace codemode's draw no nested
+calls of pipy's, and a resolver that wraps codemode's rows gets them from
+the result part (see
+[Tool rendering](extension-api.md#tool-rendering)).
 JSON/RPC child lifecycle events, live output (`tool_execution_update`) included,
 carry `parentToolCallId`. Only the parent result
 enters provider and durable product history, with a bounded `nestedCalls` record:

@@ -117,7 +117,7 @@ servers on Windows, the Radius offer after a login and codemode `models.*`
 are outside the parity goal; inline terminal images are in scope; Pillow is
 the optional `images` extra.
 
-State after the closing audit and the goal-check tracks (2026-10-15, plan
+State after the closing audit and the goal-check tracks (2026-10-16, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
 every slice is on `feat/mcp-parity`. Of the 292 rows, 168 are closed with a
 test and 124 with a recorded limit or deviation; none is open. The official
@@ -128,16 +128,19 @@ MCP conformance suite gives the same result for pipy as for Pi
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
 - **Owner decisions:** the merge to `main`; which of the recorded
-  differences from Pi (plan section 3.1, DEV-15 to DEV-94) that plan
-  section 7, Q11 to Q14, do not name are accepted. Q11 (2026-10-15)
+  differences from Pi (plan section 3.1, DEV-15 to DEV-95) that plan
+  section 7, Q11 to Q15, do not name are accepted. Q11 (2026-10-15)
   accepts the findings of the second goal check that its triage neither
   fixes nor refutes; Q12, Q13 and Q14 (2026-10-15) do the same for the
-  third, fourth and fifth goal checks. The fix slices T1 to T6 of the third
-  triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5), and so
-  are the fix slices V1 to V3 of the fourth triage (V3 merged in INT6) and
-  the fix slices X1 to X3 of the fifth triage (X2 merged in INT7, which
-  added DEV-94, the order of the MCP tools across servers, accepted in
-  Q14).
+  third, fourth and fifth goal checks, and Q15 (2026-10-16) records that
+  the sixth goal check left nothing to accept. The fix slices T1 to T6 of
+  the third triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5),
+  and so are the fix slices V1 to V3 of the fourth triage (V3 merged in
+  INT6), the fix slices X1 to X3 of the fifth triage (X2 merged in INT7,
+  which added DEV-94, the order of the MCP tools across servers, accepted
+  in Q14) and the fix slices Y1 to Y3 of the sixth triage (Y3 merged in
+  INT8, which added DEV-95, two limits of a wrapped `edit` row, a
+  proposal).
 
 ### CM1 — Python codemode (done 2026-10-09)
 

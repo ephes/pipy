@@ -158,7 +158,7 @@ def _deviations() -> list[str]:
 def test_the_deviations_are_numbered_without_a_gap() -> None:
     deviations = _deviations()
 
-    assert deviations == [f"DEV-{number:02d}" for number in range(1, 95)]
+    assert deviations == [f"DEV-{number:02d}" for number in range(1, 96)]
     # A closed deviation keeps its number and says so.
     section = _PLAN.read_text().split("## 3. Proposed deviations")[1]
     closed = re.findall(r"^\| (DEV-\d{2}) \(closed by ", section, flags=re.MULTILINE)
@@ -175,8 +175,8 @@ def test_every_deviation_the_note_names_is_in_the_plan() -> None:
     recorded = _PLAN.read_text().split("### 3.1 Differences the slices recorded")[1]
     recorded = recorded.split("### 3.2 Audit result")[0]
     cells = re.findall(r"^\| DEV-\d{2} \| ([^|]*) \|", recorded, flags=re.MULTILINE)
-    # DEV-15 to DEV-94 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
-    assert len(cells) == 76
+    # DEV-15 to DEV-95 without the closed DEV-39, DEV-42, DEV-65 and DEV-79.
+    assert len(cells) == 77
     rows = set(_plan_rows())
     for cell in cells:
         assert set(re.findall(_ROW_ID, cell)) <= rows | {"DEV-12"}, cell
@@ -261,7 +261,7 @@ def test_the_fixes_of_the_third_triage_left_the_limits() -> None:
         line for line in _NOTE.read_text().splitlines() if "| EXT-15 |" in line
     )
     assert "| `renderShell` is not ported. DEV-45. A renderer's" in ext15
-    assert ext15.endswith("without its image blocks. DEV-86. |")
+    assert "without its image blocks. DEV-86." in ext15
     assert "no live preview" not in _NOTE.read_text()
     assert "test_without_waitid" not in _PLAN.read_text()
     notes = (_DOCS / "specs" / "2026-10-15-mcp-gaps-r3-notes.md").read_text()
@@ -352,7 +352,7 @@ def test_q14_accepts_the_rows_of_the_fifth_triage() -> None:
     backlog = (_DOCS / "backlog.md").read_text()
     assert "finding U3; plan DEV-25" in backlog
     assert "`source_info` on `ToolInfo`" in backlog
-    assert "Q11, Q12, Q13 or Q14 names is accepted." in _PLAN.read_text()
+    assert "Q11, Q12, Q13, Q14 or Q15 names is accepted;" in _PLAN.read_text()
 
 
 def test_the_fixes_of_the_fifth_triage_ordered_and_drew_as_pi() -> None:
@@ -378,6 +378,49 @@ def test_the_fixes_of_the_fifth_triage_ordered_and_drew_as_pi() -> None:
     )
     assert "`test_a_rendererless_codemode_replacement_is_left_to_the_page`" in ext15
     assert not (_DOCS / "specs" / "2026-10-15-mcp-gaps-r5-notes.md").exists()
+
+
+def test_q15_accepts_nothing_of_the_sixth_triage() -> None:
+    # Goal check r6 (at c2e54cb7) found eight Warnings; the slices Y1 to Y3
+    # fixed all of them, so Q15 names no DEV row and accepts nothing.
+    q15 = _decision("Q15")
+
+    assert re.findall(r"DEV-\d{2}", q15) == []
+    assert "**None remain; nothing is accepted**" in q15
+    fixed = q15.split("Fixed by the slices Y1 to Y3: ")[1].split(". ")[0]
+    assert fixed.split(", ") == ["Q1", "Q2", "S2", "U1", "S1", "D1", "D2", "D3"]
+    plan = _PLAN.read_text()
+    assert "Q11, Q12, Q13, Q14 or Q15 names is accepted;\nQ15 names none." in plan
+    recorded = plan.split("### 3.1 Differences the slices recorded")[1]
+    recorded = recorded.split("### 3.2 Audit result")[0]
+    assert "in Q15" not in recorded
+    assert "Q11 to Q15 do not name" in _NOTE.read_text()
+    assert "section 7, Q11 to Q15, do not name" in (_DOCS / "backlog.md").read_text()
+
+
+def test_the_fixes_of_the_sixth_triage_drew_and_activated_as_pi() -> None:
+    # INT8 folded Y3 (docs/specs/2026-10-16-mcp-gaps-r6-notes.md): D1 lets a
+    # wrapper change what pipy's own rows draw, with the two `edit` limits of
+    # the new DEV-95 (a proposal); D2 moves the nested calls into codemode's
+    # result part, which DEV-66 now says; D3 tells export renderers that the
+    # call started. Y1 and Y2 narrowed DEV-52 and DEV-31.
+    assert "| DEV-95 | EXT-15 |" in _deviation(95)
+    assert _deviation(95).endswith(
+        "Decided in Y3 (goal check r6, D1); recorded in INT8 |"
+    )
+    assert "at the start of the result part" in _deviation(66)
+    assert "between the call and the output" not in _deviation(66)
+    assert "narrowed by R4, T3 and Y2 |" in _deviation(31)
+    assert "runs for every MCP request" not in _deviation(52)
+    lines = _NOTE.read_text().splitlines()
+    ext15 = next(line for line in lines if "| EXT-15 |" in line)
+    assert "`test_a_wrapper_redacts_an_mcp_rows_arguments_and_result`" in ext15
+    assert ext15.endswith("its call part shows the diff of its own result. DEV-95. |")
+    rnd04 = next(line for line in lines if "| RND-04 |" in line)
+    assert "`test_renderers_that_replace_codemodes_draw_no_nested_calls`" in rnd04
+    rnd03 = next(line for line in lines if "| RND-03 |" in line)
+    assert "`test_export_renderers_are_told_each_calls_id` (r6 D3)" in rnd03
+    assert not (_DOCS / "specs" / "2026-10-16-mcp-gaps-r6-notes.md").exists()
 
 
 def _rows_of(cell: str) -> list[str]:

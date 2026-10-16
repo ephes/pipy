@@ -57,6 +57,7 @@ from pipy_harness.native.tool_rows import (
     collapsed_tool_args,
     is_nested_under,
     nested_line_text,
+    nested_lines_from_details,
 )
 
 
@@ -773,16 +774,6 @@ class _ToolLoopRenderer:
         # Plain rows never start a preview or execution timer; a displayed
         # call (a replayed one) did not start running here.
         self._execution_started = not display_only
-        with self._terminal_lock:
-            self._nested_parent_id = (
-                call.provider_correlation_id if call.tool_name == "codemode" else None
-            )
-        self._clear_working()
-        self._close_reasoning()
-        self._last_tool_name = call.tool_name
-        self._last_arguments = _parse_tool_input(call.arguments_json.value)
-        self._pending_render = None
-        self._pending_tool = None
         resolved = self._tool_renderers.resolve(
             call.tool_name, builtin=call.tool_name in OWN_ROWS_TOOLS
         )
@@ -790,6 +781,22 @@ class _ToolLoopRenderer:
         # Whether the call keeps pipy's own header and edit/write preview. A
         # resolver that chose other renderers, or none, took them away.
         self._own_rows = isinstance(resolved, BuiltinToolRows)
+        with self._terminal_lock:
+            # A codemode script's nested calls are part of codemode's own
+            # rows (Pi `codemodeRenderers`): written as they run when the
+            # call keeps them, and part of the result that renderers
+            # wrapping them draw (`_own_lines`).
+            self._nested_parent_id = (
+                call.provider_correlation_id
+                if call.tool_name == "codemode" and self._own_rows
+                else None
+            )
+        self._clear_working()
+        self._close_reasoning()
+        self._last_tool_name = call.tool_name
+        self._last_arguments = _parse_tool_input(call.arguments_json.value)
+        self._pending_render = None
+        self._pending_tool = None
         tool: RowRenderers | None = None
         if resolved is not None and not isinstance(
             resolved, McpToolRows | BuiltinToolRows
@@ -920,7 +927,7 @@ class _ToolLoopRenderer:
 
         if not self._own_rows:
             return
-        text = self._mutation_preview(is_error, details)
+        text = self._mutation_preview(is_error, details, self._last_arguments)
         if text:
             try:
                 with self._terminal_lock:
@@ -930,9 +937,13 @@ class _ToolLoopRenderer:
                 pass
 
     def _mutation_preview(
-        self, is_error: bool, details: Mapping[str, Any] | None
+        self,
+        is_error: bool,
+        details: Mapping[str, Any] | None,
+        args: Mapping[str, object],
     ) -> str:
-        """The edit diff or the write content of the current call, or ""."""
+        """The edit diff or the write content of the current call with
+        ``args`` and the result's ``details``, or ""."""
 
         if is_error:
             return ""
@@ -940,7 +951,7 @@ class _ToolLoopRenderer:
             diff = details.get("diff")
             return diff if isinstance(diff, str) else ""
         if self._last_tool_name == "write":
-            content = self._last_arguments.get("content")
+            content = args.get("content")
             if isinstance(content, str):
                 lines = content.replace("\r", "").replace("\t", "   ").split("\n")
                 while lines and lines[-1] == "":
@@ -1060,26 +1071,27 @@ class _ToolLoopRenderer:
             execution_started=self._execution_started,
             is_partial=not is_result,
             duration_ms=duration_ms,
-            _own_rows=lambda phase, label: self._own_lines(
-                phase, label, args, content, is_error, details
-            ),
+            _own_rows=lambda own, phase, label: self._own_lines(own, phase, label),
         )
         return render_tool_phase(renderer, ctx)
 
     def _own_lines(
-        self,
-        phase: str,
-        mcp_label: str | None,
-        args: Mapping[str, object],
-        content: str | None,
-        is_error: bool,
-        details: Mapping[str, Any] | None,
+        self, ctx: ToolRenderContext, phase: str, mcp_label: str | None
     ) -> list[str] | None:
         """This renderer's own lines of the current call, for a renderer
         that wraps them: the call header as built-in or MCP rows draw it,
         or the result preview, after the edit diff or write content of a
-        built-in call. Plain text; the panel styles them."""
+        built-in call, or after a codemode script's nested calls. Plain
+        text; the panel styles them. Drawn from the arguments, result and
+        ``is_partial`` of the context the wrapper passed
+        (``ToolRenderContext._own_rows``), as Pi's renderers draw what they
+        are given: ``content`` None is no output, and a partial codemode
+        result has no output, as Pi's codemode renderer. These rows are
+        always collapsed. None for a result phase without a result."""
 
+        args = ctx.args
+        details = ctx.details
+        is_error = ctx.is_error
         if phase == "call":
             segments = self._format_pi_call_header_rich(
                 self._last_tool_name,
@@ -1088,14 +1100,24 @@ class _ToolLoopRenderer:
                 own_rows=mcp_label is None,
             )
             return ["".join(text for text, _style in segments)]
-        if content is None:
+        if not ctx.is_result:
             return None
-        preview = (
-            "" if mcp_label is not None else self._mutation_preview(is_error, details)
+        codemode = mcp_label is None and self._last_tool_name == "codemode"
+        output = (
+            []
+            if codemode and ctx.is_partial
+            else self._default_result_lines(ctx.content or "", is_error)
         )
+        preview = (
+            ""
+            if mcp_label is not None
+            else self._mutation_preview(is_error, details, args)
+        )
+        nested = nested_lines_from_details(details) if codemode else ()
         return [
+            *("  " + nested_line_text(line, expanded=False) for line in nested),
             *(preview.split("\n") if preview else ()),
-            *(text for text, _style in self._default_result_lines(content, is_error)),
+            *(text for text, _style in output),
         ]
 
     def _tool_panel_line(

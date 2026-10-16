@@ -33,12 +33,17 @@ if TYPE_CHECKING:
 
 def _own_rows(ctx: ToolRenderContext, phase: str, label: str | None) -> object:
     """A component with pipy's own rows of ``ctx``'s call, or None where no
-    row asked (a context made outside pipy's rows)."""
+    row asked (a context made outside pipy's rows).
+
+    The rows draw what ``ctx`` holds, as Pi's renderers draw the arguments,
+    result and options they are given: a wrapper that passes
+    ``dataclasses.replace(ctx, ...)`` changes or withholds what is shown.
+    """
 
     from pipy_harness.native.extension_ui import lines_component
 
     draw = ctx._own_rows
-    lines = None if draw is None else draw(phase, label)
+    lines = None if draw is None else draw(ctx, phase, label)
     return None if lines is None else lines_component(list(lines))
 
 

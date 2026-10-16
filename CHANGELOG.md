@@ -39,6 +39,31 @@ entries oldest-first, and a version bump shows the new entries at startup.
   every provider construction. A `models.json` `apiKey` command still runs
   every time, as in Pi. See
   [credential command helpers](docs/providers.md#credential-command-helpers).
+- pipy's own rows that a tool renderer resolver wraps (`next()`'s
+  renderers for a built-in tool, `codemode` or an MCP tool) draw the
+  context they are called with: its `args`, `content`, `details`,
+  `is_error`, `is_partial` and `expanded`, as Pi's renderers draw the
+  arguments, result and options they are given. A wrapper that passes
+  `dataclasses.replace(ctx, args=..., content=...)` can now change or
+  withhold what they show; before, they drew the call's own arguments and
+  result whatever the context held. The `edit` diff preview is left out
+  under other arguments. See
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- A codemode script's nested calls are part of codemode's result rows, as
+  in Pi's codemode renderer: renderers that replace codemode's, or the
+  generic row a resolver chose, no longer show pipy's nested-call lines,
+  and a resolver that wraps codemode's rows gets them in the result part,
+  also while the script runs (its `render_result` is called with empty
+  `content` once the script made a call, and `details` holds a
+  `nestedCalls` record of the calls, which the wrapper can change or
+  clear). Captured output writes them as
+  they run only for codemode's own rows. The export page's "Nested calls"
+  section is unchanged. See [codemode](docs/codemode.md) and
+  [tool rendering](docs/extension-api.md#tool-rendering).
+- Renderers drawing a call for the HTML export (`/export`, `/share`) are
+  told `execution_started=True`, as Pi's export renders every call as
+  started; before it was false, so a renderer that waits for execution drew
+  the call as not started.
 - An extension tool whose handler raises fails the call with the
   exception's message as its error result, as Pi's agent loop reports
   `error.message` (Pi's docs tell extension authors to throw to fail a
@@ -1492,6 +1517,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
   different servers by the configuration, where Pi's order follows the
   order in which the servers connected. With it 168 rows are closed with a
   test and 124 with a limit.
+
+- The MCP parity plan records the decision on the sixth goal check
+  (section 7, Q15): its eight findings are fixed by the slices Y1 to Y3 and
+  none is accepted. DEV-31 and DEV-52 say what Y2 and Y1 changed, DEV-66
+  says that the nested calls start codemode's result part, and the new
+  DEV-95, a proposal for the final judgement, records that a wrapped `edit`
+  row has no diff preview under other arguments and that its call part
+  shows the diff of the row's own result. The rows the slices touch name
+  their new tests in the acceptance note; no row changes its state: 168
+  rows are closed with a test and 124 with a limit.
 
 - Added a reproducible synthetic context-elision evaluation comparing unchanged
   automatic compaction with an evaluation-only stale read-output projection;
