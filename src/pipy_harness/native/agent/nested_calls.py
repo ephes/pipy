@@ -17,7 +17,11 @@ from pipy_harness.native.agent.content import (
     ToolPartialResult,
 )
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
-from pipy_harness.native.agent.nested_record import bounded_arguments, finite_duration
+from pipy_harness.native.agent.nested_record import (
+    argument_preview,
+    bounded_arguments,
+    finite_duration,
+)
 from pipy_harness.native.agent.nested_status import NestedCallStatus as NestedCallStatus
 from pipy_harness.native.agent.request import (
     validate_agent_tool_call,
@@ -574,6 +578,9 @@ class NestedToolCallService:
         # Session thread: where each call that runs keeps its place in the
         # record, taken when it began (Pi records a call as it starts).
         self._slots: dict[str, int] = {}
+        # Session thread: the start of the arguments of each call whose
+        # arguments the record leaves out, by call id.
+        self._previews: dict[str, str] = {}
 
     def _post(self, job: _Request | _Finished | _Update) -> None:
         """Queue a job for the session thread; the caller holds the lock."""
@@ -1476,6 +1483,7 @@ class NestedToolCallService:
         arguments = bounded_arguments(raw)
         if arguments is None or self._argument_bytes + size > 32768:
             self._complete = False
+            self._previews[call_id] = argument_preview(raw)
             call = replace(call, arguments_json=ProductContent("{}"))
             omitted: int | None = size
         else:
@@ -1549,6 +1557,20 @@ class NestedToolCallService:
             and all(row["status"] != "unfinished" for row in calls)
         )
         return {"calls": calls, "complete": complete}
+
+    def argument_previews(self) -> dict[str, str]:
+        """The start of the arguments of each kept call whose arguments
+        :meth:`durable_record` leaves out (Pi codemode keeps a 200-character
+        preview of every call's arguments in ``details.calls``), by call id:
+        what its row shows in their place."""
+        self._require_thread()
+        return {
+            call_id: self._previews[call_id]
+            for outcome in self.records()
+            if outcome.arguments_bytes is not None
+            and (call_id := outcome.nested_call.provider_correlation_id)
+            in self._previews
+        }
 
     def has_record(self) -> bool:
         """Whether a call was kept or dropped: Pi leaves ``nestedCalls`` off

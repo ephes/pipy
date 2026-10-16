@@ -456,7 +456,7 @@ def test_a_changed_list_adds_withdraws_and_restores_tools(
     _wait_until(lambda: session.mcp_names() == ("mcp__docs__fetch", "mcp__docs__list"))
 
     assert session.declared() == ("read", "mcp__docs__list")
-    assert session.call("mcp__docs__search") == "unknown tool: mcp__docs__search"
+    assert session.call("mcp__docs__search") == "Tool mcp__docs__search not found"
     assert "mcp__docs__search" not in session.callable_names()
 
     server.tools = [_tool("search"), _tool("fetch")]
@@ -554,7 +554,7 @@ def test_withdrawn_and_disabled_tools_stay_listed_as_hidden(
     ]
     assert session.declared() == ("read", "mcp__docs__search")
     assert "mcp__docs__fetch" not in session.callable_names()
-    assert session.call("mcp__docs__fetch") == "unknown tool: mcp__docs__fetch"
+    assert session.call("mcp__docs__fetch") == "Tool mcp__docs__fetch not found"
     assert describe_state(_status_of(session, "docs")) == "connected · 1 tool"
 
     assert session.manager.set_enabled("docs", False) is None

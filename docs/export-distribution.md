@@ -225,8 +225,10 @@ a `KEY=value` / `key: value` assignment is withheld when its key contains
 by `count`, `details`, `start`, `end`, `limit`, `usage` or `budget`
 (`totalTokenCount`). This keeps usage and compaction integers intact so an
 exported JSONL session re-imports with every entry. In text, an object or
-array value under a sensitive key is withheld whole, and a skipped key's value
-is still scanned for nested secrets. Bearer values and common
+array value under a sensitive key is withheld whole, a quoted value that the
+text ends inside (a nested call's 200-character argument preview, an error
+cut to its bound) is withheld to the end of the text, and a skipped key's
+value is still scanned for nested secrets. Bearer values and common
 token prefixes (`sk-`, `ghp_`, `github_pat_`, `ya29.`, `xoxb-`/`xoxp-`) are
 withheld wherever they appear.
 
@@ -295,8 +297,10 @@ Pipy builds the HTML through stdlib string templating (`str.replace` /
   ` (incomplete record)` when calls were left out of the record. A click
   shows one line per call: its status (`✓`, `✗`, `…`, and `⊘` for a
   cancelled call, which Pi's page shows as `?`), its name, its arguments as
-  compact JSON or `[arguments omitted, <n> bytes]`, its duration in whole
-  milliseconds (Pi prints the recorded number), and its error indented below.
+  compact JSON or `[arguments omitted, <n> bytes]` (for a codemode call,
+  after the first 200 characters of them from the result's
+  `argumentPreviews`, which Pi's page shows in codemode's row), its
+  duration in whole milliseconds (Pi prints the recorded number), and its error indented below.
   The section is in the call's box when the call is drawn, and below the
   "Tool result" entry otherwise. The record has passed the credential
   redaction like the rest of `details`.

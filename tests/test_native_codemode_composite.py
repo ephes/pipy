@@ -1470,3 +1470,38 @@ def test_output_over_the_line_limit_is_truncated_and_spilled(
     )
     assert parent.details is not None
     assert Path(parent.details["fullOutputPath"]).read_text() == "x" * 1_100_000
+
+
+def test_a_call_whose_arguments_the_record_leaves_out_keeps_a_preview(
+    tmp_path: Path, paths: CodemodePaths, pids: list[int]
+) -> None:
+    # Goal check r8, D1: Pi's codemode keeps the first 200 characters of
+    # each call's arguments in details.calls, so a restored or exported row
+    # still names the file of a write whose arguments are over 8 KiB, which
+    # the nestedCalls record replaces by their byte count.
+    from pipy_harness.native.tool_rows import (
+        nested_line_text,
+        nested_lines_from_details,
+    )
+
+    code = "tools.write(path='recognizable.txt', content='x' * 9000)\n" + (
+        "text(tools.read(path='recognizable.txt')[:5])"
+    )
+    loop, _, _ = _loop(tmp_path, code, paths=paths)
+    parent = _parent(loop.run(_run_input()))
+    assert not parent.is_error and parent.details is not None
+    record = parent.details["nestedCalls"]
+    write, read = record["calls"]
+    assert "arguments" not in write and write["argumentsBytes"] > 9000
+    assert read["arguments"] == {"path": "recognizable.txt"}
+    # Only the call the record left out has a preview.
+    previews = parent.details["argumentPreviews"]
+    assert set(previews) == {write["id"]}
+    preview = previews[write["id"]]
+    assert len(preview) == 200 and preview.endswith("...")
+    assert preview.startswith('{"path"') and "recognizable.txt" in preview
+    write_line, read_line = nested_lines_from_details(parent.details)
+    assert write_line.arguments == preview
+    assert "recognizable.txt" in nested_line_text(write_line, expanded=False)
+    assert read_line.arguments == '{"path":"recognizable.txt"}'
+    assert all(group_is_gone(pid) for pid in pids)

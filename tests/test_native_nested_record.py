@@ -130,7 +130,11 @@ def test_parent_only_history_and_coherent_live_duration() -> None:
     child = next(e for e in events.events if isinstance(e, NestedToolCallCompleted))
     assert row["durationMs"] == child.duration_seconds * 1000
     assert "result" not in row and "details" not in row
-    assert serialize_message(parent)["details"] == parent.details
+    # Pi's ToolResultMessage: the record is the message's own nestedCalls
+    # field, beside the tool's details, which do not hold it.
+    serialized = serialize_message(parent)
+    assert serialized["nestedCalls"] == parent.details["nestedCalls"]
+    assert serialized["details"] == {"existing": "kept"}
     assert (
         next(
             e for e in events.events if isinstance(e, ToolCallCompleted)
@@ -197,6 +201,71 @@ def test_disk_resume_active_branch_tree_replacement_and_resize(tmp_path: Path) -
         )
         == 1
     )
+
+
+def test_left_out_arguments_keep_a_preview_through_a_resume(tmp_path: Path) -> None:
+    # Goal check r8, D1: Pi's codemode rows show the first 200 characters
+    # of each call's arguments (details.calls[].args) after a restore, where
+    # the nestedCalls record keeps only the byte count of arguments over
+    # 8 KiB (or past 32 KiB in all).
+    service = _service()
+    big = json.dumps({"path": "recognizable.txt", "content": "x" * 9000})
+    service.call("write", big)
+    service.call("read", '{"path":"small"}')
+    # The fourth of these passes the 32 KiB of arguments a record keeps.
+    for _ in range(4):
+        service.call("read", _args(8192))
+    previews = service.argument_previews()
+    record: Any = service.durable_record()
+    left_out = [c["id"] for c in record["calls"] if "argumentsBytes" in c]
+    assert len(left_out) == 2 and set(previews) == set(left_out)
+    assert previews[left_out[0]] == big[:197] + "..."
+    assert previews[left_out[1]] == _args(8192)[:197] + "..."
+
+    terminal = _Terminal(tmp_path)
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    tree.append_message(_assistant("", _call("parent", "codemode", {"code": "pass"})))
+    tree.append_message(
+        replace(
+            _result("parent", "codemode", "generic parent"),
+            details={"argumentPreviews": previews, "nestedCalls": record},
+        )
+    )
+    assert tree.path is not None
+    terminal.tree = NativeSessionTree.open(tree.path)
+    terminal.history.render_active_branch()
+    (box,) = [b for b in terminal.transcript.history_blocks if b[0] == "tool_box"]
+    texts = [text for _, text in _box(box[1])]
+    assert any('write {"path": "recognizable.txt"' in text for text in texts)
+    assert not any("argument bytes" in text for text in texts)
+
+
+@pytest.mark.parametrize(
+    "previews",
+    [None, [], "text", {"parent/1": 7}, {"": "x"}, {"x" * 1025: "x"}],
+)
+def test_malformed_previews_fall_back_to_the_byte_count(previews: Any) -> None:
+    record = {
+        "calls": [
+            {
+                "id": "parent/1",
+                "name": "write",
+                "status": "ok",
+                "durationMs": 1,
+                "argumentsBytes": 9000,
+            }
+        ],
+        "complete": False,
+    }
+    (line,) = nested_lines_from_details(
+        {"argumentPreviews": previews, "nestedCalls": record}
+    )
+    assert line.arguments == "[9000 argument bytes]"
+    # A preview too long for an imported file is cut to 200 characters.
+    (line,) = nested_lines_from_details(
+        {"argumentPreviews": {"parent/1": "y" * 500}, "nestedCalls": record}
+    )
+    assert line.arguments == "y" * 200
 
 
 @pytest.mark.parametrize(
@@ -428,7 +497,21 @@ def test_result_details_reach_events_and_only_messages_with_a_record(
             "nestedCalls": {"calls": [], "complete": True},
         },
     )
-    assert serialize_message(parent)["details"] == parent.details
+    serialized = serialize_message(parent)
+    assert serialized["nestedCalls"] == {"calls": [], "complete": True}
+    assert serialized["details"] == ordinary.details
+    assert list(serialized) == [
+        "role",
+        "toolCallId",
+        "content",
+        "details",
+        "nestedCalls",
+        "isError",
+    ]
+    # A record and no other details: the message has no details.
+    bare = replace(ordinary, details={"nestedCalls": {"calls": [], "complete": True}})
+    assert "details" not in serialize_message(bare)
+    assert serialize_message(bare)["nestedCalls"] == {"calls": [], "complete": True}
     parent_event = AutomationAgentEventAdapter._project_tool_execution(
         ToolCallCompleted(1, parent)
     )

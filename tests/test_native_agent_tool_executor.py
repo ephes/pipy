@@ -162,7 +162,7 @@ def test_unknown_tool_is_a_malformed_error_observation(tmp_path: Path) -> None:
 
     assert outcome.malformed_arguments is True
     assert outcome.result.is_error is True
-    assert outcome.result.content == ProductContent("unknown tool: missing")
+    assert outcome.result.content == ProductContent("Tool missing not found")
     assert outcome.interruption is ToolExecutionInterruption.SETTLED
 
 

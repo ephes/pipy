@@ -38,14 +38,17 @@ from pipy_harness.native.assistant_blocks_json import tool_result_blocks_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
-def nested_call_details(message: AgentToolResultMessage) -> dict[str, Any]:
-    """The ``details`` of a result that carries a nested-call record.
+def nested_call_fields(message: AgentToolResultMessage) -> dict[str, Any]:
+    """The ``nestedCalls`` and ``details`` of a result that carries a
+    nested-call record.
 
     Every calling tool's result has the record (``codemode`` and an
-    extension tool that ran others with ``ctx.execute_tool``), as Pi's
-    ``_handleAgentEvent`` puts ``nestedCalls`` on every tool result message
-    its recorder has a summary for. Other results keep their details to
-    ``tool_execution_end``.
+    extension tool that ran others with ``ctx.execute_tool``), kept in its
+    ``details``. Pi's ``_handleAgentEvent`` puts it on every tool result
+    message its recorder has a summary for as the message's own
+    ``nestedCalls`` field, beside the tool's ``details``, which do not hold
+    it. Such a message also has the rest of the result's details, when there
+    are any; other results keep their details to ``tool_execution_end``.
     """
     details = message.details
     if (
@@ -54,7 +57,11 @@ def nested_call_details(message: AgentToolResultMessage) -> dict[str, Any]:
         and type(record.get("calls")) is list
         and type(record.get("complete")) is bool
     ):
-        return {"details": dict(details)}
+        rest = {key: value for key, value in details.items() if key != "nestedCalls"}
+        return {
+            **({"details": rest} if rest else {}),
+            "nestedCalls": dict(record),
+        }
     return {}
 
 
@@ -205,11 +212,11 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
         return assistant
     if isinstance(message, AgentToolResultMessage):
         return {
-            **nested_call_details(message),
             "role": "toolResult",
             "toolCallId": message.provider_correlation_id,
             # Pi's ordered text and image blocks when the result has an image.
             "content": tool_result_content(message),
+            **nested_call_fields(message),
             "isError": message.is_error,
         }
     raise TypeError(f"unserializable loop message: {type(message)!r}")

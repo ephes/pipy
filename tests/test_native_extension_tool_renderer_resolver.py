@@ -529,7 +529,7 @@ def test_a_session_draws_calls_with_a_registered_resolver(
     assert status is HarnessStatus.SUCCEEDED, errors
     lines = [line.strip() for line in errors.splitlines()]
     assert "GHOST CALL ghost_tool" in lines
-    assert "GHOST RESULT unknown tool: ghost_tool" in lines
+    assert "GHOST RESULT Tool ghost_tool not found" in lines
     # `following()` had pipy's own rows for these.
     assert "docs/search q=1" in lines
     assert "ls ." in lines
@@ -573,7 +573,7 @@ def test_a_resolver_registered_from_session_start_draws_later_calls(
     assert status is HarnessStatus.SUCCEEDED, errors
     lines = [line.strip() for line in errors.splitlines()]
     assert "LATE CALL ghost_tool" in lines
-    assert "LATE RESULT unknown tool: ghost_tool" in lines
+    assert "LATE RESULT Tool ghost_tool not found" in lines
 
 
 # -- wrapping what `next()` gives (goal-check findings E6, M23) ---------------

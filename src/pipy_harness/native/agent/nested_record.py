@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from itertools import islice
 from math import isfinite
 from typing import Any
 
@@ -10,6 +11,16 @@ MAX_CALLS = 256
 MAX_ARGUMENT_BYTES = 8192
 MAX_TOTAL_ARGUMENT_BYTES = 32768
 MAX_ERROR_CHARS = 500
+# Pi codemode ``ARGS_PREVIEW_CHARS``: the arguments a call's row shows.
+ARGUMENT_PREVIEW_CHARS = 200
+
+
+def argument_preview(arguments_json: str) -> str:
+    """The start of a call's arguments for its row (Pi codemode
+    ``previewArgs``): their JSON, cut to 200 characters with ``...``."""
+    if len(arguments_json) <= ARGUMENT_PREVIEW_CHARS:
+        return arguments_json
+    return arguments_json[: ARGUMENT_PREVIEW_CHARS - 3] + "..."
 
 
 def bounded_arguments(text: str) -> dict[str, Any] | None:
@@ -141,3 +152,20 @@ def parse_nested_record(details: object) -> tuple[dict[str, Any], ...]:
             row["error"] = error[:MAX_ERROR_CHARS]
         result.append(row)
     return tuple(result)
+
+
+def parse_argument_previews(details: object) -> dict[str, str]:
+    """The ``argumentPreviews`` of a codemode result, by call id: the start
+    of the arguments of each call whose arguments the ``nestedCalls``
+    record left out. Malformed entries are ignored; count and text are
+    capped as the record's are."""
+    if (
+        type(details) is not dict
+        or type(previews := details.get("argumentPreviews")) is not dict
+    ):
+        return {}
+    return {
+        identity: preview[:ARGUMENT_PREVIEW_CHARS]
+        for identity, preview in islice(previews.items(), MAX_CALLS)
+        if type(identity) is str and 0 < len(identity) <= 1024 and type(preview) is str
+    }

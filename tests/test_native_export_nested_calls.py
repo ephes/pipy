@@ -138,6 +138,37 @@ def test_a_result_with_nested_calls_shows_them(tmp_path: Path) -> None:
     assert page["clicked"] == ["nested-calls expanded"]
 
 
+def test_left_out_arguments_show_their_preview(tmp_path: Path) -> None:
+    # Goal check r8, D1: Pi's export draws codemode's row, whose calls show
+    # the first 200 characters of their arguments (details.calls[].args);
+    # pipy's page has no codemode row, so its nested-call lines show the
+    # preview of arguments the record left out. A preview that is not text,
+    # or names no call, is not shown.
+    details = {
+        **_NESTED,
+        "argumentPreviews": {
+            "call-1/2": '{"path":"recognizable.txt","content":"xx...',
+            "call-1/1": 7,
+            "constructor": "not a call",
+        },
+    }
+    tree = _tree(
+        tmp_path,
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(_call("call-1", "codemode", '{"code": "print(1)"}'),),
+        ),
+        _result("call-1", "codemode", "Script completed", details=details),
+    )
+    page = _page(tmp_path, export_native_session_to_html(tree, tmp_path / "e.html"))
+    _preview, full = _nested(page["entries"])
+    assert full.split("\n")[1:3] == [
+        '✓ mcp__docs__search {"query":"pipy"} 12ms',
+        '✗ read {"path":"recognizable.txt","content":"xx... '
+        "[arguments omitted, 9000 bytes] 3ms",
+    ]
+
+
 def test_a_drawn_call_shows_its_nested_calls_in_its_box(tmp_path: Path) -> None:
     # An MCP tool is drawn ahead (renderedTools); its nested calls go into
     # the call's box, where its result is.

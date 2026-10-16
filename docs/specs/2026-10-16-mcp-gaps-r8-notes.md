@@ -110,3 +110,134 @@ here; a new deviation would be written `DEV-new` for the merge to number.
   enable\|disable\|inherit builtin <name>`".
 
 **Audit test references:** none changed.
+
+## K3: top-level nestedCalls (B), nested argument preview (D1), "Tool X not found" (U5)
+
+### B: JSON/RPC tool result messages carry `nestedCalls` at the top level
+
+Pi checked (`packages/ai/src/types.ts` `ToolResultMessage`,
+`agent-session.ts` `_handleAgentEvent`, `docs/message-types.md`): the
+record is the message's own `nestedCalls` field, and the tool's `details`
+never hold it (codemode's are `{calls, fullOutputPath?}`). So pipy's
+message drops it from `details` too: a message with a record has
+`nestedCalls`, plus the rest of its `details` when there are any. The
+`result` of `tool_execution_end` still has the record in
+`details.nestedCalls`, as before (Pi's `result` has none; pipy's session
+keeps the record there). pipy emits no `message_start`/`message_end` for
+tool results (a gap outside this item), so the field shows in `turn_end`,
+`agent_end` and `get_messages`.
+
+**Changelog (Unreleased, Fixed):**
+
+- In JSON and RPC mode, the `toolResult` message of a tool that ran other
+  tools (a `codemode` script, or an extension tool through
+  `ctx.execute_tool`) carries the record of those calls as its own
+  `nestedCalls` field, as Pi's `ToolResultMessage` does, in `turn_end`,
+  `agent_end` and `get_messages`. Before, it was inside the message's
+  `details`, which no longer hold it; the message keeps the rest of the
+  result's details. `tool_execution_end` still has the record in its
+  `result.details`. See
+  [the event vocabulary](../automation-rpc.md#event-vocabulary-pipy-must-emit).
+
+**Plan:**
+
+- CMD-26 row: in the slice column add "goal check r8 (K3)". In section 2.x
+  where the JSON/RPC form of the record is described (the text that the
+  4b12ab18 slice added: "pipy inside `details`"), replace it with "the
+  message's own `nestedCalls` field, as Pi's `ToolResultMessage`; the
+  message's `details` do not hold it, `tool_execution_end.result.details`
+  still do (goal check r8, B)."
+- Backlog TOOLS3b bullet "JSON/RPC `toolResult` messages carry `details`
+  only for codemode parents": replace "only for codemode parents" with
+  "only for the parents of nested calls (minus the record, which is the
+  message's `nestedCalls` field since goal check r8, B)".
+
+**Acceptance:**
+
+- CMD-26 row: add tests `test_native_nested_record.py`:
+  `test_result_details_reach_events_and_only_messages_with_a_record`,
+  `test_parent_only_history_and_coherent_live_duration`;
+  `test_native_extension_tool_orchestration.py`:
+  `test_rpc_tool_result_messages_carry_an_extension_parents_record` (r8 B).
+- EXT-11 row, if it names
+  `test_rpc_tool_result_messages_carry_an_extension_parents_record`: the
+  test now reads the message's `nestedCalls` field; no text change needed.
+
+**Audit test references:** none changed.
+
+### D1: the start of left-out arguments survives a resume and the export
+
+**Changelog (Unreleased, Fixed):**
+
+- A codemode call's nested call whose arguments are over 8 KiB (or past
+  the record's 32 KiB in all) shows the first 200 characters of them in a
+  resumed session's row and in the HTML export, as Pi's codemode rows show
+  each call's `args` preview, instead of only `[<n> argument bytes]`: the
+  codemode result keeps them in `details.argumentPreviews` beside the
+  `nestedCalls` record, whose arguments stay bounded. See
+  [codemode](../codemode.md#nested-evidence-and-availability).
+- The export's credential redaction withholds a quoted value that the text
+  ends inside to the end of the text: a 200-character argument preview (or
+  an error cut to its bound) that stops inside a password no longer shows
+  the rest of it after the first word. See
+  [the export](../export-distribution.md).
+
+**Plan:**
+
+- RND-04 row: in the slice column add "goal check r8 (K3)".
+- DEV-96: after "where Pi's draws the `details.calls` it saved with the
+  result." add "For a call whose arguments the record leaves out, the row
+  shows the first 200 characters of them from the result's
+  `details.argumentPreviews` (Pi's `ARGS_PREVIEW_CHARS`), taken from the
+  arguments' JSON as the script sent it where Pi stringifies the parsed
+  arguments (goal check r8, D1)."
+- DEV-66: after "does not draw codemode calls ahead (no codemode call
+  renderer)" add "; so its nested-call lines show the preview of arguments
+  the record left out before `[arguments omitted, <n> bytes]`, where Pi's
+  page shows the preview in codemode's row and the marker alone in
+  `renderNestedCalls` (goal check r8, D1)".
+
+**Acceptance:**
+
+- RND-04 row: add tests `test_native_nested_record.py`:
+  `test_left_out_arguments_keep_a_preview_through_a_resume`,
+  `test_malformed_previews_fall_back_to_the_byte_count`;
+  `test_native_codemode_composite.py`:
+  `test_a_call_whose_arguments_the_record_leaves_out_keeps_a_preview`;
+  `test_native_export_nested_calls.py`:
+  `test_left_out_arguments_show_their_preview`;
+  `test_native_export_distribution.py`:
+  `test_exports_redact_a_cut_short_argument_preview`,
+  `test_redaction_covers_a_quoted_value_the_text_cuts_short` (r8 D1).
+- CMD-26 row: add test `test_native_codemode_composite.py`:
+  `test_a_call_whose_arguments_the_record_leaves_out_keeps_a_preview` (r8
+  D1).
+
+**Audit test references:** none changed.
+
+### U5: a call to an undeclared tool is answered `Tool <name> not found`
+
+**Changelog (Unreleased, Fixed):**
+
+- A call to a tool that is not declared, or not callable from a codemode
+  script or `ctx.execute_tool`, is answered `Tool <name> not found`, Pi's
+  text (`agent-loop.ts` `prepareToolCall`), instead of
+  `unknown tool: <name>`. See
+  [tool exposure](../extension-api.md#tool-model).
+
+**Plan:**
+
+- EXP-03 row: replace "is rejected as an unknown tool." with "is rejected
+  as an unknown tool, with Pi's text `Tool <name> not found` (goal check
+  r8, U5)." In its slice column add "goal check r8 (K3)".
+
+**Acceptance:**
+
+- EXP-03 row: the test
+  `test_native_codemode_extension_tools.py`:
+  `test_direct_model_call_to_a_codemode_only_tool_is_an_unknown_tool` now
+  asserts `Tool lookup not found`; add tests `test_native_mcp_session.py`:
+  `test_codemode_only_mcp_tools_are_called_from_scripts_and_hidden_from_the_model`
+  (r8 U5, `Tool mcp__docs__search not found`).
+
+**Audit test references:** none changed.

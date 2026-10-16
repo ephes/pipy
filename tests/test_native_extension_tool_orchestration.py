@@ -319,7 +319,8 @@ def test_rpc_tool_result_messages_carry_an_extension_parents_record(
 ) -> None:
     # Pi's _handleAgentEvent puts nestedCalls on the tool result message of
     # every tool that ran others, not only codemode's: turn_end, agent_end
-    # and get_messages carry the record (here in the result's details).
+    # and get_messages carry the record as the message's own nestedCalls
+    # field, as Pi's ToolResultMessage does.
     from test_native_automation_rpc import _RpcClient
 
     from pipy_harness.native.fake import FakeNativeProvider
@@ -365,7 +366,9 @@ def test_rpc_tool_result_messages_carry_an_extension_parents_record(
         results(end["messages"]),
         gotten,
     ):
-        record = messages["p1"]["details"]["nestedCalls"]
+        record = messages["p1"]["nestedCalls"]
+        # The tool's own details do not hold the record.
+        assert "nestedCalls" not in messages["p1"].get("details", {})
         assert [(c["id"], c["name"]) for c in record["calls"]] == [
             ("p1/1", "inner"),
             ("p1/1/1", "echo"),
@@ -373,6 +376,7 @@ def test_rpc_tool_result_messages_carry_an_extension_parents_record(
         assert record["complete"] is True
         # A tool that called nothing has no record, and its message no details.
         assert "details" not in messages["p2"]
+        assert "nestedCalls" not in messages["p2"]
 
 
 def test_a_nested_tool_runs_tools_itself(tmp_path, monkeypatch) -> None:

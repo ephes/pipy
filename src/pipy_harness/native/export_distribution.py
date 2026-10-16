@@ -49,12 +49,17 @@ _SENSITIVE_KEY_CANDIDATE_RE = (
 _JSON_SECRET_KEY_RE = re.compile(
     rf"(?i)(?P<quote>['\"])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})(?P=quote)\s*:\s*"
 )
-_JSON_SECRET_VALUE_RE = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,}\]]+")
+# A quoted value that text cut short leaves open (a nested call's argument
+# preview, an error cut to its bound) is a value to the end of the text, so
+# no part of it survives.
+_JSON_SECRET_VALUE_RE = re.compile(
+    r"\"(?:\\.|[^\"\\])*(?:\"|\\?\Z)|'(?:\\.|[^'\\])*(?:'|\\?\Z)|[^\s,}\]]+"
+)
 _SECRET_ASSIGN_KEY_RE = re.compile(
     rf"(?i)(?<![A-Za-z0-9_.-])(?P<key>{_SENSITIVE_KEY_CANDIDATE_RE})"
     r"\s*(?P<sep>[:=])\s*"
 )
-_SECRET_ASSIGN_VALUE_RE = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s<>'\"]+")
+_SECRET_ASSIGN_VALUE_RE = re.compile(r"\"[^\"]*(?:\"|\Z)|'[^']*(?:'|\Z)|[^\s<>'\"]+")
 _SECRET_KEY_MARKER_RE = re.compile(r"api_?key|secret|password|passwd|credential")
 # ``token`` marks a credential unless it is token accounting: the plural
 # (``totalTokens``, ``tokensBefore``) or a count-shaped suffix
@@ -980,11 +985,18 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
         typeof call.name === "string" && typeof call.status === "string") : [];
     if (!calls.length) return "";
     const icons = new Map([["ok", "\u2713"], ["error", "\u2717"], ["unfinished", "\u2026"], ["cancelled", "\u2298"]]);
+    // The start of the arguments the record left out, by call id (Pi's
+    // codemode row shows them from details.calls).
+    const previews = details.argumentPreviews && typeof details.argumentPreviews === "object"
+      ? details.argumentPreviews : {};
     const lines = calls.map(call => {
       const bytes = typeof call.argumentsBytes === "number" ? call.argumentsBytes : "?";
+      const preview = typeof call.id === "string" &&
+        Object.prototype.hasOwnProperty.call(previews, call.id) &&
+        typeof previews[call.id] === "string" ? `${previews[call.id].slice(0, 200)} ` : "";
       const args = call.arguments !== undefined
         ? JSON.stringify(call.arguments)
-        : `[arguments omitted, ${bytes} bytes]`;
+        : `${preview}[arguments omitted, ${bytes} bytes]`;
       const duration = typeof call.durationMs === "number" ? ` ${Math.round(call.durationMs)}ms` : "";
       const error = typeof call.error === "string" && call.error
         ? `\\n    ${call.error.split("\\n").join("\\n    ")}` : "";

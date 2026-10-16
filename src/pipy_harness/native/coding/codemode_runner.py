@@ -348,6 +348,9 @@ class CodemodeCompositeRunner:
             interruption: ToolExecutionInterruption = ToolExecutionInterruption.SETTLED,
             blocks: tuple[ToolResultBlock, ...] = (),
         ) -> ToolExecutionOutcome:
+            # The rows of calls whose arguments the record leaves out show
+            # the start of them, as Pi's rows show ``details.calls[].args``.
+            previews = service.argument_previews()
             return ToolExecutionOutcome(
                 AgentToolResultMessage(
                     tool_request_id=make_tool_request_id(),
@@ -357,6 +360,7 @@ class CodemodeCompositeRunner:
                     provider_correlation_id=call.provider_correlation_id,
                     details={
                         **(details or {}),
+                        **({"argumentPreviews": previews} if previews else {}),
                         "nestedCalls": service.durable_record(),
                     },
                     blocks=blocks,

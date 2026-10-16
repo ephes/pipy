@@ -456,7 +456,7 @@ text({'hits': found['structuredContent']['hits'],
     assert "mcp__docs__search" in output["listed"]
     rejected = _tool_results(provider.requests[3])[-1]
     assert rejected.is_error
-    assert rejected.content.value == "unknown tool: mcp__docs__search"
+    assert rejected.content.value == "Tool mcp__docs__search not found"
     assert _tool_calls(record) == [("search", {"query": "pipy"}), ("fail", {})]
     # RND-04: the nested MCP calls are rows of the codemode row.
     nested = [line.strip() for line in errors.splitlines()]

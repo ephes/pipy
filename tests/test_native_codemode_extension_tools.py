@@ -162,8 +162,8 @@ def test_direct_model_call_to_a_codemode_only_tool_is_an_unknown_tool(
     assert _tool_names(provider.requests[0])[-2:] == ["echo", "orchestrate"]
     assert not {"lookup", "archive"} & set(_tool_names(provider.requests[0]))
     rejected, deferred, direct = _tool_results(provider.requests[1])
-    assert rejected.is_error and rejected.content.value == "unknown tool: lookup"
-    assert deferred.is_error and deferred.content.value == "unknown tool: archive"
+    assert rejected.is_error and rejected.content.value == "Tool lookup not found"
+    assert deferred.is_error and deferred.content.value == "Tool archive not found"
     assert not direct.is_error and direct.content.value == "echo:x"
     assert _calls(calls) == [["echo", {"key": "x"}]]
 
