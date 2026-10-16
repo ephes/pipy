@@ -65,6 +65,7 @@ from pipy_harness.native.openai_codex_provider import (
     OpenAICodexCredentials,
 )
 from pipy_harness.native.provider_login_token import provider_login_token
+from pipy_harness.native.repl.mcp_loading import FollowedExtensions
 from pipy_harness.native.repl.mcp_loading import provider_token as _provider_token
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -1290,11 +1291,147 @@ def test_the_session_api_key_belongs_to_the_provider_the_session_starts_with(
         assert token(other) is None
 
 
-def test_a_session_with_an_injected_provider_has_no_token_function() -> None:
-    provider = _Provider([])
+class _Loaded:
+    """The providers loaded extensions registered (``_ExtensionRuntime``)."""
 
-    assert _provider_token(None) is None
-    assert _provider_token(StaticNativeReplProviderState(provider)) is None  # type: ignore[arg-type]
+    def __init__(self) -> None:
+        self.providers: tuple[RegisteredProvider, ...] = ()
+        self.unregistered_providers: tuple[str, ...] = ()
+
+
+def _default_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The default config home and auth directory of this test; returns the
+    auth directory."""
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "auth"))
+    for name in ("OPENAI_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "auth").mkdir()
+    return tmp_path / "auth"
+
+
+def test_a_session_with_an_injected_provider_resolves_tokens_from_the_default_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pi's SDK always builds a model runtime over the default auth.json and
+    # models.json (sdk.ts `ModelRuntime.create`), and the MCP extension asks
+    # it for `providerToken`.
+    auth = _default_files(tmp_path, monkeypatch)
+    extensions = FollowedExtensions()
+    provider = _Provider([])
+    token = _provider_token(StaticNativeReplProviderState(provider), extensions)  # type: ignore[arg-type]
+    assert token is not None
+    assert _provider_token(None) is not None
+
+    # Nothing is read before the first token is asked for.
+    AuthStore(auth / "auth.json").set("radius", {"type": "api_key", "key": "tok"})
+    (tmp_path / "config" / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "configured": {
+                        "baseUrl": "https://configured.example/v1",
+                        "api": "openai-completions",
+                        "apiKey": "from-models-json",
+                        "models": [{"id": "m"}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    FileOpenAICodexCredentialStore(auth / "openai-codex.json").save(_codex("codex-at"))
+
+    assert token("radius") == "tok"
+    assert token("openrouter") == "env-key"
+    assert token("configured") == "from-models-json"
+    assert token("openai-codex") == "codex-at"
+    assert token("openai") is None
+    # A login made later applies to the next request.
+    AuthStore(auth / "auth.json").set("openai", {"type": "api_key", "key": "later"})
+    assert token("openai") == "later"
+
+
+def test_a_session_with_an_injected_provider_knows_its_extensions_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    auth = _default_files(tmp_path, monkeypatch)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    AuthStore(auth / "auth.json").set(
+        "radius",
+        {"type": "oauth", "access": "at", "refresh": "rt", "expires": 2**53},
+    )
+    extensions = FollowedExtensions()
+    token = _provider_token(None, extensions)
+    assert token is not None
+    # Before the extensions are named, and for a provider no extension
+    # registered: a login of a provider without an OAuth sign-in.
+    assert token("radius") is None
+
+    loaded = _Loaded()
+    extensions.follow(lambda: loaded)
+    assert token("radius") is None
+    # Read at each call, as the extensions loaded now registered them.
+    loaded.providers = (
+        RegisteredProvider(
+            extension="ext",
+            provider=ExtensionProvider(
+                name="Radius",
+                default_model="m",
+                models=("m",),
+                factory=lambda ctx: None,
+                oauth=_oauth_config(lambda credentials: f"key-{credentials['access']}"),
+            ),
+        ),
+    )
+    assert token("radius") == "key-at"
+    loaded.unregistered_providers = ("radius",)
+    assert token("radius") is None
+    assert token("openrouter") == "env-key"
+
+
+def test_an_sdk_session_sends_the_provider_token_a_pipy_session_would(
+    server: FakeOAuthMcpServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pipy_harness.native.mcp.options import McpOptions
+    from pipy_harness.sdk import create_product_session
+
+    _default_files(tmp_path, monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "env-tok")
+    _write_mcp_json(
+        tmp_path / "config" / "mcp.json",
+        {
+            "radius": {
+                "url": server.url,
+                "auth": {"provider": "openai"},
+                "exposure": "direct",
+            }
+        },
+    )
+    server.accept("env-tok")
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    provider = _Provider([_result(final_text="done")])
+    diagnostics: list[str] = []
+
+    with create_product_session(
+        workspace=workspace,
+        provider=provider,
+        diagnostic_sink=diagnostics.append,
+        load_context_files=False,
+        mcp=McpOptions(),
+    ) as session:
+        result = session.submit("go")
+        assert result.provider_failure is result.preparation_failure is None
+
+    assert "need attention" not in "".join(diagnostics)
+    assert _tool_names(provider.requests[0])[-1] == "mcp__radius__whoami"
+    # The session closed the server with the provider's token.
+    assert server.deletes == ["env-tok"]
+    assert server.log == []
 
 
 def test_a_session_whose_auth_store_is_unavailable_has_no_token_function(

@@ -8,10 +8,14 @@ manager for it, which connects nothing until it is started.
 from __future__ import annotations
 
 import os
+import threading
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from typing import Protocol
 
-from pipy_harness.native.extension_types import ExtensionProvider
+from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.extension_types import ExtensionProvider, RegisteredProvider
 from pipy_harness.native.mcp.config import LoadedMcpConfig, load_mcp_config
 from pipy_harness.native.mcp.connection import ProviderToken, create_default_transport
 from pipy_harness.native.mcp.credentials import (
@@ -63,12 +67,42 @@ def mcp_wanted(
     return builtins.mcp is not None and not resource_options.no_mcp
 
 
+class LoadedProviders(Protocol):
+    """What the token function of an embedded session reads of the
+    extensions loaded now (``_ExtensionRuntime``)."""
+
+    @property
+    def providers(self) -> tuple[RegisteredProvider, ...]: ...
+
+    @property
+    def unregistered_providers(self) -> tuple[str, ...]: ...
+
+
+class FollowedExtensions:
+    """Where an embedded session's provider tokens find the providers the
+    loaded extensions registered. A session with a model catalog publishes
+    them there; an embedded session has none, so its token function asks
+    the extensions loaded now, which the session names once they are
+    attached (``follow``), before any server starts."""
+
+    def __init__(self) -> None:
+        self._loaded: Callable[[], LoadedProviders] | None = None
+
+    def follow(self, loaded: Callable[[], LoadedProviders]) -> None:
+        self._loaded = loaded
+
+    def loaded(self) -> LoadedProviders | None:
+        loaded = self._loaded
+        return None if loaded is None else loaded()
+
+
 def load_mcp_servers(
     cwd: Path,
     settings: SettingsManager,
     resource_options: RuntimeResourceOptions,
     tool_capabilities: NativeToolCapabilities,
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
+    extensions: FollowedExtensions,
     registered: RegisteredServers,
     replaced_by: str | None,
 ) -> McpServers:
@@ -106,7 +140,7 @@ def load_mcp_servers(
         update_config=options.update_config or update_config_file,
         credentials=options.credentials
         or McpOAuthCredentialStore(mcp_auth_path(config_home)),
-        provider_token=provider_token(provider_state),
+        provider_token=provider_token(provider_state, extensions),
         registered=registered if enabled else None,
     )
     return McpServers(
@@ -131,10 +165,11 @@ def load_mcp_servers(
 
 def provider_token(
     provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
+    extensions: FollowedExtensions | None = None,
 ) -> ProviderToken | None:
     """What answers an MCP server's ``auth.provider`` with that provider's
-    current token, or ``None`` for a session without provider logins: one
-    with an injected provider, or one whose auth store is unavailable.
+    current token, or ``None`` for a session whose auth store is
+    unavailable.
 
     The function it returns runs on MCP request threads. It is given the
     path of ``auth.json``, the environment, the lock-protected OAuth cache
@@ -146,14 +181,38 @@ def provider_token(
     ``models.json`` request settings. A snapshot taken
     here would be the one before a reload's new extensions and
     ``models.json``, because the servers are loaded first.
+
+    A session with an injected provider (an embedded one) has no catalog.
+    It resolves tokens as the ``pipy`` command does, from a catalog of its
+    own over the default ``auth.json``, ``models.json``, Codex login file
+    and environment, as Pi's SDK always builds a model runtime over the
+    default files; it has no ``--api-key``. The providers its extensions
+    registered are those of ``extensions``. That catalog is built at the
+    first token asked for, so a session that never asks reads none of it.
     """
 
     if not isinstance(provider_state, NativeReplProviderState):
-        return None
+        return _EmbeddedProviderToken(extensions)
     catalog = provider_state.model_runtime.catalog
-    auth_store = catalog.auth_store
-    if auth_store is None:
+    if catalog.auth_store is None:
         return None
+
+    def extension_provider(provider: str) -> ExtensionProvider | None:
+        registered = catalog.extension_provider_for(provider)
+        return registered.provider if registered is not None else None
+
+    return _catalog_token(catalog, extension_provider)
+
+
+def _catalog_token(
+    catalog: ProviderCatalogState,
+    extension_provider: Callable[[str], ExtensionProvider | None],
+) -> ProviderToken:
+    """:func:`provider_login_token` over ``catalog``, whose auth store is
+    available."""
+
+    auth_store = catalog.auth_store
+    assert auth_store is not None
     # The Codex login a model request uses (``OpenAICodexAuthManager``).
     codex = OpenAICodexAuthManager(
         store=FileOpenAICodexCredentialStore(
@@ -165,10 +224,6 @@ def provider_token(
         config = catalog.catalog.provider_request_configs.get(provider)
         return config.api_key if config is not None else None
 
-    def extension_provider(provider: str) -> ExtensionProvider | None:
-        registered = catalog.extension_provider_for(provider)
-        return registered.provider if registered is not None else None
-
     return partial(
         provider_login_token,
         auth_path=auth_store.path,
@@ -179,3 +234,37 @@ def provider_token(
         models_json_key=models_json_key,
         codex_login=codex.get_credentials,
     )
+
+
+class _EmbeddedProviderToken:
+    """The provider tokens of a session with an injected provider: over a
+    catalog of the default files, built on the first call."""
+
+    def __init__(self, extensions: FollowedExtensions | None) -> None:
+        self._extensions = extensions
+        self._lock = threading.Lock()
+        self._token: ProviderToken | None = None
+
+    def __call__(self, provider: str) -> str | None:
+        with self._lock:
+            if self._token is None:
+                catalog = ProviderCatalogState(
+                    openai_codex_auth_path=default_openai_codex_auth_path()
+                )
+                self._token = _catalog_token(catalog, self._extension_provider)
+            token = self._token
+        return token(provider)
+
+    def _extension_provider(self, provider: str) -> ExtensionProvider | None:
+        loaded = None if self._extensions is None else self._extensions.loaded()
+        if loaded is None:
+            return None
+        # As a catalog overlays them (`extension_provider_for`): by the name
+        # in any case, the first registration, unless one unregistered it.
+        name = provider.lower()
+        if name in {hidden.lower() for hidden in loaded.unregistered_providers}:
+            return None
+        for registered in loaded.providers:
+            if registered.provider.name.lower() == name:
+                return registered.provider
+        return None

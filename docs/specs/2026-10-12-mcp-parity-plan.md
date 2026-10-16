@@ -454,7 +454,7 @@ Pi-shaped camelCase alias where the API already offers both).
 | ID | Behaviour | Pi source | Slice |
 | --- | --- | --- | --- |
 | SDK-01 | An SDK session gets `codemode`, `tool_search` and MCP only when the embedder asks for them; nothing connects otherwise. | `docs/sdk.md` "Codemode and MCP"; `examples/sdk/14-codemode-mcp.ts` | S38 |
-| SDK-02 | The MCP option accepts: a config loader, a transport factory, a credential store, the log path, the URL opener, the config updater and the first-prompt wait. Defaults are the CLI's. | `ext/index.ts` `McpExtensionOptions` | S38 |
+| SDK-02 | The MCP option accepts: a config loader, a transport factory, a credential store, the log path, the URL opener, the config updater and the first-prompt wait. Defaults are the CLI's, and an `auth.provider` server gets the provider token a CLI session would send (Y1). | `ext/index.ts` `McpExtensionOptions` | S38 |
 | SDK-03 | The codemode option accepts the mode and the inline budget, overriding the settings. | `cm/index.ts` `CodemodeExtensionOptions` | S38 |
 | SDK-04 | A documented SDK example enables all three and runs a prompt. | `examples/sdk/14-codemode-mcp.ts` | S38 |
 
@@ -4777,8 +4777,25 @@ setup Pi sends no token for `openai-codex` with `--api-key`. Q2:
 `commandResultCache`, used by `AuthStorage.read`), shared by model requests
 (`_stored_api_key`) and `auth.provider`; a `models.json` `apiKey` and
 headers stay uncached, as Pi's `resolveConfigValueOrThrow`. pipy had no
-such cache before. Tests: `test_native_mcp_provider_auth.py`,
-`test_native_auth_store.py`.
+such cache before. S2 (SDK-02, second commit): a session with an injected
+provider (every product session) has no `NativeReplProviderState`, and
+`mcp_loading.provider_token` used to answer `None` for it, so its
+`auth.provider` servers got no token. Pi's `sdk.ts` always creates a
+`ModelRuntime` over the default `auth.json` and `models.json`, and the MCP
+extension asks it. Now `provider_token` gives such a session
+`_EmbeddedProviderToken`, which builds a `ProviderCatalogState` over the
+default files (as `cli._build_catalog_state` does, without `--api-key`) on
+the first token asked for and then answers through the same
+`provider_login_token` partial as a CLI session (`_catalog_token`). The
+providers the session's extensions registered come from
+`FollowedExtensions`, which `wiring.py` points at the generation's
+`_ExtensionRuntime` (`providers`, `unregistered_providers`) once the
+extensions are attached, before `mcp.start()`; the provider is looked up
+per call as a catalog overlays it (case-insensitive name, first
+registration, not unregistered), since no catalog holds an embedded
+session's extension providers. No SDK-only token option
+was added: Pi's `McpExtensionOptions` has none. Tests:
+`test_native_mcp_provider_auth.py`, `test_native_auth_store.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

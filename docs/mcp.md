@@ -1652,7 +1652,10 @@ home and the trusted project, the same transports, `mcp-auth.json` and
 factory, the credential store, the log path, the function that opens a
 sign-in URL, the function that saves a change to a server, and the time the
 first prompt waits. `-builtin:mcp` in the settings does not turn MCP off for
-such a session; `RuntimeResourceOptions(no_mcp=True)` does.
+such a session; `RuntimeResourceOptions(no_mcp=True)` does. A server with
+[`auth.provider`](#a-providers-token) is sent the provider's token from
+`auth.json`, the environment, `models.json` and the Codex login, as in a
+`pipy` session without `--api-key`.
 [Codemode, tool search and MCP](sdk.md#codemode-tool-search-and-mcp) in the
 SDK page has the fields, what activates the two tools, the differences from
 Pi and a runnable example.

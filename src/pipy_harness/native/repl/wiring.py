@@ -163,7 +163,7 @@ from pipy_harness.native.repl.mcp_command import (
     interruptible_steps,
     terminal_manager_view,
 )
-from pipy_harness.native.repl.mcp_loading import load_mcp_servers
+from pipy_harness.native.repl.mcp_loading import FollowedExtensions, load_mcp_servers
 from pipy_harness.native.repl.mcp_session import McpSession
 from pipy_harness.native.repl.mcp_waits import McpSessionWaits
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
@@ -970,6 +970,8 @@ def _compose_extension_phase(
         else partial(_builtin_extension_enabled, startup.resource_options, settings),
     )
 
+    # Where an embedded session's provider tokens find extension providers.
+    mcp_extensions = FollowedExtensions()
     mcp = McpSession(
         partial(
             load_mcp_servers,
@@ -978,6 +980,7 @@ def _compose_extension_phase(
             startup.resource_options,
             tool_capabilities,
             inputs.provider_state,
+            mcp_extensions,
         ),
         tools=tool_capabilities,
         notify=_extension_notify,
@@ -1036,6 +1039,7 @@ def _compose_extension_phase(
     startup_projection = attached.projection
     generation_ref = attached.generation_ref
     mcp.follow_extensions(lambda: generation_ref.current.runtime)
+    mcp_extensions.follow(lambda: generation_ref.current.runtime)
     startup_commands = startup_projection.commands
     try:
         execution_projections = SessionExecutionProjections(

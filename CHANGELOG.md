@@ -16,6 +16,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   extension provider with `oauth`) then gets no token, as in Pi. Before,
   `openai-codex` was sent the Codex login and an extension provider never
   got the key. See [a provider's token](docs/mcp.md#a-providers-token).
+- An SDK product session with `mcp` sends a server whose entry has
+  `auth.provider` that provider's token, from `auth.json`, the environment,
+  `models.json` and the Codex login in the default files, as a `pipy`
+  session does and as Pi's SDK resolves it through its model runtime. Before,
+  such a server got no token in an SDK session. See
+  [codemode, tool search and MCP](docs/sdk.md#codemode-tool-search-and-mcp).
 - An API key stored as `!command` in `auth.json` runs once per process and
   its first result is kept, for model requests and for MCP `auth.provider`
   requests, as Pi caches it. Before, it ran for every MCP request and for

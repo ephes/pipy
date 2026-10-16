@@ -176,6 +176,17 @@ The `extensions` setting that turns MCP off for the command
 registers the `/mcp` command [replaces MCP](mcp.md#replace-the-built-in-mcp-support)
 in such a session as in the command.
 
+A server whose entry has `auth.provider`
+([a provider's token](mcp.md#a-providers-token)) is sent that provider's
+token as in a `pipy` session, although the session's own provider is the
+one you pass: from `auth.json`, the provider's API-key environment
+variable, the `models.json` `apiKey` and the Codex login, in the default
+files (`PIPY_AUTH_DIR`, `PIPY_CONFIG_HOME`), as Pi's SDK builds its model
+runtime over the default `auth.json` and `models.json`. A provider one of
+the session's extensions registers is answered as in a `pipy` session.
+There is no `--api-key`. The files are read when a server first asks for a
+token. As in Pi, there is no option that passes a token.
+
 `open_url` and `update_config` serve the `/mcp` command and its sign-in:
 `submit("/mcp login docs")` opens the sign-in through `open_url`. A product
 session has no UI, so `/mcp` without a subcommand opens no manager view (its
