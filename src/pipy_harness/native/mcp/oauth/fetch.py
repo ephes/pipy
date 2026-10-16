@@ -4,6 +4,13 @@ Every function of the library that talks to a server takes a ``fetch``
 argument, an ``OAuthFetch``: one call sends one request and returns the whole
 response. ``create_oauth_fetch`` makes the one used when none is given.
 
+With ``discard_unless_ok`` a call does not wait for the body of a response
+whose status is not 2xx: it returns the status and the headers as soon as
+they are in, with an empty body, and the default fetch closes the
+connection. Discovery asks for this, as Pi's discovery cancels the body of
+such a response before it tries the next URL, so a body that stalls does not
+hold it up.
+
 A fetch reports what happened to the request in three ways, and discovery
 depends on the difference:
 
@@ -25,8 +32,9 @@ Redirects are followed as the ``fetch`` of Node does, which Pi uses (the
 fetch standard's HTTP-redirect fetch, and undici's addition to it):
 
 - A 301, 302, 303, 307 or 308 answer with a ``Location`` header is followed,
-  to any origin, at most ``MAX_REDIRECTS`` times. Without the header the
-  answer is the response.
+  to any origin, at most ``MAX_REDIRECTS`` times. Its body is not waited
+  for: the connection is closed once the headers are in. Without the header
+  the answer is the response.
 - A 307 and a 308 send the method and the body again, so a registration or
   a token request follows the server to where it moved. A 303 turns every
   method but GET and HEAD into a GET, and a 301 or 302 turns a POST into
@@ -46,7 +54,7 @@ The answer of a redirect that is followed is not decoded.
 
 Where the default fetch differs from JavaScript's ``fetch``:
 
-- A response body is read as a whole and limited to
+- A response body that is read is read as a whole and limited to
   ``MAX_OAUTH_RESPONSE_BYTES``, as it arrived and after each decoding.
 - There is no proxy support.
 - ``br`` and ``zstd`` are not asked for and not decoded (Node asks for them
@@ -142,6 +150,7 @@ class OAuthFetch(Protocol):
         headers: Mapping[str, str] | None = None,
         body: bytes | None = None,
         cancel_event: threading.Event | None = None,
+        discard_unless_ok: bool = False,
     ) -> OAuthResponse: ...
 
 
@@ -230,13 +239,26 @@ def _decoded(
     return OAuthResponse(response.status, response.headers, body)
 
 
-def _read_response(connection: http.client.HTTPConnection, limit: int) -> OAuthResponse:
+def _read_response(
+    connection: http.client.HTTPConnection, limit: int, discard_unless_ok: bool
+) -> OAuthResponse:
+    """The response on ``connection``. The body of a redirect that is
+    followed, and with ``discard_unless_ok`` that of a status other than 2xx,
+    is not read."""
 
     response = connection.getresponse()
     headers: dict[str, str] = {}
     for name, value in response.getheaders():
         key = name.lower()
         headers[key] = f"{headers[key]}, {value}" if key in headers else value
+    status = response.status
+    if (status in _REDIRECT_STATUSES and "location" in headers) or (
+        discard_unless_ok and not 200 <= status <= 299
+    ):
+        # The connection is closed unread, as fetch cancels the body: the
+        # response holds the socket once its headers say it will close.
+        response.close()
+        return OAuthResponse(status, headers)
     announced = response.length
     body = response.read(limit + 1)
     if len(body) > limit:
@@ -253,6 +275,7 @@ def _send(
     body: bytes | None,
     token: CancelToken,
     limit: int,
+    discard_unless_ok: bool,
 ) -> OAuthResponse:
     """One request on a connection of its own. The body of the answer is as
     it arrived."""
@@ -280,7 +303,7 @@ def _send(
         shutdown = _SocketShutdown(connection.sock)
         token.register(shutdown)
         connection.request(method, target.path, body=body, headers=dict(headers))
-        return _read_response(connection, limit)
+        return _read_response(connection, limit, discard_unless_ok)
     except UnicodeError as error:
         # A host or a header that cannot be written in a request.
         raise _cannot_request(target.url) from error
@@ -301,14 +324,17 @@ def _exchange(
     body: bytes | None,
     token: CancelToken,
     limit: int,
+    discard_unless_ok: bool,
 ) -> OAuthResponse:
     """One request, following redirects as Node's fetch does."""
 
     target = _parse_target(url)
     for _ in range(MAX_REDIRECTS + 1):
-        response = _send(target, method, headers, body, token, limit)
+        response = _send(target, method, headers, body, token, limit, discard_unless_ok)
         location = response.header("location")
         if response.status not in _REDIRECT_STATUSES or location is None:
+            if discard_unless_ok and not response.ok:
+                return response
             return _decoded(response, method, target.url, limit)
         try:
             redirected = _parse_target(urllib.parse.urljoin(target.url, location))
@@ -361,7 +387,8 @@ def create_oauth_fetch(
     """A fetch over ``http.client``.
 
     ``timeout_ms`` limits one call, from the request to the end of the
-    response body, redirects included; ``None`` sets no limit.
+    response body (or of the headers, when the body is not read), redirects
+    included; ``None`` sets no limit.
     """
 
     def fetch(
@@ -371,6 +398,7 @@ def create_oauth_fetch(
         headers: Mapping[str, str] | None = None,
         body: bytes | None = None,
         cancel_event: threading.Event | None = None,
+        discard_unless_ok: bool = False,
     ) -> OAuthResponse:
         if cancel_event is not None and cancel_event.is_set():
             raise McpAbortError()
@@ -382,7 +410,13 @@ def create_oauth_fetch(
             try:
                 outcome.append(
                     _exchange(
-                        url, method, headers or {}, body, token, max_response_bytes
+                        url,
+                        method,
+                        headers or {},
+                        body,
+                        token,
+                        max_response_bytes,
+                        discard_unless_ok,
                     )
                 )
             except Exception as caught:  # noqa: BLE001 - cross-thread capture: raised by the waiting caller

@@ -225,6 +225,7 @@ class _Fetch:
         headers: Mapping[str, str] | None = None,
         body: bytes | None = None,
         cancel_event: threading.Event | None = None,
+        discard_unless_ok: bool = False,
     ) -> OAuthResponse:
         self.calls.append(
             {
@@ -233,6 +234,7 @@ class _Fetch:
                 "headers": dict(headers or {}),
                 "body": body,
                 "cancel_event": cancel_event,
+                "discard_unless_ok": discard_unless_ok,
             }
         )
         return self.responses.pop(0)

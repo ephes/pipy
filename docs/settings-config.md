@@ -742,6 +742,11 @@ and their resolved enabled state; `pipy config enable|disable <skill|prompt|
 theme|extension> <name> [--scope global|project]` writes a `+name`/`-name` entry
 into the relevant settings array (via
 `pipy_harness.native.resource_enablement`), never removing the discovered path.
+For the built-in extensions, `pipy config enable|disable builtin <name>`
+writes `+builtin:<name>`/`-builtin:<name>`, and `pipy config inherit builtin
+<name>` removes the project's entries that name it, so the user settings
+decide again (Pi's inherit state; see
+[turning MCP off](mcp.md#turning-mcp-off)).
 `WorkspaceResources.with_enablement` applies those directives at session startup
 so a disabled skill/prompt is dropped from what is registered (last matching
 directive wins; bare source-path entries are ignored for enablement and remain

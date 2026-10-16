@@ -622,16 +622,19 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument(
         "action",
         nargs="?",
-        choices=["list", "enable", "disable"],
+        choices=["list", "enable", "disable", "inherit"],
         default="list",
         help="list (default) shows discovered resources and their enabled state; "
-        "enable/disable write a +pattern/-pattern entry to settings.",
+        "enable/disable write a +pattern/-pattern entry to settings; inherit "
+        "removes a project's entries for a built-in, so the user settings "
+        "decide again.",
     )
     config_parser.add_argument(
         "resource_type",
         nargs="?",
         choices=["skill", "prompt", "theme", "extension", "builtin"],
-        help="Resource type for enable/disable; builtin names a part of pipy (mcp).",
+        help="Resource type for enable/disable/inherit; builtin names a part of "
+        "pipy (mcp, codemode, tool-search).",
     )
     config_parser.add_argument(
         "name", nargs="?", help="Resource name (or glob) for enable/disable."
@@ -639,8 +642,9 @@ def build_parser() -> argparse.ArgumentParser:
     config_parser.add_argument(
         "--scope",
         choices=["global", "project"],
-        default="global",
-        help="Settings scope to write to (default global).",
+        default=None,
+        help="Settings scope to write to (default global; inherit always "
+        "writes the project settings).",
     )
     config_parser.add_argument(
         "-l",
@@ -1835,6 +1839,7 @@ def _cmd_config(args: Any) -> int:
         builtin_extension_name,
         disable_entry,
         enable_entry,
+        inherit_builtin_extension_entry,
         is_resource_enabled,
         set_builtin_extension_entry,
     )
@@ -1842,11 +1847,19 @@ def _cmd_config(args: Any) -> int:
     from pipy_harness.native.settings import SCOPE_GLOBAL, SCOPE_PROJECT
 
     cwd = args.cwd.expanduser().resolve()
-    manager = _build_management_settings(args, cwd)
     action = getattr(args, "action", "list") or "list"
+    if action == "inherit" and args.scope == "global":
+        print(
+            "pipy: `pipy config inherit` removes a project's entries; it has "
+            "no global form.",
+            file=sys.stderr,
+        )
+        return 2
+    scope_name = args.scope or ("project" if action == "inherit" else "global")
+    manager = _build_management_settings(args, cwd)
     if (
-        action in ("enable", "disable")
-        and args.scope == "project"
+        action in ("enable", "disable", "inherit")
+        and scope_name == "project"
         and not manager.project_trusted
     ):
         print(
@@ -1970,7 +1983,14 @@ def _cmd_config(args: Any) -> int:
             file=sys.stderr,
         )
         return 2
-    scope = SCOPE_PROJECT if args.scope == "project" else SCOPE_GLOBAL
+    if action == "inherit" and resource_type != "builtin":
+        print(
+            "pipy: `pipy config inherit` applies to built-in extensions, "
+            "e.g. `pipy config inherit builtin mcp`.",
+            file=sys.stderr,
+        )
+        return 2
+    scope = SCOPE_PROJECT if scope_name == "project" else SCOPE_GLOBAL
     if resource_type == "builtin":
         # Stored as `-builtin:<name>` in the scope's own `extensions` array;
         # a project entry decides over the user-level one.
@@ -1988,26 +2008,44 @@ def _cmd_config(args: Any) -> int:
             for entry in (scope_value if isinstance(scope_value, list) else [])
             if isinstance(entry, str)
         ]
-        try:
-            manager.set_resource_patterns(
-                "extensions",
-                set_builtin_extension_entry(
-                    scope_patterns,
-                    builtin,
-                    enabled=action == "enable",
-                    base_dir=(
-                        manager.global_path
-                        if scope == SCOPE_GLOBAL
-                        else manager.project_path or cwd / ".pipy" / "settings.json"
-                    ).parent,
-                    workspace=cwd,
-                ),
-                scope=scope,
+        base_dir = (
+            manager.global_path
+            if scope == SCOPE_GLOBAL
+            else manager.project_path or cwd / ".pipy" / "settings.json"
+        ).parent
+        if action == "inherit":
+            updated = inherit_builtin_extension_entry(
+                scope_patterns, builtin, base_dir=base_dir, workspace=cwd
             )
+            if updated == scope_patterns:
+                print(
+                    "pipy: project settings (extensions) have no entry that "
+                    f"names built-in {builtin!r}."
+                )
+                return 0
+        else:
+            updated = set_builtin_extension_entry(
+                scope_patterns,
+                builtin,
+                enabled=action == "enable",
+                base_dir=base_dir,
+                workspace=cwd,
+            )
+        try:
+            manager.set_resource_patterns("extensions", updated, scope=scope)
         except (RuntimeError, ValueError) as exc:
             print(f"pipy: could not update extensions: {exc}", file=sys.stderr)
             return 1
-        print(f"pipy: {action}d built-in {builtin!r} in {scope} settings (extensions).")
+        if action == "inherit":
+            print(
+                f"pipy: removed the entries that name built-in {builtin!r} "
+                "from project settings (extensions)."
+            )
+        else:
+            print(
+                f"pipy: {action}d built-in {builtin!r} in {scope} settings "
+                "(extensions)."
+            )
         return 0
     key = _CONFIG_RESOURCE_KEYS[resource_type]
     current = (

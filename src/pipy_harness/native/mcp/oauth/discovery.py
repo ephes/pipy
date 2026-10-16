@@ -12,7 +12,9 @@ challenge, discovery finds:
    at up to three well-known URLs.
 
 A network failure, as ``fetch.is_network_error`` defines it, and a cancelled
-request end discovery with their exception. Any other failure to load the
+request end discovery with their exception. Discovery reads the body of a 2xx
+response only: the fetch returns any other at its headers, so a body that
+stalls does not hold discovery up. Any other failure to load the
 protected resource metadata (a failure status, a body that is not the
 document, a time limit of the fetch) means the server has none. For the
 authorization server's metadata, 4xx and 502 mean "not at this URL"; a server
@@ -154,6 +156,8 @@ def _fetch_metadata(
             "MCP-Protocol-Version": protocol_version or LATEST_PROTOCOL_VERSION,
         },
         cancel_event=cancel_event,
+        # Only a 2xx body is read; Pi cancels the others (`discard`).
+        discard_unless_ok=True,
     )
 
 
