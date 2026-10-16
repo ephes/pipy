@@ -545,6 +545,21 @@ def test_q17_accepts_the_rows_of_the_eighth_triage_and_sets_the_last_bar() -> No
     assert "goal check r8, findings U3 and U4; plan DEV-36, DEV-37" in backlog
 
 
+def test_the_final_goal_check_reached_the_goal_under_q17() -> None:
+    # The final goal check Q17 describes (r9, at 2f95587d) was CLEAN in all
+    # six areas: it changed no row and the owner approved the merge.
+    q17 = _decision("Q17")
+    assert "**Outcome** (2026-10-16): the final goal check" in q17
+    assert "found the goal reached in all six" in q17
+    assert "Status: done, 2026-10-16." in _PLAN.read_text().splitlines()[2]
+    note = " ".join(_NOTE.read_text().split())
+    assert "the goal is reached under the bar of plan section 7, Q17." in note
+    assert "165 rows closed with a test and 127 with a recorded limit" in note
+    backlog = (_DOCS / "backlog.md").read_text()
+    assert "### MCP1 — MCP and codemode tool reach (done 2026-10-16)" in backlog
+    assert "Campaign done (2026-10-16)" in backlog
+
+
 def test_the_fixes_of_the_eighth_triage_read_drew_and_answered_as_pi() -> None:
     # INT9 folded K2 and K3 (docs/specs/2026-10-16-mcp-gaps-r8-notes.md):
     # C leaves the bodies of discovery's misses and of followed redirects

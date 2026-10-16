@@ -1,8 +1,8 @@
 # Pipy backlog
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
-updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited)
-and 2026-10-15 (MCP1 goal-check tracks merged).
+updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited),
+2026-10-15 (MCP1 goal-check tracks merged) and 2026-10-16 (MCP1 done).
 
 ## Status
 
@@ -17,6 +17,10 @@ and 2026-10-15 (MCP1 goal-check tracks merged).
 - **Pi realignment to `4df157433`: done** (2026-09-29). MC1, CTX1, PC1, PC2,
   UX1, MC5, COST1, PR1/PR2, the gate and symlink repair, and DH1 landed; see
   [Done](#done-2026-09-29).
+- **MCP1 MCP and codemode tool reach: done (2026-10-16).** The final goal
+  check found Pi parity reached; the owner approved the merge to `main`.
+  The live evidence and the recorded differences stay open; see
+  [MCP1](#mcp1-mcp-and-codemode-tool-reach-done-2026-10-16).
 - **CM1 Python codemode: done (2026-10-09).**
   Public codemode remains opt-in. T4–T11 and A–K evidence are indexed in the
   [acceptance note](specs/2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index).
@@ -88,7 +92,7 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Active queue
 
-### MCP1 — MCP and codemode tool reach (built 2026-10-14, not merged)
+### MCP1 — MCP and codemode tool reach (done 2026-10-16)
 
 Owner-requested 2026-10-12: the whole Pi MCP feature at functionality parity,
 against Pi `a447ba11f`. The
@@ -110,7 +114,7 @@ concurrently since G3 (plan DEV-03). Decided
 2026-10-12 (plan section 7): images in tool results and the extension
 orchestration hooks are in scope, the client name is `pipy`, and slices land
 on `feat/mcp-parity`, pushed per slice, as a campaign exception to the trunk
-rule; the merge to `main` needs owner approval. Decided 2026-10-14: no
+rule; the merge to `main` needed owner approval (given 2026-10-16). Decided 2026-10-14: no
 default OAuth Client ID Metadata Document (dynamic client registration stays
 the default, CIMD is opt-in through `oauth.clientMetadataBaseUrl`); stdio
 servers on Windows, the Radius offer after a login and codemode `models.*`
@@ -127,7 +131,7 @@ MCP conformance suite gives the same result for pipy as for Pi
 - **Live evidence** (plan section 6.5): a stdio server through `uvx` or
   `npx` and an OAuth HTTP server, with a real model. Not recorded yet; it
   needs the owner's provider login and an account at an OAuth MCP server.
-- **Owner decisions:** the merge to `main`; which of the recorded
+- **Owner decisions:** which of the recorded
   differences from Pi (plan section 3.1, DEV-15 to DEV-101) that plan
   section 7, Q11 to Q17, do not name are accepted. Q11 (2026-10-15)
   accepts the findings of the second goal check that its triage neither
@@ -149,8 +153,14 @@ MCP conformance suite gives the same result for pipy as for Pi
   INT8, which added DEV-95, two limits of a wrapped `edit` row, accepted
   in Q16), and so are the fix slices Z1 and Z2 of the seventh triage
   (Z2 narrowed DEV-20 to the 64 KiB result text) and the fix slices K1 to
-  K3 of the eighth triage (K2 and K3 merged in INT9). What is left is the
-  final goal check Q17 describes.
+  K3 of the eighth triage (K2 and K3 merged in INT9).
+
+Campaign done (2026-10-16): the final goal check Q17 describes ran at
+`2f95587d` and found the goal reached in all six areas, each CLEAN with no
+finding, so it added nothing to this backlog. The owner approved the merge
+of `feat/mcp-parity` to `main` the same day. The follow-ons from the goal
+checks stay listed under [Follow-ons](#follow-ons), and the live evidence
+and the owner decisions above stay open.
 
 ### CM1 — Python codemode (done 2026-10-09)
 
@@ -523,8 +533,8 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 Revisit these when an active item needs them or the Pi surface stabilizes.
 
 - **Pi MCP / tool search:** no longer deferred. Selected on 2026-10-12 as
-  [MCP1](#mcp1-mcp-and-codemode-tool-reach-built-2026-10-14-not-merged),
-  which is built on `feat/mcp-parity`. What it does not port is listed in
+  [MCP1](#mcp1-mcp-and-codemode-tool-reach-done-2026-10-16),
+  which is done (2026-10-16). What it does not port is listed in
   the plan's deviations tables (parallel nested calls, the non-reach
   codemode globals, Radius setup, Windows process handling, and the
   differences the slices recorded).

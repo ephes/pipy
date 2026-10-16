@@ -1,6 +1,7 @@
 # MCP parity acceptance note (2026-10-13)
 
-Status: **implemented on `feat/mcp-parity`, not merged.** Of the 292
+Status: **implemented on `feat/mcp-parity`; goal reached (plan section 7,
+Q17) and the merge to `main` approved on 2026-10-16.** Of the 292
 checklist rows of the
 [MCP parity plan](../specs/2026-10-12-mcp-parity-plan.md), 165 are
 closed with a test and 127 are closed with a recorded limit or
@@ -178,6 +179,18 @@ message carries the nested-call record as its own `nestedCalls` field; a
 call whose arguments the record leaves out keeps a 200-character preview
 through a resume and the export (DEV-66, DEV-96); and an undeclared tool
 is answered `Tool <name> not found`. No row changes its state.
+
+Outcome (2026-10-16): the goal is reached under the bar of plan section
+7, Q17. The final goal check ran at `2f95587d`, cumulative against
+`4b91b722`, with one review for each of the six areas (the MCP client
+and its transports; configuration, `pipy mcp` and the documentation;
+tools, resources, exposure and `tool_search`; codemode and rendering;
+OAuth; and the session, `/mcp`, the extension API and the SDK). Each
+was CLEAN with no finding, so nothing went to the backlog from it. The
+counts are unchanged: 165 rows closed with a test and 127 with a
+recorded limit or deviation. The owner then approved the merge of
+`feat/mcp-parity` to `main` (Q5). The live evidence of plan section 6.5
+is still not recorded.
 
 ## Reference
 
@@ -771,9 +784,8 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 
 ## Open for the owner
 
-1. The merge of `feat/mcp-parity` to `main` (Q5).
-2. The live evidence of plan section 6.5.
-3. Which of the DEV rows of plan section 3.1 that Q11 to Q17 do not name
+1. The live evidence of plan section 6.5.
+2. Which of the DEV rows of plan section 3.1 that Q11 to Q17 do not name
    are accepted. Until then the rows that name one are closed on that
    condition.
 
@@ -792,6 +804,7 @@ the eighth goal check as the DEV rows Q17 names. Q17 also changes the bar:
 one final goal check after its fix slices asks for each area whether the
 goal is reached (no Critical gap and no gap a user would notice in normal
 use); edge cases it still finds go to the backlog, and then the owner is
-asked about the merge. SLH-13 and the hyperlink
+asked about the merge. That check found the goal reached at `2f95587d`,
+and the owner approved the merge to `main` (2026-10-16). SLH-13 and the hyperlink
 part of MGR-09 were built (N2, N3), and the startup report is shown behind the
 `/mcp` manager as it arises (N1).

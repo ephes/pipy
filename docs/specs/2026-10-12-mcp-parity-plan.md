@@ -1,9 +1,11 @@
 # MCP and codemode tool reach: Pi parity plan
 
-Status: plan, 2026-10-12. Work item `pipy-mcp-codemode-parity`, backlog ID MCP1.
-No product code is changed by this document.
+Status: done, 2026-10-16. Work item `pipy-mcp-codemode-parity`, backlog ID MCP1
+(planned 2026-10-12). The final goal check of section 7, Q17, found the goal
+reached at `2f95587d` in all six areas, and the owner approved the merge of
+`feat/mcp-parity` to `main` (Q5). No product code is changed by this document.
 
-Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 are on
+Audited 2026-10-14 (slice S40): the slices S01 to S40 and X1 were then on
 `feat/mcp-parity`, not merged. The goal check that followed added the slices
 G1 to G9, L1 to L4 and N1 to N4 and five rows (merged in INT3, 2026-10-15).
 Of the 292 rows of section 2, 292 are closed
@@ -692,6 +694,8 @@ no row's state: K1 narrowed DEV-58 and moved RES-10 to DEV-56, K2 added
 `pipy config inherit` to DEV-32 and the bodies that are not read to
 DEV-72, and K3 added the preview of left-out arguments to DEV-66 and
 DEV-96.
+The final goal check under Q17's bar (2026-10-16, at `2f95587d`) found
+nothing: it changed no row's state and added no DEV row.
 The 127 rows
 count as closed only if the final
 judgement accepts the deviation or limit each one names; section 7, Q11 to
@@ -5218,9 +5222,11 @@ parts they fix as they land.
 
 | ID | Question | Decision |
 | --- | --- | --- |
-| Q17 | Goal-check round 8 (goal-r8.md and the first run, at `4b12ab18`): findings that remain after the triage of 2026-10-16, and when the goal checks end. | **Accepted as deviations, and the bar changes** (owner decided 2026-10-16 in chat; request #242 was withdrawn). The bar: after the fix slices K1 to K3, one final goal check asks for each area whether the goal is reached, meaning no Critical gap and no gap a user would notice in normal use. Edge cases it still finds go to the backlog (`docs/backlog.md`), not to another round of fix slices. After that check the owner is asked about the merge to `main` (Q5). The following findings are settled and are not functional gaps for the parity goal. They are edge cases, or differences where pipy is deliberately stricter: P4 (DEV-97, a `retry` field of more than 18 digits is ignored, also a small delay padded with zeros; backlog); U1 (DEV-98, an exposure change that takes an excluded tool out of the selection drops every pending restoration; backlog); U2 (DEV-99, a result whose blocks are all text reaches the hooks as its joined text; backlog); U3 (DEV-36, the further hash suffix for a suffixed name that already belongs to another tool only, so that no name changes its owner; backlog); U4 (DEV-37, registering a server's tools again on an exposure change while the server is not connected only; backlog); S1 (DEV-100, an empty `prepare_loadout` description is ignored; backlog); S2 (DEV-101, `api.on()` only while the extension loads; extension-API backlog). Fixed by the slices K1 to K3: A, B, C, P1, P2, P3, D1, U5. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts stay as an earlier decision left them (Q12 accepts DEV-36's precedence by load order) or stay proposals. |
+| Q17 | Goal-check round 8 (goal-r8.md and the first run, at `4b12ab18`): findings that remain after the triage of 2026-10-16, and when the goal checks end. | **Accepted as deviations, and the bar changes** (owner decided 2026-10-16 in chat; request #242 was withdrawn). The bar: after the fix slices K1 to K3, one final goal check asks for each area whether the goal is reached, meaning no Critical gap and no gap a user would notice in normal use. Edge cases it still finds go to the backlog (`docs/backlog.md`), not to another round of fix slices. After that check the owner is asked about the merge to `main` (Q5). The following findings are settled and are not functional gaps for the parity goal. They are edge cases, or differences where pipy is deliberately stricter: P4 (DEV-97, a `retry` field of more than 18 digits is ignored, also a small delay padded with zeros; backlog); U1 (DEV-98, an exposure change that takes an excluded tool out of the selection drops every pending restoration; backlog); U2 (DEV-99, a result whose blocks are all text reaches the hooks as its joined text; backlog); U3 (DEV-36, the further hash suffix for a suffixed name that already belongs to another tool only, so that no name changes its owner; backlog); U4 (DEV-37, registering a server's tools again on an exposure change while the server is not connected only; backlog); S1 (DEV-100, an empty `prepare_loadout` description is ignored; backlog); S2 (DEV-101, `api.on()` only while the extension loads; extension-API backlog). Fixed by the slices K1 to K3: A, B, C, P1, P2, P3, D1, U5. Every DEV row named here counts as accepted; a row marked "only" is accepted in the parts named, and its other parts stay as an earlier decision left them (Q12 accepts DEV-36's precedence by load order) or stay proposals. **Outcome** (2026-10-16): the final goal check (`goal-r9.md`, at `2f95587d`, cumulative against `4b91b722`) found the goal reached in all six areas: the MCP client and its transports; configuration, `pipy mcp` and the documentation; tools, resources, exposure and `tool_search`; codemode and rendering; OAuth; and the session, `/mcp`, the extension API and the SDK. Each area was one valid review at the bar above, CLEAN with no finding, so nothing went to the backlog from it, and the owner approved the merge to `main` (Q5). |
 
 A DEV row of section 3 or 3.1 that Q11, Q12, Q13, Q14, Q15, Q16 or Q17
 names is accepted; Q15 names none. One none of them names stays a proposal
 for the final judgement. After Q17 the goal checks end with the final one
 Q17 describes; what it finds below its bar goes to the backlog.
+That final check ran on 2026-10-16 at `2f95587d` and found the goal
+reached; see Q17's outcome.

@@ -1510,6 +1510,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Documentation
 
+- The MCP parity plan, its acceptance note and the backlog record that
+  the final goal check (plan section 7, Q17) found MCP and codemode tool
+  reach at parity with Pi in all six areas, with no finding, and that the
+  owner approved the merge to `main`. The row counts are unchanged; the
+  live evidence and the follow-ons stay in the backlog. See the
+  [acceptance note](docs/acceptance/2026-10-13-mcp-parity.md).
 - The MCP parity plan, its acceptance note and the backlog now hold the
   goal-check tracks L and N and the owner decisions of 2026-10-14: no
   default OAuth Client ID Metadata Document (dynamic client registration
