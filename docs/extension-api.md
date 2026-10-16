@@ -1331,8 +1331,9 @@ def read_all(ctx, params):
   (name, arguments, status, duration and error, never results; at most 256
   calls, arguments up to 8 KiB per call and 32 KiB in all, with
   `complete: false` when something was left out). A tool that called nothing
-  has no such record. Compaction uses the record for its file lists and the
-  HTML export shows it.
+  has no such record. Compaction uses the record for its file lists, the
+  HTML export shows it, and the tool result message in JSON and RPC mode
+  carries it (see [the event vocabulary](automation-rpc.md#event-vocabulary-pipy-must-emit)).
 - Escape or an abort while a nested call runs cancels that call and the
   calling tool with it.
 

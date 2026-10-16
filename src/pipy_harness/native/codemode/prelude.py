@@ -496,12 +496,17 @@ def checked_image(value: object) -> tuple[str, str]:
 
 
 def image_helper(
-    emit: Callable[[str, str], None], limit: int = MAX_IMAGE_CHARS
+    emit: Callable[[str, str], None],
+    fail: Callable[[BaseException], None],
+    limit: int = MAX_IMAGE_CHARS,
 ) -> Callable[[object], None]:
     """The script's ``image``: checks its argument, then emits the image.
 
     All images of one script together may hold ``limit`` characters of
-    base64 data; the image that would pass it raises ``ValueError``.
+    base64 data. The image that would pass it fails the run (``fail``)
+    and then raises ``ValueError``, as Pi's prelude ``output()`` calls
+    ``done(false, ...)`` before it throws: a script that catches the error
+    cannot go on to succeed.
     """
 
     shown = 0
@@ -513,10 +518,12 @@ def image_helper(
         nonlocal shown
         data, mime_type = checked_image(value)
         if shown + len(data) > limit:
-            raise ValueError(
+            error = ValueError(
                 f"the script's images exceeded {limit} characters of base64 "
                 "data; show fewer or smaller images"
             )
+            fail(error)
+            raise error
         shown += len(data)
         emit(data, mime_type)
 
@@ -676,12 +683,18 @@ def _safe_str(exc: BaseException) -> str:
         return f"<unprintable {type(exc).__name__}>"
 
 
-def describe_error(exc: BaseException) -> dict[str, str]:
-    """Return ``{type, message, traceback}`` with the traceback trimmed to the script."""
+def describe_error(exc: BaseException, stack: Any = None) -> dict[str, str]:
+    """Return ``{type, message, traceback}`` with the traceback trimmed to the script.
+
+    ``stack`` (a ``traceback.StackSummary``) stands in for the traceback of
+    an exception that is not raised yet: the frames that will raise it.
+    """
 
     import traceback
 
     exc_info = traceback.TracebackException.from_exception(exc)
+    if stack is not None:
+        exc_info.stack = stack
     _trim(exc_info, set())
     return {
         "type": type(exc).__name__,
@@ -765,9 +778,32 @@ class Wire:
         # request nobody waited for yet.
         self._waiting: set[int] = set()
         self._replies: dict[int, dict[str, Any]] = {}
+        self._finished = False
 
     def send(self, message: dict[str, Any]) -> None:
         self._write(encode(message))
+
+    def finish(self, done: dict[str, Any]) -> None:
+        """Send the ``done`` line, once: the first outcome is the run's
+        (Pi's ``done()``). The host reads nothing after it."""
+
+        if self._finished:
+            return
+        self._finished = True
+        self.send(done)
+
+    def fail(self, error: BaseException) -> None:
+        """End the run with ``error`` before the script sees it raised."""
+
+        import traceback
+
+        self.finish(
+            {
+                "type": "done",
+                "ok": False,
+                "error": describe_error(error, traceback.extract_stack()),
+            }
+        )
 
     def _write(self, line: bytes) -> None:
         data = memoryview(line)
@@ -956,7 +992,7 @@ def main() -> None:
         ),
         "ALL_TOOLS": all_tools,
         "text": text,
-        "image": image_helper(wire.image),
+        "image": image_helper(wire.image, wire.fail),
         "ToolError": ToolError,
         "store": script_store.store,
         "load": script_store.load,
@@ -967,7 +1003,7 @@ def main() -> None:
     # reports its writes; a failed one's are discarded.
     if done["ok"] and (writes := script_store.writes()):
         done["writes"] = writes
-    wire.send(done)
+    wire.finish(done)
 
 
 if __name__ == "__main__":

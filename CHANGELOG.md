@@ -8,6 +8,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- In JSON and RPC mode the `toolResult` message of an extension tool that
+  ran other tools with `ctx.execute_tool` carries the result's `details`
+  with its `nestedCalls` record in `turn_end`, `agent_end` and
+  `get_messages`, as a `codemode` result's message does and as Pi records
+  the nested calls on every tool result message. Before, only `codemode`
+  messages had it; the record was in `tool_execution_end` only. See
+  [the event vocabulary](docs/automation-rpc.md#event-vocabulary-pipy-must-emit).
+- A codemode script whose `image()` call passes the output limit of
+  16,777,216 characters fails also when it catches the `ValueError`: the
+  run has failed before the error is raised, so the output after it and
+  the script's `store()` writes are dropped, as Pi's `output()` fails the
+  script before it throws. Before, a script could catch the error, go on
+  and succeed. See [images](docs/codemode.md#images).
 - `/reload` declares again every tool that was declared before it, not
   only MCP tools, once the tool registers before the next prompt starts:
   a `deferred` extension tool that `tool_search` loaded and that the

@@ -314,6 +314,67 @@ def test_a_result_without_nested_calls_has_no_record(tmp_path, monkeypatch) -> N
     assert "run_tools" in _tool_names(provider.requests[0])
 
 
+def test_rpc_tool_result_messages_carry_an_extension_parents_record(
+    tmp_path, monkeypatch
+) -> None:
+    # Pi's _handleAgentEvent puts nestedCalls on the tool result message of
+    # every tool that ran others, not only codemode's: turn_end, agent_end
+    # and get_messages carry the record (here in the result's details).
+    from test_native_automation_rpc import _RpcClient
+
+    from pipy_harness.native.fake import FakeNativeProvider
+    from pipy_harness.native.resource_loading import RuntimeResourceOptions
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write(tmp_path)
+    extension = tmp_path / ".pipy" / "extensions" / "orchestrator.py"
+    provider = FakeNativeProvider(
+        supports_tool_calls=True,
+        programmable_tool_calls=(
+            (
+                ProviderToolCall("p1", "outer", "{}"),
+                ProviderToolCall("p2", "echo", '{"text":"plain"}'),
+            ),
+            (),
+        ),
+    )
+    client = _RpcClient(
+        tmp_path,
+        provider=provider,
+        persist_tree=True,
+        resource_options=RuntimeResourceOptions(extension_paths=(extension,)),
+    )
+    try:
+        client.send({"id": "go", "type": "prompt", "message": "go"})
+        records = client.collect_until(
+            lambda record: record.get("type") == "agent_settled", timeout=15
+        )
+        client.send({"id": "msgs", "type": "get_messages"})
+        stored = client.wait_for(lambda record: record.get("id") == "msgs")
+    finally:
+        client.close()
+
+    def results(messages: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        return {m["toolCallId"]: m for m in messages if m["role"] == "toolResult"}
+
+    turn = next(r for r in records if r.get("type") == "turn_end")
+    end = next(r for r in records if r.get("type") == "agent_end")
+    gotten = results(stored["data"]["messages"])
+    for messages in (
+        results(turn["toolResults"]),
+        results(end["messages"]),
+        gotten,
+    ):
+        record = messages["p1"]["details"]["nestedCalls"]
+        assert [(c["id"], c["name"]) for c in record["calls"]] == [
+            ("p1/1", "inner"),
+            ("p1/1/1", "echo"),
+        ]
+        assert record["complete"] is True
+        # A tool that called nothing has no record, and its message no details.
+        assert "details" not in messages["p2"]
+
+
 def test_a_nested_tool_runs_tools_itself(tmp_path, monkeypatch) -> None:
     # Pi: a nested tool gets `executeTool` too, and its calls are recorded
     # on the model's call with the ids `<parent>/<n>/<m>`.

@@ -38,12 +38,18 @@ from pipy_harness.native.assistant_blocks_json import tool_result_blocks_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
 
 
-def codemode_parent_details(message: AgentToolResultMessage) -> dict[str, Any]:
-    """Expose metadata only for composite parents carrying canonical records."""
+def nested_call_details(message: AgentToolResultMessage) -> dict[str, Any]:
+    """The ``details`` of a result that carries a nested-call record.
+
+    Every calling tool's result has the record (``codemode`` and an
+    extension tool that ran others with ``ctx.execute_tool``), as Pi's
+    ``_handleAgentEvent`` puts ``nestedCalls`` on every tool result message
+    its recorder has a summary for. Other results keep their details to
+    ``tool_execution_end``.
+    """
     details = message.details
     if (
-        message.tool_name == "codemode"
-        and details is not None
+        details is not None
         and type(record := details.get("nestedCalls")) is dict
         and type(record.get("calls")) is list
         and type(record.get("complete")) is bool
@@ -199,7 +205,7 @@ def serialize_message(message: AgentTranscriptMessage) -> dict[str, Any]:
         return assistant
     if isinstance(message, AgentToolResultMessage):
         return {
-            **codemode_parent_details(message),
+            **nested_call_details(message),
             "role": "toolResult",
             "toolCallId": message.provider_correlation_id,
             # Pi's ordered text and image blocks when the result has an image.

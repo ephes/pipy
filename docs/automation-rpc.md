@@ -168,8 +168,8 @@ carry the id of the calling call as `parentToolCallId`, as in Pi.
 (`docs/json.md` in Pi):
 
 - `result` has `content`, the blocks of a `toolResult` message (see below),
-  `details` when the result has them (a codemode result's `nestedCalls`
-  record among them), `structuredContent` when the tool gave
+  `details` when the result has them (the `nestedCalls` record of a tool
+  that ran other tools among them), `structuredContent` when the tool gave
   machine-readable output, and `terminate: true` when the result asks the
   agent to stop after the batch (an extension tool's
   [`terminate`](extension-api.md#ending-the-batch)).
@@ -226,6 +226,15 @@ A `toolResult` message's `content` is one text block, or, when the result has
 an image, Pi's ordered blocks: `{"type":"text","text"}` and
 `{"type":"image","data","mimeType"}` with base64 data. The `result` of
 `tool_execution_end` has the same `content`.
+
+The `toolResult` message of a tool that ran other tools (a `codemode`
+script, or an extension tool through `ctx.execute_tool`) carries the
+result's `details`, with the bounded `nestedCalls` record of those calls,
+in `turn_end`, `agent_end` and `get_messages`, as Pi puts the record on
+the tool result message of every tool that made calls (Pi as the message's
+`nestedCalls` field, pipy inside `details`, where `tool_execution_end` has
+it too). Other `toolResult` messages have no `details`; their details are
+in the `result` of `tool_execution_end`.
 
 ### Canonical `--mode json` sequence (deterministic fake provider, no tools)
 

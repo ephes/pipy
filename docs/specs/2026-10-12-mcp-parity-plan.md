@@ -533,7 +533,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-17 | SES-05, SES-10, SLH-02, SLH-03, CON-11 | pipy's waits can be interrupted where Pi's cannot: the first prompt's wait (Escape or an abort ends the wait and the prompt goes on), the waits of `/mcp` and its subcommands, the reconnects at a turn's start, and the 250 ms before a resource request is made again. | other form | Decided in S18, S21, S26, S31 |
 | DEV-18 | TLS-10, RND-02 | In the terminal, progress of a running call is appended to the call's live output line by line, and the row shows the last line; Pi's row replaces the preliminary result. JSON/RPC events and `on_update` get Pi's partial result `{content, details: {server, tool}}`, which replaces the previous one (goal check r2, U6). | other form | Decided in S16, S35 |
 | DEV-19 | TLS-11, RES-09 | An image is drawn in the terminal when it speaks the Kitty or iTerm2 protocol and `terminal.showImages` is on (since N4); otherwise the row shows `[Image: [<mime>] <w>x<h>]`. Narrower than pi-tui: no `CSI 16 t` cell-size query (9x18 pixel cells are assumed); Kitty gets PNG, so another type is converted with Pillow, which needs the optional `images` extra (Q10); without it, or for an image that does not decode, the line below the box is shown (since R4; before, every other type showed the line); data that is not plain base64 shows the line; an iTerm2 image gets `height=<reserved rows>` instead of `auto`; an image is at most as tall as the terminal; `/settings` has no "Show images" or "Image width" rows, and a change applies on `/reload`. An image block without data or MIME type becomes the text `[image <mime> without data omitted]`, where Pi passes it on. | narrower | Decided in S39 (parts 1, 3, 4), N4; narrowed by R4 |
-| DEV-20 | CMD-29, CMD-30 | Text and images share Pi's limit of 16 Mi characters (since G5; S39 had a byte cap of 16 MiB for images beside 1 MiB of text), and `image()` also raises `ValueError` once the images alone would pass it. The output is laid out as Pi's `formatOutput` does (`==> text N/M <==` lines, one `<console_output>` block) since R1. A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output. | other form | Decided in S39 (part 5) |
+| DEV-20 | CMD-29, CMD-30 | A result's text is at most 64 KiB, so a script that shows some hundreds of images gets a failure result instead of its output (the part Q11 accepts). The rest follows Pi: text and images share Pi's limit of 16 Mi characters (since G5; S39 had a byte cap of 16 MiB for images beside 1 MiB of text), the output is laid out as Pi's `formatOutput` does (`==> text N/M <==` lines, one `<console_output>` block) since R1, and past the limit the script fails also when it catches the error of an `image()` call that passes it (since Z2; before, a script could catch that `ValueError`, go on and succeed). | other form | Decided in S39 (part 5); narrowed by R1, Z2 |
 | DEV-21 | TLS-11 | How a tool result's images are sent to a provider differs in three points: a text-only result is sent as before (no `(no tool output)` for an empty one); the Mistral adapter sends images as the Chat Completions family does; there is no `requiresAssistantAfterToolResult`. Images are withheld from a model without image input only when the model has a catalog row of its own, so a model without a row and a provider object passed in by an embedder are sent the images. | narrower | Decided in S39 (part 2); `docs/providers.md` |
 | DEV-22 | CMD-25 | A `tool_result` transform cannot replace usage: pipy counts no usage of tools (DEV-13). Since G6 it is shown the whole result (blocks, details, the arguments and the call ids) and replaces the content, images included, the error flag and the details as Pi's does. | narrower | Decided in S04, S39 (part 1), G6 |
 | DEV-23 | CMD-22 | With `codemode.mode: "only"` a direct model call to a tool whose declaration is left out is an unknown tool; Pi would run it. `codemode.mode` and `codemode.inlineBudget` are read at session start and on `/reload`, not before every prompt. | other form | Decided in S08 |
@@ -2672,7 +2672,10 @@ Decided in S39 (images, part 5: codemode `image()`; `codemode/prelude.py`,
   `line_bytes`, up to the image cap; the host tells it by the line's first
   bytes while it buffers and refuses it at parse time when it is not an
   image. The guest raises `ValueError` at the same total
-  (`prelude.MAX_IMAGE_CHARS`; a test pins that the two match).
+  (`prelude.MAX_IMAGE_CHARS`; a test pins that the two match). Since Z2 of
+  the seventh goal check it first sends a failed `done` line, so the run
+  has failed before the script sees the error (see 5.3, "Z2 of the seventh
+  goal check").
 - Result (CMD-29, CMD-30): `format_result` keeps images between the text
   items (`ResultText.header`, `.items`); the budget is for the text items
   joined by newlines, and a truncated text is followed by all images.
@@ -4916,6 +4919,30 @@ only in `before_agent_start` is declared again in the next request, as
 `drop_pending_tools` runs after those hooks, and one that registers after
 the run started is not. Tests: `test_native_tool_capabilities_mcp.py`,
 `test_native_mcp_manager_resources.py`, `test_native_tool_search_tool.py`.
+
+**Z2 of the seventh goal check: nested calls on every tool result
+message, and a fatal image cap.** Findings D2 and D3 of goal check r7
+(EXT-11, CMD-26, CMD-29, DEV-20; Pi `core/agent-session.ts`
+`_handleAgentEvent`, codemode `runtime/prelude-source.ts` `output()` and
+`done()`). D2: `automation/serialize.py` `nested_call_details` (was
+`codemode_parent_details`) puts a result's `details` on its `toolResult`
+message whenever they hold a well-formed `nestedCalls` record, whatever
+the tool, so an extension tool that ran others with `ctx.execute_tool`
+carries its record in `turn_end`, `agent_end` and `get_messages` as
+`codemode` does; Pi sets `nestedCalls` on every tool result message its
+recorder has a summary for. Other results keep their details to
+`tool_execution_end`, as before. D3: the prelude's `image()` gets a `fail`
+callback (`Wire.fail`) and calls it before it raises the cap's
+`ValueError`. `Wire.fail` sends a failed `done` line with the error and a
+traceback of the script's frames (`describe_error(error, stack)`);
+`Wire.finish` sends a `done` line once, so the script's own outcome after
+a caught error is never sent, and the host, which reads nothing after a
+`done`, ends the run with that failure: no later output, no store writes.
+That is Pi's `output()`, which calls `done(false, ...)` before it throws,
+and `done()`, which reports only the first outcome. DEV-20 keeps the
+64 KiB result text only. Tests: `test_native_nested_record.py`,
+`test_native_extension_tool_orchestration.py`,
+`test_native_codemode_images.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

@@ -141,8 +141,8 @@ MCP conformance suite gives the same result for pipy as for Pi
   which added DEV-94, the order of the MCP tools across servers, accepted
   in Q14) and the fix slices Y1 to Y3 of the sixth triage (Y3 merged in
   INT8, which added DEV-95, two limits of a wrapped `edit` row, accepted
-  in Q16); the fix slices Z1 and Z2 of the seventh triage are the rest of
-  MCP1.
+  in Q16), and so are the fix slices Z1 and Z2 of the seventh triage
+  (Z2 narrowed DEV-20 to the 64 KiB result text).
 
 ### CM1 — Python codemode (done 2026-10-09)
 

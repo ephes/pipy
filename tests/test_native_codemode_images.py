@@ -143,18 +143,30 @@ def test_the_guests_image_cap_is_the_hosts() -> None:
     assert prelude.MAX_IMAGE_CHARS == ScriptLimits().output_chars == 16 * 1024 * 1024
 
 
-def test_the_image_that_passes_the_cap_raises_and_is_not_emitted() -> None:
+def test_the_image_that_passes_the_cap_fails_the_run_raises_and_is_not_emitted() -> (
+    None
+):
+    # Pi's prelude output() calls done(false, ...) before it throws, so the
+    # run has failed before the script sees the error.
     emitted: list[tuple[str, str]] = []
+    failed: list[BaseException] = []
     image = prelude.image_helper(
-        lambda data, mime_type: emitted.append((data, mime_type)), 2 * len(PNG)
+        lambda data, mime_type: emitted.append((data, mime_type)),
+        failed.append,
+        2 * len(PNG),
     )
     image(PNG_URL)
     image({"type": "image", "data": PNG})
-    with pytest.raises(ValueError, match=f"exceeded {2 * len(PNG)} characters"):
+    assert failed == []
+    with pytest.raises(
+        ValueError, match=f"exceeded {2 * len(PNG)} characters"
+    ) as raised:
         image(PNG_URL)
+    assert failed == [raised.value]
     with pytest.raises(TypeError):
         image("https://example.com/a.png")
     assert emitted == [(PNG, "image/png")] * 2
+    assert len(failed) == 1
 
 
 # -- the host's side of the image message ---------------------------------------
@@ -481,6 +493,34 @@ def test_an_uncaught_image_error_fails_the_script_with_its_message(
     assert outcome.error is not None and outcome.error.kind is ErrorKind.SCRIPT
     assert _REMOTE in outcome.error.message
     assert outcome.output == ()
+
+
+@needs_runtime
+def test_a_caught_image_cap_error_still_fails_the_script(
+    paths: CodemodePaths,  # noqa: F811
+    pids: list[int],  # noqa: F811
+) -> None:
+    # Pi's prelude output(): past the output limit the script has failed
+    # before the error is thrown, so catching it neither resumes the output
+    # nor lets the script succeed and commit its store writes.
+    code = """
+big = "iVBORw0KGgoA" + "A" * (16 * 1024 * 1024)
+text("before")
+try:
+    image({"type": "image", "data": big, "mimeType": "image/png"})
+except ValueError:
+    text("caught")
+store("key", "value")
+text("after")
+"""
+    outcome = run_real(paths, code)
+    assert outcome.error is not None and outcome.error.kind is ErrorKind.SCRIPT
+    message = outcome.error.message
+    assert "ValueError: the script's images exceeded 16777216 characters" in message
+    # The traceback is the script's line that called image().
+    assert 'File "<codemode>", line 5' in message
+    assert outcome.output == ("before",)
+    assert not outcome.store_writes
 
 
 _SHOT = {

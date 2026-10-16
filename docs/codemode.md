@@ -351,8 +351,11 @@ image(tools.read(path="screenshot.png"))
 Different from Pi: Pi's scripts are JavaScript, where a string is a URL and
 an object a block; here a `dict` is the object. Text and the images' base64
 data share Pi's limit of 16,777,216 characters; past it the script fails, as
-in Pi. `image()` itself raises `ValueError` once the images alone would pass
-it.
+in Pi. `image()` checks the images alone against it: the image that would
+pass it ends the run as a failure and then raises `ValueError`, so a script
+that catches the error cannot go on to succeed, and neither the output after
+it nor its `store()` writes are kept, as Pi's `output()` fails the script
+before it throws.
 
 The tool description includes a runnable small-file read/filter example.
 Use returned strings directly: `tools.read()` is not a result object, and text
@@ -567,7 +570,7 @@ Scripts are not automatically retried after effects.
 | Tool call | 16 MiB of arguments as JSON (UTF-8) per call; larger arguments raise `ValueError` and the call is not made. Pi has no limit |
 | Tool reply | 16 MiB as JSON (UTF-8) per call; a larger result raises `ToolError` |
 | Emitted output | 16,777,216 characters of text and base64 image data together, or 100,000 `text()`, `image()` and print calls; excess fails the script (Pi's limits) |
-| Emitted images | within the output limit; `image()` raises `ValueError` once the images' base64 data would pass 16 MiB |
+| Emitted images | within the output limit; the `image()` call whose images' base64 data would pass 16 MiB fails the script, also when the script catches its `ValueError` |
 | Result display | 10,000 estimated tokens (characters / 4), head and tail; `max_output_tokens` sets it, up to 16,000 |
 | Worker diagnostics | 64 KiB stderr retained |
 | CPU backstop | wall deadline + 5 seconds; 25 days without a deadline |

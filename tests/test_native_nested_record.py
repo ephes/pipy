@@ -401,7 +401,12 @@ def test_pipeline_original_failure_survives_secondary_evidence_fault(
 
 
 @pytest.mark.parametrize("name", ["bash", "extension", "codemode"])
-def test_result_details_reach_events_and_only_codemode_messages(name: str) -> None:
+def test_result_details_reach_events_and_only_messages_with_a_record(
+    name: str,
+) -> None:
+    # Pi's _handleAgentEvent puts nestedCalls on every tool result message
+    # with a recorder summary, whatever the tool: an extension tool that ran
+    # others through ctx.execute_tool as well as codemode.
     from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
 
     ordinary = replace(
@@ -418,7 +423,6 @@ def test_result_details_reach_events_and_only_codemode_messages(name: str) -> No
     assert isinstance(result, dict) and result["details"] == ordinary.details
     parent = replace(
         ordinary,
-        tool_name="codemode",
         details={
             **(ordinary.details or {}),
             "nestedCalls": {"calls": [], "complete": True},
