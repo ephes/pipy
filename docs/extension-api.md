@@ -1211,8 +1211,9 @@ come the [MCP tools](mcp.md#when-tools-change) that are no longer registered,
 because their server withdrew them or was disabled, with exposure `hidden`, as
 Pi lists them; they are listed only, never declared or callable. Each entry has
 `name`, `description`, `input_schema` (a copy), `exposure`,
-`namespace`, `annotations`, `reaches_tools` (the function, or `None`) and
-`prompt_guidelines` (as registered). It
+`namespace`, `annotations`, `reaches_tools` (the function, or `None`),
+`prompt_guidelines` (as registered), `output_schema` (a copy, or `None`) and
+`execution_mode` (`"sequential"`, `"parallel"` or `None`). It
 is available in command, shortcut, hook and tool handler contexts of a
 session and raises `ExtensionCapabilityError` where no session backs the
 context. In Pi this is `pi.getAllTools()`; pipy puts it on the context, next
@@ -1279,7 +1280,11 @@ def read_all(ctx, params):
   call, in registration order: the callable tools of the
   [tool model](#tool-model), as they were when the tool the model called
   started, the tool itself included when it is callable. A tool that is
-  `model-only` is not in the list and cannot be called this way.
+  `model-only` is not in the list and cannot be called this way. Each entry
+  carries the tool's `output_schema` and `execution_mode`, as Pi's
+  `AgentTool` entries carry `outputSchema` and `executionMode`, so a tool
+  that orchestrates others can tell which ones return typed
+  `structured_content`.
 - `ctx.execute_tool(name, arguments, *, signal=None, on_update=None)` (also
   `ctx.executeTool(name, arguments, {"signal": ..., "onUpdate": ...})`) runs the tool
   and returns a `ToolCallOutcome`, Pi's `AgentToolCallOutcome`:

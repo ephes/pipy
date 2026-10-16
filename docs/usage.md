@@ -410,7 +410,10 @@ tools, whose reach is set by their exposure: `pipy --tools read,codemode`
 keeps every MCP tool callable from codemode scripts. An MCP tool that no entry
 names or matches is never declared directly, whatever its exposure, also when
 an extension activates it or `/tree` restores it; only `tool_search`, if
-listed, can load it, and only when its exposure is not `direct`. Once an entry
+listed, can load it, and only when its exposure is not `direct`. A loaded tool
+whose exposure becomes `direct` (its server lists it again, or an extension
+registers it again) leaves the active tools for good, as in Pi: when it is no
+longer `direct` it has to be loaded again. Once an entry
 starts with `mcp__`, `--tools` filters MCP tools too, so this keeps only the
 tools of the `radius` server:
 

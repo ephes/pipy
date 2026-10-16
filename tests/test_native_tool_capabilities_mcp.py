@@ -386,6 +386,164 @@ def test_a_selection_drops_an_mcp_tool_the_allowlist_does_not_activate(
     ]
 
 
+def test_a_loaded_tool_registered_again_as_direct_has_to_be_loaded_again(
+    tmp_path: Path,
+) -> None:
+    # Goal check r6 U1, Pi _refreshToolRegistry/_applyToolLoadout: a refresh
+    # stores only the activatable names, so a tool that is direct for a while
+    # is dropped for good and is not declared when it is deferred again.
+    def needle(exposure: ToolExposure) -> dict[str, ToolPort]:
+        return {"mcp__proxy__needle": _Tool("mcp__proxy__needle", exposure)}
+
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(allow=("read", "tool_search")),
+        extensions=needle("deferred"),
+        production=True,
+    )
+    generation = tools.state.extension_generation
+    assert tools.load_tools(["mcp__proxy__needle"]) == ("mcp__proxy__needle",)
+    assert _declared(tools) == ("read", "tool_search", "mcp__proxy__needle")
+
+    assert tools.publish_extension_tools(
+        lambda: needle("direct"), extension_generation=generation
+    )
+    assert _declared(tools) == ("read", "tool_search")
+    assert tools.publish_extension_tools(
+        lambda: needle("deferred"), extension_generation=generation
+    )
+
+    assert _declared(tools) == ("read", "tool_search")
+    assert [definition.name for definition in tools.loadable_tools()] == [
+        "mcp__proxy__needle"
+    ]
+
+
+def test_a_loaded_mcp_tool_listed_again_as_direct_has_to_be_loaded_again(
+    tmp_path: Path,
+) -> None:
+    # The same for a server's tool whose exposure changes (U1).
+    tools = _session(
+        tmp_path, ToolFilterOptions(allow=("read", "tool_search")), production=True
+    )
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+    assert tools.load_tools(["mcp__docs__find"]) == ("mcp__docs__find",)
+    assert _declared(tools) == ("read", "tool_search", "mcp__docs__find")
+
+    tools.publish_mcp_tools(_mcp(find="direct"))
+    assert _declared(tools) == ("read", "tool_search")
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+
+    assert _declared(tools) == ("read", "tool_search")
+
+
+@pytest.mark.parametrize("run_started", [False, True])
+def test_a_reload_keeps_a_loaded_tool_that_became_direct_pending(
+    tmp_path: Path, run_started: bool
+) -> None:
+    # Pi reload: every active name is pending, and the reload's loadout does
+    # not apply the tool while it is direct, so it stays pending; it becomes
+    # active when it is deferred again before the next run starts.
+    def needle(exposure: ToolExposure) -> dict[str, ToolPort]:
+        return {"mcp__proxy__needle": _Tool("mcp__proxy__needle", exposure)}
+
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(allow=("read", "tool_search")),
+        extensions=needle("deferred"),
+        production=True,
+    )
+    tools.load_tools(["mcp__proxy__needle"])
+
+    tools.publish(tools.prepare_extensions(needle("direct")))
+    assert "mcp__proxy__needle" not in (tools.state.active_tool_names or ())
+    assert tools.state.pending_tool_names == {"mcp__proxy__needle"}
+    if run_started:
+        tools.drop_pending_tools()
+    assert tools.publish_extension_tools(
+        lambda: needle("deferred"),
+        extension_generation=tools.state.extension_generation,
+    )
+
+    expected = ("read", "tool_search") + (
+        () if run_started else ("mcp__proxy__needle",)
+    )
+    assert _declared(tools) == expected
+
+
+@pytest.mark.parametrize("run_started", [False, True])
+def test_a_restored_direct_tool_the_allowlist_refuses_is_pending(
+    tmp_path: Path, run_started: bool
+) -> None:
+    # Pi _restoreToolsFromTranscript: every restored name the filters keep
+    # is pending and the loadout takes out the ones it applies, so a tool it
+    # refused is not active, and becomes active when it may be before the
+    # next run starts; after that it is gone.
+    def needle(exposure: ToolExposure) -> dict[str, ToolPort]:
+        return {"mcp__proxy__needle": _Tool("mcp__proxy__needle", exposure)}
+
+    tools = _session(
+        tmp_path,
+        ToolFilterOptions(allow=("read", "tool_search")),
+        extensions=needle("direct"),
+        production=True,
+    )
+    tools.restore_active_tools(["read", "mcp__proxy__needle"])
+    assert tools.state.active_tool_names == {"read"}
+    assert tools.state.pending_tool_names == {"mcp__proxy__needle"}
+    if run_started:
+        tools.drop_pending_tools()
+    assert tools.publish_extension_tools(
+        lambda: needle("deferred"),
+        extension_generation=tools.state.extension_generation,
+    )
+
+    if run_started:
+        assert _declared(tools) == ("read",)
+    else:
+        assert _declared(tools) == ("read", "mcp__proxy__needle")
+        assert tools.state.pending_tool_names == frozenset()
+
+
+def test_a_restored_mcp_tool_becomes_active_when_an_extension_adds_tool_search(
+    tmp_path: Path,
+) -> None:
+    # Pi pushes every pending name on each refresh: a server's tool the
+    # allowlist refused while nothing could load it is activated once an
+    # extension registers `tool_search`, before the next run starts.
+    tools = _session(tmp_path, ToolFilterOptions(allow=("read", "tool_search")))
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+    tools.restore_active_tools(["read", "mcp__docs__find"])
+    assert _declared(tools) == ("read",)
+    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+
+    assert tools.publish_extension_tools(
+        lambda: {"tool_search": _Tool("tool_search")},
+        extension_generation=tools.state.extension_generation,
+    )
+
+    assert _declared(tools) == ("read", "tool_search", "mcp__docs__find")
+    assert tools.state.pending_tool_names == frozenset()
+
+
+def test_a_pending_tool_the_allowlist_refuses_stays_pending(tmp_path: Path) -> None:
+    # Pi _setActiveTools takes a pending name out only when the loadout
+    # applied it, so it is activated once it may be (before the next run).
+    tools = _session(
+        tmp_path, ToolFilterOptions(allow=("read", "tool_search")), production=True
+    )
+    tools.restore_active_tools(["read", "mcp__docs__find"])
+    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+
+    tools.publish_mcp_tools(_mcp(find="direct"))
+    assert _declared(tools) == ("read",)
+    assert tools.state.pending_tool_names == {"mcp__docs__find"}
+    tools.publish_mcp_tools(_mcp(find="deferred"))
+
+    assert _declared(tools) == ("read", "mcp__docs__find")
+    assert tools.state.pending_tool_names == frozenset()
+
+
 def test_no_builtin_tools_keeps_builtins_registered_and_inactive(
     tmp_path: Path,
 ) -> None:

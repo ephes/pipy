@@ -8,6 +8,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A tool that `tool_search` loaded under a `--tools` list that does not
+  name it, and that its server lists again or an extension registers again
+  as `direct`, leaves the active tools for good, as Pi applies the loadout
+  on every refresh: when it is `deferred` again it has to be loaded again.
+  Before, it was declared again without a search. A name restored from the
+  session that the list does not let be active stays pending until the
+  next run starts, as in Pi. See [MCP tools](docs/usage.md#mcp-tools).
+- The entries of `ctx.tools` (and of `ctx.get_all_tools()`) carry the
+  tool's `output_schema` and `execution_mode`, as Pi's `AgentTool` entries
+  do, so an extension tool that runs others can tell which return typed
+  results. See [running other tools](docs/extension-api.md#running-other-tools).
 - An MCP server with `auth.provider` is sent the `--api-key` of the
   session when the server names that key's provider, before a stored login
   or the Codex login, also for a provider an extension registered, as Pi's

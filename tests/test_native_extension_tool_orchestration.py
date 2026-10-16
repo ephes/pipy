@@ -224,6 +224,76 @@ def test_a_tool_runs_other_tools_through_the_extension_api(
     assert [e.call.tool_name for e in started] == ["helper", "echo", "echo", "echo"]
 
 
+_TYPED = """import json
+from pathlib import Path
+from pipy_harness.extensions import ExtensionTool, ToolResult
+
+LOG = Path(__file__).with_name('log.jsonl')
+_NONE = {'type': 'object', 'properties': {}, 'additionalProperties': False}
+_OUT = {'type': 'object', 'properties': {'n': {'type': 'number'}}}
+
+
+def activate(api):
+    def probe(ctx, params):
+        for source, tools in (('tools', ctx.tools), ('all', ctx.get_all_tools())):
+            for tool in tools:
+                if tool.name in ('typed', 'plain'):
+                    with LOG.open('a') as handle:
+                        handle.write(json.dumps(
+                            [source, tool.name, tool.output_schema,
+                             tool.execution_mode]) + '\\n')
+        typed = next(tool for tool in ctx.tools if tool.name == 'typed')
+        typed.output_schema['changed'] = True
+        return ToolResult(content='ok')
+
+    api.register_tool(ExtensionTool(
+        name='typed', description='Typed result.', input_schema=_NONE,
+        exposure='codemode', output_schema=_OUT, execution_mode='sequential',
+        handler=lambda ctx, params: ToolResult(
+            content='1', structured_content={'n': 1})))
+    api.register_tool(ExtensionTool(
+        name='plain', description='Plain result.', input_schema=_NONE,
+        exposure='codemode',
+        handler=lambda ctx, params: ToolResult(content='plain')))
+    api.register_tool(ExtensionTool(
+        name='probe', description='Lists tools.', input_schema=_NONE,
+        handler=probe, exposure='model-only'))
+"""
+
+
+def test_ctx_tools_report_output_schema_and_execution_mode(
+    tmp_path, monkeypatch
+) -> None:
+    # Goal check r6 S1: Pi's ``ctx.tools`` are ``AgentTool`` entries with
+    # ``outputSchema`` and ``executionMode``, which an extension that runs
+    # tools reads to know which return typed results.
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    directory = tmp_path / ".pipy" / "extensions"
+    directory.mkdir(parents=True)
+    (directory / "typed.py").write_text(_TYPED, encoding="utf-8")
+    provider = _StubProvider(
+        [
+            _result(tool_calls=(ProviderToolCall("p1", "probe", "{}"),)),
+            _result(tool_calls=(ProviderToolCall("p2", "probe", "{}"),)),
+            _result(final_text="done"),
+        ]
+    )
+
+    result, _sink = _session(tmp_path, provider)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    schema = {"type": "object", "properties": {"n": {"type": "number"}}}
+    rows = _log(directory / "log.jsonl")
+    # A caller's change to its copy reaches neither the next call nor the
+    # definition.
+    assert rows == 2 * [
+        ["tools", "typed", schema, "sequential"],
+        ["tools", "plain", None, None],
+        ["all", "typed", schema, "sequential"],
+        ["all", "plain", None, None],
+    ]
+
+
 def test_a_result_without_nested_calls_has_no_record(tmp_path, monkeypatch) -> None:
     # Pi: "leaves results without nested calls unchanged".
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))

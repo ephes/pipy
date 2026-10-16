@@ -379,8 +379,12 @@ class ToolInfo:
     """One registered tool as an extension sees it (Pi ``ToolInfo``).
 
     `ctx.get_all_tools()` returns one per registered tool, whether or not the
-    tool is active. `input_schema` is a detached copy. `reaches_tools` is the
-    tool's reach function, or None when the tool reaches no other tools.
+    tool is active, and `ctx.tools` one per tool `ctx.execute_tool` can call.
+    `input_schema` and `output_schema` are detached copies. `reaches_tools`
+    is the tool's reach function, or None when the tool reaches no other
+    tools. `output_schema` and `execution_mode` are those of the definition,
+    as Pi's `AgentTool` entries of `ctx.tools` carry `outputSchema` and
+    `executionMode`.
     """
 
     name: str
@@ -391,6 +395,8 @@ class ToolInfo:
     annotations: ToolAnnotations | None = None
     reaches_tools: ReachesTools | None = None
     prompt_guidelines: tuple[str, ...] = ()
+    output_schema: Mapping[str, Any] | None = None
+    execution_mode: ToolExecutionMode | None = None
 
 
 def tool_info(definition: ToolDefinition) -> ToolInfo:
@@ -405,6 +411,10 @@ def tool_info(definition: ToolDefinition) -> ToolInfo:
         annotations=definition.annotations,
         reaches_tools=definition.reaches_tools,
         prompt_guidelines=definition.prompt_guidelines,
+        output_schema=None
+        if definition.output_schema is None
+        else materialize_tool_input_schema(definition.output_schema),
+        execution_mode=definition.execution_mode,
     )
 
 

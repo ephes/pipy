@@ -243,7 +243,7 @@ are closed.
 | EXP-03 | The model cannot call a tool that is not declared to it: a direct call to a `codemode`-only tool is rejected as an unknown tool. | `test/suite/agent-session-mcp.test.ts` "rejects direct model calls to codemode-only MCP tools" | S03 |
 | EXP-04 | Tools callable from scripts are the active `direct` tools and every registered `codemode` or `deferred` tool. This does not depend on the active set for the latter two, so they stay callable after `/tree`, resume and fork. | `core/agent-session.ts` `_getCallableTools` | S03 |
 | EXP-05 | A `direct` MCP tool is declared to the model like a built-in tool once its server is connected, and is also callable from scripts. | `test/suite/agent-session-mcp.test.ts` "declares directly exposed MCP tools to the model" | S17 |
-| EXP-06 | `--tools` with plain names keeps MCP tools registered unless one entry starts with `mcp__` (or the list is empty). An MCP tool the list keeps without naming or matching it is never declared directly, whatever its exposure, also when restored from a transcript or activated by an extension; it may be declared only when its exposure is not `direct` and `tool_search` is registered. | `core/agent-session.ts` `_isAllowedTool`, `_isActivatable`, `_allowlistFiltersMcp` | S10 |
+| EXP-06 | `--tools` with plain names keeps MCP tools registered unless one entry starts with `mcp__` (or the list is empty). An MCP tool the list keeps without naming or matching it is never declared directly, whatever its exposure, also when restored from a transcript or activated by an extension; it may be declared only when its exposure is not `direct` and `tool_search` is registered. A refresh of the registry that finds such a tool not activatable drops it from the active tools for good, so it is declared again only after a new activation (Y2). | `core/agent-session.ts` `_isAllowedTool`, `_isActivatable`, `_allowlistFiltersMcp` | S10 |
 | EXP-07 | Once a `--tools` entry starts with `mcp__`, the list filters MCP tools like other tools: `--tools read,bash,codemode,'mcp__radius__*'` keeps only the tools of `radius`. | `core/agent-session.ts` `_allowlistFiltersMcp`; `docs/cli.md` "MCP tools" | S10 |
 | EXP-08 | `--tools` and `--exclude-tools` entries may be patterns where `*` matches any characters. `+name` and `-name` entries take exact names only. | `core/mcp-servers.ts` `createToolNameMatcher`; `docs/cli.md` "Tools" | S10 |
 | EXP-09 | `--exclude-tools` removes matching MCP tools; `--exclude-tools 'mcp__*'` removes all server tools. `--no-tools` starts with MCP tools disabled as well. | `core/agent-session.ts` `_isAllowedTool`; `docs/cli.md` "Tools" | S10 |
@@ -442,7 +442,7 @@ Pi-shaped camelCase alias where the API already offers both).
 | EXT-08 | `unregister_mcp_server(name)` closes the connection and makes the tools unreachable; it only affects the caller's own registration. `get_mcp_servers()` returns copies of the registrations in order. | `core/extensions/loader.ts`; `core/mcp-servers.ts` `McpServerRegistry` | S36 |
 | EXT-09 | An `mcp.json` server takes precedence over a registered server of the same namespace; `/mcp` and the status output list the overridden registration. Registered servers appear with the extension as their source, and enable/exposure changes to them last for the session. | `ext/index.ts` `registeredServers`, `saveConfig` | S36 |
 | EXT-10 | Extensions receive an `mcp_servers_change` event with the registrations after every change. When no handler exists and built-in MCP is off, each registration is reported once as an extension error: `MCP server "<n>" is registered, but no loaded extension connects MCP servers; ...`. | `core/extensions/runner.ts` `reportUnhandledMcpServers`; `core/extensions/types.ts` `McpServersChangeEvent` | S36 |
-| EXT-11 | An extension tool handler can run other tools with `ctx.execute_tool(name, args)` and list them with `ctx.tools`; the nested calls behave as in CMD-24 and CMD-26. | `docs/extensions.md` (`ctx.executeTool`) | S37 |
+| EXT-11 | An extension tool handler can run other tools with `ctx.execute_tool(name, args)` and list them with `ctx.tools`, whose entries carry each tool's `output_schema` and `execution_mode` as Pi's `AgentTool` (Y2); the nested calls behave as in CMD-24 and CMD-26. | `docs/extensions.md` (`ctx.executeTool`) | S37 |
 | EXT-12 | A tool can adjust what the model sees while it is active with `prepare_loadout(loadout)`: replacement descriptions for declared tools and declarations to hide. | `docs/extensions.md` (`prepareLoadout`); `core/extensions/types.ts` `ToolLoadout` | S37 |
 | EXT-13 | An extension that registers a tool named `codemode` or `tool_search` replaces the built-in tool of that name. MCP activates the replacement, and waits for servers before its calls, only when it declares `reaches_tools`. | `docs/mcp.md` "Replace the built-in MCP support"; `ext/index.ts` `ensureDiscoveryActive` (`hasReachingTool`) | S37 |
 | EXT-14 | An extension that registers the `/mcp` command replaces built-in MCP for sessions: `mcp.json` is not read, no server connects, and `/mcp` belongs to the extension. The `pipy mcp` shell commands keep using the built-in implementation. | `docs/mcp.md` "Replace the built-in MCP support"; `extensions/index.ts` (`replaceable`) | S37 |
@@ -543,7 +543,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-28 | CMD-13, CMD-15, CMD-19, SEC-04 | Counting and ordering where JavaScript and Python differ: the 80 characters of a tag and the 16000 of an input type count Python characters (Pi: UTF-16 units); namespaces in the codemode description are ordered without regard to case and then by code point (Pi: `localeCompare`); a server summary is never cut inside a character. A schema nested deeper than the interpreter follows renders as `Any`. `renderDeclarations` is not ported; nothing in the coding agent uses it. | other form | Decided in S05, S08, S20 |
 | DEV-29 | TSR-03, TSR-04, TSR-08 | `tool_search` adds the loaded tools to the selection that is live at that moment, where Pi replaces the list with a copy it read before ranking. A listing longer than one tool result (64 KiB) ends with `(and <n> more)`; every match is loaded all the same. Property names that look like array indexes are in schema order in the search text; JavaScript lists them first. | other form | Decided in S06, S09 |
 | DEV-30 | TSR-09, TSR-10 | A session resumed in a new process starts from the configured tools and restores nothing from the transcript. Pi does the same: its CLI and its SDK's `createAgentSession` always pass the initial tool names, so Pi restores the transcript's tools only in an `AgentSession` built directly without them, as the mirrored Pi test builds it. In pipy `/tree` and `/reload` restore. | narrower | Decided in S09, S22; corrected after goal check r2 (U2, S4) |
-| DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. Since goal check r3 (U2) a selection that is set drops a name the `--tools` allowlist does not let be activated, as Pi's `_applyToolLoadout` does; what is kept is narrowed when read, so a reload that changes an exposure takes a tool out. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4 and T3 |
+| DEV-31 | none | An active name the filters remove is kept in the selection and narrowed when the selection is read; Pi drops it. Since goal check r3 (U2) a selection that is set drops a name the `--tools` allowlist does not let be activated, as Pi's `_applyToolLoadout` does; since goal check r6 (Y2) a refresh of the registry (a server's list, an extension registering again, a restored transcript) stores only the activatable names too, keeping a refused restored name pending as Pi does; what is kept is still narrowed when read, for the names the filters do not keep. (Since R4 an unknown name in `--tools`, `--exclude-tools` or `defaultTools` is ignored with a notice, as Pi ignores it, instead of being refused.) | other form | Decided in S10; narrowed by R4, T3 and Y2 |
 | DEV-32 | EXP-12, EXP-13 | pipy's config command has no interactive list: the Built-in list is `pipy config list`, and the toggle is `pipy config enable\|disable builtin <mcp\|codemode\|tool-search>`. A `builtin:` entry follows Pi's override rules since goal check r3 (F1). Since goal check r5 (U1) a `!` glob is read as Pi's minimatch reads it, braces (`{a,b}`), extended globs (`+(a\|b)`) and globstar included, and the entries are also tried on the path relative to the settings directory, as in Pi; the only differences left are that braces nested beyond Python's recursion limit (several hundred levels) match nothing, that a pattern Python's `re` cannot compile (minimatch raises for most of them) matches nothing, that the POSIX classes use Node 26's Unicode tables (17.0), and that a pathological pattern can take another time to match, since Python's and JavaScript's regular expressions backtrack differently. | other form | Decided in S19, G8, T3, X3 ([minimatch decision](../decisions/2026-10-15-minimatch-globs.md)) |
 | DEV-33 | SES-11, SES-13, EXT-03 | pipy registers its built-in `codemode` on demand, so a session with a server of `codemode` exposure runs one runtime self-test when it starts. With `autoEnableCodemode` false nothing is tested, and the SES-13 warning names that setting whenever the filters would keep `codemode`. A `hidden` tool named `codemode` or `tool_search` does not count as a tool that reaches other tools. `get_all_tools()` does not list `codemode` before something registers it, where Pi always registers it inactive (goal check r4, U2; this part accepted in Q13). Since V2 an extension's `set_active_tools` naming `codemode` registers it then, so the selection activates it as Pi's does. | other form | Decided in S19; `docs/mcp.md` "Control tool exposure"; goal check r4 (U2), fixed in V2 except the listing |
 | DEV-34 | SES-07, EXT-05 | A `reaches_tools` function that raises, or returns neither `"all"` nor a list of words, counts as `"all"`; Pi fails the call. The readiness wait runs after every `tool_call` handler admitted the call; in Pi it is one handler among them. | other form | Decided in S18 |
@@ -2961,8 +2961,10 @@ Decided in S02:
   activation API as Pi's `pi.getAllTools()`: pipy's activation API is closed
   after `activate(api)` returns. An entry (`ToolInfo`) carries name,
   description, input schema, exposure, namespace, annotations and the reach
-  function. Pi's `promptGuidelines` and `sourceInfo` are not reported; pipy
-  tools have neither yet.
+  function; G9 added the prompt guidelines, and Y2 the output
+  schema and execution mode, which `ctx.tools` reports as Pi's `AgentTool`
+  (Pi's `ToolInfo` of `getAllTools` has neither; pipy's `get_all_tools`
+  shares the type and reports them too). Pi's `sourceInfo` is not reported.
 - (G9 opened `register_tool` while the session runs; see the G9 paragraph.)
   Registration is open only during activation, so EXT-04 reads: an extension
   that registers one of its own tool names again replaces the earlier
@@ -4796,6 +4798,37 @@ registration, not unregistered), since no catalog holds an embedded
 session's extension providers. No SDK-only token option
 was added: Pi's `McpExtensionOptions` has none. Tests:
 `test_native_mcp_provider_auth.py`, `test_native_auth_store.py`.
+
+**Y2 of the sixth goal check: stale activations and callable-tool
+metadata.** Findings U1 and S1 of goal check r6 (EXP-06, DEV-31, EXT-11; Pi
+`core/agent-session.ts` `_refreshToolRegistry`, `_setActiveTools`,
+`_applyToolLoadout`, `_isActivatable`, `_restoreToolsFromTranscript`,
+`reload`; `packages/agent/src/types.ts` `AgentTool`). U1:
+`ToolCapabilityState.with_extension_registry` and `with_mcp_registry` store
+the selection through `_activatable_selection`, which drops the registered
+names `_is_activatable` refuses (`_refused_names`), as every Pi refresh
+applies the loadout. A `deferred` MCP-named tool `tool_search` loaded under
+`--tools read,tool_search` that is registered again as `direct` is gone for
+good and has to be loaded again once it is `deferred`; before, its stored
+activation survived and it was declared again without a search. Pending
+names follow Pi's `_setActiveTools`: one leaves the pending set only when
+the loadout applied it (`_applied_pending`), so a pending name that arrives
+while refused stays pending. `restore_active_tools` drops a registered
+name the allowlist refuses from the active set and keeps it pending, as
+`_restoreToolsFromTranscript` makes every kept name pending, and both
+refreshes retry every pending name against the merged registry, as Pi's
+refresh pushes the pending names whatever registered them (so a refused
+name becomes active once, say, an extension registers `tool_search`).
+`publish` needed no change: with an allowlist a reload derives the
+selection from it, and the declared MCP-named tools are pending. The
+read-time narrowing in `_declared_names` stays for names the filters do not
+keep. S1: `ToolInfo` gains `output_schema` (a detached copy) and
+`execution_mode`, filled by `tool_info`, so the entries of `ctx.tools`
+carry them as Pi's `AgentTool` entries of `ExtensionToolContext.tools` do.
+`get_all_tools()` shares the type and reports them too, where Pi's
+`ToolInfo` has neither; nothing reads them there. Tests:
+`test_native_tool_capabilities_mcp.py`,
+`test_native_extension_tool_orchestration.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using
