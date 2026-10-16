@@ -210,6 +210,14 @@ def _tool_names(connection: McpServerConnection) -> list[str]:
     return [str(tool["name"]) for tool in connection.tools]
 
 
+def _refresh_threads() -> list[str]:
+    return sorted(
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name.startswith("mcp-refresh")
+    )
+
+
 # -- connecting -------------------------------------------------------------
 
 
@@ -438,6 +446,80 @@ def test_a_tool_list_change_lists_the_tools_again() -> None:
     server.tools = []
     server.notify("notifications/tools/list_changed")
     _wait_until(lambda: harness.tool_reports[-1] == ())
+    harness.connection.close()
+
+
+def test_each_tool_list_change_lists_the_tools_at_once_and_the_last_to_end_is_kept() -> (
+    None
+):
+    # Pi `connectOnce`: every notification starts `refreshTools` of its own,
+    # and the listing that settles last sets the tools, also when it was
+    # asked for first.
+    held: list[JsonRpcMessage] = []
+    hold = [False]
+
+    def list_tools(message: JsonRpcMessage) -> object:
+        if hold[0]:
+            hold[0] = False
+            held.append(message)
+            return _NO_ANSWER
+        return {"tools": list(server.tools)}
+
+    server = _Server(tools=[_tool("one")], handlers={"tools/list": list_tools})
+    harness = _Harness([lambda: server.client_end])
+    harness.connection.get_client()
+
+    hold[0] = True
+    server.notify("notifications/tools/list_changed")
+    _wait_until(lambda: len(held) == 1)
+    server.tools = [_tool("one"), _tool("two")]
+    server.notify("notifications/tools/list_changed")
+
+    # Not held up by the listing the server has not answered.
+    _wait_until(lambda: _tool_names(harness.connection) == ["one", "two"])
+    assert server.methods.count("tools/list") == 3
+    # The stalled listing is answered last, with the tools of its time.
+    server.end.send(
+        {"jsonrpc": "2.0", "id": held[0]["id"], "result": {"tools": [_tool("one")]}}
+    )
+    _wait_until(lambda: harness.tool_reports[-1] == ("one",))
+    assert harness.tool_reports == [("one",), ("one", "two"), ("one",)]
+    assert _tool_names(harness.connection) == ["one"]
+    harness.connection.close()
+
+
+def test_listings_answered_one_after_the_other_keep_the_later_answer() -> None:
+    # Which refresh thread takes the lock first does not decide it.
+    held: list[JsonRpcMessage] = []
+
+    def list_tools(message: JsonRpcMessage) -> object:
+        if server.methods.count("tools/list") == 1:
+            return {"tools": [_tool("initial")]}
+        held.append(message)
+        return _NO_ANSWER
+
+    server = _Server(handlers={"tools/list": list_tools})
+    harness = _Harness([lambda: server.client_end])
+    harness.connection.get_client()
+
+    for round_ in range(20):
+        server.notify("notifications/tools/list_changed")
+        server.notify("notifications/tools/list_changed")
+        _wait_until(lambda: len(held) == 2)
+        older, newer = held
+        held.clear()
+        reports = len(harness.tool_reports)
+        for message, name in ((older, "older"), (newer, f"newer{round_}")):
+            server.end.send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": {"tools": [_tool(name)]},
+                }
+            )
+        _wait_until(lambda: len(harness.tool_reports) > reports)
+        _wait_until(lambda: not _refresh_threads())
+        assert _tool_names(harness.connection) == [f"newer{round_}"]
     harness.connection.close()
 
 

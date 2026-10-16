@@ -1778,6 +1778,18 @@ provider, see [a provider's token](#a-providers-token).
 - Closing a server, or ending the session, ends the wait before another
   attempt and, when the server gave the session an id, tells it that the
   session is over (a `DELETE`, given one second).
+- A request that is cancelled or times out is given up as in Pi: the server
+  is sent `notifications/cancelled`, and pipy goes on reading the event
+  stream that answers the request, and resuming it, until the stream ends.
+  What the server still sends there, such as a log message or a change of
+  its tools, arrives; the late answer is dropped. Closing the server ends
+  the stream.
+- The event stream on which the server sends messages of its own is opened
+  again when it drops, after the delay the server asks for or after one
+  second, doubling up to 30 seconds. After five failures in a row pipy stops
+  trying. A stream that delivered an event, or stayed open longer than the
+  longest delay, ends the count, unless it ended before the length the
+  server announced for it: such a cut-short stream is a failure.
 
 Different from Pi:
 
@@ -1802,12 +1814,16 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
 - The tools are listed only when the server declares the `tools` capability.
   When the server sends `notifications/tools/list_changed` they are listed
   again; if that fails, the error is `Failed to refresh tools: <reason>` and
-  the earlier tools stay.
+  the earlier tools stay. Each notification starts a listing of its own, as
+  in Pi, so a listing the server does not answer holds up none that follows.
+  When several listings run, the one that ends last is kept, also when it was
+  asked for first. The notifications that arrive while the server connects
+  start one listing once it is connected.
 - The resources and URI templates are listed, next to the tools, only when
   the server declares the `resources` capability, and again when it sends
-  `notifications/resources/list_changed`. A change of the tools and a change
-  of the resources are read independently, so a slow listing of one does
-  not hold up the other. The resources are only counted: by
+  `notifications/resources/list_changed`, once per notification as for the
+  tools. A change of the tools and a change of the resources are read
+  independently, so a slow listing of one does not hold up the other. The resources are only counted: by
   `pipy mcp list`, and in the state of a connected server that the
   `/mcp reconnect` completion shows (`connected · 2 tools · 3 resources`). A
   listing that fails counts as empty and is no error of the server. What is
@@ -1826,7 +1842,8 @@ A server is `connecting`, `connected`, `disconnected`, `needs-auth`,
 - Closing a server stops a connect in progress and returns when the server
   process is gone, or the HTTP session ended. Calls then fail with `MCP server "<name>" is shut down`.
   An HTTP request that is still connecting to the server, or in its TLS
-  handshake, is ended at once; so is one that was cancelled or timed out.
+  handshake, is ended at once; so is the event stream of one that was
+  cancelled or timed out.
   From the moment a server is closed no token refresh starts for it, and
   closing waits for one that is running, so that its new tokens are saved.
   The same holds for asking for [a provider's token](#a-providers-token).
@@ -1858,6 +1875,9 @@ Differences from Pi in connections:
 - A failed refresh of the tool list is recorded only for the connection that
   is current. In Pi a refresh that fails after the connection was replaced
   still sets the error.
+- A change of the tools or resources that the server announces while it
+  connects is listed once it is connected. Pi lists at once and drops that
+  listing when it ends before the connect has finished.
 - A caller waiting for a connect stops waiting when its call is cancelled;
   the connect goes on for the other callers.
 - Messages of failures come from Python: a missing executable is reported as
@@ -2357,8 +2377,7 @@ build on it:
   refuses a server URL with user info.
 - An auth provider, also the one of `adapt_oauth_provider`, sends the
   requests of a refresh itself; Pi sends them with the fetch of the
-  transport whose request was rejected. A request
-  that was given up while the provider worked is not sent again.
+  transport whose request was rejected.
 - The refresh lock of the credentials file is a `flock`. The lock of a
   process that died is free at once; Pi takes such a lock over after 20
   seconds. Deleting a server's credentials waits for that lock and holds
@@ -2374,7 +2393,10 @@ build on it:
   of its own and is given an event instead of an abort signal. A pasted URL
   of a scheme other than `http` and `https` is refused as not matching the
   redirect URI.
-- A cancelled or timed-out HTTP request closes its connection.
+- `McpRequestOptions` has `on_settled`, which Pi's options do not have: it
+  is called when a request ends, in the order in which a client's requests
+  end. A connection uses it to keep the tool or resource listing that ended
+  last.
 - A line from a stdio server that is longer than the message limit (16 MiB) is
   skipped to its end and reported once.
 - Windows process handling is not ported.

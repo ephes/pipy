@@ -236,23 +236,31 @@ def test_an_answer_without_a_body_is_not_decoded(
         response.close()
 
 
+@pytest.mark.parametrize("encoding", ["gzip", None])
+@pytest.mark.parametrize("read", ["read", "chunks"])
 def test_a_cut_body_with_a_length_is_a_network_failure(
-    serve: Callable[..., _Server],
+    serve: Callable[..., _Server], encoding: str | None, read: str
 ) -> None:
-    body = gzip.compress(_DOCUMENT)
-    server = serve(
-        lambda *_request: _Answer(
-            200,
-            {"Content-Length": str(len(body) + 10), "Content-Encoding": "gzip"},
-            [body],
-        )
-    )
+    # Node's fetch fails a body that ends before its `Content-Length` with a
+    # `TypeError`, also a body read as a stream; `read1` of `http.client`
+    # only closes the connection.
+    body = _DOCUMENT if encoding is None else gzip.compress(_DOCUMENT)
+    headers = {"Content-Length": str(len(body) + 10)}
+    if encoding is not None:
+        headers["Content-Encoding"] = encoding
+    server = serve(lambda *_request: _Answer(200, headers, [body]))
     response = _get(server.url)
+    received = bytearray()
     try:
         with pytest.raises(http.client.IncompleteRead):
-            response.read()
+            if read == "read":
+                response.read()
+            for piece in response.chunks():
+                received += piece
     finally:
         response.close()
+    # What arrived is handed on first.
+    assert bytes(received) == (b"" if read == "read" else _DOCUMENT)
 
 
 def test_a_compressed_event_stream_is_decoded_as_it_arrives(

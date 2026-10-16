@@ -159,6 +159,15 @@ DEV-36 (r8 U3, TLS-03) and the exposure change while not connected of
 DEV-37 (r8 U4, SES-15). The fix slices change the rows they fix when they
 land.
 
+Updated in K1 (2026-10-16): HTP-03, HTP-08, HTP-10, CLT-06 and CON-05 name
+their new tests (r8 P1 to P3): an event stream cut short of its
+`Content-Length` is a network failure, so the GET stream's retries run
+out; a request that was cancelled or timed out keeps reading and resuming
+its response stream; and every list change starts a listing of its own,
+the one that ends last being kept. DEV-58 loses that last point and RES-10,
+which now names DEV-56 for a change announced while the server connects.
+No row changes its state.
+
 ## Reference
 
 - Pi: `~/src/pi-mono` at `a447ba11f3e7760fcff91e924bda8c20033953ea`
@@ -375,7 +384,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CLT-03 | S11 | closed | `test_native_mcp_client.py`: `test_rejects_an_invalid_initialize_result` |  |
 | CLT-04 | S11 | closed | `test_native_mcp_client.py`: `test_initializes_the_connection_before_exposing_server_information`, `test_rejects_an_unsupported_protocol_version_and_closes_the_transport` |  |
 | CLT-05 | S11 | closed | `test_native_mcp_client.py`: `test_requests_carry_increasing_ids_and_return_the_result`, `test_the_client_default_timeout_applies_and_can_be_overridden`, `test_cancels_aborted_and_timed_out_requests` |  |
-| CLT-06 | S11 | closed | `test_native_mcp_client.py`: `test_cancels_aborted_and_timed_out_requests`, `test_does_not_send_cancelled_for_a_timed_out_initialize` |  |
+| CLT-06 | S11 | closed | `test_native_mcp_client.py`: `test_cancels_aborted_and_timed_out_requests`, `test_does_not_send_cancelled_for_a_timed_out_initialize`; `test_native_mcp_http.py`: `test_a_request_that_timed_out_keeps_reading_its_response_stream`, `test_a_request_given_up_still_resumes_and_reads_its_stream` (r8 P3) |  |
 | CLT-07 | S11 | closed | `test_native_mcp_client.py`: `test_renews_the_timeout_on_progress`, `test_progress_for_unknown_tokens_and_malformed_progress_is_ignored` |  |
 | CLT-08 | S11 | closed | `test_native_mcp_client.py`: `test_surfaces_json_rpc_errors`, `test_a_response_for_an_unknown_request_is_reported_and_changes_nothing` |  |
 | CLT-09 | S11 | closed | `test_native_mcp_client.py`: `test_answers_ping_and_rejects_unknown_methods`, `test_answers_roots_list_and_dispatches_notifications`, `test_request_handlers_answer_with_their_result_or_error`, `test_a_server_cancellation_aborts_the_matching_handler` |  |
@@ -405,14 +414,14 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | --- | --- | --- | --- | --- |
 | HTP-01 | S24 | closed, with limits | `test_native_mcp_http.py`: `test_every_message_is_a_post_with_accept_json_body_and_configured_headers` | No proxy support. DEV-82. |
 | HTP-02 | S24 | closed | `test_native_mcp_http.py`: `test_handles_json_and_sse_responses_with_session_and_protocol_headers`, `test_the_auth_provider_token_replaces_a_configured_authorization_header` |  |
-| HTP-03 | S24 | closed | `test_native_mcp_http.py`: `test_a_json_array_delivers_every_message`, `test_an_event_stream_delivers_every_message_and_skips_what_is_none`; `test_native_mcp_http.py`: `test_a_json_answer_is_not_held_to_the_message_limit` (L1) |  |
+| HTP-03 | S24 | closed | `test_native_mcp_http.py`: `test_a_json_array_delivers_every_message`, `test_an_event_stream_delivers_every_message_and_skips_what_is_none`; `test_native_mcp_http.py`: `test_a_json_answer_is_not_held_to_the_message_limit` (L1); `test_native_mcp_http.py`: `test_a_request_that_timed_out_keeps_reading_its_response_stream` (r8 P3), `test_a_response_stream_cut_short_of_its_length_fails_its_request` (r8 P1) |  |
 | HTP-04 | S24 | closed | `test_native_mcp_http.py`: `test_rejects_a_request_the_server_accepts_without_a_response`, `test_notifications_and_responses_ignore_the_response_body`, `test_rejects_another_content_type` |  |
 | HTP-05 | S24 | closed | `test_native_mcp_http.py`: `test_classifies_authentication_failures`, `test_classifies_an_expired_established_session`, `test_an_http_error_shows_500_characters_of_at_most_8_kib_of_body` |  |
 | HTP-06 | S30 | closed | `test_native_mcp_http.py`: `test_hands_401_and_insufficient_scope_403_to_the_auth_provider`, `test_a_request_is_handed_to_the_auth_provider_only_once`, `test_another_403_is_an_error_and_is_not_handed_over` |  |
 | HTP-07 | S24 | closed, with limits | `test_native_mcp_sse.py`: `test_parses_chunked_crlf_events_comments_ids_and_multiline_data`, `test_lf_line_ends_and_event_names`, `test_on_retry_gets_decimal_values_only`; `test_native_mcp_http.py`: `test_an_event_over_the_message_limit_fails_its_request` | A `retry` field of more than 18 digits is ignored, also a small delay padded with zeros. DEV-97. |
-| HTP-08 | S25 | closed | `test_native_mcp_http.py`: `test_opens_the_get_stream_after_initialization_and_sends_last_event_id_only_when_resuming`, `test_reconnects_the_get_stream_after_it_drops`, `test_the_reconnect_delay_doubles_from_one_second_to_thirty`, `test_the_get_stream_gives_up_after_five_failures_in_a_row` |  |
+| HTP-08 | S25 | closed | `test_native_mcp_http.py`: `test_opens_the_get_stream_after_initialization_and_sends_last_event_id_only_when_resuming`, `test_reconnects_the_get_stream_after_it_drops`, `test_the_reconnect_delay_doubles_from_one_second_to_thirty`, `test_the_get_stream_gives_up_after_five_failures_in_a_row`, `test_a_get_stream_cut_short_of_its_length_counts_as_a_failure` (r8 P1) |  |
 | HTP-09 | S25 | closed | `test_native_mcp_http.py`: `test_resumes_a_response_stream_the_server_closed_before_answering`, `test_fails_only_the_request_whose_sse_stream_breaks`, `test_fails_a_request_whose_response_stream_ends_without_an_answer` |  |
-| HTP-10 | S25 | closed | `test_native_mcp_http.py`: `test_the_get_stream_is_opened_again_after_a_transient_status`, `test_the_get_stream_is_opened_again_after_a_network_failure`, `test_the_get_stream_ends_with_an_error_that_is_not_transient`, `test_a_response_stream_broken_by_a_protocol_error_is_not_resumed` |  |
+| HTP-10 | S25 | closed | `test_native_mcp_http.py`: `test_the_get_stream_is_opened_again_after_a_transient_status`, `test_the_get_stream_is_opened_again_after_a_network_failure`, `test_the_get_stream_ends_with_an_error_that_is_not_transient`, `test_a_response_stream_broken_by_a_protocol_error_is_not_resumed`, `test_a_get_stream_cut_short_of_its_length_counts_as_a_failure` (r8 P1); `test_native_mcp_http_content_coding.py`: `test_a_cut_body_with_a_length_is_a_network_failure` (r8 P1) |  |
 | HTP-11 | S24 | closed | `test_native_mcp_http.py`: `test_closes_the_session_with_the_last_requests_token`, `test_close_waits_one_second_for_the_delete_and_ignores_its_failure`, `test_closing_ends_every_io_thread_and_fails_what_is_in_flight`; `test_native_mcp_http_fetch.py`: `test_closing_ends_a_tls_handshake_in_progress`, `test_a_request_timeout_ends_a_tls_handshake_in_progress` (L1) |  |
 
 ### Server connection (CON)
@@ -423,7 +432,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | CON-02 | S15 | closed | `test_native_mcp_connection.py`: `test_requests_time_out_after_the_configured_seconds_default_sixty`, `test_progress_notifications_reset_the_timeout` |  |
 | CON-03 | S15 | closed | `test_native_mcp_connection.py`: `test_connects_to_servers_without_the_tools_capability_without_listing_tools`, `test_tools_are_listed_when_the_capability_is_declared` |  |
 | CON-04 | S15 | closed | `test_native_mcp_connection.py`: `test_instructions_are_kept_trimmed_and_empty_ones_count_as_none` |  |
-| CON-05 | S15 | closed, with limits | `test_native_mcp_connection.py`: `test_a_tool_list_change_lists_the_tools_again`, `test_a_failed_refresh_is_recorded_and_keeps_the_tools`; `test_native_mcp_connection_resources.py`: `test_a_slow_resource_listing_does_not_delay_a_tool_refresh` (L1) | DEV-56. |
+| CON-05 | S15 | closed, with limits | `test_native_mcp_connection.py`: `test_a_tool_list_change_lists_the_tools_again`, `test_a_failed_refresh_is_recorded_and_keeps_the_tools`; `test_native_mcp_connection_resources.py`: `test_a_slow_resource_listing_does_not_delay_a_tool_refresh` (L1); `test_native_mcp_connection.py`: `test_each_tool_list_change_lists_the_tools_at_once_and_the_last_to_end_is_kept`, `test_listings_answered_one_after_the_other_keep_the_later_answer`; `test_native_mcp_connection_resources.py`: `test_each_resource_change_lists_at_once_and_the_last_to_end_is_kept` (r8 P2) | DEV-56. |
 | CON-06 | S15 | closed, with limits | `test_native_mcp_connection.py`: `test_marks_a_dropped_connection_and_reconnects_on_the_next_call`, `test_a_dropped_stdio_server_is_reported_with_its_stderr_and_restarted`, `test_a_dropped_server_reports_only_the_end_of_a_long_stderr` | DEV-56. |
 | CON-07 | S15 | closed | `test_native_mcp_connection.py`: `test_a_failed_connect_is_recorded_and_the_next_call_tries_again`, `test_a_stdio_server_that_fails_to_start_is_reported_with_its_stderr` |  |
 | CON-08 | S15 | closed | `test_native_mcp_connection.py`: `test_concurrent_callers_share_one_connection_attempt` |  |
@@ -582,7 +591,7 @@ another form than Pi's, or less far; `DEV-nn` refers to plan section 3.
 | RES-07 | S23 | closed, with limits | `test_native_mcp_resources.py`: `test_a_long_listing_is_cut_in_the_middle_for_the_model_only`; `test_native_mcp_session_resources.py`: `test_the_resource_tools_are_callable_from_codemode_for_codemode_servers` | DEV-58. |
 | RES-08 | S23 | closed, with limits | `test_native_mcp_resources.py`: `test_read_needs_a_server_and_a_uri`, `test_arguments_that_are_not_strings_are_refused`, `test_an_unknown_server_names_the_servers_with_resources` | DEV-58. |
 | RES-09 | S23, S39 | closed, with limits | `test_native_mcp_resources.py`: `test_text_is_read_as_text_and_scripts_get_the_contents_without_meta`, `test_several_contents_are_each_preceded_by_their_uri`, `test_an_empty_resource_says_so`; `test_native_mcp_session_images.py`: `test_mcp_images_reach_every_adapter_family_and_survive_a_resume` | As TLS-11 for images. DEV-19. As TLS-11, a result whose contents are all text reaches the hooks as its joined text. DEV-99. |
-| RES-10 | S23 | closed, with limits | `test_native_mcp_connection_resources.py`: `test_a_connection_lists_the_resources_when_it_connects`, `test_a_server_whose_listings_fail_still_connects`, `test_a_resource_list_change_lists_the_resources_again`; `test_native_mcp_connection_resources.py`: `test_a_slow_tool_listing_does_not_delay_a_resource_refresh` (L1) | DEV-58. |
+| RES-10 | S23 | closed, with limits | `test_native_mcp_connection_resources.py`: `test_a_connection_lists_the_resources_when_it_connects`, `test_a_server_whose_listings_fail_still_connects`, `test_a_resource_list_change_lists_the_resources_again`; `test_native_mcp_connection_resources.py`: `test_a_slow_tool_listing_does_not_delay_a_resource_refresh` (L1), `test_each_resource_change_lists_at_once_and_the_last_to_end_is_kept` (r8 P2) | DEV-56. |
 
 ### OAuth (OAU)
 

@@ -994,6 +994,75 @@ def test_a_cancellable_request_still_returns_its_response(server: _Server) -> No
     client.close()
 
 
+def test_on_settled_follows_the_order_in_which_requests_end(server: _Server) -> None:
+    # The order in which Pi's request promises settle: answers in the order
+    # they arrive, also against the order of the requests, and timeouts,
+    # cancellations and the close.
+    client = _connect(server)
+    first_answered = threading.Event()
+
+    def call(request: JsonRpcMessage) -> object:
+        name = request["params"]["name"]  # type: ignore[index]
+        if name == "first":
+            first_answered.wait(_WAIT_SECONDS)
+            return {"name": name}
+        if name == "second":
+            return {"name": name}
+        raise _NoAnswer
+
+    server.set_handler("tools/call", call)
+    ended: list[str] = []
+
+    def request(name: str, **options: Any) -> object:
+        return client.request(
+            "tools/call",
+            {"name": name},
+            McpRequestOptions(on_settled=lambda: ended.append(name), **options),
+        )
+
+    first, raised_first = _raises_in_thread(lambda: request("first"))
+    server.wait_for(
+        lambda messages: any(m.get("method") == "tools/call" for m in messages)
+    )
+    assert request("second") == {"name": "second"}
+    first_answered.set()
+    first.join(_WAIT_SECONDS)
+    with pytest.raises(McpTimeoutError):
+        request("timeout", timeout_ms=20)
+    cancel = threading.Event()
+    cancelled, _ = _raises_in_thread(lambda: request("cancel", cancel_event=cancel))
+    _wait_until(
+        lambda: sum(m.get("method") == "tools/call" for m in server.messages) == 4
+    )
+    cancel.set()
+    cancelled.join(_WAIT_SECONDS)
+    closed, _ = _raises_in_thread(lambda: request("close"))
+    _wait_until(
+        lambda: sum(m.get("method") == "tools/call" for m in server.messages) == 5
+    )
+    client.close()
+    closed.join(_WAIT_SECONDS)
+
+    assert raised_first == []
+    assert ended == ["second", "first", "timeout", "cancel", "close"]
+
+
+def test_a_raising_on_settled_does_not_keep_the_outcome(server: _Server) -> None:
+    client = _connect(server)
+    server.set_handler("tools/call", lambda request: {"ok": True})
+
+    def on_settled() -> None:
+        raise RuntimeError("boom")
+
+    result = client.request(
+        "tools/call", None, McpRequestOptions(on_settled=on_settled)
+    )
+
+    assert result == {"ok": True}
+    assert client.connection_state == "connected"
+    client.close()
+
+
 def test_the_client_default_timeout_applies_and_can_be_overridden(
     server: _Server,
 ) -> None:

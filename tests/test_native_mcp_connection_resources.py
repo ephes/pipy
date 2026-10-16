@@ -16,6 +16,7 @@ from test_native_mcp_connection import (
     _NO_ANSWER,
     _WAIT_SECONDS,
     _Harness,
+    _refresh_threads,
     _RpcError,
     _Server,
     _tool,
@@ -92,14 +93,6 @@ class _ResourceServer(_Server):
         return {
             "contents": [{"uri": uri, "mimeType": "text/markdown", "text": f"# {uri}"}]
         }
-
-
-def _refresh_threads() -> list[str]:
-    return sorted(
-        thread.name
-        for thread in threading.enumerate()
-        if thread.name.startswith("mcp-refresh")
-    )
 
 
 def _uris(view: ConnectionView) -> list[str]:
@@ -362,9 +355,48 @@ def test_a_slow_tool_listing_does_not_delay_a_resource_refresh() -> None:
     _wait_until(lambda: not _refresh_threads())
 
 
+def test_each_resource_change_lists_at_once_and_the_last_to_end_is_kept() -> None:
+    # Pi `refreshResources`, once per notification. A refresh ends when both
+    # of its lists have.
+    held: list[JsonRpcMessage] = []
+    hold = [False]
+
+    def list_templates(message: JsonRpcMessage) -> object:
+        if hold[0]:
+            hold[0] = False
+            held.append(message)
+            return _NO_ANSWER
+        return {"resourceTemplates": [_PAGE]}
+
+    server = _ResourceServer(
+        resources=[_INTRO], handlers={"resources/templates/list": list_templates}
+    )
+    harness = _Harness([lambda: server.client_end])
+    connection = harness.connection
+    connection.get_client()
+
+    hold[0] = True
+    server.notify("notifications/resources/list_changed")
+    _wait_until(lambda: len(held) == 1)
+    _wait_until(lambda: server.methods.count("resources/list") == 2)
+    server.resources = []
+    server.notify("notifications/resources/list_changed")
+
+    _wait_until(lambda: connection.view().resources == ())
+    assert server.methods.count("resources/list") == 3
+    # The first refresh ends last and keeps what its resource listing saw.
+    server.end.send(
+        {"jsonrpc": "2.0", "id": held[0]["id"], "result": {"resourceTemplates": []}}
+    )
+    _wait_until(lambda: connection.view().resources == (_INTRO,))
+    assert connection.view().resource_templates == ()
+    _wait_until(lambda: not _refresh_threads())
+    connection.close()
+
+
 def test_a_resource_change_during_a_resource_listing_is_listed_once_more() -> None:
-    # One listing of a kind at a time; a change that arrives meanwhile is
-    # read by one more.
+    # A change that arrives during a listing is read by a listing of its
+    # own, which ends last.
     listings = 0
 
     def list_resources(message: JsonRpcMessage) -> object:

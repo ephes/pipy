@@ -19,14 +19,18 @@ is not, since it may have run.
 Threads. An attempt runs on a daemon thread of its own (``mcp-connect``), so
 the callers that wait for it can give up when their cancel event is set. A
 ``notifications/tools/list_changed`` or ``notifications/resources/list_changed``
-is handled on a daemon thread that lives only while a refresh of its kind is
-wanted, because a notification listener runs on the client's reading thread
-and must not send a request. The tools (``mcp-refresh``) and the resources
-(``mcp-refresh-resources``) have a thread each, so neither listing waits for
-the other (Pi ``refreshTools``, ``refreshResources``). One kind is listed by
-one thread at a time, and again when it changed meanwhile. While a server
-connects, its resources are listed on a thread ``mcp-resources`` next to the
-tool listing. One lock guards the connection's state; it is never held while the
+starts a daemon thread that lists the tools (``mcp-refresh``) or the
+resources (``mcp-refresh-resources``) again, because a notification listener
+runs on the client's reading thread and must not send a request. As in Pi
+(``refreshTools``, ``refreshResources``) every notification starts a listing
+of its own, so no listing waits for another that stalls, and the listing
+that ends last is the one kept, also when it was asked for first. Which one
+ended last is told by the order in which the client settled the listings'
+requests (``McpRequestOptions.on_settled``), not by which thread gets the
+connection's lock first. The notifications that arrive while the server connects start one listing of
+their kind once the connection is published. While a server connects, its
+resources are listed on a thread ``mcp-resources`` next to the tool
+listing. One lock guards the connection's state; it is never held while the
 connection calls a client, a transport or a callback. The connection takes a
 client's lock while it holds its own, never the other way round.
 
@@ -364,7 +368,7 @@ def _without_templates(list_templates: Callable[[], _T], empty: _T) -> _T:
 
 
 def _fetch_resources(
-    client: McpClient,
+    client: McpClient, options: McpRequestOptions | None = None
 ) -> tuple[tuple[JsonObject, ...], tuple[JsonObject, ...]]:
     """The resources and templates of a server, for the counts in ``/mcp``
     and ``pipy mcp list``. Both lists are asked for at the same time. A list
@@ -373,14 +377,31 @@ def _fetch_resources(
     empty: list[JsonObject] = []
     resources, templates = settle_all(
         [
-            client.list_resources,
-            lambda: _without_templates(client.list_resource_templates, empty),
+            lambda: client.list_resources(options),
+            lambda: _without_templates(
+                lambda: client.list_resource_templates(options), empty
+            ),
         ]
     )
     return (
         _without_apps([] if isinstance(resources, Exception) else resources),
         _without_apps([] if isinstance(templates, Exception) else templates),
     )
+
+
+def _listing_order(link: _Link) -> tuple[list[int], McpRequestOptions]:
+    """Options for the requests of one refresh, and where they leave when
+    the last of them ended, counted in ``link.settled``."""
+
+    ended = [0]
+
+    def on_settled() -> None:
+        # Runs under the client's lock, so the count follows the order in
+        # which the client's requests end.
+        link.settled += 1
+        ended[0] = link.settled
+
+    return ended, McpRequestOptions(on_settled=on_settled)
 
 
 def _without_apps(items: list[JsonObject]) -> tuple[JsonObject, ...]:
@@ -434,17 +455,6 @@ class _StartReporting:
         self._transport.set_protocol_version(version)
 
 
-class _Refresh:
-    """One list of a link that the server may say has changed: whether it
-    is to be listed again, and whether a thread is doing that."""
-
-    __slots__ = ("running", "wanted")
-
-    def __init__(self) -> None:
-        self.wanted = False
-        self.running = False
-
-
 class _Link:
     """One client and what belongs to it. Fields are guarded by the connection lock."""
 
@@ -453,9 +463,12 @@ class _Link:
         "calls",
         "client",
         "expired",
-        "resource_refresh",
+        "resources_changed",
+        "resources_shown",
+        "settled",
         "stdio",
-        "tool_refresh",
+        "tools_changed",
+        "tools_shown",
         "transport_closed",
     )
 
@@ -464,10 +477,18 @@ class _Link:
         self.stdio: StdioTransport | None = None
         # Set by the transport when it has finished closing.
         self.transport_closed = threading.Event()
-        # The two lists the server may say have changed. Each is listed
-        # again on a thread of its own.
-        self.tool_refresh = _Refresh()
-        self.resource_refresh = _Refresh()
+        # Whether the server said that its tools, or its resources, changed
+        # while the link was connecting; each is listed again once it is
+        # published.
+        self.tools_changed = False
+        self.resources_changed = False
+        # How many of the client's refresh requests have ended; guarded by
+        # the client's lock, under which ``on_settled`` runs.
+        self.settled = 0
+        # The ``settled`` count at which the listing whose tools, or whose
+        # resources, are shown ended; 0 for the listing of the connect.
+        self.tools_shown = 0
+        self.resources_shown = 0
         # How many requests of the connection's callers are in flight on the
         # client, and whether the server said that its session expired. An
         # expired client is closed when the count is back at zero.
@@ -1211,15 +1232,13 @@ class McpServerConnection:
             self._instructions = instructions
             self._state = "connected"
             self._error = None
-            link.tool_refresh.running = link.tool_refresh.wanted
-            link.resource_refresh.running = link.resource_refresh.wanted
             return [
                 resources
-                for resources, refresh in (
-                    (False, link.tool_refresh),
-                    (True, link.resource_refresh),
+                for resources, changed in (
+                    (False, link.tools_changed),
+                    (True, link.resources_changed),
                 )
-                if refresh.running
+                if changed
             ]
 
     def _connect_failed(self, error: Exception) -> str:
@@ -1282,65 +1301,55 @@ class McpServerConnection:
         with self._lock:
             if self._closed or link not in (self._link, self._pending_link):
                 return
-            refresh = link.resource_refresh if resources else link.tool_refresh
-            refresh.wanted = True
-            if link is not self._link or refresh.running:
-                # A link that is still connecting is refreshed once it is
-                # published; a running refresher lists again.
+            if link is not self._link:
+                # Still connecting: listed again once it is published.
+                if resources:
+                    link.resources_changed = True
+                else:
+                    link.tools_changed = True
                 return
-            refresh.running = True
         self._start_refresher(link, resources=resources)
 
     def _start_refresher(self, link: _Link, *, resources: bool) -> None:
-        """Start the thread that lists ``link``'s tools, or its resources,
-        again. The caller has set ``running`` of that refresh."""
+        """Start a thread that lists ``link``'s tools, or its resources, again."""
 
         try:
             threading.Thread(
-                target=self._refresh,
-                args=(link, resources),
+                target=self._refresh_resources if resources else self._refresh_tools,
+                args=(link,),
                 name="mcp-refresh-resources" if resources else "mcp-refresh",
                 daemon=True,
             ).start()
         except RuntimeError as error:
-            with self._lock:
-                refresh = link.resource_refresh if resources else link.tool_refresh
-                refresh.running = False
             self._refresh_failed(link, error)
 
-    def _refresh(self, link: _Link, resources: bool) -> None:
-        """List the tools, or the resources, again until the server has not
-        said meanwhile that they changed once more."""
-
-        refresh = link.resource_refresh if resources else link.tool_refresh
-        while True:
-            with self._lock:
-                if self._link is not link or self._closed or not refresh.wanted:
-                    refresh.running = False
-                    return
-                refresh.wanted = False
-            if resources:
-                self._refresh_resources(link)
-            else:
-                self._refresh_tools(link)
-
     def _refresh_tools(self, link: _Link) -> None:
+        ended, options = _listing_order(link)
         try:
-            tools = link.client.list_tools()
+            tools = link.client.list_tools(options)
         except Exception as error:  # noqa: BLE001 - recorded as the connection's error
             self._refresh_failed(link, error)
             return
         with self._lock:
             if self._link is not link or self._closed:
                 return
+            if ended[0] < link.tools_shown:
+                # A listing that ended later is shown: in Pi it would have
+                # replaced this one.
+                return
+            link.tools_shown = ended[0]
             self._tools = tuple(tools)
         self._changed(tools=True)
 
     def _refresh_resources(self, link: _Link) -> None:
-        resources, templates = _fetch_resources(link.client)
+        ended, options = _listing_order(link)
+        resources, templates = _fetch_resources(link.client, options)
         with self._lock:
             if self._link is not link or self._closed:
                 return
+            if ended[0] < link.resources_shown:
+                return  # As for the tools.
+            link.resources_shown = ended[0]
             self._resources = resources
             self._resource_templates = templates
         self._changed(tools=True)

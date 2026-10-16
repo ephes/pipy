@@ -14,8 +14,11 @@ What a fetch has to do:
 - It follows redirects itself. The transport takes the response it is handed
   as the answer, whatever its status.
 - ``request.cancel`` is the request's cancellation (``signal`` of
-  JavaScript's ``fetch``): it is cancelled when the request is given up and
-  when the transport closes. A fetch ends a blocked connect, send or read
+  JavaScript's ``fetch``): it is cancelled when the transport closes, and
+  when the bound of a notification or a response (``send_timeout_ms``), of a
+  cancellation notice or of the DELETE of a session (one second each) runs
+  out. A request whose caller timed out or was cancelled is not given up
+  here: as in Pi it goes on until its answer ends. A fetch ends a blocked connect, send or read
   then, also one of the body of a response it returned earlier, by raising
   from the blocked call. ``CancelToken.register`` takes an object whose
   ``close()`` does that, and raises at once when the token is cancelled
@@ -25,7 +28,10 @@ What a fetch has to do:
   limit of the fetch's own.
 - A network failure is an ``OSError`` or an ``http.client.HTTPException``.
   The transport opens an event stream again after one of those, and fails
-  the request with anything else that is raised.
+  the request with anything else that is raised. A body that ends before
+  the length the server announced is a network failure too, raised by
+  ``read`` without a limit and by ``chunks`` (Node's ``fetch`` fails such
+  a body with a ``TypeError``).
 
 The default fetch opens one connection per request with ``http.client``. It
 has no proxy support. It asks for ``Accept-Encoding: gzip, deflate`` unless
@@ -36,8 +42,9 @@ arrived. Data that is not in the coding is a network failure while the body
 is read.
 
 Connecting. The TCP connect and the TLS handshake wait for the socket
-together with the request's cancellation, so giving the request up, or
-closing the transport, ends the attempt at once and closes its socket. Each
+together with the request's cancellation, so closing the transport, or the
+end of one of the bounds above, ends the attempt at once and closes its
+socket. Each
 of the two steps is given ``connect_timeout_ms``, the connect once per
 address the host name has. Only the name lookup before them cannot be
 interrupted: its thread ends when the resolver answers, and opens no socket
@@ -141,7 +148,11 @@ class McpHttpResponse(Protocol):
         ...
 
     def chunks(self) -> Iterator[bytes]:
-        """The rest of the body in pieces, each as soon as it arrived."""
+        """The rest of the body in pieces, each as soon as it arrived.
+
+        A body that ends before the length the server announced is a
+        network failure, raised after the last piece.
+        """
         ...
 
     def close(self) -> None:
@@ -246,8 +257,22 @@ class _HttpResponse:
 
         self._decoded = self._decode(ContentDecoder(codings), url)
 
-    def _decode(self, decoder: ContentDecoder, url: str) -> Iterator[bytes]:
+    def _raw(self) -> Iterator[bytes]:
+        """The body as it arrives, not decoded.
+
+        A body that ends before the ``Content-Length`` the server announced
+        is a network failure, as it is for Node's ``fetch``: ``read1`` of
+        ``http.client`` only closes the connection then.
+        """
+
         while raw := self._response.read1(_READ_BYTES):
+            yield raw
+        left = self._response.length
+        if left:
+            raise http.client.IncompleteRead(b"", left)
+
+    def _decode(self, decoder: ContentDecoder, url: str) -> Iterator[bytes]:
+        for raw in self._raw():
             try:
                 yield from decoder.feed(raw)
             except zlib.error as error:
@@ -255,9 +280,6 @@ class _HttpResponse:
                 raise http.client.HTTPException(
                     f"Cannot decode the {encoding} response of {url}: {error}"
                 ) from error
-        left = self._response.length
-        if left:
-            raise http.client.IncompleteRead(b"", left)
 
     def header(self, name: str) -> str | None:
         return self._response.getheader(name)
@@ -279,8 +301,7 @@ class _HttpResponse:
 
     def chunks(self) -> Iterator[bytes]:
         if self._decoded is None:
-            while chunk := self._response.read1(_READ_BYTES):
-                yield chunk
+            yield from self._raw()
             return
         if self._pending:
             pending, self._pending = self._pending, b""
@@ -398,7 +419,7 @@ def _open_socket(
 
     infos = socket.getaddrinfo(target.host, target.port, 0, socket.SOCK_STREAM)
     # The lookup cannot be interrupted; nothing is opened after it for a
-    # request that was given up meanwhile.
+    # request that was cancelled meanwhile.
     token.raise_if_cancelled()
     failure: OSError | None = None
     for family, kind, protocol, _name, address in infos:

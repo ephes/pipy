@@ -107,11 +107,19 @@ class McpRequestOptions:
     Setting ``cancel_event`` aborts the request. ``on_progress`` is called on
     the reading thread with the params of each progress notification for this
     request; it may still run while the request is being settled.
+
+    ``on_settled`` is called once when the request ends: by its answer, its
+    timeout, its cancellation, a failure of the transport or the close of the
+    client. It is called with the client's lock held, before the caller gets
+    the outcome, so the requests of one client call it in the order in which
+    they ended (the order in which Pi's promises settle). It must not call
+    the client; what it raises is dropped. Pi's options have no such field.
     """
 
     cancel_event: threading.Event | None = None
     timeout_ms: float | None = None
     on_progress: ProgressListener | None = None
+    on_settled: Callable[[], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +142,7 @@ class _PendingRequest:
         "done",
         "error",
         "on_progress",
+        "on_settled",
         "progress_token",
         "result",
         "timeout_ms",
@@ -150,6 +159,7 @@ class _PendingRequest:
         cancellable: bool,
         on_progress: ProgressListener | None,
         progress_token: JsonRpcId | None,
+        on_settled: Callable[[], None] | None = None,
     ) -> None:
         self.done = threading.Event()
         # `written` is set when the writer takes the request message off the
@@ -166,6 +176,7 @@ class _PendingRequest:
         self.cancel_event = cancel_event
         self.cancellable = cancellable
         self.on_progress = on_progress
+        self.on_settled = on_settled
         self.progress_token = progress_token
         self.arm_timeout()
 
@@ -174,8 +185,15 @@ class _PendingRequest:
             self.deadline = time.monotonic() + self.timeout_seconds
 
     def settle(self, *, result: object = None, error: Exception | None = None) -> None:
+        """End the request. Caller holds the client lock."""
+
         self.result = result
         self.error = error
+        if self.on_settled is not None:
+            try:
+                self.on_settled()
+            except Exception:  # noqa: BLE001 - documented on McpRequestOptions: dropped
+                pass
         self.done.set()
 
 
@@ -629,6 +647,7 @@ class McpClient:
                 cancellable=method != "initialize",
                 on_progress=options.on_progress,
                 progress_token=request_id if options.on_progress is not None else None,
+                on_settled=options.on_settled,
             )
             self._pending[request_id] = entry
             if entry.progress_token is not None:

@@ -21,13 +21,15 @@ network read happens on a thread that waits for a result.
   the POST (status and headers received and checked) and raises when it
   failed. As in Pi it waits without a deadline unless ``send_timeout_ms``
   sets one, and ``close()`` ends the wait.
-- ``send`` of ``notifications/cancelled`` ends the I/O thread of the request
-  it names by cancelling its token, which shuts its socket down or ends its
-  connection attempt, starts the POST of the notice and
+- ``send`` of ``notifications/cancelled`` starts the POST of the notice and
   returns. The notice is given one second, and its failure is reported to the
   error listeners. The client sends it when a request times out or is
-  cancelled, so neither leaves a thread or a socket behind. ``close()`` ends
-  every I/O thread the same way.
+  cancelled. As in Pi the request it names goes on: its I/O thread keeps
+  reading the response stream, and resuming it, so what the server sends on
+  it later (notifications, requests) still arrives, and the answer and any
+  failure of the request reach a client that no longer waits for them. Only
+  ``close()`` ends an I/O thread early, by cancelling its token, which shuts
+  its socket down or ends its connection attempt.
 - The server-to-client stream has one thread from the accepted
   ``notifications/initialized`` to ``close()``. A server that answers the GET
   with 405 has no such stream, and the thread ends. A stream that drops is
@@ -42,8 +44,9 @@ answer with status 401, and the first with status 403 whose
 the token the request carried. When it returns, the request is sent once
 more with the token the provider has then, and that answer counts, whatever
 it is. What the provider raises fails the request instead. The provider runs
-on the request's I/O thread and may take as long as it needs: a request that
-was given up meanwhile is not sent again.
+on the request's I/O thread and may take as long as it needs: nothing is
+sent again once the transport closed meanwhile, or once the bound of a
+notification or a response (``send_timeout_ms``) ran out.
 
 Only a network failure and the statuses 408, 429 and 5xx are worth another
 attempt to open a stream. Authentication, session and protocol errors end the
@@ -65,17 +68,17 @@ Limits of what is promised:
   token and a configured ``Authorization``, ``Proxy-Authorization``,
   ``Cookie`` or ``Host`` header stay behind then, every other configured
   header and the session id go along.
-- Giving a request up, and ``close()``, end a connection attempt of the
-  default fetch at once, in the TCP connect and in the TLS handshake. Only a
-  name lookup runs to its end; its I/O thread opens no socket afterwards.
-  Without that, an attempt ends only at ``send_timeout_ms`` when it is set
-  (one second for a cancellation notice and for the DELETE of a session).
+- ``close()`` ends a connection attempt of the default fetch at once, in the
+  TCP connect and in the TLS handshake. Only a name lookup runs to its end;
+  its I/O thread opens no socket afterwards. Without that, an attempt ends
+  only at ``send_timeout_ms`` when it is set (one second for a cancellation
+  notice and for the DELETE of a session). A request that was given up keeps
+  its connection, as in Pi, until its response ends or ``close()``.
 - A JSON answer is read as a whole, whatever its size (Pi
   ``response.json()``); ``max_message_bytes`` limits one event of an event
   stream.
 - A delay the server asks for with ``retry`` is waited as it is, however
-  long; a request's own timeout, its cancellation and ``close()`` end the
-  wait.
+  long; ``close()`` ends the wait.
 """
 
 from __future__ import annotations
@@ -109,7 +112,6 @@ from pipy_harness.native.mcp.protocol import (
     is_json_rpc_id,
     is_json_rpc_request,
     is_json_rpc_response,
-    is_object,
     parse_json_rpc_message,
 )
 from pipy_harness.native.mcp.sse import SseEvent, consume_sse_stream
@@ -292,10 +294,9 @@ class _Exchange:
     server-to-client stream.
     """
 
-    __slots__ = ("_lock", "done", "error", "request_id", "token")
+    __slots__ = ("_lock", "done", "error", "token")
 
-    def __init__(self, request_id: JsonRpcId | None) -> None:
-        self.request_id = request_id
+    def __init__(self) -> None:
         self.token = CancelToken()
         self.done = threading.Event()
         self.error: Exception | None = None
@@ -335,7 +336,6 @@ class StreamableHttpTransport(TransportEvents):
         # asking the auth provider.
         self._last_token: str | None = None
         self._exchanges: set[_Exchange] = set()
-        self._requests: dict[JsonRpcId, _Exchange] = {}
         self._get_stream_started = False
 
     @property
@@ -358,22 +358,22 @@ class StreamableHttpTransport(TransportEvents):
     def send(self, message: JsonRpcMessage) -> None:
         body = json.dumps(message, allow_nan=False, separators=(",", ":")).encode()
         if is_json_rpc_request(message):
-            request_id = message["id"]
-            assert is_json_rpc_id(request_id)
-            exchange = self._begin(request_id)
+            exchange = self._begin()
             self._start_thread(
                 exchange, "mcp-http-request", self._run_request, message, body, exchange
             )
             return
         if message.get("method") == "notifications/cancelled":
-            self._abandon(message.get("params"))
-            exchange = self._begin(None)
+            # The request it names is not ended: its response stream may
+            # still carry what the server sends on its own (Pi
+            # ``cancelPending``).
+            exchange = self._begin()
             self._start_thread(
                 exchange, "mcp-http-cancel", self._run_cancel_notice, body, exchange
             )
             return
         timeout_ms: float = self.options.send_timeout_ms
-        exchange = self._begin(None)
+        exchange = self._begin()
         self._start_thread(exchange, "mcp-http-send", self._run_send, body, exchange)
         if not exchange.done.wait(timeout_seconds(timeout_ms)):
             exchange.token.cancel()
@@ -397,7 +397,6 @@ class StreamableHttpTransport(TransportEvents):
             self._closed = True
             exchanges = list(self._exchanges)
             self._exchanges.clear()
-            self._requests.clear()
             session_id = self._session_id if self._started else None
         for exchange in exchanges:
             # A sender waiting for this POST gets the close, not the error of
@@ -410,22 +409,17 @@ class StreamableHttpTransport(TransportEvents):
 
     # -- one POST -----------------------------------------------------------
 
-    def _begin(self, request_id: JsonRpcId | None) -> _Exchange:
-        exchange = _Exchange(request_id)
+    def _begin(self) -> _Exchange:
+        exchange = _Exchange()
         with self._lock:
             if not self._started or self._closed:
                 raise McpConnectionClosedError()
             self._exchanges.add(exchange)
-            if request_id is not None:
-                self._requests[request_id] = exchange
         return exchange
 
     def _end(self, exchange: _Exchange) -> None:
         with self._lock:
             self._exchanges.discard(exchange)
-            request_id = exchange.request_id
-            if request_id is not None and self._requests.get(request_id) is exchange:
-                del self._requests[request_id]
 
     def _start_thread(
         self,
@@ -439,17 +433,6 @@ class StreamableHttpTransport(TransportEvents):
         except BaseException:
             self._end(exchange)
             raise
-
-    def _abandon(self, params: object) -> None:
-        """End the I/O thread of the request a cancellation notice names."""
-
-        request_id = params.get("requestId") if is_object(params) else None
-        if not is_json_rpc_id(request_id):
-            return
-        with self._lock:
-            exchange = self._requests.pop(request_id, None)
-        if exchange is not None:
-            exchange.token.cancel()
 
     def _run_cancel_notice(self, body: bytes, exchange: _Exchange) -> None:
         """POST a cancellation notice, giving it one second.
@@ -505,8 +488,8 @@ class StreamableHttpTransport(TransportEvents):
             finally:
                 response.close()
         except Exception as error:  # noqa: BLE001 - cross-thread capture: ends the request with this error
-            # A request that was given up, or a closed transport, has nobody
-            # left to tell.
+            # A closed transport has nobody left to tell. The client drops
+            # the failure of a request it gave up, as Pi's does.
             if not exchange.token.cancelled:
                 self._report_request_failure(request_id, error)
         finally:
@@ -676,7 +659,7 @@ class StreamableHttpTransport(TransportEvents):
     def _start_get_stream(self) -> None:
         if not self.options.open_get_stream:
             return
-        exchange = _Exchange(None)
+        exchange = _Exchange()
         with self._lock:
             if self._get_stream_started or self._closed:
                 return
@@ -781,7 +764,7 @@ class StreamableHttpTransport(TransportEvents):
         return not token.event.wait(seconds)
 
     def _emit(self, exchange: _Exchange, message: JsonRpcMessage) -> None:
-        """Deliver a message, unless its request was given up meanwhile."""
+        """Deliver a message, unless the transport closed meanwhile."""
 
         if not exchange.token.cancelled:
             self.emit_message(message)
@@ -843,7 +826,8 @@ class StreamableHttpTransport(TransportEvents):
         finally:
             response.close()
         if token.cancelled:
-            # Given up while the provider worked: nobody waits for an answer.
+            # Closed, or out of time, while the provider worked: nobody waits
+            # for an answer.
             raise McpConnectionClosedError()
         assert provider is not None
         return self._send_with_token(

@@ -926,13 +926,34 @@ def test_gives_up_on_a_redirect_loop(fake: _Fixture) -> None:
 # -- timeout, cancel and close ----------------------------------------------
 
 
-def test_a_response_that_stalls_mid_body_times_out_and_its_thread_ends(
+_LOG = {
+    "jsonrpc": "2.0",
+    "method": "notifications/message",
+    "params": {"level": "info", "data": "late"},
+}
+
+
+def test_a_request_that_timed_out_keeps_reading_its_response_stream(
     fake: _Fixture,
 ) -> None:
+    # Pi `cancelPending` only sends the notice; `consumeResponseStream` goes
+    # on, so what the server sends on the stream later still arrives.
     server = fake.server(
-        toolSteps={"echo": [{"sse": 'data: {"jsonrpc"'}, {"hold": True}]}
+        toolSteps={
+            "echo": [
+                {"mode": "sse"},
+                {"sse": ": open\n\n"},
+                {"wait": "late"},
+                {"send": _LOG},
+                {"default": True},
+            ]
+        }
     )
     client = fake.connect(server)
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    logs: list[object] = []
+    client.on_notification("notifications/message", logs.append)
 
     started = time.monotonic()
     with pytest.raises(McpTimeoutError, match="after 200ms"):
@@ -940,20 +961,26 @@ def test_a_response_that_stalls_mid_body_times_out_and_its_thread_ends(
     elapsed = time.monotonic() - started
 
     assert 0.2 <= elapsed < 5
-    # The cancellation the client sends ends the request's I/O thread and
-    # still reaches the server.
     _wait_until(lambda: len(server.messages("notifications/cancelled")) == 1)
-    _wait_until(lambda: not _io_threads())
     (cancelled,) = server.messages("notifications/cancelled")
     assert cancelled.message is not None
     assert cancelled.message["params"] == {
         "requestId": 2,
         "reason": "Request timed out",
     }
+    assert "mcp-http-request" in _io_threads()
     assert client.list_tools() == [_ECHO]
 
+    server.release("late")
+    _wait_until(lambda: len(logs) == 1)
+    assert logs == [_LOG["params"]]
+    # The answer reaches a client that no longer waits for it, as in Pi.
+    _wait_until(lambda: len(errors) == 1)
+    assert str(errors[0]) == "Received response for unknown MCP request 2"
+    _wait_until(lambda: not _io_threads())
 
-def test_cancel_during_a_stalled_read_returns_at_once_and_leaves_no_thread(
+
+def test_cancel_during_a_stalled_read_returns_at_once_and_close_ends_the_request(
     fake: _Fixture,
 ) -> None:
     # The server holds the POST without answering its headers.
@@ -973,16 +1000,20 @@ def test_cancel_during_a_stalled_read_returns_at_once_and_leaves_no_thread(
     assert time.monotonic() - started < 1
     assert results == []
     assert [type(error) for error in raised] == [McpAbortError]
-    _wait_until(lambda: not _io_threads())
     _wait_until(lambda: len(server.messages("notifications/cancelled")) == 1)
     assert client.list_tools() == [_ECHO]
+    # As in Pi the request goes on until the server answers it, or until the
+    # transport closes.
+    _wait_until(lambda: _io_threads() == ["mcp-http-request"])
+    client.close()
+    _wait_until(lambda: not _io_threads())
 
 
 def test_cancellation_notices_the_server_does_not_take_do_not_queue(
     fake: _Fixture,
 ) -> None:
-    # Each notice is given one second, and none waits for another: every
-    # request's connection is closed as soon as the request was given up.
+    # Each notice is given one second, and none waits for another or for
+    # the request it names.
     server = fake.server(
         toolSteps={"echo": [{"sse": ": open\n\n"}, {"wait": "never"}]},
         methods={"notifications/cancelled": [{"hold": True}]},
@@ -998,10 +1029,9 @@ def test_cancellation_notices_the_server_does_not_take_do_not_queue(
     ]
     for thread, _results, _raised in calls:
         thread.join(_WAIT_SECONDS)
-    _wait_until(lambda: "mcp-http-request" not in _io_threads())
-    requests_ended = time.monotonic() - started
+    calls_ended = time.monotonic() - started
 
-    assert requests_ended < 0.9
+    assert calls_ended < 0.9
     for _thread, results, raised in calls:
         assert results == []
         assert [type(error) for error in raised] == [McpTimeoutError]
@@ -1014,7 +1044,7 @@ def test_cancellation_notices_the_server_does_not_take_do_not_queue(
     for error in errors:
         assert isinstance(error, McpTimeoutError)
         assert "after 1000ms" in str(error)
-    _wait_until(lambda: not _io_threads())
+    _wait_until(lambda: "mcp-http-cancel" not in _io_threads())
 
 
 def test_a_rejected_cancellation_notice_is_reported(fake: _Fixture) -> None:
@@ -1032,7 +1062,7 @@ def test_a_rejected_cancellation_notice_is_reported(fake: _Fixture) -> None:
 
     assert isinstance(errors[0], McpHttpError)
     assert str(errors[0]) == "MCP HTTP request failed with status 500: no"
-    _wait_until(lambda: not _io_threads())
+    _wait_until(lambda: "mcp-http-cancel" not in _io_threads())
 
 
 def test_a_cancellation_notice_in_flight_is_not_reported_after_close(
@@ -1628,21 +1658,29 @@ def test_a_request_is_not_sent_again_when_the_transport_closed_meanwhile(
     assert _authorizations(server, "tools/call") == ["Bearer old"]
 
 
-def test_a_request_is_not_sent_again_when_it_timed_out_meanwhile(
+def test_a_request_that_timed_out_meanwhile_is_sent_again_as_in_pi(
     fake: _Fixture,
 ) -> None:
+    # Pi's `authorizedFetch` sends it again unless the transport closed: a
+    # request given up is not ended in the transport.
     server = fake.server(postSequence={"tools/call": [_rejection(401)]})
     provider = _Slow("old", {"old": "new"})
-    client = fake.connect(server, auth_provider=provider)
+    client = fake.client()
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    client.connect(fake.transport(server, auth_provider=provider))
 
     with pytest.raises(McpTimeoutError):
         client.call_tool("echo", None, McpRequestOptions(timeout_ms=50))
     assert provider.entered.is_set()
     provider.release.set()
-    _wait_until(lambda: not _io_threads())
+    _wait_until(lambda: "mcp-http-request" not in _io_threads())
 
     assert provider.current == "new"
-    assert _authorizations(server, "tools/call") == ["Bearer old"]
+    assert _authorizations(server, "tools/call") == ["Bearer old", "Bearer new"]
+    assert [str(error) for error in errors] == [
+        "Received response for unknown MCP request 2"
+    ]
     assert client.list_tools() == [_ECHO]
 
 
@@ -1725,6 +1763,54 @@ def test_a_get_stream_that_delivered_an_event_starts_the_count_again(
     assert _last_event_ids(server) == [None, *(f"g{n}" for n in range(8))]
     assert errors == []
     assert not _get_thread_ended()
+
+
+def _cut_stream(text: str) -> dict[str, Any]:
+    """An event stream framed by a length the server does not send in full."""
+
+    return {
+        "status": 200,
+        "headers": {"Content-Type": "text/event-stream"},
+        "body": text,
+        "contentLength": len(text.encode()) + 4096,
+    }
+
+
+def test_a_get_stream_cut_short_of_its_length_counts_as_a_failure(
+    fake: _Fixture,
+) -> None:
+    # Pi: fetch fails such a body with a `TypeError`, so `runGetStream` does
+    # not count the events it delivered as health and its retries run out.
+    server = fake.server(get=[_cut_stream(_event(_LIST_CHANGED, "g"))])
+    client = fake.client()
+    errors: list[Exception] = []
+    client.on_error(errors.append)
+    changes: list[object] = []
+    client.on_notification("notifications/tools/list_changed", changes.append)
+    reconnect = StreamableHttpReconnectOptions(1, 5, max_retries=2)
+
+    client.connect(fake.transport(server, open_get_stream=True, reconnect=reconnect))
+    _wait_until(_get_thread_ended)
+
+    assert len(_gets(server)) == 3
+    assert len(changes) == 3
+    assert [str(error) for error in errors] == [
+        "MCP server-to-client stream dropped and could not be reopened"
+    ]
+
+
+def test_a_response_stream_cut_short_of_its_length_fails_its_request(
+    fake: _Fixture,
+) -> None:
+    server = fake.server(toolSteps={"echo": [_cut_stream(": open\n\n")]})
+    client = fake.connect(server)
+
+    with pytest.raises(McpError) as failure:
+        client.call_tool("echo")
+
+    assert str(failure.value).startswith("MCP response stream failed: IncompleteRead(")
+    assert _gets(server) == []
+    assert client.list_tools() == [_ECHO]
 
 
 @pytest.mark.parametrize("status", [408, 429, 500, 503])
@@ -2096,52 +2182,47 @@ def test_an_answered_response_stream_is_not_resumed(fake: _Fixture) -> None:
     assert _gets(server) == []
 
 
-@pytest.mark.parametrize("phase", ["waiting", "reading"])
-def test_giving_a_request_up_ends_the_resumption_of_its_stream(
-    fake: _Fixture, phase: str
+@pytest.mark.parametrize("given_up_by", ["cancel", "timeout"])
+def test_a_request_given_up_still_resumes_and_reads_its_stream(
+    fake: _Fixture, given_up_by: str
 ) -> None:
-    if phase == "waiting":
-        # The next attempt is a minute away.
-        server = fake.server(
-            toolSteps={"echo": [{"sse": "id: 1\nretry: 60000\ndata:\n\n"}]}
-        )
-    else:
-        server = fake.server(toolSteps={"echo": _PRIMED}, get=_OPEN_STREAM)
+    # Pi: nothing stops `consumeResponseStream` for one request, so it
+    # resumes the stream and delivers what the server sends on it.
+    server = fake.server(
+        toolSteps={"echo": [{"sse": "id: 1\nretry: 5\ndata:\n\n"}, {"wait": "end"}]},
+        get=[{"sse": _event(_LOG, "2")}, {"sse": _RESUMED_ANSWER}],
+    )
     client, errors = _connect_with_errors(fake, server)
+    logs: list[object] = []
+    client.on_notification("notifications/message", logs.append)
     cancel = threading.Event()
+    options = (
+        McpRequestOptions(cancel_event=cancel)
+        if given_up_by == "cancel"
+        else McpRequestOptions(timeout_ms=200)
+    )
 
     thread, results, raised = _in_thread(
-        lambda: client.call_tool("echo", None, McpRequestOptions(cancel_event=cancel))
+        lambda: client.call_tool("echo", None, options)
     )
-    _wait_until(lambda: len(server.messages("tools/call")) == 1)
-    if phase == "reading":
-        _wait_until(lambda: len(_gets(server)) == 1)
-    time.sleep(0.1)
-    assert _io_threads() == ["mcp-http-request"]
-    started = time.monotonic()
+    _wait_until(lambda: server.events == ["wait:end"])
     cancel.set()
     thread.join(_WAIT_SECONDS)
 
-    assert time.monotonic() - started < 1
     assert results == []
-    assert [type(error) for error in raised] == [McpAbortError]
-    _wait_until(lambda: not _io_threads())
-    assert len(_gets(server)) == (1 if phase == "reading" else 0)
-    assert errors == []
-    assert client.list_tools() == [_ECHO]
-
-
-def test_a_request_timeout_ends_the_resumption_of_its_stream(fake: _Fixture) -> None:
-    server = fake.server(
-        toolSteps={"echo": [{"sse": "id: 1\nretry: 60000\ndata:\n\n"}]}
-    )
-    client, _ = _connect_with_errors(fake, server)
-
-    with pytest.raises(McpTimeoutError, match="after 200ms"):
-        client.call_tool("echo", None, McpRequestOptions(timeout_ms=200))
-
-    _wait_until(lambda: not _io_threads())
+    expected = McpAbortError if given_up_by == "cancel" else McpTimeoutError
+    assert [type(error) for error in raised] == [expected]
+    _wait_until(lambda: len(server.messages("notifications/cancelled")) == 1)
     assert _gets(server) == []
+
+    # The server ends the stream without the answer: it is resumed.
+    server.release("end")
+    _wait_until(lambda: len(errors) == 1)
+    assert _last_event_ids(server) == ["1"]
+    assert logs == [_LOG["params"]]
+    assert str(errors[0]) == "Received response for unknown MCP request 2"
+    _wait_until(lambda: not _io_threads())
+    assert client.list_tools() == [_ECHO]
 
 
 def test_closing_ends_the_resumption_of_a_response_stream(fake: _Fixture) -> None:

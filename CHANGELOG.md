@@ -8,6 +8,24 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An MCP request that is cancelled or times out keeps its HTTP event
+  stream, as in Pi: pipy sends `notifications/cancelled` and goes on
+  reading, and resuming, the stream that answers the request, so a log
+  message or a tool list change the server sends there afterwards still
+  arrives. Before, giving the request up closed its connection and dropped
+  them. See [HTTP servers](docs/mcp.md#http-servers).
+- An MCP server's event stream that ends before the `Content-Length` it
+  announced is a network failure, as for Node's `fetch`. The
+  server-to-client stream counts it against its five retries even when it
+  delivered events, so a server that keeps cutting it short no longer has
+  it reopened for ever. A response stream cut that way fails its request,
+  or is resumed, with that error.
+- Each `notifications/tools/list_changed` and
+  `notifications/resources/list_changed` starts a listing of its own, as in
+  Pi, so a listing the server does not answer no longer holds up the next
+  one until it times out. Of listings that overlap, the one that ends last
+  is kept, as in Pi, also when it was asked for first. See
+  [server connections](docs/mcp.md#server-connections).
 - In JSON and RPC mode the `toolResult` message of an extension tool that
   ran other tools with `ctx.execute_tool` carries the result's `details`
   with its `nestedCalls` record in `turn_end`, `agent_end` and

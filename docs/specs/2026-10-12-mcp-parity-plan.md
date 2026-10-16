@@ -140,14 +140,14 @@ are closed.
 | --- | --- | --- | --- |
 | HTP-01 | Every message is a POST with `Accept: application/json, text/event-stream` and JSON body, plus the configured headers. | `mcp/transports/streamable-http.ts` `send` | S24 |
 | HTP-02 | An `Mcp-Session-Id` response header is remembered and sent on later requests; `MCP-Protocol-Version` is sent after negotiation; a token from the auth provider is sent as `Authorization: Bearer` and replaces a configured header of that name. | `mcp/transports/streamable-http.ts` `buildHeaders`, `captureSession` | S24 |
-| HTP-03 | A JSON response body (one message or an array) is delivered; an SSE response is read until the stream ends, delivering every message. Events without data or with an event type other than `message` are ignored; event data that is not a JSON-RPC message is reported. | `mcp/transports/streamable-http.ts` `send`, `consumeSse` | S24 |
+| HTP-03 | A JSON response body (one message or an array) is delivered; an SSE response is read until the stream ends, delivering every message, also after its request was cancelled or timed out. Events without data or with an event type other than `message` are ignored; event data that is not a JSON-RPC message is reported. | `mcp/transports/streamable-http.ts` `send`, `consumeSse` | S24 |
 | HTP-04 | A request answered with 202 or 204 fails with `MCP server accepted request <method> without a response`. Notifications and responses ignore the response body. Another content type fails with `Unsupported MCP response content type: <t>`. | `mcp/transports/streamable-http.ts` `send` | S24 |
 | HTP-05 | Failure statuses: 401 is an authentication-required error carrying `WWW-Authenticate`; 404 while a session id is held is a session-expired error; any other gives `MCP HTTP request failed with status <n>: <body>`, the body cut to 500 characters (at most 8 KiB are read). | `mcp/transports/streamable-http.ts` `checkResponse`, `describeHttpFailure` | S24 |
 | HTP-06 | A 401, or a 403 whose `WWW-Authenticate` reports `insufficient_scope`, is handed to the auth provider once with the rejected token; the request is then sent once more. | `mcp/transports/streamable-http.ts` `authorizedFetch`, `needsAuthorization` | S30 |
 | HTP-07 | SSE parsing: CRLF and LF line ends, `:` comments, multi-line `data`, `event`, `id` (ignored when it contains NUL), numeric `retry`; an event over 16 MiB fails the stream. | `mcp/transports/streamable-http.ts` `consumeSseStream` | S24 |
-| HTP-08 | After `notifications/initialized` the client opens the server-to-client GET stream. A 405 means the server has none. A dropped stream is reopened with `Last-Event-ID` (only when an id was seen), waiting the server's `retry` value or 1 s doubling to 30 s, and gives up after 5 consecutive failures. | `mcp/transports/streamable-http.ts` `startGetStream`, `runGetStream`, `openSseStream`, `reconnectDelay` | S25 |
+| HTP-08 | After `notifications/initialized` the client opens the server-to-client GET stream. A 405 means the server has none. A dropped stream is reopened with `Last-Event-ID` (only when an id was seen), waiting the server's `retry` value or 1 s doubling to 30 s, and gives up after 5 consecutive failures. A stream that ends before its `Content-Length` is a failure, also when it delivered events. | `mcp/transports/streamable-http.ts` `startGetStream`, `runGetStream`, `openSseStream`, `reconnectDelay` | S25 |
 | HTP-09 | A response stream that ends or breaks before its answer is resumed with GET and `Last-Event-ID` when the server assigned event ids. Otherwise only that request fails, with `MCP response stream failed: <reason>` (`stream ended without a response` when the stream just ended). | `mcp/transports/streamable-http.ts` `consumeResponseStream` | S25 |
-| HTP-10 | Only network failures and statuses 408, 429 and 5xx are retried for streams; authentication, session and protocol errors are not. | `mcp/transports/streamable-http.ts` `isRetryable`, `isTransientStatus` | S25 |
+| HTP-10 | Only network failures and statuses 408, 429 and 5xx are retried for streams; authentication, session and protocol errors are not. A body that ends before its `Content-Length` is a network failure (`fetch` raises a `TypeError`). | `mcp/transports/streamable-http.ts` `isRetryable`, `isTransientStatus` | S25 |
 | HTP-11 | Closing aborts requests in flight and, when a session id is held, sends `DELETE` with the session id and the last request's token, waiting at most 1 s and ignoring failures. Closing never asks the auth provider for a token. | `mcp/transports/streamable-http.ts` `close` | S24 |
 
 ### 2.5 Server connection (CON)
@@ -158,7 +158,7 @@ are closed.
 | CON-02 | Requests time out after `timeout` seconds from the config, default 60; progress notifications reset the timer. | `ext/runtime.ts` `timeoutMs`; `ext/tools.ts` `createMcpToolDefinition` | S15 |
 | CON-03 | On connect the tools are listed only when the server declares the `tools` capability; a server without it connects with no tools. | `ext/runtime.ts` `connectOnce` | S15 |
 | CON-04 | The server's `instructions` are kept, trimmed; empty instructions count as none. | `ext/runtime.ts` `connectOnce` | S15 |
-| CON-05 | `notifications/tools/list_changed` lists the tools again and updates the registered tools; a failed refresh records `Failed to refresh tools: <reason>`. | `ext/runtime.ts` `refreshTools` | S15 |
+| CON-05 | `notifications/tools/list_changed` lists the tools again and updates the registered tools; a failed refresh records `Failed to refresh tools: <reason>`. Each notification starts its own refresh, and the one that completes last sets the tools. | `ext/runtime.ts` `refreshTools` | S15 |
 | CON-06 | A dropped connection sets `disconnected` with error `Connection closed`, followed by the last 2000 characters of stderr for stdio servers. The next call reconnects. | `ext/runtime.ts` `handleClientClose`, `getClient` | S15 |
 | CON-07 | A failed connect sets `failed` with the error and the stderr tail and reports `MCP server "<n>" failed to connect: <error>`. | `ext/runtime.ts` `connectFailed` | S15 |
 | CON-08 | Concurrent callers share one connection attempt. | `ext/runtime.ts` `getClient` | S15 |
@@ -571,9 +571,9 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
 | DEV-54 | CFG-13, CFG-17, CFG-18, CFG-20, OAU-26, OAU-31, OAU-34 | URLs are read as Node's WHATWG URL parser reads `http` and `https` (since L3), with its IDNA processing since H2 (UTS #46 ToASCII, nontransitional, through the `idna` package, so `faß.de` is `xn--fa-hia.de` and `bücher.de` matches `xn--bcher-kva.de`); the Unicode tables are the `idna` package's and Python's, not Node's, and a non-ASCII host longer than 1024 characters is refused; `HttpUrl.path` keeps characters WHATWG percent-encodes (its consumers encode them); an `oauth.callbackUrl` path is compared as written, not percent-encoded, so a non-ASCII callback path must be written percent-encoded. The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | other form | Decided in S11 to S14, S32, L2, L3, H2 ([IDNA decision](../decisions/2026-10-15-idna-hosts.md)); `docs/mcp.md` "Configuration rules" |
 | DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; when a refresh holds that lock for the whole wait (25 s), they are deleted without it, as in Pi. So `pipy mcp logout` waits for a running refresh, at most those 25 s, where Pi deletes at once under the file lock (goal check r5, F3). A file that cannot be read is reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2; goal check r5 (F3), accepted in Q14 |
-| DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15 | Connections: a failed refresh of the tool list is recorded only for the current connection. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Redirects are followed as Node's fetch follows them (since L1 and L2; the differences are DEV-67). `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26, L1; `docs/mcp.md` "Server connections" |
+| DEV-56 | CON-05, CON-06, CON-10, CON-12, CON-15, RES-10 | Connections: a failed refresh of the tool list is recorded only for the current connection. A list change announced while the server connects is listed once the connection is published (recorded in K1); Pi lists at once and drops a listing that ends before the connect has finished. The client of a session the server forgot is closed once its last request ended; Pi leaves it open. A network failure is whatever Python reports as one (Pi: a `TypeError` of `fetch`). Redirects are followed as Node's fetch follows them (since L1 and L2; the differences are DEV-67). `mcp.log` is created with mode 0600. The stderr tail is 2000 characters, not UTF-16 units. | stricter | Decided in S11 to S14, S15, S26, L1, K1; `docs/mcp.md` "Server connections" |
 | DEV-57 | CMDL-01, CMDL-04, CMDL-06, CMDL-11, CMDL-13 | The shell commands print plain text where Pi prints parts bold or dim. A trust store that cannot be read ends `list`, and `add` to a project file before it writes, with the store's error (a leading byte order mark is read past since R6, as Pi's `stripBom` does); Pi's `add` writes the entry first and then stops with an uncaught error when it reads the store for its note (goal check r5, F2). When the question for the redirect URL ends without an answer, pipy ends its line. (`--oauth-callback-port` and `--timeout` read JavaScript's `Number()` spellings since L3.) | other form | Decided in S20a, S31, L3; `docs/mcp.md` "Differences from Pi"; goal check r5 (F2), accepted in Q14 |
-| DEV-58 | RES-04, RES-07, RES-08, RES-10 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. Tools and resources are listed again independently (since L1), but one listing of a kind runs at a time and lists once more when a change arrived meanwhile, where Pi starts one per notification and the last answer wins. | other form | Decided in S23, L1 |
+| DEV-58 | RES-04, RES-07, RES-08 | Whatever a resource tool raises is an error result, so a script gets a `ToolError`; Pi throws. A listing is compact JSON and prints a number as Python prints it. | other form | Decided in S23, L1; narrowed by K1 |
 | DEV-59 | CMD-03, CMD-04, EXT-02 | A reply to a script over 16 MiB as UTF-8 JSON, or one that is not JSON, is a `ToolError` that names the tool and the size; a call's arguments over 16 MiB as JSON raise `ValueError` in the script and the call is not made. Pi bounds neither. A JSON `null` structured result reaches the script as `None` (G5; a result without structured content carries `NO_STRUCTURED_CONTENT`). Until R1 a reply counted a non-ASCII character as its 6-byte `\uXXXX` escape, and a call line was held to the 1 MiB line limit. | narrower | Decided in S04; R1 |
 | DEV-60 | TLS-12, TLS-15 | Results of MCP tools: a resource link without `uri` or `name` is shown as `[unsupported MCP content resource_link]`; the message of a failed call is cut to 20 KB like a result and nothing is saved for it; a lone surrogate in a server's text reaches the model as U+FFFD. | other form | `docs/mcp.md` "Differences from Pi in tools" |
 | DEV-61 | none | Texts that come from the platform are Python's, not Node's: errors of the operating system (a missing executable is `[Errno 2] No such file or directory: '<command>'`), messages of the JSON parser, and the reason of a failed save. A JSON number such as `1.0` in log data or a listing is written `1.0`. | other form | `docs/mcp.md` "Differences from Pi" paragraphs |
@@ -1462,8 +1462,8 @@ Decided in S23 (`resources.py`, resources in `connection.py` and
   server is disconnected and when a later connect fails.
   `notifications/resources/list_changed` is handled like a tool list
   change, on a thread of its own (`mcp-refresh-resources`, since L1), as Pi
-  runs the two independently; one listing of a kind runs at a time
-  (DEV-58).
+  runs the two independently; since K1 each notification starts a listing
+  of its own and the one that ends last is kept, as in Pi.
 - The connection has the requests the resource tools make:
   `read_resource`, `resources_page`, `resource_templates_page`,
   `all_resources`, `all_resource_templates`. Each connects first when
@@ -3245,18 +3245,24 @@ channel and the provider transports:
   as for stdio; it returns as soon as its response is dispatched, also when
   the server leaves the stream open, and on timeout or cancel when a read
   stalls. Each I/O thread
-  registers its connection with a per-request `CancelToken`; the waiting side
-  cancels that token when the request times out, when the caller's cancel
-  event is set, and when the transport closes, which closes the socket and
-  ends the thread. The GET stream runs on one background thread per
-  connection, including its reconnect waits, and ends the same way on close.
+  registers its connection with a per-request `CancelToken`, which the
+  transport cancels when it closes; that closes the socket and ends the
+  thread. A request that times out or is cancelled keeps its I/O thread, as
+  Pi's `consumeResponseStream` goes on after `cancelPending`: the thread
+  reads and resumes the response stream to its end, so the server's later
+  notifications on it arrive (r8 P3, K1). The GET stream runs on one
+  background thread per connection, including its reconnect waits, and ends
+  the same way on close.
 - **Connection attempts**: `McpManager` starts one thread per enabled server
   at session start. Each attempt has a `ready` event. Readiness waits (SES-05,
   SES-07) wait on those events on the session thread through the existing
   tool interrupt waiter, so Escape and RPC abort end the wait (SES-10).
 - **Notification handlers** run on a reader thread and only do bounded work:
-  they enqueue a refresh job for the connection's own worker thread
-  (`tools/list` on `list_changed`) or append a log line.
+  they start a refresh thread for the connection (`tools/list`, or the
+  resource lists, on `list_changed`; one per notification since K1, as Pi
+  starts one `refreshTools` per notification) or append a log line. The
+  listing whose requests the client settled last is kept
+  (`McpRequestOptions.on_settled`).
 - **OAuth callback server**: `ThreadingHTTPServer` on a daemon thread, as the
   existing `_ChatGPTCallbackServer` in `oauth_providers.py`. The sign-in call
   itself blocks its caller and polls a cancel event.
@@ -3287,11 +3293,12 @@ inversion (a lock wrapper that records order in tests).
 - A tool call's `ToolContext.cancel_event` is passed to `McpClient.request`.
   The waiting loop in `request` observes it (it is an event, not a callback):
   when it is set the request returns an abort error and the client sends
-  `notifications/cancelled` (CLT-06). For HTTP the waiting side then cancels
-  the request's `CancelToken` (`native/cancellation.py`, the mechanism
-  provider requests already use), which closes the socket its I/O thread is
-  reading (4.5). The cancellation notice itself is a separate short POST with
-  its own 1 s bound, so a dead server cannot hold the caller.
+  `notifications/cancelled` (CLT-06). For HTTP the request's I/O thread goes
+  on reading its response stream, as in Pi (4.5); only closing the transport
+  cancels its `CancelToken` (`native/cancellation.py`, the mechanism provider
+  requests already use), which closes the socket. The cancellation notice
+  itself is a separate short POST with its own 1 s bound, so a dead server
+  cannot hold the caller.
 - A nested MCP call inside codemode is cancelled through the same event by the
   existing composite waiter.
 - `McpManager.close()` runs on session shutdown and on reload: it sets the
