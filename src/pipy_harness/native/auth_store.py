@@ -7,7 +7,8 @@ Pipy analogue of Pi's ``AuthStorage`` (auth-storage.ts) +
 Resolution priority for a per-request API key (Pi's order):
 
 1. runtime ``--api-key`` override
-2. stored ``api_key`` in ``auth.json`` (resolved as literal/env-name/``!command``)
+2. stored ``api_key`` in ``auth.json`` (resolved as literal/env-name/``!command``;
+   a command runs once per process, as Pi caches it)
 3. stored OAuth token (refresh-on-expiry is the OAuth layer's job, M7)
 4. provider env var(s)
 5. the provider's ``models.json`` ``apiKey`` (literal/env-name/``!command``),
@@ -184,6 +185,48 @@ def resolve_config_value(
         stripped = js_trim(result)
         return stripped or None
     return env.get(value) or value
+
+
+# Pi ``commandResultCache`` (resolve-config-value.ts): what a stored
+# ``!command`` printed, or ``None`` when it failed, by the value, for the
+# lifetime of the process. The lock is held while a command runs, so threads
+# that ask for the same key at once run it once.
+_stored_command_results: dict[str, str | None] = {}
+_stored_command_lock = threading.Lock()
+
+
+def resolve_stored_key(
+    value: str,
+    *,
+    env: Mapping[str, str],
+    run_command: CommandRunner | None = None,
+) -> str | None:
+    """Resolve the ``key`` of an ``auth.json`` ``api_key`` entry as
+    :func:`resolve_config_value` does, running a ``!command`` once per
+    process: later calls get its first result, also a failure.
+
+    Pi's ``AuthStorage.read`` resolves a stored key with the cached
+    ``resolveConfigValue``; a ``models.json`` ``apiKey`` and the headers are
+    resolved uncached (``resolveConfigValueOrThrow``), so those stay with
+    :func:`resolve_config_value`.
+    """
+
+    if not value.startswith("!"):
+        return resolve_config_value(value, env=env)
+    with _stored_command_lock:
+        if value not in _stored_command_results:
+            _stored_command_results[value] = resolve_config_value(
+                value, env=env, run_command=run_command
+            )
+        return _stored_command_results[value]
+
+
+def clear_stored_command_results() -> None:
+    """Forget every stored ``!command`` result (Pi ``clearConfigValueCache``,
+    for tests)."""
+
+    with _stored_command_lock:
+        _stored_command_results.clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -644,7 +687,7 @@ def _stored_api_key(
     if cred_type == "api_key":
         key = cred.get("key")
         if isinstance(key, str):
-            return resolve_config_value(key, env=env, run_command=run_command)
+            return resolve_stored_key(key, env=env, run_command=run_command)
         return None
     if cred_type == "oauth":
         if oauth_token_resolver is not None:

@@ -1086,9 +1086,19 @@ For such a server, name the provider in the user-level `mcp.json`:
   the token the provider has at that moment. pipy asks for it before each
   request and keeps no copy, so a login, a logout or a refreshed token
   applies to the next request. Nothing is written to `mcp-auth.json`.
-- The token is the key a model request to the provider would carry, from
-  the same sources in the same order
-  ([credentials and auth sources](providers.md#credentials-and-auth-sources)):
+- The token is the provider's key from the sources a model request reads
+  ([credentials and auth sources](providers.md#credentials-and-auth-sources)),
+  in Pi's order:
+    - The key given with `--api-key`, for the provider of the model the
+      session starts with only, as in Pi. A server whose `auth.provider`
+      names another provider is never sent this key; it gets that
+      provider's own token from the sources below, or none. For its own
+      provider the key replaces every source below, also for a provider
+      an extension registered. A provider that signs in with OAuth only
+      then has no token, as in Pi: `openai-codex` unless `models.json`
+      configures an `apiKey` for it, and an extension provider with
+      `oauth` unless `models.json` configures an `apiKey` for it or it
+      replaces a built-in provider other than `openai-codex`.
     - For `openai-codex`, the Codex login of `/login openai-codex` or
       `pipy auth openai-codex login`, which is kept in its own file. It is
       refreshed first when it is about to expire, as before a model
@@ -1097,16 +1107,13 @@ For such a server, name the provider in the user-level `mcp.json`:
       that cannot be read or refreshed is no token. Where such a model
       uses a stored key while there is a Codex login, the server is still
       sent the login: the token is the provider's, not a model's.
-    - The key given with `--api-key`, for the provider of the model the
-      session starts with only, as in Pi. A server whose `auth.provider`
-      names another provider is never sent this key; it gets that
-      provider's own token from the sources below, or none.
     - What is stored for the provider in the auth store, `auth.json`, where
       `/login <provider>` puts a login: an API key entry (the name of a set
       environment variable is that variable's value, `!command` is the
-      output of the command, which then runs for every request), or a
-      stored OAuth login. A login is refreshed first when it expires
-      within five minutes, as Pi refreshes every login before a request:
+      output of the command, which runs once and whose first result is
+      kept until pipy exits, as in Pi), or a stored OAuth login. A login
+      is refreshed first when it expires within five minutes, as Pi
+      refreshes every login before a request:
       `github-copilot` and `openai` as before a model request, any other
       built-in login (`anthropic`, for example) under the lock of
       `auth.json`, where the refreshed login is saved. A login that cannot
@@ -1116,18 +1123,18 @@ For such a server, name the provider in the user-level `mcp.json`:
       asked.
     - The provider's API-key environment variable.
     - The `apiKey` that `models.json` configures for the provider, resolved
-      like a stored key.
+      like a stored key, except that a `!command` runs for every request,
+      as in Pi.
 
-    A provider that an extension registered is answered from `auth.json`
-    and its API-key environment variable only, since model requests leave
-    its credentials to the extension. Its stored login is refreshed through
-    the extension's `oauth.refresh_token` when it expires within five
-    minutes and saved, and the token is the extension's `oauth.get_api_key`
-    of it, as in Pi; these callbacks then run on the thread that sends the
-    MCP request. The login of an extension provider without `oauth` is no
-    token. A
-    provider without any of these has no token, and the request carries
-    none. The same holds when `auth.json` exists and cannot be read: no
+    A provider that an extension registered is answered from `--api-key`
+    as above, else from `auth.json` and its API-key environment variable
+    only, since model requests leave its credentials to the extension.
+    Its stored login is refreshed through the extension's
+    `oauth.refresh_token` when it expires within five minutes and saved,
+    and the token is the extension's `oauth.get_api_key` of it, as in Pi;
+    these callbacks then run on the thread that sends the MCP request. The
+    login of an extension provider without `oauth` is no token. A provider
+    without any of these has no token, and the request carries none. The same holds when `auth.json` exists and cannot be read: no
     later source is used in its place.
 - The server never signs in with OAuth: `/mcp login` and `pipy mcp login`
   answer that it does not use OAuth, and a 401 is not answered with a

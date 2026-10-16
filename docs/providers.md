@@ -579,6 +579,12 @@ Descendants must stay in that group; deliberately detached helpers are unsupport
 Successful completed helpers retain background work with redirected stdio.
 Helpers run as background jobs; interactive terminal input is unsupported.
 
+A helper stored as an API key in `auth.json` (`pipy auth` or `/login`) runs
+once per process, as in Pi: its first result, also a failure, is kept for
+every later model request and MCP `auth.provider` request until pipy exits.
+A `models.json` `apiKey` or header helper runs every time it is resolved, as
+in Pi.
+
 ## Follow-ons
 
 Provider/model parity is mostly wired, but these user-visible improvements are

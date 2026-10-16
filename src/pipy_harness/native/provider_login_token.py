@@ -3,9 +3,20 @@
 An MCP server whose entry has ``auth.provider`` is sent the token of that
 provider (Pi ``ModelRegistry.getApiKeyForProvider``, which the MCP extension
 passes as ``providerToken``). :func:`provider_login_token` answers with the
-key a model request to that provider would carry, from the same sources in
-the same order:
+provider's key from the sources a model request to that provider reads, in
+the order of Pi's ``resolveProviderAuth``:
 
+- The session's ``--api-key``, only for the provider it belongs to: the
+  provider of the model the session started with (Pi sets it as the runtime
+  key of that provider alone, ``RuntimeCredentials``). No other provider is
+  ever sent it. For its provider it replaces every source below, also for
+  a provider an extension registered, as Pi's runtime key replaces the
+  stored credential. A provider that signs in with OAuth only then has no
+  token, as in Pi, where the key goes out only through a provider's API-key
+  auth (``composeApiKeyAuth``): ``openai-codex`` unless ``models.json``
+  configures an ``apiKey`` for it, and an extension provider with ``oauth``
+  unless ``models.json`` configures an ``apiKey`` for it or it replaces a
+  built-in provider other than ``openai-codex``.
 - For ``openai-codex``, the Codex login, which is kept in its own file and is
   what a model request to that provider's Codex models uses. It is refreshed
   first when it is about to expire, as before a model request, and the
@@ -13,32 +24,33 @@ the same order:
   a login the sources below are asked, as for a model ``models.json``
   defines for that provider with another ``api``; a login that cannot be
   read or refreshed is no token.
-- The session's ``--api-key``, only for the provider it belongs to: the
-  provider of the model the session started with (Pi sets it as the runtime
-  key of that provider alone). No other provider is ever sent it.
 - What ``/login`` or ``pipy auth`` stored for the provider in ``auth.json``:
   an API key, resolved as usual (the name of a set environment variable is
-  that variable's value and ``!command`` is the command's output), or an
+  that variable's value and ``!command`` is the command's output; the
+  command runs once per process and its first result is kept, as Pi's
+  ``AuthStorage.read`` caches it, see
+  :func:`~pipy_harness.native.auth_store.resolve_stored_key`), or an
   OAuth login. A login is refreshed first when it expires within five
   minutes, as Pi refreshes every stored login before network access: one of
   ``PER_REQUEST_OAUTH_PROVIDERS`` through the session's
   ``OAuthCredentialCache``, so model requests and MCP requests share one
   refresh; a login of any other built-in OAuth provider under the auth-file
   lock, saving the refreshed login in ``auth.json``. The token is the
-  login's access token when it is a non-empty string (Pi ``toAuth``). A login of a provider without an
-  OAuth provider is no token (Pi: no ``oauth`` auth). A stored entry owns the
+  login's access token when it is a non-empty string (Pi ``toAuth``). A
+  login of a provider without an OAuth provider is no token (Pi: no ``oauth`` auth). A stored entry owns the
   provider: the sources below are asked only when nothing is stored (Pi
   ``resolveProviderAuth``).
 - The provider's API-key environment variable.
 - The ``apiKey`` that ``models.json`` configures for the provider, resolved
-  like a stored key.
+  like a stored key but at every call, as Pi resolves it uncached.
 
 For a provider an extension registered, pipy's model requests leave the
 credentials to the extension. Its token is what ``auth.json`` stores for it,
-else its API-key environment variable; the Codex login, ``--api-key`` and
-``models.json`` are not asked. A stored login is refreshed through the
-extension's ``oauth.refresh_token`` when it expires within five minutes and
-saved under the auth-file lock, and the token is the extension's
+else its API-key environment variable; the Codex login and the
+``models.json`` key are not asked (``--api-key`` is, as above). A stored
+login is refreshed through the extension's ``oauth.refresh_token`` when it
+expires within five minutes and saved under the auth-file lock, and the
+token is the extension's
 ``oauth.get_api_key`` of it (Pi ``adaptOAuth``); the extension's callbacks
 run on the thread that sends the MCP request then. The login of an
 extension provider without ``oauth`` is no token.
@@ -69,7 +81,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pipy_harness.native.auth_store import find_env_keys, resolve_config_value
+from pipy_harness.native.auth_store import (
+    find_env_keys,
+    resolve_config_value,
+    resolve_stored_key,
+)
+from pipy_harness.native.catalog import default_model_per_provider
 from pipy_harness.native.oauth_providers import (
     PER_REQUEST_OAUTH_PROVIDERS,
     OAuthCredentialCache,
@@ -115,14 +132,18 @@ def provider_login_token(
     try:
         extension = extension_provider(provider)
         own = extension is None
+        runtime = runtime_api_key(provider)
+        if runtime:
+            # Pi `RuntimeCredentials.read`: the key is the provider's
+            # credential in place of the stored one, and `resolveProviderAuth`
+            # sends it only through the provider's API-key auth.
+            if _has_api_key_auth(provider, extension, models_json_key):
+                return runtime
+            return None
         if own and provider == OPENAI_CODEX:
             login = codex_login()
             if login is not None:
                 return login.access_token
-        if own:
-            runtime = runtime_api_key(provider)
-            if runtime:
-                return runtime
         stored = _stored_entry(auth_path, provider)
         if stored is not None:
             return _stored_token(
@@ -135,6 +156,26 @@ def provider_login_token(
         return resolve_config_value(key, env=env) if key else None
     except Exception:  # noqa: BLE001 - any failure means there is no token
         return None
+
+
+def _has_api_key_auth(
+    provider: str,
+    extension: ExtensionProvider | None,
+    models_json_key: Callable[[str], str | None],
+) -> bool:
+    """Whether ``provider`` takes an API key (Pi ``composeApiKeyAuth``): a
+    provider that signs in with OAuth only takes none unless ``models.json``
+    configures an ``apiKey`` for it. Of pipy's built-in providers that is
+    ``openai-codex``; an extension provider with ``oauth`` is one unless it
+    replaces a built-in provider that takes a key."""
+
+    if models_json_key(provider) is not None:
+        return True
+    if provider == OPENAI_CODEX:
+        return False
+    if extension is None or provider in default_model_per_provider:
+        return True
+    return extension.oauth is None
 
 
 def _stored_token(
@@ -152,7 +193,7 @@ def _stored_token(
     kind = stored.get("type")
     if kind == "api_key":
         key = stored.get("key")
-        return resolve_config_value(key, env=env) if isinstance(key, str) else None
+        return resolve_stored_key(key, env=env) if isinstance(key, str) else None
     if kind != "oauth":
         return None
     login_provider: OAuthProvider | None

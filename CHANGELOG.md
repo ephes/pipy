@@ -8,6 +8,20 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- An MCP server with `auth.provider` is sent the `--api-key` of the
+  session when the server names that key's provider, before a stored login
+  or the Codex login, also for a provider an extension registered, as Pi's
+  runtime key replaces the stored credential. A provider that signs in with
+  OAuth only (`openai-codex` without a `models.json` `apiKey`, or an
+  extension provider with `oauth`) then gets no token, as in Pi. Before,
+  `openai-codex` was sent the Codex login and an extension provider never
+  got the key. See [a provider's token](docs/mcp.md#a-providers-token).
+- An API key stored as `!command` in `auth.json` runs once per process and
+  its first result is kept, for model requests and for MCP `auth.provider`
+  requests, as Pi caches it. Before, it ran for every MCP request and for
+  every provider construction. A `models.json` `apiKey` command still runs
+  every time, as in Pi. See
+  [credential command helpers](docs/providers.md#credential-command-helpers).
 - An extension tool whose handler raises fails the call with the
   exception's message as its error result, as Pi's agent loop reports
   `error.message` (Pi's docs tell extension authors to throw to fail a

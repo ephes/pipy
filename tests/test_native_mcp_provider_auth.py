@@ -803,8 +803,6 @@ def test_the_codex_login_is_the_token_of_openai_codex(tmp_path: Path) -> None:
     # A model request to a Codex model uses the Codex login and nothing else.
     logins = _Logins(tmp_path)
     logins.store("openai-codex", {"type": "api_key", "key": "stored"})
-    logins.runtime_api_key = "runtime"
-    logins.runtime_api_key_provider = "openai-codex"
     logins.models_json["openai-codex"] = "configured"
     logins.codex = _codex("codex-at")
 
@@ -813,10 +811,8 @@ def test_the_codex_login_is_the_token_of_openai_codex(tmp_path: Path) -> None:
     # Without a login, the sources of a models.json model of the provider
     # with another api.
     logins.codex = None
-    assert logins.token("openai-codex") == "runtime"
-    logins.runtime_api_key = None
     assert logins.token("openai-codex") == "stored"
-    assert logins.codex_asked == 3
+    assert logins.codex_asked == 2
 
     # A login that cannot be read or refreshed is no token.
     def fail() -> OpenAICodexCredentials | None:
@@ -830,12 +826,10 @@ def test_a_provider_an_extension_registered_is_answered_from_its_login_only(
     tmp_path: Path,
 ) -> None:
     # pipy's model requests leave its credentials to the extension: no
-    # `--api-key`, no models.json key and no Codex login.
+    # models.json key and no Codex login.
     logins = _Logins(tmp_path, {"OPENROUTER_API_KEY": "env-key"})
     for name in ("radius", "openrouter", "openai-codex"):
         logins.register(name)
-    logins.runtime_api_key = "runtime"
-    logins.runtime_api_key_provider = "radius"
     logins.models_json["radius"] = "configured"
     logins.codex = _codex("codex-at")
 
@@ -855,6 +849,109 @@ def test_a_provider_an_extension_registered_is_answered_from_its_login_only(
     assert logins.token("github-copilot") is None
     assert logins.token("openai-codex") == "stored"
     assert logins.oauth.refreshed == []
+
+
+def _oauth_config(get_api_key: Callable[..., object]) -> ExtensionOAuthConfig:
+    return ExtensionOAuthConfig(
+        name="Login",
+        login=lambda callbacks: {},
+        refresh_token=lambda credentials: dict(credentials),
+        get_api_key=get_api_key,
+    )
+
+
+def test_the_api_key_given_to_the_session_replaces_the_stored_login(
+    tmp_path: Path,
+) -> None:
+    # Pi `RuntimeCredentials.read` returns the runtime key in place of the
+    # stored credential, for an extension's provider too, and
+    # `resolveProviderAuth` sends it through the provider's API-key auth.
+    logins = _Logins(tmp_path, {"OPENROUTER_API_KEY": "env-key"})
+    login = {"type": "oauth", "access": "at", "refresh": "rt", "expires": _NOW_MS * 2}
+    asked: list[str] = []
+
+    def api_key(credentials: Mapping[str, object]) -> str:
+        asked.append("get_api_key")
+        return "login-key"
+
+    logins.runtime_api_key = "runtime"
+    for name, oauth in (
+        ("radius", None),
+        ("anthropic", _oauth_config(api_key)),
+        ("openrouter", None),
+    ):
+        logins.register(name, oauth)
+        logins.store(name, login)
+        logins.runtime_api_key_provider = name
+        assert logins.token(name) == "runtime"
+    assert asked == []
+
+    # An extension provider that signs in with OAuth only takes no key
+    # (`composeApiKeyAuth` gives it no API-key auth), so it has no token
+    # while the key is set, and its stored login is not sent.
+    logins.register("radius", _oauth_config(api_key))
+    logins.runtime_api_key_provider = "radius"
+    assert logins.token("radius") is None
+    assert asked == []
+    # A models.json `apiKey` gives it API-key auth.
+    logins.models_json["radius"] = "configured"
+    assert logins.token("radius") == "runtime"
+
+    logins.runtime_api_key = None
+    assert logins.token("radius") == "login-key"
+
+
+def test_the_api_key_given_to_the_session_gives_openai_codex_no_token(
+    tmp_path: Path,
+) -> None:
+    # Pi's `openai-codex` provider has only `oauth`: with the runtime key
+    # set, `resolveProviderAuth` finds an API key the provider cannot take
+    # and answers with no auth, unless models.json configures an `apiKey`.
+    logins = _Logins(tmp_path)
+    logins.store("openai-codex", {"type": "api_key", "key": "stored"})
+    logins.codex = _codex("codex-at")
+    logins.runtime_api_key = "runtime"
+    logins.runtime_api_key_provider = "openai-codex"
+
+    assert logins.token("openai-codex") is None
+    assert logins.codex_asked == 0
+
+    logins.models_json["openai-codex"] = "configured"
+    assert logins.token("openai-codex") == "runtime"
+    assert logins.codex_asked == 0
+
+    # The same for an extension that registers `openai-codex`.
+    logins.register("openai-codex")
+    assert logins.token("openai-codex") == "runtime"
+    del logins.models_json["openai-codex"]
+    assert logins.token("openai-codex") is None
+
+    logins.runtime_api_key = None
+    assert logins.token("openai-codex") == "stored"
+
+
+def test_a_stored_command_runs_once_per_process_and_a_models_json_one_every_time(
+    tmp_path: Path,
+) -> None:
+    # Pi `AuthStorage.read` resolves a stored key with the cached
+    # `resolveConfigValue`; models.json keys go through the uncached
+    # `resolveConfigValueOrThrow`.
+    runs = tmp_path / "runs"
+    logins = _Logins(tmp_path)
+    stored = f"!printf x >> {runs}; printf stored-key"
+    logins.store("radius", {"type": "api_key", "key": stored})
+    logins.models_json["other"] = f"!printf y >> {runs}; printf configured"
+
+    for _ in range(3):
+        assert logins.token("radius") == "stored-key"
+        assert logins.token("other") == "configured"
+    assert sorted(runs.read_text()) == ["x", "y", "y", "y"]
+
+    # A command that failed stays failed.
+    logins.store("failing", {"type": "api_key", "key": f"!printf z >> {runs}; exit 1"})
+    assert logins.token("failing") is None
+    assert logins.token("failing") is None
+    assert runs.read_text().count("z") == 1
 
 
 def test_an_extension_login_is_refreshed_and_saved_through_the_extension(
@@ -1134,30 +1231,31 @@ def test_the_session_reads_which_providers_extensions_registered_at_each_call(
     tmp_path: Path,
 ) -> None:
     state = _provider_state(
-        tmp_path, {}, runtime_api_key="runtime", runtime_api_key_provider="openai"
+        tmp_path, {}, runtime_api_key="runtime", runtime_api_key_provider="radius"
     )
     catalog = state.model_runtime.catalog
     token = _provider_token(state)
     assert token is not None
-    assert token("openai") == "runtime"
+    assert token("radius") == "runtime"
 
-    # An extension that registers `openai` after the function was built
-    # replaces the provider: its credentials are the extension's.
+    # An extension that registers `radius` with an OAuth sign-in after the
+    # function was built replaces the provider, which then takes no key.
     catalog.set_extension_provider_contributions(
         (
             RegisteredProvider(
                 extension="ext",
                 provider=ExtensionProvider(
-                    name="OpenAI",
+                    name="Radius",
                     default_model="m",
                     models=("m",),
                     factory=lambda ctx: None,
+                    oauth=_oauth_config(lambda credentials: "login-key"),
                 ),
             ),
         ),
         (),
     )
-    assert token("openai") is None
+    assert token("radius") is None
 
 
 def test_the_session_api_key_belongs_to_the_provider_the_session_starts_with(

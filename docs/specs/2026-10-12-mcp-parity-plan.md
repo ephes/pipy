@@ -564,7 +564,7 @@ that is named here as `closed, with limits` and cites the DEV row.
 | DEV-49 | EXT-12 | The function is called once per capability value and its result kept (since G9); Pi also calls it again before each request with unchanged tools. A failing function is one warning per session, tool and error type, not an error of its extension. | narrower | Decided in S37, G9 |
 | DEV-50 | EXT-13, EXT-14 | No notice is shown when an extension replaces `codemode` or `tool_search`. Only an extension's `/mcp` command replaces built-in MCP, not a tool or flag name of Pi's MCP extension. The warning names the extension by its name and points to `pipy config list`. A `/reload` reads `mcp.json` once before it knows the new extensions and drops what it read when one of them has `/mcp`. | narrower | Decided in S37 |
 | DEV-51 | SDK-02 to SDK-04 | The three are arguments of the session factories, not extension factories. A product session has no UI, so `/mcp` without a subcommand opens no manager view and its status is a notice for the `diagnostic_sink`, where Pi's SDK session without UI drops it; `update_config` is used only by a manager change the embedder makes. `load_config` gets three values instead of an extension context. `CodemodeOptions` has no `models` field (DEV-04). The options are checked when they are made. An extension with `/mcp` replaces MCP in an embedded session too. Servers start when the session is created. The example runs offline, with a scripted provider and a server in the same process. | narrower | Decided in S38, N2; `docs/sdk.md` |
-| DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key; a stored `!command` key runs for every MCP request. | narrower | Decided in S33, L4; H1 gives `--api-key` to the starting model's provider only and refreshes every stored login as Pi does |
+| DEV-52 | OAU-36 | `auth.provider` gets the key a model request to the provider would use (since L4), with these differences: ambient cloud credentials give no token; the token is per provider, so with a Codex login an `openai-codex` server gets the login also where a `models.json` model of that provider with another `api` uses a stored key. | narrower | Decided in S33, L4; H1 gives `--api-key` to the starting model's provider only and refreshes every stored login as Pi does; Y1 (goal check r6, Q1 and Q2) puts `--api-key` before every other source, also for extension providers, with no token for an OAuth-only provider, and runs a stored `!command` once per process |
 | DEV-53 | OAU-17 | The sign-in pages have Pi's layout and texts without Pi's logo. | other form | `oauth/page.py`; Decided in S28 and S29 |
 | DEV-54 | CFG-13, CFG-17, CFG-18, CFG-20, OAU-26, OAU-31, OAU-34 | URLs are read as Node's WHATWG URL parser reads `http` and `https` (since L3), with its IDNA processing since H2 (UTS #46 ToASCII, nontransitional, through the `idna` package, so `faß.de` is `xn--fa-hia.de` and `bücher.de` matches `xn--bcher-kva.de`); the Unicode tables are the `idna` package's and Python's, not Node's, and a non-ASCII host longer than 1024 characters is refused; `HttpUrl.path` keeps characters WHATWG percent-encodes (its consumers encode them); an `oauth.callbackUrl` path is compared as written, not percent-encoded, so a non-ASCII callback path must be written percent-encoded. The `<id>` of a server-specific Client ID Metadata Document hashes the URL as that parser writes it, which for an unusual URL is not Pi's text. A whole-number `oauth.callbackPort` written `8080.0` is accepted. | other form | Decided in S11 to S14, S32, L2, L3, H2 ([IDNA decision](../decisions/2026-10-15-idna-hosts.md)); `docs/mcp.md` "Configuration rules" |
 | DEV-55 | OAU-18, OAU-20, OAU-23, CON-14, CMDL-14 | Reading the credentials takes no lock and creates no file; Pi locks and creates it. Deleting credentials holds the server's refresh lock, so a refresh that is answered after a sign-out cannot store tokens again; when a refresh holds that lock for the whole wait (25 s), they are deleted without it, as in Pi. So `pipy mcp logout` waits for a running refresh, at most those 25 s, where Pi deletes at once under the file lock (goal check r5, F3). A file that cannot be read is reported (`Could not sign out ...`, `Could not update <path>: ...`). A late 401 on a client that was already replaced does not put a working connection into `needs-auth`. After `close()` a connection's auth provider starts no refresh. An entry an older Pi stored under the URL alone is found only where its key equals the URL as `parse_http_url` writes it (DEV-08). | stricter | Decided in S30, S31, L2; goal check r5 (F3), accepted in Q14 |
@@ -1803,7 +1803,10 @@ Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
   `PER_REQUEST_OAUTH_PROVIDERS`, sent as stored otherwise); then the
   provider's API-key environment variable; then the `models.json`
   `apiKey`. A provider an extension registered is answered from `auth.json`
-  and the environment only. A stored entry owns the provider, as in Pi's
+  and the environment only. Since Y1 the session's `--api-key` comes before
+  all of these, also for an extension provider, and an OAuth-only provider
+  has no token while it is set (see Y1 in section 5). A stored entry owns
+  the provider, as in Pi's
   `resolveProviderAuth`. Any failure is no token, as Pi's function catches.
   It reads the file with its own few lines and not with `AuthStore`, which
   reads a damaged file as empty: the environment's key would then be sent
@@ -1823,8 +1826,8 @@ Decided in S33 (`auth.provider`; `connection.py`, `manager.py`,
   last, waits for the calls that are running, since one may be refreshing
   a login whose rotated credentials still have to be saved.
 - Narrower than Pi, documented in `docs/mcp.md` (DEV-52): ambient cloud
-  credentials, and a `!command` key run for every MCP request (Pi caches
-  command results per process).
+  credentials. Until Y1 a stored `!command` key also ran for every MCP
+  request; since Y1 it runs once per process, as Pi caches it.
 - Since H1 (goal-check round 2, Q1 and Q2): `--api-key` is the token of the
   provider of the model the session starts with only
   (`ProviderCatalogState.runtime_api_key_provider`, set by the REPL startup
@@ -4752,6 +4755,30 @@ the generic rows in the terminal and left to the page in `/export` and
 `/share` (see "Decided in S35"). Tests: `test_native_mcp_manager.py`,
 `test_native_extension_tool_renderer_resolver.py`,
 `test_native_export_tool_rows.py`, `test_native_extension_live_tools.py`.
+
+**Y1 of the sixth goal check: provider tokens.** Findings Q1 and Q2 of goal
+check r6 (OAU-36, DEV-52; Pi `core/runtime-credentials.ts`,
+`packages/ai/src/auth/resolve.ts`, `core/provider-composer.ts`
+`composeApiKeyAuth`, `core/auth-storage.ts`, `core/resolve-config-value.ts`).
+Q1: `provider_login_token` asks the session's `--api-key` first, for the
+provider it belongs to, also when an extension registered that provider, as
+Pi's `RuntimeCredentials.read` returns the runtime key in place of the
+stored credential. `resolveProviderAuth` sends that key only through the
+provider's API-key auth, which an OAuth-only provider lacks
+(`_has_api_key_auth`): `openai-codex` (Pi's provider has only `oauth`)
+unless `models.json` configures an `apiKey` for it, and an extension
+provider with `oauth` unless `models.json` configures an `apiKey` or it
+replaces a built-in provider other than `openai-codex`; such a provider has
+no token while the key is set, and its stored login or Codex login is not
+sent. This checks the judge's correction at the source: in the default
+setup Pi sends no token for `openai-codex` with `--api-key`. Q2:
+`auth_store.resolve_stored_key` resolves the `key` of an `auth.json`
+`api_key` entry with a per-process cache of `!command` results (Pi
+`commandResultCache`, used by `AuthStorage.read`), shared by model requests
+(`_stored_api_key`) and `auth.provider`; a `models.json` `apiKey` and
+headers stay uncached, as Pi's `resolveConfigValueOrThrow`. pipy had no
+such cache before. Tests: `test_native_mcp_provider_auth.py`,
+`test_native_auth_store.py`.
 
 **S40 Closeout.** Build the `just mcp-conformance` recipe that runs the
 official suite's client scenarios against a small driver using

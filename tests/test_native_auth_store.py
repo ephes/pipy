@@ -8,6 +8,7 @@ from typing import cast
 from pipy_harness.native.auth_store import (
     AuthStore,
     ProviderAuthRequestConfig,
+    clear_stored_command_results,
     env_api_key,
     find_env_keys,
     provider_auth_status,
@@ -366,6 +367,49 @@ def test_resolve_request_auth_preserves_resolver_and_header_order(tmp_path):
         "missing",
         "model-header",
     ]
+
+
+def test_a_stored_command_key_runs_once_per_process(tmp_path):
+    # Pi `AuthStorage.read` resolves a stored key through the cached
+    # `resolveConfigValue` (`commandResultCache`); the models.json `apiKey`
+    # and headers go through the uncached `resolveConfigValueOrThrow`.
+    store = _store(tmp_path)
+    store.set("ds4", {"type": "api_key", "key": "!stored-key"})
+    store.set("other", {"type": "api_key", "key": "!failing"})
+    calls: list[str] = []
+    values = {"stored-key": "stored", "failing": None, "models-header": "h"}
+
+    def run_command(command: str) -> str | None:
+        calls.append(command)
+        return values[command]
+
+    config = ProviderAuthRequestConfig(headers={"X-H": "!models-header"})
+    for _ in range(2):
+        resolved = resolve_request_auth(
+            "ds4",
+            store=store,
+            env={},
+            models_json_config=config,
+            run_command=run_command,
+        )
+        assert resolved.api_key == "stored"
+        assert resolved.headers == {"X-H": "h"}
+        failed = resolve_request_auth(
+            "other", store=store, env={}, run_command=run_command
+        )
+        assert failed.api_key is None
+    # Keyed by the command, whatever provider stores it.
+    store.set("third", {"type": "api_key", "key": "!stored-key"})
+    assert (
+        resolve_request_auth("third", store=store, env={}, run_command=run_command)
+    ).api_key == "stored"
+    assert calls == ["stored-key", "models-header", "failing", "models-header"]
+
+    clear_stored_command_results()
+    assert (
+        resolve_request_auth("ds4", store=store, env={}, run_command=run_command)
+    ).api_key == "stored"
+    assert calls[-1] == "stored-key"
 
 
 def test_resolve_request_auth_authheader_without_key_fails(tmp_path):
