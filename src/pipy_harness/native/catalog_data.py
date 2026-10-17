@@ -563,7 +563,8 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         max_tokens=16_384,
     ),
     # ---- openai-codex (openai-codex-responses) ------------------------------
-    # Pi's Codex rows are all 272K context / 128K output; Pi retired the Codex
+    # Codex GPT-6.1 Sol has 500K context since Pi 5712b134e; other rows
+    # keep 272K context / 128K output. Pi retired the Codex
     # gpt-5.4 rows (2e6fe2f98), so pipy does not carry one.
     _m(
         "openai-codex",
@@ -575,7 +576,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         image=True,
         compat=_OPENAI_TOOL_LOADS,
         cost=(2.0, 10.0, 0.1, 2.5),
-        context_window=272_000,
+        context_window=500_000,
         max_tokens=128_000,
     ),
     _m(

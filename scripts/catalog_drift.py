@@ -15,7 +15,10 @@ Get Pi's data first (the JSON is gitignored build output), either:
 
 Run:
 
-    just catalog-drift [--pi-data PATH] [--verbose] [--json]
+    just catalog-drift [--pi-data PATH] [--verbose] [--json] [--snapshot]
+
+By default, input must have a timezone-aware generatedAt stamp no older than
+seven days. --snapshot explicitly compares historical or unstamped data.
 
 Exit codes: 0 clean, 1 drift or stale allowlist entries, 2 input error.
 This is a manual check. It is not part of ``just check`` or CI.
@@ -31,6 +34,7 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,14 +47,14 @@ HYDRATED_SUBPATH = Path("packages/ai/src/providers/data")
 REGENERATE_HINT = (
     "Generate Pi's catalog first: `npm run hydrate:model-data` in pi-mono, or "
     "`node scripts/generate-models.ts --strict --json-only --json-output DIR` in "
-    "pi-mono/packages/ai, then pass --pi-data."
+    "pi-mono/packages/ai, then pass --pi-data with --snapshot for unstamped JSON exports."
 )
 
 # pipy provider name -> Pi provider name. Unlisted providers use the same name.
 # ``openai-completions`` is a pipy-only provider serving Pi's ``openai`` models
 # over Chat Completions.
 PI_PROVIDER = {
-    "azure-openai": "azure-openai-responses",
+    "azure-openai": "azure",
     "cloudflare": "cloudflare-workers-ai",
     "openai-completions": "openai",
 }
@@ -174,6 +178,24 @@ def _generated_at(manifest: Path) -> str | None:
     data = _read_json(manifest)
     stamp = data.get("generatedAt") if isinstance(data, dict) else None
     return stamp if isinstance(stamp, str) else None
+
+
+def require_recent_data(stamp: str | None) -> None:
+    """Reject old or undated input instead of silently comparing stale data."""
+    hint = "Regenerate the catalog, or use --snapshot for a historical comparison."
+    try:
+        generated = (
+            datetime.fromisoformat(stamp.replace("Z", "+00:00")) if stamp else None
+        )
+    except ValueError as exc:
+        raise InputError(f"Invalid generatedAt timestamp. {hint}") from exc
+    if generated is None or generated.tzinfo is None:
+        raise InputError(f"Catalog has no timezone-aware generatedAt timestamp. {hint}")
+    age = datetime.now(timezone.utc) - generated
+    if age > timedelta(days=7) or age < -timedelta(minutes=5):
+        raise InputError(
+            f"Catalog generatedAt {stamp} is outside the last seven days. {hint}"
+        )
 
 
 # ---- normalization ----------------------------------------------------------
@@ -409,6 +431,7 @@ class Report:
     shared_rows: int
     pi_source: str
     generated_at: str | None
+    snapshot: bool = False
 
     @property
     def ok(self) -> bool:
@@ -466,6 +489,8 @@ def render_text(report: Report, *, verbose: bool) -> str:
     if report.generated_at:
         lines[0] += f" (generated {report.generated_at})"
     lines.append(f"Compared {report.shared_rows} rows both catalogs carry.")
+    if report.snapshot:
+        lines.append("Snapshot comparison: input freshness was not checked.")
 
     def section(title: str, items: list[str]) -> None:
         lines.append("")
@@ -517,6 +542,7 @@ def render_json(report: Report) -> str:
         "ok": report.ok,
         "pi_source": report.pi_source,
         "generated_at": report.generated_at,
+        "snapshot": report.snapshot,
         "shared_rows": report.shared_rows,
         "drift": [_finding_json(f) for f in report.drift],
         "stale": [
@@ -543,8 +569,12 @@ def run(
     pi_data: Path,
     allowlist_path: Path,
     rows: Sequence[NativeModelSpec] = BUILTIN_MODEL_ROWS,
+    *,
+    snapshot: bool = False,
 ) -> Report:
     pi_models, generated_at = load_pi_models(pi_data)
+    if not snapshot:
+        require_recent_data(generated_at)
     allowlist = load_allowlist(allowlist_path)
     findings = compare(rows, pi_models)
     missing = sum(
@@ -556,13 +586,15 @@ def run(
     shared = (
         sum(1 for row in rows if row.provider_name not in SKIPPED_PROVIDERS) - missing
     )
-    return build_report(
+    report = build_report(
         findings,
         allowlist,
         shared_rows=shared,
         pi_source=str(pi_data),
         generated_at=generated_at,
     )
+    report.snapshot = snapshot
+    return report
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -580,6 +612,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--allowlist", type=Path, default=DEFAULT_ALLOWLIST)
     parser.add_argument("--json", action="store_true", help="Print the report as JSON.")
     parser.add_argument(
+        "--snapshot",
+        action="store_true",
+        help="Compare historical or unstamped input without checking its age.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Also list allowlisted deviations, pipy-only rows and Pi rows not carried.",
@@ -587,7 +624,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     pi_data = args.pi_data or default_pi_data()
     try:
-        report = run(pi_data, args.allowlist)
+        report = run(pi_data, args.allowlist, snapshot=args.snapshot)
     except InputError as exc:
         print(f"catalog-drift: {exc}\n{REGENERATE_HINT}", file=sys.stderr)
         return 2

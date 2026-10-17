@@ -18,7 +18,7 @@ from pipy_harness.native import chrome
 
 
 def test_codex_rows_use_pi_272k_status_budget() -> None:
-    # Pi's Codex rows (GPT-5.5, GPT-5.6 Sol, GPT-6) are all 272K context.
+    # These earlier Codex rows keep 272K; GPT-6.1 Sol has 500K context.
     for model_id in ("gpt-5.6-sol", "gpt-5.5", "gpt-6-sol"):
         budget = chrome._context_budget_for("openai-codex", model_id)
         assert budget.budget_label == "272k"

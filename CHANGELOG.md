@@ -17,6 +17,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Codex GPT-6.1 Sol now uses a 500K context window, matching Pi `5712b134e`;
+  its 128K output limit and other Sol rows are unchanged.
+- `just catalog-drift` now requires a manifest timestamp from the last seven
+  days. Old, invalid, missing or future timestamps fail as input errors;
+  `--snapshot` explicitly permits historical or unstamped input and labels
+  the report. Azure comparisons now use Pi's `azure` provider table.
 - Python 3.15 is explicitly supported alongside 3.11–3.14. CI adds full tests,
   Linux/macOS real-PTY checks, and Linux runtime-required codemode probes on
   3.15. The optional codemode guest remains pinned to CPython 3.14.7.
@@ -30,6 +36,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- The nested-call cancellation regression test waits for the queued call and
+  checks its durable settlement order separately from caller-thread completion
+  order, removing a scheduling-dependent CI failure without changing runtime
+  cancellation behavior.
 - OAuth discovery no longer waits for the body of an answer it does not
   use, as Pi's discovery cancels it: a 404, 502 or other failure status of
   a metadata URL is acted on at its headers, so a server whose error body

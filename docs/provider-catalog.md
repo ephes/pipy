@@ -81,7 +81,8 @@ The MC6 refresh against Pi `1b347794e` adds GPT-6.1 Sol (Pi `12c416e1a`):
 
 - **Rows.** `openai/gpt-6.1-sol`, `openai-codex/gpt-6.1-sol` and
   `github-copilot/gpt-6.1-sol` carry Pi's generated values: cost 2/10/0.1/2.5,
-  272K context (1.05M on Copilot), 128K output, image input and each
+  272K context on OpenAI, 500K on Codex (updated 2026-10-17 against Pi
+  `5712b134e`), 1.05M on Copilot, 128K output, image input and each
   provider's compat flags (tool search and explicit prompt-cache mode on
   OpenAI; tool search on Codex; Copilot's grammar-tools, mid-conversation
   system message and additional-tools flags). Pi's long-context price tier
@@ -205,10 +206,21 @@ node scripts/generate-models.ts --strict --json-only --json-output <dir>
 ```
 
 Then run `just catalog-drift` from the pipy checkout, adding
-`--pi-data <dir or models.json>` for a `--json-output` directory. `PI_MONO`
+`--pi-data <dir or models.json> --snapshot` for a `--json-output` directory. `PI_MONO`
 overrides the default `~/src/pi-mono`. `--verbose` also lists every allowlisted
 deviation, and `--json` prints the report as JSON.
 
+- **Input age.** Normal runs require the manifest's timezone-aware `generatedAt`
+  timestamp to be at most seven days old, matching the weekly maintenance
+  cadence; timestamps more than five minutes in the future also fail. Old,
+  invalid or missing timestamps exit 2 before a CLEAN verdict. Regenerate
+  after updating Pi: age alone does not prove the data matches the checkout.
+  For an intentional historical comparison, `--snapshot` disables the age
+  check and labels the text/JSON report accordingly. A bare `models.json` has
+  no manifest timestamp and therefore requires `--snapshot`; so does Pi's
+  reproducible hydration of a published catalog with an epoch timestamp.
+- **Provider names.** Pipy's `azure-openai` rows compare with Pi's current
+  `azure` provider; their API remains `azure-openai-responses`.
 - **Compared fields.** For every row both catalogs carry, the check compares
   `api`, `reasoning`, `input`, `cost`, `contextWindow`, `maxTokens`,
   `thinkingLevelMap`, `baseUrl`, the row's static `headers` (Copilot's editor

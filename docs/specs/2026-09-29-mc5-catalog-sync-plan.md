@@ -1,5 +1,14 @@
 # MC5 — Catalog sync and drift check (plan)
 
+Maintenance update (2026-10-17): normal runs now require a timezone-aware
+manifest `generatedAt` no older than seven days (and at most five minutes ahead
+of the clock). Invalid, missing or old timestamps exit 2; explicit `--snapshot`
+comparisons bypass age validation and are labelled in text and JSON. This also
+applies to bare JSON exports and epoch-stamped published-catalog hydration.
+Regenerate after updating Pi; a recent timestamp alone does not attest to its
+checkout revision. The provider mapping now uses Pi's `azure` table for pipy's
+`azure-openai` rows. See the current [usage](../provider-catalog.md#catalog-drift-check).
+
 Status: implemented (backlog item MC5, 2026-09-29). Pi reference: `~/src/pi-mono`
 at `4df157433`, paths relative to `packages/ai/`. tau reference:
 `~/src/tau/scripts/generate_models.py`.
@@ -48,7 +57,8 @@ Stdlib plus pipy imports; run with `uv run python scripts/catalog_drift.py`.
   `--json-output` directory, or the hydrated `src/providers/data` directory.
   Default: `$PI_MONO/packages/ai/src/providers/data`, `PI_MONO` defaulting to
   `~/src/pi-mono`. Missing input exits 2 with the regenerate command.
-- **Provider mapping** (pipy → Pi): `azure-openai` → `azure-openai-responses`,
+- **Provider mapping** (pipy → Pi): `azure-openai` → `azure` (updated 2026-10-17;
+  the original September provider name was `azure-openai-responses`),
   `cloudflare` → `cloudflare-workers-ai`, `openai-completions` → `openai`,
   others identical. `fake` is skipped.
 - **Compared fields** on every row both sides carry: `api`, `reasoning`,

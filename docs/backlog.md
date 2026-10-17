@@ -40,9 +40,10 @@ updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited),
   the two models (DF1). Anthropic 5.x, xAI, Copilot, Bedrock and Google have no
   credentials here. They and cross-provider answer quality are still covered by
   fake-transport tests only.
-- **Pi comparison gates:** session-tree and automation comparisons passed on
-  2026-10-02 against `b271b0a52` (Pi 1.0 plus unreleased fixes). Catalog drift
-  was CLEAN for 97 shared rows; see the [UP1 audit](pi-1.0-audit.md).
+- **Pi comparison gates:** session-tree and automation comparisons passed again
+  on 2026-10-17 against `c268154ca`. Freshly regenerated catalog data now shows
+  17 unallowlisted differences across 97 shared rows, with no stale allowlist
+  entries; see UP2 below. The earlier CLEAN result used September data.
 
 This document owns direction, order and task IDs. A queue item is a bounded
 work order. It does not override a current runtime contract (see
@@ -97,8 +98,31 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Current queue
 
-No implementation slice is currently selected. MCP1 and CM1 below are completed
-work. Select a bounded follow-on when a user need justifies it; live MCP evidence
+**UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
+The owner approved stabilizing CI, making catalog age explicit, then adopting
+one relevant upstream correction. Implemented scope: the nested cancellation
+test waits for the queue event and checks recorded settlement separately from
+caller-thread completion order; the drift check rejects old or undated input
+unless `--snapshot` is explicit; Azure comparisons use Pi's current `azure`
+table; Codex GPT-6.1 Sol has Pi's 500K context (`5712b134e`). Validation:
+212 focused tests, all 11 real-PTY smoke tests, both Pi comparison gates,
+docs build and `just check` (12,527 passed, two skipped). Independent Opus 5.5
+medium repair review returned CLEAN after fixing the initial stale row/meter
+test expectations and two suggestions. Remote CI confirmation requires a new
+push. No further implementation slice is selected.
+
+Fresh Pi data generated 2026-10-17 at `c268154ca` leaves **17 catalog findings**,
+deliberately visible rather than allowlisted: ten field differences (Sonnet 5.5
+cache prices on Anthropic/Copilot, Opus 5's thinking map, two Sonnet 4.5 context
+windows, four GPT-6 mid-conversation-effort flags, Mistral Small's context) and
+seven uncarried Haiku 5.5, Sonnet 5.5 and Gemini 4 Argon provider rows. Triage
+them against request behavior before another bounded catalog slice; generator
+values alone can conflict with newer adapter fixes. Source comparison confirms
+one further behavior difference: `providers/replay_content.py` still converts
+foreign-model thinking into text, while Pi drops it since `911309429`. This is
+the next bounded replay candidate; summary output limits still need a provider
+request comparison before being called a gap. Neither is part of UP2.
+MCP1 and CM1 remain completed work; live MCP evidence
 still needs an authenticated provider and OAuth server account.
 
 The 2026-10-17 audit compared `main` through `e67e759b` with the first-parent
@@ -108,8 +132,10 @@ follow-on claims. The owner confirmed that the repository is public;
 `AGENTS.md` now reflects that, retaining the no-deprecation rule. The audit also found two Linux test failures in the MCP merge's
 [CI run](https://github.com/ephes/pipy/actions/runs/38899409996): an oversized
 fake-worker argv item and a duplicated teardown diagnostic. The test repairs
-preserve payload/cleanup assertions; the next pushed CI run must confirm them on
-Linux. The source and user docs remain the behavior contracts.
+preserve payload/cleanup assertions; subsequent CI passed on `ad238ea3`,
+`3ee2cf5d` and `0396b55d`. The [latest run](https://github.com/ephes/pipy/actions/runs/39052342303)
+at `ae7b79c2` exposed the separate caller-thread ordering assumption addressed
+by UP2. The source and user docs remain the behavior contracts.
 
 ## Recently completed campaigns
 

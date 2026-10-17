@@ -75,6 +75,17 @@ def test_gpt_5_6_sol_row_pinned():
     assert catalog.find("openai-codex", "gpt-5.6") is None
 
 
+def test_codex_gpt_6_1_sol_uses_500k_context_without_changing_other_sol_rows() -> None:
+    catalog = build_builtin_catalog()
+    codex = catalog.find("openai-codex", "gpt-6.1-sol")
+    openai = catalog.find("openai", "gpt-6.1-sol")
+    earlier_codex = catalog.find("openai-codex", "gpt-6-sol")
+    assert codex is not None and openai is not None and earlier_codex is not None
+    assert codex.context_window == 500_000  # Pi 5712b134e
+    assert codex.max_tokens == 128_000
+    assert openai.context_window == earlier_codex.context_window == 272_000
+
+
 def test_responses_tool_search_compat_matches_pi_rows() -> None:
     catalog = build_builtin_catalog()
     supported = {

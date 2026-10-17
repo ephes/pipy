@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -211,9 +212,9 @@ def test_row_sets_use_pi_provider_names_and_skip_mirrors() -> None:
         _row("fake", "fake-native-bootstrap", api="fake"),
     ]
     pi = {
-        "azure-openai-responses": {
-            "a": _pi("azure-openai-responses", "a", api="azure-openai-responses"),
-            "b": _pi("azure-openai-responses", "b"),
+        "azure": {
+            "a": _pi("azure", "a", api="azure-openai-responses"),
+            "b": _pi("azure", "b"),
         },
         "openai": {"shared": _pi("openai", "shared"), "new": _pi("openai", "new")},
     }
@@ -386,6 +387,56 @@ def test_missing_or_unrecognized_input_is_an_input_error(tmp_path: Path) -> None
         catalog_drift.load_pi_models(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "stamp",
+    [None, "invalid", "2026-10-17T12:00:00", "1970-01-01T00:00:00.000Z"],
+)
+def test_undated_or_invalid_catalog_requires_snapshot(stamp: str | None) -> None:
+    with pytest.raises(catalog_drift.InputError, match="--snapshot"):
+        catalog_drift.require_recent_data(stamp)
+
+
+@pytest.mark.parametrize("days", [-8, 1])
+def test_old_or_future_catalog_requires_snapshot(days: int) -> None:
+    stamp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+    with pytest.raises(catalog_drift.InputError, match="--snapshot"):
+        catalog_drift.require_recent_data(stamp)
+
+
+def test_recent_catalog_is_accepted() -> None:
+    catalog_drift.require_recent_data(datetime.now(timezone.utc).isoformat())
+
+
+def test_run_checks_freshness_before_a_clean_result(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openai.json").write_text(
+        json.dumps({"openai-responses": {"chat:m": _pi("openai", "m")}}),
+        encoding="utf-8",
+    )
+    manifest = data_dir / ".manifest.json"
+    manifest.write_text(json.dumps({"generatedAt": "2026-09-29T00:00:00Z"}))
+    allow = tmp_path / "allow.json"
+    allow.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(catalog_drift.InputError, match="--snapshot"):
+        catalog_drift.run(data_dir, allow, [_row("openai", "m")])
+
+    snapshot = catalog_drift.run(data_dir, allow, [_row("openai", "m")], snapshot=True)
+    assert snapshot.ok
+    assert "freshness was not checked" in catalog_drift.render_text(
+        snapshot, verbose=False
+    )
+    assert json.loads(catalog_drift.render_json(snapshot))["snapshot"] is True
+
+    manifest.write_text(
+        json.dumps({"generatedAt": datetime.now(timezone.utc).isoformat()})
+    )
+    recent = catalog_drift.run(data_dir, allow, [_row("openai", "m")])
+    assert recent.ok
+    assert json.loads(catalog_drift.render_json(recent))["snapshot"] is False
+
+
 # ---- CLI ------------------------------------------------------------------------
 
 
@@ -404,6 +455,8 @@ def test_main_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     # The real built-in rows against a Pi table that ships none of them: every
     # row is pipy-only, so the check reports drift.
     _models_json(tmp_path / "models.json")
+    assert catalog_drift.main(["--pi-data", str(tmp_path / "models.json")]) == 2
+    assert "--snapshot" in capsys.readouterr().err
     code = catalog_drift.main(
         [
             "--pi-data",
@@ -411,9 +464,11 @@ def test_main_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
             "--allowlist",
             str(allow),
             "--json",
+            "--snapshot",
         ]
     )
     payload = json.loads(capsys.readouterr().out)
     assert code == 1
     assert payload["ok"] is False
+    assert payload["snapshot"] is True
     assert {item["field"] for item in payload["drift"]} >= {"pipy-only"}

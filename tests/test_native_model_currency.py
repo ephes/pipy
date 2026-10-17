@@ -154,7 +154,7 @@ PI_ROWS: dict[tuple[str, str], tuple[tuple[float, ...], int, int, list[str]]] = 
         128_000,
         ["off", "low", "medium", "high", "xhigh"],
     ),
-    ("openai-codex", "gpt-6.1-sol"): ((2, 10, 0.1, 2.5), 272_000, 128_000, _NO_OFF),
+    ("openai-codex", "gpt-6.1-sol"): ((2, 10, 0.1, 2.5), 500_000, 128_000, _NO_OFF),
     ("openai-codex", "gpt-6-sol"): ((2, 10, 0.2, 2.5), 272_000, 128_000, _ALL),
     ("openai-codex", "gpt-6-luna"): ((0.1, 0.5, 0.01, 0.125), 272_000, 128_000, _ALL),
     ("openai-codex", "gpt-6-astra"): ((10, 50, 1, 12.5), 272_000, 128_000, _NO_OFF),
@@ -632,13 +632,21 @@ def test_google_thinking_wire(
 
 
 @pytest.mark.parametrize(
-    "model_id", ["gpt-5.6-sol", "gpt-6-sol", "gpt-6.1-sol", "gpt-5.5"]
+    ("model_id", "window", "label"),
+    [
+        ("gpt-5.6-sol", 272_000, "272k"),
+        ("gpt-6-sol", 272_000, "272k"),
+        ("gpt-6.1-sol", 500_000, "500k"),
+        ("gpt-5.5", 272_000, "272k"),
+    ],
 )
-def test_codex_context_meter_is_272k(model_id: str) -> None:
+def test_codex_context_meter_uses_model_window(
+    model_id: str, window: int, label: str
+) -> None:
     from pipy_harness.native.chrome import _context_budget_for
 
     budget = _context_budget_for("openai-codex", model_id)
-    assert (budget.token_budget, budget.budget_label) == (272_000, "272k")
+    assert (budget.token_budget, budget.budget_label) == (window, label)
 
 
 def test_footer_meter_uses_the_resolved_models_json_row(tmp_path: Path) -> None:

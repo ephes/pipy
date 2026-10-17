@@ -327,7 +327,19 @@ def test_a_signal_set_while_a_call_waits_cancels_it_when_its_turn_comes() -> Non
     release = threading.Event()
     ran: list[str] = []
     answers: list[str] = []
-    service = _service(_blocking_settle(release, ran), {"sequential": "sequential"})
+    queued = threading.Event()
+
+    class QueueEvents(_QueueEvents):
+        def queued(self, call) -> None:
+            super().queued(call)
+            if call.provider_correlation_id == "p/2":
+                queued.set()
+
+    service = _service(
+        _blocking_settle(release, ran),
+        {"sequential": "sequential"},
+        queue_events=QueueEvents(),
+    )
     signal = threading.Event()
 
     def handler(context):
@@ -345,17 +357,24 @@ def test_a_signal_set_while_a_call_waits_cancels_it_when_its_turn_comes() -> Non
             )
         )
         second.start()
-        time.sleep(0.1)
-        signal.set()
-        release.set()
-        first.join(5)
-        second.join(5)
+        try:
+            assert queued.wait(5)
+            signal.set()
+        finally:
+            release.set()
+            first.join(5)
+            second.join(5)
         return "returned"
 
     _run_parent(handler, service, _wait)
 
     assert ran == ["p/1"]
-    assert answers == ["ran", "tool cancelled by its caller"]
+    # Queue settlement order does not order the caller threads' list appends.
+    assert sorted(answers) == ["ran", "tool cancelled by its caller"]
+    assert [
+        (record.nested_call.provider_correlation_id, record.status)
+        for record in service.records()
+    ] == [("p/1", _STATUS), ("p/2", NestedCallStatus.CANCELLED)]
 
 
 def test_a_session_thread_call_waits_for_its_turn_and_serves_meanwhile() -> None:
