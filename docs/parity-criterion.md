@@ -74,7 +74,7 @@ features in `~/src/pi-mono`, or map only loosely to Pi behavior. Per the parity
 principle (`parity-plan.md` §1), a pipy-only surface is **removed or realigned to
 Pi** unless there is a genuinely good reason to keep it — privacy and security
 are not good reasons. The full rationale and actions are in
-[parity-plan.md](/parity-plan/) §3; this table is the criterion-side summary.
+[parity-plan.md](parity-plan.md) §3; this table is the criterion-side summary.
 These surfaces are kept out of Pi-parity scoring, but "keep out of scoring" no
 longer means "keep the surface."
 

@@ -60,8 +60,8 @@ report the same class of such defect, stop implementing and revise the written
 contract before writing more code.
 
 ## No-deprecation policy
-- pipy has no users yet and stays private until Pi parity is reached. Do not add
-  deprecation shims (aliases, deprecation notices) for pipy-only surfaces being
+- pipy is public and has no users yet. Do not add deprecation shims (aliases,
+  deprecation notices) for pipy-only surfaces being
   realigned to Pi — remove them outright and match Pi directly.
 
 ## Dotfile Management (chezmoi)

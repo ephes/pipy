@@ -3,7 +3,10 @@
 Codemode lets the model run Python that calls existing tools, filters their text
 results and emits a compact answer in one tool call. It is optional and disabled
 by default. Every script starts a fresh isolated CPython 3.14.7 WASI worker;
-variables do not survive between scripts.
+ordinary Python variables do not survive between scripts. Use
+[`store()` and `load()`](#keeping-values-between-scripts) for session-scoped values.
+The host supports Python 3.11–3.15; upgrading it does not change the pinned WASI
+guest version.
 
 ## Installing
 

@@ -4,11 +4,14 @@ This page gets you from a checkout to a useful first `pipy` session.
 
 ## Install
 
-For local development, install from this checkout with `uv`:
+Requires Python 3.11–3.15 and [uv](https://docs.astral.sh/uv/). Clone the
+repository, then install from the checkout:
 
 ```bash
-uv sync
-uv tool install .
+git clone https://github.com/ephes/pipy.git
+cd pipy
+uv sync --python 3.15
+uv tool install --python 3.15 .
 ```
 
 If you are working in the repository, you can also run commands without an
@@ -128,7 +131,7 @@ pipy -p "@src/app.py explain the main flow"
 
 Text file references are loaded as bounded excerpts. Clipboard and drag image
 references are supported in the TUI where the terminal exposes the needed data;
-see [Terminal Setup](/terminal-setup/) for caveats.
+see [Terminal Setup](terminal-setup.md) for caveats.
 
 ### Run shell commands
 
@@ -180,6 +183,22 @@ also accepts either a quoted prompt or piped stdin, and emits a full session
 event stream as JSON lines. `--mode rpc` starts a long-lived stdin/stdout JSONL
 protocol.
 
+### MCP and optional codemode
+
+Connect external tools through [MCP](mcp.md). For example, with Node.js/`npx`
+installed:
+
+```bash
+pipy mcp add filesystem --exposure direct -- npx -y @modelcontextprotocol/server-filesystem .
+pipy mcp list
+```
+
+Restart pipy, or run `/reload` in an existing session; `/mcp` manages connected
+servers. The `direct` exposure works without the optional codemode runtime.
+To let the model call tools from Python scripts, install and enable
+[Python codemode](codemode.md). Image resizing/conversion is available with the
+optional `images` extra.
+
 ## Where local state is written
 
 Pipy keeps two stores with different purposes:
@@ -200,7 +219,7 @@ commit secrets or local state files to a project.
   files, and CLI reference.
 - [Pipy Packages](packages.md) — install, update, filter, and share trusted
   local or managed-git extensions, skills, prompts, and themes.
-- [Terminal Setup](/terminal-setup/) and [tmux Setup](/tmux/) — terminal
+- [Terminal Setup](terminal-setup.md) and [tmux Setup](tmux.md) — terminal
   behavior, paste, scrollback, clipboard/images, and key caveats.
 - [Python SDK and Headless Embedding](sdk.md) — in-process embedding.
 - [Automation & RPC](automation-rpc.md) — JSON/RPC details.

@@ -8,6 +8,7 @@ docs/parity-loop/runs/*
 .envrc
 .direnv/
 .venv/
+.venv-*/
 __pycache__/
 *.py[cod]
 .pytest_cache/

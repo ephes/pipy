@@ -2,7 +2,8 @@
 
 Status: sole active task index, rewritten 2026-09-29; upstream scope decision
 updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited),
-2026-10-15 (MCP1 goal-check tracks merged) and 2026-10-16 (MCP1 done).
+2026-10-15 (MCP1 goal-check tracks merged), 2026-10-16 (MCP1 done), and
+2026-10-17 (main/history, docs, and Python compatibility audit).
 
 ## Status
 
@@ -27,8 +28,11 @@ updated 2026-10-04, 2026-10-12 (MCP1 selected), 2026-10-14 (MCP1 audited),
   Per-slice and cumulative review/check outcomes and main/CI/worktree closeout
   are recorded in the coordinator campaign report. UP1
   completed its selected-surface audit; DF1 still lacks other-provider live evidence.
-- **Tests:** `uv run --frozen pytest --co` collects 6,614 tests on
-  `release/0.2.0` (6,576 on `chore/df1-dogfooding`).
+- **Python compatibility:** Python 3.11–3.15. Full-suite CI covers 3.11,
+  3.14, and 3.15; real-PTY checks cover Linux/macOS on 3.14 and 3.15;
+  runtime-required codemode probes cover Linux on both. Codemode's guest
+  remains pinned to CPython 3.14.7. Use `uv run --frozen pytest --co -q`
+  for the current test inventory; old release-branch counts are historical.
 - **Not verified live.** openai-codex has live evidence for `gpt-6-sol` at
   off/medium/max and `gpt-6-luna` at low/max: effort values, footer, cache hits,
   a real repository task, steering, cancel, manual and automatic compaction
@@ -71,10 +75,11 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
   the PTY smoke tests for terminal changes. Test fixtures isolate HOME, so do
   not wrap `uv` or `just check` in a temporary HOME.
 - **Review.** Use a fresh read-only reviewer that is separate from the
-  implementer. The default is **GPT-6 Sol** through the `codex-review-loop` or
-  `pi-review-loop` skill. Prefer a different-family reviewer when the change
-  needs different-family evidence, and never present a same-family review as
-  one. Cycles follow the **diminishing-returns rule** in `AGENTS.md` (Review
+  implementer. Default to a different model family through the installed
+  review-loop skills: Codex/Pi implementations use Claude Opus 5.5 at medium
+  effort; Claude implementations use Codex. Pi review gates use only
+  `openai-codex/gpt-6.1-sol`. Honor an explicit owner-selected reviewer and
+  never present a same-family review as different-family evidence. Cycles follow the **diminishing-returns rule** in `AGENTS.md` (Review
   budget, `eb851ce`), which has no fixed round cap:
   - Docs and plans can close on a clean first round.
   - Code continues only while rounds produce new, material findings.
@@ -90,7 +95,23 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 - **Privacy is not a reason to diverge from Pi.** The metadata-only workflow
   archive stays separate from the full-content product session tree.
 
-## Active queue
+## Current queue
+
+No implementation slice is currently selected. MCP1 and CM1 below are completed
+work. Select a bounded follow-on when a user need justifies it; live MCP evidence
+still needs an authenticated provider and OAuth server account.
+
+The 2026-10-17 audit compared `main` through `e67e759b` with the first-parent
+history since release 0.3.0 and the merged MCP history. It found the main feature
+status current, but stale test counts, pre-merge campaign wording, and older
+follow-on claims. The owner confirmed that the repository is public;
+`AGENTS.md` now reflects that, retaining the no-deprecation rule. The audit also found two Linux test failures in the MCP merge's
+[CI run](https://github.com/ephes/pipy/actions/runs/38899409996): an oversized
+fake-worker argv item and a duplicated teardown diagnostic. The test repairs
+preserve payload/cleanup assertions; the next pushed CI run must confirm them on
+Linux. The source and user docs remain the behavior contracts.
+
+## Recently completed campaigns
 
 ### MCP1 — MCP and codemode tool reach (done 2026-10-16)
 
@@ -123,7 +144,7 @@ the optional `images` extra.
 
 State after the closing audit and the goal-check tracks (2026-10-16, plan
 section 3.2 and the [acceptance note](acceptance/2026-10-13-mcp-parity.md)):
-every slice is on `feat/mcp-parity`. Of the 292 rows, 165 are closed with a
+every slice is on `main` through merge `e67e759b`. Of the 292 rows, 165 are closed with a
 test and 127 with a recorded limit or deviation; none is open. The official
 MCP conformance suite gives the same result for pipy as for Pi
 (`just mcp-conformance`, a manual recipe). Open:
@@ -140,20 +161,8 @@ MCP conformance suite gives the same result for pipy as for Pi
   the sixth goal check left nothing to accept, Q16 (2026-10-16)
   accepts DEV-95 and DEV-96 for the seventh, and Q17 (2026-10-16) accepts
   DEV-97 to DEV-101 and parts of DEV-36 and DEV-37 for the eighth. Q17
-  also sets the bar for the end: after the fix slices K1 to K3 of the
-  eighth triage, one final goal check asks for each area whether the goal
-  is reached (no Critical gap and no gap a user would notice in normal
-  use); edge cases it still finds go to this backlog, and then the owner is
-  asked about the merge. The fix slices T1 to T6 of
-  the third triage are on `feat/mcp-parity` (T3, T4 and T6 merged in INT5),
-  and so are the fix slices V1 to V3 of the fourth triage (V3 merged in
-  INT6), the fix slices X1 to X3 of the fifth triage (X2 merged in INT7,
-  which added DEV-94, the order of the MCP tools across servers, accepted
-  in Q14) and the fix slices Y1 to Y3 of the sixth triage (Y3 merged in
-  INT8, which added DEV-95, two limits of a wrapped `edit` row, accepted
-  in Q16), and so are the fix slices Z1 and Z2 of the seventh triage
-  (Z2 narrowed DEV-20 to the 64 KiB result text) and the fix slices K1 to
-  K3 of the eighth triage (K2 and K3 merged in INT9).
+  also defined the final goal check, completed below. The detailed fix-slice
+  and integration history lives in the parity plan and acceptance note.
 
 Campaign done (2026-10-16): the final goal check Q17 describes ran at
 `2f95587d` and found the goal reached in all six areas, each CLEAN with no
@@ -172,7 +181,7 @@ product runtime. Codemode is off by default. See [usage](codemode.md),
 [T4–T11 / A–K evidence index](specs/2026-10-09-python-codemode-acceptance.md#acceptance-and-closeout-index).
 [Developer capture/reproduction](specs/2026-10-09-python-codemode-developer.md#coordinator-terminal-capture)
 preserves T9 instructions. Linux x86_64 runtime-required CI passed 315 tests;
-final campaign CI remains a coordinator check.
+that is historical CM1 evidence, separate from the current main CI status above.
 
 The initial T10 live pair and separate interactive run passed exact facts and
 expected calls. The repeat kept correct facts but first emitted bulk results,
@@ -266,6 +275,19 @@ gap. This decision did not authorize MCP implementation, parallel tools or a
 durable-runtime migration; MCP was authorized separately on 2026-10-12 (MCP1).
 Parallel tools and a durable-runtime migration remain unauthorized.
 
+## Other work merged since 0.3.0
+
+These entries supplement the historical September table. They are completed
+changes or evidence, not another queue.
+
+| Area | Evidence on main | State / remaining boundary |
+| --- | --- | --- |
+| Compaction accounting and loader | `368507f9` | DF2 landed; current `tokensBefore` and loader behavior are documented in [Compaction](compaction.md). |
+| Summary pressure, stopped turns, ordinary/auxiliary retries, footer context | `3d15c7a2`, `0fc32de1`, `1802fac2`, `df63f902`, `e523b1b9` | F5b, F6b, and F4b implemented; the detailed evidence below retains advisory review outcomes and remaining differences. |
+| Context elision evaluation | `83b1294b`, `12179ea2`, `04952279` | [Evaluation](specs/2026-10-11-context-elision-evaluation.md) completed; generic read-output elision was not adopted. Product compaction remains unchanged by that experiment. |
+| Capture and transfer robustness | `bba19640`, `73d5c98e`, `7bc6d52b`, `1e08d86a`, `4b91b722` | Private export/import and token-count retention, single-state automatic-capture claims, scalar metadata validation, and terminal-safe archive output landed. See [Export](export-distribution.md) and [Session Storage](session-storage.md). |
+| Reload and process/descriptor cleanup | `1e6d2768`, `c5a67e55`, `dc574acc`, `7c92a014`, `cc609926` | Reload refreshes instructions/prompt inputs; auth-command capture, attachment reads, clipboard helpers, and changelog decoding received bounded cleanup/fallback fixes. |
+
 ## Done (2026-09-29)
 
 Each slice follows Pi `4df157433`. Plans are in `docs/specs/2026-09-29-*`, and
@@ -302,7 +324,9 @@ in [archive/backlog-2026-09-29-slices.md](archive/backlog-2026-09-29-slices.md).
 
 ## Follow-ons
 
-Open deviations collected from the done slices, not yet queued. Take one when
+Remaining deviations and closeout evidence collected from the done slices.
+Items explicitly marked complete are historical closeouts, not work to repeat.
+Open items are not yet queued. Take one when
 a user need makes it matter. The DF1 items come first; their repro steps are in
 [the DF1 acceptance note](acceptance/2026-09-29-df1-dogfooding.md).
 
@@ -439,6 +463,11 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Publishing:** choose and own a PyPI distribution name, then add a
   publish workflow with SHA-pinned actions. Until then
   `pipy update self` refuses, and the README documents the checkout install.
+- **Documentation hosting:** `just docs-build` and CI validate the Zensical
+  site, but no deployment is configured. Read the Docs' `pipy` project points
+  to another repository ([public project metadata](https://app.readthedocs.org/api/v3/projects/pipy/),
+  checked 2026-10-17). Publishing there needs an available project slug and
+  repository integration; no public docs URL is claimed in the README.
 - **USAGE1b, what USAGE1 left of Pi's usage** (see the USAGE1 Done row):
   - footer meter branch-anchor restoration is closed by DF1-F4b slice 2;
     RPC `contextUsage` remains deferred. Pi `getContextUsage` reports unknown
@@ -446,8 +475,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
     a full estimated projection while its summary suffix remains;
   - compaction and branch summaries record no `usage` (Pi stores it on the
     entry and counts it); there are no `usage` entries (Pi cache warming);
-  - assistant messages have no `api`, `responseModel`, `responseId` or
-    `timestamp`; the `/session` breakdown keys on the requested model;
+  - assistant messages carry `api` since reasoning storage; they still have
+    no `responseModel`, `responseId` or `timestamp`. The `/session` breakdown
+    keys on the requested model;
   - the streamed partial keeps `stopReason: "stop"` where Pi now sends
     `pending`, and has no `provider`/`model`;
   - `/session` has no `Cache Warming` section and no styling; resume and
@@ -509,7 +539,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   commands. Left for later slices:
   - skill and prompt-template discovery still skips secret-shaped,
     generated and binary files and stops at pipy's 64 KiB per-file /
-    256 KiB total caps; Pi's loaders have none of these screens;
+    256 KiB total caps; Pi's loaders have none of these screens. MCP1 ported
+    Pi's minimatch/brace-expansion resource patterns (`7d2229e4`, `d4ad1d7a`,
+    `9dd6e77d`); that pattern work is complete;
   - Pi's bash guideline names `PI_*` session environment variables that
     pipy's bash tool does not set (pipy acts as Pi with
     `exposeSessionEnvironment: false`);

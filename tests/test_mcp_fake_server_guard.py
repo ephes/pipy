@@ -187,9 +187,11 @@ def test_a_module_that_leaves_a_server_running_fails_and_the_server_is_ended(
         assert run.returncode == 1, run.stdout + run.stderr
         assert "2 passed, 1 error" in run.stdout
         assert "left fake MCP server processes running" in run.stdout
-        (reported,) = [
+        # Pytest can repeat a teardown diagnostic in its final error summary.
+        # Require one distinct process report, regardless of how often it prints.
+        (reported,) = {
             line for line in run.stdout.splitlines() if line.startswith(f"  {pid}: ")
-        ]
+        }
         # The directory in the command line names the test.
         assert "test_leaves_its_server_running" in reported
         _wait_until_gone(pid)

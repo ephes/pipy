@@ -26,4 +26,5 @@ nav = [
   {"Pi Parity" = "pi-parity.md"},
   {"Harness Spec" = "harness-spec.md"},
   {"Session Storage" = "session-storage.md"},
+  {"Workflow capture and sync" = "workflow-capture.md"},
 ]

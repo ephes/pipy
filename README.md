@@ -1,752 +1,183 @@
 # pipy
 
-Python slop fork experiments for a coding-agent harness inspired by Pi and
-clean architecture.
+A native Python coding agent inspired by [Pi](https://github.com/badlogic/pi-mono).
+Pipy combines an interactive terminal UI, direct model providers, coding tools,
+private persistent sessions, Python extensions, MCP, and headless automation.
+The product runtime is `pipy-native`.
 
-Pipy's product runtime is `pipy-native`: a Python runtime that owns provider
-access, tools, and the native session tree. The session tree is a private,
-full-content, append-only JSONL tree and the product's source of truth for
-resume, branching, compaction and export (see
-[`docs/session-tree.md`](docs/session-tree.md)). A separate, optional
-`pipy-session` archive records only summary-safe workflow metadata for learning
-and review; it is not the product session store. Mentions of Codex, Claude
-Code, or Pi below refer to metadata capture or subprocess wrapping for external
-tools — they are not supported product runtime backends.
+[Quickstart](docs/quickstart.md) · [User guide](docs/usage.md) ·
+[Documentation](docs/index.md) · [Changelog](CHANGELOG.md) ·
+[Contributing](CONTRIBUTING.md)
 
-New users should start with [`docs/quickstart.md`](docs/quickstart.md) and
-[`docs/usage.md`](docs/usage.md). For the design rationale, runtime diagrams,
-archive layout, and parity status, start at [`docs/index.md`](docs/index.md).
-Contributors should follow [`CONTRIBUTING.md`](CONTRIBUTING.md) for clean-checkout
-setup, architecture boundaries, validation, review, and privacy expectations.
+## Install and update
 
-Stopped partial tool arguments use the small pure-Python `partial-json-parser`
-dependency; ordinary tool validation remains strict. See the
-[dependency decision](docs/decisions/2026-10-10-stopped-partial-json.md).
-
-## Install And Update
-
-The current release is 0.3.0 (see [`CHANGELOG.md`](CHANGELOG.md)). pipy is not
-published on PyPI or any other package index, so install it from a checkout of
-this repository:
+Requires **Python 3.11–3.15** and [uv](https://docs.astral.sh/uv/).
+The current release is **0.3.0**; `main` also contains the changes listed under
+[Unreleased](CHANGELOG.md#unreleased), including Python codemode and MCP support.
+Pipy is not published on PyPI or another package index. Install from a checkout:
 
 ```sh
-uv tool install .
+git clone https://github.com/ephes/pipy.git
+cd pipy
+uv tool install --python 3.15 .
 pipy --version   # pipy 0.3.0
 ```
 
-`uv tool install .` builds the checkout and installs the `pipy` and
-`pipy-session` commands into uv's tool bin directory (`uv tool update-shell`
-adds it to `PATH`). Running it again after `git pull` rebuilds and replaces the
-installed copy. Inside the repository, `uv run pipy` works without installing.
+This installs `pipy` and `pipy-session` in uv's tool bin directory. Run
+`uv tool update-shell` if it is not on `PATH`. To update the installed copy,
+run `git pull` in the checkout and repeat `uv tool install --python 3.15 .`.
+Keep any extras selected on the original install when reinstalling.
+Inside the repository, `uv run pipy` works without a tool installation.
 
-When a distribution name is published, `uv tool install`, `pipx install` and
-`pip install --user` with that name will work too. Until then, do not guess a
-package name.
+`pipy update self` and `pipy update self --dry-run` plan updates for detected
+install methods. Automatic updates require a real owned distribution name;
+until one exists, use the checkout update above. See
+[installation and updates](docs/quickstart.md#update).
 
-`pipy update self` plans an update for an installed copy:
+## First session
 
-```sh
-pipy update self
-pipy update self --dry-run
-```
-
-`pipy update self` plans the command from the detected install method
-(`uv tool`, `pipx`, `pip`, or user `pip`) and refuses to run an automatic
-update for development or unknown installs. It also refuses to guess a package
-name: set `PIPY_SELF_UPDATE_PACKAGE=<published-pipy-distribution>` only after a
-real owned distribution name exists. Version checks and update planning honor
-`PIPY_SKIP_VERSION_CHECK=1` and `PIPY_OFFLINE=1`.
-
-Package management uses the same top-level `pipy` command family. Local paths
-and git URLs install into pipy-managed settings/cache locations; PyPI/npm
-package sources remain deferred:
+Choose a provider and model for real work. For example, with an OpenAI API key
+already set in `OPENAI_API_KEY`:
 
 ```sh
-pipy install ./docs/examples/packages/demo-pack
-pipy install git:https://github.com/example/pipy-package -l
-pipy list
-pipy update --extensions
-pipy update <source>
-pipy remove <source>
+cd /path/to/project
+pipy --list-models openai
+pipy --native-provider openai --native-model <model-id>
 ```
 
-## Headless Python Embedding
+For a ChatGPT subscription, authenticate the separate Codex provider:
 
-Pipy's supported in-process coding API is a persistent product session. It
-accepts an explicitly injected tool-capable provider, retains full conversation
-history across submissions, and does not create a workflow archive. The checked-in
-[two-turn embedding example](docs/examples/product_session_embedding.py) runs
-offline with an explicit deterministic fake:
+```sh
+pipy auth openai-codex login
+pipy --list-models openai-codex
+pipy --native-provider openai-codex --native-model <model-id>
+```
+
+Replace `<model-id>` with a model from the corresponding list. Without a
+configured real provider, pipy defaults to a deterministic fake for offline
+smoke tests. See [providers](docs/providers.md) for other providers and auth.
+Provider transports use no third-party provider SDKs; the OpenAI
+Codex WebSocket transport uses the declared `websockets` dependency.
+
+Model and adapter details are documented in the
+[provider catalog](docs/provider-catalog.md).
+
+Ask pipy to inspect a repository, make a change, or run its checks. It can call
+`read`, `ls`, `grep`, `find`, `write`, `edit`, and `bash`. Paths resolve relative
+to the workspace or as absolute paths; `bash` runs a real shell with the
+inherited environment. Output limits are documented per tool in the
+[user guide](docs/usage.md). Project instructions load from `AGENTS.md` and
+related context files; run `/reload` after changing them.
+
+Useful interactive controls:
+
+| Action | Control |
+| --- | --- |
+| Choose a model | `/model` or Ctrl+L |
+| Change thinking level | `/thinking` or Shift+Tab |
+| Expand tool output / thinking | Ctrl+O / Ctrl+T |
+| Interrupt the active request | Escape or Ctrl+C |
+| Resume, branch, or compact | `/resume`, `/tree`, `/fork`, `/clone`, `/compact` |
+| Manage MCP servers | `/mcp` |
+| Settings and keybindings | `/settings`, `/hotkeys` |
+
+Sessions save automatically. Use `pipy -c` to continue the latest session,
+`pipy -r` to browse previous sessions, or `pipy --no-session` for an ephemeral
+run. See [sessions](docs/sessions.md) and [terminal setup](docs/terminal-setup.md).
+
+## MCP and Python codemode
+
+Connect MCP servers over stdio or streamable HTTP. Servers are configured in
+`mcp.json`, with project overrides in trusted `.pipy/mcp.json` files. For example,
+with Node.js and `npx` installed:
+
+```sh
+pipy mcp add filesystem --exposure direct -- npx -y @modelcontextprotocol/server-filesystem .
+pipy mcp list
+```
+
+Pipy supports OAuth, tool exposure, `tool_search`, resources, reload, and
+extension/SDK hooks. See the [MCP guide](docs/mcp.md) for configuration,
+authentication, and supported protocol boundaries.
+
+Optional Python codemode lets the model call tools from an isolated Python
+script and return compact results. Install the extra and pinned WASI runtime,
+then enable it:
+
+```sh
+# From the pipy checkout:
+uv tool install --python 3.15 '.[codemode]'
+pipy codemode install
+pipy --tools +codemode
+```
+
+The codemode guest stays on its pinned CPython 3.14.7 runtime independently of
+the host Python version. MCP's default `codemode` exposure can activate codemode
+for its tools; use `direct` exposure if you want model calls without that
+runtime. The optional `images` extra adds Pillow for image resizing/conversion:
+`uv tool install --python 3.15 '.[codemode,images]'`.
+See [codemode](docs/codemode.md) for isolation, installation, and limitations.
+
+## Automation and embedding
+
+```sh
+pipy -p "Summarize this codebase"
+cat README.md | pipy -p
+pipy --mode json "Summarize README.md"
+pipy --mode rpc
+```
+
+These modes use the same product session and tools. JSON and RPC carry full
+conversation and tool content. See [JSON mode](docs/json.md),
+[RPC mode](docs/rpc.md), and the [transport contract](docs/automation-rpc.md).
+
+The persistent [Python SDK](docs/sdk.md) accepts an explicitly injected provider
+and retains conversation history across submissions. Runnable offline examples:
 
 ```sh
 uv run python docs/examples/product_session_embedding.py
+uv run python docs/examples/sdk_codemode_mcp.py
 ```
 
-A [second example](docs/examples/sdk_codemode_mcp.py) gives a session
-`codemode`, `tool_search` and MCP servers, which an embedded session has only
-when asked.
+[Extensions](docs/extension-api.md), [skills and prompts](docs/customization.md),
+and [packages](docs/packages.md) customize tools and workflows. Package commands
+(`pipy install`, `list`, `update`, `remove`) support local paths and managed git
+sources; PyPI/npm package sources remain deferred.
 
-In production, construct a real provider through pipy's provider boundary and
-inject it into `create_product_session(...)`; the factory never selects a
-provider or credentials for you. See [`docs/sdk.md`](docs/sdk.md) for the API
-and [`docs/automation-rpc.md`](docs/automation-rpc.md) for out-of-process use.
+## Local state
 
-`pipy run --agent pipy-native` remains a separate one-shot CLI surface with its
-existing metadata archive, streaming, failure, and exit behavior.
+The **native product session tree** stores private full-content conversations
+under `~/.local/state/pipy/native-sessions/--<encoded-cwd>--/`. It powers resume,
+branching, compaction, and export; see [Session Tree](docs/session-tree.md).
 
-## Development Setup
+The separate optional **`pipy-session` workflow archive** under
+`~/.local/state/pipy/sessions/` stores summary-safe metadata for learning and
+review. See [Session Storage](docs/session-storage.md) and
+[workflow capture and sync](docs/workflow-capture.md) for recorder commands,
+external CLI wrappers, Claude hooks, and machine-to-machine sync.
+Codex, Claude Code, and Pi wrapping are capture/reference workflows.
 
-Install the Python tooling with `uv`:
-
-```sh
-uv sync
-```
-
-Run local verification through `just`:
+## Development
 
 ```sh
+uv sync --python 3.15
 just test          # pytest
 just lint          # ruff check
 just format-check  # ruff format --check across the repository
 just typecheck     # mypy
 just check         # lint, format-check, typecheck, then test
+just docs-build    # static documentation in site/
+just docs-serve    # preview at http://localhost:8000
 just loc           # slopscope line-count summary
 ```
 
-Check formatting directly with `uv run ruff format --check .`. Apply Ruff
-formatting across the repository with `uv run ruff format .` (or `just format`),
-then rerun `just check`.
-
-During the `slopscope` pre-release phase, `just loc` allows pre-release
-resolution in a frozen `uv run` overlay, so it does not rewrite this project's
-lockfile. Set `SLOPSCOPE_SPEC` to choose a package spec or local checkout.
-
-## Documentation Site
-
-Preview the Markdown docs locally with Zensical:
-
-```sh
-just docs-serve              # http://localhost:8000 by default
-just docs-serve localhost:8001
-just docs-build              # static output in site/
-```
-
-## Session Sync Setup
-
-Copy the direnv example and approve it:
-
-```sh
-cp .envrc.example .envrc
-direnv allow
-just sessions-init
-```
-
-Sync finalized session records with the paired Tailscale machine:
-
-```sh
-just sessions-sync
-```
-
-On `studio`, the default remote is `atlas.tailde2ec.ts.net`. On `atlas`, the
-default remote is `studio.tailde2ec.ts.net`.
-
-Pipy keeps two local stores by design. The **native product session tree** is
-the product session source of truth for `pipy repl --agent pipy-native`: a
-private append-only JSONL conversation tree under
-`~/.local/state/pipy/native-sessions/--<encoded-cwd>--/`, like Pi's own session
-files. It powers in-place `/tree` navigation, sibling branches, `/session`,
-`/name`, `/new`, `/resume`, `/fork`, `/clone`, durable `/compact`, branch
-summaries, and the startup flags `-c`/`-r`/`--session`/`--fork`/`--no-session`.
-The separate **`pipy-session` metadata archive** (active records in
-`.in-progress/pipy/`, finalized records in `pipy/YYYY/MM/` under
-`~/.local/state/pipy/sessions/`) is a summary-safe catalog/learning surface and
-is **not** the product session source. See
-[`docs/session-tree.md`](docs/session-tree.md) and
-[`docs/session-storage.md`](docs/session-storage.md) for the full lifecycle, and
-`scripts/parity_checks/session_tree_conformance.py --json` for the conformance
-gate.
-
-## Pipy Run Harness
-
-`pipy run --agent pipy-native` runs one minimal native turn through a direct
-provider boundary while pipy records conservative lifecycle metadata into the
-session archive:
-
-```sh
-uv run pipy
-uv run pipy repl
-uv run pipy run --agent pipy-native --slug native-smoke --goal "Native bootstrap smoke"
-uv run pipy run --agent pipy-native --native-provider openai --native-model <model> --slug openai-smoke --goal "Say hello briefly"
-uv run pipy auth openai-codex login
-uv run pipy run --agent pipy-native --native-provider openai-codex --native-model <model> --slug codex-smoke --goal "Say hello briefly"
-```
-
-The same command can also wrap an arbitrary subprocess for conservative
-lifecycle capture. This is a foundation and smoke-test path, not the
-long-term agent runtime:
-
-```sh
-uv run pipy run --agent custom --slug smoke -- echo hello
-uv run pipy run --agent codex --slug codex-capture --cwd . -- codex exec "..."
-```
-
-For subprocess capture runs, the harness streams child stdout and stderr to
-the caller, finalizes the pipy record, and returns the child exit code. Pipy
-does not own the subprocess prompt stack, model calls, tool behavior,
-approval model, or transcript format.
-
-### Headless automation (Pi `--mode json` / `--mode rpc` / `--print`)
-
-The product tool loop exposes Pi-compatible headless automation surfaces on
-`pipy repl`. These are **full-content** transports (assistant text, tool
-arguments/results, and bash output are emitted like Pi; only auth
-secrets/tokens are never emitted), independent of the metadata-first
-`pipy-session` archive. See [`docs/automation-rpc.md`](docs/automation-rpc.md).
-
-```sh
-# Full Pi-shaped session event stream as LF-only JSONL on stdout (one object
-# per line): a native session header, then agent/turn/message/tool events.
-uv run pipy repl --mode json "Summarize README.md"
-
-# One-shot: print only the final assistant text (Pi -p). Failures -> stderr.
-uv run pipy repl --print "What is 2 + 2?"
-
-# Long-lived stdin/stdout JSONL RPC protocol (Pi command vocabulary): send one
-# JSON command per line on stdin; responses (correlated by `id`) and async
-# session events are emitted on stdout.
-uv run pipy repl --mode rpc
-```
-
-Mode selection follows Pi's `resolveAppMode` precedence (`--mode rpc` >
-`--mode json` > `--print` > interactive); pipy keeps piped (non-TTY) stdin as
-interactive REPL input, so one-shot/RPC modes are selected explicitly via
-`--mode json|rpc` or `--print`/`-p` (a positional prompt without one of those is
-rejected rather than silently switching modes). The conformance gate is
-`uv run python scripts/parity_checks/automation_rpc_conformance.py --json`.
-
-### Flags
-
-Required:
-
-- `--agent <name>`: `pipy-native` for the product runtime; `custom`, `codex`,
-  `claude`, `pi` are subprocess/capture labels only.
-- `--slug <slug>`: short label used in the session filename.
-- `--goal <text>`: short goal, required for `--agent pipy-native`. Treat as
-  user-visible archive metadata; do not paste prompts, secrets, credentials,
-  or sensitive personal data.
-- command after `--`: subprocess command, required except for
-  `--agent pipy-native`.
-
-Optional:
-
-- `--cwd <path>`: child process working directory.
-- `--root <path>`: session root override (matches `pipy-session --root`).
-- `--record-files`: after the child exits, record changed git file paths
-  only. Without it, changed paths are not recorded.
-- `--native-provider <id>`: native provider for `--agent pipy-native`,
-  defaulting to `fake`. Supported ids: `fake`, `ds4`, `openai`,
-  `openai-codex`, `openrouter`, `anthropic`, `google`, `google-vertex`,
-  `mistral`, `amazon-bedrock`, `azure-openai`, `cloudflare`,
-  `openai-completions`. Provider transports are standard-library-first and use
-  no third-party provider SDKs; the OpenAI Codex WebSocket transport uses the
-  declared `websockets` dependency.
-- `--native-model <id>`: model label for the native provider. Most real
-  providers require it in one-shot `pipy run`; `ds4` defaults to
-  `deepseek-v4-flash`.
-- `--list-models [search]`: print the table of available provider/models
-  (provider, model, context, max-out, thinking, images), optionally fuzzy-
-  filtered over `provider id`, then exit without running a provider turn. Reads
-  the same catalog as the `/model` selector. Column shape matches Pi's
-  `pi --list-models`.
-- `--thinking <level>` / `--api-key <key>`: session thinking level and a runtime
-  API-key override. Catalog-driven construction passes these to the selected
-  adapter when supported: the runtime key has highest auth priority, and mapped
-  thinking uses the API family's native request shape. See
-  `docs/provider-catalog.md` for per-family behavior and IAM/auth exceptions.
-- `--models <patterns>`: Pi-style scoped-model patterns. In `pipy repl` these
-  apply as a final CLI override of `enabledModels` (CLI wins over
-  `settings.json`), constraining the `/scoped-models` set and live Ctrl+P
-  cycling for the session. A colon inside a model id is preserved; only a
-  trailing known `:level` thinking suffix is stripped, and that per-pattern
-  initial-level preference is not yet applied (tracked in
-  `docs/provider-catalog.md`).
-
-Provider/model catalog (`docs/provider-catalog.md`):
-
-- The catalog is the pipy-owned analogue of Pi's `ModelRegistry`: a built-in
-  table with multiple rows per provider, plus a `models.json` custom-provider /
-  override layer loaded from `<config>/models.json` (`PIPY_CONFIG_HOME`, else
-  `${XDG_CONFIG_HOME}/pipy`, else `~/.pipy` when present, else `~/.config/pipy`).
-  The foundation supports
-  comment/trailing-comma stripping, provider/per-model overrides (deep-merged),
-  OpenRouter/Vercel routing, per-model thinking, and graceful degradation (a
-  malformed `models.json` keeps the built-ins and reports a path-qualified
-  error). The product path constructs the Chat Completions family (custom
-  `models.json` providers, ds4, OpenRouter, openai-completions) and all current
-  non-completions adapter families from resolved catalog rows, applying catalog
-  model/base URL/auth/headers/routing/thinking where supported. Mid-session
-  `/model`, startup `--native-provider`/`--native-model`, and one-shot `pipy run`
-  resolve and construct through the same catalog-backed boundary, including
-  custom providers. This completes construction wiring for current provider
-  sources, not full Pi catalog parity; provider-specific compatibility and
-  adapter follow-ons remain tracked in `docs/provider-catalog.md`.
-- `ds4` is not a built-in catalog row: it is a `models.json` custom provider.
-  Paste `docs/examples/ds4.models.json` into your `models.json`, or set
-  `PIPY_DS4_BASE_URL` (and optionally `PIPY_DS4_API_KEY`) to have pipy
-  synthesize the same custom-provider entry. A legacy `--native-provider ds4`
-  adapter path remains for compatibility.
-
-Native product session-tree controls (Pi-style, `pipy repl`):
-
-- `-c`/`--continue`: continue the most recent native session for the workspace.
-- `-r`/`--resume-session`: open the native session picker at startup on a real
-  TTY (same overlay as in-session `/resume`); on a non-TTY stream it continues
-  the most recent native session.
-- `--session <path|id>`: open a specific native session file or partial id. A
-  partial id that matches only a session in a *different* project prompts to
-  fork it into the current workspace (aborts cleanly if declined).
-- `--session-id <id>`: open the native session with this exact id for the
-  workspace, or create a fresh one carrying it.
-- `--session-dir <dir>`: use `<dir>` as the native session store root (the
-  separate `$PIPY_SESSION_DIR` metadata-archive root is never reused for it).
-- `-n`/`--name <name>`: name the native session for the run.
-- `--fork <path|id>`: fork a native session into a new one. `--fork` and
-  `--session-id` are each mutually exclusive with `--session`/`--continue`/
-  `--resume-session`/`--no-session` (combining them is an error).
-- `--no-session`: ephemeral mode — no native session tree and no `pipy-session`
-  metadata record for the run.
-
-(The old metadata-only `--resume RECORD` / `--branch LABEL` repl flags are
-retired in favour of the native session tree; `pipy-session resume-info` remains
-the separate archive utility.)
-
-In a `pipy repl` session the slash commands `/session`, `/name <name>`, `/new`,
-`/tree`, `/resume`, `/fork`, and `/clone` operate on the native session tree.
-`/tree` opens an interactive in-frame selector in a TTY (movement, label with
-`L`, filter with `Ctrl-O`, select with Enter, cancel with Escape) and accepts
-scriptable `select`/`label`/`filter` subcommands in captured-stream mode.
-`/resume` opens an interactive session picker overlay on a TTY — type to search,
-`Tab` toggles current-project/all-projects scope, `Ctrl+P` the path column,
-`Ctrl+S` the sort, `Ctrl+N` named-only, `Ctrl+R` renames, `Ctrl+X` deletes after
-a `[y/N]` confirmation (the active session is protected), Enter opens, and
-`Esc`/`Ctrl+C`/`Ctrl+D` cancel. On a non-TTY stream `/resume` lists/opens prior
-native sessions and supports `named`, `rename <ref> <name>`, and `delete <ref>
---yes` (delete needs explicit confirmation, prefers the `trash` CLI, and never
-touches `pipy-session` records).
-
-### Providers
-
-- `openai` reads `OPENAI_API_KEY` and calls the Responses API.
-- `openai-codex` is the distinct ChatGPT Plus/Pro subscription path. Log in
-  with `uv run pipy auth openai-codex login` (or `/login openai-codex` from
-  the REPL). Pipy stores its own OAuth state under
-  `${PIPY_AUTH_DIR:-~/.local/state/pipy/auth}/openai-codex.json`; it does not
-  read or copy Pi's `~/.pi/agent/auth.json`.
-- `openrouter` reads `OPENROUTER_API_KEY` and is convenient for ad-hoc smoke
-  tests against many models:
-
-  ```sh
-  uv run pipy repl --agent pipy-native --slug openrouter-smoke \
-    --native-provider openrouter \
-    --native-model openai/gpt-5.1-codex
-  ```
-- `ds4` talks to a locally running
-  [`antirez/ds4`](https://github.com/antirez/ds4) OpenAI-compatible Chat
-  Completions server. In the catalog it is represented as a `models.json`
-  custom provider (see `docs/examples/ds4.models.json`); the compatibility
-  `--native-provider ds4` path defaults to base URL `http://127.0.0.1:8000/v1`
-  and model `deepseek-v4-flash`. Override them with `PIPY_DS4_BASE_URL` and
-  `--native-model`. `PIPY_DS4_API_KEY` is optional and, when set, is sent as a
-  bearer token. The provider advertises `supports_tool_calls=True`; a live ds4
-  smoke verified OpenAI-style `tool_calls` responses and pipy's bounded tool
-  loop.
-
-  ```sh
-  # Outside the pipy repo. The q2-imatrix download is large and resumes.
-  git clone https://github.com/antirez/ds4 ~/src/ds4
-  cd ~/src/ds4
-  make
-  ./download_model.sh q2-imatrix   # about 81 GB; rerun to resume
-  ./ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192
-
-  uv run pipy run --agent pipy-native \
-    --native-provider ds4 \
-    --native-model deepseek-v4-flash \
-    --slug ds4-smoke \
-    --goal "Reply with exactly one sentence explaining what ds4 is."
-  ```
-- `fake` is the deterministic no-credential default.
-
-### Native REPL
-
-`pipy` and `pipy repl` start the interactive native shell with default slug
-`native-repl`. There is one product REPL: the bounded model-driven tool loop.
-The model drives `read`, `ls`, `grep`, `find`, `write`, `edit`, and `bash`.
-`--tool-budget` (default 50, max 200) caps the tool calls the model makes per
-user turn; the calls a tool makes itself, such as a codemode script's, are
-not counted, as Pi has no limit on them. Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
-targets. Read excerpts, shell output, and provider-visible tool results retain
-independent automatic output bounds.
-
-`bash` is a real shell, matching Pi: a prompt like "run the tests" lets the
-model run an arbitrary command in the workspace (e.g. `just test`, `uv run
-pytest`, `git status`, pipelines) and get the combined stdout/stderr back. Like
-Pi's bash tool it spawns a real shell (`bash -c <command>`) in the workspace
-root with the inherited environment and an optional `timeout` in seconds (the
-whole process group is killed when it elapses); output is bounded to a byte
-ceiling. A non-zero exit is an error result ending in `Command exited with
-code N`, as in Pi. The combined output is returned to the model only; the archive
-boundary records counters and labels alone — never the raw command or output.
-
-#### Resume, branch, and compaction
-
-- Product resume/branch/fork is the native session tree — see the "Native
-  product session-tree controls" section above (`-c`/`-r`/`--session`/
-  `--session-id`/`--fork`, the `/resume` picker, and in-session `/tree`/`/fork`/
-  `/clone`). The old pipy-only metadata-only `pipy repl --resume <stem>` /
-  `--branch <label>` repl flags were **retired** in favour of it; the separate
-  `pipy-session resume-info <stem>` archive utility still reads the safe
-  metadata-only `ResumeContext` (prior provider/model/turn labels only — never
-  prompts, model output, tool payloads, file contents, diffs, or summary text)
-  for the catalog/learning surface, and finalized records remain immutable.
-- `/compact` reduces the provider-visible context in place (and an automatic
-  threshold does the same) while keeping recent turns plus a safe
-  metadata-only summary. In the tool loop the cut happens at a user-turn
-  boundary, so a tool result is never orphaned and no raw tool payload leaks.
-  `pipy-session list/inspect/export/resume-info` surface the lineage and
-  compaction counters read-only.
-
-#### Product export, import, and share
-
-Native product sessions can be exported from the tool-loop REPL:
-
-- `/export` writes a self-contained HTML export of the full native session tree
-  in the current directory.
-- `/export <path.html>` writes HTML to a chosen path.
-- `/export <path.jsonl>` writes the active branch as portable native JSONL with
-  a linear parent chain.
-- `/import <path.jsonl>` copies a portable native JSONL file into the native
-  session store and resumes it after confirmation. Use `/import <path.jsonl>
-  --yes` for noninteractive scripts.
-- `/share` exports the session to HTML and uploads it as a secret GitHub gist
-  through the GitHub REST API. Set `GITHUB_TOKEN`/`GH_TOKEN` or log in with
-  `gh auth login`; tokens are never embedded in exported artifacts.
-
-Non-interactive HTML export is available as:
-
-```sh
-pipy --export ~/.local/state/pipy/native-sessions/.../session.jsonl out.html
-```
-
-These commands operate on the full native product session tree. They are
-separate from `pipy-session export`, which remains a metadata-only catalog
-utility for finalized learning/archive records.
-
-The product REPL also exposes these explicit slash commands (the `/` menu lists
-them; `/hotkeys` covers keyboard shortcuts):
-
-- `/settings` (settings and status dialog, including a Theme row whose picker
-  selects the terminal palette), `/compact`
-- `/hotkeys` (resolved keyboard-shortcut table), `/reload` (re-read settings,
-  keybindings, and resources), `/changelog` (release notes)
-- `/login [openai-codex]`, `/logout [openai-codex]`,
-  `/model [<provider>/<model>]`, `/scoped-models`
-- `/skill:<name> [args]` — run a skill as Pi does: its body goes to the model
-  in a `<skill>` block, drawn as a collapsible `[skill]` box. Discovered skills
-  are also advertised in the system prompt (name, description, and absolute
-  location) so the model can load a skill body on demand with `read` (or
-  `bash`).
-- `/export`, `/import`, `/share` (see "Product export, import, and share"),
-  `/copy` (copy the last answer to the clipboard)
-- `/new`, `/session`, `/name`, `/tree`, `/resume`, `/fork`, `/clone` (native
-  session-tree controls)
-- `/exit`, `/quit`
-
-A `.pipy/commands/<name>.md` custom command and each discovered prompt template
-also appear as their own `/<name>` command (see "Runtime resources" below).
-
-The model reads and edits files through the model-visible `read`, `ls`, `grep`,
-`find`, `write`, `edit`, and `bash` tools rather than dedicated slash commands.
-Workspace context (the first of `AGENTS.override.md`, `AGENTS.md`,
-`AGENTS.MD`, `CLAUDE.md`, or `CLAUDE.MD` per directory, from ancestors plus the
-global pipy config root, as in Pi) is discovered and composed into the system
-prompt as Pi's `<project_context>` section across the real providers, bounded
-by 64 KiB per file and 256 KiB total.
-
-### Runtime resources: skills, prompt templates, custom commands
-
-The product REPL loads three bounded resource kinds from pipy-owned Markdown
-stores in Pi's order: installed packages, then the workspace
-(`<workspace>/.pipy/{skills,templates,commands}/`), then the global
-`<config>/{skills,templates,commands}/`, then `--skill`/`--prompt-template`
-paths (`<config>` where `<config>` resolves through
-`PIPY_CONFIG_HOME` → `${XDG_CONFIG_HOME}/pipy` → `~/.pipy` when present →
-`~/.config/pipy`). Each `*.md`
-file may carry optional `---` frontmatter with `name` and `description`; the
-body is the instruction/template text.
-
-- `/skill:<name> [args]` sends a skill as Pi's `<skill>` block followed by
-  the arguments. Discovered skills are also advertised in the system prompt so
-  the model can load a skill body on demand with `read` (or `bash`); a skill
-  with `disable-model-invocation: true` is left out of it. A skill without a
-  frontmatter `name` is named after its directory, as in Pi.
-  Skills also come from project `.agents/skills/` (cwd up to the git root) and
-  `~/.agents/skills/`. Every skill root uses Pi's layout: a directory with a
-  `SKILL.md` is one skill, and a skill needs a `description` (see
-  [docs/customization.md](docs/customization.md)).
-- Each discovered prompt template is invoked as its own `/<template-name>`
-  command, expanding `$ARGUMENTS` / `$1..$9` as a bounded provider turn.
-- A `.pipy/commands/<name>.md` file becomes a `/<name>` custom slash command
-  that runs through the same local-command boundary as the built-ins (it
-  cannot shadow a built-in) and appears in the product REPL slash menu and
-  completion. Unknown/unsafe/empty resources fail closed with no provider turn.
-
-Discovery rejects secret-shaped filenames, binary content, generated /
-`.gitignore`-matched filenames and oversized bodies (64 KiB/file, 256 KiB
-total); symlinks are followed like Pi. This is deliberately not a general extension API — only
-these three kinds load, through the existing provider/session/tool/archive
-boundaries. Resource bodies, expanded prompts, and command text never enter
-the metadata archive or prompt history; only safe counters/labels (name, path
-label, sha256, byte length, truncated) are recorded.
-
-REPL input goes through `--input-runtime auto|plain|prompt-toolkit`. `auto`
-keeps plain stdin/stderr for captured streams and uses the optional
-prompt-toolkit line editor on real TTYs when the package is available
-(slash-command, path, and `@file` completion plus Enter / Esc+Enter
-multiline editing). Prompt-toolkit is optional and not a declared runtime
-dependency.
-
-A genuine user prompt that names workspace files with `@path` (one or more
-references) loads bounded UTF-8 excerpts for those files into the next provider
-request (including the product TUI). The references resolve through the
-model-selected `read` tool, so each loads at most 2000 lines or 50 KB with
-Pi's continuation notice, and missing, ignored, image and out-of-workspace
-paths fail closed with safe local diagnostics; the user's literal prompt text
-is preserved and only safe counters reach the session archive.
-
-A prompt may also attach images with `@image:<path>` (one or more references).
-Multimodal-capable adapters (Anthropic, OpenAI Responses, Google Gemini)
-receive bounded, magic-byte-validated (PNG/JPEG/GIF/WebP) images as native
-image blocks on the current user message; non-multimodal providers and
-missing, oversized, out-of-workspace, or mistyped paths fail closed with safe
-local diagnostics. Only safe metadata (reference/loaded/failed counts and, per
-loaded image, media type, byte count, and sha256) reaches the session archive
-— never the raw image bytes.
-
-### Interactive editor (product TUI)
-
-In a real TTY the tool-loop product TUI offers Pi-style interactive editing
-(all stdlib-only, inline, no alternate screen):
-
-- `@` file picker — type `@query` to open a ranked picker over workspace files
-  (exact/prefix/substring scoring, not fuzzy); Up/Down move, Tab/Enter accept
-  the chosen `@path`, Esc closes. `Tab` also completes a path-like prefix
-  (`./src/`, `~/pr`) and is a no-op in prose.
-- `!cmd` / `!!cmd` — run a shell command from the editor without a provider
-  turn; `!` records the command/output into the conversation, `!!` runs it
-  live-only. Escape cancels a running command.
-- `Shift+Tab` cycles the thinking level; `Ctrl+P` / `Shift+Ctrl+P` cycle the
-  model through the scoped/available set; `Ctrl+O` expands tool output;
-  `Ctrl+T` folds thinking blocks (persisted).
-- During an active turn, Enter queues a **steering** message (interrupts and
-  redirects), `Alt+Enter` queues a **follow-up** (runs after), and `Alt+Up`
-  restores queued messages to the editor; queued messages render in a pending
-  region and drain steering-first.
-- `Ctrl+V` pastes an image from the OS clipboard (written to an owner-only temp
-  file and attached on submit). Clipboard reads are bounded; helpers that hang
-  after closing stdout fail as no image and are killed and reaped, along with
-  their owned POSIX process group. Dropping a file onto the terminal inserts an
-  `@image:`/`@path` reference.
-- `/scoped-models` opens a multi-select overlay defining the Ctrl+P cycle set;
-  `/hotkeys` lists every binding. Terminal-native mouse text selection keeps
-  working (the renderer never enables xterm mouse tracking).
-
-These surfaces are specified in `docs/tui-workflow.md` and gated by
-`scripts/parity_checks/tui_workflow_conformance.py --json`.
-
-### What pipy-native records — and doesn't
-
-Interactive product sessions keep the full conversation in the private native
-session tree under `~/.local/state/pipy/native-sessions/`. The workflow archive
-stores only safe lifecycle metadata: agent, adapter,
-provider/model labels, run id, workspace basename + path hash, status, exit
-code, normalized usage counters (`input_tokens`, `output_tokens`,
-`total_tokens`, `cached_tokens`, `reasoning_tokens`), provider storage
-booleans, safe tool-intent labels, approval/sandbox policy labels, and
-verification status. `--record-files` additionally records changed paths
-from `git status --porcelain`, redacting assignment-style secret values.
-
-The archive does **not** store raw prompts, model output, provider responses,
-provider-native tool-call payloads, function arguments, response ids that
-could reveal payloads, tool results, stdout, stderr, diffs, file contents,
-secrets, credentials, tokens, private keys, or sensitive personal data.
-
-Successful native runs print provider final text to stdout; finalization
-messages and diagnostics go to stderr. For a full Pi-shaped session event
-stream use `pipy repl --mode json "<prompt>"` (see "Headless automation"
-above and [`docs/automation-rpc.md`](docs/automation-rpc.md)).
-
-The native session tree is the transcript: use `/export` in-session or the
-top-level `--export` to write a portable copy. There is no separate transcript
-sidecar.
-
-For the full invariant set, capture-policy rationale, and deferred
-boundaries see [`docs/harness-spec.md`](docs/harness-spec.md) and
-[`docs/architecture.md`](docs/architecture.md). Pi parity status lives in
-[`docs/pi-parity.md`](docs/pi-parity.md).
-
-## Session Recorder CLI
-
-Use `pipy-session` to create active JSONL records, append structured
-events, and finalize immutable records into the syncable archive:
-
-```sh
-active="$(uv run pipy-session init --agent codex --slug session-storage-work)"
-uv run pipy-session append "$active" --type decision.recorded --summary "Use finalized immutable JSONL files for sync."
-uv run pipy-session finalize "$active" --summary "# Summary
-
-Implemented the local recorder foundation."
-```
-
-Finalized filenames are shaped like:
-
-```text
-YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl
-YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.md
-```
-
-For partial reconstructions, pass `--partial`:
-
-```sh
-uv run pipy-session init --agent codex --slug manual-reconstruction --partial
-```
-
-### Read-only inspection
-
-- `list [--json]` — finalized archive listing with Markdown-summary
-  presence.
-- `search <query> [--json]` — case-insensitive substring match against
-  listing metadata, event types, event summaries, and Markdown summaries.
-- `inspect <name> [--json]` — metadata, event counts, and Markdown summary
-  for one finalized record (accepts path, basename, or stem).
-- `export <name>` — metadata-only JSON of one record (export schema v2; no
-  transcript payload — the native session tree is the transcript).
-- `resume-info <name>` — JSON-only continuation metadata, including safe
-  resume/branch lineage and compaction-event counts.
-- `verify [--json]` — scans the archive for structural issues (malformed
-  first events, orphan Markdown summaries, stray `*.partial` files,
-  unexpected files under `pipy/`, ambiguous basenames or stems).
-
-All read commands omit raw JSONL event bodies, prompt text, tool output,
-and transcript payloads.
-
-## External Tool Capture
-
-External tool capture is adapter-specific and secondary to `pipy-native`.
-No single hook mechanism reliably covers Claude Code, Codex, and Pi, and
-these paths do not make those tools product runtime backends.
-
-| Platform | pipy capture/reference path | Capture status |
-| --- | --- | --- |
-| Claude Code | `pipy-session auto hook claude` handles `SessionStart`, metadata events, and `SessionEnd` when configured in Claude Code project settings. | Partial; lifecycle and conservative metadata, not raw transcripts. |
-| Codex | `pipy-session wrap --agent codex -- ...` records wrapper start/end metadata. The documented `Stop` hook is turn-scoped, so no Codex hook adapter is installed. | Partial. |
-| Pi | `pipy-session wrap --agent pi -- ...` records pipy wrapper metadata. | Partial; no raw transcript import. |
-
-Drive an automatic partial capture directly:
-
-```sh
-active="$(uv run pipy-session auto start --agent codex --slug wrapper-test --session-id codex-123)"
-uv run pipy-session auto event --agent codex --session-id codex-123 --type codex.turn.observed --summary "Observed a turn boundary."
-uv run pipy-session auto stop --agent codex --session-id codex-123
-```
-
-Automatic state mappings live under
-`~/.local/state/pipy/sessions/.in-progress/pipy/.state/`. Clean up stale
-mappings without touching session records:
-
-```sh
-uv run pipy-session auto prune --dry-run
-uv run pipy-session auto prune
-```
-
-### Claude Code Hook Capture
-
-This repository does not install hooks into your dotfiles or commit live
-hook settings. To enable Claude Code capture for your local checkout, add
-`.claude/settings.local.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cd \"${CLAUDE_PROJECT_DIR:?}\" && uv run pipy-session auto hook claude",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Claude Code must trust the project settings for project-local hooks to
-run. The adapter stores prompt text and assistant/tool output as redacted
-metadata counts, not raw content. The example observes every prompt and
-high-signal write-like tool event; tighten matchers or drop
-`UserPromptSubmit` if the overhead is noticeable.
-
-### Wrapper Capture
-
-Use wrapper capture when a platform lacks a verified start/end hook:
-
-```sh
-uv run pipy-session wrap --agent codex --slug codex-work -- codex
-uv run pipy-session wrap --agent pi --slug pi-work -- pi
-```
-
-Wrapper records are partial because they record pipy lifecycle metadata
-around the process, not the platform's full transcript.
-
-Raw transcript import for Codex / Claude / Pi is intentionally out of
-scope: it would require explicit opt-in and a concrete redaction policy.
-SQLite or another indexed store is also deferred — the JSONL + Markdown
-archive remains the source of truth.
+Check formatting with `uv run ruff format --check .`; apply it with
+`uv run ruff format .` (or `just format`). `just loc` uses a frozen uv overlay
+with pre-release resolution; `SLOPSCOPE_SPEC` selects a package or local checkout.
+CI runs full tests on Python 3.11, 3.14, and 3.15, plus real-PTY checks on Linux
+and macOS and runtime-required codemode probes on Linux. The documentation is
+built locally and in CI; publishing to a documentation host is not configured.
+
+The [contributor guide](CONTRIBUTING.md) covers setup, architecture gates, review,
+and privacy. The [backlog](docs/backlog.md) owns current priorities and records
+remaining parity differences and live-verification gaps.

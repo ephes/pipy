@@ -8,18 +8,29 @@ invariants in [`docs/harness-spec.md`](docs/harness-spec.md).
 
 ## Set up a clean checkout
 
-You need Git, Python 3.11 or newer, [`uv`](https://docs.astral.sh/uv/), and
+You need Git, Python 3.11–3.15, [`uv`](https://docs.astral.sh/uv/), and
 [`just`](https://just.systems/). From the root of a clean checkout, install the
 locked project and development environment, then inspect the available recipes:
 
 ```sh
-uv sync
+uv sync --python 3.15
 just --list
 ```
 
 `uv sync` installs the development tools declared in `pyproject.toml`, including
 Pytest, Ruff, Mypy, and Zensical. Run all commands below from the repository
-root.
+root. Full-suite CI covers Python 3.11, 3.14, and 3.15; real-PTY jobs cover
+Linux and macOS on 3.14 and 3.15, and runtime-required codemode probes cover Linux
+on both versions. Lint, formatting, types, and docs run on Python 3.14.
+
+To check a second interpreter without replacing the normal `.venv`:
+
+```sh
+UV_PROJECT_ENVIRONMENT=.venv-py315 UV_PYTHON=3.15 uv sync --frozen --all-extras
+UV_PROJECT_ENVIRONMENT=.venv-py315 UV_PYTHON=3.15 just check
+```
+
+The host version does not change codemode's pinned CPython 3.14.7 WASI guest.
 
 ## Work directly on `main`
 
@@ -89,18 +100,21 @@ git status --short
 
 `just check` runs lint, repository-wide format checking, Mypy over `src` and
 `tests`, and the full Pytest suite. `just docs-build` builds the Zensical site.
+The docs build validates the site but does not deploy it. No Read the Docs or
+other hosting integration is configured in this repository.
+
 Inspect the final status and diff so code, tests, docs, and generated-artifact
 expectations agree and the change contains only its intended paths.
 
 ## Independent review and review budget
 
-Follow the review budget in [`AGENTS.md`](AGENTS.md): at most two rounds for
-docs/specs/plans and three for code unless the operator explicitly authorizes
-more material work. Stop on a clean result or when further feedback is no longer
-material; do not chase prose precision or reviewer-induced churn. Correctness
-defects—especially shared-mutable-state races or lost updates—still block a
-commit regardless of the cap. Record any unresolved material finding instead
-of silently treating the budget as a pass.
+Follow the diminishing-returns review rule in [`AGENTS.md`](AGENTS.md). There
+is no fixed round cap: stop on a clean result, when further feedback is no longer
+material, or when the documented churn signals apply. Fix material findings and
+verify the repair; do not chase prose precision. Correctness defects in shared
+mutable state are exempt from stopping rules and still block a commit. Record
+unresolved findings and distinguish advisory closure from CLEAN. The parity-loop
+workflow retains its mandatory different-family CLEAN gate.
 
 ## Session and workflow-data privacy
 

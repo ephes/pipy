@@ -59,6 +59,28 @@ follow-ons are listed in [backlog.md](backlog.md).
   (`supportsMidConvoEffort`, `providerThinkingLevel`, `output_config` system
   messages, `block_binding`, betas). Remainder: backlog SYS1c.
 
+**October updates (through main `e67e759b`, 2026-10-16):**
+
+- **CM1:** optional [Python codemode](codemode.md) ships with a pinned WASI
+  guest, nested tool calls, session-scoped `store`/`load`, and compact-output
+  guidance. Python syntax and the synchronous native core are intentional
+  differences from Pi.
+- **MCP1:** [MCP](mcp.md) ships with stdio/streamable HTTP, `mcp.json`, OAuth,
+  discovery/exposure, tool search, resources, `/mcp`, CLI management, reload,
+  and extension/SDK hooks. The selected scope against Pi `a447ba11f` is complete;
+  [acceptance evidence](acceptance/2026-10-13-mcp-parity.md) retains recorded
+  differences and the outstanding authenticated live checks.
+- **Daily-use repairs:** oversized auxiliary-summary recovery, stopped-turn
+  persistence/rendering, ordinary and auxiliary retry visibility, footer context
+  restoration, and compaction accounting landed. The backlog retains their
+  detailed review outcomes and open boundaries.
+- **Context elision:** the [evaluation](specs/2026-10-11-context-elision-evaluation.md)
+  supports retaining current compaction; generic output elision is not enabled.
+
+The feature table below is a historical inventory, not an exhaustive map of
+October's extension, tool-result, MCP, and codemode behavior. Use the topic guides
+and backlog for current contracts and gaps.
+
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare
 positional prompt seeds the first message); `auth|run|repl|config|install|...`
@@ -376,9 +398,9 @@ Future Pi parity work should preserve these pipy-specific rules:
 
 Use these docs together:
 
-- [Architecture](/architecture/) explains what exists now and where it lives.
-- [Backlog](/backlog/) is the forward-planning index for slices and parity
+- [Architecture](architecture.md) explains what exists now and where it lives.
+- [Backlog](backlog.md) is the forward-planning index for slices and parity
   tracks.
-- [Harness Spec](/harness-spec/) records detailed rationale and deferred
+- [Harness Spec](harness-spec.md) records detailed rationale and deferred
   design.
 - [Session Storage](session-storage.md) is the archive and privacy policy.

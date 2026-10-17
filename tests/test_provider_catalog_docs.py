@@ -22,16 +22,10 @@ def test_readme_matches_shipped_provider_catalog_construction_status() -> None:
     )
     assert stale_claim not in readme
 
-    for shipped_surface in (
-        "Chat Completions family",
-        "all current non-completions adapter families",
-        "startup `--native-provider`/`--native-model`",
-        "one-shot `pipy run`",
-        "same catalog-backed boundary",
-    ):
-        assert shipped_surface in readme
-
-    assert "construction wiring for current provider sources" in readme
-    assert "not full Pi catalog parity" in readme
+    # The README points readers to the maintained contract rather than duplicating
+    # an adapter-by-adapter implementation status that can drift independently.
+    assert "[provider catalog](docs/provider-catalog.md)" in readme
+    assert "--native-provider" in readme
+    assert "--native-model" in readme
     assert "fully wired for current provider sources" in catalog_spec
     assert "only documented adapter follow-ons remain" in catalog_spec

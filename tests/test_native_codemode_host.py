@@ -1575,10 +1575,12 @@ def test_text_in_pieces_is_one_item(
 ) -> None:
     # Goal-check finding M18: the prelude sends long text in pieces that fit
     # the line limit; the host joins them, and they count as one call.
+    # Build the payload in the child: Linux caps each argv item at 128 KiB.
     scenario = (
         "start()\n"
-        f"send({{'type': 'text', 'value': {_PIECE!r}, 'more': True}})\n"
-        f"send({{'type': 'text', 'value': {_PIECE[1:]!r}, 'more': True}})\n"
+        f"piece = 'p' * {prelude.TEXT_PIECE_CHARS}\n"
+        "send({'type': 'text', 'value': piece, 'more': True})\n"
+        "send({'type': 'text', 'value': piece[1:], 'more': True})\n"
         "send({'type': 'text', 'value': 'e'})\n"
         "send({'type': 'text', 'value': 'next', 'more': False})\n"
         "done()\nexit_status()\n"

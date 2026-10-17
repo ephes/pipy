@@ -113,8 +113,8 @@ them only for deeper design detail.
 7. **Automation docs.** **Shipped:** [JSON Mode](json.md), [RPC Mode](rpc.md),
    and [Python SDK and Headless Embedding](sdk.md) cover full-event one-shot
    automation, long-lived JSONL control, and in-process Python embedding.
-8. **Terminal/platform docs.** **Shipped:** [Terminal Setup](/terminal-setup/)
-   and [tmux Setup](/tmux/) cover TUI behavior, tmux, paste, scrollback,
+8. **Terminal/platform docs.** **Shipped:** [Terminal Setup](terminal-setup.md)
+   and [tmux Setup](tmux.md) cover TUI behavior, tmux, paste, scrollback,
    keyboard caveats, clipboard/image/drop behavior, and platform-specific
    notes.
 

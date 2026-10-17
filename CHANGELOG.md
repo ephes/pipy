@@ -6,6 +6,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Changed
+
+- Python 3.15 is explicitly supported alongside 3.11–3.14. CI adds full tests,
+  Linux/macOS real-PTY checks, and Linux runtime-required codemode probes on
+  3.15. The optional codemode guest remains pinned to CPython 3.14.7.
+- The README now starts with installation, provider setup, product sessions,
+  MCP, codemode, and automation. Detailed workflow recorder, external CLI
+  capture, Claude hook, and sync instructions moved to
+  [Workflow capture and sync](docs/workflow-capture.md). The backlog and parity
+  overview reflect the MCP merge and October maintenance/evaluation work;
+  contributor review guidance follows the current diminishing-returns policy,
+  and `AGENTS.md` reflects the public repository status.
+
 ### Fixed
 
 - OAuth discovery no longer waits for the body of an answer it does not

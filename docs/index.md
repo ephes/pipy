@@ -32,7 +32,8 @@ is stored. For terminal-specific preparation, see
 - [JSON Mode](json.md), [RPC Mode](rpc.md), and the
   [Python SDK](sdk.md) cover automation and embedding.
 - [Session Storage](session-storage.md) documents the separate metadata-only
-  workflow catalog.
+  workflow catalog; [Workflow capture and sync](workflow-capture.md) covers
+  recorder commands, external CLI capture, hooks, and machine sync.
 - [Python codemode](codemode.md) covers installing the optional codemode
   runtime and writing scripts that call other tools.
 - [MCP](mcp.md) covers MCP servers: `mcp.json`, the `pipy mcp` commands,

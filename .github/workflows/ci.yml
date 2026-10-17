@@ -66,7 +66,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.14"]
+        python-version: ["3.11", "3.14", "3.15"]
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
@@ -103,7 +103,7 @@ jobs:
         run: just test
 
   real-pty:
-    name: Real PTY (${{ matrix.platform }})
+    name: Real PTY (${{ matrix.platform }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
@@ -112,12 +112,22 @@ jobs:
         include:
           - platform: Linux
             runner: ubuntu-latest
+            python-version: "3.14"
             cache-suffix: linux-py314-pty
           - platform: macOS
             runner: macos-latest
+            python-version: "3.14"
             cache-suffix: macos-py314-pty
+          - platform: Linux
+            runner: ubuntu-latest
+            python-version: "3.15"
+            cache-suffix: linux-py315-pty
+          - platform: macOS
+            runner: macos-latest
+            python-version: "3.15"
+            cache-suffix: macos-py315-pty
     env:
-      UV_PYTHON: "3.14"
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -126,7 +136,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -142,16 +152,22 @@ jobs:
       - name: Sync locked dependencies
         run: uv sync --all-groups
       - name: Verify Python selection
-        run: uv run python -c 'import sys; assert sys.version_info[:2] == (3, 14), sys.version'
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: uv run python -c 'import os, sys; assert ".".join(map(str, sys.version_info[:2])) == os.environ["EXPECTED_PYTHON"], sys.version'
       - name: Run real-PTY smoke suite
         run: just test-pty-smoke
 
   codemode-probes:
-    name: Codemode isolation probes (Linux x86_64)
+    name: Codemode isolation probes (Linux x86_64, Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.14", "3.15"]
     env:
-      UV_PYTHON: "3.14"
+      UV_PYTHON: ${{ matrix.python-version }}
       # Fail instead of skipping when the runtime is missing.
       PIPY_CODEMODE_REQUIRE_RUNTIME: "1"
     steps:
@@ -162,14 +178,14 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python-version }}
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           version: "0.11.16"
           enable-cache: true
           cache-dependency-glob: uv.lock
-          cache-suffix: linux-py314-codemode
+          cache-suffix: linux-py${{ matrix.python-version }}-codemode
       - name: Sync locked dependencies
         run: uv sync --all-groups
       - name: Install the pinned codemode runtime
