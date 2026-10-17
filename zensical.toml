@@ -1,5 +1,9 @@
 [project]
 site_name = "pipy"
+site_url = "https://pipy-agent.readthedocs.io/en/latest/"
+site_description = "Native Python coding agent: setup, providers, sessions, MCP, codemode, extensions, and automation."
+repo_url = "https://github.com/ephes/pipy"
+repo_name = "ephes/pipy"
 # Gitignored parity-loop run bundles under docs/parity-loop/runs contain raw
 # diffs and Python type syntax such as list[str]. Keep real link validation on,
 # but do not warn on reference-style Markdown tokens from those scratch files.

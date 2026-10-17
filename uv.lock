@@ -420,6 +420,9 @@ dev = [
     { name = "wasmtime" },
     { name = "zensical" },
 ]
+docs = [
+    { name = "zensical" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -440,6 +443,7 @@ dev = [
     { name = "wasmtime", specifier = ">=49,<50" },
     { name = "zensical", specifier = ">=0.0.41,<0.1" },
 ]
+docs = [{ name = "zensical", specifier = ">=0.0.41,<0.1" }]
 
 [[package]]
 name = "pluggy"

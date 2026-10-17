@@ -34,13 +34,16 @@ images = [
 ]
 
 [dependency-groups]
+docs = [
+    "zensical>=0.0.41,<0.1",
+]
 dev = [
+    { include-group = "docs" },
     "mypy>=1.18",
     "pillow>=12,<13",
     "pytest>=8.0",
     "ruff>=0.14",
     "wasmtime>=49,<50",
-    "zensical>=0.0.41,<0.1",
 ]
 
 [build-system]

@@ -6,6 +6,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Added
+
+- Read the Docs build configuration for the existing Zensical documentation,
+  using a dedicated locked `docs` dependency group and Python 3.14. The target
+  project is `pipy-agent`; one-time RTD account import is required before the
+  hosted site is available. Contributor instructions cover import and local
+  reproduction of the hosted build.
+
 ### Changed
 
 - Python 3.15 is explicitly supported alongside 3.11–3.14. CI adds full tests,

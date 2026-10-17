@@ -463,11 +463,12 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Publishing:** choose and own a PyPI distribution name, then add a
   publish workflow with SHA-pinned actions. Until then
   `pipy update self` refuses, and the README documents the checkout install.
-- **Documentation hosting:** `just docs-build` and CI validate the Zensical
-  site, but no deployment is configured. Read the Docs' `pipy` project points
-  to another repository ([public project metadata](https://app.readthedocs.org/api/v3/projects/pipy/),
-  checked 2026-10-17). Publishing there needs an available project slug and
-  repository integration; no public docs URL is claimed in the README.
+- **Documentation hosting (selected 2026-10-17):** Zensical deployment is
+  configured in `.readthedocs.yaml`, using the locked `docs` group on Python
+  3.14. Target: `https://pipy-agent.readthedocs.io/en/latest/`; RTD's `pipy`
+  name belongs to another repository. The one-time project import/account
+  integration and a successful hosted build are still pending; see
+  [contributor setup](https://github.com/ephes/pipy/blob/main/CONTRIBUTING.md#documentation-hosting).
 - **USAGE1b, what USAGE1 left of Pi's usage** (see the USAGE1 Done row):
   - footer meter branch-anchor restoration is closed by DF1-F4b slice 2;
     RPC `contextUsage` remains deferred. Pi `getContextUsage` reports unknown

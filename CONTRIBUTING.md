@@ -100,11 +100,43 @@ git status --short
 
 `just check` runs lint, repository-wide format checking, Mypy over `src` and
 `tests`, and the full Pytest suite. `just docs-build` builds the Zensical site.
-The docs build validates the site but does not deploy it. No Read the Docs or
-other hosting integration is configured in this repository.
+The docs build validates the site locally. Read the Docs uses
+[`.readthedocs.yaml`](.readthedocs.yaml) to install only the locked `docs`
+dependency group and build the same Zensical site on Python 3.14. This requires
+neither the product package nor the optional codemode runtime.
 
 Inspect the final status and diff so code, tests, docs, and generated-artifact
 expectations agree and the change contains only its intended paths.
+
+## Documentation hosting
+
+The Read the Docs project name is `pipy-agent` (the name `pipy` belongs to
+another repository). Its target documentation URL is
+<https://pipy-agent.readthedocs.io/en/latest/>. The project needs a one-time
+import before that address serves documentation:
+
+1. Open <https://app.readthedocs.org/dashboard/import/> in the owner's RTD account.
+2. Import `https://github.com/ephes/pipy`, using project name `pipy-agent`, branch
+   `main`, and configuration file `.readthedocs.yaml`.
+3. Confirm that the GitHub integration created the webhook, then trigger the
+   `latest` build. Check that it succeeds before advertising the hosted URL.
+
+After import, pushes to `main` rebuild `latest`. The RTD `latest` version tracks
+the checkout, including Unreleased changes. Old release tags without the hosting
+configuration are not expected to build. Project creation/authentication belongs
+to Read the Docs; no API tokens or webhook credentials belong in this repository.
+
+To reproduce the hosted build without changing the normal `.venv`:
+
+```sh
+UV_PROJECT_ENVIRONMENT=.venv-docs uv sync --frozen --only-group docs --python 3.14
+UV_PROJECT_ENVIRONMENT=.venv-docs uv run --frozen --only-group docs zensical build
+mkdir -p _readthedocs/html
+cp -a site/. _readthedocs/html/
+```
+
+The last two commands reproduce RTD's artifact handoff. `site/` and
+`_readthedocs/` are generated output and remain ignored.
 
 ## Independent review and review budget
 
