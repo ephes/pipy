@@ -7,10 +7,10 @@ build:
   jobs:
     install:
       - python -m pip install "uv==0.13.1"
-      - uv sync --frozen --only-group docs --python 3.14
+      - python -m uv sync --frozen --only-group docs --python 3.14
     build:
       html:
-        - uv run --frozen --only-group docs --python 3.14 zensical build
+        - python -m uv run --frozen --only-group docs --python 3.14 zensical build
     post_build:
       - mkdir -p "$READTHEDOCS_OUTPUT/html"
       - cp -a site/. "$READTHEDOCS_OUTPUT/html/"

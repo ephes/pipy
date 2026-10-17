@@ -10,9 +10,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 - Read the Docs build configuration for the existing Zensical documentation,
   using a dedicated locked `docs` dependency group and Python 3.14. The target
-  project is `pipy-agent`; one-time RTD account import is required before the
-  hosted site is available. Contributor instructions cover import and local
-  reproduction of the hosted build.
+  project is `pipy-agent`, imported on 2026-10-17. Hosted commands invoke
+  `python -m uv` so pip's executable directory need not be on `PATH`.
+  Contributor instructions cover setup and local reproduction of the build.
 
 ### Changed
 

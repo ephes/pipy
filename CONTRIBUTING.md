@@ -103,7 +103,9 @@ git status --short
 The docs build validates the site locally. Read the Docs uses
 [`.readthedocs.yaml`](.readthedocs.yaml) to install only the locked `docs`
 dependency group and build the same Zensical site on Python 3.14. This requires
-neither the product package nor the optional codemode runtime.
+neither the product package nor the optional codemode runtime. Hosted commands
+use `python -m uv`, so they work even when pip's executable directory is absent
+from RTD's `PATH`.
 
 Inspect the final status and diff so code, tests, docs, and generated-artifact
 expectations agree and the change contains only its intended paths.
@@ -112,8 +114,10 @@ expectations agree and the change contains only its intended paths.
 
 The Read the Docs project name is `pipy-agent` (the name `pipy` belongs to
 another repository). Its target documentation URL is
-<https://pipy-agent.readthedocs.io/en/latest/>. The project needs a one-time
-import before that address serves documentation:
+<https://pipy-agent.readthedocs.io/en/latest/>. The owner imported the project on
+2026-10-17; its first successful hosted build is pending verification. Build
+status is available at <https://app.readthedocs.org/projects/pipy-agent/builds/>.
+For reference, the one-time setup is:
 
 1. Open <https://app.readthedocs.org/dashboard/import/> in the owner's RTD account.
 2. Import `https://github.com/ephes/pipy`, using project name `pipy-agent`, branch
@@ -121,7 +125,7 @@ import before that address serves documentation:
 3. Confirm that the GitHub integration created the webhook, then trigger the
    `latest` build. Check that it succeeds before advertising the hosted URL.
 
-After import, pushes to `main` rebuild `latest`. The RTD `latest` version tracks
+Pushes to `main` rebuild `latest` through the RTD integration. The RTD `latest` version tracks
 the checkout, including Unreleased changes. Old release tags without the hosting
 configuration are not expected to build. Project creation/authentication belongs
 to Read the Docs; no API tokens or webhook credentials belong in this repository.

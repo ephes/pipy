@@ -466,8 +466,10 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Documentation hosting (selected 2026-10-17):** Zensical deployment is
   configured in `.readthedocs.yaml`, using the locked `docs` group on Python
   3.14. Target: `https://pipy-agent.readthedocs.io/en/latest/`; RTD's `pipy`
-  name belongs to another repository. The one-time project import/account
-  integration and a successful hosted build are still pending; see
+  name belongs to another repository. The owner imported the project on
+  2026-10-17. The first build found uv missing from the command shell's `PATH`;
+  commands now use `python -m uv`. A successful hosted build is still pending
+  verification; see
   [contributor setup](https://github.com/ephes/pipy/blob/main/CONTRIBUTING.md#documentation-hosting).
 - **USAGE1b, what USAGE1 left of Pi's usage** (see the USAGE1 Done row):
   - footer meter branch-anchor restoration is closed by DF1-F4b slice 2;

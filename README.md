@@ -177,8 +177,9 @@ with pre-release resolution; `SLOPSCOPE_SPEC` selects a package or local checkou
 CI runs full tests on Python 3.11, 3.14, and 3.15, plus real-PTY checks on Linux
 and macOS and runtime-required codemode probes on Linux. The documentation is
 built locally and in CI. [Read the Docs configuration](.readthedocs.yaml) uses
-Zensical and locked documentation dependencies; the one-time project import and
-hosted build are described in [Contributing](CONTRIBUTING.md#documentation-hosting).
+Zensical and locked documentation dependencies. The `pipy-agent` project has
+been imported; [Contributing](CONTRIBUTING.md#documentation-hosting) describes
+the hosted build and setup.
 
 The [contributor guide](CONTRIBUTING.md) covers setup, architecture gates, review,
 and privacy. The [backlog](docs/backlog.md) owns current priorities and records
