@@ -113,10 +113,11 @@ expectations agree and the change contains only its intended paths.
 ## Documentation hosting
 
 The Read the Docs project name is `pipy-agent` (the name `pipy` belongs to
-another repository). Its target documentation URL is
+another repository). Documentation is published at
 <https://pipy-agent.readthedocs.io/en/latest/>. The owner imported the project on
-2026-10-17; its first successful hosted build is pending verification. Build
-status is available at <https://app.readthedocs.org/projects/pipy-agent/builds/>.
+2026-10-17; [build 35212674](https://app.readthedocs.org/projects/pipy-agent/builds/35212674/)
+succeeded, and the homepage, MCP, and codemode guides returned HTTP 200.
+Build status is available at <https://app.readthedocs.org/projects/pipy-agent/builds/>.
 For reference, the one-time setup is:
 
 1. Open <https://app.readthedocs.org/dashboard/import/> in the owner's RTD account.

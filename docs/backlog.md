@@ -463,13 +463,13 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
 - **Publishing:** choose and own a PyPI distribution name, then add a
   publish workflow with SHA-pinned actions. Until then
   `pipy update self` refuses, and the README documents the checkout install.
-- **Documentation hosting (selected 2026-10-17):** Zensical deployment is
-  configured in `.readthedocs.yaml`, using the locked `docs` group on Python
-  3.14. Target: `https://pipy-agent.readthedocs.io/en/latest/`; RTD's `pipy`
-  name belongs to another repository. The owner imported the project on
-  2026-10-17. The first build found uv missing from the command shell's `PATH`;
-  commands now use `python -m uv`. A successful hosted build is still pending
-  verification; see
+- **Documentation hosting: done (2026-10-17).** Zensical deployment uses
+  `.readthedocs.yaml`, the locked `docs` group, and Python 3.14. The owner
+  imported `pipy-agent`; the site is published at
+  <https://pipy-agent.readthedocs.io/en/latest/>. The initial build's missing
+  uv executable was fixed by invoking `python -m uv`; [build 35212674](https://app.readthedocs.org/projects/pipy-agent/builds/35212674/)
+  passed on `0396b55d`. The homepage, MCP, and codemode pages returned HTTP 200.
+  Pushes to `main` trigger rebuilds. See
   [contributor setup](https://github.com/ephes/pipy/blob/main/CONTRIBUTING.md#documentation-hosting).
 - **USAGE1b, what USAGE1 left of Pi's usage** (see the USAGE1 Done row):
   - footer meter branch-anchor restoration is closed by DF1-F4b slice 2;

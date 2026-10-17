@@ -6,7 +6,7 @@ private persistent sessions, Python extensions, MCP, and headless automation.
 The product runtime is `pipy-native`.
 
 [Quickstart](docs/quickstart.md) · [User guide](docs/usage.md) ·
-[Documentation](docs/index.md) · [Changelog](CHANGELOG.md) ·
+[Documentation](https://pipy-agent.readthedocs.io/en/latest/) · [Changelog](CHANGELOG.md) ·
 [Contributing](CONTRIBUTING.md)
 
 ## Install and update
@@ -177,9 +177,10 @@ with pre-release resolution; `SLOPSCOPE_SPEC` selects a package or local checkou
 CI runs full tests on Python 3.11, 3.14, and 3.15, plus real-PTY checks on Linux
 and macOS and runtime-required codemode probes on Linux. The documentation is
 built locally and in CI. [Read the Docs configuration](.readthedocs.yaml) uses
-Zensical and locked documentation dependencies. The `pipy-agent` project has
-been imported; [Contributing](CONTRIBUTING.md#documentation-hosting) describes
-the hosted build and setup.
+Zensical and locked documentation dependencies to publish
+[pipy-agent.readthedocs.io](https://pipy-agent.readthedocs.io/en/latest/).
+[Contributing](CONTRIBUTING.md#documentation-hosting) describes the hosted build
+and setup.
 
 The [contributor guide](CONTRIBUTING.md) covers setup, architecture gates, review,
 and privacy. The [backlog](docs/backlog.md) owns current priorities and records
