@@ -119,7 +119,13 @@ and R7 evidence, while the architecture retains its global overview and anchors.
 Focused checks (34 tests), full `just check` (12,770 passed, two skipped), strict
 docs/rendered links and all 105 original heading IDs passed; fresh independent
 high-effort first review closed CLEAN. Other RF-D2 topic extractions remain
-pending; RF-D3 onboarding/navigation is the next separate slice.
+pending. RF-D3 onboarding/navigation is complete (2026-10-18): explicit
+fake/real setup, compact concepts diagrams, grouped navigation, and mobile
+keyboard access passed 34 focused checks, full `just check` (12,770 passed, two
+skipped), strict docs/rendered links and actual 390/1440 browser QA. Fresh
+independent high-effort review closed CLEAN with zero findings, including its
+own browser/code-scroll verification. Campaign completion still requires the
+separate catalog triage.
 RF-P1 foreign-thinking request projection
 is complete (2026-10-18): requests drop thinking unless provider/API/model all
 match, while stored history and tool correlations remain unchanged. Focused

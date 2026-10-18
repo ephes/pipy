@@ -275,6 +275,15 @@ separate reviewed topic extractions if needed.
 
 ### RF-D3 — Explain the harness through a first useful session
 
+**Status:** complete, 2026-10-18. The guided path distinguishes fake smoke
+from configured real providers, introduces compact loop/storage diagrams, and
+groups the existing navigation with a small supported asset for mobile keyboard
+access. Focused checks (34 tests), full `just check` (12,770 passed, two skipped),
+strict filtered docs, rendered links/anchors and actual desktop/mobile browser
+QA passed. Fresh independent high-effort review closed CLEAN with zero findings,
+including independent browser/code-scroll checks. Other RF-D2 extractions remain
+pending/conditional; RF-P3 catalog triage still gates campaign completion.
+
 **Priority:** P2. **Depends on:** RF-D1 and the first RF-D2 overview slice.
 **Evidence:** DOC3, DOC4 and the tau comparison.
 

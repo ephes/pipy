@@ -45,54 +45,76 @@ and `PIPY_OFFLINE=1`.
 
 ## First session
 
-Start pipy in the project directory you want it to work on:
+Choose an **offline smoke test** or a **real provider** before sending a task.
+The [concepts guide](concepts.md) explains the request/tool loop and where its
+conversation is stored.
+
+### Offline smoke test: no model contacted
+
+This uses the deterministic fake provider, disables startup network operations,
+and avoids writing a product session:
 
 ```bash
-cd /path/to/project
-pipy
+pipy --offline --native-provider fake --no-session -p "Hello"
 ```
 
-Type a request and press Enter:
+Expect `SEEN:Hello`, not a model answer. This checks the local product path; it
+cannot summarize a repository or demonstrate provider quality. `--offline`
+disables startup network operations, while `--native-provider fake` explicitly
+selects the local fake. Without a configured real provider, pipy also defaults
+to that fake.
+
+For useful model work, continue with authentication and select a real
+provider/model below. This path contacts your selected model provider.
+
+## Authenticate or configure a model
+
+API-key providers read their standard environment variables. For example, set a
+valid OpenAI API key, list the available models, then launch a selected one:
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+pipy --list-models openai
+pipy --native-provider openai --native-model gpt-6.1-sol
+```
+
+Replace the placeholder key with your own. The model list does not run a model
+turn; without configured authentication it may say no models match. Choose a
+model your account supports. The example uses a current catalog row; see
+[Providers and models](providers.md) for other providers and custom models.
+
+For a ChatGPT subscription, authenticate the separate Codex provider first:
+
+```bash
+pipy auth openai-codex login
+pipy --list-models openai-codex
+pipy --native-provider openai-codex --native-model gpt-6.1-sol
+```
+
+Inside the TUI, `/login openai-codex` can authenticate and `/model` can switch
+models. Provider transports, capabilities, and dated live evidence are described
+in the [capability matrix](provider-capabilities.md); these setup instructions do
+not claim a new live-provider test.
+
+### Send your first useful request
+
+Start the configured provider in the project you want it to work on, then type:
 
 ```text
 Summarize this repository and tell me how to run its checks.
 ```
 
-A bare positional prompt seeds the first message, so quote it as one shell
-argument:
+A positional prompt can seed the first message. For example, after the OpenAI
+setup above:
 
 ```bash
-pipy "Summarize README.md"
+cd /path/to/project
+pipy --native-provider openai --native-model gpt-6.1-sol "Summarize README.md"
 ```
 
-Pipy defaults to a deterministic fake provider when no real provider is
-selected. That is useful for smoke tests and documentation examples because it
-does not contact a model provider. For real work, choose a provider/model with
-`--native-provider` and `--native-model`, or use `/model` after provider setup.
-
-## Authenticate or configure a model
-
-Pipy supports built-in and `models.json` providers through the native provider
-catalog. API-key providers usually read their standard environment variables,
-for example:
-
-```bash
-export OPENAI_API_KEY=sk-...
-pipy --native-provider openai --native-model <model>
-```
-
-OpenAI Codex auth is available through the product command surface:
-
-```bash
-pipy auth openai-codex login
-# or inside the TUI:
-/login openai-codex
-```
-
-Some provider polish is still tracked in
-[Provider Catalog](provider-catalog.md): live Anthropic and GitHub Copilot login
-UX, plus broader local-provider maturity and benchmarking. Vertex API-key auth,
-Anthropic adaptive thinking, and Azure URL/API-version parity have shipped.
+Pipy can read files and execute tools in that workspace. Product sessions save
+full conversation content by default; use `--no-session` for an ephemeral run.
+See [Sessions](sessions.md) for storage and resume controls.
 
 ## Give pipy project instructions
 

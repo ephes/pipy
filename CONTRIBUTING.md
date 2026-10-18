@@ -163,6 +163,27 @@ strict mode is supported for builds only, so run `just docs-build` before shippi
 Preview output stays temporary; use `just docs-build` to publish local `site/`.
 Direct `zensical build` or `zensical serve` bypasses the exclusion boundary.
 
+### Rendered navigation checks
+
+After changing navigation or documentation assets, inspect the built site at
+both mobile and desktop widths. An optional behavioral check uses an **already
+installed** Node.js, Playwright module, and Chromium executable; it installs
+nothing and is separate from the Python test suite. Serve `site/` locally after
+`just docs-build`, then in another terminal run:
+
+```sh
+PIPY_PLAYWRIGHT_MODULE=/path/to/playwright-core/index.mjs \
+PIPY_BROWSER_EXECUTABLE=/path/to/chromium \
+node scripts/docs_browser_check.mjs http://127.0.0.1:8000/ /tmp/pipy-docs-browser
+```
+
+For example, `python -m http.server 8000 --bind 127.0.0.1 --directory site`
+serves the generated output. Stop the server after checking. The command tests
+real drawer focus, keyboard/search/history/resize behavior and contained code
+blocks at 390 and 1440 pixels, and saves screenshots plus a JSON report outside
+the source tree. Inspect the diagrams and screenshots too; automated bounds
+checks do not establish legibility. The normal docs build needs no browser.
+
 ## Independent review and review budget
 
 Follow the diminishing-returns review rule in [`AGENTS.md`](AGENTS.md). There

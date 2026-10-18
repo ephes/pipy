@@ -14,10 +14,15 @@ structure and ownership boundaries.
 
 ## Installation and first run
 
-Start with the [Quickstart](quickstart.md) to install pipy from a checkout,
-configure a provider, launch the interactive product, and learn where local state
-is stored. For terminal-specific preparation, see
-[Terminal Setup](terminal-setup.md) and [tmux Setup](tmux.md).
+1. Read [How pipy works](concepts.md) for the request/tool loop and the two
+   storage domains.
+2. Follow the [Quickstart](quickstart.md): install from a checkout, choose an
+   explicit fake smoke test or configure a real provider before the first task.
+3. Learn [Sessions](sessions.md) to continue or branch your conversation, or use
+   [JSON](json.md), [RPC](rpc.md), and the [Python SDK](sdk.md) for automation.
+
+For terminal-specific preparation, see [Terminal Setup](terminal-setup.md) and
+[tmux Setup](tmux.md).
 
 ## User guides
 

@@ -66,6 +66,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   ownership, activation, generation publication, queues, and shutdown. Existing
   anchors and the controlling transactional reload contract are preserved.
 
+- Documentation now starts with a concepts guide and explicit fake-versus-real
+  setup paths, with compact agent-loop/storage diagrams and navigation grouped
+  by audience. Mobile navigation supports keyboard opening, bounded focus,
+  Escape-to-close, and focus return without changing desktop navigation.
+
 ### Fixed
 
 - Codex SSE responses now close when explicitly retired before their first

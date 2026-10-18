@@ -5,7 +5,8 @@ Pipy combines an interactive terminal UI, direct model providers, coding tools,
 private persistent sessions, Python extensions, MCP, and headless automation.
 The product runtime is `pipy-native`.
 
-[Quickstart](docs/quickstart.md) · [User guide](docs/usage.md) ·
+[Quickstart](docs/quickstart.md) · [How pipy works](docs/concepts.md) ·
+[User guide](docs/usage.md) ·
 [Documentation](https://pipy-agent.readthedocs.io/en/latest/) · [Changelog](CHANGELOG.md) ·
 [Contributing](CONTRIBUTING.md)
 
@@ -35,6 +36,17 @@ until one exists, use the checkout update above. See
 [installation and updates](docs/quickstart.md#update).
 
 ## First session
+
+Start with an explicit local smoke test; it contacts no model and does not save
+a product session:
+
+```sh
+pipy --offline --native-provider fake --no-session -p "Hello"
+```
+
+Expect `SEEN:Hello`. The fake checks the local product path; it cannot do useful
+model work. [How pipy works](docs/concepts.md) explains the tool loop and the
+separate product-session and workflow-archive stores.
 
 Choose a provider and model for real work. For example, with an OpenAI API key
 already set in `OPENAI_API_KEY`:

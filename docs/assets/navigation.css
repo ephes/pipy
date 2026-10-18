@@ -1,0 +1,5 @@
+.md-header__button[role="button"]:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 4px;
+  border-radius: .2rem;
+}
