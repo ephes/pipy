@@ -367,6 +367,23 @@ reconnect/retry policy and provider event interpretation with their owners.
 cancellation, error closure and resource cleanup have transport-level tests;
 no second lifecycle owner or general event framework is introduced.
 
+### RF-CI1 — Synchronize product PTY test process exit
+
+**Status:** complete, 2026-10-18. Focused checks passed on Python 3.14.8 and
+isolated Python 3.11.13; independent high-effort first review closed CLEAN.
+Full `just check` passed (12,590 tests, two skipped), with strict documentation
+build and rendered links checked. RF-S3 follows this CI stabilization.
+
+The Python 3.11 CI failure after RF-P1 exposed an existing test-only race:
+product PTY EOF/EIO can precede process exit becoming observable. The neighboring
+selector already waits through the original deadline; the product helper now
+uses the same remaining-deadline semantics, kills only on `TimeoutExpired`, and
+closes its PTY descriptors on every exit. Deterministic EOF/EIO/timeout and
+unexpected-failure regressions exercise the helper used by the real product
+test. Its warning, exit-status and private-session assertions are preserved.
+This stabilization changes no runtime behavior, CI configuration, retry policy
+or timeout bounds and needs no public behavior release note.
+
 ### RF-S3 — Add incremental OpenAI Responses and Azure streaming
 
 **Priority:** P2. **Depends on:** RF-S2.

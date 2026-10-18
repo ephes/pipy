@@ -122,8 +122,11 @@ high-effort review closed CLEAN after synchronizing current source comments.
 RF-S2 shared cancellable SSE payload ownership is complete (2026-10-18):
 focused/full checks, strict docs/rendered links and independent high-effort
 review passed. Codex retains its event/authentication/WebSocket/retry policy.
-RF-S3 Responses and Azure incremental adoption follows; both ordinary adapters
-remain buffered.
+RF-CI1 product PTY process-exit synchronization is complete (2026-10-18):
+focused Python 3.11/current checks, full checks, strict docs/rendered links and
+independent high-effort first review passed. It retains the original deadline
+and product/session assertions without runtime or CI policy changes. RF-S3 Responses and Azure incremental
+adoption follows; both ordinary adapters remain buffered.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**

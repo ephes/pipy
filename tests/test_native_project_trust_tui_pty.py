@@ -226,6 +226,66 @@ def test_startup_trust_selector_resize_then_cancel_recovers(
     assert b"\x1b[?2004l" in output  # bracketed paste/raw-mode cleanup
 
 
+def _run_untrusted_product(cwd: Path, config: Path, sessions: Path) -> bytes:
+    master, slave = pty.openpty()
+    try:
+        try:
+            _set_size(slave, 80, 24)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "TERM": "xterm-256color",
+                    "NO_COLOR": "1",
+                    "PIPY_CONFIG_HOME": str(config),
+                    "PIPY_SKIP_VERSION_CHECK": "1",
+                }
+            )
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    _REPL_CHILD,
+                    "repl",
+                    "--cwd",
+                    str(cwd),
+                    "--session-dir",
+                    str(sessions),
+                    "--session-id",
+                    "trust-warning-test",
+                ],
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                env=env,
+                close_fds=True,
+            )
+        finally:
+            os.close(slave)
+        output = _wait_for_input_ready_after(master, b"This project is not trusted")
+        os.write(master, b"/exit\r")
+        deadline = time.monotonic() + 8.0
+        while proc.poll() is None and time.monotonic() < deadline:
+            readable, _, _ = select.select([master], [], [], 0.1)
+            if not readable:
+                continue
+            chunk = _read_pty_chunk(master)
+            if not chunk:
+                break
+            output += chunk
+        # PTY EOF/EIO can precede waitpid. Use the remaining original deadline,
+        # like the selector path, and kill only when the process wait times out.
+        try:
+            proc.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2.0)
+            raise AssertionError("product TUI did not exit after /exit")
+        assert proc.returncode == 0
+        return output
+    finally:
+        os.close(master)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="real PTY requires POSIX")
 def test_untrusted_product_warning_is_live_only_not_session_content(
     tmp_path: Path,
@@ -239,56 +299,127 @@ def test_untrusted_product_warning_is_live_only_not_session_content(
         encoding="utf-8",
     )
     sessions = tmp_path / "sessions"
-    master, slave = pty.openpty()
-    _set_size(slave, 80, 24)
-    env = os.environ.copy()
-    env.update(
-        {
-            "TERM": "xterm-256color",
-            "NO_COLOR": "1",
-            "PIPY_CONFIG_HOME": str(config),
-            "PIPY_SKIP_VERSION_CHECK": "1",
-        }
-    )
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            _REPL_CHILD,
-            "repl",
-            "--cwd",
-            str(cwd),
-            "--session-dir",
-            str(sessions),
-            "--session-id",
-            "trust-warning-test",
-        ],
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
-        env=env,
-        close_fds=True,
-    )
-    os.close(slave)
-    output = _wait_for_input_ready_after(master, b"This project is not trusted")
-    os.write(master, b"/exit\r")
-    deadline = time.monotonic() + 8.0
-    while proc.poll() is None and time.monotonic() < deadline:
-        readable, _, _ = select.select([master], [], [], 0.1)
-        if readable:
-            try:
-                output += os.read(master, 65536)
-            except OSError:
-                break
-    if proc.poll() is None:
-        proc.kill()
-        proc.wait(timeout=2.0)
-        raise AssertionError("product TUI did not exit after /exit")
-    os.close(master)
-    assert proc.returncode == 0
+    output = _run_untrusted_product(cwd, config, sessions)
     assert b"Use /trust to save a trust decision" in output
     session_files = list(sessions.glob("**/*.jsonl"))
     assert len(session_files) == 1
     session_text = session_files[0].read_text(encoding="utf-8")
     assert "This project is not trusted" not in session_text
     assert "Trust project folder" not in session_text
+
+
+@pytest.fixture
+def product_pipe(monkeypatch):
+    master, slave = os.pipe()
+    closed = []
+    original_close = os.close
+
+    def close(fd):
+        closed.append(fd)
+        original_close(fd)
+
+    monkeypatch.setattr(pty, "openpty", lambda: (master, slave))
+    monkeypatch.setattr(os, "close", close)
+    try:
+        yield master, slave, closed
+    finally:
+        for fd in (master, slave):
+            if fd not in closed:
+                original_close(fd)
+
+
+@pytest.mark.parametrize("pty_end", ["eio", "eof", "timeout"])
+def test_product_waits_for_process_exit_after_pty_closes(
+    tmp_path, monkeypatch, product_pipe, pty_end
+):
+    class ExitingProcess:
+        returncode = None
+        killed = False
+
+        def __init__(self):
+            self.wait_timeouts = []
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, *, timeout):
+            self.wait_timeouts.append(timeout)
+            if pty_end == "timeout" and not self.killed:
+                raise subprocess.TimeoutExpired("product", timeout)
+            self.returncode = -9 if self.killed else 0
+            return self.returncode
+
+        def kill(self):
+            self.killed = True
+
+    proc = ExitingProcess()
+    master, slave, closed = product_pipe
+    clock = iter([100.0, 100.5, 101.0, 108.5])
+
+    def read(fd, size):
+        if pty_end == "eio":
+            raise OSError("PTY slave closed")
+        return b""
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: proc)
+    monkeypatch.setattr(sys.modules[__name__], "_set_size", lambda *_: None)
+    monkeypatch.setattr(
+        sys.modules[__name__], "_wait_for_input_ready_after", lambda *_: b"warning"
+    )
+    monkeypatch.setattr(select, "select", lambda *args: ([args[0][0]], [], []))
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock, 108.5))
+    monkeypatch.setattr(os, "write", lambda fd, data: len(data))
+    monkeypatch.setattr(os, "read", read)
+    if pty_end == "timeout":
+        with pytest.raises(
+            AssertionError, match="product TUI did not exit after /exit"
+        ):
+            _run_untrusted_product(tmp_path, tmp_path, tmp_path)
+        assert proc.killed
+        assert proc.wait_timeouts == [7.0, 2.0]
+    else:
+        assert _run_untrusted_product(tmp_path, tmp_path, tmp_path) == b"warning"
+        assert not proc.killed
+        assert proc.wait_timeouts == [7.0]
+    assert closed == [slave, master]
+
+
+@pytest.mark.parametrize("failure", ["spawn", "input-ready", "wait"])
+def test_product_closes_pty_on_unexpected_failure(
+    tmp_path, monkeypatch, product_pipe, failure
+):
+    master, slave, closed = product_pipe
+
+    class ExitingProcess:
+        returncode = None
+
+        def poll(self):
+            return None
+
+        def wait(self, *, timeout):
+            raise RuntimeError("wait failed")
+
+        def kill(self):
+            pytest.fail("unexpected failure must not be treated as process timeout")
+
+    def spawn(*args, **kwargs):
+        if failure == "spawn":
+            raise RuntimeError("spawn failed")
+        return ExitingProcess()
+
+    def input_ready(*args):
+        if failure == "input-ready":
+            raise RuntimeError("input-ready failed")
+        return b"warning"
+
+    monkeypatch.setattr(sys.modules[__name__], "_set_size", lambda *_: None)
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    monkeypatch.setattr(
+        sys.modules[__name__], "_wait_for_input_ready_after", input_ready
+    )
+    monkeypatch.setattr(os, "write", lambda fd, data: len(data))
+    monkeypatch.setattr(os, "read", lambda *args: b"")
+    monkeypatch.setattr(select, "select", lambda *args: ([args[0][0]], [], []))
+    with pytest.raises(RuntimeError, match=f"{failure} failed"):
+        _run_untrusted_product(tmp_path, tmp_path, tmp_path)
+    assert closed == [slave, master]
