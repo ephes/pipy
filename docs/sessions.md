@@ -21,6 +21,17 @@ This is separate from `pipy-session`, which remains a summary-safe
 catalog/learning utility. Use native sessions for product resume and `/tree`;
 use `pipy-session list/search/inspect` only for metadata-first workflow records.
 
+## Thinking history and model changes
+
+Native sessions retain the original ordered assistant content, including
+thinking, provider signatures, and provider/API/model provenance. Resuming or
+switching models does not rewrite those historical messages. Provider requests
+include thinking only when all three provenance fields match the target;
+foreign thinking is omitted, including readable, redacted and encrypted blocks.
+Messages with missing API provenance are treated as foreign. Visible text and
+paired tool calls/results still replay, without executing historical tools.
+See [provider replay behavior](providers.md#thinking-images-and-current-limits) for request details.
+
 ## Starting and opening sessions
 
 A normal interactive run creates or continues a native session automatically:

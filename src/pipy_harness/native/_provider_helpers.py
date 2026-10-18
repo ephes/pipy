@@ -140,7 +140,7 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
         message: dict[str, Any] = {"role": "assistant"}
         # Pi ``convertMessages``: the non-blank text blocks joined. No Chat
         # Completions adapter stores thinking yet, so every thinking block
-        # is another model's and arrives here as text (the transform).
+        # is foreign and omitted by the shared transform.
         text = "".join(
             block.text
             for block in transform_assistant_blocks(envelope, None)

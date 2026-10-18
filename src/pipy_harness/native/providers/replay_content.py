@@ -3,10 +3,9 @@
 ``packages/ai/src/api/transform-messages.ts``: before an adapter serializes
 history, every assistant message is compared with the target model. Only the
 model that produced a thinking block can read its signature, so another
-model receives its thinking as plain text (or nothing when blank or
-redacted), text without its provider signature, and tool calls without a
-Gemini ``thoughtSignature``. Tool-call ids stay as stored: each wire applies
-its own id projection (``tool_call_ids.py``, D8a).
+model receives no thinking, text without its provider signature, and tool
+calls without a Gemini ``thoughtSignature``. Tool-call ids stay as stored:
+each wire applies its own id projection (``tool_call_ids.py``, D8a).
 """
 
 from __future__ import annotations
@@ -80,16 +79,14 @@ def transform_assistant_blocks(
     transformed: list[AgentContentBlock] = []
     for block in message.ordered_content():
         if isinstance(block, ThinkingContent):
-            if block.redacted:
-                if same:
-                    transformed.append(block)
+            if not same:
                 continue
-            if same and block.signature:
+            if block.redacted or block.signature:
                 transformed.append(block)
                 continue
             if not block.thinking.strip():
                 continue
-            transformed.append(block if same else TextContent(block.thinking))
+            transformed.append(block)
         elif isinstance(block, TextContent):
             transformed.append(block if same else TextContent(block.text))
         elif isinstance(block, AgentToolCall):

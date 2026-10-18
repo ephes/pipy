@@ -36,6 +36,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Provider requests now omit thinking from a different provider, API or model,
+  matching Pi's replay behavior. Model switches preserve visible text and
+  tool-call/result correlations without exposing historical thinking as text.
+  Same-model signed/redacted reasoning and original stored history are retained.
+
 - Workflow archive append/finalize operations now serialize across local threads
   and processes, preventing writes after finalization and stale appends from
   recreating retired records. Automatic capture start, event, stop and prune

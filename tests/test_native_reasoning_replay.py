@@ -1,10 +1,10 @@
 """Reasoning storage and replay (DF1-F2b, DF1-F6b, SYS1c remainder).
 
-Pi (``1b347794e``) keeps an assistant message's ordered content -- thinking
+Pi (``c268154ca``) keeps an assistant message's ordered content -- thinking
 blocks with their provider signatures, text with its ``textSignature``, tool
 calls with a Gemini ``thoughtSignature`` -- stores it in the session, replays
 it to the model that produced it (``transform-messages.ts`` and each
-adapter's ``convertMessages``) and gives any other model the thinking as text.
+adapter's ``convertMessages``) and drops thinking for every other model.
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ def test_a_stopped_message_keeps_partial_tool_calls() -> None:
 # -- transformMessages -----------------------------------------------------------
 
 
-def test_transform_keeps_own_blocks_and_converts_foreign_ones() -> None:
+def test_transform_keeps_own_blocks_and_drops_foreign_thinking() -> None:
     redacted = ThinkingContent(REDACTED_THINKING_TEXT, "opaque", redacted=True)
     unsigned = ThinkingContent("unsigned thought")
     blank_signed = ThinkingContent("", "encrypted")
@@ -167,8 +167,6 @@ def test_transform_keeps_own_blocks_and_converts_foreign_ones() -> None:
         None,
     ):
         assert transform_assistant_blocks(message, other) == (
-            TextContent(SIGNED.thinking),
-            TextContent("unsigned thought"),
             TextContent("answer"),
             AgentToolCall("c", "read", ProductContent("{}")),
         )
@@ -179,7 +177,7 @@ def test_a_message_without_a_recorded_api_is_another_models() -> None:
         [SIGNED, TextContent("a")], provider="anthropic", model="claude-x"
     )
     target = ReplayTarget("anthropic", "anthropic-messages", "claude-x")
-    assert transform_assistant_blocks(legacy, target)[0] == TextContent(SIGNED.thinking)
+    assert transform_assistant_blocks(legacy, target) == (TextContent("a"),)
 
 
 # -- Anthropic -----------------------------------------------------------------
@@ -246,7 +244,7 @@ def test_anthropic_replays_own_thinking_with_signatures() -> None:
     }
 
 
-def test_anthropic_gets_another_models_thinking_as_text() -> None:
+def test_anthropic_drops_another_models_thinking() -> None:
     codex = _message(
         ThinkingContent("codex plan", '{"type":"reasoning","id":"rs_1"}'),
         TextContent("done", '{"v":1,"id":"msg_1"}'),
@@ -258,7 +256,6 @@ def test_anthropic_gets_another_models_thinking_as_text() -> None:
         codex, parse_error_class=ProviderHTTPError, target=ANTHROPIC
     )
     assert wire["content"] == [
-        {"type": "text", "text": "codex plan"},
         {"type": "text", "text": "done"},
     ]
 
@@ -372,7 +369,6 @@ def test_anthropic_request_replays_the_stored_answer_to_the_same_model() -> None
     other = AnthropicProvider(model_id="claude-y", api_key="k", http_client=client)
     other.complete(_request(history, model="claude-y"))
     assert client.requests[-1]["messages"][1]["content"] == [
-        {"type": "text", "text": "hmm"},
         {"type": "text", "text": "hello"},
     ]
 
@@ -464,7 +460,7 @@ def test_codex_replays_reasoning_items_message_ids_and_item_ids_to_itself() -> N
     ]
 
 
-def test_codex_model_switch_sends_reasoning_as_text_and_drops_item_ids() -> None:
+def test_codex_model_switch_drops_reasoning_and_item_ids() -> None:
     request = _request(
         (AgentUserMessage(ProductContent("go")), _codex_message("gpt-a")),
         provider="openai-codex",
@@ -475,18 +471,9 @@ def test_codex_model_switch_sends_reasoning_as_text_and_drops_item_ids() -> None
         {
             "type": "message",
             "role": "assistant",
-            "content": [
-                {"type": "output_text", "text": "First part", "annotations": []}
-            ],
-            "status": "completed",
-            "id": "msg_pi_1",
-        },
-        {
-            "type": "message",
-            "role": "assistant",
             "content": [{"type": "output_text", "text": "Reading.", "annotations": []}],
             "status": "completed",
-            "id": "msg_pi_1_1",
+            "id": "msg_pi_1",
         },
         {
             "type": "function_call",
@@ -525,7 +512,7 @@ def test_responses_foreign_compound_ids_hash_on_accepting_targets_only() -> None
     assert codex.items(long_text, 0)[0]["id"] == f"msg_{short_hash(long_id)}"
 
 
-def test_responses_gets_anthropic_thinking_as_a_message() -> None:
+def test_responses_drops_anthropic_thinking() -> None:
     anthropic = _message(SIGNED, TextContent("answer"))
     replay = ResponsesReplay(
         ReplayTarget("openai", "openai-responses", "gpt-a"),
@@ -533,10 +520,9 @@ def test_responses_gets_anthropic_thinking_as_a_message() -> None:
     )
     items = replay.items(anthropic, 3)
     assert [item["content"][0]["text"] for item in items] == [  # type: ignore[index]
-        SIGNED.thinking,
         "answer",
     ]
-    assert [item["id"] for item in items] == ["msg_pi_3", "msg_pi_3_1"]
+    assert [item["id"] for item in items] == ["msg_pi_3"]
 
 
 def _events(*events: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
@@ -899,7 +885,6 @@ def test_gemini_replays_valid_signatures_to_the_same_model_only() -> None:
     assert envelope_to_content(
         message, parse_error_class=ProviderHTTPError, target=other
     )["parts"] == [
-        {"text": "Plan"},
         {"text": "Answer"},
         {"functionCall": {"id": "f1", "name": "read", "args": {}}},
     ]
@@ -908,9 +893,9 @@ def test_gemini_replays_valid_signatures_to_the_same_model_only() -> None:
 # -- Chat Completions ----------------------------------------------------------
 
 
-def test_chat_completions_gets_thinking_as_joined_text() -> None:
+def test_chat_completions_drops_foreign_thinking() -> None:
     wire = envelope_to_chat_message(_message(SIGNED, TextContent("answer"), CALL))
-    assert wire["content"] == "I should read the file.answer"
+    assert wire["content"] == "answer"
 
 
 # -- the loop ------------------------------------------------------------------

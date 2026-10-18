@@ -320,6 +320,15 @@ credentials remain explicit evidence gaps, not inferred defects.
 
 ### RF-P1 — Correct foreign-model thinking request projection
 
+**Status:** complete, 2026-10-18. Shared projection follows pinned Pi
+`c268154ca` / `911309429`: foreign thinking is omitted rather than converted to
+text. Exact provider/API/model replay retains its existing signed, redacted,
+empty encrypted and nonblank unsigned blocks; history and tool correlation
+ownership are unchanged. Focused replay/SDK reopen regressions, full `just check`
+(12,562 passed, two skipped), strict docs and rendered links passed. Independent
+high-effort review closed CLEAN after synchronizing current source comments.
+RF-S2 is the next provider slice.
+
 **Priority:** P2, small. **Depends on:** RF-C1; serialize shared provider/docs
 edits with RF-S1. **Evidence:** PAR1.
 

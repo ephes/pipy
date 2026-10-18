@@ -18,6 +18,11 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.content import (
+    REDACTED_THINKING_TEXT,
+    TextContent,
+    ThinkingContent,
+)
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.deferred_tools import short_hash
 from pipy_harness.native.http import JsonResponse, ProviderHTTPError
@@ -209,3 +214,97 @@ def test_reopened_codex_tool_history_projects_pair_for_anthropic_without_executi
     assert historical[0] == assistant and historical[1] == result
     assert RAW_CODEX_CORRELATION in tree.path.read_text(encoding="utf-8")
     assert tree.path.read_text(encoding="utf-8").startswith(raw_before)
+
+
+@pytest.mark.parametrize("target_model", ["claude-source", "claude-target"])
+def test_reopened_thinking_projects_for_target_without_rewriting_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target_model: str
+) -> None:
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    _, result = _tool_history("toolu_history")
+    assistant = AgentAssistantMessage.from_blocks(
+        [
+            ThinkingContent("Private source plan", "sig-source"),
+            ThinkingContent(REDACTED_THINKING_TEXT, "opaque-source", redacted=True),
+            TextContent("Reading the file."),
+            AgentToolCall(
+                "toolu_history", "read", ProductContent('{"path":"README.md"}')
+            ),
+        ],
+        provider="anthropic",
+        api="anthropic-messages",
+        model="claude-source",
+    )
+    tree.append_message(AgentUserMessage(ProductContent("historical request")))
+    tree.append_message(assistant)
+    tree.append_message(result)
+    assert tree.path is not None
+    original_bytes = tree.path.read_bytes()
+    # Continue a durable copy, so both source immutability and the replay
+    # file's original history prefix can be checked after ordinary appends.
+    replay_path = tmp_path / "replay.jsonl"
+    replay_path.write_bytes(original_bytes)
+
+    def forbid_historical_execution(
+        self: ReadTool, request: object, context: object
+    ) -> object:
+        del self, request, context
+        raise AssertionError("reopening history must not execute historical tools")
+
+    monkeypatch.setattr(ReadTool, "invoke", forbid_historical_execution)
+    client = _FakeAnthropicHTTPClient()
+    provider = AnthropicProvider(
+        model_id=target_model, api_key="test-key", http_client=client
+    )
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=replay_path, provider=provider
+    ) as reopened:
+        snapshot = reopened.submit("continue")
+
+    assert len(client.requests) == 1
+    payload = client.requests[0]["body"]["messages"]
+    expected_content: list[dict[str, Any]] = []
+    if target_model == "claude-source":
+        expected_content.extend(
+            [
+                {
+                    "type": "thinking",
+                    "thinking": "Private source plan",
+                    "signature": "sig-source",
+                },
+                {"type": "redacted_thinking", "data": "opaque-source"},
+            ]
+        )
+    expected_content.extend(
+        [
+            {"type": "text", "text": "Reading the file."},
+            {
+                "type": "tool_use",
+                "id": "toolu_history",
+                "name": "read",
+                "input": {"path": "README.md"},
+            },
+        ]
+    )
+    assert payload[1] == {"role": "assistant", "content": expected_content}
+    assert payload[2]["content"] == [
+        {
+            "type": "tool_result",
+            "tool_use_id": "toolu_history",
+            "content": "stored tool output",
+        }
+    ]
+    historical = snapshot.messages[1:3]
+    assert historical == (assistant, result)
+    restored = historical[0]
+    assert isinstance(restored, AgentAssistantMessage)
+    assert (restored.provider, restored.api, restored.model) == (
+        "anthropic",
+        "anthropic-messages",
+        "claude-source",
+    )
+    assert restored.ordered_content() == assistant.ordered_content()
+    assert replay_path.read_bytes().startswith(original_bytes)
+    assert tree.path.read_bytes() == original_bytes
+    durable_history = NativeSessionTree.open(replay_path).build_context().messages
+    assert durable_history[1:3] == (assistant, result)

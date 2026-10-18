@@ -115,8 +115,12 @@ runtime and hosted-doc claims now distinguish current contracts from historical
 bootstrap rationale, preserving headings and anchors. Focused/full checks and
 independent high-effort review passed. RF-D2b topic extraction follows the provider slices;
 the full RF-D2 program is not complete. RF-P1 foreign-thinking request projection
-is next. Current-contract clarity and provider evidence precede streaming
-extraction.
+is complete (2026-10-18): requests drop thinking unless provider/API/model all
+match, while stored history and tool correlations remain unchanged. Focused
+replay/SDK reopen tests, full checks and strict docs/links passed; independent
+high-effort review closed CLEAN after synchronizing current source comments.
+RF-S2 cancellable SSE extraction is next.
+Current-contract clarity and provider evidence precede streaming extraction.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
@@ -139,9 +143,9 @@ windows, four GPT-6 mid-conversation-effort flags, Mistral Small's context) and
 seven uncarried Haiku 5.5, Sonnet 5.5 and Gemini 4 Argon provider rows. Triage
 them against request behavior before another bounded catalog slice; generator
 values alone can conflict with newer adapter fixes. Source comparison confirms
-one further behavior difference: `providers/replay_content.py` still converts
-foreign-model thinking into text, while Pi drops it since `911309429`. This is
-the next bounded replay candidate; summary output limits still need a provider
+the foreign-thinking replay difference selected for RF-P1: Pi drops it since
+`911309429`, whereas pipy previously converted it into visible text. RF-P1
+corrects only request projection; summary output limits still need a provider
 request comparison before being called a gap. Neither is part of UP2.
 MCP1 and CM1 remain completed work; live MCP evidence
 still needs an authenticated provider and OAuth server account.

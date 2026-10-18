@@ -240,8 +240,8 @@ def _model_parts(
 
     A signature is only replayed to the provider and model that made it (Pi
     compares provider and model id here). Blank text and thinking parts are
-    dropped unless they carry a signature; another model's thinking has
-    already become text (the transform).
+    dropped unless they carry a signature; another model's thinking is
+    already omitted by the shared transform.
     """
 
     same = target is not None and (

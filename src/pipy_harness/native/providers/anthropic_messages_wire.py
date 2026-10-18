@@ -177,7 +177,7 @@ def messages_payload(
     """Serialize a ``ProviderRequest`` into the Anthropic ``messages`` payload.
 
     ``target`` is the model the request goes to: its own thinking blocks are
-    replayed with their signatures, another model's arrive as text (Pi
+    replayed with their signatures; another model's thinking is omitted (Pi
     ``transformMessages``).
 
     ``items`` is the resolved transcript (later system messages interleaved;

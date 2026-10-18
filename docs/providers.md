@@ -455,6 +455,16 @@ off, and its Gemini/Kimi rows never send `reasoning_effort`. Some provider-speci
 request shapes remain follow-up work; when a row or adapter cannot apply a
 level, pipy falls back safely rather than inventing unsupported parameters.
 
+When replaying assistant history, thinking is sent only to the exact provider,
+API and model that produced it. A model or provider switch drops thinking from
+the outgoing request, including readable, signed, redacted and encrypted blocks;
+it does not turn private thinking into visible assistant text. Older messages
+without recorded API provenance are also treated as foreign. Same-model replay
+retains signed/redacted blocks (including empty encrypted reasoning) and
+nonblank unsigned thinking for the adapter to serialize. Ordinary assistant
+text and tool calls/results remain; foreign text and Gemini tool-call
+signatures are stripped. The stored [session history](sessions.md) is unchanged.
+
 Images are accepted only for rows marked `images yes`; attach files using the
 current image/file-reference workflows described in [Using pipy](usage.md).
 
