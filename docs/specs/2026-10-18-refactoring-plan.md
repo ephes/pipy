@@ -384,6 +384,27 @@ test. Its warning, exit-status and private-session assertions are preserved.
 This stabilization changes no runtime behavior, CI configuration, retry policy
 or timeout bounds and needs no public behavior release note.
 
+### RF-CI2 — Drain RPC signal-test output during shutdown
+
+**Status:** complete, 2026-10-18. Focused signal checks passed on current Python
+and isolated Python 3.11; independent high-effort first review closed CLEAN.
+Full `just check` passed (12,635 tests, two skipped), with strict documentation
+build and rendered links checked. RF-S3b follows this CI stabilization.
+
+The diagnosis of [CI run 39120239367](https://github.com/ephes/pipy/actions/runs/39120239367)
+identified a test-only wait-before-read cycle: the RPC signal test stopped
+consuming stdout after its follow-up acknowledgement, then waited for process
+exit while a worker could be blocked flushing shutdown JSONL. The test now hands
+stdout to one concurrent reader before signalling/waiting, with bounded reader
+join/error reporting and child kill/reap before failed-test IO cleanup. Its
+20-second process wait, exit-143, MCP termination and discarded-follow-up
+assertions are preserved. The same actual subprocess scenario runs with PIPE
+and locally bounded socketpair output; the captured remainder must exceed the
+effective send buffer. Restoring the old order fails the bounded case. Reduced
+remote pipe capacity is an inferred trigger: the runner's actual capacity was
+not measured. No runtime, CI configuration, timeout or retry policy changes, and
+no public behavior release note, belong to this stabilization.
+
 ### RF-S3 — Add incremental OpenAI Responses and Azure streaming
 
 **Status:** RF-S3a ordinary Responses complete, 2026-10-18. Full `just check`

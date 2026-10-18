@@ -11,6 +11,7 @@ import json
 import os
 import pty
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -161,32 +162,72 @@ def test_an_rpc_session_that_is_signalled_closes_its_server(
         pipy.stdin.close()
 
 
+@pytest.fixture(params=["pipe", "bounded-socket"])
+def rpc_stdout(
+    request: pytest.FixtureRequest,
+) -> Iterator[tuple[int | socket.socket, IO[bytes] | None, int | None]]:
+    """Run the same RPC signal scenario with ordinary and bounded stdout."""
+
+    if request.param == "pipe":
+        yield subprocess.PIPE, None, None
+        return
+    receiver, sender = socket.socketpair()
+    with receiver, sender:
+        sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024)
+        capacity = sender.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+        with receiver.makefile("rb") as output:
+            yield sender, output, capacity
+
+
 def test_an_rpc_session_signalled_during_a_run_aborts_it_drops_the_queue_and_closes_its_server(
     workspace: _Workspace,
+    rpc_stdout: tuple[int | socket.socket, IO[bytes] | None, int | None],
 ) -> None:
+    destination, output, send_buffer = rpc_stdout
     pipy = subprocess.Popen(  # noqa: S603
         [*_PIPY, "--mode", "rpc"],
         cwd=workspace.cwd,
         env=workspace.env,
         stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
+        stdout=(
+            destination.fileno()
+            if isinstance(destination, socket.socket)
+            else destination
+        ),
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    reader: threading.Thread | None = None
     try:
-        assert pipy.stdin is not None and pipy.stdout is not None
+        if isinstance(destination, socket.socket):
+            destination.close()
+        output = output if output is not None else pipy.stdout
+        assert pipy.stdin is not None and output is not None
         server = workspace.wait_for_the_server(pipy)
         # The fake provider holds a turn that starts with BLOCK for 30
         # seconds, or until the turn is cancelled.
         prompt = {"id": "p", "type": "prompt", "message": "BLOCK and wait"}
         pipy.stdin.write(json.dumps(prompt).encode() + b"\n")
         pipy.stdin.flush()
-        _read_until(pipy.stdout, lambda record: record.get("type") == "agent_start")
+        _read_until(output, lambda record: record.get("type") == "agent_start")
         follow_up = {"id": "f", "type": "follow_up", "message": "SECOND"}
         pipy.stdin.write(json.dumps(follow_up).encode() + b"\n")
         pipy.stdin.flush()
-        _read_until(pipy.stdout, lambda record: record.get("id") == "f")
+        _read_until(output, lambda record: record.get("id") == "f")
 
+        chunks: list[bytes] = []
+        reader_errors: list[Exception] = []
+
+        def drain() -> None:
+            try:
+                chunks.append(output.read())
+            except Exception as exc:  # noqa: BLE001 - surface reader failures below
+                reader_errors.append(exc)
+
+        # JSONL flushes honor stdout backpressure. Drain before signalling/waiting
+        # so a full transport cannot block the worker that shutdown must join.
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         pipy.send_signal(signal.SIGTERM)
 
         # Well before the provider would have answered.
@@ -194,14 +235,25 @@ def test_an_rpc_session_signalled_during_a_run_aborts_it_drops_the_queue_and_clo
         _wait_until_gone(server)
         assert workspace.events() == ["initialize", "sigterm"]
         # The queued follow-up did not run.
-        rest = [json.loads(line) for line in pipy.stdout.read().splitlines()]
+        reader.join(2)
+        assert not reader.is_alive(), "RPC stdout reader did not reach EOF"
+        assert not reader_errors, reader_errors
+        remainder = b"".join(chunks)
+        if send_buffer is not None:
+            assert len(remainder) > send_buffer, (
+                "fixture did not exceed its send buffer"
+            )
+        rest = [json.loads(line) for line in remainder.splitlines()]
         assert not [record for record in rest if record.get("type") == "agent_start"]
         assert "SEEN:SECOND" not in json.dumps(rest)
     finally:
         _end(pipy)
-        for stream in (pipy.stdin, pipy.stdout):
-            assert stream is not None
-            stream.close()
+        if reader is not None:
+            reader.join(2)
+            assert not reader.is_alive(), "RPC stdout reader survived child cleanup"
+        for stream in (pipy.stdin, output):
+            if stream is not None:
+                stream.close()
 
 
 def test_a_print_run_that_is_signalled_closes_its_server(

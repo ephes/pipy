@@ -133,8 +133,11 @@ real-PTY regressions cover incremental delivery, partial failure/cancellation an
 fresh-attempt managed retries. Full `just check` passed (12,634 tests, two
 skipped), with strict docs/rendered links; fresh independent high-effort review
 closed CLEAN after fixing sink-error retry classification and cancellation
-partial-history/status-body handling. RF-S3b Azure adoption is next; Azure
-remains buffered.
+partial-history/status-body handling. RF-CI2 RPC signal-test stdout draining is
+complete (2026-10-18): focused current/Python 3.11 PIPE/bounded-socket checks,
+full checks, strict docs/rendered links and independent high-effort first review
+passed. The old wait-before-read order fails under local backpressure; remote CI
+pipe capacity remains an inferred trigger. RF-S3b Azure adoption follows; Azure remains buffered.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
