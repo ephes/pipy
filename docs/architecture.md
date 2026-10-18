@@ -14,17 +14,14 @@ disposition are preserved in the retained
 Completed program execution plans are recoverable through Git history; they are
 not dependencies of this overview.
 
-The bounded transactional-reload correctness boundary, comparative-review
-remediation queue (including T1 and C1), and god-file decomposition program are
-complete. The
-[integrated planning basis](backlog.md)
-compares the current implementation with Pi and tau and proposes context
-continuity, shared product-session control, and recovery as the next priorities.
-That index owns direction, task dependencies and dispatch; this overview owns
-current architecture. The package
-metadata's native coding-agent description matches this architecture and stays
-unchanged; version/distribution identity, license/URLs, and wheel verification
-remain release-triggered while the project is private.
+The native product runtime, headless coding-session layer and separate workflow
+archive are established. Pipy's source repository is public. The
+[backlog](backlog.md) selects current work and owns direction, task dependencies
+and dispatch; this overview owns the current runtime structure and dependency
+boundaries. Completed refactoring programs and older proposed priorities do
+not define another active queue. See [Quickstart](quickstart.md) for current
+checkout installation and [Export and Distribution](export-distribution.md)
+for that surface's contract and limits.
 
 ## Runtime structure
 

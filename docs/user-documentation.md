@@ -1,14 +1,16 @@
 # Pipy User Documentation Parity
 
-Status: target specification added after the provider-catalog documentation review.
+Status: user-documentation inventory and maintenance guidance, reviewed
+2026-10-18. The original target specification followed the provider-catalog
+documentation review; the shipped pages are indexed below.
 
-Pipy's current documentation is strong for implementation planning, parity
-tracking, and coding-agent handoff, but it is not yet Pi-equivalent **product
-user documentation**. Pi has user-facing pages for installation, first run,
-usage, providers, settings, keybindings, sessions, compaction, customization,
-automation, SDK/RPC, and terminal/platform setup. Pipy should grow the same
-kind of outside-in documentation while keeping the existing specs for agents and
-maintainers.
+Pipy has user-facing guides for installation, first run, usage, providers,
+settings, keybindings, sessions, compaction, customization, automation,
+SDK/RPC and terminal setup. The [documentation home](index.md) links those
+guides alongside the retained implementation specs for agents and maintainers.
+Remaining clarity, onboarding and topic-extraction work follows the
+[backlog](backlog.md); the presence of these guides does not close every
+documentation-parity gap.
 
 This is documentation parity, not runtime feature parity. A page can start as a
 stub when the corresponding feature is not implemented, but it must state the
@@ -17,7 +19,8 @@ Pi docs.
 
 ## Target Structure
 
-Create or reshape user-facing pages under `docs/`:
+The original target structure is retained as a maintenance inventory. Most
+pages below are shipped; proposed extractions are labeled explicitly:
 
 - `quickstart.md` — install/setup, first `pipy` run, fake provider smoke, first
   real-provider path, and where local state is written.
@@ -40,8 +43,9 @@ Create or reshape user-facing pages under `docs/`:
   extension authoring remains in `extension-api.md` until a separate user-facing
   extension page exists. Do not imply TypeScript compatibility or unshipped
   remote package-source support.
-- `models.md`, `custom-provider.md` — `models.json` schema, examples, routing,
-  auth, and local/custom-provider setup.
+- Proposed `models.md`, `custom-provider.md` extractions — `models.json`
+  schema, examples, routing, auth and local/custom-provider setup currently
+  live in [Providers and models](providers.md) and [Settings](settings.md).
 - `json.md`, `rpc.md`, `sdk.md` — shipped Pi-style JSON/RPC automation and the
   current Python SDK/headless embedding surface.
 - `terminal-setup.md`, `tmux.md`, and optional platform notes — terminal

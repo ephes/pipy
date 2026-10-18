@@ -15,6 +15,9 @@ For forward planning and parity tracks see [backlog.md](backlog.md).
 
 ## Goal
 
+Historical bootstrap goal, retained as design rationale (current-status review:
+2026-10-18):
+
 Build pipy's own coding-agent harness deliberately, starting with a small
 local-first runner that can launch a coding agent, observe a conservative run
 lifecycle, and write a durable pipy session record. The harness is intended to
@@ -31,13 +34,19 @@ the foundation for pipy's own agent surface:
 - a native pipy agent runtime behind the same interface
 - integration with `pipy-session` for durable, privacy-conscious records
 
-The existing `pipy-session` package remains the recorder and archive layer. The
-harness should call it instead of creating a parallel transcript format. The
-current in-process embedding surface is documented in [sdk.md](sdk.md); the
-planned out-of-process JSON/RPC automation surfaces are specified in
-[automation-rpc.md](automation-rpc.md).
+That bootstrap used `pipy-session` for recorder and archive integration. The
+shipped native runtime now owns a separate private, full-content
+[product session tree](session-tree.md); `pipy-session` remains the optional
+[metadata-only workflow archive](session-storage.md). Their formats and privacy
+rules belong to those separate contracts. The shipped in-process
+[Python SDK](sdk.md) and out-of-process [JSON/RPC automation](automation-rpc.md)
+use the native runtime.
 
 ## Non-Goals
+
+The capture exclusions below apply to the metadata-only workflow archive.
+References to the first or bootstrap slice retain its historical scope; the
+linked product-session, SDK and automation contracts govern the shipped runtime.
 
 - Do not build a broad transcript database.
 - Do not import raw native transcripts by default.
@@ -62,8 +71,9 @@ planned out-of-process JSON/RPC automation surfaces are specified in
   cross-process lock.
 - Do not change the finalized session archive layout documented in
   `docs/session-storage.md`.
-- Do not publish documentation, add docs CI/deploy workflows, or turn the local
-  docs preview into a product web UI.
+- A product web UI remains outside the current runtime scope. Public static
+  documentation, its CI build and Read the Docs publication are shipped; see
+  [documentation hosting](https://github.com/ephes/pipy/blob/main/CONTRIBUTING.md#documentation-hosting).
 
 ## Design Principles
 
@@ -1514,8 +1524,15 @@ and keeps file reads explicit.
 
 ### Local Documentation Preview Decision
 
-Recommendation: yes, for local preview/build only. A minimal Zensical setup
-with `zensical.toml`, `docs/index.md`, and local recipes is acceptable.
+Historical local-only decision, superseded by hosted documentation on
+2026-10-17. The original recommendation was:
+
+> Recommendation: yes, for local preview/build only.
+
+It allowed a minimal Zensical setup with
+`zensical.toml`, `docs/index.md` and local recipes. Current local preview,
+filtered strict builds, CI and Read the Docs publication follow
+[documentation hosting](https://github.com/ephes/pipy/blob/main/CONTRIBUTING.md#documentation-hosting).
 
 ## Native Tool Boundaries
 

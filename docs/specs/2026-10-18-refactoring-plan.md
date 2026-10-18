@@ -242,6 +242,14 @@ documentation build.
 
 ### RF-D2 — Separate current contracts from implementation history
 
+**Status:** RF-D2a current-status repairs complete, 2026-10-18. This first slice
+corrects public/native-runtime/hosted-doc claims while retaining existing
+headings, anchors and contract owners. Focused tests, full `just check`, strict
+documentation build and rendered link/heading checks passed; independent
+high-effort review and scoped historical-quote re-review closed CLEAN.
+RF-D2b topic extractions follow the provider slices; the full RF-D2 program is
+not complete.
+
 **Priority:** P2. **Depends on:** RF-D1. **Evidence:** DOC2, DOC3.
 
 **Files:** `docs/architecture.md`, `docs/harness-spec.md`, `docs/sdk.md`,

@@ -1712,6 +1712,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   request-shape fixtures and dated live observations. Local transport tests
   verify Codex callbacks before terminal data and ordinary buffered fallback.
 
+- Corrected stale architecture and harness status: the repository is public,
+  native product sessions are separate from the metadata archive, SDK/JSON/RPC
+  surfaces are shipped, and documentation is hosted. Historical bootstrap
+  rationale retains its existing headings and links to current contracts.
+
 ## [0.3.0] - 2026-09-30
 
 ### Highlights

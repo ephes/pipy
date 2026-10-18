@@ -109,10 +109,14 @@ full checks and independent high-effort re-review passed.
 RF-S1 [provider capability/evidence matrix](provider-capabilities.md) is complete
 (2026-10-18): real local SSE/WebSocket pre-terminal callbacks and buffered JSON
 completion are pinned; dated DF1 live evidence remains scoped. Focused/full
-checks, strict docs/links and independent high-effort review passed. The next
-slices are RF-D2a current-status corrections, then RF-P1 foreign-thinking
-request projection. Current-contract
-clarity and provider evidence precede streaming extraction.
+checks, strict docs/links and independent high-effort review passed.
+RF-D2a current-status corrections are complete (2026-10-18): public/native
+runtime and hosted-doc claims now distinguish current contracts from historical
+bootstrap rationale, preserving headings and anchors. Focused/full checks and
+independent high-effort review passed. RF-D2b topic extraction follows the provider slices;
+the full RF-D2 program is not complete. RF-P1 foreign-thinking request projection
+is next. Current-contract clarity and provider evidence precede streaming
+extraction.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
