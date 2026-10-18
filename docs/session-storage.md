@@ -460,12 +460,46 @@ The `.state/` files map a platform session id to a pipy active JSONL file. They
 are operational state, not durable history, and they stay under `.in-progress/`
 so `just sessions-sync` does not copy them.
 
-Only concurrent starts are serialized: event, stop and prune operations do not
-participate in the start lock. Concurrent starts for the same agent/platform session identity use an OS-backed
-lock across state lookup, record creation and mapping publication. Different
-identities use independent locks. Persistent `.lock` sidecars are not pruned;
-publication uses owned unique temporary files, and failed publication removes
-only the newly created active record and its temporary mapping.
+Recorder creation, append and finalization share one OS-backed lifecycle lock
+per session root (`.in-progress/pipy/.recorder.lock`). Each operation opens its
+own lock descriptor, so both threads and processes participate. Append resolves
+and opens an existing active file only while holding this lock; finalization
+waits for admitted writes to close before renaming. Late appends fail rather
+than recreating an active path. Creation reserves names against both active and
+finalized records, so a retired path cannot identify a replacement generation.
+This intentionally serializes short archive writes across identities.
+
+Automatic start, identity-based event/stop, and prune share a persistent lock
+per mapping (`.state/<identity>.lock`). Both supplied identities and identities
+computed from a new active filename must recheck live state under this owner.
+If a computed identity is already live, discard only the unpublished new record
+and resume the existing generation, just as a supplied identity does. Never
+overwrite a live mapping or orphan its record. Hold the owner across lookup and the complete
+transition, including stop's finalization and mapping retirement. Prune decides
+and removes under that same lock. Direct `--active` operations use the recorder
+lock; when an identity is also supplied they take its lock and retire only a
+mapping that still names that active record. Without an identity they leave
+stale mappings for prune. The order is identity lock then recorder lock;
+recorder code never takes an identity lock. Locks are non-reentrant and helpers
+do not reacquire their own owner. Lock sidecars are never deleted, avoiding
+split ownership of old/new inodes, and all are excluded from sync under
+`.in-progress/`.
+
+Publication uses owned unique temporary files; failed start removes only its
+new active record and temporary mapping. Start owns its unpublished active
+record until either publication transfers ownership to the mapping, or discard
+retires that ownership exactly once. Retire cleanup authority before invoking
+discard: after it releases the recorder owner, the same pathname may identify
+a different newly created record. Resuming an existing mapping after discard
+never carries cleanup authority over the discarded pathname, even if resume
+fails. Cleanup must not infer continuing ownership from pathname equality. Locks release on exceptions and process
+exit. Failed summary staging removes its owned partial file. If JSONL rename
+succeeds but Markdown publication fails, JSONL remains finalized and immutable;
+the mapping may remain stale for prune. A failure before rename leaves the
+active record recoverable (an end marker may already have been appended).
+These are local cooperating-writer guarantees; external file edits and
+cross-machine concurrent writers to a shared filesystem are outside the lock
+contract. Metadata sanitization and immutable-file sync rules are unchanged.
 
 The scriptable commands are:
 

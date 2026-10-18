@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import re
 import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from pipy_session.locking import file_lock
 from pipy_session.recorder import (
     PROJECT_NAME,
     SessionRecord,
     append_event,
+    discard_active_session,
     finalize_session,
     init_session,
     resolve_active_path,
@@ -80,12 +81,13 @@ def prune_auto_capture_state(
     for path in sorted(directory.glob("*.json")):
         if not path.is_file():
             continue
-        reason = _stale_state_reason(path, root=root)
-        if reason is None:
-            continue
-        if not dry_run:
-            path.unlink(missing_ok=True)
-        pruned.append(PrunedState(path=path, reason=reason, removed=not dry_run))
+        with file_lock(path.with_suffix(".lock")):
+            reason = _stale_state_reason(path, root=root)
+            if reason is None:
+                continue
+            if not dry_run:
+                path.unlink(missing_ok=True)
+            pruned.append(PrunedState(path=path, reason=reason, removed=not dry_run))
     return pruned
 
 
@@ -109,11 +111,9 @@ def start_auto_capture(
         if platform_session_id is not None
         else None
     )
-    if lock_path is not None:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a") if lock_path is not None else nullcontext() as lock:
-        if lock is not None:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with ExitStack() as locks:
+        if lock_path is not None:
+            locks.enter_context(file_lock(lock_path))
         if platform_session_id is not None:
             existing_state_path = _state_path(root, safe_agent, platform_session_id)
             existing = _existing_live_state(
@@ -122,24 +122,8 @@ def start_auto_capture(
                 root=root,
             )
             if existing is not None:
-                append_event(
-                    existing.active_path,
-                    root=root,
-                    event_type="auto_capture.resumed",
-                    agent=safe_agent,
-                    summary=f"Automatic capture reused existing state for {safe_agent}.",
-                    payload={
-                        "capture_complete": not existing.partial,
-                        "metadata": _sanitize_metadata(metadata or {}),
-                        "platform_session_id": _public_session_id(
-                            existing.platform_session_id
-                        ),
-                    },
-                    now=now,
-                )
-                return existing
-            if existing_state_path.exists():
-                existing_state_path.unlink()
+                return _resume_capture(existing, root=root, metadata=metadata, now=now)
+            existing_state_path.unlink(missing_ok=True)
 
         active_path = init_session(
             agent=agent,
@@ -150,8 +134,26 @@ def start_auto_capture(
             machine=machine,
             now=now,
         )
+        owns_active = True
         try:
             session_id = platform_session_id or active_path.stem
+            if lock_path is None:
+                locks.enter_context(
+                    file_lock(
+                        _state_path(root, safe_agent, session_id).with_suffix(".lock")
+                    )
+                )
+                generated_path = _state_path(root, safe_agent, session_id)
+                existing = _existing_live_state(
+                    generated_path, platform_session_id=session_id, root=root
+                )
+                if existing is not None:
+                    owns_active = False
+                    discard_active_session(active_path, root=root)
+                    return _resume_capture(
+                        existing, root=root, metadata=metadata, now=now
+                    )
+                generated_path.unlink(missing_ok=True)
             public_session_id = _public_session_id(session_id)
 
             sanitized_metadata = _sanitize_metadata(metadata or {})
@@ -192,8 +194,11 @@ def start_auto_capture(
                 "updated_at": _timestamp(now),
             }
             _write_state(path, state)
+            owns_active = False
         except BaseException:
-            active_path.unlink(missing_ok=True)
+            if owns_active:
+                owns_active = False
+                discard_active_session(active_path, root=root)
             raise
         return AutoCaptureState(
             agent=safe_agent,
@@ -202,6 +207,31 @@ def start_auto_capture(
             state_path=path,
             partial=partial,
         )
+
+
+def _resume_capture(
+    existing: AutoCaptureState,
+    *,
+    root: str | Path | None,
+    metadata: Mapping[str, Any] | None,
+    now: datetime | None,
+) -> AutoCaptureState:
+    """Resume a live mapping while its caller holds the identity owner."""
+
+    append_event(
+        existing.active_path,
+        root=root,
+        event_type="auto_capture.resumed",
+        agent=existing.agent,
+        summary=f"Automatic capture reused existing state for {existing.agent}.",
+        payload={
+            "capture_complete": not existing.partial,
+            "metadata": _sanitize_metadata(metadata or {}),
+            "platform_session_id": _public_session_id(existing.platform_session_id),
+        },
+        now=now,
+    )
+    return existing
 
 
 def append_auto_event(
@@ -217,19 +247,25 @@ def append_auto_event(
 ) -> Path:
     """Append one conservative automatic-capture event."""
 
-    active_path = _active_from_args(
-        root=root, active=active, agent=agent, session_id=platform_session_id
+    lock_path = (
+        _state_path(root, agent, platform_session_id).with_suffix(".lock")
+        if agent and platform_session_id
+        else None
     )
-    payload = _sanitize_metadata(metadata or {})
-    return append_event(
-        active_path,
-        root=root,
-        event_type=event_type,
-        agent=agent,
-        summary=summary,
-        payload=payload,
-        now=now,
-    )
+    with file_lock(lock_path) if lock_path is not None else nullcontext():
+        active_path = _active_from_args(
+            root=root, active=active, agent=agent, session_id=platform_session_id
+        )
+        payload = _sanitize_metadata(metadata or {})
+        return append_event(
+            active_path,
+            root=root,
+            event_type=event_type,
+            agent=agent,
+            summary=summary,
+            payload=payload,
+            now=now,
+        )
 
 
 def stop_auto_capture(
@@ -244,39 +280,50 @@ def stop_auto_capture(
 ) -> SessionRecord:
     """Append an end marker, finalize the active record, and remove state."""
 
-    active_path, state_path = _active_and_state_from_args(
-        root=root,
-        active=active,
-        agent=agent,
-        session_id=platform_session_id,
+    lock_path = (
+        _state_path(root, agent, platform_session_id).with_suffix(".lock")
+        if agent and platform_session_id
+        else None
     )
-    event_agent = agent
-    if event_agent is None and state_path is not None:
-        state = _read_state(state_path)
-        event_agent = str(state.get("agent") or "")
+    with file_lock(lock_path) if lock_path is not None else nullcontext():
+        active_path, state_path = _active_and_state_from_args(
+            root=root,
+            active=active,
+            agent=agent,
+            session_id=platform_session_id,
+        )
+        event_agent = agent
+        if event_agent is None and state_path is not None:
+            state = _read_state(state_path)
+            event_agent = str(state.get("agent") or "")
 
-    append_event(
-        active_path,
-        root=root,
-        event_type="auto_capture.ended",
-        agent=event_agent or None,
-        summary="Automatic capture ended.",
-        payload=_sanitize_metadata(metadata or {}),
-        now=now,
-    )
+        append_event(
+            active_path,
+            root=root,
+            event_type="auto_capture.ended",
+            agent=event_agent or None,
+            summary="Automatic capture ended.",
+            payload=_sanitize_metadata(metadata or {}),
+            now=now,
+        )
 
-    record = finalize_session(
-        active_path,
-        root=root,
-        summary_text=(
-            _sanitize_summary_lines(summary)
-            if summary is not None
-            else _default_summary(event_agent, metadata)
-        ),
-    )
-    if state_path is not None and state_path.exists():
-        state_path.unlink()
-    return record
+        record = finalize_session(
+            active_path,
+            root=root,
+            summary_text=(
+                _sanitize_summary_lines(summary)
+                if summary is not None
+                else _default_summary(event_agent, metadata)
+            ),
+        )
+        if state_path is not None and state_path.exists():
+            state = _read_state(state_path)
+            if (
+                Path(str(state.get("active_path") or "")).resolve()
+                == active_path.resolve()
+            ):
+                state_path.unlink()
+        return record
 
 
 def handle_claude_hook(
@@ -415,7 +462,8 @@ def _active_and_state_from_args(
     session_id: str | None,
 ) -> tuple[Path, Path | None]:
     if active is not None:
-        return resolve_active_path(active, root=root), None
+        path = _state_path(root, agent, session_id) if agent and session_id else None
+        return resolve_active_path(active, root=root), path
     if not agent or not session_id:
         raise ValueError("provide either --active or both --agent and --session-id")
 

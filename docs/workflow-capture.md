@@ -194,3 +194,9 @@ Raw transcript import for Codex / Claude / Pi is intentionally out of
 scope: it would require explicit opt-in and a concrete redaction policy.
 SQLite or another indexed store is also deferred — the JSONL + Markdown
 archive remains the source of truth.
+
+Archive lifecycle and automatic capture ownership are serialized for cooperating
+local threads and processes. A late append to an already finalized active path
+fails, and a new capture uses a distinct record name. See the
+[ownership and recovery contract](session-storage.md#automatic-capture) for lock
+ordering and interrupted-finalization recovery.

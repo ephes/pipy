@@ -36,6 +36,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Workflow archive append/finalize operations now serialize across local threads
+  and processes, preventing writes after finalization and stale appends from
+  recreating retired records. Automatic capture start, event, stop and prune
+  share identity ownership so old cleanup cannot delete a replacement mapping.
+
 - The nested-call cancellation regression test waits for the queued call and
   checks its durable settlement order separately from caller-thread completion
   order, removing a scheduling-dependent CI failure without changing runtime

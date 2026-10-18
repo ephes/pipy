@@ -706,13 +706,17 @@ def test_simultaneous_starts_claim_one_record(tmp_path, monkeypatch):
     import pipy_session.auto_capture as capture
 
     barrier = Barrier(2)
-    original_flock = capture.fcntl.flock
+    from contextlib import contextmanager
 
-    def simultaneous_lock(fd, operation):
+    original_lock = capture.file_lock
+
+    @contextmanager
+    def simultaneous_lock(path):
         barrier.wait(timeout=5)
-        return original_flock(fd, operation)
+        with original_lock(path):
+            yield
 
-    monkeypatch.setattr(capture.fcntl, "flock", simultaneous_lock)
+    monkeypatch.setattr(capture, "file_lock", simultaneous_lock)
     with ThreadPoolExecutor(2) as pool:
         futures = [
             pool.submit(
