@@ -16,9 +16,9 @@ byte-identical translation in both directions:
   items, message items with their ids and phase, ``function_call`` ids.
 - :func:`parse_response` turns a buffered Responses body into a
   :class:`ParsedResponse`, with Pi's ordered content
-  (``providers/responses_output.py``). Ordinary default SSE requests use
+  (``providers/responses_output.py``). Default OpenAI and Azure SSE requests use
   ``providers/responses_stream.py`` and the same output assembly primitives;
-  Azure still uses this buffered parser.
+  explicit JSON injection retains this buffered parser.
 
 The two adapters differ only where they genuinely differ, threaded through as
 parameters here:

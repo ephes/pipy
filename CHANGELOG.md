@@ -8,11 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Default Azure Responses requests now stream text and thinking through the
+  shared Responses consumer, retaining Azure deployment/API-version, auth,
+  cache and replay behavior. Explicit JSON client injection preserves the
+  original buffered wire contract.
+
 - Default OpenAI Responses requests now stream text and thinking incrementally,
   including xAI, Copilot Responses and custom rows selecting that API. Streams
   close at the terminal response, retain partial failed/aborted history and
   reject unfinished tool calls. Explicitly injected JSON clients retain buffered
-  compatibility; Azure remains buffered for a separate slice.
+  compatibility.
 
 - Read the Docs build configuration for the existing Zensical documentation,
   using a dedicated locked `docs` dependency group and Python 3.14. The target

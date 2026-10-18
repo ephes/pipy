@@ -29,7 +29,7 @@ shared transport; the representative and transport proofs are listed below.
 | --- | --- | --- | --- | --- | --- |
 | `openai-codex-responses` | SSE or WebSocket events | Incremental text and thinking; pre-terminal local wire proofs for both transports | Yes; arguments assembled from events | SSE/HTTP interruption and WebSocket close tests; dated live cancel | [Codex](#codex-event-evidence), [live](#dated-live-evidence) |
 | `openai-responses` | SSE by default; explicit injected JSON compatibility | Incremental text and thinking; pre-terminal local wire/mode proofs | Yes; unfinished calls reject success | Header/body SSE interruption; RPC abort | [Responses](#ordinary-responses-sse-evidence), [JSON](#buffered-json-evidence) |
-| `azure-openai-responses` | JSON HTTP | Buffered; final thinking blocks supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
+| `azure-openai-responses` | SSE by default; explicit injected JSON compatibility | Incremental text and thinking; pre-terminal local wire/mode proofs | Yes; unfinished calls reject success | Header/body/status-error body interruption | [Azure](#azure-responses-sse-evidence), [JSON](#buffered-json-evidence) |
 | `openai-completions` | JSON HTTP | Buffered; no final thinking-block extraction in the shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `anthropic-messages` | JSON HTTP | Buffered; final signed/redacted thinking supported | Yes | Shared JSON cancellation; adapter forwarding test | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `amazon-bedrock` | JSON HTTP, SigV4 | Buffered; final Anthropic thinking blocks supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
@@ -106,8 +106,8 @@ tool → final-answer integration, without proving authenticated streaming.
 Default `OpenAIResponsesProvider` and catalog construction send `stream: true`
 and consume SSE through `native/http.py`'s `SsePayloadStream`. The shared
 `native/providers/responses_stream.py` consumer owns Responses decoding and
-ordered content; adapter request/auth/cache policy stays outside it. It can be
-reused by Azure, whose adapter remains buffered pending RF-S3b. Codex retains
+ordered content; adapter request/auth/cache policy stays outside it. Azure uses
+the same consumer with its own configuration and error classes. Codex retains
 its separate transport selection, event interpretation and retry policy.
 
 `tests/test_native_responses_streaming.py` uses a real loopback HTTP server.
@@ -132,6 +132,32 @@ retries. Cancellation also interrupts HTTP status-error body decoding, whether
 socket shutdown surfaces as a read error or clean EOF.
 These are deterministic synthetic wire/composition proofs; they make no new
 authenticated OpenAI, xAI, Copilot or custom-endpoint live claim.
+
+### Azure Responses SSE evidence
+
+Default `AzureOpenAIResponsesProvider` and catalog construction also send
+`stream: true` through the shared Responses consumer. Azure still owns its
+configuration preflight, base URL normalization, deployment and `api-version`,
+`api-key`/explicit authorization precedence, prompt cache and replay target.
+The built-in inventory has three Azure rows (`gpt-5.4`, `gpt-4o`, `gpt-4o-mini`);
+custom rows selecting this API use the same transport.
+
+`tests/test_native_azure_responses_streaming.py` uses real loopback HTTP with
+independent Azure request assertions and the common server/barrier mechanics.
+It covers all three built-in rows and a custom row, text/thinking callbacks
+before terminal release, completion before EOF, Azure auth/configuration
+precedence and cache/reasoning wire fields. JSON mode, RPC and real PTY output
+exercise actual default catalog construction. Ordered reasoning/text/tool
+signatures, terminal encryption and usage survive a tool-only turn and paired
+tool-result replay. Failed or unfinished tool history never executes.
+
+Representative Azure tests cover headers/body/status-error-body cancellation,
+local output failures without provider retries, callback cancellation with
+partial retention, safe Azure error types and managed fresh attempts before
+or after partial output. An explicitly injected real JSON transport remains
+buffered with no callbacks; Azure's separate golden fixtures retain the
+original exact request bytes. These are deterministic synthetic proofs, not
+authenticated Azure service evidence.
 
 ### Buffered JSON evidence
 
@@ -209,6 +235,8 @@ Responses/Chat, Azure, Mistral, Cloudflare or OpenRouter. New live claims need
 a dated summary identifying provider/model, transport, observed behavior and
 limits; request fixtures and local loopback tests do not fill that gap.
 
-RF-S2 supplies the shared SSE lifecycle boundary used by Codex. RF-S3 owns
-incremental OpenAI Responses/Azure adoption; their current matrix rows remain
-buffered. This inventory makes no additional authenticated live claims.
+RF-S2 supplies the shared SSE lifecycle boundary used by Codex. RF-S3a and
+RF-S3b adopt default incremental OpenAI Responses and Azure delivery over that
+boundary; explicit JSON injection retains buffered compatibility. Other API
+families retain their matrix behavior. This inventory makes no additional
+authenticated live claims.

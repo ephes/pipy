@@ -384,13 +384,15 @@ event iterator on every parser exit. Codex still owns its own
 `OpenAICodexHTTPStatusError.from_http_error`, its domain retry classifier, and
 its retry/fallback loop.
 
-The ordinary `openai-responses` adapter also uses `SsePayloadStream`, with a
-Responses-family consumer in `native/providers/responses_stream.py`. Catalog
-construction selects SSE by default for OpenAI, xAI, Copilot Responses and
-custom rows naming that API; explicitly injected `JsonHTTPClient` instances
-retain the buffered request bytes, without `stream: true`. Azure remains
-buffered for RF-S3b. The consumer forwards text/reasoning deltas, accepts the
-first terminal without waiting for EOF, reconciles final content/signatures and
+The `openai-responses` and `azure-openai-responses` adapters use
+`SsePayloadStream`, with a Responses-family consumer in
+`native/providers/responses_stream.py`. Catalog
+construction selects SSE by default for OpenAI, xAI, Copilot Responses, Azure and
+custom rows naming those APIs; explicitly injected `JsonHTTPClient` instances
+retain buffered request bytes, without `stream: true`. Azure retains its own
+URL/deployment/API-version, auth, cache and replay configuration. The consumer
+forwards text/reasoning deltas, accepts the first terminal without waiting for
+EOF, reconciles final content/signatures and
 usage without re-emitting deltas, and rejects executable calls missing their
 output-item completion. Failures and cancellation retain non-executable partial
 history. Safe event-received/error metadata supports caller-managed fresh

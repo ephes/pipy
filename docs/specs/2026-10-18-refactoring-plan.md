@@ -419,7 +419,19 @@ completion check that does not change Codex policy. Local default-construction
 fixtures cover OpenAI, xAI, Copilot and custom Responses protocol/auth fields,
 pre-terminal callbacks, terminal closure, JSON/RPC and real PTY behavior, errors,
 cancellation and canonical managed retries. No new authenticated live evidence
-is claimed. RF-S3b Azure adoption follows; Azure remains buffered.
+is claimed.
+
+**RF-S3b status:** complete, 2026-10-18. Fresh independent high-effort first
+review closed CLEAN; full `just check` passed (12,659 tests, two skipped).
+Default Azure catalog/direct construction uses the existing shared consumer;
+explicit JSON injection retains
+the original request bytes and buffered behavior. Azure retains configuration
+preflight, base URL/deployment/API-version/auth precedence, cache/reasoning,
+usage, API provenance and replay ownership. Local fixtures cover the three
+built-in rows and custom Azure routing, pre-terminal callbacks, terminal
+closure, ordered tool/usage/signature replay, cancellation and managed retries,
+with default JSON/RPC and real PTY composition. Shared protocol/Codex policy is
+unchanged, and authenticated live evidence remains separate.
 
 **Priority:** P2. **Depends on:** RF-S2.
 

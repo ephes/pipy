@@ -1,13 +1,15 @@
 """Azure OpenAI Responses API provider for the native pipy runtime.
 
 Azure OpenAI exposes the same Responses-style request/response shape as
-OpenAI's first-party endpoint, but reaches it through a per-deployment URL
-and authenticates with an ``api-key`` header instead of a bearer token.
+OpenAI's first-party endpoint, with Azure base URL/deployment configuration
+and an ``api-key`` header instead of the default bearer token.
 
 This adapter shares the Responses wire-translation helpers with
 ``providers/openai_responses`` through ``providers/openai_responses_wire``; the
 two adapters keep their own auth/URL/deployment resolution, provider dataclass,
-and error hierarchy so they can drift independently.
+and error hierarchy so they can drift independently. Both use the shared
+Responses SSE consumer by default; explicit JSON client injection retains
+buffered request/response compatibility.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from __future__ import annotations
 import os
 import urllib.parse
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -42,10 +44,16 @@ from pipy_harness.native.providers.openai_prompt_cache import (
 )
 from pipy_harness.native.providers.openai_responses_wire import (
     AZURE_TOOL_CALL_PROVIDERS,
+    ParsedResponse,
     ResponsesTranscriptOptions,
     parse_response,
     resolve_responses_transcript,
     responses_input,
+)
+from pipy_harness.native.providers.responses_stream import (
+    ResponsesStreamFailure,
+    ResponsesStreamOptions,
+    stream_response,
 )
 
 DEFAULT_AZURE_OPENAI_API_VERSION = "v1"
@@ -138,6 +146,9 @@ def azure_openai_http_client() -> UrllibJsonHTTPClient:
 class AzureOpenAIResponsesProvider:
     """Azure OpenAI Responses API provider behind ProviderPort.
 
+    Default construction streams text/thinking through the shared Responses
+    consumer. An explicitly injected ``JsonHTTPClient`` remains buffered.
+
     ``model_id`` doubles as the Azure deployment name unless ``deployment``
     is set explicitly. The endpoint URL is composed as Pi's ``AzureOpenAI`` SDK
     v1 surface: the base URL is normalized to ``/openai/v1`` for Azure hosts and
@@ -180,7 +191,9 @@ class AzureOpenAIResponsesProvider:
         )
     )
     deployment: str | None = None
-    http_client: JsonHTTPClient = field(default_factory=azure_openai_http_client)
+    # Ordinary construction streams; explicit JSON injection preserves the
+    # original buffered request bytes and response/error contract.
+    http_client: JsonHTTPClient | None = None
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
     provider_name: str = "azure-openai"
@@ -305,7 +318,6 @@ class AzureOpenAIResponsesProvider:
         reasoning_sink: StreamChunkSink | None = None,
         cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
-        del stream_sink, reasoning_sink
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         started_at = utc_now()
@@ -359,25 +371,42 @@ class AzureOpenAIResponsesProvider:
         headers = apply_provider_headers(request, headers)
 
         try:
-            response = self.http_client.post_json(
-                configuration.url,
-                headers=headers,
-                body=body,
-                timeout_seconds=self.timeout_seconds,
-                cancel_token=cancel_token,
-            )
-            if response.status_code < 200 or response.status_code >= 300:
-                raise AzureOpenAIHTTPStatusError(
-                    "Azure OpenAI API request failed with HTTP status "
-                    f"{response.status_code}.",
-                    metadata={"http_status": response.status_code},
+            if self.http_client is None:
+                body["stream"] = True
+                result = stream_response(
+                    configuration.url,
+                    headers=headers,
+                    body=body,
+                    timeout_seconds=self.timeout_seconds,
+                    options=ResponsesStreamOptions(
+                        label="Azure OpenAI",
+                        parse_error_class=AzureOpenAIResponseParseError,
+                        status_error_class=AzureOpenAIHTTPStatusError,
+                        transport_error_class=AzureOpenAITransportError,
+                        nested_usage_fields=AZURE_OPENAI_NESTED_USAGE_FIELDS,
+                        tool_call_provider_prefix="azure-openai",
+                    ),
+                    stream_sink=stream_sink,
+                    reasoning_sink=reasoning_sink,
+                    cancel_token=cancel_token,
                 )
-            result = parse_response(
-                response.body,
-                parse_error_class=AzureOpenAIResponseParseError,
-                response_label="Azure OpenAI",
-                nested_usage_fields=AZURE_OPENAI_NESTED_USAGE_FIELDS,
-                tool_call_provider_prefix="azure-openai",
+            else:
+                result = self._buffered_response(
+                    configuration.url, body, headers, cancel_token
+                )
+        except ResponsesStreamFailure as exc:
+            failed = failed_provider_result(
+                request,
+                provider_name=self.name,
+                started_at=started_at,
+                error_type=type(exc.error).__name__,
+                error_message=str(exc.error),
+                metadata=exc.error.metadata,
+            )
+            return replace(
+                failed,
+                content_blocks=exc.content_blocks,
+                api=AZURE_OPENAI_RESPONSES_API,
             )
         except AzureOpenAIProviderError as exc:
             return failed_provider_result(
@@ -404,6 +433,37 @@ class AzureOpenAIResponsesProvider:
             tool_calls=result.tool_calls,
             content_blocks=result.content_blocks,
             api=AZURE_OPENAI_RESPONSES_API,
+        )
+
+    def _buffered_response(
+        self,
+        url: str,
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        cancel_token: CancelToken | None,
+    ) -> ParsedResponse:
+        """Explicit JSON injection retains Azure's original wire/error contract."""
+
+        assert self.http_client is not None
+        response = self.http_client.post_json(
+            url,
+            headers=headers,
+            body=body,
+            timeout_seconds=self.timeout_seconds,
+            cancel_token=cancel_token,
+        )
+        if response.status_code < 200 or response.status_code >= 300:
+            raise AzureOpenAIHTTPStatusError(
+                "Azure OpenAI API request failed with HTTP status "
+                f"{response.status_code}.",
+                metadata={"http_status": response.status_code},
+            )
+        return parse_response(
+            response.body,
+            parse_error_class=AzureOpenAIResponseParseError,
+            response_label="Azure OpenAI",
+            nested_usage_fields=AZURE_OPENAI_NESTED_USAGE_FIELDS,
+            tool_call_provider_prefix="azure-openai",
         )
 
 

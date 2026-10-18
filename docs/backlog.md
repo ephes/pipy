@@ -137,7 +137,13 @@ partial-history/status-body handling. RF-CI2 RPC signal-test stdout draining is
 complete (2026-10-18): focused current/Python 3.11 PIPE/bounded-socket checks,
 full checks, strict docs/rendered links and independent high-effort first review
 passed. The old wait-before-read order fails under local backpressure; remote CI
-pipe capacity remains an inferred trigger. RF-S3b Azure adoption follows; Azure remains buffered.
+pipe capacity remains an inferred trigger. RF-S3b Azure adoption is complete
+(2026-10-18): default catalog construction streams through the shared consumer
+with Azure-owned configuration, errors, usage and replay; explicit JSON injection
+retains the original bytes. Local Azure wire, cancellation/retry and
+JSON/RPC/real-PTY checks passed, together with full checks (12,659 passed, two
+skipped) and a fresh independent high-effort first review CLEAN. No new
+authenticated live evidence is claimed.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**

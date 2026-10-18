@@ -15,7 +15,9 @@ OpenAI, xAI, Copilot Responses rows and custom rows selecting this API. Other
 Copilot rows follow their selected API family. Final tool calls become
 executable only after complete output items arrive. Cancelling or failing a
 stream retains partial conversation content without executing unfinished calls.
-Azure Responses remains buffered. Library integrations that explicitly inject
+Azure Responses also streams by default, retaining its Azure deployment,
+API-version, authentication and cache configuration. Library integrations that
+explicitly inject
 a `JsonHTTPClient` retain the existing buffered request/response contract.
 These behaviors have local deterministic wire and TUI/JSON/RPC evidence; live
 provider evidence is listed separately in the matrix.
