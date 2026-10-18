@@ -113,8 +113,14 @@ checks, strict docs/links and independent high-effort review passed.
 RF-D2a current-status corrections are complete (2026-10-18): public/native
 runtime and hosted-doc claims now distinguish current contracts from historical
 bootstrap rationale, preserving headings and anchors. Focused/full checks and
-independent high-effort review passed. RF-D2b topic extraction follows the provider slices;
-the full RF-D2 program is not complete. RF-P1 foreign-thinking request projection
+independent high-effort review passed. RF-D2b extension-runtime extraction is
+complete (2026-10-18): the current component map links the controlling R0 contract
+and R7 evidence, while the architecture retains its global overview and anchors.
+Focused checks (34 tests), full `just check` (12,770 passed, two skipped), strict
+docs/rendered links and all 105 original heading IDs passed; fresh independent
+high-effort first review closed CLEAN. Other RF-D2 topic extractions remain
+pending; RF-D3 onboarding/navigation is the next separate slice.
+RF-P1 foreign-thinking request projection
 is complete (2026-10-18): requests drop thinking unless provider/API/model all
 match, while stored history and tool correlations remain unchanged. Focused
 replay/SDK reopen tests, full checks and strict docs/links passed; independent
@@ -835,13 +841,15 @@ Current behavior lives in these docs:
 - [Compaction](compaction.md)
 - [Python SDK](sdk.md)
 - [Extension API](extension-api.md)
+- [Extension runtime component map](extension-runtime.md)
 - [Provider Catalog](provider-catalog.md)
 - [Settings & Config](settings-config.md)
 - [Automation & RPC](automation-rpc.md)
 - [TUI Workflow](tui-workflow.md)
 - [Export](export-distribution.md)
 - [Session Storage](session-storage.md)
-- the [transactional reload contract](specs/2026-07-25-transactional-extension-reload-rebuild.md)
+- the [transactional reload contract (R0)](specs/2026-07-25-transactional-extension-reload-rebuild.md#r0-current-reconciliation-2026-07-30)
+  and [R7 evidence](specs/2026-07-25-transactional-extension-reload-rebuild.md#r7-closeout-reconciliation-2026-08-02)
 
 A dated filename does not make a runtime contract obsolete.
 

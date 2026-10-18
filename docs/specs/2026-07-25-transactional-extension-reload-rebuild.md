@@ -185,10 +185,12 @@ aggregate `prepare_catalog_auth_refresh()`,
 `publish_catalog_auth_refresh()` entry points as well as leaf APIs.
 
 Read the contract below as the ideal target and historical design evidence, not
-as a claim that all S3.0–S3.9 guarantees shipped. The living
-[`architecture.md`](../architecture.md) and the dated
-[2026-07-29 assessment](../2026-07-29-architecture-quality-assessment.md)
-separate landed ratchets from outstanding correctness clauses.
+as a claim that all S3.0–S3.9 guarantees shipped. The current
+[extension runtime map](../extension-runtime.md) describes component ownership,
+and the [architecture overview](../architecture.md#extensions) places it in the
+product. The dated [2026-07-29 assessment](../2026-07-29-architecture-quality-assessment.md)
+records the earlier gaps; [R0 below](#r0-current-reconciliation-2026-07-30)
+controls their disposition, with [R7 evidence](#r7-closeout-reconciliation-2026-08-02).
 
 ## R0 current reconciliation 2026-07-30
 

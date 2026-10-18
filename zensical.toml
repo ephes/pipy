@@ -26,6 +26,7 @@ nav = [
   {"Terminal Setup" = "terminal-setup.md"},
   {"tmux Setup" = "tmux.md"},
   {"Architecture" = "architecture.md"},
+  {"Extension runtime" = "extension-runtime.md"},
   {"Pi Parity" = "pi-parity.md"},
   {"Harness Spec" = "harness-spec.md"},
   {"Session Storage" = "session-storage.md"},

@@ -247,8 +247,13 @@ corrects public/native-runtime/hosted-doc claims while retaining existing
 headings, anchors and contract owners. Focused tests, full `just check`, strict
 documentation build and rendered link/heading checks passed; independent
 high-effort review and scoped historical-quote re-review closed CLEAN.
-RF-D2b topic extractions follow the provider slices; the full RF-D2 program is
-not complete.
+RF-D2b extension-runtime extraction is complete, 2026-10-18: a current
+component/lifecycle map replaces the architecture's extension chronology while
+preserving all 105 original heading IDs and the exact R0/R7 contract owners.
+Focused checks (34 tests), full `just check` (12,770 passed, two skipped), strict
+filtered docs build and rendered link checks passed; fresh independent
+high-effort first review closed CLEAN. Other RF-D2 topic extractions remain
+pending. RF-D3 onboarding and navigation are the next separate slice.
 
 **Priority:** P2. **Depends on:** RF-D1. **Evidence:** DOC2, DOC3.
 

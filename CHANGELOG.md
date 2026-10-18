@@ -61,6 +61,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   Canonical history provenance is `mistral-conversations`; existing `mistral`
   routing, Chat Completions endpoint and buffered transport remain unchanged.
 
+- The architecture's extension history is replaced by a short overview and a
+  [current extension runtime map](docs/extension-runtime.md) covering component
+  ownership, activation, generation publication, queues, and shutdown. Existing
+  anchors and the controlling transactional reload contract are preserved.
+
 ### Fixed
 
 - Codex SSE responses now close when explicitly retired before their first
