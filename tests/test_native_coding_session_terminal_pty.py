@@ -52,6 +52,7 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import TerminalUi
 
@@ -2027,9 +2028,11 @@ class _TreeMarkProvider:
     supports_tool_calls = True
     model_id = "fake-native-bootstrap"
 
-    def __init__(self) -> None:
+    def __init__(self, *, wait_for_watcher: bool = False) -> None:
         self.requests: list[tuple[str, ...]] = []
         self._n = 0
+        self.waiter_ready = threading.Semaphore(0) if wait_for_watcher else None
+        self.marker_published = threading.Event()
 
     def complete(
         self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
@@ -2045,9 +2048,14 @@ class _TreeMarkProvider:
             m.content.value for m in request.messages if isinstance(m, AgentUserMessage)
         )
         self.requests.append(users)
+        if self.waiter_ready is not None:
+            assert self.waiter_ready.acquire(timeout=8), (
+                "provider watcher never acquired input"
+            )
         text = f"MARK{self._n}[{'|'.join(users)}]"
         if stream_sink is not None:
             stream_sink(text)
+        self.marker_published.set()
         now = datetime.now(UTC)
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
@@ -2058,6 +2066,44 @@ class _TreeMarkProvider:
             final_text=text,
             tool_calls=(),
         )
+
+
+def _tree_turn_readiness(monkeypatch, provider):
+    """Order this fixture's MARK after its watcher, then hold its true prompt."""
+    active = threading.local()
+    held, release = threading.Event(), threading.Event()
+    wait = TerminalUi.wait_for_active_turn_interrupt
+    enter = TerminalDriver.enter_raw_mode
+
+    def active_wait(self, *args, **kwargs):
+        active.waiting = True
+        try:
+            return wait(self, *args, **kwargs)
+        finally:
+            active.waiting = False
+
+    def enter_raw(self):
+        watching = getattr(active, "waiting", False)
+        if (
+            not watching
+            and provider._n == 1
+            and provider.marker_published.is_set()
+            and not held.is_set()
+            and self._raw_mode_depth == 0
+        ):
+            # Real PTY output fences all prior acknowledgements for the reader.
+            # This probe pauses before the unchanged outer TCSAFLUSH acquisition.
+            self.write("\nTREE_FINAL_PROMPT_HELD\n")
+            held.set()
+            assert release.wait(8), "final prompt probe was not released"
+        enter(self)
+        if watching:
+            assert provider.waiter_ready is not None
+            provider.waiter_ready.release()
+
+    monkeypatch.setattr(TerminalUi, "wait_for_active_turn_interrupt", active_wait)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", enter_raw)
+    return held, release
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
@@ -2080,7 +2126,8 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     tree = NativeSessionTree.create(workspace, session_dir=tmp_path / "sessions")
-    provider = _TreeMarkProvider()
+    provider = _TreeMarkProvider(wait_for_watcher=True)
+    prompt_held, release_prompt = _tree_turn_readiness(monkeypatch, provider)
     store = PromptHistoryStore(tmp_path / "history.json")
 
     ctx = _start_pty_repl_session(
@@ -2092,11 +2139,29 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
         native_session=tree,
     )
     try:
-        assert _wait_for(ctx.err_chunks, "escape interrupt"), "startup never painted"
+        assert (
+            wait_for_input_ready_after(ctx.err_chunks, "escape interrupt") is not None
+        ), "startup input never became ready"
+        deadline = time.monotonic() + 8
         os.write(ctx.in_master, b"alpha\n")
-        assert wait_for_input_ready_after(ctx.err_chunks, "MARK1[") is not None, (
-            "first turn did not return to ready input"
+        assert prompt_held.wait(max(0, deadline - time.monotonic())), (
+            "true final prompt acquisition was not observed"
         )
+        assert _wait_for(
+            ctx.err_chunks,
+            "TREE_FINAL_PROMPT_HELD",
+            timeout=max(0, deadline - time.monotonic()),
+        )
+        # The watcher acknowledgement is before MARK. With the true prompt
+        # held, no later byte may falsely permit the next user submission.
+        assert wait_for_input_ready_after(ctx.err_chunks, "MARK1[", timeout=0) is None
+        release_prompt.set()
+        assert (
+            wait_for_input_ready_after(
+                ctx.err_chunks, "MARK1[", timeout=max(0, deadline - time.monotonic())
+            )
+            is not None
+        ), "first turn did not return to ready input"
         os.write(ctx.in_master, b"beta\n")
         assert wait_for_input_ready_after(ctx.err_chunks, "MARK2[") is not None, (
             "second turn did not return to ready input"
@@ -2123,6 +2188,7 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
         os.write(ctx.in_master, b"\x04")
         ctx.worker.join(timeout=8.0)
     finally:
+        release_prompt.set()
         captured = _finish_pty_repl_session(ctx)
 
     assert not ctx.worker.is_alive(), "tree selector session did not exit"

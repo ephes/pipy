@@ -486,6 +486,33 @@ final tool-call/result or failure shape, but do not promise partial tool-argumen
 deltas. Adding those requires a separately selected event-schema and UI/JSON/RPC
 projection change; RF-S1 must mark that capability separately.
 
+### RF-CI3 — Pin prompt ownership and MCP callback identity in tests
+
+**Status:** complete, 2026-10-18. Current and isolated Python 3.11 focus each
+passed 122 tests, with full `just check` (12,748 passed, two skipped), strict
+docs and rendered links. Independent high-effort first review closed CLEAN
+with no findings, including its own isolated Python 3.11 check.
+This test-only stabilization precedes RF-P2b.
+
+[CI run 39128929802](https://github.com/ephes/pipy/actions/runs/39128929802)
+failed two Python 3.11 assertions in paths unchanged by RF-C2. Bounded local
+scheduling probes reproduce both signatures; the remote log does not record
+its actual scheduling. The tree-selector fixture now publishes its turn marker
+only after the active watcher acquires raw mode. A test-specific barrier holds
+the genuine final prompt, proves no post-marker acknowledgement exists yet,
+then releases the unchanged flushing acquisition. Startup readiness, history,
+editor rehydration, sibling branching and no provider call during selection
+remain asserted, within the original first-turn timeout budget.
+
+The MCP regression records the actual transport-factory/attempt thread and
+requires its exact still-connecting self-wait refusal. Two event-driven
+schedules separately prove the initial connecting notification and a delayed
+caller notification observing current failed state, with the exact outer
+failed-connect result and clean close. It no longer assumes all callbacks run
+on the attempt thread or carry a historical state. No runtime, terminal flush,
+notification ordering, timeout/retry or CI configuration change is included;
+there is no public behavior release note.
+
 ### RF-P2 — Restore Chat-compatible reasoning fidelity
 
 **Priority:** P2. **Depends on:** RF-P1. **Evidence:** PAR2.

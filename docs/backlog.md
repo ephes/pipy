@@ -158,6 +158,18 @@ reopen and focused compatibility flags. Focused checks (427 tests), full
 independent high-effort first review CLEAN all passed.
 RF-P2b Mistral native ordered thinking remains selected separately; Chat
 streaming is not part of either final-content claim.
+RF-CI3 is complete (2026-10-18): current and isolated Python 3.11 focus each
+passed 122 tests; full `just check` passed (12,748 tests, two skipped), with
+strict docs/rendered links and independent high-effort first review CLEAN.
+Two pre-existing Python 3.11 test-contract failures from
+[CI run 39128929802](https://github.com/ephes/pipy/actions/runs/39128929802)
+are repaired with bounded event ordering: the tree-selector fixture distinguishes
+its active watcher from the true final prompt, and the MCP callback test pins
+attempt-thread self-refusal while exercising a delayed caller's current failed
+state. Local scheduling probes reproduce both old assertions; the remote
+schedule itself was not recorded. Runtime/flush/notification and CI policies
+are unchanged. RF-P2b remains the separately selected Mistral slice after this
+stabilization.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**

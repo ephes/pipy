@@ -1123,24 +1123,91 @@ def test_close_returns_after_a_transport_that_was_handed_over_closed() -> None:
     assert harness.connection.state == "closed"
 
 
-def test_a_callback_asking_for_the_client_of_a_failed_attempt_is_refused() -> None:
-    asked: list[str] = []
+class _FailedAttemptCallbackProbe:
+    """Two deterministic announcement schedules for this self-wait regression."""
 
-    def ask(connection: McpServerConnection) -> None:
-        if connection.state == "failed":
-            try:
-                connection.get_client()
-            except McpServerConnectionError as error:
-                asked.append(str(error))
+    def __init__(self, delayed_caller: bool) -> None:
+        self.delayed_caller = delayed_caller
+        self.asked: list[tuple[threading.Thread, str]] = []
+        self.caller_states: list[str] = []
+        self.attempt_threads: list[threading.Thread] = []
+        self.connecting_seen = threading.Event()
+        self.self_refused = threading.Event()
+        self.caller_asking = threading.Event()
+        self.scheduling_errors: list[str] = []
+        self.changed = McpServerConnection._changed
 
-    def create() -> McpTransport:
+    def ordered_change(self, connection, **kwargs):
+        if (
+            self.delayed_caller
+            and threading.current_thread() not in self.attempt_threads
+            and connection.state != "closed"
+            and not self.self_refused.wait(_WAIT_SECONDS)
+        ):
+            self.scheduling_errors.append("attempt did not announce self-refusal")
+        self.changed(connection, **kwargs)
+
+    def ask(self, connection: McpServerConnection) -> None:
+        current = threading.current_thread()
+        state = connection.state
+        if current not in self.attempt_threads:
+            self.caller_states.append(state)
+            self.connecting_seen.set()
+        if state != "failed":
+            return
+        if current not in self.attempt_threads:
+            # A delayed connecting announcement may observe current failed state.
+            # Release the worker before waiting for its completed result.
+            self.caller_asking.set()
+        try:
+            connection.get_client()
+        except McpServerConnectionError as error:
+            self.asked.append((current, str(error)))
+        if current in self.attempt_threads:
+            self.self_refused.set()
+            if self.delayed_caller and not self.caller_asking.wait(_WAIT_SECONDS):
+                self.scheduling_errors.append(
+                    "delayed caller did not ask for current state"
+                )
+
+    def create(self) -> McpTransport:
+        self.attempt_threads.append(threading.current_thread())
+        if not self.delayed_caller and not self.connecting_seen.wait(_WAIT_SECONDS):
+            self.scheduling_errors.append("initial connecting notification missing")
         raise ValueError("no transport")
 
-    harness = _Harness([create], on_change=ask)
-    with pytest.raises(McpServerConnectionError, match="no transport"):
-        harness.connection.get_client()
-    assert asked == ['MCP server "fake" is still connecting']
-    harness.connection.close()
+
+@pytest.mark.parametrize("delayed_caller", [False, True])
+def test_a_callback_asking_for_the_client_of_a_failed_attempt_is_refused(
+    monkeypatch: pytest.MonkeyPatch, delayed_caller: bool
+) -> None:
+    probe = _FailedAttemptCallbackProbe(delayed_caller)
+    monkeypatch.setattr(
+        McpServerConnection,
+        "_changed",
+        lambda connection, **kwargs: probe.ordered_change(connection, **kwargs),
+    )
+    harness = _Harness([probe.create], on_change=probe.ask)
+    try:
+        with pytest.raises(McpServerConnectionError) as outer:
+            harness.connection.get_client()
+        assert str(outer.value) == 'MCP server "fake" failed to connect: no transport'
+        assert len(probe.attempt_threads) == 1 and probe.self_refused.is_set()
+        assert probe.asked[0] == (
+            probe.attempt_threads[0],
+            'MCP server "fake" is still connecting',
+        )
+        if delayed_caller:
+            assert probe.asked[1:] == [(threading.current_thread(), str(outer.value))]
+            assert probe.caller_states == ["failed"]
+        else:
+            assert probe.asked[1:] == [] and probe.caller_states == ["connecting"]
+        assert not probe.scheduling_errors
+    finally:
+        probe.connecting_seen.set()
+        probe.caller_asking.set()
+        harness.connection.close()
+    assert harness.connection.state == "closed"
 
 
 # -- server log -------------------------------------------------------------
