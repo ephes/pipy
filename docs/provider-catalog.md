@@ -23,6 +23,63 @@ temporary per-run catalog rows and construct through their registered
 fully wired for current provider sources (only documented adapter follow-ons
 remain — see below).
 
+## Bounded catalog refresh (RF-P3)
+
+Status: complete, 2026-10-18. The five metadata corrections passed 474 focused
+checks, independent high-effort review and full `just check` (12,790 passed, two
+skipped). Catalog conformance and pinned Pi session-tree/automation comparisons
+also passed. These align existing rows with the pinned Pi catalog; they do not
+establish live provider prices, service limits or access.
+
+Reference checkout: `c268154ca1171c2f9eefe75d3d7372a68aada2d5`. Its generated
+`packages/ai/src/providers/data/.manifest.json` is dated
+`2026-10-17T19:08:42.111Z`, SHA256
+`49de22696fb71f3f128476debb581de01c314dcdc187338dda0a82e8f8e8af91`.
+The hydrated JSON files are generated/untracked inputs, so provenance below uses
+filename, API group, model key and field rather than nonexistent source blob
+links. Every model key below has the `chat:` prefix in its API group.
+
+| Existing provider/model | Corrected field | Pinned value | Generated source file / API group |
+| --- | --- | --- | --- |
+| `anthropic/claude-sonnet-5-5` | `cost.cacheRead` | 0.1 per million tokens (was 0.2) | `anthropic.json` / `anthropic-messages` |
+| `github-copilot/claude-sonnet-5.5` | `cost.cacheRead` | 0.1 per million tokens (was 0.2) | `github-copilot.json` / `anthropic-messages` |
+| `anthropic/claude-sonnet-4-5` | `contextWindow` | 200,000 (was 1,000,000) | `anthropic.json` / `anthropic-messages` |
+| `anthropic/claude-sonnet-4-5-20250929` | `contextWindow` | 200,000 (was 1,000,000) | `anthropic.json` / `anthropic-messages` |
+| `mistral/mistral-small-latest` | `contextWindow` | 262,144 (was 256,000) | `mistral.json` / `mistral-conversations` |
+
+Sonnet 4.5's 64,000 maximum output and Mistral Small's 256,000 maximum output
+remain unchanged, as do row count, effort maps, compatibility flags and routes.
+Context metadata reaches the selected model's admission/compaction budget and
+footer denominator; `models.json` overrides remain authoritative and an explicit
+settings context ceiling still constrains admission. Output reserve comes from
+settings, not the catalog's maximum-output field. Cache pricing reaches usage
+accounting; subscription authentication adds the footer marker without waiving
+that accounting.
+
+The same fresh-input drift command reports 12 findings across 97 shared rows,
+with `stale: []`, after removing exactly the five selected differences. Exit 1
+is intentional while these twelve findings remain visible. No rows, effort
+flags or allowlist entries were added, and freshness checks remain enforced.
+
+| Deferred finding | Source/runtime impact and required behavior gate |
+| --- | --- |
+| `anthropic/claude-opus-5`: thinking map | Pi permits disabled thinking with managed per-message effort for this model. Gate the disabled/managed-effort request and replay behavior before changing the off map. |
+| `openai/gpt-6.1-sol`: mid-conversation effort flag | Gate `configuration_update` items, recorded `providerThinkingLevel`, stable top-level effort (`medium` in Pi) and ChatGPT sign-in exclusion. |
+| `openai/gpt-6-sol`: mid-conversation effort flag | Same Responses protocol gate, with explicit coverage of this selection. |
+| `openai/gpt-6-luna`: mid-conversation effort flag | Same gate using the `openai-responses` chat row, not the separate same-id decisions API row. |
+| `openai/gpt-6-astra`: mid-conversation effort flag | Same gate with durable effort/replay coverage for this selection. |
+| `amazon-bedrock/us.anthropic.claude-haiku-5-5`: missing row | Pi's Converse metadata requires adaptive thinking and tier pricing; pipy's InvokeModel path also needs exact body/cache/auth evidence for this profile. |
+| `amazon-bedrock/us.anthropic.claude-sonnet-5-5`: missing row | Gate the exact InvokeModel body, signing, output/thinking/cache behavior; a matching adaptive model marker is not endpoint evidence. |
+| `anthropic/claude-haiku-5-5`: missing row | Gate disabled/adaptive managed-effort semantics, durable replay and the greater-than-100K pricing tier. |
+| `github-copilot/claude-haiku-5.5`: missing row | Gate Copilot-specific auth/headers and compatibility flags, disabled/adaptive behavior and tier pricing; do not copy direct Anthropic flags. |
+| `github-copilot/gemini-4-argon`: missing row | Gate its Chat API request with no developer role, reasoning effort or store field, plus Copilot auth and replay. |
+| `google/gemini-4-argon`: missing row | Gate Gemini 4's discrete `thinkingLevel` rather than token `thinkingBudget`, API-key routing and its 32,768 maximum output. |
+| `google-vertex/gemini-4-argon`: missing row | Gate the same level recognizer through Vertex ADC/project/location routing and its distinct 65,536 maximum output. |
+
+The deferred rows/fields come from the same manifest and their provider JSON
+files/API groups. They are individual future behavior decisions, not claims
+that the adapter or credentials already support every new selection.
+
 The 2026-09-29 model-currency refresh against Pi `4df157433` makes the
 built-in rows, defaults and thinking maps current. Every value comes from Pi's
 generator (`packages/ai/scripts/generate-models.ts` run against models.dev).

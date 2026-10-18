@@ -124,8 +124,12 @@ fake/real setup, compact concepts diagrams, grouped navigation, and mobile
 keyboard access passed 34 focused checks, full `just check` (12,770 passed, two
 skipped), strict docs/rendered links and actual 390/1440 browser QA. Fresh
 independent high-effort review closed CLEAN with zero findings, including its
-own browser/code-scroll verification. Campaign completion still requires the
-separate catalog triage.
+own browser/code-scroll verification. RF-P3 catalog triage is complete
+(2026-10-18): 474 focused checks, catalog conformance, pinned Pi session-tree and
+automation comparisons, full `just check` (12,790 passed, two skipped), and strict
+docs/rendered links passed. Initial high-effort review and the targeted review
+of stale historical test expectations both closed CLEAN. This closes the
+selected campaign.
 RF-P1 foreign-thinking request projection
 is complete (2026-10-18): requests drop thinking unless provider/API/model all
 match, while stored history and tool correlations remain unchanged. Focused
@@ -185,7 +189,7 @@ its active watcher from the true final prompt, and the MCP callback test pins
 attempt-thread self-refusal while exercising a delayed caller's current failed
 state. Local scheduling probes reproduce both old assertions; the remote
 schedule itself was not recorded. Runtime/flush/notification and CI policies
-are unchanged. RF-P2b follows this stabilization with its own review/check gates.
+are unchanged. RF-CI3 preceded the subsequently completed RF-P2b slice.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
@@ -199,19 +203,24 @@ table; Codex GPT-6.1 Sol has Pi's 500K context (`5712b134e`). Validation:
 docs build and `just check` (12,527 passed, two skipped). Independent Opus 5.5
 medium repair review returned CLEAN after fixing the initial stale row/meter
 test expectations and two suggestions. Remote CI confirmation requires a new
-push. No further implementation slice is selected.
+push. At the UP2 closeout no further implementation slice was selected.
 
-Fresh Pi data generated 2026-10-17 at `c268154ca` leaves **17 catalog findings**,
-deliberately visible rather than allowlisted: ten field differences (Sonnet 5.5
-cache prices on Anthropic/Copilot, Opus 5's thinking map, two Sonnet 4.5 context
-windows, four GPT-6 mid-conversation-effort flags, Mistral Small's context) and
-seven uncarried Haiku 5.5, Sonnet 5.5 and Gemini 4 Argon provider rows. Triage
-them against request behavior before another bounded catalog slice; generator
-values alone can conflict with newer adapter fixes. Source comparison confirms
-the foreign-thinking replay difference selected for RF-P1: Pi drops it since
-`911309429`, whereas pipy previously converted it into visible text. RF-P1
-corrects only request projection; summary output limits still need a provider
-request comparison before being called a gap. Neither is part of UP2.
+The UP2 baseline at Pi `c268154ca` reported 17 catalog findings. RF-P3 now
+adopts only five existing-row metadata corrections (two cache-read rates and
+three context windows), with review and full validation complete. The same generated
+manifest dated `2026-10-17T19:08:42.111Z` leaves **12 intentional findings**
+across 97 shared rows with `stale: []`; drift exit 1 remains expected. Each
+remaining effort flag/map or missing row has an individual source/runtime/impact
+gate in [the catalog triage](provider-catalog.md#bounded-catalog-refresh-rf-p3).
+No new rows, allowlist entries or protocol flags are included. RF-P1's completed
+foreign-thinking request projection remains separate; summary output limits
+still need a provider request comparison before being called a gap.
+
+Selected campaign status: RF-C1, RF-D1, RF-S1, RF-D2a, RF-P1, RF-S2,
+RF-S3a/S3b, RF-P2a/P2b, RF-D2b and RF-D3 are complete, together with RF-C2
+and RF-CI1/CI2/CI3 correctness/stabilization slices. RF-P3 is complete. RF-A1/A2/T1 and further RF-D2
+topic extractions remain conditional on a concrete ownership or behavior need;
+this does not promise every proposal or broader live-provider gap is complete.
 MCP1 and CM1 remain completed work; live MCP evidence
 still needs an authenticated provider and OAuth server account.
 

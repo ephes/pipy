@@ -71,6 +71,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   by audience. Mobile navigation supports keyboard opening, bounded focus,
   Escape-to-close, and focus return without changing desktop navigation.
 
+- Five existing catalog metadata values now match the pinned Pi snapshot:
+  Sonnet 5.5 cache-read accounting on Anthropic/Copilot, both Sonnet 4.5 context
+  aliases and Mistral Small's context. Model overrides, maximum output and
+  effort behavior are unchanged; twelve behavior-dependent differences remain
+  explicitly deferred in the catalog triage.
+
 ### Fixed
 
 - Codex SSE responses now close when explicitly retired before their first

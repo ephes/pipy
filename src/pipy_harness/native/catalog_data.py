@@ -244,7 +244,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         thinking=_CLAUDE_5_5,
         image=True,
         compat=_ADAPTIVE_MID_CONVO_EFFORT,
-        cost=(2.0, 10.0, 0.2, 2.5),
+        cost=(2.0, 10.0, 0.1, 2.5),
         context_window=1_000_000,
         max_tokens=128_000,
     ),
@@ -341,7 +341,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         image=True,
         cost=(3.0, 15.0, 0.3, 3.75),
-        context_window=1_000_000,
+        context_window=200_000,
         max_tokens=64_000,
     ),
     _m(
@@ -353,7 +353,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         reasoning=True,
         image=True,
         cost=(3.0, 15.0, 0.3, 3.75),
-        context_window=1_000_000,
+        context_window=200_000,
         max_tokens=64_000,
     ),
     _m(
@@ -947,7 +947,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
             "max": None,
         },
         cost=(0.15, 0.6, 0.015, 0.0),
-        context_window=256_000,
+        context_window=262_144,
         max_tokens=256_000,
     ),
     # ---- amazon-bedrock (amazon-bedrock) ------------------------------------
@@ -1408,7 +1408,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
             "max": "max",
         },
         image=True,
-        cost=(2.0, 10.0, 0.2, 2.5),
+        cost=(2.0, 10.0, 0.1, 2.5),
         context_window=1_000_000,
         max_tokens=128_000,
         compat={

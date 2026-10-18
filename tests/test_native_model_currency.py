@@ -4,6 +4,9 @@ Expected values come from Pi's generator output
 (``packages/ai/scripts/generate-models.ts`` run against models.dev) and
 ``defaultModelPerProvider`` (``coding-agent/src/core/model-resolver.ts``). Each
 wire test pins the request shape Pi's adapter emits for the same row and level.
+RF-P3 selectively refreshes Sonnet 5.5 cache-read pricing and Sonnet 4.5
+context from the generated snapshot at c268154ca; other expectations retain
+their existing reference versions.
 """
 
 from __future__ import annotations
@@ -70,7 +73,7 @@ PI_ROWS: dict[tuple[str, str], tuple[tuple[float, ...], int, int, list[str]]] = 
         _NO_OFF_NO_MINIMAL,
     ),
     ("anthropic", "claude-sonnet-5-5"): (
-        (2, 10, 0.2, 2.5),
+        (2, 10, 0.1, 2.5),
         1_000_000,
         128_000,
         _NO_OFF_NO_MINIMAL,
@@ -88,7 +91,7 @@ PI_ROWS: dict[tuple[str, str], tuple[tuple[float, ...], int, int, list[str]]] = 
     ("anthropic", "claude-opus-4-7"): ((5, 25, 0.5, 6.25), 1_000_000, 128_000, _ALL),
     ("anthropic", "claude-sonnet-4-5"): (
         (3, 15, 0.3, 3.75),
-        1_000_000,
+        200_000,
         64_000,
         _ALL[:5],
     ),
@@ -668,7 +671,7 @@ def test_footer_meter_uses_the_resolved_models_json_row(tmp_path: Path) -> None:
                 "providers": {
                     "anthropic": {
                         "modelOverrides": {
-                            "claude-sonnet-4-5": {"contextWindow": 200_000}
+                            "claude-sonnet-4-5": {"contextWindow": 333_333}
                         }
                     }
                 }
@@ -704,11 +707,11 @@ def test_footer_meter_uses_the_resolved_models_json_row(tmp_path: Path) -> None:
         ),
     )
     declared = effects._declared_context_window("anthropic", "claude-sonnet-4-5")
-    assert declared == 200_000
+    assert declared == 333_333
     budget = _context_budget_for(
         "anthropic", "claude-sonnet-4-5", declared_window=declared
     )
-    assert (budget.token_budget, budget.budget_label) == (200_000, "200k")
+    assert (budget.token_budget, budget.budget_label) == (333_333, "333k")
 
 
 @pytest.mark.parametrize(
@@ -717,7 +720,7 @@ def test_footer_meter_uses_the_resolved_models_json_row(tmp_path: Path) -> None:
         # the meter reads the catalog row, formatted like Pi's footer
         # formatTokens (footer.ts:25-31)
         ("anthropic", "claude-sonnet-5-5", 1_000_000, "1.0M"),
-        ("anthropic", "claude-sonnet-4-5", 1_000_000, "1.0M"),
+        ("anthropic", "claude-sonnet-4-5", 200_000, "200k"),
         ("anthropic", "claude-haiku-4-5", 200_000, "200k"),
         ("google", "gemini-3.5-flash", 1_048_576, "1.0M"),
         ("azure-openai", "gpt-5.4", 1_050_000, "1.1M"),

@@ -1,8 +1,18 @@
 # Pipy quality audit and refactoring plan
 
-Status: audited refactoring proposal, 2026-10-18. This is a bounded follow-on
-program, not a reopening of completed MCP1, CM1, D0–D8, or UP2 work. The current
-task index remains [backlog.md](../backlog.md).
+Status: selected campaign complete through RF-P3, 2026-10-18. The original audit evidence below is
+historical; completed slices record their own validation. This bounded program
+is not a reopening of completed MCP1, CM1, D0–D8, or UP2 work. The current task
+index remains [backlog.md](../backlog.md).
+
+## Current selected campaign
+
+RF-C1, RF-D1, RF-S1, RF-D2a, RF-P1, RF-S2, RF-S3a/S3b, RF-P2a/P2b,
+RF-D2b and RF-D3 are complete, as are the selected RF-C2 and RF-CI1/CI2/CI3
+correctness/stabilization repairs. RF-P3 is complete with independent review
+and full validation. RF-A1/A2/T1 and broader RF-D2 topic extractions remain
+conditional; neither this campaign nor the measurements require every proposed
+extraction, live-provider credential exercise or unrelated parity follow-on.
 
 ## Scope and evidence
 
@@ -28,6 +38,7 @@ commit raw run logs, transcripts, or tool output to support this plan.
 
 ### Measurement interpretation
 
+The following counts describe the original audit, before implementation.
 The slopscope composition report counts 902 Python files and 450,453 physical
 lines: 365 source files / 164,051 lines and 491 Python test files / 268,382 lines.
 It reports 3,279 duplicated source lines and 18,234 duplicated test lines at the
@@ -40,6 +51,15 @@ failing CI gate, and no accepted size baseline exists yet. There is no validated
 aggregate “slop score”. Duplication needs semantic inspection before extraction:
 similar provider protocols or intentionally independent test oracles can require
 similar code.
+
+A separate 2026-10-18 observation at RF-P2b commit `87adc04d`, before RF-P3,
+used the same clean Slopscope `28d3698d` source (source version `0.3.0a1`,
+installed metadata `0.1.0a1`). Report-only commands with the documented defaults
+and unchanged `docs` exclusion counted 915 Python files / 457,143 physical lines
+and 44 size offenders. Exact original invocation/report JSON was not retained,
+so this is a standalone dated observation, not a strict before/after improvement
+claim, aggregate score or active CI gate. It does not include future RF-P3 tests
+and does not select optional ownership/fixture extraction work.
 
 ## Evidence register
 
@@ -282,7 +302,7 @@ access. Focused checks (34 tests), full `just check` (12,770 passed, two skipped
 strict filtered docs, rendered links/anchors and actual desktop/mobile browser
 QA passed. Fresh independent high-effort review closed CLEAN with zero findings,
 including independent browser/code-scroll checks. Other RF-D2 extractions remain
-pending/conditional; RF-P3 catalog triage still gates campaign completion.
+pending/conditional; RF-P3 subsequently completed the selected campaign.
 
 **Priority:** P2. **Depends on:** RF-D1 and the first RF-D2 overview slice.
 **Evidence:** DOC3, DOC4 and the tau comparison.
@@ -625,23 +645,26 @@ implementation's own expected values. No repository-wide test rewrite.
 
 ### RF-P3 — Triage the 17 catalog findings individually
 
-**Priority:** existing bounded maintenance candidate, after correctness work.
-**Depends on:** fresh pinned catalog inputs; serialize catalog/docs edits.
+**Status:** complete, 2026-10-18. Focused checks passed (474 tests), as did
+catalog conformance and pinned Pi session-tree/automation comparisons. Fresh
+independent high-effort review closed CLEAN; the first full check exposed three
+stale historical metadata/meter expectations. A bounded test-only repair kept
+the full assertions, made the override distinct, and passed targeted high-effort
+review. The second literal `just check` exited 0 (12,790 passed, two skipped);
+strict filtered docs and rendered links passed.
 
-**Files:** provider catalog generation/runtime metadata, conformance fixtures,
-catalog documentation and release notes for adopted changes.
+Five existing-row metadata corrections align two Sonnet 5.5 cache-read rates,
+both Sonnet 4.5 context aliases and Mistral Small's context with the pinned
+manifest. Row count, maximum output, effort/compatibility flags and request
+protocols remain unchanged. Consumer tests cover pricing/subscription markers,
+selected-row admission/footer behavior and override precedence.
 
-Give each drift a source/runtime/impact decision. Prices/context limits need
-metadata fixtures; effort flags must match adapter behavior; a new provider row
-needs auth/construction/default/selection evidence. Do not bulk-replace catalog
-values or allowlist every difference.
-
-**Accept when:** adopted rows have specific behavior evidence and unresolved
-rows remain visible with source SHA/date and an explicit impact decision.
-Catalog freshness/input checks and relevant provider comparison checks pass.
-The drift command returns nonzero while unallowlisted differences remain;
-record and reconcile that dated result as intentional deferred drift rather
-than promising a green drift gate or adding a blanket allowlist.
+The [controlling catalog triage](../provider-catalog.md#bounded-catalog-refresh-rf-p3)
+records manifest date/hash, generated-file/API/model/field provenance and all
+12 individual residual behavior decisions. The same pinned fresh inputs move
+from 17 to 12 findings across 97 shared rows with `stale: []`; drift exit 1 is
+intentional. No new row, allowlist entry, effort flag or freshness bypass is
+part of this slice. Generated catalog metadata is not live price/limit evidence.
 
 ## Scheduling and decision boundaries
 
@@ -683,13 +706,18 @@ completed status and accepted boundaries of MCP1, CM1 and UP2.
 
 ## Selection boundary
 
-RF-C1 is the recommended next implementation slice. This audit changes no
-runtime code and does not resolve either reproduced race. Select and validate
-one work order at a time; evidence or behavior changes may alter later
-priorities. A completed audit is not a claim that every proposed extraction
-must be performed.
+The original audit recommended RF-C1 first; that repair and the selected
+follow-on slices are now complete as recorded above. RF-P3 is the final selected
+implementation slice and has passed its review/full-check gates. Optional
+RF-A1/A2/T1 and broader RF-D2 extractions require a later concrete need and
+explicit selection. Completing this selected campaign does not claim every
+proposal or deferred provider behavior is implemented.
 
 ## Validation and review evidence
+
+This section records the original pre-implementation audit only. Current slice
+gates are recorded in their status sections; the historical gitless-copy failure
+below is not a current failing check.
 
 - The focused architecture/provider/replay audit checks passed: 60 tests.
 - Focused recorder/capture checks passed: 50 tests. The barrier probes above
