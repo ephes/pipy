@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Default OpenAI Responses requests now stream text and thinking incrementally,
+  including xAI, Copilot Responses and custom rows selecting that API. Streams
+  close at the terminal response, retain partial failed/aborted history and
+  reject unfinished tool calls. Explicitly injected JSON clients retain buffered
+  compatibility; Azure remains buffered for a separate slice.
+
 - Read the Docs build configuration for the existing Zensical documentation,
   using a dedicated locked `docs` dependency group and Python 3.14. The target
   site is published at [pipy-agent.readthedocs.io](https://pipy-agent.readthedocs.io/en/latest/)

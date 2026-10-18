@@ -2,8 +2,10 @@
 
 Port of the content assembly in ``processResponsesStream``
 (``packages/ai/src/api/openai-responses-shared.ts``), shared by the OpenAI
-and Azure adapters (one non-streamed body, :func:`output_blocks`) and the
-Codex adapter (a stream of events, :class:`ResponsesStreamAssembler`):
+and Azure adapters (:func:`output_blocks` for buffered compatibility), the
+ordinary Responses SSE consumer and Codex (:class:`ResponsesStreamAssembler`).
+The strict ordinary consumer additionally validates tool completion; Codex's
+existing event/retry policy stays separate:
 
 - a ``reasoning`` item is a thinking block: its summary texts joined by a
   blank line (else its content texts, else what streamed), with the whole
@@ -308,6 +310,22 @@ class ResponsesStreamAssembler:
         return tuple(
             block for slot in self._slots if (block := slot.block()) is not None
         )
+
+    def tool_calls_complete(self, calls: tuple[ProviderToolCall, ...]) -> bool:
+        """Every streamed/final call has received output-item completion.
+
+        Argument completion alone does not finalize a tool intent. Existing
+        consumers may still inspect :meth:`blocks` for partial history.
+        """
+
+        if any(slot.kind == "call" and not slot.closed for slot in self._slots):
+            return False
+        completed = frozenset(
+            block.provider_correlation_id
+            for slot in self._slots
+            if slot.closed and isinstance(block := slot.block(), ProviderToolCall)
+        )
+        return all(call.provider_correlation_id in completed for call in calls)
 
     def _find(
         self,

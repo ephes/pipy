@@ -25,7 +25,10 @@ from pipy_harness.native.openai_codex_provider import (
     OpenAICodexResponsesProvider,
 )
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
-from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
+from pipy_harness.native.providers.openai_responses import (
+    OpenAIResponsesProvider,
+    openai_http_client,
+)
 
 
 @dataclass
@@ -245,7 +248,7 @@ def test_codex_event_transports_text_and_thinking_arrive_before_terminal_and_eof
         )
 
 
-def test_ordinary_responses_buffers_body_and_returns_final_content_without_deltas(
+def test_explicit_json_responses_buffers_body_and_returns_final_content_without_deltas(
     tmp_path: Path,
 ) -> None:
     body = json.dumps(
@@ -277,7 +280,10 @@ def test_ordinary_responses_buffers_body_and_returns_final_content_without_delta
         release,
     ):
         provider = OpenAIResponsesProvider(
-            model_id="fixture-model", api_key="synthetic-key", endpoint=url
+            model_id="fixture-model",
+            api_key="synthetic-key",
+            endpoint=url,
+            http_client=openai_http_client(),
         )
         worker, results, errors = _start_completion(
             provider,

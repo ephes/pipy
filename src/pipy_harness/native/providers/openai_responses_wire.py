@@ -14,9 +14,11 @@ byte-identical translation in both directions:
 - :class:`ResponsesReplay` translates one ``AgentMessage`` envelope as Pi's
   ``convertResponsesMessages`` does for the target model: stored reasoning
   items, message items with their ids and phase, ``function_call`` ids.
-- :func:`parse_response` turns a Responses response body into a
+- :func:`parse_response` turns a buffered Responses body into a
   :class:`ParsedResponse`, with Pi's ordered content
-  (``providers/responses_output.py``).
+  (``providers/responses_output.py``). Ordinary default SSE requests use
+  ``providers/responses_stream.py`` and the same output assembly primitives;
+  Azure still uses this buffered parser.
 
 The two adapters differ only where they genuinely differ, threaded through as
 parameters here:

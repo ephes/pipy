@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
@@ -36,11 +36,17 @@ from pipy_harness.native.providers.openai_prompt_cache import (
     resolve_cache_retention,
 )
 from pipy_harness.native.providers.openai_responses_wire import (
+    ParsedResponse,
     ResponsesTranscriptOptions,
     parse_response,
     resolve_responses_transcript,
     response_error_metadata,
     responses_input,
+)
+from pipy_harness.native.providers.responses_stream import (
+    ResponsesStreamFailure,
+    ResponsesStreamOptions,
+    stream_response,
 )
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -70,6 +76,10 @@ def openai_http_client() -> UrllibJsonHTTPClient:
 class OpenAIResponsesProvider:
     """OpenAI Responses API provider behind ProviderPort.
 
+    Default requests stream text/thinking over SSE. An explicitly injected
+    ``JsonHTTPClient`` retains buffered wire compatibility. Final tool calls
+    require complete output items on the streaming path.
+
     Real adapter with `supports_tool_calls=True`. When
     `ProviderRequest.messages` is non-empty the provider serializes them
     into the Responses API `input` list (with `function_call` and
@@ -82,7 +92,9 @@ class OpenAIResponsesProvider:
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("OPENAI_API_KEY"), repr=False
     )
-    http_client: JsonHTTPClient = field(default_factory=openai_http_client)
+    # Explicit JSON injection preserves buffered compatibility, including the
+    # exact old request bytes. Ordinary construction uses SSE (stream:true).
+    http_client: JsonHTTPClient | None = None
     endpoint: str = OPENAI_RESPONSES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -144,7 +156,6 @@ class OpenAIResponsesProvider:
         reasoning_sink: StreamChunkSink | None = None,
         cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
-        del stream_sink, reasoning_sink
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         started_at = utc_now()
@@ -205,35 +216,45 @@ class OpenAIResponsesProvider:
         headers = apply_provider_headers(request, headers)
 
         try:
-            response = self.http_client.post_json(
-                self.endpoint,
-                headers=headers,
-                body=body,
-                timeout_seconds=self.timeout_seconds,
-                cancel_token=cancel_token,
+            if self.http_client is None:
+                body["stream"] = True
+                result = stream_response(
+                    self.endpoint,
+                    headers=headers,
+                    body=body,
+                    timeout_seconds=self.timeout_seconds,
+                    options=ResponsesStreamOptions(
+                        label="OpenAI",
+                        parse_error_class=OpenAIResponseParseError,
+                        status_error_class=OpenAIHTTPStatusError,
+                        transport_error_class=OpenAITransportError,
+                        nested_usage_fields=OPENAI_NESTED_USAGE_FIELDS,
+                        tool_call_provider_prefix="openai",
+                        error_metadata=_stream_error_metadata,
+                    ),
+                    stream_sink=stream_sink,
+                    reasoning_sink=reasoning_sink,
+                    cancel_token=cancel_token,
+                )
+            else:
+                result = self._buffered_response(body, headers, cancel_token)
+        except ResponsesStreamFailure as exc:
+            error = exc.error
+            failed = failed_provider_result(
+                request,
+                provider_name=self.name,
+                started_at=started_at,
+                error_type=type(error).__name__,
+                error_message=_usage_limit_error_message(str(error), error.metadata),
+                metadata={
+                    key: value
+                    for key, value in error.metadata.items()
+                    if key != "api_error_message"
+                },
             )
-            if response.status_code < 200 or response.status_code >= 300:
-                raise OpenAIHTTPStatusError(
-                    f"OpenAI API request failed with HTTP status {response.status_code}.",
-                    metadata={
-                        "http_status": response.status_code,
-                        **response_error_metadata(response.body),
-                        **usage_limit_error_metadata(response.body.get("error")),
-                    },
-                )
-            try:
-                result = parse_response(
-                    response.body,
-                    parse_error_class=OpenAIResponseParseError,
-                    response_label="OpenAI",
-                    nested_usage_fields=OPENAI_NESTED_USAGE_FIELDS,
-                    tool_call_provider_prefix="openai",
-                )
-            except OpenAIResponseParseError as exc:
-                exc.metadata.update(
-                    usage_limit_error_metadata(response.body.get("error"))
-                )
-                raise
+            return replace(
+                failed, content_blocks=exc.content_blocks, api="openai-responses"
+            )
         except OpenAIProviderError as exc:
             return failed_provider_result(
                 request,
@@ -266,6 +287,43 @@ class OpenAIResponsesProvider:
             content_blocks=result.content_blocks,
             api="openai-responses",
         )
+
+    def _buffered_response(
+        self,
+        body: Mapping[str, Any],
+        headers: Mapping[str, str],
+        cancel_token: CancelToken | None,
+    ) -> ParsedResponse:
+        """The explicitly injected JSON path retains its original wire contract."""
+
+        assert self.http_client is not None
+        response = self.http_client.post_json(
+            self.endpoint,
+            headers=headers,
+            body=body,
+            timeout_seconds=self.timeout_seconds,
+            cancel_token=cancel_token,
+        )
+        if response.status_code < 200 or response.status_code >= 300:
+            raise OpenAIHTTPStatusError(
+                f"OpenAI API request failed with HTTP status {response.status_code}.",
+                metadata={
+                    "http_status": response.status_code,
+                    **response_error_metadata(response.body),
+                    **usage_limit_error_metadata(response.body.get("error")),
+                },
+            )
+        try:
+            return parse_response(
+                response.body,
+                parse_error_class=OpenAIResponseParseError,
+                response_label="OpenAI",
+                nested_usage_fields=OPENAI_NESTED_USAGE_FIELDS,
+                tool_call_provider_prefix="openai",
+            )
+        except OpenAIResponseParseError as exc:
+            exc.metadata.update(usage_limit_error_metadata(response.body.get("error")))
+            raise
 
     def _apply_reasoning_fields(self, body: dict[str, Any]) -> None:
         """Responses-native thinking: the mapped effort in ``reasoning.effort``."""
@@ -355,6 +413,13 @@ class OpenAIResponsesProvider:
             headers["session_id"] = session_id
         headers["x-client-request-id"] = session_id
         return headers
+
+
+def _stream_error_metadata(body: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        **response_error_metadata(body),
+        **usage_limit_error_metadata(body.get("error")),
+    }
 
 
 def usage_limit_error_metadata(error: object) -> dict[str, str]:

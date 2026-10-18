@@ -386,6 +386,20 @@ or timeout bounds and needs no public behavior release note.
 
 ### RF-S3 — Add incremental OpenAI Responses and Azure streaming
 
+**Status:** RF-S3a ordinary Responses complete, 2026-10-18. Full `just check`
+passed (12,634 tests, two skipped), with focused wire/mode and PTY regressions,
+strict docs and rendered links. Fresh independent high-effort review closed
+CLEAN after fixing sink-error retry classification, status-body cancellation
+and callback-cancellation partial retention. Default catalog/direct construction streams
+through the RF-S2 seam; explicit JSON injection preserves buffered request
+bytes. The shared Responses consumer retains ordered final content, usage,
+signatures and non-executable partial history, with an additive assembler
+completion check that does not change Codex policy. Local default-construction
+fixtures cover OpenAI, xAI, Copilot and custom Responses protocol/auth fields,
+pre-terminal callbacks, terminal closure, JSON/RPC and real PTY behavior, errors,
+cancellation and canonical managed retries. No new authenticated live evidence
+is claimed. RF-S3b Azure adoption follows; Azure remains buffered.
+
 **Priority:** P2. **Depends on:** RF-S2.
 
 **Files:** OpenAI Responses/Azure adapters, provider construction and focused

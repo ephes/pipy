@@ -284,9 +284,12 @@ transport classification. Provider adapters return normalized results and never
 write sessions or import UI code.
 
 The [provider capability and evidence matrix](provider-capabilities.md) owns
-the current delivery inventory: Codex has incremental text/thinking callbacks;
-ordinary JSON adapters return completed content through the intentional agent
-fallback. A compatible sink signature is not transport evidence. Provider
+the current delivery inventory: Codex and default OpenAI Responses have
+incremental text/thinking callbacks. Responses uses the shared SSE payload owner
+and a Responses-family event consumer; Azure and other JSON adapters return
+completed content through the intentional agent fallback. Explicitly injected
+Responses JSON clients retain buffered compatibility. A compatible sink signature
+is not transport evidence. Provider
 tool-argument fragments are assembled before final calls reach the agent;
 canonical tool events describe execution, not partial argument generation.
 

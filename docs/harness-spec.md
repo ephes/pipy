@@ -350,8 +350,9 @@ uv run pipy run --agent pipy-native --native-provider openai --native-model <mod
 The OpenAI provider uses a small injectable standard-library HTTP boundary so
 tests can provide fake responses without live credentials or network access. It
 does not enable built-in tools, function calling, web search, file search, code
-interpreter, computer use, conversation state, background mode, streaming,
-retries, model fallback, or OAuth.
+interpreter, computer use, conversation state, background mode, model fallback,
+or OAuth in this compatibility surface. Provider completion now uses the default
+Responses SSE path; caller-managed retries retain their separate policy.
 
 That transport boundary is owned by `pipy_harness.native.http`: it holds the
 injectable `JsonHTTPClient`/`JsonResponse` contract, the cancellable
@@ -382,6 +383,24 @@ including before its first read. Codex keeps JSON/event decoding and closes its
 event iterator on every parser exit. Codex still owns its own
 `OpenAICodexHTTPStatusError.from_http_error`, its domain retry classifier, and
 its retry/fallback loop.
+
+The ordinary `openai-responses` adapter also uses `SsePayloadStream`, with a
+Responses-family consumer in `native/providers/responses_stream.py`. Catalog
+construction selects SSE by default for OpenAI, xAI, Copilot Responses and
+custom rows naming that API; explicitly injected `JsonHTTPClient` instances
+retain the buffered request bytes, without `stream: true`. Azure remains
+buffered for RF-S3b. The consumer forwards text/reasoning deltas, accepts the
+first terminal without waiting for EOF, reconciles final content/signatures and
+usage without re-emitting deltas, and rejects executable calls missing their
+output-item completion. Failures and cancellation retain non-executable partial
+history. Safe event-received/error metadata supports caller-managed fresh
+attempts even after partial output; the consumer performs no internal retries.
+Local sink failures retain their exception identity and never become retryable
+provider failures. Status-error body decoding honors cancellation and closes its
+response even when shutdown appears as EOF instead of a read exception.
+Codex's event/authentication/WebSocket/retry policies remain separate. See the
+[capability evidence](provider-capabilities.md#ordinary-responses-sse-evidence)
+for deterministic wire/mode tests and the separate live-evidence boundary.
 
 Native provider/model ids and coarse capability flags are registered in
 `pipy_harness.native.provider_registry`. The registry owns default models,

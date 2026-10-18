@@ -10,6 +10,16 @@ See [Provider capabilities and evidence](provider-capabilities.md) for which
 API families deliver incremental text/thinking, which return buffered answers,
 and the distinction between deterministic tests and dated live evidence.
 
+The `openai-responses` family streams text and thinking by default, including
+OpenAI, xAI, Copilot Responses rows and custom rows selecting this API. Other
+Copilot rows follow their selected API family. Final tool calls become
+executable only after complete output items arrive. Cancelling or failing a
+stream retains partial conversation content without executing unfinished calls.
+Azure Responses remains buffered. Library integrations that explicitly inject
+a `JsonHTTPClient` retain the existing buffered request/response contract.
+These behaviors have local deterministic wire and TUI/JSON/RPC evidence; live
+provider evidence is listed separately in the matrix.
+
 ## List available models
 
 Use `--list-models` before starting a session:

@@ -28,7 +28,7 @@ shared transport; the representative and transport proofs are listed below.
 | API family | Transport | Text / thinking delivery | Final tools | Cancellation evidence | Evidence |
 | --- | --- | --- | --- | --- | --- |
 | `openai-codex-responses` | SSE or WebSocket events | Incremental text and thinking; pre-terminal local wire proofs for both transports | Yes; arguments assembled from events | SSE/HTTP interruption and WebSocket close tests; dated live cancel | [Codex](#codex-event-evidence), [live](#dated-live-evidence) |
-| `openai-responses` | JSON HTTP | Buffered; final thinking blocks supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
+| `openai-responses` | SSE by default; explicit injected JSON compatibility | Incremental text and thinking; pre-terminal local wire/mode proofs | Yes; unfinished calls reject success | Header/body SSE interruption; RPC abort | [Responses](#ordinary-responses-sse-evidence), [JSON](#buffered-json-evidence) |
 | `azure-openai-responses` | JSON HTTP | Buffered; final thinking blocks supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `openai-completions` | JSON HTTP | Buffered; no final thinking-block extraction in the shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `anthropic-messages` | JSON HTTP | Buffered; final signed/redacted thinking supported | Yes | Shared JSON cancellation; adapter forwarding test | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
@@ -39,7 +39,7 @@ shared transport; the representative and transport proofs are listed below.
 | `cloudflare-workers-ai` | JSON HTTP | Buffered; shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `fake` | In process, no network | Programmable simulated text/thinking chunks | Opt-in programmable calls; default fake has no tools | Local deterministic behavior; no network claim | [Fake](#fake-provider-evidence) |
 
-Codex's streamed argument fragments stay inside its response assembler until
+Codex and ordinary Responses streamed argument fragments stay inside their response assemblers until
 they become normalized tool calls. Canonical `AssistantTextDelta` and
 `AssistantReasoningDelta` events carry text/thinking; there is no canonical
 event for a provider's partial tool-argument generation. `ToolCallStarted`,
@@ -101,17 +101,49 @@ assembly and call ordering. The fake-SSE end-to-end coding-session test in
 `tests/test_coding_session_end_to_end_openai_codex.py` proves adapter → loop →
 tool → final-answer integration, without proving authenticated streaming.
 
+### Ordinary Responses SSE evidence
+
+Default `OpenAIResponsesProvider` and catalog construction send `stream: true`
+and consume SSE through `native/http.py`'s `SsePayloadStream`. The shared
+`native/providers/responses_stream.py` consumer owns Responses decoding and
+ordered content; adapter request/auth/cache policy stays outside it. It can be
+reused by Azure, whose adapter remains buffered pending RF-S3b. Codex retains
+its separate transport selection, event interpretation and retry policy.
+
+`tests/test_native_responses_streaming.py` uses a real loopback HTTP server.
+Barriers withhold the terminal response and EOF: text and thinking callbacks
+must arrive first, and the first terminal must finish completion while EOF is
+still withheld. Default catalog construction covers OpenAI, xAI, Copilot and a
+custom Responses row, including bearer/explicit authorization, Copilot dynamic
+headers, prompt cache, reasoning and user-prompt wire fields. The built-in
+inventory at this slice is 12 OpenAI, four xAI and 18 Copilot Responses rows;
+custom rows select this same protocol without promising endpoint acceptance.
+
+The same suite exercises actual catalog-built adapters through JSON mode,
+RPC and real PTY output before terminal release. It covers terminal content
+and usage authority without duplicated text deltas, ordered signatures and
+encrypted reasoning, tool-only turns and paired tool results, rejected
+unfinished tools, partial failure/abort history, blocked-header/body cancellation
+and ignored late events. Missing terminal data is a failed attempt. There is no
+internal reconnect/replay: canonical managed retry can start a fresh attempt
+before events or after partial output, with failed attempts settled separately.
+Local output/observer failures propagate unchanged and do not trigger provider
+retries. Cancellation also interrupts HTTP status-error body decoding, whether
+socket shutdown surfaces as a read error or clean EOF.
+These are deterministic synthetic wire/composition proofs; they make no new
+authenticated OpenAI, xAI, Copilot or custom-endpoint live claim.
+
 ### Buffered JSON evidence
 
-`tests/test_provider_capability_evidence.py::test_ordinary_responses_buffers_body_and_returns_final_content_without_deltas`
-uses the actual OpenAI Responses adapter and shared JSON HTTP client against a
+`tests/test_provider_capability_evidence.py::test_explicit_json_responses_buffers_body_and_returns_final_content_without_deltas`
+explicitly injects the shared JSON HTTP client into the OpenAI Responses adapter against a
 loopback server. An incomplete JSON response is held behind a barrier: the
 adapter must remain blocked with no callbacks. After release it returns final
 text, thinking and tool calls, still without callbacks. The agent's final
 content fallback is separately exercised by
 `tests/test_native_reasoning_replay.py::test_a_non_streamed_answer_draws_thinking_and_text_in_order`.
 
-The ordinary adapters call `JsonHTTPClient.post_json` in
+The buffered adapters and the explicit Responses JSON compatibility path call `JsonHTTPClient.post_json` in
 `native/providers/`; `native/provider_construction.py` selects them from the
 catalog. Their request/response fixtures pin wire shape and parsing:
 
@@ -132,7 +164,7 @@ catalog rows through real adapter construction with fake HTTP captures. This
 proves model, endpoint, auth/header source and request-shape routing. It does
 not contact upstream providers and cannot establish streaming, live model
 acceptance or answer quality. OpenRouter, DS4, xAI and Copilot have additional
-adapter/fixture tests; their provider names do not add a streaming transport.
+adapter/fixture tests. xAI and Copilot Responses rows use the default SSE path above; their other API families retain the matrix behavior.
 
 ### Cancellation evidence
 
