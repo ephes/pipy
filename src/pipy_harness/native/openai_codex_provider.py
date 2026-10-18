@@ -40,9 +40,10 @@ from pipy_harness.native.cancellation import (
 )
 from pipy_harness.native.http import (
     ProviderHTTPError,
+    SsePayloadStream,
+    StreamingHTTPResponse,
     decode_json_object,
     extract_responses_usage,
-    iter_sse_event_payloads,
     open_url_cancellable,
     transport_exception_retryable,
 )
@@ -153,6 +154,12 @@ class SseResponse:
     body: str
     event_stream: Iterator[Mapping[str, Any]] | None = None
 
+    def close(self) -> None:
+        """Release a live transport, including before its first event is read."""
+
+        if self.event_stream is not None:
+            _close_event_iterator(self.event_stream)
+
 
 @dataclass(frozen=True, slots=True)
 class OAuthTokenResponse:
@@ -220,16 +227,6 @@ class _SyncWebSocket(Protocol):
     def send(self, message: str) -> None: ...
 
     def recv(self, *, timeout: float | None = None) -> object: ...
-
-    def close(self) -> None: ...
-
-
-class _StreamingHTTPResponse(Protocol):
-    """Subset of urllib's streaming response consumed by the SSE adapter."""
-
-    def getcode(self) -> int: ...
-
-    def __iter__(self) -> Iterator[bytes]: ...
 
     def close(self) -> None: ...
 
@@ -330,9 +327,8 @@ class UrllibSseHTTPClient:
     The client streams events line-by-line from the underlying HTTP
     response so that the caller's `stream_sink` and `reasoning_sink`
     fire as deltas arrive over the wire, not after the full body is
-    buffered. The optional `body` field on the returned `SseResponse`
-    is filled progressively for compatibility with tests that read
-    the full string; production code should consume `event_stream`.
+    buffered. The `body` field is for buffered test fixtures; production code
+    consumes `event_stream` and closes the response when it stops early.
     """
 
     retry_clock: Callable[[], float] = time.time
@@ -360,18 +356,14 @@ class UrllibSseHTTPClient:
             cancel_token=cancel_token,
             retry_clock=self.retry_clock,
         )
-        # The iterator captures the raw decoded body progressively for
-        # compatibility with the historical response boundary.
-        collected_body: list[str] = []
-        return SseResponse(
-            status_code=response.getcode(),
-            body="",
-            event_stream=_iter_sse_response_events(
-                response,
-                collected_body=collected_body,
-                cancel_token=cancel_token,
-            ),
-        )
+        events = _SseResponseEvents(response, cancel_token=cancel_token)
+        try:
+            return SseResponse(
+                status_code=response.getcode(), body="", event_stream=events
+            )
+        except BaseException:
+            events.close()
+            raise
 
 
 def _normalize_websocket_handshake_exception(
@@ -525,11 +517,11 @@ def _open_sse_response(
     timeout_seconds: float | None,
     cancel_token: CancelToken | None,
     retry_clock: Callable[[], float],
-) -> _StreamingHTTPResponse:
+) -> StreamingHTTPResponse:
     try:
         # The cancellable opener registers the connection before waiting for
         # headers, so the same token also interrupts later streaming reads.
-        response: _StreamingHTTPResponse = open_url_cancellable(
+        response: StreamingHTTPResponse = open_url_cancellable(
             request,
             timeout_seconds=timeout_seconds,
             cancel_token=cancel_token,
@@ -554,33 +546,45 @@ def _open_sse_response(
         raise
 
 
-def _iter_sse_response_events(
-    response: _StreamingHTTPResponse,
-    *,
-    collected_body: list[str],
-    cancel_token: CancelToken | None,
-) -> Iterator[Mapping[str, Any]]:
-    try:
-        for payload in iter_sse_event_payloads(response, collected_body):
-            event = _decode_sse_event(payload)
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-            yield event
-    except ProviderCancelledError:
-        raise
-    except Exception as exc:  # recognized transport failures only
-        if cancel_token is not None and cancel_token.cancelled:
-            raise ProviderCancelledError("native provider turn cancelled") from exc
-        normalized = _normalize_transport_exception(
-            exc, transport="sse", phase="stream", stream=True
-        )
-        if normalized is not None:
-            raise normalized from exc
-        raise
-    finally:
-        # The per-turn token is discarded after the turn, so its reference to
-        # this closed connection is a harmless no-op for a later cancel().
-        _safe_close(response)
+class _SseResponseEvents(Iterator[Mapping[str, Any]]):
+    """Codex decoding/error policy around the shared raw-payload owner."""
+
+    def __init__(
+        self,
+        response: StreamingHTTPResponse,
+        *,
+        cancel_token: CancelToken | None,
+    ) -> None:
+        self._payloads = SsePayloadStream(response, cancel_token=cancel_token)
+        self._cancel_token = cancel_token
+
+    def __next__(self) -> Mapping[str, Any]:
+        try:
+            event = _decode_sse_event(next(self._payloads))
+            if self._cancel_token is not None:
+                self._cancel_token.raise_if_cancelled()
+            return event
+        except StopIteration:
+            raise
+        except ProviderCancelledError:
+            self.close()
+            raise
+        except Exception as exc:  # recognized transport failures only
+            self.close()
+            if self._cancel_token is not None:
+                self._cancel_token.raise_if_cancelled()
+            normalized = _normalize_transport_exception(
+                exc, transport="sse", phase="stream", stream=True
+            )
+            if normalized is not None:
+                raise normalized from exc
+            raise
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        self._payloads.close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1908,9 +1912,8 @@ def _parse_response_events(
             )
             terminal = _terminal_event(event, event_type=event_type)
             if terminal is not None:
-                # The first terminal is authoritative; generator close also
-                # closes a live SSE/WebSocket transport before any later event.
-                _close_event_iterator(events)
+                # The first terminal is authoritative; finally closes the live
+                # SSE/WebSocket transport without reading any later event.
                 break
 
         # Cancellation wins over a clean EOF caused by closing the live socket.
@@ -1924,6 +1927,8 @@ def _parse_response_events(
     except OpenAICodexProviderError as exc:
         exc.content_blocks = assembler.blocks()
         raise
+    finally:
+        _close_event_iterator(events)
 
 
 def _is_websocket_connection_limit(

@@ -346,6 +346,14 @@ agent-loop change is needed.
 
 ### RF-S2 — Extract a neutral cancellable SSE transport seam
 
+**Status:** complete, 2026-10-18. Focused transport/Codex tests, full `just check`
+(12,584 passed, two skipped), strict documentation build and rendered links
+passed. Independent high-effort first review closed CLEAN; its source-owner
+inventory correction is reflected in the harness specification. The shared
+payload stream owns response closure even before its first read; Codex retains
+event/error/authentication/WebSocket/retry policy. Ordinary Responses/Azure
+remain buffered for RF-S3.
+
 **Priority:** P2. **Depends on:** RF-S1.
 
 **Files:** specialized Codex streaming transport, shared HTTP/cancellation

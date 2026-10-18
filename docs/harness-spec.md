@@ -373,10 +373,13 @@ shared client sends, and `BedrockHTTPStatusError` keeps its own `from_http_error
 because the Bedrock error envelope is a top-level `message`/`__type` shape rather
 than the shared nested-`error` shape. The OpenAI Codex subscription adapter
 (its own SSE/OAuth/WebSocket transports) reuses the same `ProviderHTTPError`
-base plus two shared streaming/retry helpers: `iter_sse_event_payloads`, the
-cancellable SSE line-framer that splits a streaming response into raw
-event-payload strings, and `transport_exception_retryable`, the recognized
-network-exception retry classifier. Codex still owns its own
+base plus shared streaming/retry primitives: `SsePayloadStream` owns response
+closure and cancellation checks around the unchanged `iter_sse_event_payloads`
+line-framer, which splits a streaming response into raw event-payload strings;
+`transport_exception_retryable` classifies recognized network exceptions. The
+payload stream closes on EOF, read failure, cancellation or explicit close,
+including before its first read. Codex keeps JSON/event decoding and closes its
+event iterator on every parser exit. Codex still owns its own
 `OpenAICodexHTTPStatusError.from_http_error`, its domain retry classifier, and
 its retry/fallback loop.
 

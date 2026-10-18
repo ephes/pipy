@@ -4,6 +4,7 @@ This module owns request execution, timeouts, and cancellation for every
 provider transport: the cancellable ``urlopen`` machinery that lets an
 Escape / Ctrl-C during a turn shut the in-flight socket down, the SSE framing
 that splits a streaming response into event payloads (:func:`iter_sse_event_payloads`),
+the explicit response lifecycle owner (:class:`SsePayloadStream`),
 the transport-exception retry classifier (:func:`transport_exception_retryable`),
 the small JSON response boundary (:class:`JsonResponse` / :class:`JsonHTTPClient`),
 the shared :class:`UrllibJsonHTTPClient` that every plain-JSON provider adapter
@@ -23,7 +24,7 @@ import socket
 import ssl
 import urllib.error
 import urllib.request
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol, Self, TypeVar
 
@@ -315,7 +316,7 @@ def transport_exception_retryable(exc: BaseException) -> bool | None:
 def iter_sse_event_payloads(
     response: Any,
     collected_body: list[str],
-) -> Iterator[str]:
+) -> Generator[str, None, None]:
     """Yield raw SSE event payload strings line-by-line from a urllib response.
 
     SSE events are separated by blank lines. Each line either starts with
@@ -351,6 +352,71 @@ def iter_sse_event_payloads(
         payload = "\n".join(data_lines).strip()
         if payload and payload != "[DONE]":
             yield payload
+
+
+class StreamingHTTPResponse(Protocol):
+    """The urllib response surface consumed by a streaming provider."""
+
+    def getcode(self) -> int: ...
+
+    def __iter__(self) -> Iterator[bytes]: ...
+
+    def close(self) -> None: ...
+
+
+class SsePayloadStream(Iterator[str]):
+    """Own an already-open response and yield provider-neutral SSE payloads.
+
+    The caller opens the response with :func:`open_url_cancellable`, retaining
+    its own HTTP-status and connection-error policy. This iterator owns response
+    closure, including before the first read. Reading/explicit close belong to
+    the consuming worker; concurrent interruption uses the existing CancelToken
+    connection registration rather than another cancellation owner.
+    """
+
+    def __init__(
+        self,
+        response: StreamingHTTPResponse,
+        *,
+        cancel_token: CancelToken | None = None,
+    ) -> None:
+        self._response = response
+        self._cancel_token = cancel_token
+        self._payloads = iter_sse_event_payloads(response, [])
+        self._closed = False
+
+    def __next__(self) -> str:
+        if self._closed:
+            raise StopIteration
+        try:
+            if self._cancel_token is not None:
+                self._cancel_token.raise_if_cancelled()
+            payload = next(self._payloads)
+            if self._cancel_token is not None:
+                self._cancel_token.raise_if_cancelled()
+            return payload
+        except StopIteration:
+            self.close()
+            # A socket shutdown can look like clean EOF. Cancellation wins.
+            if self._cancel_token is not None:
+                self._cancel_token.raise_if_cancelled()
+            raise
+        except CANCELLED_READ_ERRORS as exc:
+            self.close()
+            if self._cancel_token is not None and self._cancel_token.cancelled:
+                raise ProviderCancelledError("native provider turn cancelled") from exc
+            raise
+        except BaseException:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        """Release the response once, even if iteration never started."""
+
+        if not self._closed:
+            self._closed = True
+            self._payloads.close()
+            _safe_close(self._response)
 
 
 def safe_http_status_metadata(status_code: int) -> dict[str, Any]:

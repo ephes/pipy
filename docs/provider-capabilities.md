@@ -76,9 +76,24 @@ fallback and post-event failure. Its
 `test_websockets_sync_client_sends_response_create_and_decodes_raw_json` uses
 an injected socket: it proves event-path behavior, not an authenticated
 WebSocket service. The barrier test above supplies separate local wire timing
-evidence. The source path is
-`native/openai_codex_provider.py`: `WebsocketsSyncClient` yields decoded frames,
-and both transports feed the same response assembler and callback path.
+evidence. `native/http.py` owns cancellable connection opening, line-based SSE
+framing and `SsePayloadStream`, which releases its open response on EOF, read
+failure, cancellation or explicit `close()`, including before its first read.
+The consuming worker owns reading and explicit close; cross-thread cancellation
+uses the existing token's socket registration. `native/openai_codex_provider.py`
+keeps Codex JSON/event decoding, HTTP-status and Retry-After normalization,
+authentication, WebSocket transport/fallback and retry policy. Both transports
+feed its response assembler and callback path; parser exit closes the iterator
+on success, provider failure, sink failure and cancellation.
+
+`tests/test_native_sse_transport.py` pins that shared ownership boundary with
+real loopback HTTP: split UTF-8/CRLF frames, comments, multiline/trailing data,
+header/body/close-delimited cancellation, close before the first read, and Codex
+terminal/error closure while server EOF is withheld. It also checks idempotent
+close and propagation of unrelated read errors. The existing Codex retry tests
+retain the separate policies: internal transport retries stop after any provider
+event, while canonical managed retry can start a new assistant attempt after
+partial output.
 
 `tests/test_native_reasoning_replay.py` covers reasoning deltas and retained
 partial content. `tests/test_native_openai_codex_tool_calls.py` covers argument
@@ -162,5 +177,6 @@ Responses/Chat, Azure, Mistral, Cloudflare or OpenRouter. New live claims need
 a dated summary identifying provider/model, transport, observed behavior and
 limits; request fixtures and local loopback tests do not fill that gap.
 
-RF-S2 and later slices own incremental transport expansion. This inventory
-changes no provider transport or completion behavior.
+RF-S2 supplies the shared SSE lifecycle boundary used by Codex. RF-S3 owns
+incremental OpenAI Responses/Azure adoption; their current matrix rows remain
+buffered. This inventory makes no additional authenticated live claims.

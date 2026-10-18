@@ -36,6 +36,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Codex SSE responses now close when explicitly retired before their first
+  read and on every parser exit, including provider errors and sink failures.
+  Shared HTTP code owns cancellable raw-payload streaming; Codex authentication,
+  WebSocket fallback and retry policies remain with the Codex adapter.
+
 - Provider requests now omit thinking from a different provider, API or model,
   matching Pi's replay behavior. Model switches preserve visible text and
   tool-call/result correlations without exposing historical thinking as text.
