@@ -283,6 +283,14 @@ SSE execution, timeout/error normalization, cancellation, and retryable
 transport classification. Provider adapters return normalized results and never
 write sessions or import UI code.
 
+Generic buffered Chat reasoning uses the focused
+`native/providers/chat_reasoning.py` validator/projector, called by the shared
+Chat wire parser and message serializer. Exact-target replay uses captured
+`openai-completions` provenance; structured details remain thinking signatures,
+with legacy encrypted tool metadata read only on import. Provider construction
+owns the two focused compatibility flags. Mistral native thinking and Chat
+streaming remain separate boundaries.
+
 The [provider capability and evidence matrix](provider-capabilities.md) owns
 the current delivery inventory: Codex and default OpenAI/Azure Responses have
 incremental text/thinking callbacks. Both Responses adapters use the shared SSE

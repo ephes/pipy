@@ -490,14 +490,27 @@ projection change; RF-S1 must mark that capability separately.
 
 **Priority:** P2. **Depends on:** RF-P1. **Evidence:** PAR2.
 
-**Files:** shared Chat wire translation, compatible adapters and compatibility
-metadata, reasoning/replay tests, provider documentation and release notes.
+**RF-P2a status:** complete, 2026-10-18. Focused checks passed (427 tests),
+with full `just check` (12,747 passed, two skipped), strict documentation and
+rendered links. Fresh independent high-effort first review closed CLEAN with
+no findings, including additional replay combinations and actual SDK
+reasoning-only reopen probes.
 
-Compare a finite set of reasoning fields and structured details against pinned
-Pi, then preserve display content and signed replay metadata separately. Decide
-from source/request fixtures whether current Mistral Conversations behavior is
-one compatible slice or a separate adapter change. Do not silently claim Chat
-streaming as part of final-message reasoning support.
+The generic Chat wire/parser, focused reasoning validator/projector, compatible
+adapters and construction flags now retain scalar thinking and finite structured
+replay details. Completed arrays keep order and additional JSON; details are
+signature metadata, not display text. Exact provider/API/model provenance
+permits same-target replay and strips foreign reasoning without rewriting
+history. A valid thinking array wins over import-only legacy encrypted tool
+metadata; either details source suppresses scalar replay. The independently
+required empty reasoning field and same-target thinking-as-text flags retain
+Pi's precedence. Local adapter, construction and durable SDK reopen tests cover
+these paths, tool correlation and no historical execution. JSON transport,
+authentication, usage and event/storage schemas remain unchanged.
+
+**RF-P2b selected separately:** Mistral native ordered `content[].thinking[]`
+requires its own parser/replay slice. Generic scalar parsing does not claim to
+fix it. Neither final-content slice silently adds Chat streaming.
 
 **Accept when:** reasoning-only and mixed text/tool/thinking responses survive
 same-model continuation and resume; foreign-model switches follow RF-P1;

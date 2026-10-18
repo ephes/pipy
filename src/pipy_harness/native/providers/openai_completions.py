@@ -112,6 +112,8 @@ class OpenAIChatCompletionsProvider:
     supports_mid_convo_system_messages: bool = False
     supports_mid_convo_tool_additions: bool = False
     instruction_role: str = "system"
+    requires_thinking_as_text: bool = False
+    requires_reasoning_content: bool = False
 
     @property
     def name(self) -> str:
@@ -196,6 +198,9 @@ class OpenAIChatCompletionsProvider:
                     self.supports_mid_convo_tool_additions
                 ),
                 instruction_role=self.instruction_role,
+                api="openai-completions",
+                requires_thinking_as_text=self.requires_thinking_as_text,
+                requires_reasoning_content=self.requires_reasoning_content,
             ),
         )
         body: dict[str, Any] = {
@@ -235,6 +240,7 @@ class OpenAIChatCompletionsProvider:
                 response_label="OpenAI",
                 tool_call_provider_prefix="openai-completions",
                 extract_usage=extract_chat_completions_usage,
+                reasoning_provider=self.name,
             )
         except OpenAICompletionsProviderError as exc:
             return failed_provider_result(
@@ -260,6 +266,8 @@ class OpenAIChatCompletionsProvider:
                 "finish_reason": result.finish_reason,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api="openai-completions",
         )
 
 

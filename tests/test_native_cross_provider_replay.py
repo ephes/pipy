@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -308,3 +309,145 @@ def test_reopened_thinking_projects_for_target_without_rewriting_history(
     assert tree.path.read_bytes() == original_bytes
     durable_history = NativeSessionTree.open(replay_path).build_context().messages
     assert durable_history[1:3] == (assistant, result)
+
+
+@pytest.mark.parametrize("kind", ["scalar", "structured", "legacy"])
+@pytest.mark.parametrize("mismatch", [None, "provider", "api", "model"])
+def test_chat_reopen_projects_exact_reasoning_and_never_executes_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, mismatch: str | None
+) -> None:
+    from provider_chat_completions_contract import FakeJsonHTTPClient
+
+    from pipy_harness.native.providers.openai_completions import (
+        OpenAIChatCompletionsProvider,
+    )
+
+    details = [
+        {
+            "type": "reasoning.encrypted",
+            "id": "reasoning-id",
+            "data": "opaque",
+            "extra": {"kept": True},
+        }
+    ]
+    signature = json.dumps(details) if kind == "structured" else "reasoning_content"
+    legacy = json.dumps(details[0]) if kind == "legacy" else None
+    assistant = AgentAssistantMessage.from_blocks(
+        [
+            ThinkingContent("historical plan", signature),
+            TextContent("Reading the file."),
+            AgentToolCall(
+                "historical-call",
+                "read",
+                ProductContent('{"path":"README.md"}'),
+                thought_signature=legacy,
+            ),
+        ],
+        provider="source" if mismatch == "provider" else "custom-chat",
+        api="other-api" if mismatch == "api" else "openai-completions",
+        model="other-model" if mismatch == "model" else "chat-model",
+    )
+    result = AgentToolResultMessage(
+        tool_request_id="pipy-tool-history",
+        tool_name="read",
+        content=ProductContent("stored output"),
+        is_error=False,
+        provider_correlation_id="historical-call",
+    )
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    tree.append_message(AgentUserMessage(ProductContent("historical request")))
+    tree.append_message(assistant)
+    tree.append_message(result)
+    assert tree.path is not None
+    source_bytes = tree.path.read_bytes()
+    replay_path = tmp_path / "replay.jsonl"
+    replay_path.write_bytes(source_bytes)
+
+    def forbid_execution(self, request, context):
+        raise AssertionError("reopen must not invoke a historical tool")
+
+    monkeypatch.setattr(ReadTool, "invoke", forbid_execution)
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            200,
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "continued",
+                            "reasoning": "new captured plan",
+                            "reasoning_details": details,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+    )
+    provider = OpenAIChatCompletionsProvider(
+        "chat-model", api_key="test", provider_name="custom-chat", http_client=client
+    )
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=replay_path, provider=provider
+    ) as reopened:
+        snapshot = reopened.submit("continue")
+    wire = next(
+        m for m in client.requests[0]["body"]["messages"] if m["role"] == "assistant"
+    )
+    assert wire["content"] == "Reading the file."
+    assert wire["tool_calls"][0]["id"] == "historical-call"
+    tool_wire = next(
+        m for m in client.requests[0]["body"]["messages"] if m["role"] == "tool"
+    )
+    assert tool_wire == {
+        "role": "tool",
+        "tool_call_id": "historical-call",
+        "content": "stored output",
+    }
+    if mismatch is not None:
+        assert "reasoning_content" not in wire and "reasoning_details" not in wire
+    elif kind == "scalar":
+        assert (
+            wire["reasoning_content"] == "historical plan"
+            and "reasoning_details" not in wire
+        )
+    else:
+        assert wire["reasoning_details"] == details and "reasoning_content" not in wire
+    assert snapshot.messages[1:3] == (assistant, result)
+    assert (
+        tree.path.read_bytes() == source_bytes
+        and replay_path.read_bytes().startswith(source_bytes)
+    )
+    restored = NativeSessionTree.open(replay_path).build_context().messages
+    assert restored[1:3] == (assistant, result)
+    captured = restored[-1]
+    assert isinstance(captured, AgentAssistantMessage)
+    assert (captured.provider, captured.api, captured.model) == (
+        "custom-chat",
+        "openai-completions",
+        "chat-model",
+    )
+    assert captured.thinking_blocks() == (
+        ThinkingContent("new captured plan", json.dumps(details, ensure_ascii=False)),
+    )
+    # An ordinary second durable reopen must replay the newly captured result,
+    # not just hand-seeded historical signatures.
+    with sdk.open_product_session(
+        workspace=tmp_path, session_path=replay_path, provider=provider
+    ) as reopened:
+        snapshot = reopened.submit("continue again")
+    new_wire = [
+        m for m in client.requests[-1]["body"]["messages"] if m["role"] == "assistant"
+    ][-1]
+    assert (
+        new_wire["content"] == "continued" and new_wire["reasoning_details"] == details
+    )
+    assert "reasoning" not in new_wire
+    assert (
+        tree.path.read_bytes() == source_bytes
+        and replay_path.read_bytes().startswith(source_bytes)
+    )
+    assert NativeSessionTree.open(replay_path).build_context().messages[1:3] == (
+        assistant,
+        result,
+    )

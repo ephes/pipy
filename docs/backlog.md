@@ -151,6 +151,13 @@ review CLEAN. One changelog-order suggestion was applied. A single-Escape PTY ba
 fails with the old binding and passes with the injected executable scope;
 subsequent turns/replay preserve historical results. The remote CI output alone
 did not identify the lost-byte cause; the separate local barrier proves it.
+RF-P2a generic Chat reasoning fidelity is complete (2026-10-18): buffered
+scalar/structured capture, canonical API provenance, exact-target continuation/
+reopen and focused compatibility flags. Focused checks (427 tests), full
+`just check` (12,747 passed, two skipped), strict docs/rendered links and fresh
+independent high-effort first review CLEAN all passed.
+RF-P2b Mistral native ordered thinking remains selected separately; Chat
+streaming is not part of either final-content claim.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**

@@ -412,6 +412,19 @@ credential/local availability checks, whether one-shot `pipy run` can omit
 Provider construction remains explicit in the CLI boundary so each concrete
 adapter still decides how to call its upstream API.
 
+Generic Chat reasoning capture/replay is owned by
+`native/providers/chat_reasoning.py`: first nonempty scalar field, finite
+structured detail validation, completed-array order and import-only legacy
+encrypted fallback. `chat_completions_wire.py` assembles ordered final content
+and supplies an exact `ReplayTarget`; `_provider_helpers.py` retains portable
+tool/message serialization. OpenAI-compatible, OpenRouter and Cloudflare
+results record `api="openai-completions"` and ordered blocks. Construction
+resolves only the two focused reasoning transcript flags alongside existing
+system-message compat. No new transport, event schema, storage migration or
+agent-loop owner is introduced; Mistral's distinct native thinking remains a
+separate slice. Details are replay metadata, not synthetic display text, and
+foreign provider/API/model projection strips them without rewriting storage.
+
 The second real provider is the OpenRouter Chat Completions provider. It is
 selected explicitly, reads credentials from `OPENROUTER_API_KEY`, requires
 `--native-model`, sends pipy's internally built system prompt and short native

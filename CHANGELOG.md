@@ -50,6 +50,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   input ownership through executable cleanup, preserving intentional outer
   terminal transitions and foreign-I/O handoffs.
 
+- Generic Chat Completions adapters now retain buffered reasoning and structured
+  replay details across same-target continuation and resume. Exact-target
+  provenance and focused compatibility flags preserve foreign-history privacy;
+  Mistral native thinking and Chat streaming remain separate work.
+
 ### Fixed
 
 - Codex SSE responses now close when explicitly retired before their first

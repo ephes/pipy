@@ -98,6 +98,8 @@ class CloudflareWorkersAIProvider:
     supports_mid_convo_system_messages: bool = False
     supports_mid_convo_tool_additions: bool = False
     instruction_role: str = "system"
+    requires_thinking_as_text: bool = False
+    requires_reasoning_content: bool = False
 
     @property
     def name(self) -> str:
@@ -194,6 +196,9 @@ class CloudflareWorkersAIProvider:
                     self.supports_mid_convo_tool_additions
                 ),
                 instruction_role=self.instruction_role,
+                api="openai-completions",
+                requires_thinking_as_text=self.requires_thinking_as_text,
+                requires_reasoning_content=self.requires_reasoning_content,
             ),
         )
         body: dict[str, Any] = {
@@ -234,6 +239,7 @@ class CloudflareWorkersAIProvider:
                 response_label="Cloudflare Workers AI",
                 tool_call_provider_prefix="cloudflare",
                 extract_usage=extract_chat_completions_usage,
+                reasoning_provider=self.name,
             )
         except CloudflareProviderError as exc:
             return failed_provider_result(
@@ -259,6 +265,8 @@ class CloudflareWorkersAIProvider:
                 "finish_reason": result.finish_reason,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api="openai-completions",
         )
 
 

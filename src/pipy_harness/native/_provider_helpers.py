@@ -13,13 +13,16 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_call_ids import portable_tool_correlation_id
 from pipy_harness.native.tools.base import materialize_tool_input_schema
+
+if TYPE_CHECKING:
+    from pipy_harness.native.providers.replay_content import ReplayTarget
 
 
 def utc_now() -> datetime:
@@ -120,7 +123,13 @@ def serialize_tool_for_responses(tool: Any) -> dict[str, Any]:
     }
 
 
-def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
+def envelope_to_chat_message(
+    envelope: Any,
+    *,
+    target: ReplayTarget | None = None,
+    requires_thinking_as_text: bool = False,
+    requires_reasoning_content: bool = False,
+) -> dict[str, Any]:
     """Serialize an ``AgentMessage`` into the OpenAI Chat-Completions shape."""
 
     from pipy_harness.native.agent import (
@@ -132,22 +141,20 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
     if isinstance(envelope, AgentUserMessage):
         return {"role": "user", "content": envelope.content.value}
     if isinstance(envelope, AgentAssistantMessage):
-        from pipy_harness.native.agent.content import TextContent
+        from pipy_harness.native.providers.chat_reasoning import assistant_fields
         from pipy_harness.native.providers.replay_content import (
             transform_assistant_blocks,
         )
 
-        message: dict[str, Any] = {"role": "assistant"}
-        # Pi ``convertMessages``: the non-blank text blocks joined. No Chat
-        # Completions adapter stores thinking yet, so every thinking block
-        # is foreign and omitted by the shared transform.
-        text = "".join(
-            block.text
-            for block in transform_assistant_blocks(envelope, None)
-            if isinstance(block, TextContent) and block.text.strip()
-        )
-        if text:
-            message["content"] = text
+        message: dict[str, Any] = {
+            "role": "assistant",
+            **assistant_fields(
+                transform_assistant_blocks(envelope, target),
+                provider=target.provider if target is not None else None,
+                thinking_as_text=requires_thinking_as_text,
+                required_reasoning_content=requires_reasoning_content,
+            ),
+        }
         if envelope.tool_calls:
             message["tool_calls"] = [
                 {

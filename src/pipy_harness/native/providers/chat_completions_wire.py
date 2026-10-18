@@ -5,11 +5,11 @@ and response translation shared by the canonical OpenAI Chat Completions adapter
 (`OpenAIChatCompletionsProvider`, reused by ds4) and its compatible clones
 (`MistralProvider`, `OpenRouterChatCompletionsProvider`,
 `CloudflareWorkersAIProvider`). Each adapter keeps its own auth/URL logic,
-provider dataclass, and sanitized error hierarchy; only the per-provider
-parse-error class, the human-readable response label used in parse errors, the
-tool-call provider prefix, and the usage extractor (Pi's OpenAI-compatible or
-Mistral cache-counter reading) vary and are passed in as arguments here. No wire shape, tool-call id, usage key, or event ordering is
-decided anywhere else.
+provider dataclass, and sanitized error hierarchy. This module owns transcript,
+text/tool parsing and usage translation; ``chat_reasoning`` owns the finite
+buffered reasoning fields and replay-detail validation. Generic Chat adapters
+supply canonical replay provenance; Mistral's distinct ordered thinking shape
+is not handled by the generic reasoning parser.
 """
 
 from __future__ import annotations
@@ -27,15 +27,25 @@ from pipy_harness.native._provider_helpers import (
     safe_response_label,
     serialize_tool_for_chat_completions,
 )
-from pipy_harness.native.agent.content import ImageContent, tool_result_images
+from pipy_harness.native.agent.content import (
+    ImageContent,
+    TextContent,
+    tool_result_images,
+)
 from pipy_harness.native.agent.messages import (
+    AgentAssistantMessage,
     AgentSystemMessage,
     AgentToolResultMessage,
 )
 from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.http import ProviderHTTPError
-from pipy_harness.native.models import ProviderRequest, ProviderToolCall
-from pipy_harness.native.providers.replay_content import image_data_url
+from pipy_harness.native.models import (
+    ProviderContentBlock,
+    ProviderRequest,
+    ProviderToolCall,
+)
+from pipy_harness.native.providers.chat_reasoning import capture_thinking
+from pipy_harness.native.providers.replay_content import ReplayTarget, image_data_url
 from pipy_harness.native.providers.transcript import (
     declaration_definition,
     request_tools,
@@ -54,6 +64,7 @@ class ParsedChatCompletion:
     response_object: str
     finish_reason: str
     tool_calls: tuple[ProviderToolCall, ...] = ()
+    content_blocks: tuple[ProviderContentBlock, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +82,9 @@ class ChatTranscriptOptions:
     supports_mid_convo_system_messages: bool = False
     supports_mid_convo_tool_additions: bool = False
     instruction_role: str = "system"
+    api: str | None = None
+    requires_thinking_as_text: bool = False
+    requires_reasoning_content: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +174,19 @@ def chat_transcript(
         return ChatTranscript(messages, tools)
     for index, item in enumerate(resolved.items):
         if not isinstance(item, AgentSystemMessage):
-            messages.append(envelope_to_chat_message(item))
+            message = envelope_to_chat_message(
+                item,
+                target=ReplayTarget.of(request, options.api) if options.api else None,
+                requires_thinking_as_text=options.requires_thinking_as_text,
+                requires_reasoning_content=options.requires_reasoning_content,
+            )
+            # Pi skips metadata-only assistants after reasoning projection.
+            if (
+                not isinstance(item, AgentAssistantMessage)
+                or message["content"]
+                or message.get("tool_calls")
+            ):
+                messages.append(message)
             images = _tool_result_run_images(resolved.items, index)
             if images:
                 messages.append(_tool_images_message(images))
@@ -190,6 +216,7 @@ def parse_response(
     response_label: str,
     tool_call_provider_prefix: str,
     extract_usage: Callable[[Any], dict[str, int | float]],
+    reasoning_provider: str | None = None,
 ) -> ParsedChatCompletion:
     """Parse a Chat Completions response body into a shared parsed result.
 
@@ -240,7 +267,12 @@ def parse_response(
         message.get("tool_calls") if isinstance(message, Mapping) else None,
         provider_prefix=tool_call_provider_prefix,
     )
-    if not final_text and not tool_calls:
+    thinking = (
+        capture_thinking(message, reasoning_provider)
+        if reasoning_provider is not None and isinstance(message, Mapping)
+        else ()
+    )
+    if not final_text and not tool_calls and not thinking:
         raise parse_error_class(
             f"{response_label} response did not include final message content or tool calls.",
             metadata={
@@ -256,6 +288,11 @@ def parse_response(
         response_object=response_object,
         finish_reason=finish_reason,
         tool_calls=tool_calls,
+        content_blocks=(
+            *thinking,
+            *((TextContent(final_text),) if final_text else ()),
+            *tool_calls,
+        ),
     )
 
 

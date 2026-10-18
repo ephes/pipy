@@ -683,7 +683,7 @@ _COMPLETIONS_TRANSCRIPT_APIS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class TranscriptCompat:
-    """Pi's mid-conversation system-message compat for one adapter family.
+    """Pi's transcript and focused Chat reasoning compat for one family.
 
     Fields a family does not read keep their defaults (for example Mistral
     has no tool additions and always uses ``system``).
@@ -696,6 +696,21 @@ class TranscriptCompat:
     # Anthropic ``supportsMidConvoEffort`` (Pi reads it as ``=== true``).
     supports_mid_convo_effort: bool = False
     instruction_role: str = "system"
+    requires_thinking_as_text: bool = False
+    requires_reasoning_content: bool = False
+
+
+def _requires_chat_reasoning_content(spec: NativeModelSpec) -> bool:
+    explicit = _explicit_compat_flag(
+        spec, "requiresReasoningContentOnAssistantMessages"
+    )
+    required = (
+        explicit
+        if explicit is not None
+        else spec.provider_name == "deepseek"
+        or "deepseek.com" in (spec.base_url or "").lower()
+    )
+    return spec.reasoning and required
 
 
 def resolve_transcript_compat(spec: NativeModelSpec) -> TranscriptCompat:
@@ -726,6 +741,8 @@ def resolve_transcript_compat(spec: NativeModelSpec) -> TranscriptCompat:
                 spec, "supportsMidConvoToolAdditions"
             ),
             instruction_role="developer" if developer else "system",
+            requires_thinking_as_text=_compat_flag(spec, "requiresThinkingAsText"),
+            requires_reasoning_content=_requires_chat_reasoning_content(spec),
         )
     if spec.api == "anthropic-messages":
         return TranscriptCompat(
@@ -1180,6 +1197,8 @@ def _build_catalog_provider(
                 resolved.transcript.supports_mid_convo_tool_additions
             ),
             instruction_role=resolved.transcript.instruction_role,
+            requires_thinking_as_text=resolved.transcript.requires_thinking_as_text,
+            requires_reasoning_content=resolved.transcript.requires_reasoning_content,
             **http_kwargs,
         )
 
@@ -1212,6 +1231,8 @@ def _build_catalog_provider(
                 resolved.transcript.supports_mid_convo_tool_additions
             ),
             instruction_role=resolved.transcript.instruction_role,
+            requires_thinking_as_text=resolved.transcript.requires_thinking_as_text,
+            requires_reasoning_content=resolved.transcript.requires_reasoning_content,
         )
 
     if resolved.api == "anthropic-messages":

@@ -477,6 +477,28 @@ nonblank unsigned thinking for the adapter to serialize. Ordinary assistant
 text and tool calls/results remain; foreign text and Gemini tool-call
 signatures are stripped. The stored [session history](sessions.md) is unchanged.
 
+Generic Chat Completions adapters (OpenAI-compatible, OpenRouter and Cloudflare)
+also capture buffered reasoning: the first nonempty string of
+`reasoning_content`, `reasoning`, then `reasoning_text` wins. Structured
+`reasoning_details` stay ordered replay metadata in the thinking signature,
+without inventing visible thinking from their text/summary/encrypted data.
+Captured messages use `openai-completions` API provenance. Same-target replay
+prefers a wholly valid details array, then imported legacy encrypted tool
+metadata, then a whitelisted scalar field; new captures never write legacy
+tool metadata. An assistant with only metadata and no visible content or tools
+is omitted from the outgoing request.
+
+Two focused catalog `compat` flags apply to this generic Chat family:
+`requiresThinkingAsText` (default false) converts same-target nonblank thinking
+to a text part while retaining structured details; foreign thinking still drops.
+`requiresReasoningContentOnAssistantMessages` inserts an otherwise missing empty
+`reasoning_content` field for reasoning-capable models. Its default is true only
+for provider `deepseek` or a base URL containing `deepseek.com` (case insensitive);
+an explicit boolean overrides it, and a routed model name does not enable it.
+Details suppress raw scalar replay, but not this independently required empty
+field. Mistral's distinct ordered thinking format remains separate follow-up
+work; none of these final-message changes adds Chat streaming.
+
 Images are accepted only for rows marked `images yes`; attach files using the
 current image/file-reference workflows described in [Using pipy](usage.md).
 

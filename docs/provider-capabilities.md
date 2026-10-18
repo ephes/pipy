@@ -30,13 +30,13 @@ shared transport; the representative and transport proofs are listed below.
 | `openai-codex-responses` | SSE or WebSocket events | Incremental text and thinking; pre-terminal local wire proofs for both transports | Yes; arguments assembled from events | SSE/HTTP interruption and WebSocket close tests; dated live cancel | [Codex](#codex-event-evidence), [live](#dated-live-evidence) |
 | `openai-responses` | SSE by default; explicit injected JSON compatibility | Incremental text and thinking; pre-terminal local wire/mode proofs | Yes; unfinished calls reject success | Header/body SSE interruption; RPC abort | [Responses](#ordinary-responses-sse-evidence), [JSON](#buffered-json-evidence) |
 | `azure-openai-responses` | SSE by default; explicit injected JSON compatibility | Incremental text and thinking; pre-terminal local wire/mode proofs | Yes; unfinished calls reject success | Header/body/status-error body interruption | [Azure](#azure-responses-sse-evidence), [JSON](#buffered-json-evidence) |
-| `openai-completions` | JSON HTTP | Buffered; no final thinking-block extraction in the shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
+| `openai-completions` | JSON HTTP | Buffered; final scalar reasoning and structured replay details supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `anthropic-messages` | JSON HTTP | Buffered; final signed/redacted thinking supported | Yes | Shared JSON cancellation; adapter forwarding test | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `amazon-bedrock` | JSON HTTP, SigV4 | Buffered; final Anthropic thinking blocks supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `google-generative-ai` | JSON HTTP | Buffered; final thought parts supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `google-vertex` | JSON HTTP, ADC or express auth | Buffered; final thought parts supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `mistral` | JSON HTTP | Buffered; shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
-| `cloudflare-workers-ai` | JSON HTTP | Buffered; shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
+| `cloudflare-workers-ai` | JSON HTTP | Buffered; generic Chat scalar reasoning and structured replay details | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `fake` | In process, no network | Programmable simulated text/thinking chunks | Opt-in programmable calls; default fake has no tools | Local deterministic behavior; no network claim | [Fake](#fake-provider-evidence) |
 
 Codex and ordinary Responses streamed argument fragments stay inside their response assemblers until
@@ -158,6 +158,24 @@ or after partial output. An explicitly injected real JSON transport remains
 buffered with no callbacks; Azure's separate golden fixtures retain the
 original exact request bytes. These are deterministic synthetic proofs, not
 authenticated Azure service evidence.
+
+### Buffered Chat reasoning evidence
+
+Generic Chat adapters (OpenAI-compatible, OpenRouter and Cloudflare) return
+ordered thinking, text and final tool calls with canonical
+`api="openai-completions"` provenance. The first nonempty string among
+`reasoning_content`, `reasoning` and `reasoning_text` supplies display thinking.
+Valid `reasoning_details` entries retain completed-array order and additional
+JSON in the thinking signature; they do not become display text. This remains
+buffered JSON delivery, with no new streaming callbacks.
+
+`tests/test_native_chat_reasoning.py` covers actual adapter continuations,
+finite detail validation, scalar precedence, legacy import precedence and
+catalog compatibility flags. `tests/test_native_cross_provider_replay.py`
+covers durable SDK reopen and a second continuation, immutable original history,
+exact provider/API/model matching and no historical tool execution. These are
+local synthetic proofs, not authenticated provider evidence. Mistral's native
+ordered `content[].thinking[]` remains the separately selected RF-P2b gap.
 
 ### Buffered JSON evidence
 

@@ -25,6 +25,7 @@ from pipy_harness.native.http import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.chat_completions_wire import (
+    ChatTranscriptOptions,
     chat_transcript,
     extract_chat_completions_usage,
     parse_response,
@@ -63,6 +64,8 @@ class OpenRouterChatCompletionsProvider:
     endpoint: str = OPENROUTER_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
+    requires_thinking_as_text: bool = False
+    requires_reasoning_content: bool = False
 
     @property
     def name(self) -> str:
@@ -101,7 +104,14 @@ class OpenRouterChatCompletionsProvider:
             )
 
         # A directly constructed adapter has no catalog compat: collapse path.
-        transcript = chat_transcript(request)
+        transcript = chat_transcript(
+            request,
+            ChatTranscriptOptions(
+                api="openai-completions",
+                requires_thinking_as_text=self.requires_thinking_as_text,
+                requires_reasoning_content=self.requires_reasoning_content,
+            ),
+        )
         body: dict[str, Any] = {
             "model": self.model_id,
             "messages": transcript.messages,
@@ -136,6 +146,7 @@ class OpenRouterChatCompletionsProvider:
                 response_label="OpenRouter",
                 tool_call_provider_prefix="openrouter",
                 extract_usage=extract_chat_completions_usage,
+                reasoning_provider=self.name,
             )
         except OpenRouterProviderError as exc:
             return failed_provider_result(
@@ -161,6 +172,8 @@ class OpenRouterChatCompletionsProvider:
                 "finish_reason": result.finish_reason,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api="openai-completions",
         )
 
 
