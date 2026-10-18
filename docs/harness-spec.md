@@ -3488,7 +3488,7 @@ calls `tty.setraw(fd)` with no explicit `when`, relying on the standard-library
 default `termios.TCSAFLUSH`, which discards input queued before the raw-mode
 switch. Consumers therefore synchronize on a fresh prompt (prompt readiness)
 rather than on bytes typed ahead of the transition. Real-PTY tests make that
-contract observable: a paint is not readiness, so any later input write —
+contract observable: a paint is not readiness, so input after an outer transition —
 including final Ctrl-D after a notice or completed turn — waits for the
 bracketed-paste enable sequence that the driver emits only after the outer raw
 transition succeeds. Tests chain the byte after the exact end offset of the
@@ -3497,8 +3497,20 @@ active-work and prompt owners; an old marker cannot satisfy a new handoff. The
 audited set includes direct and settings-nested model selectors, settings
 open/reopen/close, login/logout command continuations, thinking/model/folding
 hotkeys, mid-turn local commands, scoped-model open/save, queued steering drain
-completion, and every final Ctrl-D path changed in this slice. Two-phase observations
-consume one monotonic timeout budget. Count waits inspect already captured
+completion, and every final Ctrl-D path changed in this slice.
+
+The builtin Codemode runner owns one outer raw input scope from before script
+launch through its executable cleanup, including nested read/computation
+handoffs, result construction and nested-service close. Its existing
+session-thread waiter remains the only reader. Inner activity waits nest under
+that owner, so an Escape queued while the script continues is not flushed by
+another depth-zero acquisition. This scope ends before canonical parent result
+hooks/publication; it does not cover arbitrary extension composites or promise
+callback preemption. Genuine outer transitions still flush and require fresh
+readiness. Explicit foreign-I/O suspension/resumption retains its existing
+flush policy and does not promise Escape capture while suspended.
+
+Two-phase observations consume one monotonic timeout budget. Count waits inspect already captured
 acknowledgements even with a zero or negative timeout, clamp their deadline, and
 sleep only for the remaining budget. The typed project-trust fd handshake
 preserves one aggregate plus the exact title/notice and readiness end offsets.

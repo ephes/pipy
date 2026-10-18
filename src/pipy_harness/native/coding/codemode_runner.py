@@ -7,6 +7,7 @@ import json
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
@@ -304,6 +305,7 @@ class CodemodeCompositeRunner:
     limits: ScriptLimits = ScriptLimits()
     paths: CodemodePaths | None = None
     store: CodemodeStore | None = None
+    execution_input_scope: Callable[[], AbstractContextManager[None]] | None = None
 
     def _options(self, source: ParsedCodemodeSource) -> tuple[ScriptLimits, int]:
         """The limits and the output budget of a script with these options:
@@ -327,7 +329,11 @@ class CodemodeCompositeRunner:
         """Run the script; the outcome says how long it ran (Pi times the
         codemode tool's ``execute()``), unless its arguments were invalid."""
         began = monotonic()
-        outcome = self._run(call, service, tool_waiter)
+        # Product composition supplies the owner; headless callers stay neutral.
+        # Keep it through _run's executable cleanup, not later parent hooks.
+        scope = self.execution_input_scope
+        with nullcontext() if scope is None else scope():
+            outcome = self._run(call, service, tool_waiter)
         if outcome.malformed_arguments:
             return outcome
         return replace(outcome, execution_seconds=monotonic() - began)

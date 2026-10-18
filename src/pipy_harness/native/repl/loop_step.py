@@ -885,7 +885,12 @@ def _phase_f1_assemble(accepted: _AcceptedRun) -> CodingAgentRunCoordinator:
         retain_next_input=scope.coding_input_queue.retain_agent_input,
         tool_waiter=tool_waiter,
         composite_runner=CodemodeCompositeRunner(
-            store=SessionCodemodeStore(scope.ctl.session_tree_section)
+            store=SessionCodemodeStore(scope.ctl.session_tree_section),
+            execution_input_scope=(
+                scope.terminal_ui.components.driver.raw_mode
+                if scope.terminal_ui is not None
+                else None
+            ),
         ),
         parent_runner=parent_runner_for(
             scope.execution_projections.runs_as_parent,

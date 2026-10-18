@@ -76,9 +76,21 @@ the same guarded nesting depth and `TCSAFLUSH` raw-entry policy. The scope also
 blocks raw acquisition when entered without an existing owner; failed entry
 launches no consumer, and failed resumption remains suspended for forced-close
 recovery. The real-PTY suite observes that ordering directly: painted output is
-never a readiness signal; input after startup, overlays, active work, local
-commands, external-editor resume, and final Ctrl-D exits waits for the later
+never a readiness signal; input after true outer transitions at startup,
+overlays, completed work, local commands, external-editor resume, and final Ctrl-D exits waits for the later
 bracketed-paste enable byte emitted after the outer `TCSAFLUSH` transition.
+
+The builtin Codemode runner owns one outer raw input scope from before script
+launch through its executable cleanup, including nested read/computation
+handoffs, result construction and nested-service close. Its existing
+session-thread waiter remains the only reader. Inner activity waits nest under
+that owner, so an Escape queued while the script continues is not flushed by
+another depth-zero acquisition. This scope ends before canonical parent result
+hooks/publication; it does not cover arbitrary extension composites or promise
+callback preemption. Genuine outer transitions still flush and require fresh
+readiness. Explicit foreign-I/O suspension/resumption retains its existing
+flush policy and does not promise Escape capture while suspended.
+
 Output/readiness phases share one monotonic deadline, and exact invocation byte
 offsets prevent coalesced output or stale acknowledgements from satisfying the
 wrong handoff. Count waits honor the same edge semantics: they inspect the

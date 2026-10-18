@@ -1505,3 +1505,220 @@ def test_a_call_whose_arguments_the_record_leaves_out_keeps_a_preview(
     assert "recognizable.txt" in nested_line_text(write_line, expanded=False)
     assert read_line.arguments == '{"path":"recognizable.txt"}'
     assert all(group_is_gone(pid) for pid in pids)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["success", "abort", "keyboard", "waiter-error", "unwind"],
+)
+def test_executable_input_scope_balances_after_service_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    from contextlib import contextmanager
+
+    from pipy_harness.native.agent.nested_calls import NestedToolCallService
+
+    events: list[str] = []
+    owner = threading.get_ident()
+    active = False
+
+    @contextmanager
+    def scope():
+        nonlocal active
+        assert threading.get_ident() == owner and not active
+        active = True
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+            active = False
+
+    close = NestedToolCallService.close
+
+    def record_close(self):
+        events.append("close")
+        close(self)
+
+    def waiter(done, cancel):
+        assert active and threading.get_ident() == owner
+        events.append("wait")
+        if mode == "keyboard":
+            raise KeyboardInterrupt
+        if mode == "waiter-error":
+            raise RuntimeError("waiter failed")
+        cancel.set()
+        return ToolExecutionInterruption.OPERATOR_ABORT
+
+    def run(code, **kwargs):
+        assert active and threading.get_ident() == owner
+        events.append("guest")
+        if mode == "unwind":
+            raise SystemExit("guest unwind")
+        if mode in {"abort", "keyboard", "waiter-error"}:
+            kwargs["activity_waiter"](threading.Event(), threading.Event())
+        return ScriptOutcome(None, output=("finished",))
+
+    monkeypatch.setattr(NestedToolCallService, "close", record_close)
+    monkeypatch.setattr("pipy_harness.native.coding.codemode_runner.run_script", run)
+    code = "text(1)"
+    loop, _, _ = _loop(
+        tmp_path,
+        code,
+        runner=CodemodeCompositeRunner(execution_input_scope=scope),
+        waiter=waiter,
+    )
+    if mode == "unwind":
+        with pytest.raises(SystemExit, match="guest unwind"):
+            loop.run(_run_input())
+    else:
+        outcome = loop.run(_run_input())
+        parent = _parent(outcome)
+        assert parent.is_error == (mode == "waiter-error")
+    assert events.count("enter") == events.count("exit") == 1
+    assert not active
+    assert events[0] == "enter"
+    assert events.index("guest") < events.index("close") < events.index("exit")
+
+
+def test_failed_input_scope_entry_launches_no_guest_or_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entered: list[str] = []
+
+    class FailedScope:
+        def __enter__(self):
+            entered.append("entry attempted")
+            raise RuntimeError("input acquisition failed")
+
+        def __exit__(self, *args):
+            entered.append("release")
+
+    def no_guest(*args, **kwargs):
+        pytest.fail("failed input ownership must not launch a guest")
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", no_guest
+    )
+    loop, _, _ = _loop(
+        tmp_path,
+        "text(1)",
+        runner=CodemodeCompositeRunner(execution_input_scope=FailedScope),
+    )
+    parent = _parent(loop.run(_run_input()))
+    assert parent.is_error and "input acquisition failed" in parent.content.value
+    assert entered == ["entry attempted"]
+
+
+def test_default_headless_runner_needs_no_input_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script",
+        lambda *args, **kwargs: ScriptOutcome(None, output=("headless",)),
+    )
+    loop, _, _ = _loop(tmp_path, "text(1)", runner=CodemodeCompositeRunner())
+    assert "headless" in _parent(loop.run(_run_input())).content.value
+
+
+def test_input_scope_covers_source_refusal_without_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    events = []
+
+    @contextmanager
+    def scope():
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    def no_guest(*args, **kwargs):
+        pytest.fail("refused source must not launch a guest")
+
+    monkeypatch.setattr(
+        "pipy_harness.native.coding.codemode_runner.run_script", no_guest
+    )
+    loop, _, _ = _loop(
+        tmp_path,
+        '// @options: {"retries": 2}\ntext(1)',
+        runner=CodemodeCompositeRunner(execution_input_scope=scope),
+    )
+    parent = _parent(loop.run(_run_input()))
+    assert parent.is_error and "retries" in parent.content.value
+    assert events == ["enter", "exit"]
+
+
+def test_executable_outer_owner_keeps_paste_and_settled_wait_semantics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import termios
+    import tty
+
+    from pipy_harness.native.terminal_driver import TerminalDriver
+    from pipy_harness.native.tui import TURN_ABORTED, TURN_SETTLED, TerminalUi
+
+    read_fd, write_fd = os.pipe()
+    raw_entries = []
+    restored = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda fd: raw_entries.append(fd))
+    monkeypatch.setattr(termios, "tcsetattr", lambda *args: restored.append(args))
+    with os.fdopen(read_fd) as input_stream:
+        ui = TerminalUi(
+            input_stream=input_stream, terminal_stream=io.StringIO(), cwd=tmp_path
+        )
+        done, cancel = threading.Event(), threading.Event()
+        decode = TerminalDriver.read_key_if_available
+        decoded: list[str | None] = []
+
+        def read_key(self, fd, timeout):
+            assert not done.is_set(), "settled work must not consume another key"
+            if decoded:
+                assert ui.components.input_editor.text == "/"
+                assert ui.components.input_editor.pending_paste == ""
+                return "esc"
+            key = decode(self, fd, timeout)
+            decoded.append(key)
+            return key
+
+        monkeypatch.setattr(TerminalDriver, "read_key_if_available", read_key)
+
+        def run(*args, **kwargs):
+            # Tool-command mode consumes/discards paste rather than submitting it.
+            ui.components.input_editor.text = "/"
+            os.write(write_fd, b"\x1b[200~literal\r\nsecond line\x1b[201~")
+            assert (
+                ui.wait_for_active_turn_interrupt(
+                    done, cancel, poll_seconds=0, accept_commands=True
+                )
+                == TURN_ABORTED
+            )
+            assert cancel.is_set() and decoded == ["paste"]
+            done.set()
+            cancel.clear()
+            assert ui.wait_for_active_turn_interrupt(done, cancel) == TURN_SETTLED
+            assert not cancel.is_set()
+            assert restored == []
+            return ScriptOutcome(None, output=("finished",))
+
+        monkeypatch.setattr(
+            "pipy_harness.native.coding.codemode_runner.run_script", run
+        )
+        loop, _, _ = _loop(
+            tmp_path,
+            "text(1)",
+            runner=CodemodeCompositeRunner(
+                execution_input_scope=ui.components.driver.raw_mode
+            ),
+        )
+        try:
+            parent = _parent(loop.run(_run_input()))
+            assert not parent.is_error, parent.content.value
+        finally:
+            os.close(write_fd)
+    assert raw_entries == [read_fd] and len(restored) == 1

@@ -582,7 +582,12 @@ Before a script starts, pipy waits for the MCP servers the script names that
 are still connecting (see [waiting for servers](mcp.md#waiting-for-servers));
 that wait is not part of the wall limit, and Escape or an RPC abort ends it
 and cancels the script. Escape cancels computation or the active nested tool
-through the normal input waiter. RPC abort works during either phase. The host wall deadline includes tool
+through the normal input waiter. The builtin product runner retains one outer
+raw input owner from before script launch through executable cleanup, across
+nested-tool/computation handoffs; the same session-thread waiter reads Escape.
+Later canonical result hooks are outside that scope. Intentional outer raw
+transitions and foreign-I/O resumption retain their flushing policy.
+RPC abort works during either phase. The host wall deadline includes tool
 time and stops an active child; the CPU backstop is secondary. Worker groups are
 killed and reaped; subsequent scripts start fresh. As with direct tools, a
 noncooperative host tool can outlive its bounded cancellation join. Accepted

@@ -405,6 +405,32 @@ remote pipe capacity is an inferred trigger: the runner's actual capacity was
 not measured. No runtime, CI configuration, timeout or retry policy changes, and
 no public behavior release note, belong to this stabilization.
 
+### RF-C2 — Retain input ownership across Codemode activity handoffs
+
+**Status:** complete, 2026-10-18. Required-runtime and terminal/nested focused
+checks passed (659 tests), with a final owned PTY/composite pass (63 tests).
+Independent high-effort review closed CLEAN with no criticals or warnings;
+its one changelog-order suggestion was applied. Full `just check` passed
+(12,669 tests, two skipped), together with strict docs and rendered links.
+The next selected reasoning-fidelity slice remains RF-P2.
+
+The builtin product Codemode runner receives a neutral, optional input-context
+factory from TTY composition. One owner spans `execute`/`_run` through executable
+cleanup, so nested read/computation handoffs do not trigger another depth-zero
+flush. The existing session-thread waiter remains the sole reader. Later
+canonical parent hooks, extension composites and arbitrary callback preemption
+are outside this scope. Startup/outer `TCSAFLUSH`, paste decoding and explicit
+foreign-I/O suspend/resume policy remain unchanged.
+
+The [CI run 39124798560](https://github.com/ephes/pipy/actions/runs/39124798560)
+reported missing abort/readiness output; its truncated log alone does not prove
+the cause. A separate local single-Escape barrier, before the inner acquisition
+after a settled read and independent of raw depth, proves the old binding loses
+the key. The fixed path must also reap workers, allow a fresh successful turn
+and replay durable results without duplicate execution. Coupled PTY failure
+cleanup preserves the original assertion instead of masking it with a normal
+exit wait. No CI timeout/retry/configuration changes belong to this slice.
+
 ### RF-S3 — Add incremental OpenAI Responses and Azure streaming
 
 **Status:** RF-S3a ordinary Responses complete, 2026-10-18. Full `just check`

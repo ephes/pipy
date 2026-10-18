@@ -1,7 +1,9 @@
 """Offline full-product TUI evidence driver; see docs/codemode.md.
 
 Run on a tty. Prompts and Escape are consumed by CodingSession's normal input
-owner. No UI monkeypatches, replacement tools, credentials or network model.
+owner. An opt-in scheduling barrier pauses before one normal input wait; it
+does not replace input decoding, tools, cancellation or the runtime. No
+credentials or network model.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -26,6 +29,7 @@ from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.tui import TerminalUi
 
 SUMMARY = """rows = []
 for path in ['alpha.txt', 'beta.txt', 'gamma.txt']:
@@ -99,6 +103,7 @@ def verify(root: Path, phase: str, seen: set[int]) -> None:
     assert [m["details"] for m in persisted] == [p["details"] for p in parents]
     assert not any(e.get("type") == "custom" for e in entries)
     if phase != "success":
+        assert len(parents) == 2
         assert parents[0]["isError"] and "Script aborted" in parents[0]["content"]
         statuses = [c["status"] for c in parents[0]["details"]["nestedCalls"]["calls"]]
         assert statuses == (["cancelled"] if phase == "bash" else ["ok"])
@@ -130,6 +135,51 @@ def fresh_workspace(parser: argparse.ArgumentParser, workspace: Path) -> Path:
     return root
 
 
+def install_handoff_barrier(root: Path, fd: int | None):
+    handoff = socket.socket(fileno=fd) if fd is not None else None
+    if handoff is not None:
+        handoff.set_inheritable(False)
+        handoff.settimeout(15)
+    original_wait = TerminalUi.wait_for_active_turn_interrupt
+    held = False
+
+    def wait_at_handoff(self, *wait_args, **wait_kwargs):
+        nonlocal held
+        phase_path = root / "phase.txt"
+        if (
+            handoff is not None
+            and not held
+            and phase_path.exists()
+            and phase_path.read_text() == "settled-read"
+        ):
+            # Both old and fixed code reach this point, before inner raw entry.
+            # No condition on raw depth: the fixed product has an outer owner.
+            held = True
+            handoff.sendall(b"H")
+            assert handoff.recv(1) == b"R", "handoff release missing"
+        return original_wait(self, *wait_args, **wait_kwargs)
+
+    if handoff is not None:
+        setattr(TerminalUi, "wait_for_active_turn_interrupt", wait_at_handoff)
+
+    def restore():
+        setattr(TerminalUi, "wait_for_active_turn_interrupt", original_wait)
+        if handoff is not None:
+            handoff.close()
+
+    return restore
+
+
+def record_worker(root, seen, seen_lock, pid, argv):
+    if any("/codemode/worker.py" in str(arg) for arg in argv):
+        # Startup probes and script workers can launch on different threads.
+        with seen_lock:
+            seen.add(pid)
+            (root / "worker-pids.json").write_text(json.dumps(sorted(seen)))
+            if "run" in argv:
+                (root / "script-worker-started").touch()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, required=True)
@@ -137,6 +187,7 @@ def main() -> int:
         "--phase", choices=("success", "bash", "compute"), default="success"
     )
     parser.add_argument("--replay", type=Path)
+    parser.add_argument("--handoff-fd", type=int)
     args = parser.parse_args()
     root = fresh_workspace(parser, args.workspace)
     isolate(root)
@@ -164,7 +215,9 @@ def main() -> int:
         if args.phase == "bash":
             first = "tools.bash(command='touch bash-active; sleep 30')\n" + SUMMARY
         elif args.phase == "compute":
-            first = "tools.read(path='alpha.txt')\nwhile True: pass"
+            first = (
+                "store('aborted', 42)\ntools.read(path='alpha.txt')\nwhile True: pass"
+            )
         call = ProviderToolCall("parent", "codemode", json.dumps({"code": first}))
         fresh = ProviderToolCall("fresh", "codemode", json.dumps({"code": SUMMARY}))
         calls = ((call,), ()) if args.phase == "success" else ((call,), (fresh,), ())
@@ -179,6 +232,7 @@ def main() -> int:
         )
     )
     evidence = Evidence(root)
+    restore_handoff = install_handoff_barrier(root, args.handoff_fd)
     seen: set[int] = set()
     seen_lock = threading.Lock()
     original_popen = subprocess.Popen
@@ -188,12 +242,7 @@ def main() -> int:
         # environment, pipes, runtime, tools, UI or cancellation behavior.
         def __init__(self, argv, *args, **kwargs):
             super().__init__(argv, *args, **kwargs)
-            if any("/codemode/worker.py" in str(arg) for arg in argv):
-                # Startup probes and script workers can launch on different
-                # threads; publish each observation and report under one guard.
-                with seen_lock:
-                    seen.add(self.pid)
-                    (root / "worker-pids.json").write_text(json.dumps(sorted(seen)))
+            record_worker(root, seen, seen_lock, self.pid, argv)
 
     setattr(subprocess, "Popen", RecordingPopen)
     try:
@@ -214,6 +263,7 @@ def main() -> int:
         )
     finally:
         setattr(subprocess, "Popen", original_popen)
+        restore_handoff()
     if not args.replay:
         with seen_lock:
             recorded_workers = set(seen)

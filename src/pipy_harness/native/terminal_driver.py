@@ -33,6 +33,10 @@ preserves the flush policy without letting an inner overlay return its outer
 input loop to cooked mode. Ordinary readers acquire through
 :meth:`TerminalDriver.raw_mode`, whose scoped release is installed only after
 entry succeeds, so a failed nested acquisition cannot consume an outer owner.
+The builtin Codemode executable keeps an outer owner across its nested activity
+waits through executable cleanup; these handoffs must not reacquire depth-zero
+raw mode and discard a queued Escape. The existing session-thread waiter remains
+the only reader. Later parent-result hooks are outside that scope.
 Foreign TTY consumers instead use
 :meth:`TerminalDriver.suspend_terminal_mode` and
 :meth:`TerminalDriver.resume_terminal_mode` through the UI's scoped external-I/O

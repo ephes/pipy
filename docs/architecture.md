@@ -1381,7 +1381,11 @@ misleading compatibility surfaces.
 `native/terminal_driver.py` owns terminal writes/flushes, raw-mode and bracketed
 paste lifecycle, title restoration, decoded input bytes, SIGWINCH handling, and
 live terminal geometry. Its `raw_mode()` scope acquires before installing its
-balanced release, so failed entry cannot consume another scope's owner. The
+balanced release, so failed entry cannot consume another scope's owner. Product
+composition injects that neutral context factory into the builtin Codemode
+runner: one outer owner spans `execute`/`_run` and executable cleanup, across
+nested-tool/computation handoffs. Its existing session-thread waiter is still
+the sole input reader; later canonical parent hooks are outside the scope. The
 ownership depth lets nested overlays share one outer transition: closing an
 inner selector neither restores cooked mode nor disables bracketed paste, and
 the outermost balanced release restores the original termios exactly once. The

@@ -144,6 +144,13 @@ retains the original bytes. Local Azure wire, cancellation/retry and
 JSON/RPC/real-PTY checks passed, together with full checks (12,659 passed, two
 skipped) and a fresh independent high-effort first review CLEAN. No new
 authenticated live evidence is claimed.
+RF-C2 continuous Codemode input ownership is complete (2026-10-18): required-runtime
+Codemode and terminal/nested checks passed, along with full `just check` (12,669
+passed, two skipped), strict docs/rendered links and independent high-effort
+review CLEAN. One changelog-order suggestion was applied. A single-Escape PTY barrier after a settled read
+fails with the old binding and passes with the injected executable scope;
+subsequent turns/replay preserve historical results. The remote CI output alone
+did not identify the lost-byte cause; the separate local barrier proves it.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
