@@ -156,8 +156,13 @@ scalar/structured capture, canonical API provenance, exact-target continuation/
 reopen and focused compatibility flags. Focused checks (427 tests), full
 `just check` (12,747 passed, two skipped), strict docs/rendered links and fresh
 independent high-effort first review CLEAN all passed.
-RF-P2b Mistral native ordered thinking remains selected separately; Chat
-streaming is not part of either final-content claim.
+RF-P2b Mistral native ordered thinking is complete (2026-10-18): focused checks
+passed (357 tests), fresh independent high-effort first review closed CLEAN with
+no findings, and full `just check` passed (12,770 tests, two skipped). Unsigned
+native capture, canonical
+`mistral-conversations` provenance, exact-target native replay and durable SDK
+reopen retain existing tools/images/errors/usage. Routing and the Chat endpoint
+remain unchanged; Chat streaming is not part of either final-content claim.
 RF-CI3 is complete (2026-10-18): current and isolated Python 3.11 focus each
 passed 122 tests; full `just check` passed (12,748 tests, two skipped), with
 strict docs/rendered links and independent high-effort first review CLEAN.
@@ -168,8 +173,7 @@ its active watcher from the true final prompt, and the MCP callback test pins
 attempt-thread self-refusal while exercising a delayed caller's current failed
 state. Local scheduling probes reproduce both old assertions; the remote
 schedule itself was not recorded. Runtime/flush/notification and CI policies
-are unchanged. RF-P2b remains the separately selected Mistral slice after this
-stabilization.
+are unchanged. RF-P2b follows this stabilization with its own review/check gates.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**
@@ -455,10 +459,9 @@ a user need makes it matter. The DF1 items come first; their repro steps are in
   - Reasoning storage ([plan](specs/2026-09-30-reasoning-storage-plan.md),
     branch `feat/reasoning-storage`) stores Pi's ordered content with its
     signatures and `api`, replays it per adapter and shows thinking on
-    resume. Left: Chat Completions and Mistral parse no reasoning
-    (`reasoning_content`/`reasoning`/`reasoning_text`, `reasoning_details`,
-    `requiresThinkingAsText`, `requiresReasoningContentOnAssistantMessages`,
-    Mistral thinking chunks); Pi's per-run mouse toggle of a thinking block.
+    resume. RF-P2a restored generic Chat scalar/details capture and focused
+    compatibility flags; RF-P2b restored Mistral native thinking. Left: Pi's
+    per-run mouse toggle of a thinking block.
     Durations are not stored in Pi either: a restored `bash` row has no
     `Took` line in both.
   - A resumed session shows no `Session compacted N times` status (Pi

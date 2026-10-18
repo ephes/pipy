@@ -535,9 +535,19 @@ Pi's precedence. Local adapter, construction and durable SDK reopen tests cover
 these paths, tool correlation and no historical execution. JSON transport,
 authentication, usage and event/storage schemas remain unchanged.
 
-**RF-P2b selected separately:** Mistral native ordered `content[].thinking[]`
-requires its own parser/replay slice. Generic scalar parsing does not claim to
-fix it. Neither final-content slice silently adds Chat streaming.
+**RF-P2b status:** complete, 2026-10-18. Focused checks passed (357 tests), fresh
+independent high-effort first review closed CLEAN with no findings, and full
+`just check` passed (12,770 tests, two skipped). Mistral's native parser/serializer retains ordered
+`content[].thinking[]`, unsigned capture and adjacent same-kind coalescing.
+Result/replay provenance is canonical `mistral-conversations`; catalog routing
+stays `mistral`, with no alias or endpoint/auth/transport change. Exact-target
+nonblank thinking replays as native chunks with `prefix:false`, without opaque
+signatures; foreign thinking drops under RF-P1. Actual adapter and durable SDK
+capture/two-reopen fixtures cover text/tool/thinking order, immutable history,
+no historical execution and current tool/result pairing. Shared envelope,
+usage/error and tool/image/system mechanics stay owned by the existing Chat
+composition with unchanged generic defaults. Neither final-content slice adds
+Chat streaming.
 
 **Accept when:** reasoning-only and mixed text/tool/thinking responses survive
 same-model continuation and resume; foreign-model switches follow RF-P1;

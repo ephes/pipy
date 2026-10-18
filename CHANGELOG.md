@@ -55,6 +55,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   provenance and focused compatibility flags preserve foreign-history privacy;
   Mistral native thinking and Chat streaming remain separate work.
 
+- Mistral now retains ordered native unsigned thinking across same-target
+  continuation and durable resume. Native replay uses content arrays and
+  `prefix:false`, omits foreign thinking and forwards no opaque signatures.
+  Canonical history provenance is `mistral-conversations`; existing `mistral`
+  routing, Chat Completions endpoint and buffered transport remain unchanged.
+
 ### Fixed
 
 - Codex SSE responses now close when explicitly retired before their first

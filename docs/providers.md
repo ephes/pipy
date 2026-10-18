@@ -496,8 +496,18 @@ to a text part while retaining structured details; foreign thinking still drops.
 for provider `deepseek` or a base URL containing `deepseek.com` (case insensitive);
 an explicit boolean overrides it, and a routed model name does not enable it.
 Details suppress raw scalar replay, but not this independently required empty
-field. Mistral's distinct ordered thinking format remains separate follow-up
-work; none of these final-message changes adds Chat streaming.
+field. These final-message changes do not add Chat streaming.
+
+Mistral captures its native ordered `content[].thinking[]` chunks as unsigned
+thinking, interleaved with text; adjacent nonempty chunks of the same kind
+coalesce. It records `api="mistral-conversations"`, while catalog/config routing
+remains `mistral` and requests still use the Chat Completions endpoint. Exact
+provider/API/model replay sends nonblank text and thinking as native content
+arrays with `prefix:false`; opaque signatures are never forwarded. Foreign
+thinking, blank thinking and signed-empty blocks are omitted without changing
+stored history. Generic scalar fields and `reasoning_details` do not enter this
+native parser. Tool correlation, images, auth, usage and buffered transport keep
+their existing contracts; this is not Mistral streaming or a new API alias.
 
 Images are accepted only for rows marked `images yes`; attach files using the
 current image/file-reference workflows described in [Using pipy](usage.md).

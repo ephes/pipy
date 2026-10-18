@@ -146,15 +146,21 @@ def envelope_to_chat_message(
             transform_assistant_blocks,
         )
 
-        message: dict[str, Any] = {
-            "role": "assistant",
-            **assistant_fields(
-                transform_assistant_blocks(envelope, target),
+        blocks = transform_assistant_blocks(envelope, target)
+        if target is not None and target.api == "mistral-conversations":
+            from pipy_harness.native.providers.mistral_wire import (
+                assistant_fields as mistral_assistant_fields,
+            )
+
+            fields = mistral_assistant_fields(blocks)
+        else:
+            fields = assistant_fields(
+                blocks,
                 provider=target.provider if target is not None else None,
                 thinking_as_text=requires_thinking_as_text,
                 required_reasoning_content=requires_reasoning_content,
-            ),
-        }
+            )
+        message: dict[str, Any] = {"role": "assistant", **fields}
         if envelope.tool_calls:
             message["tool_calls"] = [
                 {

@@ -35,7 +35,7 @@ shared transport; the representative and transport proofs are listed below.
 | `amazon-bedrock` | JSON HTTP, SigV4 | Buffered; final Anthropic thinking blocks supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `google-generative-ai` | JSON HTTP | Buffered; final thought parts supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `google-vertex` | JSON HTTP, ADC or express auth | Buffered; final thought parts supported | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
-| `mistral` | JSON HTTP | Buffered; shared Chat parser | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
+| `mistral` | JSON HTTP | Buffered; ordered native unsigned thinking/text | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `cloudflare-workers-ai` | JSON HTTP | Buffered; generic Chat scalar reasoning and structured replay details | Yes | Shared JSON cancellation | [JSON](#buffered-json-evidence), [cancellation](#cancellation-evidence) |
 | `fake` | In process, no network | Programmable simulated text/thinking chunks | Opt-in programmable calls; default fake has no tools | Local deterministic behavior; no network claim | [Fake](#fake-provider-evidence) |
 
@@ -174,8 +174,19 @@ finite detail validation, scalar precedence, legacy import precedence and
 catalog compatibility flags. `tests/test_native_cross_provider_replay.py`
 covers durable SDK reopen and a second continuation, immutable original history,
 exact provider/API/model matching and no historical tool execution. These are
-local synthetic proofs, not authenticated provider evidence. Mistral's native
-ordered `content[].thinking[]` remains the separately selected RF-P2b gap.
+local synthetic proofs, not authenticated provider evidence.
+
+Mistral's separate native parser retains ordered `content[].thinking[]` and text,
+coalescing adjacent nonempty chunks of the same kind. New thinking is unsigned;
+canonical result/replay provenance is `mistral-conversations` while routing stays
+`mistral`. `tests/test_native_mistral_reasoning.py` pins actual buffered adapter
+continuations, thinking-only/tool-only results, exact-target native arrays and
+`prefix:false`, foreign omission, signature non-forwarding, tool/image/system
+composition and durable SDK capture/reopen. Original bytes and historical
+messages remain unchanged; historical tools never execute, while a current tool
+executes once and pairs with its result. Existing Mistral golden endpoint/auth,
+usage and error assertions remain independent. No streaming or live evidence is
+claimed.
 
 ### Buffered JSON evidence
 

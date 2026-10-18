@@ -30,6 +30,10 @@ include thinking only when all three provenance fields match the target;
 foreign thinking is omitted, including readable, redacted and encrypted blocks.
 Messages with missing API provenance are treated as foreign. Visible text and
 paired tool calls/results still replay, without executing historical tools.
+Native Mistral captures retain unsigned ordered thinking and canonical
+`mistral-conversations` provenance independently of the `mistral` catalog route.
+Exact-target replay sends native nonblank thinking text without forwarding opaque
+signatures; older `api=null` or `api="mistral"` records are not provenance aliases.
 See [provider replay behavior](providers.md#thinking-images-and-current-limits) for request details.
 
 ## Starting and opening sessions

@@ -31,6 +31,7 @@ from pipy_harness.native.providers.chat_completions_wire import (
     extract_mistral_usage,
     parse_response,
 )
+from pipy_harness.native.providers.mistral_wire import MISTRAL_CONVERSATIONS_API
 
 MISTRAL_CHAT_COMPLETIONS_URL = "https://api.mistral.ai/v1/chat/completions"
 
@@ -50,9 +51,9 @@ def mistral_http_client() -> UrllibJsonHTTPClient:
 class MistralProvider:
     """Mistral Chat Completions provider behind ProviderPort.
 
-    Mistral exposes an OpenAI-compatible Chat Completions API. When
-    `ProviderRequest.messages` is non-empty the provider serializes them in the
-    OpenAI chat completions format (with `tool_calls` and `tool` roles);
+    Mistral uses the Chat Completions endpoint with native ordered thinking.
+    When `ProviderRequest.messages` is non-empty, assistant messages use native
+    content arrays (with `tool_calls` and `tool` roles);
     otherwise it falls back to the legacy single-turn payload built from
     `system_prompt`/`user_prompt`.
     """
@@ -119,6 +120,7 @@ class MistralProvider:
         transcript = chat_transcript(
             request,
             ChatTranscriptOptions(
+                api=MISTRAL_CONVERSATIONS_API,
                 supports_mid_convo_system_messages=(
                     self.supports_mid_convo_system_messages
                 ),
@@ -162,6 +164,7 @@ class MistralProvider:
                 response_label="Mistral",
                 tool_call_provider_prefix="mistral",
                 extract_usage=extract_mistral_usage,
+                mistral_native_content=True,
             )
         except MistralProviderError as exc:
             return failed_provider_result(
@@ -187,6 +190,8 @@ class MistralProvider:
                 "finish_reason": result.finish_reason,
             },
             tool_calls=result.tool_calls,
+            content_blocks=result.content_blocks,
+            api=MISTRAL_CONVERSATIONS_API,
         )
 
 

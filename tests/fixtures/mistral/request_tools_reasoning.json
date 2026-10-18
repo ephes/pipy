@@ -11,7 +11,13 @@
     },
     {
       "role": "assistant",
-      "content": "I'll read the file first.",
+      "content": [
+        {
+          "type": "text",
+          "text": "I'll read the file first."
+        }
+      ],
+      "prefix": false,
       "tool_calls": [
         {
           "id": "call_read_1",

@@ -9,7 +9,7 @@ provider dataclass, and sanitized error hierarchy. This module owns transcript,
 text/tool parsing and usage translation; ``chat_reasoning`` owns the finite
 buffered reasoning fields and replay-detail validation. Generic Chat adapters
 supply canonical replay provenance; Mistral's distinct ordered thinking shape
-is not handled by the generic reasoning parser.
+is owned by ``mistral_wire`` and selected explicitly by its adapter.
 """
 
 from __future__ import annotations
@@ -217,6 +217,7 @@ def parse_response(
     tool_call_provider_prefix: str,
     extract_usage: Callable[[Any], dict[str, int | float]],
     reasoning_provider: str | None = None,
+    mistral_native_content: bool = False,
 ) -> ParsedChatCompletion:
     """Parse a Chat Completions response body into a shared parsed result.
 
@@ -225,6 +226,8 @@ def parse_response(
     messages, ``tool_call_provider_prefix`` prefixes synthesized tool-call ids,
     and ``extract_usage`` normalizes the ``usage`` object
     (:func:`extract_chat_completions_usage` or :func:`extract_mistral_usage`).
+    ``mistral_native_content`` selects Mistral's concrete ordered content parser;
+    generic adapters retain the default scalar/details path.
     """
 
     error = body.get("error")
@@ -272,7 +275,23 @@ def parse_response(
         if reasoning_provider is not None and isinstance(message, Mapping)
         else ()
     )
-    if not final_text and not tool_calls and not thinking:
+    content_blocks: tuple[ProviderContentBlock, ...] = (
+        *thinking,
+        *((TextContent(final_text),) if final_text else ()),
+        *tool_calls,
+    )
+    if mistral_native_content:
+        from pipy_harness.native.providers.mistral_wire import capture_content
+
+        native_blocks = capture_content(content)
+        final_text = (
+            "".join(
+                block.text for block in native_blocks if isinstance(block, TextContent)
+            )
+            or None
+        )
+        content_blocks = (*native_blocks, *tool_calls)
+    if not final_text and not tool_calls and not content_blocks:
         raise parse_error_class(
             f"{response_label} response did not include final message content or tool calls.",
             metadata={
@@ -288,11 +307,7 @@ def parse_response(
         response_object=response_object,
         finish_reason=finish_reason,
         tool_calls=tool_calls,
-        content_blocks=(
-            *thinking,
-            *((TextContent(final_text),) if final_text else ()),
-            *tool_calls,
-        ),
+        content_blocks=content_blocks,
     )
 
 

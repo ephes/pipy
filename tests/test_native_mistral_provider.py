@@ -59,7 +59,8 @@ def _assert_tool_result_wire(posted: Mapping[str, Any]) -> None:
         {"role": "user", "content": "please read README"},
         {
             "role": "assistant",
-            "content": "",
+            "content": [],
+            "prefix": False,
             "tool_calls": [
                 {
                     "id": "call_abc123",

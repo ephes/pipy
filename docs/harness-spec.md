@@ -421,9 +421,17 @@ tool/message serialization. OpenAI-compatible, OpenRouter and Cloudflare
 results record `api="openai-completions"` and ordered blocks. Construction
 resolves only the two focused reasoning transcript flags alongside existing
 system-message compat. No new transport, event schema, storage migration or
-agent-loop owner is introduced; Mistral's distinct native thinking remains a
-separate slice. Details are replay metadata, not synthetic display text, and
-foreign provider/API/model projection strips them without rewriting storage.
+agent-loop owner is introduced. Details are replay metadata, not synthetic
+display text, and foreign provider/API/model projection strips them without
+rewriting storage.
+
+Mistral's `native/providers/mistral_wire.py` separately owns ordered native
+thinking/text capture and assistant content arrays. Shared Chat composition
+selects it explicitly for canonical `mistral-conversations` provenance, keeping
+generic defaults and empty-assistant omission unchanged. Capture is unsigned;
+exact-target nonblank thinking replays without opaque signatures and with
+`prefix:false`. Catalog routing stays `mistral`, using the existing Chat
+Completions endpoint, buffered JSON, auth, tools/images and usage/error owners.
 
 The second real provider is the OpenRouter Chat Completions provider. It is
 selected explicitly, reads credentials from `OPENROUTER_API_KEY`, requires
