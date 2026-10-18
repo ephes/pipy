@@ -10,7 +10,7 @@ build:
       - python -m uv sync --frozen --only-group docs --python 3.14
     build:
       html:
-        - python -m uv run --frozen --only-group docs --python 3.14 zensical build
+        - python -m uv run --frozen --only-group docs --python 3.14 python scripts/docs.py build
     post_build:
       - mkdir -p "$READTHEDOCS_OUTPUT/html"
       - cp -a site/. "$READTHEDOCS_OUTPUT/html/"

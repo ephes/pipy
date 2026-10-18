@@ -99,7 +99,8 @@ git status --short
 ```
 
 `just check` runs lint, repository-wide format checking, Mypy over `src` and
-`tests`, and the full Pytest suite. `just docs-build` builds the Zensical site.
+`tests`, and the full Pytest suite. `just docs-build` builds the Zensical site
+through `scripts/docs.py build`, with strict link and anchor validation.
 The docs build validates the site locally. Read the Docs uses
 [`.readthedocs.yaml`](.readthedocs.yaml) to install only the locked `docs`
 dependency group and build the same Zensical site on Python 3.14. This requires
@@ -135,13 +136,32 @@ To reproduce the hosted build without changing the normal `.venv`:
 
 ```sh
 UV_PROJECT_ENVIRONMENT=.venv-docs uv sync --frozen --only-group docs --python 3.14
-UV_PROJECT_ENVIRONMENT=.venv-docs uv run --frozen --only-group docs zensical build
+UV_PROJECT_ENVIRONMENT=.venv-docs uv run --frozen --only-group docs python scripts/docs.py build
 mkdir -p _readthedocs/html
 cp -a site/. _readthedocs/html/
 ```
 
 The last two commands reproduce RTD's artifact handoff. `site/` and
 `_readthedocs/` are generated output and remain ignored.
+
+Always use `just docs-build` or `python scripts/docs.py build` with the docs
+dependencies installed. The wrapper stages current `docs/` files, including
+untracked contributions, and excludes the reserved `docs/audit/` and
+`docs/parity-loop/runs/` scratch directories before reading their contents.
+The exclusions live in `[tool.pipy_docs]` in `zensical.toml`; Zensical 0.0.41
+does not implement MkDocs-style `exclude_docs`. Documentation symlinks are
+refused so they cannot bypass this boundary. A successful build replaces the
+generated `site/` directory completely, removing stale artifacts from older
+builds. Failed or interrupted builds preserve the last successful output. Source scratch
+files remain untouched.
+
+`just docs-serve` uses the same filtered inputs in an isolated preview. It
+mirrors document additions, edits and deletions every quarter second, restarts
+Zensical from fresh generated state on deletions or configuration changes, and
+stops its child process on Ctrl-C. Preview reports link warnings; Zensical's
+strict mode is supported for builds only, so run `just docs-build` before shipping.
+Preview output stays temporary; use `just docs-build` to publish local `site/`.
+Direct `zensical build` or `zensical serve` bypasses the exclusion boundary.
 
 ## Independent review and review budget
 

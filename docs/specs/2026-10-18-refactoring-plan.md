@@ -217,6 +217,13 @@ contract revision before further implementation, as required by `AGENTS.md`.
 
 ### RF-D1 — Exclude scratch artifacts from documentation output
 
+**Status:** complete, 2026-10-18. The build/preview wrapper stages all current
+documentation except the reserved scratch directories. Artifact/search,
+strict-link, preview reload and interrupted-publication regressions, full
+`just check`, canonical documentation build and rendered link/anchor checks
+passed. Independent high-effort re-review closed CLEAN after fixing the
+publication interruption window.
+
 **Priority:** P1. **Depends on:** none. **Evidence:** DOC1.
 
 **Files:** `zensical.toml`, docs build/hosting validation, relevant documentation

@@ -102,9 +102,13 @@ The [2026-10-18 quality audit and refactoring plan](specs/2026-10-18-refactoring
 collects the current architecture, provider-streaming and documentation audit.
 RF-C1 archive lifecycle/capture mapping ownership is complete (2026-10-18):
 deterministic thread/process regressions, full checks and tracked documentation
-validation passed, and independent high-effort review closed CLEAN. The next
-slice is RF-D1 documentation artifact exclusions. Current-contract
-clarity and a provider capability/evidence matrix precede streaming extraction.
+validation passed, and independent high-effort review closed CLEAN.
+RF-D1 documentation artifact exclusions are complete (2026-10-18): filtered
+build/preview, artifact/search and interruption regressions, strict links,
+full checks and independent high-effort re-review passed. The next slices are
+RF-S1 provider capability/evidence matrix, the first RF-D2 current-status
+corrections, then RF-P1 foreign-thinking request projection. Current-contract
+clarity and provider evidence precede streaming extraction.
 MCP1, CM1 and UP2 retain their completed statuses; this plan does not reopen them.
 
 **UP2 — CI stabilization and bounded upstream refresh (done 2026-10-17).**

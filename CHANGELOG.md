@@ -1545,6 +1545,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   a command or shortcut did nothing. See
   [tools](docs/extension-api.md#tools).
 
+- Documentation builds and previews exclude local audit files and parity-loop
+  run bundles before Zensical reads them. Strict builds validate references,
+  links and anchors, preserve ordinary untracked documentation, and replace
+  generated output so stale scratch artifacts cannot survive a successful build.
+
 ### Documentation
 
 - The MCP parity plan, its acceptance note and the backlog record that

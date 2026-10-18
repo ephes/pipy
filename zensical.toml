@@ -4,10 +4,8 @@ site_url = "https://pipy-agent.readthedocs.io/en/latest/"
 site_description = "Native Python coding agent: setup, providers, sessions, MCP, codemode, extensions, and automation."
 repo_url = "https://github.com/ephes/pipy"
 repo_name = "ephes/pipy"
-# Gitignored parity-loop run bundles under docs/parity-loop/runs contain raw
-# diffs and Python type syntax such as list[str]. Keep real link validation on,
-# but do not warn on reference-style Markdown tokens from those scratch files.
-validation = { unresolved_references = false }
+# Build and preview through scripts/docs.py. Zensical 0.0.41 silently ignores
+# MkDocs exclude_docs; the wrapper excludes scratch before Zensical reads it.
 nav = [
   {"Home" = "index.md"},
   {"Quickstart" = "quickstart.md"},
@@ -32,3 +30,6 @@ nav = [
   {"Session Storage" = "session-storage.md"},
   {"Workflow capture and sync" = "workflow-capture.md"},
 ]
+
+[tool.pipy_docs]
+exclude_dirs = ["audit", "parity-loop/runs"]

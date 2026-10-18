@@ -221,7 +221,7 @@ global excludes file.
 
 ## Docs
 
-`CHANGELOG.md` `[Unreleased]`; `docs/backlog.md` (READ2b/TOOLS2 entries →
+`CHANGELOG.md` <code>&#91;Unreleased&#93;</code>; `docs/backlog.md` (READ2b/TOOLS2 entries →
 Done rows, new TOOLS3 follow-on); `docs/pi-parity.md` rows 92/105/117;
 `docs/usage.md` (write/edit paths); the `session.py` system prompt tool lines
 (same line count); module docstrings; `docs/parity-plan.md` /

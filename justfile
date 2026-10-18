@@ -101,11 +101,11 @@ loc:
 
 # Serve the local documentation site. Example: just docs-serve localhost:8001
 docs-serve dev_addr="localhost:8000":
-    addr="{{dev_addr}}"; uv run zensical serve --dev-addr "${addr#dev_addr=}"
+    addr="{{dev_addr}}"; uv run python scripts/docs.py serve --dev-addr "${addr#dev_addr=}"
 
 # Build the local documentation site.
 docs-build:
-    uv run zensical build
+    uv run python scripts/docs.py build
 
 # Prepare the local session directories.
 sessions-init:
