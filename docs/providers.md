@@ -6,6 +6,10 @@ session, and custom `models.json` entries merge with the built-in catalog.
 This page is the user guide for that shipped behavior. The implementation
 contract lives in [Provider Catalog](provider-catalog.md).
 
+See [Provider capabilities and evidence](provider-capabilities.md) for which
+API families deliver incremental text/thinking, which return buffered answers,
+and the distinction between deterministic tests and dated live evidence.
+
 ## List available models
 
 Use `--list-models` before starting a session:

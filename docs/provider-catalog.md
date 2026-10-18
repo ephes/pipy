@@ -1,5 +1,9 @@
 # Pi-Style Provider And Model Catalog
 
+For current transport delivery, cancellation and verification scope, use the
+[provider capability and evidence matrix](provider-capabilities.md). Catalog
+construction and request-shape coverage do not establish live streaming.
+
 Status: catalog foundation (2026-06-02) plus product provider construction for
 the OpenAI-Chat-Completions API family (2026-06-03), the Tier 1 api-key families
 `anthropic-messages`, `openai-responses`, `mistral`, the Tier 2 composed-endpoint

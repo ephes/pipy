@@ -144,10 +144,10 @@ class ProviderPort(Protocol):
     def supports_tool_calls(self) -> bool:
         """Whether this provider can emit model-driven tool calls.
 
-        Real adapters (`openai`, `openai-codex`, `openrouter`) start the
-        Tool-Loop Parity Track inert: the value is `False` and they never put
-        `ProviderToolCall` values on `ProviderResult.tool_calls`. Later
-        slices flip this per adapter as the matching response parser lands.
+        Built-in real adapters return normalized calls on
+        ``ProviderResult.tool_calls`` when the model emits them. This is
+        independent of incremental text/thinking delivery and does not expose
+        partial provider tool-argument generation as canonical events.
         """
 
     def complete(
@@ -160,18 +160,19 @@ class ProviderPort(Protocol):
     ) -> ProviderResult:
         """Complete one native turn.
 
-        When `stream_sink` is supplied and the provider has flipped on
-        streaming, the provider invokes it once per emitted assistant
-        text delta before returning the buffered `ProviderResult`.
-        Providers that have not yet wired streaming accept the keyword
-        and ignore it; their existing buffered behavior is unchanged.
+        An incremental adapter invokes ``stream_sink`` for text deltas before
+        returning the final ``ProviderResult``. Codex currently supplies real
+        event-stream callbacks; the fake can simulate them. Ordinary JSON
+        adapters accept the optional sinks without invoking them and return
+        completed content, which the agent accepts through its final fallback.
+        See ``docs/provider-capabilities.md`` for family-specific evidence.
 
         ``reasoning_sink`` mirrors ``stream_sink`` for the model's
         reasoning-summary text (Pi-equivalent to the italic "thinking"
         text the user sees between tool calls). Providers that do not
         expose reasoning summaries ignore the keyword. The reasoning
-        text never reaches the metadata archive; only the renderer sees
-        it.
+        text is full product content available to private sessions and
+        SDK/automation observers; it never reaches the metadata-only archive.
 
         ``cancel_token`` is supplied by the native tool loop during an
         active-turn Escape / Ctrl-C abort. Adapters check it before issuing

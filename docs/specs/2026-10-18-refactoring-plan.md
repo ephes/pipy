@@ -287,6 +287,13 @@ them before judging whether their information density and presentation work.
 
 ### RF-S1 — Publish a provider capability and evidence matrix
 
+**Status:** complete, 2026-10-18. The API-family inventory links deterministic
+transport, request-shape and dated DF1 live evidence without broadening live
+claims. Real local SSE/WebSocket barriers pin text/thinking callbacks before
+terminal data; the ordinary JSON regression retains buffered completion.
+Focused/full checks, strict documentation build and rendered links passed;
+independent high-effort first review closed CLEAN with no findings.
+
 **Priority:** P2. **Depends on:** RF-C1 and RF-D1.
 **Evidence:** STR1.
 

@@ -1707,6 +1707,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   as the daily-use reference, queue a drift audit, and track MCP/codemode and
   the experimental durable runtime as separate scope decisions.
 
+- Added a provider API capability and evidence matrix distinguishing incremental
+  text/thinking, buffered completion, final tool calls, cancellation proofs,
+  request-shape fixtures and dated live observations. Local transport tests
+  verify Codex callbacks before terminal data and ordinary buffered fallback.
+
 ## [0.3.0] - 2026-09-30
 
 ### Highlights

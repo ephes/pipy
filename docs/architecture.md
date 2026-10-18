@@ -286,6 +286,13 @@ SSE execution, timeout/error normalization, cancellation, and retryable
 transport classification. Provider adapters return normalized results and never
 write sessions or import UI code.
 
+The [provider capability and evidence matrix](provider-capabilities.md) owns
+the current delivery inventory: Codex has incremental text/thinking callbacks;
+ordinary JSON adapters return completed content through the intentional agent
+fallback. A compatible sink signature is not transport evidence. Provider
+tool-argument fragments are assembled before final calls reach the agent;
+canonical tool events describe execution, not partial argument generation.
+
 Ordinary product completion captures one settings-derived retry policy and one
 coding-run context for each request. The canonical provider-turn executor may
 reissue only a provider that supplies a request-local prepared completion; the
