@@ -86,13 +86,19 @@ return { schema_version: 1, case_id: caseId, normalization: "finite-json-v1", st
 let trace;
 if (caseId === "kernel-memory-v1") trace = await kernel();
 else {
-  const module = caseId === "harness-round-v1"
-    ? await import("./durable_reference/cases/harness-round.mts")
-    : await import("./durable_reference/cases/context-heads.mts");
-  trace = { schema_version: 2, case_id: caseId,
-    normalization: caseId === "harness-round-v1" ? "harness-identity-v1" : "context-identity-v1",
-    codec: "tagged-js-v1", steps: [{ op: caseId === "harness-round-v1" ? "harness.settled" : "context.selection",
-    value: encode(await module.run(input)) }] };
+  const cases = {
+    "harness-round-v1": { module: () => import("./durable_reference/cases/harness-round.mts"), profile: "harness-identity-v1", op: "harness.settled" },
+    "context-heads-v1": { module: () => import("./durable_reference/cases/context-heads.mts"), profile: "context-identity-v1", op: "context.selection" },
+    "tool-recovery-v1": { module: () => import("./durable_reference/cases/tool-recovery.mts"), profile: "recovery-identity-v1", op: "recovery.matrix" },
+    "durable-abort-v1": { module: () => import("./durable_reference/cases/durable-abort.mts"), profile: "abort-identity-v1", op: "abort.settled" },
+    "env-conformance-v1": { module: () => import("./durable_reference/cases/env-conformance.mts"), profile: "env-path-time-v1", op: "env.conformance" },
+  };
+  assert.ok(Object.hasOwn(cases, caseId), "Unknown reference case");
+  const selected = cases[caseId as keyof typeof cases];
+  const module = await selected.module();
+  trace = { schema_version: 2, case_id: caseId, normalization: selected.profile,
+    codec: "tagged-js-v1", steps: [{ op: selected.op,
+    value: encode(await module.run(input, { directory: outputPath })) }] };
 }
 writeFileSync(resolve(outputPath, "trace.json"), JSON.stringify(trace, (_key, value) => {
   if (value === undefined) return { $undefined: true }; // legacy kernel v1 only

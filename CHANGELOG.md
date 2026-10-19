@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The [pinned durable reference runner](docs/durable-reference.md) now executes
+  real SQLite recovery across four replay-policy combinations, durable abort
+  with refused late writes, and two exported Node environment byte/argv cases.
+  Six complete case families and four schema-valid semantic negatives retain
+  raw provenance, effect counts and bounded typed projections. Malformed task
+  outcomes fail as invalid evidence. Closed database sidecars are checked against
+  physical bytes/hashes, and raw chunks must match actual settled streams.
+  Python durable
+  parity remains open; mandatory reference CI and workloads remain in DE01b3.
+
 - The [durable reference runner](docs/durable-reference.md) now verifies three
   pinned real cases: the existing byte-identical kernel fixture, a faux-provider
   echo/null-details round, and reset/summary context selection. A strict

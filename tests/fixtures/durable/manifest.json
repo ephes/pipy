@@ -20,7 +20,22 @@
       "packages/durable/test/harness-tools.test.ts": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a",
       "packages/durable/src/harness/context.ts": "c392e698d7f84a1fc4909c0b40964d74625edbe7b56dc1dfea28588dde47d635",
       "packages/durable/test/harness-context.test.ts": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5",
-      "packages/durable/docs/spec.md": "dd1c2fcfd5a4d3aa4e176fa5ad072f2f97c0daf84aa84f215dcf01b1d582ac81"
+      "packages/durable/docs/spec.md": "dd1c2fcfd5a4d3aa4e176fa5ad072f2f97c0daf84aa84f215dcf01b1d582ac81",
+      "packages/durable/test/task-support.ts": "24b8647f113ef59d8df37441754cd2c65c957889d3f561357d9d47b682ec0ac7",
+      "packages/durable/test/harness-sleep.test.ts": "39c3b3227b675b069e536451244a8236506fe328f96e643487b70114ba735ad8",
+      "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
+      "packages/chord/src/output.ts": "d2fcc2364e994a8f9cdb2d31caa15a8ca7cf2928e1c21db8a65867acdce9ceed",
+      "packages/durable/src/testing/types.ts": "7de2ad01a01b0448215b9b1e891d01e5cb9c9197cc3b36c558223ea3917c8dab",
+      "packages/durable/src/storage/sqlite/node.ts": "a71180a69e8d9225ccdba50f8eb7e908a3454b6b537657ba18a964d891f29e1c",
+      "packages/durable/src/storage/sqlite/storage.ts": "6778529dada8ac79d54328f7e8924d14a2a25bf33befc186c078482d27e8fe4a",
+      "packages/chord/src/sqlite/node.ts": "87eee26ec2cd23f0ec19fa785c4b985546d85cf791fd6454e75bbe643e6eac68",
+      "packages/durable/test/harness-tools-recovery.test.ts": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7",
+      "packages/durable/src/harness/scheduler.ts": "77e4f0f71c099308cf7ead442c9a1335b5156a1a1194315cd41f2aa06ef4a1ab",
+      "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
+      "packages/durable/test/harness-tasks.test.ts": "289f7cd084dc619201e816063abb1a1ae0bdf114d7a32a18370761986fbedccf",
+      "packages/durable/src/env/node.ts": "8da3592f9d0d99ce0e97faaab2ae123dd8070270ece12036d5a6a10c69ea422b",
+      "packages/durable/src/env/index.ts": "6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff",
+      "packages/durable/src/testing/env-conformance.ts": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e"
     }
   },
   "runtime": {
@@ -30,11 +45,11 @@
   "adapters": {
     "scripts/durable_pi_reference.mts": {
       "destination": "durable_pi_reference.mts",
-      "sha256": "690cf24d06ed49ec932082f1c34fa5ea83e80d7eca48cce96d89664b935ebef9"
+      "sha256": "0ceb0335ad05dcecd17d971fcf144f8cc5f8ac42060e502a068621daef7f1d2c"
     },
     "scripts/durable_reference/contract.mts": {
       "destination": "durable_reference/contract.mts",
-      "sha256": "1c9c74348859378079d66bf3e9ef4f26918eb152df7f7e5ac84af7e458907326"
+      "sha256": "7bb09d967dfbb291ba8f5bdd2184156eb725e64cc6679aae639d33d8c2a66ef7"
     },
     "scripts/durable_reference/cases/harness-round.mts": {
       "destination": "durable_reference/cases/harness-round.mts",
@@ -43,11 +58,23 @@
     "scripts/durable_reference/cases/context-heads.mts": {
       "destination": "durable_reference/cases/context-heads.mts",
       "sha256": "56ecd6f481ce2e9d5253ca2cecc0b4eebd612c63ced29e197b9e6aa1e01ec4da"
+    },
+    "scripts/durable_reference/cases/tool-recovery.mts": {
+      "destination": "durable_reference/cases/tool-recovery.mts",
+      "sha256": "3dc62b49cf7a0765021455f22ba490ed5d70760f3508bec53b7abd2bcff23cfe"
+    },
+    "scripts/durable_reference/cases/durable-abort.mts": {
+      "destination": "durable_reference/cases/durable-abort.mts",
+      "sha256": "30b5b8593b4e6bb93a016c0011f780cf7e8f19827cc79d9f24a72bcac186de7f"
+    },
+    "scripts/durable_reference/cases/env-conformance.mts": {
+      "destination": "durable_reference/cases/env-conformance.mts",
+      "sha256": "8e29561a5ac3a00dd0f8a28eb95acd6e9203c39c048c54a1b2e942c56c8c698d"
     }
   },
   "comparison": {
-    "scripts/durable_pi_comparison.py": "1d024ea5579d52c5dcf720b7e0b3656c3e95f8f7034616311aa5e505733b8d3e",
-    "scripts/durable_reference_contract.py": "ba3f2ee694cefdc9d6b075b9e643cb0019889651954425fae986ff06a2339b64"
+    "scripts/durable_pi_comparison.py": "67e9f2b041b3cb322dd0bb1c5ac90c4b00b4b8486363faccdc2c5e2ebe199219",
+    "scripts/durable_reference_contract.py": "66b58157edec07c81a5be3e63ce2415b28eb9670d8379ee8b90478ee92be1d39"
   },
   "cases": [
     {
@@ -131,6 +158,99 @@
           "path": "packages/durable/test/harness-context.test.ts",
           "name": "resolves self heads and uses the newest head marker",
           "sha256": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5"
+        }
+      ]
+    },
+    {
+      "id": "tool-recovery-v1",
+      "input": {
+        "path": "tool-recovery-v1.input.json",
+        "sha256": "fb6ab66067fb8d6952d6d2c07b9b2ddae778bece5972374e5926dcf1e8ff7cc5"
+      },
+      "expected": {
+        "path": "tool-recovery-v1.json",
+        "sha256": "8d9aaaa6366451ff98557ca65138dc0366de1fffa31cb81911092fa984f68ac6"
+      },
+      "trace_schema": 2,
+      "normalization": "recovery-identity-v1",
+      "adapter": "durable_pi_reference.mts",
+      "required_modules": [
+        "packages/durable/src/harness/harness.ts",
+        "packages/durable/src/harness/tool.ts",
+        "packages/durable/src/storage/sqlite/node.ts",
+        "packages/durable/src/storage/sqlite/storage.ts",
+        "packages/chord/src/sqlite/node.ts",
+        "packages/ai/src/providers/faux.ts"
+      ],
+      "upstream_tests": [
+        {
+          "path": "packages/durable/test/harness-tools-recovery.test.ts",
+          "name": "answers an unsafe tool interrupted after intent with its durable partial output",
+          "sha256": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7"
+        },
+        {
+          "path": "packages/durable/test/harness-tools-recovery.test.ts",
+          "name": "reruns a tool only when both the stored and the current replay policy are safe",
+          "sha256": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7"
+        }
+      ]
+    },
+    {
+      "id": "durable-abort-v1",
+      "input": {
+        "path": "durable-abort-v1.input.json",
+        "sha256": "bd291b3008a2830a0a22e0608a6678d70aa300116ac7d0683d166939a773b4c8"
+      },
+      "expected": {
+        "path": "durable-abort-v1.json",
+        "sha256": "e095e0150dd14a331f2d571969d50b1244e2277910eeb54af37f7e6c67d4dc46"
+      },
+      "trace_schema": 2,
+      "normalization": "abort-identity-v1",
+      "adapter": "durable_pi_reference.mts",
+      "required_modules": [
+        "packages/durable/src/harness/harness.ts",
+        "packages/durable/src/harness/scheduler.ts",
+        "packages/durable/src/session/session.ts",
+        "packages/durable/src/tasks.ts",
+        "packages/durable/src/storage/memory.ts"
+      ],
+      "upstream_tests": [
+        {
+          "path": "packages/durable/test/harness-tasks.test.ts",
+          "name": "rejects the run's commits and memo writes after the mark, and settles through a fresh abort invocation",
+          "sha256": "289f7cd084dc619201e816063abb1a1ae0bdf114d7a32a18370761986fbedccf"
+        }
+      ]
+    },
+    {
+      "id": "env-conformance-v1",
+      "input": {
+        "path": "env-conformance-v1.input.json",
+        "sha256": "755733efd6e7c119c775895b79b1176ad030cb24e67a006e1e3a65095f62450d"
+      },
+      "expected": {
+        "path": "env-conformance-v1.json",
+        "sha256": "b4574b4c0c67e9417d00c3802b3b9cf18b9948e6bfe0bd79091e7148455601ec"
+      },
+      "trace_schema": 2,
+      "normalization": "env-path-time-v1",
+      "adapter": "durable_pi_reference.mts",
+      "required_modules": [
+        "packages/durable/src/env/node.ts",
+        "packages/durable/src/env/index.ts",
+        "packages/durable/src/testing/env-conformance.ts"
+      ],
+      "upstream_tests": [
+        {
+          "path": "packages/durable/src/testing/env-conformance.ts",
+          "name": "binary reader reads byte ranges of the opened file",
+          "sha256": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e"
+        },
+        {
+          "path": "packages/durable/src/testing/env-conformance.ts",
+          "name": "argv exec passes arguments to the program without shell parsing",
+          "sha256": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e"
         }
       ]
     }

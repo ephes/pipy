@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a and R1 landed; DE01b1 in progress; all parity rows OPEN**,
+Status: **DE01a, R1 and DE01b1 landed; DE01b2 in progress; all parity rows OPEN**,
 2026-10-19. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -138,7 +138,7 @@ that coverage here. A local validation result is not a landed slice.
 | --- | --- | --- | --- |
 | DE00 | Experiment and work-order import | LANDED | E00-*; Opus 5.5 HIGH CLEAN; main/pushed `ad04766daefde48604f73112d1611f4389f40877`; CI 39236305603 success |
 | DE01a | Pinned bootstrap, trace/manifest contract and actual Kernel/Memory reference probe | LANDED | `97d623f`; initial CI failed; repaired by R1 `35142ec`; Python adapter OPEN |
-| DE01b1 | Strict multi-case/provenance/projection; H1/C1; lost-field/stale-head negatives | OPEN | Implementation authorized after R1 green; kernel fixture retained unchanged; all P OPEN |
+| DE01b1 | Strict multi-case/provenance/projection; H1/C1; lost-field/stale-head negatives | LANDED | `7acf5f7`; actual independent CLEAN and CI10/10; historical first ISSUES retained below; all P OPEN |
 | DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | OPEN | Depends on b1; rerun all prior cases/four negatives |
 | DE01b3 | Hardware/workloads, exhaustive mapping, mandatory real pinned reference CI | OPEN | Depends on b2; all original DE01b acceptance retained cumulatively; blocks DE02 |
 | DE02 | Records, memory storage and atomic session core | OPEN | Blocked until DE01b3 is green |
@@ -247,8 +247,8 @@ DE00, DE01a and its R1 test-isolation repair have landed (historical delivery
 evidence below). DE01b proceeds sequentially through b1 multi-case H1/C1 fixtures,
 b2 H2/H3/E1 recovery/abort/environment fixtures, and b3 workload/hardware baselines,
 complete manifest mapping and mandatory reference CI. DE02 remains blocked until
-DE01b3 is green. DE01b1 implementation evidence below does not close its pending
-independent delivery gates or any required P row. No real-provider evidence or
+DE01b3 is green. DE01b1 has now landed; current DE01b2 implementation evidence
+does not close its pending independent delivery gates or any required P row. No real-provider evidence or
 performance budget is claimed. Subsequent gates close only from concrete
 evidence; unavailable tooling/auth and historical ISSUES verdicts stay explicit.
 
@@ -550,7 +550,7 @@ is claimed by this pre-implementation index entry.
 
 ## DE01b1 — multi-case reference evidence
 
-Status: **implemented locally; independent full check/review/landing OPEN**.
+Historical writer-freeze status: **implemented locally; independent full check/review/landing OPEN**.
 Base is R1 `35142ec28f720f010ffe670de86a2bc9f0cc016e`, confirmed clean on main
 before the delivery-index split and implementation. All P01–P43 rows and the
 absent Python comparison adapter remain OPEN. DE02 remains blocked by b3.
@@ -659,3 +659,196 @@ collision. The two repaired-candidate reference directories are again named
 `reference-freeze-a/` and `reference-freeze-b/` under the new repair-log root;
 their manifests bind the new exact MTS hash closure, with unchanged golden
 hashes. All three cases and both schema-valid semantic negatives remain required.
+
+
+## DE01b1 delivered; DE01b2 implementation admission
+
+DE01b1 landed/pushed at `7acf5f7ea629d64f87db181032e0c3a0427c7821`, reviewed
+tree `434403c4103f936ade9a07c011b3aa4a0d5b09c1`, after actual independent
+Opus 5.5/high CLEAN with zero findings, result
+`/tmp/pipy-de01b1-repair-gate.jYFB2tRX/review-delta/result.json`, SHA-256
+`57a5982a8a21de53c7d3e3285eedd6bae23d56f8b36bfadcfd6e4cc77eab1741`, baseline
+`99eb239cfe314919cd76bb22708a036d3c87e81d`. Its first ISSUES result above remains
+historical. The coordinator independently audited remote SHA and
+[CI39270913622](https://github.com/ephes/pipy/actions/runs/39270913622): all ten
+jobs succeeded. Three full suites each reported 12,849 passed/208 skipped;
+159 durable tests had zero skips; two required-WASI jobs passed441/0 skips;
+four real-PTY jobs passed17/0 skips. Complete delivery evidence is
+`/tmp/pipy-de01b1-repair-gate.jYFB2tRX/delivery/delivery-final.json`, including
+141 logs/12,686 lines and hashes. Ordinary Python CI does not execute the pinned
+reference or standalone Node codec test; b3 retains that mandatory CI gate.
+
+DE01b2 is authorized from this clean delivered base, before implementation:
+H2 actual private SQLite close/reopen across unsafe/unsafe, safe/safe and both
+mixed stored/current policies; H3 actual durable mark and late memo/commit
+refusal; E1 two actual exported Node environment conformance cases. Three new
+case modules extend the closed registry to six families. Raw observations,
+bounded typed projections and provenance remain required. Schema-valid
+duplicate-effect/post-abort mutants must mismatch1 alongside existing lost-field
+and stale-head mutants. All three existing goldens and the permanent separate
+Node codec regression remain intact. Python adapter/all P rows remain OPEN;
+b3 workloads/hardware/exhaustive mapping/mandatory actual reference CI still
+block DE02. No b2 check, review or landing is claimed by this admission record.
+
+
+## DE01b2 — real recovery, abort and environment fixtures
+
+Status: **implemented locally; independent full check/review/landing OPEN**.
+Base is delivered DE01b1 `7acf5f7ea629d64f87db181032e0c3a0427c7821`.
+The strict manifest2/trace2 registry now contains six complete case families,
+seven copied MTS artifacts and the same two hashed Python artifacts. Existing
+kernel/H1/C1 golden bytes and the permanent standalone MTS codec test are
+unchanged. All P01–P43 and the absent Python durable comparison adapter remain
+OPEN. DE01b3 remains wholly required before DE02.
+
+H2 executes four real private Node SQLite databases, one per stored/current
+policy combination, retaining the same faux/models/registry/counter between
+cooperative close and reopen. Actual effect counts are 1/2/1/1 for unsafe/unsafe,
+safe/safe, safe/unsafe, unsafe/safe. Before-close running and pre-resume reopened
+pending tasks retain execute checkpoints and durable partial output/details;
+close, not a claimed crash recovery, accounts for pending. The provider identity
+survives reopen; responses/cache are not reset. Final histories/tasks, usage,
+errors/diagnostics and two provider requests remain complete. Each DB is closed,
+retained privately and content-hashed in the required raw sidecar. The manifest
+and result hashes attest source, adapters, fixtures and sidecars separately.
+
+The first H2 runs correctly failed at the unchanged60s child deadline: actual
+phase logs reached execute, then waited before started at api.details. A fixed
+clock could not reach Chord Progress's throttle deadline after the preceding
+output commit. Sources are `harness/tool.ts:350–357,462–475` and
+`packages/chord/src/output.ts:374–403`; the original chat helper uses Date.now.
+The narrowly authorized fixture adapts `harness-sleep.test.ts`'s controlled
+clock/fakeTimers through supported now/setTimer hooks, queues foreground
+callbacks asynchronously and advances only to their actual requested deadline.
+Cancellation and background-decline semantics are explicit. Every timer fact
+and semantic timestamp remains raw/significant, with no global patch or new
+clock normalizer. The actual MTS helper probe confirms asynchronous callbacks,
+cancellation suppression and no background clock advance. This is bounded
+fixture scheduling, not arbitrary concurrent-timer/product performance proof.
+The later all-four H2 probe completed; an intermediate DTO failure was retained
+before replacing the Submission handle with its actual status record.
+
+H3 executes the source-derived marked task on actual MemoryStorage. Immutable
+commit publications retain seq5 mark and seq6 terminal records in this fixture;
+the asynchronous run continuation follows the host's durable-mark observation.
+Internal physical signal dispatch is not claimed to follow that host listener.
+The kept memo reads1, late memo/commit both reject with actual durable-mark
+errors, forbidden callback stays unentered, and one distinct abort runtime
+commits aborted/mark. Task IDs/copies and only the exact registered error-ID
+template use bounded projection; memos/events/seq/statuses remain significant.
+
+E1 executes the two exact exported createEnvConformance cases against actual
+NodeExecutionEnv in separate empty private directories: real positional bytes,
+invalid/fractional-range and aborted/closed reads, FileInfo/Error DTOs, literal
+argv, settled per-stream output, false pwned existence and awaited cleanup.
+Only scoped cwd/FileInfo.path/FileError.path and FileInfo.mtimeMs are projected;
+raw fractional milliseconds and every projection witness remain retained.
+Class handles and Error/Uint8Array/void Results use explicit semantic DTOs.
+Raw OS chunks are retained separately and hash-bound; comparison concerns
+settled ordered text per stream, not a fixed OS chunk partition. This supplies
+no Windows/watch/full-platform or real-provider billing claim.
+
+Both added mutants start from actual raw fixtures. H2 adds a second correlated
+post-reopen execute fact plus effect count2 while retaining its interrupted
+receipt; H3 makes late commit fulfilled/callback entered and appends a correlated
+forbidden entry. They remain schema-valid and compare with CLI1, alongside the
+existing lost-field/stale-head negatives. Correct effect counts and refusal are
+oracle outcomes, never schema constraints masquerading as negative evidence.
+
+The initial frozen candidate passed190 tests with zero skips under real Python3.11.13,
+3.14.8 and3.15.0 using normal HOME. Explicit Ruff lint/format and mypy pass;
+the unchanged standalone Nodecodec regression separately executes Nodev26.12.0.
+Complete logs/commands/exits/before-after inventories, source/dependency/module
+hashes, raw/projected/witness evidence and phase failures are retained in
+`/tmp/pipy-de01b2-vs2swa2c/`. The first complete six-family run was
+`reference-first/` on its earlier exact hashes. Final candidates use two fresh
+archive/original npm-ci bootstraps `reference-freeze-a/` and
+`reference-freeze-b/`; only their exact manifests support final frozen claims.
+The full audit and all four semantic/prerequisite CLI probes accompany freeze.
+No ordinary Python CI job executes these real reference probes today.
+
+Upstream MIT Copyright(c)2025 Mario Zechner remains complete; adapted case and
+barrier/clock helper headers identify provenance, and exact source/test hashes
+are in the manifest. No new provider, product runtime, CI workflow, user state,
+upstream checkout/install/build or source mutation is introduced. b3 retains
+actual exported workload correctness/hardware measurements, exhaustive DE/P
+mapping and mandatory real pinned CI including the standalone Nodecodec command,
+all six families/four mutants, sanitized artifacts and actual pushed-job proof.
+
+
+### DE01b2 pre-review invalid-outcome repair
+
+Before independent full check or Opus review, the gate found that changing only
+H3 final.state.outcome to JSON null caused an uncaught AttributeError/CLI1 rather
+than invalid-evidence2. Concrete evidence is
+`/tmp/pipy-de01b2-gate.uQWKeSga/malformed-terminal-outcome-result.json`; the
+initial20-file freeze remains `/tmp/pipy-de01b2-vs2swa2c/freeze.json`. This is a
+pre-review correctness repair, not an Opus finding or completed b2 review.
+
+The accepted minimal change validates the new task visitor's outcome as an
+object before reading result, using the existing explicit record guard. There
+is no broad AttributeError catch. The other existing chained outcome access is
+already preceded by bind_tasks' dictionary check; the new E1 chained paths have
+explicit dictionary checks. No other contract or projection scope is changed.
+The new actual CLI regressions show null/list/bool/string/numeric outcome forms
+return2 without traceback. Valid completed/null-result, aborted/mark and failed
+object outcomes remain comparable0/1, and absent nonterminal outcomes still work.
+The malformed regression first failed on all six forms, then all nine new
+positive/negative cases passed after the guard.
+
+The repaired candidate passes199 focused tests/zero skips on each real Python
+3.11.13,3.14.8,3.15.0 plus explicit lint/format/mypy. Final fresh six-family
+reference bootstraps and four valid mismatch/prerequisite negatives are retained
+under `/tmp/pipy-de01b2-prereview-fix-k688hf7j/`, with full per-command logs,
+before/after hashes and raw/projection/witness/source/dependency evidence.
+All six goldens, MTS artifacts, permanent Nodecodec test and MIT notice remain
+unchanged from the initial b2 freeze. No b2 independent review, full check,
+commit/push/CI or P-row closure is claimed. b3 and the DE02 dependency remain.
+
+
+### DE01b2 first Opus review — accepted sidecar and raw-data clarifications
+
+The first valid independent Opus5.5/high review completed **ISSUES**, with two
+Suggestions and zero Critical/Warning findings, baseline
+`b20e98510d3c2d1cda4774366e48857efaf8951a`, reviewed tree
+`71e4a3f9211a645e483257503255cf1460b22095`. Result remains
+`/tmp/pipy-de01b2-fixed-gate.CfeddTaH/review-first/result.json`. The coordinator
+accepted both findings. Its `sidecar-replay-results.json` reproduces acceptance
+of empty sidecars by replaying retained evidence through the validator; it is
+explicitly not a new Node/reference runtime pass.
+
+S1 repair adds narrow Python checks in the existing runner: exactly four unique
+policy DB records, closed=true, exact controlled paths, nonsymlink regular files,
+and recorded size/SHA matched against actually opened/read bytes. Every verified
+DB digest is now directly attested in result.json. Versioned raw-chunks evidence
+contains both selected Env scenarios, including the reader's empty chunk list;
+chunk text and stream labels validate and per-stream concatenation must equal
+the corresponding decoded raw settled observation. No OS chunk partition or
+independent stream interleaving is added to golden comparison semantics.
+
+Permanent regressions include empty/missing/duplicate variants and scenarios,
+wrong closure/size/hash/file bytes, missing/escaping/symlink/nonregular DBs and
+malformed or conflicting chunks. The two outer invalid2 tests fail against the
+reviewed old runner because empty sidecars are accepted; they pass after repair.
+These isolated wiring/file validator probes are not runtime execution evidence.
+Existing four schema-valid semantic mutants remain mismatches1; invalid sidecar
+evidence is2 and never counts as a successful semantic negative.
+
+S2 clarifies data provenance: inputs are scripted synthetic scenarios, while
+raw expected/runtime values retain observed controlled scratch paths, actual
+mtime and generated provider UUIDs. Only declared typed projection/witness rules
+derive comparison values; no raw-value removal is claimed. All six golden files
+and the exact reference pin remain unchanged. No b3 implementation is included.
+
+The repaired candidate passes229 focused tests with zero skips on each real
+Python3.11/3.14/3.15, explicit Ruff lint/format and mypy, and the standalone
+Nodev26.12.0 codec regression. Thirty sidecar regressions include the two
+outer-invalid wiring checks. These Python tests do not require a host Node.
+
+New repair logs, before/after regressions, raw sidecar-negative validator probes,
+focused/static/docs checks and two fresh exact-candidate reference runs are
+retained under `/tmp/pipy-de01b2-sidecar-fix-d15_518z/`. Earlier freezes and
+ISSUES remain historical. A renewed independent full and scoped Opus review are
+pending; the concrete empty-sidecar defect and new runner guard justify that
+follow-up, rather than reviewer agreement alone. Owned set remains20 files;
+all P/Python-adapter rows stay OPEN and DE02 remains blocked through b3.

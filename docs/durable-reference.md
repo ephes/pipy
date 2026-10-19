@@ -3,8 +3,9 @@
 The verification tools execute Pi durable **1.3.0**, commit
 `2ec55d808d455b1a64a2bf7888198207a096120a`, tree
 `b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. DE01a introduced actual Session,
-MemoryStorage and document execution; DE01b1 adds real faux-provider/tool and
-context-head scenarios. These verify reference reproducibility and the oracle.
+MemoryStorage and document execution; landed DE01b1 added real faux-provider/tool
+and context-head scenarios. DE01b2 adds SQLite recovery, durable abort and two
+exported Node environment scenarios. These verify reference reproducibility and the oracle.
 The Python durable comparison adapter is **OPEN** and all P01–P43 rows remain
 **OPEN**. No native durable runtime is imported or implemented by these scripts.
 
@@ -36,7 +37,7 @@ and rejects sparse arrays. Ordinary pytest does not launch Node or require a
 host Node version. DE01b3's mandatory reference CI must explicitly run this
 codec command alongside its real reference cases and negatives.
 
-`reference` always runs all three registered cases, serially in fresh child
+`reference` always runs all six registered case families, serially in fresh child
 processes and fresh storage/faux state, following one locked installation.
 `--output` must be a new owner-only directory outside upstream; its parent must
 exist. The upstream argument must name a checkout root, not a package directory
@@ -50,7 +51,7 @@ removed by its owner. Each command has a deadline (900 seconds installation,
 60 seconds per case, 120 seconds otherwise); timeout/interruption kills and
 reaps the child process group.
 
-Exit **0** requires all three complete real cases to match; **1** means complete,
+Exit **0** requires all six complete real case families to match; **1** means complete,
 valid evidence has a semantic mismatch; **2** means invalid/unavailable evidence
 or a failed prerequisite/child. No missing case, runtime, dependency, source,
 input, fixture or module can become a successful skip. Standalone `compare`
@@ -61,7 +62,7 @@ mismatches. Existing ordinary Python CI does not run the durable reference.
 ## Closed manifest and source provenance
 
 Manifest integer version **2** has shared reference/runtime identities, exact
-`adapters` and `comparison` hash maps, exactly three unique `cases`, and OPEN
+`adapters` and `comparison` hash maps, exactly six unique `cases`, and OPEN
 Python/parity status. Each case pins input/expected paths and SHA-256, trace and
 projection versions, entrypoint, required loaded source anchors, and exact
 source/test identity and hash. Unknown fields, versions, cases, profiles,
@@ -76,8 +77,8 @@ recorded file belongs to exactly one checked provenance class:
 - Original archived source, with original inventory membership and exact hash.
   Workspace `@earendil-works/*` imports must resolve to `packages/` source and
   may contain **no** `node_modules` component.
-- An exact caller adapter artifact from the four-file manifest map: driver,
-  tagged-value contract and the two case modules. Copied hashes are checked
+- An exact caller adapter artifact from the seven-file manifest map: driver,
+  tagged-value contract and the five case modules. Copied hashes are checked
   after each case; archive collisions refuse. This is no directory exception:
   undeclared helpers or newly invented `packages/` files reject.
 - A physically installed locked registry dependency, with matching package
@@ -117,6 +118,9 @@ New cases use integer trace version **2**, the same envelope plus
 | --- | --- |
 | `harness-round-v1` / `harness-identity-v1` | Settled submission; complete oldest-first history and terminal task records; actual invocation args/count; two full provider request message lists with selected session/cache options; ProviderDoc, UsageDoc and session usage, LiveDoc, reports, faux counters and close |
 | `context-heads-v1` / `context-identity-v1` | Complete raw history, first reset-headed and final summary-headed ContextViews (head, entries, contributions, messages), requested final cutoff and close |
+| `tool-recovery-v1` / `recovery-identity-v1` | Four stored/current safety variants; actual SQLite close/reopen; admission, before-close/reopened task/history/provider/live facts, final tasks/history/usage/requests, correlated execute facts/counts, fixture timer facts and both closes |
+| `durable-abort-v1` / `abort-identity-v1` | Actual task admission/running/mark publications with commit sequences, cancellation continuation, late memo/commit outcomes and errors, callback-entry flag, fresh abort invocation/current task, final task/history and close |
+| `env-conformance-v1` / `env-path-time-v1` | Two exact exported cases against actual NodeExecutionEnv; reader operation/Result/bytes/FileInfo/Error DTOs, literal argv, settled stdout/stderr, exists result and cleanup |
 
 H1 deliberately adapts two upstream tests: the echo tool round and explicit
 null-details precedence. It acknowledges `details({old:1})`, then returns echo
@@ -163,21 +167,21 @@ Projection is limited to these typed fields:
 - ProviderDoc `sessionId` and the two selected request `sessionId` observations
   share a separate bijection. Reusing or changing an identity preserves that
   correlation; it cannot collapse every request into the same constant.
-- Only H1 `toolResult.durationMs` in history and captured provider messages may
+- Only H1 and H2 `toolResult.durationMs` in history and captured provider messages may
   map finite nonnegative integer milliseconds to an elapsed-ms marker. It is
   measured by upstream `performance.now()`, separately from Harness.now. Copies
   must agree with the same history tool-call origin to project; a discrepant
   copy remains numeric and is detected. Raw values and witness retain actual
   durations. Field absence/type/unit remain significant.
 
-Semantic clocks are explicitly fixed, including historical faux timestamps;
+Semantic clocks are explicit, including historical faux timestamps;
 there is no timestamp rebasing or global clock/performance patch. Task
 started/ended times remain visible. Fixed tool-call IDs, arbitrary data fields
 named `id/timestamp/durationMs`, text/whitespace, errors, diagnostics, args,
 usage/cache/cost, call counts, histories and causal array order are preserved.
 Projected evidence additionally records adjacent numeric ID-order relations
-only for the actual oldest-first `/history` scans and H1's ascending `/tasks`
-scan. Upstream spec §1's entry ordering and the storage scan/mintId contract
+only for actual oldest-first history scans and ascending task scans, including
+H2 persistence-phase scans. Upstream spec §1's entry ordering and the storage scan/mintId contract
 make these relations meaningful. A bijective old/reset ID swap must differ
 rather than disappear. This derives comparison facts without sorting any rows
 or imposing a total order across independent record allocations.
@@ -189,8 +193,85 @@ Schema checks representation, not golden behavior: an absent tool-result
 `details` or coherent earlier context is valid input to comparison. Tests
 actually remove the observed own null-details field and substitute C1's prior
 context while keeping final raw history/cutoff. Both validate and exit **1**;
-malformed evidence exits **2**. Duplicate-effect/post-abort-write negatives
-remain required in b2.
+malformed evidence exits **2**. H2's duplicate-effect mutant inserts an additional
+correlated execute fact after reopen and increments the unsafe effect count;
+H3's post-abort mutant makes the late commit fulfilled, sets callback-entered
+and appends a correlated forbidden entry. Both remain schema-valid and exit
+**1**. Schema does not enforce correct safety counts, refusal or final outcome.
+An explicitly present task outcome must be an object; null/list/scalar outcomes
+are invalid evidence2, while an absent nonterminal outcome and valid object
+outcomes remain comparable.
+
+## H2 persistence and controlled fixture clock
+
+Each safety variant owns one real Node SQLite file, models/faux/registry and
+execute counter across close/reopen. Stored/current policies are unsafe/unsafe,
+safe/safe, safe/unsafe and unsafe/safe. The first invocation writes output and
+awaits durable details acknowledgement before signaling started and blocking on
+its actual abort signal. Cooperative close joins it. Reopen uses the same DB;
+task/history/live/provider snapshots are captured **before** explicit resume.
+Close itself changes running tasks to pending; this is not a crash/restart claim.
+Safe/safe actually executes twice and succeeds; the other three execute once
+and retain the interrupted partial output/details. The model continues to done.
+No counter, provider cache or response script is reset between connections.
+
+A constant Harness clock proved insufficient for the two progress marks:
+`harness/tool.ts` calls `Progress.markAndWait`; `chord/src/output.ts:374–403`
+compares the clock against a future throttle deadline. The original reference
+chat helper uses Date.now. The bounded fixture adapts `harness-sleep.test.ts`'s
+controlled clock/fakeTimers through actual Harness `now`/`setTimer` hooks.
+Only an actually requested foreground timer queues an asynchronous callback;
+it advances the historical clock to at least the requested rounded-up deadline.
+Cancellation suppresses a pending callback. Background timers are explicitly
+declined, as in that source helper, rather than advancing cache-expiry time.
+Every arm/delay/advance/cancel/callback/background-decline fact is retained raw
+and compared; semantic entry/task timestamps remain significant. There is no
+global clock patch, sleep, larger timeout, generic scheduler or timer-fact
+normalization. This fixture does not claim arbitrary concurrent timer ordering
+or product scheduling/performance parity.
+
+H2 uses one durable-ID mapping per independent DB, anchored from final complete
+history/tasks/admission and reused across both earlier persistence snapshots.
+Typed task checkpoint assistant/tools, waiting-on task IDs, live run inputs/tool
+slots and invocation references join that domain. Provider copies remain linked
+across reopen. No checkpoint, policy, memo, restart, effect or timer fact is
+rewritten to match an expected outcome.
+
+## H3 abort and E1 DTO boundaries
+
+The H3 run deliberately continues after its abort signal. A synchronous host
+commit observer captures immutable marked-task publications without Session
+calls. It records the asynchronous cancellation continuation, not physical
+signal dispatch: Session internal listeners precede host listeners. abortTask
+commits and joins the run; a fresh runtime then handles abort. The existing memo
+can be read, both late writes reject before the forbidden-entry callback enters,
+and the abort handler commits the actual aborted/mark outcome. Only the exact
+registered `Task <subject-id> has a durable abort mark` error template receives
+the subject's bijective representation; altered text remains significant.
+Commit sequences, memo values, event order and all operation statuses remain raw.
+
+E1 selects exported `createEnvConformance` cases by exact unique names, with a
+fresh empty private cwd and one actual NodeExecutionEnv callback each. Wrappers
+retain real operation results and delegate with correct `this`. The opened
+reader is represented by an explicit scoped handle; class internals are not a
+portable trace contract. Uint8Array results become byte-number arrays; Error
+instances become explicit name/message/own-field/cause DTOs. Own undefined
+Result values and Error paths survive. Reader.close and env.cleanup return void.
+The source invalid-range and already-aborted calls are actual captured calls.
+
+Only E1 scenario cwd, typed FileInfo.path/FileError.path within that same
+controlled root and FileInfo.mtimeMs receive the new versioned projection.
+Root-relative filenames and path equality remain visible, traversal/escape
+rejects, fractional finite mtime milliseconds stay raw with pointer witnesses.
+Arbitrary path/time text and error messages are untouched. Literal argv executes
+the source hostile string without shell interpolation; settled ordered text is
+captured separately per stdout/stderr. OS chunk partition/interleaving is retained
+privately in versioned `raw-chunks.json`, outside this settled-output comparison
+surface. That sidecar explicitly contains both selected scenarios, including an
+empty reader chunk list; the runner validates text/stream labels and concatenates
+each stream against the corresponding actual raw settled observation.
+All readers close and the real env cleanup is awaited. This is bounded POSIX
+byte-reader/argv evidence, not watch/Windows/full environment conformance.
 
 ## Evidence, licensing and remaining gates
 
@@ -199,21 +280,35 @@ post-install dependency inventories, locked dependency evidence and complete
 per-command stdout/stderr/deadline/exit metadata. Each case directory retains
 copied input, raw `trace.json`, `resolutions.json`, actual/expected projections
 and pointer witnesses, and `result.json` with input/fixture/module hashes.
-Complete success requires all registered IDs; one case cannot cover an omission.
+H2 also retains its closed SQLite files plus `database-evidence.json` with real
+paths/sizes/content hashes; E1 retains raw stream chunks. The runner requires
+exactly four unique policy DB records with closed=true and exact private paths,
+opens only regular nonsymlink files, and verifies recorded size/SHA against
+actually read bytes. It explicitly attests the database SHA map in result.json.
+Known auxiliary JSON sidecars are validated and hash-bound in each case result. These raw files are
+private evidence, not portable golden expectations. Complete success requires
+all registered IDs, all four H2 variants and both E1 scenarios.
 
 The fixture manifest pins actual source/test identities. H1 adapts
 `packages/durable/test/harness-tools.test.ts`'s named tool-round and
 explicit-null-details tests; C1 adapts `harness-context.test.ts`'s newest/self
-head test, using small source-derived helpers. Reference code is MIT,
+head test. H2 adapts the unsafe-intent and replay-policy matrix in
+`harness-tools-recovery.test.ts`; H3 adapts the durable-mark test in
+`harness-tasks.test.ts`; E1 executes the named exported cases in
+`src/testing/env-conformance.ts`. Barrier/clock helpers identify their
+`task-support.ts`/`harness-sleep.test.ts` origins and hashes. Reference code is MIT,
 **Copyright (c) 2025 Mario Zechner**; its complete notice remains in
 `tests/fixtures/durable/UPSTREAM-LICENSE.txt`, with attribution in adapted files.
-Committed fixture data is entirely scripted; private runtime logs stay outside
-version control.
+Scenario inputs are scripted synthetic data. Expected fixtures retain actual
+raw runtime observations, including controlled scratch paths, filesystem mtimes
+and provider UUIDs. Only the explicitly declared typed fields are projected,
+with raw values and pointer witnesses retained; raw observations are not removed
+or rewritten. Private command logs stay outside version control.
 
 [Delivery index](specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices):
-b1 owns the above infrastructure/H1/C1 and two negatives. b2 retains actual
-H2 SQLite safe-policy recovery, H3 durable abort/late-write rejection, E1 real
-NodeExecutionEnv and the other two semantic negatives, rerunning prior cases.
+b1 landed the infrastructure/H1/C1 and two negatives. b2 adds actual H2/H3/E1
+and the other two semantic negatives, rerunning prior cases; its independent
+gates and landing remain open until concrete delivery evidence.
 b3 retains hardware/exported workloads, exhaustive DE/P mapping and a mandatory
 pinned `durable-reference` CI job executing all required cases/four negatives
 with retained artifacts and actual pushed-commit success. DE02 is blocked until

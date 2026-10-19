@@ -1,0 +1,26 @@
+{
+  "clock_epoch_ms": 1700000000000,
+  "api": "fixture-durable-recovery-v1",
+  "variants": [
+    {
+      "id": "unsafe-unsafe",
+      "stored": "unsafe",
+      "current": "unsafe"
+    },
+    {
+      "id": "safe-safe",
+      "stored": "safe",
+      "current": "safe"
+    },
+    {
+      "id": "safe-unsafe",
+      "stored": "safe",
+      "current": "unsafe"
+    },
+    {
+      "id": "unsafe-safe",
+      "stored": "unsafe",
+      "current": "safe"
+    }
+  ]
+}

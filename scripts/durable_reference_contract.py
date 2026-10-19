@@ -1,4 +1,4 @@
-"""Verification-only tagged values and bounded H1/C1 projection. No product API."""
+"""Verification-only tagged values and bounded case-specific projection. No product API."""
 
 from __future__ import annotations
 
@@ -18,6 +18,9 @@ CASES = {
     "kernel-memory-v1": (1, "finite-json-v1", None),
     "harness-round-v1": (2, "harness-identity-v1", "harness.settled"),
     "context-heads-v1": (2, "context-identity-v1", "context.selection"),
+    "tool-recovery-v1": (2, "recovery-identity-v1", "recovery.matrix"),
+    "durable-abort-v1": (2, "abort-identity-v1", "abort.settled"),
+    "env-conformance-v1": (2, "env-path-time-v1", "env.conformance"),
 }
 ADAPTERS = {
     "scripts/durable_pi_reference.mts": "durable_pi_reference.mts",
@@ -25,6 +28,12 @@ ADAPTERS = {
     "scripts/durable_reference/cases/harness-round.mts": "durable_reference/cases/harness-round.mts",
     "scripts/durable_reference/cases/context-heads.mts": "durable_reference/cases/context-heads.mts",
 }
+ADAPTERS.update(
+    {
+        f"scripts/durable_reference/cases/{name}.mts": f"durable_reference/cases/{name}.mts"
+        for name in ("tool-recovery", "durable-abort", "env-conformance")
+    }
+)
 COMPARISON = {
     "scripts/durable_pi_comparison.py",
     "scripts/durable_reference_contract.py",
@@ -90,6 +99,75 @@ INPUTS = {
     "context-heads-v1": {"clock_epoch_ms", "old", "fresh", "after", "summary", "tail"},
 }
 
+POLICIES = [
+    ("unsafe", "unsafe"),
+    ("safe", "safe"),
+    ("safe", "unsafe"),
+    ("unsafe", "safe"),
+]
+SCENARIOS = [
+    {
+        "id": "binary-reader",
+        "name": "binary reader reads byte ranges of the opened file",
+    },
+    {
+        "id": "literal-argv",
+        "name": "argv exec passes arguments to the program without shell parsing",
+    },
+]
+INPUTS.update(
+    {
+        "tool-recovery-v1": {"clock_epoch_ms", "api", "variants"},
+        "durable-abort-v1": {"clock_epoch_ms"},
+        "env-conformance-v1": {"clock_epoch_ms", "scenarios"},
+    }
+)
+MODULES.update(
+    {
+        "tool-recovery-v1": [
+            "packages/durable/src/harness/harness.ts",
+            "packages/durable/src/harness/tool.ts",
+            "packages/durable/src/storage/sqlite/node.ts",
+            "packages/durable/src/storage/sqlite/storage.ts",
+            "packages/chord/src/sqlite/node.ts",
+            "packages/ai/src/providers/faux.ts",
+        ],
+        "durable-abort-v1": [
+            "packages/durable/src/harness/harness.ts",
+            "packages/durable/src/harness/scheduler.ts",
+            "packages/durable/src/session/session.ts",
+            "packages/durable/src/tasks.ts",
+            "packages/durable/src/storage/memory.ts",
+        ],
+        "env-conformance-v1": [
+            "packages/durable/src/env/node.ts",
+            "packages/durable/src/env/index.ts",
+            "packages/durable/src/testing/env-conformance.ts",
+        ],
+    }
+)
+TESTS.update(
+    {
+        "tool-recovery-v1": [
+            ("packages/durable/test/harness-tools-recovery.test.ts", name)
+            for name in (
+                "answers an unsafe tool interrupted after intent with its durable partial output",
+                "reruns a tool only when both the stored and the current replay policy are safe",
+            )
+        ],
+        "durable-abort-v1": [
+            (
+                "packages/durable/test/harness-tasks.test.ts",
+                "rejects the run's commits and memo writes after the mark, and settles through a fresh abort invocation",
+            )
+        ],
+        "env-conformance-v1": [
+            ("packages/durable/src/testing/env-conformance.ts", item["name"])
+            for item in SCENARIOS
+        ],
+    }
+)
+
 
 def validate_input(value: Any, case: str) -> None:
     shape(value, INPUTS[case], "case input")
@@ -100,9 +178,18 @@ def validate_input(value: Any, case: str) -> None:
         "tool_arguments",
         "progress_details",
         "tool_result",
+        "variants",
+        "scenarios",
     }
     if any(type(value[key]) is not str for key in strings):
         raise EvidenceError("Invalid scripted input string")
+    if case == "tool-recovery-v1":
+        if value["variants"] != [
+            {"id": f"{a}-{b}", "stored": a, "current": b} for a, b in POLICIES
+        ]:
+            raise EvidenceError("Incomplete recovery input matrix")
+    if case == "env-conformance-v1" and value["scenarios"] != SCENARIOS:
+        raise EvidenceError("Incomplete environment input cases")
     if case == "harness-round-v1":
         for key in ("tool_arguments", "progress_details", "tool_result"):
             if type(value[key]) is not dict:
@@ -241,6 +328,12 @@ def usage(value: Any) -> None:
 
 
 def observations(value: Any, case: str) -> dict[str, Any]:
+    if case == "tool-recovery-v1":
+        return recovery_observation(value)
+    if case == "durable-abort-v1":
+        return abort_observation(value)
+    if case == "env-conformance-v1":
+        return env_observation(value)
     if case == "harness-round-v1":
         value = shape(
             value,
@@ -296,6 +389,247 @@ def observations(value: Any, case: str) -> dict[str, Any]:
     for row in array(value["history"], "history"):
         entry(row)
     return value
+
+
+def task_record(value: Any) -> None:
+    record(value, {"id", "conversationId", "kind", "input", "state"}, "task")
+    if type(value["id"]) is not int or value["id"] <= 1 or value["conversationId"] != 1:
+        raise EvidenceError("Invalid root task identity")
+    record(value["state"], {"status"}, "task state")
+
+
+def close_result(value: Any) -> None:
+    record(value, {"reason"}, "close result")
+    if type(value["reason"]) is not str:
+        raise EvidenceError("Invalid close reason")
+
+
+def abort_observation(value: Any) -> dict[str, Any]:
+    shape(
+        value,
+        {
+            "id",
+            "admitted",
+            "running",
+            "publications",
+            "events",
+            "memoRead",
+            "late",
+            "callbackEntered",
+            "abortInvocations",
+            "freshRuntime",
+            "abortCurrent",
+            "abortResult",
+            "final",
+            "history",
+            "reports",
+            "close",
+        },
+        "H3 observation",
+    )
+    if type(value["id"]) is not int or value["id"] <= 1:
+        raise EvidenceError("Invalid abort subject")
+    for key in ("admitted", "running", "abortCurrent", "final"):
+        task_record(value[key])
+    for publication in array(value["publications"], "publications"):
+        abort_publication(publication)
+    if any(type(v) is not str for v in array(value["events"], "events")):
+        raise EvidenceError("Invalid abort events")
+    for item in array(value["late"], "late operations"):
+        late_operation(item)
+    for key in ("callbackEntered", "freshRuntime"):
+        if type(value[key]) is not bool:
+            raise EvidenceError("Invalid abort boolean")
+    if type(value["abortInvocations"]) is not int or value["abortInvocations"] < 0:
+        raise EvidenceError("Invalid abort count")
+    for row in array(value["history"], "history"):
+        entry(row)
+    array(value["reports"], "reports")
+    close_result(value["close"])
+    return value
+
+
+def late_operation(item: Any) -> None:
+    record(item, {"op", "status"}, "late operation")
+    if item["op"] not in ("memo", "commit") or item["status"] not in (
+        "fulfilled",
+        "rejected",
+    ):
+        raise EvidenceError("Invalid late operation")
+    if "error" in item:
+        record(item["error"], {"name", "message"}, "late error")
+
+
+def abort_publication(publication: Any) -> None:
+    shape(publication, {"seq", "changes"}, "publication")
+    if type(publication["seq"]) is not int or publication["seq"] < 0:
+        raise EvidenceError("Invalid commit sequence")
+    for change in array(publication["changes"], "changes"):
+        shape(change, {"type", "value"}, "task change")
+        if change["type"] != "task":
+            raise EvidenceError("Unsupported abort publication change")
+        task_record(change["value"])
+
+
+def env_observation(value: Any) -> dict[str, Any]:
+    shape(value, {"scenarios"}, "E1 observation")
+    scenarios = array(value["scenarios"], "scenarios")
+    if [(v.get("id"), v.get("name")) for v in scenarios if type(v) is dict] != [
+        (v["id"], v["name"]) for v in SCENARIOS
+    ]:
+        raise EvidenceError("Incomplete environment scenarios")
+    for scenario in scenarios:
+        shape(
+            scenario,
+            {"id", "name", "cwd", "calls", "operations", "cleanup"},
+            "env scenario",
+        )
+        if type(scenario["cwd"]) is not str or not Path(scenario["cwd"]).is_absolute():
+            raise EvidenceError("Invalid controlled environment root")
+        if type(scenario["calls"]) is not int or scenario["calls"] < 0:
+            raise EvidenceError("Invalid environment invocation count")
+        shape(scenario["cleanup"], {"status"}, "cleanup")
+        for operation in array(scenario["operations"], "operations"):
+            env_operation(operation)
+    return value
+
+
+def env_operation(operation: Any) -> None:
+    record(operation, {"op", "result"}, "environment operation")
+    name = operation["op"]
+    if type(name) is not str or name not in {
+        "writeFile",
+        "openBinaryReader",
+        "reader.info",
+        "reader.read",
+        "reader.close",
+        "exec",
+        "exists",
+    }:
+        raise EvidenceError("Unknown environment operation")
+    if name == "exec":
+        array(operation.get("argv"), "literal argv")
+        shape(operation.get("streams"), {"stdout", "stderr"}, "settled streams")
+    else:
+        array(operation.get("args"), "operation arguments")
+    result = operation["result"]
+    if name == "reader.close":
+        if result is not UNDEFINED:
+            raise EvidenceError("Invalid void reader-close result")
+        return
+    record(result, {"ok"}, "Result")
+    if type(result["ok"]) is not bool:
+        raise EvidenceError("Invalid Result discriminator")
+    shape(result, {"ok", "value" if result["ok"] else "error"}, "Result")
+    if not result["ok"]:
+        record(
+            result["error"],
+            {"name", "message", "code", "path"},
+            "FileError DTO",
+        )
+    elif name == "reader.info":
+        record(
+            result["value"],
+            {"name", "path", "kind", "size", "mtimeMs"},
+            "FileInfo DTO",
+        )
+    elif name == "reader.read":
+        if any(
+            type(b) is not int or not 0 <= b <= 255
+            for b in array(result["value"], "bytes")
+        ):
+            raise EvidenceError("Invalid read byte")
+
+
+def recovery_observation(value: Any) -> dict[str, Any]:
+    shape(value, {"variants"}, "H2 observation")
+    variants = array(value["variants"], "variants")
+    identities = [
+        (v.get("id"), v.get("stored"), v.get("current"))
+        for v in variants
+        if type(v) is dict
+    ]
+    if identities != [(f"{a}-{b}", a, b) for a, b in POLICIES]:
+        raise EvidenceError("Incomplete recovery policy matrix")
+    harness_fields = {
+        "submission",
+        "history",
+        "tasks",
+        "invocations",
+        "requests",
+        "provider",
+        "usage",
+        "sessionUsage",
+        "live",
+        "reports",
+        "faux",
+        "close",
+    }
+    for variant in variants:
+        shape(
+            variant,
+            harness_fields
+            | {
+                "id",
+                "stored",
+                "current",
+                "database",
+                "admitted",
+                "beforeClose",
+                "reopened",
+                "firstClose",
+                "runs",
+                "clock",
+            },
+            "recovery variant",
+        )
+        observations({key: variant[key] for key in harness_fields}, "harness-round-v1")
+        if type(variant["runs"]) is not int or variant["runs"] < 0:
+            raise EvidenceError("Invalid effect count")
+        record(
+            variant["admitted"], {"id", "conversationId", "type", "status"}, "admission"
+        )
+        shape(variant["database"], {"name", "header"}, "SQLite evidence")
+        close_result(variant["firstClose"])
+        for fact in array(variant["clock"], "fixture clock facts"):
+            record(fact, {"op", "id", "at"}, "clock fact")
+            if fact["op"] not in {
+                "arm",
+                "advance",
+                "callback",
+                "cancel",
+                "decline-background",
+            }:
+                raise EvidenceError("Unknown fixture clock operation")
+        for name in ("beforeClose", "reopened"):
+            recovery_phase(variant[name])
+        for invocation in variant["invocations"]:
+            shape(
+                invocation,
+                {"ordinal", "phase", "taskId", "conversationId", "callId", "args"},
+                "execute fact",
+            )
+            if (
+                type(invocation["ordinal"]) is not int
+                or invocation["ordinal"] < 1
+                or invocation["phase"] not in ("before-close", "after-reopen")
+            ):
+                raise EvidenceError("Invalid execute fact")
+    return value
+
+
+def recovery_phase(phase: Any) -> None:
+    phase = shape(
+        phase,
+        {"task", "tasks", "history", "provider", "live", "runs", "callCount"},
+        "recovery phase",
+    )
+    task_record(phase["task"])
+    for task in array(phase["tasks"], "phase tasks"):
+        task_record(task)
+    record(phase["provider"], {"sessionId"}, "persisted provider")
+    for row in array(phase["history"], "phase history"):
+        entry(row)
 
 
 def validate_trace(value: Any) -> None:
@@ -354,8 +688,8 @@ class Projection:
 
     def change(
         self,
-        obj: dict[str, Any],
-        key: str,
+        obj: Any,
+        key: str | int,
         after: Any,
         path: tuple[Any, ...],
         rule: str,
@@ -497,33 +831,244 @@ def scan_relations(rows: list[Any]) -> list[bool]:
     return [left < right for left, right in zip(ids, ids[1:], strict=False)]
 
 
+def visit_task(
+    projection: Projection, task: dict[str, Any], path: tuple[Any, ...]
+) -> None:
+    task_record(task)
+    for key in ("id", "conversationId", "owner"):
+        projection.identity(task, key, path)
+    if task["kind"] == "pi.tool":
+        projection.identity(task["input"], "assistant", path + ("input",))
+    state = task["state"]
+    checkpoint = state.get("checkpoint", {})
+    if task["kind"] == "pi.generation" and type(checkpoint) is dict:
+        projection.identity(checkpoint, "assistant", path + ("state", "checkpoint"))
+        if "tools" in checkpoint:
+            visit_id_list(
+                projection, checkpoint["tools"], path + ("state", "checkpoint", "tools")
+            )
+    if "on" in state:
+        visit_id_list(projection, state["on"], path + ("state", "on"))
+    outcome = record(state.get("outcome", {}), set(), "task outcome")
+    result = outcome.get("result")
+    if type(result) is dict:
+        projection.identity(result, "entryId", path + ("state", "outcome", "result"))
+
+
+def visit_id_list(projection: Projection, values: Any, path: tuple[Any, ...]) -> None:
+    for i, raw in enumerate(array(values, "identity references")):
+        if type(raw) is not int or raw not in projection.ids:
+            raise EvidenceError("Unknown durable identity list reference")
+        projection.change(
+            values, i, projection.ids[raw], path, "durable-id-bijection-v1"
+        )
+
+
+def visit_live(projection: Projection, live: Any, path: tuple[Any, ...]) -> None:
+    if type(live) is not dict:
+        raise EvidenceError("Invalid LiveDoc")
+    if "run" in live:
+        projection.identity(live["run"], "taskId", path + ("run",))
+        if "inputs" in live["run"]:
+            visit_id_list(projection, live["run"]["inputs"], path + ("run", "inputs"))
+    for i, slot in enumerate(live.get("tools", [])):
+        for key in ("taskId", "entry"):
+            projection.identity(slot, key, path + ("tools", i))
+
+
+def project_recovery(value: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    witness: list[Any] = []
+    relations = {}
+    for i, variant in enumerate(value["variants"]):
+        projection = Projection(variant)
+        relations[f"/variants/{i}/history"] = scan_relations(variant["history"])
+        relations[f"/variants/{i}/tasks"] = scan_relations(variant["tasks"])
+        projection.bind_history()
+        # Same mapper across every persistence phase; do not re-anchor snapshots.
+        projection.bind_tasks()
+        projection.bind(variant["submission"]["id"], "submission:input")
+        projection.duration_origins()
+        for name in ("submission", "admitted"):
+            for key in ("id", "conversationId", "entry", "answer"):
+                projection.identity(variant[name], key, (name,))
+        for j, task in enumerate(variant["tasks"]):
+            visit_task(projection, task, ("tasks", j))
+        for j, row in enumerate(variant["history"]):
+            projection.visit_entry(row, ("history", j))
+        projection.provider(variant["provider"], "sessionId", ("provider",))
+        for j, request in enumerate(variant["requests"]):
+            projection.provider(request, "sessionId", ("requests", j))
+            projection.messages(request["messages"], ("requests", j, "messages"))
+        project_invocations(projection, variant)
+        visit_live(projection, variant["live"], ("live",))
+        for name in ("beforeClose", "reopened"):
+            project_recovery_phase(projection, variant, name, i, relations)
+        for item in projection.witness:
+            item["path"] = f"/variants/{i}" + item["path"]
+            witness.append(item)
+    return witness, relations
+
+
+def project_invocations(projection: Projection, variant: Any) -> None:
+    for j, invocation in enumerate(variant["invocations"]):
+        for key in ("taskId", "conversationId"):
+            projection.identity(invocation, key, ("invocations", j))
+
+
+def project_recovery_phase(
+    projection: Projection, variant: Any, name: str, i: int, relations: dict[str, Any]
+) -> None:
+    phase = variant[name]
+    relations[f"/variants/{i}/{name}/history"] = scan_relations(phase["history"])
+    relations[f"/variants/{i}/{name}/tasks"] = scan_relations(phase["tasks"])
+    visit_task(projection, phase["task"], (name, "task"))
+    for j, task in enumerate(phase["tasks"]):
+        visit_task(projection, task, (name, "tasks", j))
+    for j, row in enumerate(phase["history"]):
+        projection.visit_entry(row, (name, "history", j))
+    projection.provider(phase["provider"], "sessionId", (name, "provider"))
+    visit_live(projection, phase["live"], (name, "live"))
+
+
+def project_abort(value: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    relations = {"/history": scan_relations(value["history"])}
+    projection = Projection(value)
+    projection.bind_history()
+    subject = value["id"]
+    projection.bind(subject, "task:abort-subject")
+    projection.identity(value, "id", ())
+    for name in ("admitted", "running", "abortCurrent", "final"):
+        visit_task(projection, value[name], (name,))
+    for i, publication in enumerate(value["publications"]):
+        for j, change in enumerate(publication["changes"]):
+            visit_task(
+                projection, change["value"], ("publications", i, "changes", j, "value")
+            )
+    for i, operation in enumerate(value["late"]):
+        error = operation.get("error")
+        if (
+            type(error) is dict
+            and error.get("message") == f"Task {subject} has a durable abort mark"
+        ):
+            projection.change(
+                error,
+                "message",
+                "Task task:abort-subject has a durable abort mark",
+                ("late", i, "error"),
+                "exact-durable-abort-subject-error-v1",
+            )
+    for i, row in enumerate(value["history"]):
+        projection.visit_entry(row, ("history", i))
+    return projection.witness, relations
+
+
+def project_env(value: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+    projection = Projection(value)
+    for i, scenario in enumerate(value["scenarios"]):
+        root = Path(scenario["cwd"])
+        if root.as_posix() != scenario["cwd"] or ".." in root.parts:
+            raise EvidenceError("Invalid controlled root representation")
+        for j, operation in enumerate(scenario["operations"]):
+            project_env_operation(projection, root, scenario, i, operation, j)
+        projection.change(
+            scenario,
+            "cwd",
+            {"root": scenario["id"]},
+            ("scenarios", i),
+            "controlled-env-root-v1",
+        )
+    return projection.witness, {}
+
+
+def project_env_operation(
+    projection: Projection, root: Path, scenario: Any, i: int, operation: Any, j: int
+) -> None:
+    result = operation["result"]
+    if type(result) is not dict:
+        return
+    target = result.get("value") if result["ok"] else result.get("error")
+    if type(target) is not dict:
+        return
+    info = operation["op"] == "reader.info" and result["ok"]
+    error = not result["ok"]
+    path = (
+        "scenarios",
+        i,
+        "operations",
+        j,
+        "result",
+        "value" if result["ok"] else "error",
+    )
+    if (info or error) and "path" in target and target["path"] is not UNDEFINED:
+        raw = target["path"]
+        if type(raw) is not str:
+            raise EvidenceError("Invalid environment path")
+        file = Path(raw)
+        if (
+            not file.is_relative_to(root)
+            or ".." in file.parts
+            or file.as_posix() != raw
+        ):
+            raise EvidenceError("Environment file escaped controlled root")
+        projection.change(
+            target,
+            "path",
+            {
+                "root": scenario["id"],
+                "relative": file.relative_to(root).as_posix(),
+            },
+            path,
+            "controlled-env-path-v1",
+        )
+    if info:
+        stamp = target["mtimeMs"]
+        if type(stamp) not in (int, float) or stamp < 0:
+            raise EvidenceError("Invalid filesystem mtime milliseconds")
+        projection.change(
+            target,
+            "mtimeMs",
+            {"filesystem_mtime_ms": "observed"},
+            path,
+            "file-info-mtime-ms-v1",
+        )
+
+
 def project(value: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     validate_trace(value)
     if value["schema_version"] == 1:
         return copy.deepcopy(value), []
     # Decode creates fresh containers and preserves the singleton undefined value.
     decoded = observations(decode(value["steps"][0]["value"]), value["case_id"])
-    # Derived comparison evidence records the scan relation without reordering
-    # rows or imposing a total order across independently allocated record kinds.
-    relations = {"/history": scan_relations(decoded["history"])}
-    if value["case_id"] == "harness-round-v1":
-        relations["/tasks"] = scan_relations(decoded["tasks"])
-    projection = Projection(decoded)
-    projection.bind_history()
-    if value["case_id"] == "harness-round-v1":
-        projection.harness()
+    case = value["case_id"]
+    if case in {"tool-recovery-v1", "durable-abort-v1", "env-conformance-v1"}:
+        visitor = {
+            "tool-recovery-v1": project_recovery,
+            "durable-abort-v1": project_abort,
+            "env-conformance-v1": project_env,
+        }[case]
+        witness, relations = visitor(decoded)
     else:
-        projection.identity(decoded, "requested_cutoff", ())
-        projection.visit_view(decoded["first"], "first")
-        projection.visit_view(decoded["final"], "final")
-    for i, row in enumerate(decoded["history"]):
-        projection.visit_entry(row, ("history", i))
+        # Preserve only recorded ID-ordered scans, never arbitrary allocation order.
+        relations = {"/history": scan_relations(decoded["history"])}
+        if case == "harness-round-v1":
+            relations["/tasks"] = scan_relations(decoded["tasks"])
+        projection = Projection(decoded)
+        projection.bind_history()
+        if case == "harness-round-v1":
+            projection.harness()
+        else:
+            projection.identity(decoded, "requested_cutoff", ())
+            projection.visit_view(decoded["first"], "first")
+            projection.visit_view(decoded["final"], "final")
+        for i, row in enumerate(decoded["history"]):
+            projection.visit_entry(row, ("history", i))
+        witness = projection.witness
     result = {
         **value,
         "steps": [{**value["steps"][0], "value": encode(decoded)}],
         "scan_order_relations": relations,
     }
-    return result, projection.witness
+    return result, witness
 
 
 def safe_path(value: Any) -> str:

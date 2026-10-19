@@ -102,10 +102,13 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a and its R1 repair landed; DE01b1 is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1 landed; DE01b2 is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
-successful in all ten jobs. DE01b is split sequentially before implementation:
+successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
+Opus5.5/high CLEAN0; [CI39270913622](https://github.com/ephes/pipy/actions/runs/39270913622)
+succeeded10/10 (each full suite12,849 passed/208 skipped). Its first ISSUES
+review remains historical in the evidence ledger. DE01b proceeds sequentially:
 DE01b1 owns strict multi-case/provenance/projection plus H1/C1 and lost-field/
 stale-head negatives; DE01b2 owns H2/H3/E1 and duplicate-effect/post-abort-write
 negatives; DE01b3 owns hardware/workloads, exhaustive mapping and mandatory real

@@ -1,0 +1,13 @@
+{
+  "clock_epoch_ms": 1700000000000,
+  "scenarios": [
+    {
+      "id": "binary-reader",
+      "name": "binary reader reads byte ranges of the opened file"
+    },
+    {
+      "id": "literal-argv",
+      "name": "argv exec passes arguments to the program without shell parsing"
+    }
+  ]
+}

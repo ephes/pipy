@@ -14,6 +14,7 @@ import math
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -546,6 +547,93 @@ def install_reference(
     return originals, dependencies, dependency_hashes
 
 
+def database_evidence(case_output: Path, value: Any) -> dict[str, str]:
+    """Check the four closed synthetic databases against the bytes on disk."""
+    rows = contract.array(value, "database evidence")
+    expected_ids = {f"{a}-{b}" for a, b in contract.POLICIES}
+    by_id = {}
+    for row in rows:
+        contract.shape(row, {"id", "path", "bytes", "sha256", "closed"}, "database")
+        name = row["id"]
+        if type(name) is not str or name not in expected_ids or name in by_id:
+            raise EvidenceError("Unknown or duplicate database variant")
+        by_id[name] = row
+    if set(by_id) != expected_ids:
+        raise EvidenceError("Incomplete database evidence")
+    return {
+        f"{name}/session.sqlite": database_file(case_output, name, row)
+        for name, row in by_id.items()
+    }
+
+
+def database_file(case_output: Path, name: str, row: Any) -> str:
+    root = case_output.resolve()
+    expected = root / name / "session.sqlite"
+    if row["closed"] is not True or type(row["bytes"]) is not int or row["bytes"] < 0:
+        raise EvidenceError("Invalid closed database size/state")
+    contract.digest(row["sha256"])
+    if type(row["path"]) is not str or row["path"] != str(expected):
+        raise EvidenceError("Database evidence path drift")
+    if expected.is_symlink() or expected.resolve() != expected:
+        raise EvidenceError("Database evidence symlink/escape")
+    # Do not follow a replaced leaf or block on a non-regular file.
+    descriptor = os.open(expected, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as file:
+        if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+            raise EvidenceError("Database evidence is not a regular file")
+        content = file.read()
+    digest = hashlib.sha256(content).hexdigest()
+    if len(content) != row["bytes"] or digest != row["sha256"]:
+        raise EvidenceError("Database evidence bytes/hash drift")
+    return digest
+
+
+def chunk_evidence(value: Any, trace_value: Any) -> None:
+    sidecar = contract.shape(value, {"schema_version", "scenarios"}, "raw chunks")
+    if type(sidecar["schema_version"]) is not int or sidecar["schema_version"] != 1:
+        raise EvidenceError("Unsupported raw chunk schema")
+    scenarios = contract.array(sidecar["scenarios"], "chunk scenarios")
+    observed = contract.decode(trace_value["steps"][0]["value"])["scenarios"]
+    expected = {row["id"]: row for row in observed}
+    seen = set()
+    for scenario in scenarios:
+        contract.shape(scenario, {"id", "chunks"}, "chunk scenario")
+        name = scenario["id"]
+        if type(name) is not str or name not in expected or name in seen:
+            raise EvidenceError("Unknown or duplicate chunk scenario")
+        seen.add(name)
+        streams = chunk_streams(scenario["chunks"])
+        executions = [op for op in expected[name]["operations"] if op["op"] == "exec"]
+        if len(executions) > 1:
+            raise EvidenceError("Ambiguous selected exec observation")
+        settled = (
+            executions[0]["streams"] if executions else {"stdout": "", "stderr": ""}
+        )
+        if (
+            any(type(text) is not str for text in settled.values())
+            or streams != settled
+        ):
+            raise EvidenceError("Raw chunks disagree with settled streams")
+    if seen != set(expected):
+        raise EvidenceError("Incomplete raw chunk scenarios")
+
+
+def chunk_streams(chunks: Any) -> dict[str, str]:
+    streams = {"stdout": "", "stderr": ""}
+    for chunk in contract.array(chunks, "raw chunks"):
+        contract.shape(chunk, {"text", "info"}, "raw chunk")
+        contract.shape(chunk["info"], {"stream"}, "chunk info")
+        stream = chunk["info"]["stream"]
+        if (
+            type(stream) is not str
+            or stream not in streams
+            or type(chunk["text"]) is not str
+        ):
+            raise EvidenceError("Invalid raw chunk stream/text")
+        streams[stream] += chunk["text"]
+    return streams
+
+
 def reference_case(
     case: dict[str, Any],
     snapshot: Path,
@@ -601,6 +689,22 @@ def reference_case(
     dump(case_output / "expected-projected.json", expected_projection)
     dump(case_output / "expected-projection-witness.json", expected_witness)
     equal = compare(expected, actual)
+    auxiliary_files = {
+        "tool-recovery-v1": ["database-evidence.json"],
+        "env-conformance-v1": ["raw-chunks.json"],
+    }.get(case["id"], [])
+    auxiliary = {}
+    databases = {}
+    for name in auxiliary_files:
+        artifact = case_output / name
+        if artifact.is_symlink() or not artifact.is_file():
+            raise EvidenceError("Missing raw auxiliary evidence")
+        sidecar = load(artifact)
+        if name == "database-evidence.json":
+            databases = database_evidence(case_output, sidecar)
+        else:
+            chunk_evidence(sidecar, actual)
+        auxiliary[name] = sha(artifact)
     result = {
         "id": case["id"],
         "equal": equal,
@@ -609,6 +713,8 @@ def reference_case(
         "projected_sha256": sha(case_output / "projected.json"),
         "witness_sha256": sha(case_output / "projection-witness.json"),
         "expected_sha256": case["expected"]["sha256"],
+        "auxiliary_sha256": auxiliary,
+        "database_sha256": databases,
         "module_sha256": modules,
         "module_provenance": {
             path: "pinned-archive"

@@ -1,0 +1,638 @@
+{
+  "schema_version": 2,
+  "case_id": "durable-abort-v1",
+  "normalization": "abort-identity-v1",
+  "codec": "tagged-js-v1",
+  "steps": [
+    {
+      "op": "abort.settled",
+      "value": {
+        "type": "object",
+        "entries": [
+          [
+            "id",
+            7
+          ],
+          [
+            "admitted",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "id",
+                  7
+                ],
+                [
+                  "conversationId",
+                  1
+                ],
+                [
+                  "kind",
+                  "fixture.marked"
+                ],
+                [
+                  "version",
+                  1
+                ],
+                [
+                  "input",
+                  null
+                ],
+                [
+                  "background",
+                  false
+                ],
+                [
+                  "abortRequested",
+                  false
+                ],
+                [
+                  "state",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "status",
+                        "pending"
+                      ],
+                      [
+                        "checkpoint",
+                        {
+                          "type": "object",
+                          "entries": [
+                            [
+                              "phase",
+                              "run"
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "running",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "id",
+                  7
+                ],
+                [
+                  "conversationId",
+                  1
+                ],
+                [
+                  "kind",
+                  "fixture.marked"
+                ],
+                [
+                  "version",
+                  1
+                ],
+                [
+                  "input",
+                  null
+                ],
+                [
+                  "background",
+                  false
+                ],
+                [
+                  "abortRequested",
+                  false
+                ],
+                [
+                  "state",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "status",
+                        "running"
+                      ],
+                      [
+                        "checkpoint",
+                        {
+                          "type": "object",
+                          "entries": [
+                            [
+                              "phase",
+                              "run"
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                [
+                  "startedAt",
+                  1700000000000
+                ],
+                [
+                  "memos",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "kept",
+                        1
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "publications",
+            {
+              "type": "array",
+              "items": [
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "seq",
+                      5
+                    ],
+                    [
+                      "changes",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "type",
+                                "task"
+                              ],
+                              [
+                                "value",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "id",
+                                      7
+                                    ],
+                                    [
+                                      "conversationId",
+                                      1
+                                    ],
+                                    [
+                                      "kind",
+                                      "fixture.marked"
+                                    ],
+                                    [
+                                      "version",
+                                      1
+                                    ],
+                                    [
+                                      "input",
+                                      null
+                                    ],
+                                    [
+                                      "background",
+                                      false
+                                    ],
+                                    [
+                                      "abortRequested",
+                                      true
+                                    ],
+                                    [
+                                      "state",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "status",
+                                            "running"
+                                          ],
+                                          [
+                                            "checkpoint",
+                                            {
+                                              "type": "object",
+                                              "entries": [
+                                                [
+                                                  "phase",
+                                                  "run"
+                                                ]
+                                              ]
+                                            }
+                                          ]
+                                        ]
+                                      }
+                                    ],
+                                    [
+                                      "startedAt",
+                                      1700000000000
+                                    ],
+                                    [
+                                      "memos",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "kept",
+                                            1
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "seq",
+                      6
+                    ],
+                    [
+                      "changes",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "type",
+                                "task"
+                              ],
+                              [
+                                "value",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "id",
+                                      7
+                                    ],
+                                    [
+                                      "conversationId",
+                                      1
+                                    ],
+                                    [
+                                      "kind",
+                                      "fixture.marked"
+                                    ],
+                                    [
+                                      "version",
+                                      1
+                                    ],
+                                    [
+                                      "input",
+                                      null
+                                    ],
+                                    [
+                                      "background",
+                                      false
+                                    ],
+                                    [
+                                      "abortRequested",
+                                      true
+                                    ],
+                                    [
+                                      "state",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "status",
+                                            "terminal"
+                                          ],
+                                          [
+                                            "outcome",
+                                            {
+                                              "type": "object",
+                                              "entries": [
+                                                [
+                                                  "status",
+                                                  "aborted"
+                                                ],
+                                                [
+                                                  "reason",
+                                                  "mark"
+                                                ]
+                                              ]
+                                            }
+                                          ]
+                                        ]
+                                      }
+                                    ],
+                                    [
+                                      "startedAt",
+                                      1700000000000
+                                    ],
+                                    [
+                                      "endedAt",
+                                      1700000000000
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "events",
+            {
+              "type": "array",
+              "items": [
+                "run.kept",
+                "host.durable-mark-publication",
+                "run.cancellation-continuation",
+                "run.late-settled",
+                "abortTask.joined",
+                "abort.invocation"
+              ]
+            }
+          ],
+          [
+            "memoRead",
+            1
+          ],
+          [
+            "late",
+            {
+              "type": "array",
+              "items": [
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "op",
+                      "memo"
+                    ],
+                    [
+                      "status",
+                      "rejected"
+                    ],
+                    [
+                      "error",
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "name",
+                            "Error"
+                          ],
+                          [
+                            "message",
+                            "Task 7 has a durable abort mark"
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "op",
+                      "commit"
+                    ],
+                    [
+                      "status",
+                      "rejected"
+                    ],
+                    [
+                      "error",
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "name",
+                            "Error"
+                          ],
+                          [
+                            "message",
+                            "Task 7 has a durable abort mark"
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "callbackEntered",
+            false
+          ],
+          [
+            "abortInvocations",
+            1
+          ],
+          [
+            "freshRuntime",
+            true
+          ],
+          [
+            "abortCurrent",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "id",
+                  7
+                ],
+                [
+                  "conversationId",
+                  1
+                ],
+                [
+                  "kind",
+                  "fixture.marked"
+                ],
+                [
+                  "version",
+                  1
+                ],
+                [
+                  "input",
+                  null
+                ],
+                [
+                  "background",
+                  false
+                ],
+                [
+                  "abortRequested",
+                  true
+                ],
+                [
+                  "state",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "status",
+                        "running"
+                      ],
+                      [
+                        "checkpoint",
+                        {
+                          "type": "object",
+                          "entries": [
+                            [
+                              "phase",
+                              "run"
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                [
+                  "startedAt",
+                  1700000000000
+                ],
+                [
+                  "memos",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "kept",
+                        1
+                      ]
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "abortResult",
+            "marked"
+          ],
+          [
+            "final",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "id",
+                  7
+                ],
+                [
+                  "conversationId",
+                  1
+                ],
+                [
+                  "kind",
+                  "fixture.marked"
+                ],
+                [
+                  "version",
+                  1
+                ],
+                [
+                  "input",
+                  null
+                ],
+                [
+                  "background",
+                  false
+                ],
+                [
+                  "abortRequested",
+                  true
+                ],
+                [
+                  "state",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "status",
+                        "terminal"
+                      ],
+                      [
+                        "outcome",
+                        {
+                          "type": "object",
+                          "entries": [
+                            [
+                              "status",
+                              "aborted"
+                            ],
+                            [
+                              "reason",
+                              "mark"
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ],
+                [
+                  "startedAt",
+                  1700000000000
+                ],
+                [
+                  "endedAt",
+                  1700000000000
+                ]
+              ]
+            }
+          ],
+          [
+            "history",
+            {
+              "type": "array",
+              "items": []
+            }
+          ],
+          [
+            "reports",
+            {
+              "type": "array",
+              "items": []
+            }
+          ],
+          [
+            "close",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "reason",
+                  "closed"
+                ]
+              ]
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

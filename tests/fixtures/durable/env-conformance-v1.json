@@ -1,0 +1,963 @@
+{
+  "schema_version": 2,
+  "case_id": "env-conformance-v1",
+  "normalization": "env-path-time-v1",
+  "codec": "tagged-js-v1",
+  "steps": [
+    {
+      "op": "env.conformance",
+      "value": {
+        "type": "object",
+        "entries": [
+          [
+            "scenarios",
+            {
+              "type": "array",
+              "items": [
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "id",
+                      "binary-reader"
+                    ],
+                    [
+                      "name",
+                      "binary reader reads byte ranges of the opened file"
+                    ],
+                    [
+                      "cwd",
+                      "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader"
+                    ],
+                    [
+                      "calls",
+                      1
+                    ],
+                    [
+                      "operations",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "writeFile"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    "data.txt",
+                                    "hello world"
+                                  ]
+                                }
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "undefined"
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "openBinaryReader"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    "data.txt",
+                                    {
+                                      "type": "undefined"
+                                    }
+                                  ]
+                                }
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "handle",
+                                            "reader:1"
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.info"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": []
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "name",
+                                            "data.txt"
+                                          ],
+                                          [
+                                            "path",
+                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                          ],
+                                          [
+                                            "kind",
+                                            "file"
+                                          ],
+                                          [
+                                            "size",
+                                            11
+                                          ],
+                                          [
+                                            "mtimeMs",
+                                            1792422928521.16
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    0,
+                                    5
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "array",
+                                        "items": [
+                                          104,
+                                          101,
+                                          108,
+                                          108,
+                                          111
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    6,
+                                    100
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "array",
+                                        "items": [
+                                          119,
+                                          111,
+                                          114,
+                                          108,
+                                          100
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    11,
+                                    4
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "array",
+                                        "items": []
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    50,
+                                    1
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "array",
+                                        "items": []
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    3,
+                                    0
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "array",
+                                        "items": []
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    -1,
+                                    1
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      false
+                                    ],
+                                    [
+                                      "error",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "name",
+                                            "FileError"
+                                          ],
+                                          [
+                                            "message",
+                                            "Offset and length must be non-negative safe integers"
+                                          ],
+                                          [
+                                            "code",
+                                            "invalid"
+                                          ],
+                                          [
+                                            "path",
+                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    0,
+                                    1.5
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      false
+                                    ],
+                                    [
+                                      "error",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "name",
+                                            "FileError"
+                                          ],
+                                          [
+                                            "message",
+                                            "Offset and length must be non-negative safe integers"
+                                          ],
+                                          [
+                                            "code",
+                                            "invalid"
+                                          ],
+                                          [
+                                            "path",
+                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    0,
+                                    1
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                true
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      false
+                                    ],
+                                    [
+                                      "error",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "name",
+                                            "FileError"
+                                          ],
+                                          [
+                                            "message",
+                                            "aborted"
+                                          ],
+                                          [
+                                            "code",
+                                            "aborted"
+                                          ],
+                                          [
+                                            "path",
+                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.close"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": []
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "undefined"
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.close"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": []
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "undefined"
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.read"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    0,
+                                    1
+                                  ]
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      false
+                                    ],
+                                    [
+                                      "error",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "name",
+                                            "FileError"
+                                          ],
+                                          [
+                                            "message",
+                                            "Binary reader is closed"
+                                          ],
+                                          [
+                                            "code",
+                                            "invalid"
+                                          ],
+                                          [
+                                            "path",
+                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "reader.info"
+                              ],
+                              [
+                                "handle",
+                                "reader:1"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": []
+                                }
+                              ],
+                              [
+                                "aborted",
+                                false
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      false
+                                    ],
+                                    [
+                                      "error",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "name",
+                                            "FileError"
+                                          ],
+                                          [
+                                            "message",
+                                            "Binary reader is closed"
+                                          ],
+                                          [
+                                            "code",
+                                            "invalid"
+                                          ],
+                                          [
+                                            "path",
+                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "cleanup",
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "status",
+                            "fulfilled"
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "id",
+                      "literal-argv"
+                    ],
+                    [
+                      "name",
+                      "argv exec passes arguments to the program without shell parsing"
+                    ],
+                    [
+                      "cwd",
+                      "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/literal-argv"
+                    ],
+                    [
+                      "calls",
+                      1
+                    ],
+                    [
+                      "operations",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "exec"
+                              ],
+                              [
+                                "argv",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    "sh",
+                                    "-c",
+                                    "printf \"%s|%s\" \"$1\" \"$2\"",
+                                    "argv0",
+                                    "it's $(touch pwned) `touch pwned` *; touch pwned",
+                                    "a b"
+                                  ]
+                                }
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "exitCode",
+                                            0
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ],
+                              [
+                                "streams",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "stdout",
+                                      "it's $(touch pwned) `touch pwned` *; touch pwned|a b"
+                                    ],
+                                    [
+                                      "stderr",
+                                      ""
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          },
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "op",
+                                "exists"
+                              ],
+                              [
+                                "args",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    "pwned"
+                                  ]
+                                }
+                              ],
+                              [
+                                "result",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "ok",
+                                      true
+                                    ],
+                                    [
+                                      "value",
+                                      false
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "cleanup",
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "status",
+                            "fulfilled"
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}
