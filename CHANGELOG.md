@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- A verification-only [pinned durable reference runner](docs/durable-reference.md)
+  executes Pi's actual kernel and memory storage in a private exact-commit
+  snapshot, validates trace, exact archived source membership and dependency
+  provenance, and rejects malformed, missing or mismatched evidence. Python
+  durable execution and parity remain pending.
+
 - A pinned [native durable execution work order](docs/specs/2026-10-19-durable-execution-plan.md),
   upstream surface audit and evidence ledger track the authorized implementation
   campaign. Its initial import contains experiments, with no product recovery,

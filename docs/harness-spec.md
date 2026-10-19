@@ -96,7 +96,9 @@ The existing JSONL product tree remains the shipped authority until an explicit
 migration slice; a durable session will have one complete backend authority,
 not JSONL and SQLite writers. Prototype whole-loop receipt replay is evidence
 for pure/fixed adapters, not a contract for arbitrary side-effecting hooks.
-DE00 prepares the isolated evidence import. Product runtime behavior, session
+DE00 landed the isolated evidence import. DE01a adds the verification-only
+[pinned reference runner](durable-reference.md); DE01b retains the semantic
+fixtures and reference CI gate before DE02. Product runtime behavior, session
 formats and defaults remain unchanged; all required parity rows remain OPEN.
 
 ## Design Principles

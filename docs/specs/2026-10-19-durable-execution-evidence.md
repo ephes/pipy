@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00 preparation in progress; no slice landed; all parity rows OPEN**,
+Status: **DE00 landed; DE01a in progress; all parity rows OPEN**,
 2026-10-19. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -15,7 +15,7 @@ Python evidence only; they cannot close a P row.
 | Experimental baseline | Local `refs/pipy/baselines/durable-2026-10-19` verified at `16e65c41c25ed6b4495d5356a3ce8d3b30ba8a63`; retained, never merged or reset into main |
 | Plan-review snapshot | `e4c58446b41ddcc00a321b27947a7637225cbc17`; provenance object, not a landed commit |
 | Frozen handoff | `2c219db98ab7a406fcf5e93c4e28731e4ff88a50`; all 15 initial dirty files matched this snapshot before DE00 edits |
-| Upstream | Pi durable **1.3.0**, `2ec55d808d455b1a64a2bf7888198207a096120a`; source inspected with read-only `git show`; no reference runner or comparison yet |
+| Upstream | Pi durable **1.3.0**, `2ec55d808d455b1a64a2bf7888198207a096120a`; initial source audit via read-only `git show`; DE01a actual reference evidence below |
 | Plan review | Claude Code `claude-opus-5-5`, high effort: initial ISSUES (3 Warnings, 1 Suggestion), scoped follow-up ISSUES (2 Suggestions, no Warnings/Criticals). Both final wording suggestions were applied in the handoff. Neither verdict is CLEAN. |
 | Execution authorization | Owner authorized DE00–DE45 after the planning handoff. This does not replace an implementation slice's independent CLEAN gate. |
 | DE00 ownership | One implementation writer on `main`; coordinator assigns independent verification/review and commit/push separately |
@@ -64,11 +64,11 @@ continuation is required later by DE13/DE24.
 | E00-MATRIX-TEXT | `uv run python scripts/durable_prototype/experiments.py --output <private-scratch>`; assert 33 reported cases, repeated resumes, effect/attempt/result counts and SQLite integrity | Exit 0: 28 done, 4 expected unsafe-blocked, 1 owner probe; 2 SIGKILL cases; no skips |
 | E00-MATRIX-LOOP | `uv run python scripts/durable_prototype/loop_experiments.py --output <private-scratch>`; assert 46 reported cases, repeated resumes, rich usage, observation/effect counts and integrity | Exit 0: 42 done, 4 expected unsafe-blocked; 2 SIGKILL cases; no skips |
 | E00-ISOLATION | Inspect production imports, packaging entry points and exact prototype/test content against the frozen handoff | Exit 0 (`provenance.log`): 369 production modules scanned; all seven Python experiment/test files byte-identical to baseline and handoff; no product/dependency diff |
-| E00-CHECK | `just check`: Ruff, formatting, mypy and full pytest; inspect all skips and runtime availability | OPEN pending the full gate on the DE00-PRE1 test tree; earlier diagnostic failure and repaired-tree evidence remain separate |
+| E00-CHECK | `just check`: Ruff, formatting, mypy and full pytest; inspect all skips and runtime availability | Exit 0 on final DE00-PRE1 tree, normal HOME: 12,896 passed, 2 skipped; `official-just-check-final.log`; earlier diagnostic failures remain separate |
 | E00-PREK | `prek run --all-files` if `.pre-commit-config.yaml` exists; include new files explicitly | Not applicable: config absent; new Python files explicitly passed Ruff lint/format |
 | E00-DOCS | `just docs-build`, rendered local file/anchor links and focused documentation checks | Exit 0 after DE00-PRE1: strict build, 887 local links across all 8 changed/new documentation pages, 44 focused docs-build/MCP audit tests; no skips or broken links |
-| E00-REVIEW | Fresh independent Claude Code Opus 5.5 HIGH implementation review | OPEN; coordinator-owned, not run by the implementer |
-| E00-LAND | Owned paths/hunks only, green commit and confirmed push on `main` | OPEN; no stage/commit/push performed |
+| E00-REVIEW | Fresh independent Claude Code Opus 5.5 HIGH implementation review | CLEAN, zero findings, no skips/redactions/truncations; baseline `04cd3e190e4cae6d6198bfb89f18b1d8d6f49a3c`; `review-first-9uduk1h9/result.json` and `review-bundle.md` |
+| E00-LAND | Owned paths/hunks only, green commit and confirmed push on `main` | `ad04766daefde48604f73112d1611f4389f40877`, tree `8488a8b2b004c0101613dc3555104efef69d7855`; remote SHA confirmed; `delivery-final.json` |
 
 The initial parallel environment setup recreated an ignored local `.venv` using
 Python 3.15.0. DE00 checks subsequently use a separate scratch venv with Python
@@ -92,7 +92,7 @@ repaired-tree gate.
 
 ### DE00-PRE1 — publish complete preview-test configuration
 
-Status: **local focused checks passed; full gate and review OPEN**, an explicitly
+Status: **landed with DE00; focused/full gates and independent review passed**, an explicitly
 bounded DE00 verification prerequisite, not a
 durable product feature. Independent verification found the existing
 `test_preview_mirrors_changes_reloads_config_and_cleans_up_child` could time out
@@ -129,16 +129,16 @@ or separate product-feature claim is authorized by this prerequisite.
 
 ## Slice status
 
-`OPEN` means no accepted delivery. DE00 remains OPEN until its independent
-review, commit and confirmed push are recorded. Later rows have no implementation,
+`OPEN` means no accepted delivery. DE00 is landed with the evidence below. Later rows have no accepted implementation,
 validation, review, main commit or pushed-ref evidence. Dependencies and full
 acceptance cuts are defined by the work order; splitting a row must preserve
 that coverage here. A local validation result is not a landed slice.
 
 | Slice | Work | Status | Evidence / review / main commit / push |
 | --- | --- | --- | --- |
-| DE00 | Experiment and work-order import | OPEN | E00-* preparation; review, commit and push OPEN |
-| DE01 | Pinned reference fixtures and comparison oracle | OPEN | None; all gates OPEN |
+| DE00 | Experiment and work-order import | LANDED | E00-*; Opus 5.5 HIGH CLEAN; main/pushed `ad04766daefde48604f73112d1611f4389f40877`; CI 39236305603 success |
+| DE01a | Pinned bootstrap, trace/manifest contract and actual Kernel/Memory reference probe | OPEN | Implementation in progress; independent review/landing OPEN; no Python durable comparison adapter |
+| DE01b | Semantic Harness/tool/env fixtures; four oracle negatives; hardware/workloads; complete DE/P mapping; explicit reference CI | OPEN | Depends on DE01a; preserves remaining original DE01 acceptance; DE02 depends on DE01b |
 | DE02 | Records, memory storage and atomic session core | OPEN | None; all gates OPEN |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
@@ -241,10 +241,145 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-Complete DE00 validation and independent implementation review, then record the
-actual main commit and confirmed push before DE01 starts. DE01 owns the pinned
+DE00 landed on 2026-10-19. DE01 is split before implementation into DE01a and
+DE01b in the delivery index; DE02 depends on DE01b. Together they own the pinned
 reference adapter, known-mismatch negatives, sanitized fixture manifest,
 licensing/provenance and comparison schema. No required P behavior, real-provider
 evidence or performance budget has been measured by DE00. Subsequent gates may
 only close from concrete evidence; unavailable tooling/auth or an ISSUES verdict
 stays explicit.
+
+## DE00 delivery reconciliation (2026-10-19)
+
+The coordinator verified delivery at `/tmp/pipy-de00-gate-20261019.G2vxIC/`:
+`delivery-final.json`, `official-just-check-final.log`, `review-manifest-audit.json`,
+`review-first-9uduk1h9/result.json`, `ci-state-final.json` and
+`ci-log-audit-final.json` retain full local evidence. The exact reviewed tree is
+`8488a8b2b004c0101613dc3555104efef69d7855`, landed/pushed at
+`ad04766daefde48604f73112d1611f4389f40877` on `main`.
+[CI run 39236305603](https://github.com/ephes/pipy/actions/runs/39236305603)
+completed all ten jobs successfully. Each full Python 3.11/3.14/3.15 CI suite
+reported 12,690 passed and 208 skipped (not passes; exact skipped IDs were not
+printed by those runs). The two runtime-required codemode jobs each passed 441
+tests without skips with `PIPY_CODEMODE_REQUIRE_RUNTIME=1`; four real-PTY jobs
+each passed 17 tests. The quality/docs job passed. These gates cover the DE00
+import, not Pi-reference execution or any P-row parity. The historical plan
+review remains ISSUES/Suggestions-only, separately from the implementation CLEAN.
+
+## DE01 split acceptance
+
+DE01a owns only reproducible pinned bootstrap, strict versioned trace/manifest
+contract, a real minimal Kernel/MemoryStorage reference run and infrastructure
+negatives. DE01b retains semantic Harness/tool/env fixtures, lost-field/duplicate-
+effect/post-abort-write/stale-head oracle cases, hardware/reference workloads,
+complete DE/P mapping and mandatory explicit reference CI. All original DE01
+acceptances remain required; no row is dropped. The Python durable adapter is
+OPEN until a later implementing slice provides real operations. Current CI has
+no reference execution, and its green result cannot imply that reference gate.
+
+## DE01a local reference evidence
+
+Status: **implemented locally; independent review and landing OPEN**. See
+[reference reproduction and contract](../durable-reference.md). The exact final
+bootstrap command was `uv run python scripts/durable_pi_comparison.py reference
+--pi-source /Users/jochen/src/pi-mono --output <new-private-scratch>`. It returned
+0 after an actual locked install and kernel execution, producing ten ordered
+steps and 702 checked module paths. No product code or Python durable kernel
+exists in this slice; P01–P43 remain OPEN.
+
+The local evidence root is `/tmp/pipy-de01a-s8jg5gbw/`. Command metadata includes
+full logs, exits and before/after owned-file hashes. `reference-freeze/run.json`
+and its command logs contain pinned ref/tree/source/archive/lock/runtime,
+installed dependency integrities, driver/fixture/oracle hashes, module hashes
+and the actual trace. Both fixture recording and a fresh full bootstrap ran
+successfully. The earlier bootstrap's caller code changed during collection;
+`reference-freeze` is the final runner evidence after checkout-root validation,
+not those earlier collections.
+
+| Evidence | Result and limit |
+| --- | --- |
+| Kernel/Memory reference | Exact Pi 1.3.0 pin, Node v26.12.0/npm 11.20.0; actual commits, rollback, prior snapshot stability, publications and close matched `kernel-memory-v1` |
+| Known trace mutation | Actual `compare` command returned 1 for altered committed count; no parity claim from equal traces |
+| Missing prerequisites | Actual commands returned 2 for missing fixture, ref and Node; unit tests additionally cover runtime/dependency/hash/schema drift |
+| Missing actual dependency | A fault injection after successful bootstrap/validation removed physically resolved typebox: actual Node child exit 1 became outer runner exit 2, never reference success (`missing-dependency-probe-result.json`); earlier recording-snapshot probe was restored; no upstream mutation |
+| Infrastructure tests | 81 focused tests, no skips; strict JSON/schema, mismatch, module/lock provenance, environment and deadline cleanup |
+| Full/docs checks | Exact command logs and outcomes recorded in the local checkpoint at freeze; no absent runtime or skip substitutes for a reference pass |
+| Independent review / landing | First Opus 5.5 HIGH review: ISSUES (one Warning, one Suggestion); accepted local repairs below, scoped re-review and landing OPEN |
+
+The full upstream MIT notice is committed beside the synthetic fixture. Four
+precise upstream extraneous lock records are identified separately as physically
+absent, never as installed or used modules. DE01b retains all remaining original
+DE01 acceptance, including the four semantic oracle negatives, real fake-Harness/
+tool/env fixtures, hardware/workloads, complete DE/P mapping and explicit pinned
+reference CI. No current CI success is labeled a Node/reference gate.
+
+### DE01a numeric gate repair
+
+The independent precheck found that decimal/exponent JSON integers could bypass
+version 1's safe-integer rejection: `9007199254740992.0` and
+`9007199254740993.0` both parse to the same Python float. The earlier comparator
+therefore incorrectly reported equality. The repaired finite-value validator
+applies the same safe-integer limit to integral floats as to Python integers,
+matching the existing JS driver's `Number.isInteger`/`Number.isSafeInteger`
+checks. The contract and fixture remain unchanged; precision loss is not an
+accepted normalization.
+
+The original actual CLI repro now returns 2. Regressions cover decimal and
+exponent spellings, signed unsafe values, safe boundaries, direct trace/compare
+calls and actual CLI subprocesses. Boolean `true`/`false` remain distinct from
+numeric 1/0, including float representations. The focused suite passes 63 tests
+without skips; explicit Ruff, format and mypy checks pass.
+
+The repaired runner was exercised in another actual pinned bootstrap, exit 0,
+with matching ten-step trace and the same checked 1,961 source files, 702 modules,
+346 present dependency records and four separately identified absent extraneous
+records. Its new oracle hash and full evidence are retained at
+`/tmp/pipy-de01a-numeric-hi9s6gmu/reference-numeric/run.json`; full focused and
+original-repro logs are beside that directory. Earlier reference manifests attest
+the earlier candidates, not the repaired runner. The local checkpoint records
+the new twelve-file freeze. Independent full checks, review and delivery remain
+coordinator-owned and OPEN.
+
+### DE01a accepted provenance and invalid-evidence review repairs
+
+The actual independent Opus 5.5 HIGH review returned **ISSUES**, with one
+Warning and one Suggestion, no scope omissions. Its result is retained at
+`/tmp/pipy-de01a-gate.OJD8G0/numeric/review-first/result.json`; the reviewed
+baseline is `70709a2341b1811df815872ee4a7d44708483007`. The coordinator accepted
+both findings. Local repairs do not turn that verdict into CLEAN; the scoped
+independent re-review, final full check and landing remain OPEN.
+
+The Warning demonstrated two pinned-source provenance bypasses: a workspace
+specifier could resolve under a nested `node_modules` directory, and an extra
+unarchived source file could pass merely by living under `packages/`. Workspace
+specifiers now reject any `node_modules` component. The resolution validator
+requires the actual pre-install archive inventory and checks every non-registry
+module's membership and exact SHA. No source exception or instrumentation
+allowlist is introduced. The driver itself is not recorded by its hook and
+retains its separate exact caller artifact hash; the preloader retains its
+separate archived-source hash.
+
+The Suggestion demonstrated malformed evidence escaping as AttributeError and
+process exit 1, which belongs only to valid trace mismatches. Explicit object
+and string validation now precedes lock `.items`/`.get` and resolution
+`.startswith` operations. Invalid lock-package objects, lock records and
+resolution entries raise EvidenceError, so the outer runner returns 2. The
+exception catch was not broadened.
+
+The focused suite now passes 81 tests without skips, including both original
+provenance probes, exact source-hash drift, malformed object/string cases,
+subprocess CLI error-boundary tests returning 2 and an actual valid-mismatch
+CLI test returning 1. Explicit Ruff, format and mypy checks pass. A fresh actual
+pinned reference bootstrap with the repaired runner returned 0 with the same
+ten-step fixture, 1,961 unchanged archived files and 702 verified module files.
+
+Three additional full-run fault probes used fresh private snapshots and real
+locked installs: both provenance corruptions were injected after successful
+actual kernel execution; malformed installed `packages` was injected after
+successful `npm ci`. Every outer runner returned 2, emitted the specific evidence
+error and produced no reference-success manifest. The probe wrapper's exit 0
+means these expected refusals occurred, not reference success. Exact commands,
+full logs, exits and before/after owned hashes live under
+`/tmp/pipy-de01a-reviewfix-dksx2jzb/`, including `reference-repair/run.json` and
+`review-fault-probes-results.json`. The checkpoint records the new twelve-file
+freeze and the unchanged future DE01b boundaries. No P row is closed.

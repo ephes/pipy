@@ -102,8 +102,11 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE00 import preparation is in progress.** DE00
-reproduces and prepares the existing isolated experiments and plan for landing.
+**Execution is authorized; DE00 landed at `ad04766`. DE01a is in progress.**
+DE01 is split into pinned bootstrap/trace/minimal reference execution (DE01a)
+and semantic fixtures, four oracle negatives, hardware/workloads, full mapping
+and explicit reference CI (DE01b). DE02 depends on DE01b; all original DE01
+acceptances remain required. See [reference reproduction](durable-reference.md).
 The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md) tracks all
 DE00–DE45 slices and P01–P43 requirements. The final plan review was
 Suggestions-only **ISSUES**, with both wording suggestions applied before the

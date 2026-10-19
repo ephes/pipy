@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "case_id": "kernel-memory-v1",
+  "normalization": "finite-json-v1",
+  "steps": [
+    {
+      "op": "snapshot.absent",
+      "value": {
+        "present": false
+      }
+    },
+    {
+      "op": "commit.publication",
+      "value": {
+        "seq": 1,
+        "changes": [
+          {
+            "type": "conversation",
+            "value": {
+              "id": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "op": "conversation.create",
+      "value": {
+        "id": 2
+      }
+    },
+    {
+      "op": "commit.publication",
+      "value": {
+        "seq": 2,
+        "changes": [
+          {
+            "type": "document",
+            "record": {
+              "id": 3,
+              "kind": "fixture.counter",
+              "scope": {
+                "kind": "session"
+              },
+              "createdAt": 2
+            },
+            "conversationId": {
+              "$undefined": true
+            },
+            "version": 1,
+            "value": {
+              "count": 1,
+              "items": [
+                "committed"
+              ]
+            },
+            "ops": []
+          }
+        ]
+      }
+    },
+    {
+      "op": "document.commit",
+      "value": {
+        "count": 1,
+        "items": [
+          "committed"
+        ]
+      }
+    },
+    {
+      "op": "document.rollback.error",
+      "value": {
+        "name": "Error",
+        "message": "fixture rollback"
+      }
+    },
+    {
+      "op": "commit.publication",
+      "value": {
+        "seq": 3,
+        "changes": [
+          {
+            "type": "document",
+            "record": {
+              "id": 3,
+              "kind": "fixture.counter",
+              "scope": {
+                "kind": "session"
+              },
+              "createdAt": 2
+            },
+            "conversationId": {
+              "$undefined": true
+            },
+            "version": 1,
+            "value": {
+              "count": 2,
+              "items": [
+                "committed"
+              ]
+            },
+            "ops": [
+              [
+                "s",
+                [
+                  "count"
+                ],
+                2
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "document.history.retained",
+      "value": {
+        "first": {
+          "count": 1,
+          "items": [
+            "committed"
+          ]
+        },
+        "second": {
+          "count": 2,
+          "items": [
+            "committed"
+          ]
+        }
+      }
+    },
+    {
+      "op": "storage.conversation",
+      "value": {
+        "id": 2
+      }
+    },
+    {
+      "op": "session.close",
+      "value": {
+        "reason": "closed"
+      }
+    }
+  ]
+}
