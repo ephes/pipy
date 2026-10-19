@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1, DE01b1 and DE01b2 landed; DE01b3a in progress; all parity rows OPEN**,
+Status: **DE01a, R1, DE01b1, DE01b2 and DE01b3a landed; DE01b3b in progress; all parity rows OPEN**,
 2026-10-19. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -140,8 +140,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE01a | Pinned bootstrap, trace/manifest contract and actual Kernel/Memory reference probe | LANDED | `97d623f`; initial CI failed; repaired by R1 `35142ec`; Python adapter OPEN |
 | DE01b1 | Strict multi-case/provenance/projection; H1/C1; lost-field/stale-head negatives | LANDED | `7acf5f7`; actual independent CLEAN and CI10/10; historical first ISSUES retained below; all P OPEN |
 | DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | LANDED | `28bc886`; actual independent CLEAN0; CI39286240678 success10/10; historical first ISSUES retained |
-| DE01b3a | Fresh executable local acceptance, hardware/exported workloads, four fresh mutants, exhaustive mapping | IN_PROGRESS | Depends on landed b2; all original DE01b acceptance retained cumulatively |
-| DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | OPEN | Depends on b3a; DE02 blocked until green b3b |
+| DE01b3a | Fresh executable local acceptance, hardware/exported workloads, four fresh mutants, exhaustive mapping | LANDED | Commit e3b2b391; actual CLEAN and CI39302403566 success10/10; reconciliation below |
+| DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | IN_PROGRESS | Depends on b3a; DE02 blocked until green b3b |
 | DE02 | Records, memory storage and atomic session core | OPEN | Blocked until DE01b3b is green |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
@@ -244,8 +244,9 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00, DE01a/R1, DE01b1 and DE01b2 have landed; historical local freezes and
-ISSUES remain below. Before b3a implementation the authorized b3 split is:
+DE00, DE01a/R1, DE01b1, DE01b2 and DE01b3a have landed; historical local freezes
+and ISSUES remain below. DE01b3b is now implementing the remaining gate. The
+authorized cumulative b3 split is:
 local executable acceptance/workloads/hardware/four fresh mutants/exhaustive
 mapping in b3a, then mandatory real pinned CI/selective artifacts and actual
 successful pushed-job evidence in b3b. Every original b3 acceptance remains
@@ -1072,3 +1073,178 @@ goldens/inputs, Nodecodec, MIT notice and prior broad runtime/full-check results
 remain unchanged. Prior acceptance runs attest their earlier manifest/test
 hashes; they are not relabeled fresh runs of this new manifest. Only relevant
 focus/static/docs checks repeat; independent scoped review remains pending.
+
+
+## DE01b3a delivery and DE01b3b admission
+
+DE01b3a landed at `e3b2b391c3d6c92515ccd9f6acd2ce853f20bca2`,
+reviewed tree `7d4159859ae0ebe179b98645caf74b4b62a7023f`, after actual
+Opus 5.5 high CLEAN. Earlier ISSUES and both accepted repairs remain historical.
+[CI39302403566](https://github.com/ephes/pipy/actions/runs/39302403566)
+succeeded in all ten jobs: three full suites each 12996 passed/208 skipped,
+306 durable tests without skips, four PTY jobs each17 passed, and both required
+WASI jobs each441 passed with the pinned runtime. The coordinator audited all
+141 archive files/12714 lines; archive SHA256
+`8e586e87dfe2b13e235ddf6cef1e98e8d97c39e4752ffdd20479280d7b3ffeaf`.
+Delivery report: `/tmp/pipy-de01b3a-s3-gate.di84dosu/delivery/delivery-final.json`,
+SHA256 `476cda78e264974289b61a7d5050491218aaa5b413587256193fb8eef96e94be`.
+
+Before code edits, b3b is admitted to implement the mandatory real pinned CI
+job and selective collector in the approved fourteen paths. Local acceptance
+and collection do not establish a successful pushed job or uploaded artifact.
+The coordinator still owns full validation, independent review and delivery.
+DE02 stays blocked until b3b actually succeeds remotely. All P rows and the
+Python adapter remain OPEN; every original b3 acceptance is cumulative.
+
+
+## DE01b3b local CI and artifact implementation
+
+Status: **implementation in progress; independent full/review and actual hosted
+job/upload proof OPEN**. The fourteen owned paths add a mandatory workflow job,
+a closed textual collector and host-independent tests, retaining the six raw
+goldens, four actual semantic negatives and permanent standalone Node codec.
+Verification closure increases from five to eight exact artifacts by adding
+the workflow, collector and collector test. The three Python comparison tools
+and eight MTS adapters retain their separate ownership. Manifest schema3 and
+coverage schema2 remain; there is no manifest/tool hash cycle.
+
+The workflow uses anonymous exact-commit Git acquisition, official checksum-pinned
+Node26.12.0/npm11.20.0, an explicit minimal child environment, standalone codec
+and exactly one fresh acceptance bootstrap. Only registered textual files are
+staged. The original full bundle is attested locally, including closed SQLite
+bytes; expected projected/witness files are checked against the registered
+goldens. DB/archive/runtime binaries remain excluded and are explicitly marked
+not uploaded. Failure before invocation or command metadata stays partial/failed.
+Details and the exact collector command are in
+[the reference guide](../durable-reference.md#mandatory-reference-ci-and-selective-artifacts).
+
+The mandatory workflow job is separate from server branch-protection enforcement;
+this slice changes no remote settings. Successful local acceptance/staging does
+not establish a pushed hosted pass. Actual run, numeric job, artifact ID/digest,
+index and all uploaded bytes must be independently audited after authorized push.
+DE02 remains blocked until that delivery; all P/Python parity stays OPEN.
+
+
+### DE01b3b local verification and delivery boundary
+
+Local logs and exclusive evidence roots are retained at
+`/tmp/pipy-de01b3b-stp504as/`. The final focus set passes351 tests without skips
+on real Python3.11.13,3.14.8 and3.15.0; it includes all306 delivered tests and
+new collector/closure/status cases. Ruff lint/format and explicit mypy on all
+five changed Python files pass. Ordinary Python tests require neither Node nor
+network. The separate actual Node26.12.0 codec and two fresh acceptance executions
+(`ship-a`, `ship-b`) each pass, each with its own single new bootstrap,
+six cases, H2x4/E1x2, twelve read correctness checks/120 timed reads, three write
+checks/nine fresh timed writes and four original0/mutant1 CLI pairs.
+
+Both final textual stages verify140 exact files (including original raw/witness/
+versioned chunks and DB result attestations); four SQLite binaries and two git
+archive copies are explicitly not uploaded. Local origin and run0 are declared;
+these are local stage proofs, not GitHub uploads. Nine actual collector CLI
+validator replays on the fresh observed bundle reject missing/changed golden
+projections, empty DB/chunk sidecars, changed DB bytes, symlinked raw evidence,
+invalid oracle metadata and absence before invocation, all with exit2. Every
+temporarily changed source byte is restored and rehashed; these probes are
+validator replays, never additional runtime passes. Missing Node/npm/exact
+reference/fixture probes each return2.
+
+The collector pins each directory descriptor while opening, refusing exchanged
+intermediate symlinks and hardlink aliases. Its two permanent boundary tests
+pass on the actual implementation and both fail against a private mutant
+restoring the old full-path open/removing the hardlink guard. This is a targeted
+regression effectiveness proof, not an independent review.
+
+Development failures remain in the command index: initial mypy typing/stub
+issues, one new diagnostic-test typo and a private local wrapper using macOS's
+`/tmp` alias (actual acceptance passed; collector correctly refused the alias).
+The wrapper now uses canonical private paths; no guard was relaxed. Earlier
+pre-directory-guard reference runs are historical, superseded by the two final
+hash-bound executions. All six golden traces/inputs, eight MTS adapters, Nodecodec
+and upstream MIT notice are byte-unchanged. No upstream write/install occurred.
+
+The final freeze binds the exact fourteen owned paths and full command/log/hash
+index. Independent normal-HOME full check and actual Opus5.5 high review remain
+coordinator gates, followed by authorized commit/push, actual mandatory hosted
+job and downloaded artifact/digest/index-byte audit. This local record claims
+none of those later outcomes. DE02 remains blocked until they pass; all43 P rows
+and the Python adapter remain OPEN.
+
+The uploader SHA's official package metadata identifies version7.0.2/Node24.
+Its YAML annotation was corrected without changing the action SHA or behavior;
+the final ship-a/ship-b runs bind the updated verification/manifest hashes.
+Earlier freeze-a/freeze-b runs remain historical with their original manifest.
+
+
+### DE01b3b first Opus review — accepted C1/W1/S1–S3 repair
+
+The first actual Opus5.5 high review returned **ISSUES**, not CLEAN: one Critical,
+one Warning and three Suggestions. Result is
+`/tmp/pipy-de01b3b-gate.v7_k_ugk/review-first/result.json`, baseline
+`505a710e66f033ccab024644ee10c856d80eaaca`, reviewed tree
+`b40e374dcfe80c49e717612593212b589c97d662`. All five findings are accepted.
+A new scoped review is valuable because the workflow was actually invalid and
+two malformed shapes actually escaped the collector boundary; this is a
+correctness repair, not a search for reviewer agreement. The first14-file
+freeze and its logs/hashes remain historical unchanged.
+
+C1 was reproduced with official actionlint1.7.12: complete workflow Exit1,
+`runner` unavailable in job `env`. The downloaded darwin-arm64 release archive
+SHA256 `aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f`
+was checked against official release checksums and API metadata. Root paths now
+use supported Acquire/Collector step-env and uploader step-with contexts;
+complete actionlint then returns0. No early-failure or always-upload path is
+made optional. The permanent context regression rejects the actual old workflow.
+
+W1 retains every semantic inner deadline. The actual eleven wrapper ceilings
+sum3180seconds; Acquire has3300seconds with120seconds overhead. Checkout/setup/
+collector/upload each have300seconds and identity recording60seconds, totaling
+4560seconds across steps; job5100seconds adds540seconds reserve. The outer
+acceptance still sends INT at1800seconds, KILL after30 and wrapper waits1840.
+Permanent tests derive these bounds from actual inline Python/YAML and reject
+the old40-minute job cap.
+
+S1 was proven through the actual public collector CLI on the original full
+observed bundle: `auxiliary_sha256=[]` and source inventory `null` (with matching
+local metadata hashes) each produced AttributeError/Exit1 and no index before
+repair. Original evidence bytes were restored and rehashed. The outer helper
+attestation boundary now classifies the proven AttributeError as invalid2 and
+preserves a safe failed index; no blanket Exception handler was introduced.
+Gather examines every registered role and reports missing separately from
+unreadable/unsafe roles, even when an early symlink fails. Failure staging keeps
+only independently readable registered wrapper text; invalid bytes are absent.
+Permanent actual-CLI inventory-null/list/string/integer tests reach that real
+helper boundary without Node/network or fabricated exceptions.
+
+S2 moves the new release note under Added. S3 declares PyYAML directly in the
+dev group: the approved owned set grows14→16 with pyproject.toml and uv.lock.
+Offline lock regeneration changes exactly the two pipy dev metadata entries;
+no package version/artifact/hash changes. Verification remains the exact eight
+registered tool/test/workflow files; owned dependency configuration is frozen
+separately. No six-case golden/input, MTS adapter, Nodecodec or Pi pin changes.
+
+Repair evidence and complete command logs live at
+`/private/tmp/pipy-de01b3b-reviewfix-9izsflyd/`. The permanent context/budget
+tests fail against the original workflow, individual removed context/budget
+guards are detected, the old AttributeError boundary fails all four actual-CLI
+shape tests and the old aborting Gather fails the missing/invalid-role test.
+These expected mutant failures are regression effectiveness proofs, not
+independent review or reference runtime passes. The coordinator owns renewed
+normal-HOME full and scoped actual Opus5.5 high review against the accepted
+baseline plus this repair. Hosted proof, DE02 and all P/Python parity remain OPEN.
+
+
+The repaired focus set passes360/0 on real Python3.11.13,3.14.8 and3.15.0.
+Explicit Ruff lint/format, mypy and the complete-workflow actionlint check pass.
+Two final fresh acceptance+standalone Nodecodec+collector executions pass in
+38.36/38.27seconds at manifest
+`dab63fea6fa768cc145ed8db0f8a9a5fc4c19f6f56067237fece7e253b65aca3`.
+Each stages140 byte-identical text files with six explicit binary exclusions
+and retains all six cases, H2x4/E1x2, workload checks/readbacks and four valid
+original0/mutant1 pairs. The two proven malformed forms now return2 with safe
+failed indices; a real CLI early-unsafe-plus-late-missing replay reports both
+roles truthfully. Nine other collector negatives and four prerequisites stay2.
+Temporary evidence mutations are restored/rehashed, never labelled fresh runtime.
+The first docs build rejected an unquoted literal square-bracket example;
+backtick quoting fixes that link-parser error, with the failed log retained.
+No full/review/stage/commit/push is performed by the writer; new16-path freeze,
+normal-HOME independent full and scoped Opus review precede any delivery claim.

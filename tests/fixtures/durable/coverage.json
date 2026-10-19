@@ -275,7 +275,7 @@
         "observables": "minimal actual MemoryStorage session/document commit, rollback, detached historical value and close; one faux rich/null tool round with histories, canonical message fields, provider requests and usage; recorded reset/summary/head selection with full history and selected context views; cooperative SQLite close/reopen four stored/current policies, actual effects1/2/1/1 and unsafe interrupted-error continuation; no process-death claim; actual durable abort mark, refused late memo/commit, callback not entered and fresh abort outcome; two exported NodeEnv cases: byte reader lifetime/errors and literal argv, not full filesystem/watch/platform suite; bounded MemoryStorage twelve exported reads/three writes with persisted readbacks, hardware/counts, no performance parity or other backends"
       },
       "future": "One fresh six-family bootstrap per acceptance, H2x4/E1x2, twelve reads/three writes with fresh measured write seeds, four valid CLI1 mutants; exact provenance and all P/Python adapter OPEN. No timing golden or performance parity.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de01b3a-local-acceptance-evidence",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -305,11 +305,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE01b3b mandatory real CI, selective collector and uploaded-job proof are not implemented. Source contract only; inherited local evidence is separate."
+        "observables": "Mandatory workflow and closed selective collector implemented locally; hosted execution/upload proof remains OPEN. Existing reference families belong to the inherited owners below."
       },
       "future": "Actual successful exact-pushed-commit required job executes fresh acceptance plus standalone Nodecodec, all six families/submatrices/workloads/four mutants; retained selective artifacts and full log/hash audit. All original b3 requirements remain cumulative.",
-      "status": "OPEN",
+      "status": "IN_PROGRESS",
       "evidence": [
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de01b3b-local-ci-and-artifact-implementation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
         "docs/durable-reference.md#exhaustive-current-and-future-evidence-index"
       ],
@@ -1755,12 +1756,12 @@
         "DE04"
       ],
       "contract": "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning",
-      "source_anchor": "spec §§1,4,10; `session/transaction.ts`; `session-tables`, `session-states`, `harness-storage-failure`",
+      "source_anchor": "spec \u00a7\u00a71,4,10; `session/transaction.ts`; `session-tables`, `session-states`, `harness-storage-failure`",
       "plan_cells": [
         "P01",
         "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning",
-        "spec §§1,4,10; `session/transaction.ts`; `session-tables`, `session-states`, `harness-storage-failure`",
-        "DE02–04"
+        "spec \u00a7\u00a71,4,10; `session/transaction.ts`; `session-tables`, `session-states`, `harness-storage-failure`",
+        "DE02\u201304"
       ],
       "current": {
         "kind": "reference-only",
@@ -1866,11 +1867,11 @@
         "DE27"
       ],
       "contract": "Typed singleton/family docs, scopes, latest/rewindable, create/retire/incarnations, strict JSON and checkpoints",
-      "source_anchor": "spec §3; `documents.ts`; `session-documents`, `session-definitions`",
+      "source_anchor": "spec \u00a73; `documents.ts`; `session-documents`, `session-definitions`",
       "plan_cells": [
         "P04",
         "Typed singleton/family docs, scopes, latest/rewindable, create/retire/incarnations, strict JSON and checkpoints",
-        "spec §3; `documents.ts`; `session-documents`, `session-definitions`",
+        "spec \u00a73; `documents.ts`; `session-documents`, `session-definitions`",
         "DE04, DE27"
       ],
       "current": {
@@ -1903,11 +1904,11 @@
         "DE30"
       ],
       "contract": "Access-driven document migration, detached historical reads and forks, preserve unknown definitions/versions, bounded cache and observed pinning",
-      "source_anchor": "spec §§3.5–4; `session-checkpoints-migrations`, `session-document-retention`, `session-forks`",
+      "source_anchor": "spec \u00a7\u00a73.5\u20134; `session-checkpoints-migrations`, `session-document-retention`, `session-forks`",
       "plan_cells": [
         "P05",
         "Access-driven document migration, detached historical reads and forks, preserve unknown definitions/versions, bounded cache and observed pinning",
-        "spec §§3.5–4; `session-checkpoints-migrations`, `session-document-retention`, `session-forks`",
+        "spec \u00a7\u00a73.5\u20134; `session-checkpoints-migrations`, `session-document-retention`, `session-forks`",
         "DE27, DE30"
       ],
       "current": {
@@ -1979,11 +1980,11 @@
         "DE23"
       ],
       "contract": "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry, abort orphan vs abort result",
-      "source_anchor": "spec §5.4; `harness-blocked`, `harness-registry`, `harness-inspect`",
+      "source_anchor": "spec \u00a75.4; `harness-blocked`, `harness-registry`, `harness-inspect`",
       "plan_cells": [
         "P07",
         "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry, abort orphan vs abort result",
-        "spec §5.4; `harness-blocked`, `harness-registry`, `harness-inspect`",
+        "spec \u00a75.4; `harness-blocked`, `harness-registry`, `harness-inspect`",
         "DE14, DE23"
       ],
       "current": {
@@ -2013,11 +2014,11 @@
         "DE17"
       ],
       "contract": "Durable sleep deadlines, clock/timers/host wake active/at, early/late wake, paused scheduling",
-      "source_anchor": "spec §5.6; `harness-sleep`, `harness-host-inputs`",
+      "source_anchor": "spec \u00a75.6; `harness-sleep`, `harness-host-inputs`",
       "plan_cells": [
         "P08",
         "Durable sleep deadlines, clock/timers/host wake active/at, early/late wake, paused scheduling",
-        "spec §5.6; `harness-sleep`, `harness-host-inputs`",
+        "spec \u00a75.6; `harness-sleep`, `harness-host-inputs`",
         "DE17"
       ],
       "current": {
@@ -2048,11 +2049,11 @@
         "DE31"
       ],
       "contract": "Owned task/conversation graph, completing holds, background boundaries, allSettled/failFast and wait-cycle rejection",
-      "source_anchor": "spec §§5.4–5.5; `harness-structured`, `harness-ownership`",
+      "source_anchor": "spec \u00a7\u00a75.4\u20135.5; `harness-structured`, `harness-ownership`",
       "plan_cells": [
         "P09",
         "Owned task/conversation graph, completing holds, background boundaries, allSettled/failFast and wait-cycle rejection",
-        "spec §§5.4–5.5; `harness-structured`, `harness-ownership`",
+        "spec \u00a7\u00a75.4\u20135.5; `harness-structured`, `harness-ownership`",
         "DE15, DE31"
       ],
       "current": {
@@ -2159,11 +2160,11 @@
         "DE30"
       ],
       "contract": "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads",
-      "source_anchor": "spec §6; `harness-inbox`, `harness-input-entries`",
+      "source_anchor": "spec \u00a76; `harness-inbox`, `harness-input-entries`",
       "plan_cells": [
         "P12",
         "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads",
-        "spec §6; `harness-inbox`, `harness-input-entries`",
+        "spec \u00a76; `harness-inbox`, `harness-input-entries`",
         "DE19, DE30"
       ],
       "current": {
@@ -2275,7 +2276,7 @@
         "P15",
         "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps",
         "`entries.ts`, `harness/{generation,tool}.ts`; `harness-generation`, `harness-structured-output`",
-        "DE06–08, DE24, DE33"
+        "DE06\u201308, DE24, DE33"
       ],
       "current": {
         "kind": "reference-only",
@@ -2382,11 +2383,11 @@
         "DE29"
       ],
       "contract": "Durable attempt retry/error classification/backoff, layered SDK retry bounds, overflow compaction and cancellation while sleeping/polling",
-      "source_anchor": "spec §§8.3,8.7; `harness-generation`, `harness-compaction`",
+      "source_anchor": "spec \u00a7\u00a78.3,8.7; `harness-generation`, `harness-compaction`",
       "plan_cells": [
         "P18",
         "Durable attempt retry/error classification/backoff, layered SDK retry bounds, overflow compaction and cancellation while sleeping/polling",
-        "spec §§8.3,8.7; `harness-generation`, `harness-compaction`",
+        "spec \u00a7\u00a78.3,8.7; `harness-generation`, `harness-compaction`",
         "DE17, DE29"
       ],
       "current": {
@@ -2426,7 +2427,7 @@
         "P19",
         "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger",
         "`harness/usage.ts`; generation/compaction/tools tests",
-        "DE06, DE07, DE26, DE29–31"
+        "DE06, DE07, DE26, DE29\u201331"
       ],
       "current": {
         "kind": "reference-only",
@@ -2502,11 +2503,11 @@
         "DE31"
       ],
       "contract": "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools",
-      "source_anchor": "spec §8.4; `harness-tools-recovery`, `harness-ownership`",
+      "source_anchor": "spec \u00a78.4; `harness-tools-recovery`, `harness-ownership`",
       "plan_cells": [
         "P21",
         "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools",
-        "spec §8.4; `harness-tools-recovery`, `harness-ownership`",
+        "spec \u00a78.4; `harness-tools-recovery`, `harness-ownership`",
         "DE13, DE16, DE24, DE31"
       ],
       "current": {
@@ -2541,11 +2542,11 @@
         "DE30"
       ],
       "contract": "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort",
-      "source_anchor": "spec §§8.4–8.5; `harness-tools`",
+      "source_anchor": "spec \u00a7\u00a78.4\u20138.5; `harness-tools`",
       "plan_cells": [
         "P22",
         "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort",
-        "spec §§8.4–8.5; `harness-tools`",
+        "spec \u00a7\u00a78.4\u20138.5; `harness-tools`",
         "DE25, DE30"
       ],
       "current": {
@@ -2576,11 +2577,11 @@
         "DE25"
       ],
       "contract": "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart",
-      "source_anchor": "spec §7.3; `harness-nested-tools`, `harness-nested-tools-restart`",
+      "source_anchor": "spec \u00a77.3; `harness-nested-tools`, `harness-nested-tools-restart`",
       "plan_cells": [
         "P23",
         "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart",
-        "spec §7.3; `harness-nested-tools`, `harness-nested-tools-restart`",
+        "spec \u00a77.3; `harness-nested-tools`, `harness-nested-tools-restart`",
         "DE24, DE25"
       ],
       "current": {
@@ -2645,11 +2646,11 @@
         "DE22"
       ],
       "contract": "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects",
-      "source_anchor": "spec §7.2; generation/tools/compaction tests",
+      "source_anchor": "spec \u00a77.2; generation/tools/compaction tests",
       "plan_cells": [
         "P25",
         "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects",
-        "spec §7.2; generation/tools/compaction tests",
+        "spec \u00a77.2; generation/tools/compaction tests",
         "DE22"
       ],
       "current": {
@@ -2680,11 +2681,11 @@
         "DE32"
       ],
       "contract": "Resource/config/code reload with in-flight snapshots and supported task/doc version transitions",
-      "source_anchor": "spec §7.5; `harness-registry`, examples/31",
+      "source_anchor": "spec \u00a77.5; `harness-registry`, examples/31",
       "plan_cells": [
         "P26",
         "Resource/config/code reload with in-flight snapshots and supported task/doc version transitions",
-        "spec §7.5; `harness-registry`, examples/31",
+        "spec \u00a77.5; `harness-registry`, examples/31",
         "DE23, DE32"
       ],
       "current": {
@@ -2721,7 +2722,7 @@
         "P27",
         "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills",
         "`harness/live.ts`; `harness-live-deltas`, `harness-tools`, `tools.test.ts`",
-        "DE26, DE32–33"
+        "DE26, DE32\u201333"
       ],
       "current": {
         "kind": "reference-only",
@@ -2755,11 +2756,11 @@
         "DE28"
       ],
       "contract": "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics",
-      "source_anchor": "spec §9; `session-watches`, `harness-view`, `harness-events`",
+      "source_anchor": "spec \u00a79; `session-watches`, `harness-view`, `harness-events`",
       "plan_cells": [
         "P28",
         "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics",
-        "spec §9; `session-watches`, `harness-view`, `harness-events`",
+        "spec \u00a79; `session-watches`, `harness-view`, `harness-events`",
         "DE09, DE28"
       ],
       "current": {
@@ -2796,7 +2797,7 @@
         "P29",
         "Live task graph ownership/waits/sleep/block/completing states and retained context/document cache bounds",
         "`harness/task-graph.ts`; `harness-task-graph`, `harness-scheduler-{indexes,retention}`",
-        "DE27–28, DE31"
+        "DE27\u201328, DE31"
       ],
       "current": {
         "kind": "source-only",
@@ -2894,11 +2895,11 @@
         "DE31"
       ],
       "contract": "Per-conversation agents/environments and foreground/background subagent interaction, parent cancellation, completed child conversations remain usable",
-      "source_anchor": "examples/22–24,29; `harness-ownership`, `harness-conversations`",
+      "source_anchor": "examples/22\u201324,29; `harness-ownership`, `harness-conversations`",
       "plan_cells": [
         "P32",
         "Per-conversation agents/environments and foreground/background subagent interaction, parent cancellation, completed child conversations remain usable",
-        "examples/22–24,29; `harness-ownership`, `harness-conversations`",
+        "examples/22\u201324,29; `harness-ownership`, `harness-conversations`",
         "DE31"
       ],
       "current": {
@@ -3033,12 +3034,12 @@
         "DE36"
       ],
       "contract": "Python codemode deterministic start/fingerprint/seed/time/deadline, journal delivery/issue acknowledgement and new-effect gate",
-      "source_anchor": "spec §7.6; `codemode/codemode.ts`, `codemode.test.ts`",
+      "source_anchor": "spec \u00a77.6; `codemode/codemode.ts`, `codemode.test.ts`",
       "plan_cells": [
         "P36",
         "Python codemode deterministic start/fingerprint/seed/time/deadline, journal delivery/issue acknowledgement and new-effect gate",
-        "spec §7.6; `codemode/codemode.ts`, `codemode.test.ts`",
-        "DE35–36"
+        "spec \u00a77.6; `codemode/codemode.ts`, `codemode.test.ts`",
+        "DE35\u201336"
       ],
       "current": {
         "kind": "source-only",
@@ -3073,7 +3074,7 @@
         "P37",
         "Codemode divergence/module change refusal before new effects; replay existing nested calls and clean unfinished/abandoned children",
         "`codemode.test.ts`, `harness-nested-tools-restart`",
-        "DE35–36"
+        "DE35\u201336"
       ],
       "current": {
         "kind": "source-only",
@@ -3215,7 +3216,7 @@
         "P41",
         "Native SDK/headless/TUI/RPC recovery, queued input/stream/abort/retry/compaction/tree behavior uses same authority",
         "current pipy SDK/RPC/tree contracts; historical experimental integration, not a current Pi package",
-        "DE11–12, DE41–44"
+        "DE11\u201312, DE41\u201344"
       ],
       "current": {
         "kind": "source-only",
@@ -3256,7 +3257,7 @@
         "P42",
         "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers",
         "current `session-storage.md`, `session-tree.md`; spec storage failures",
-        "DE10–12, DE40–44"
+        "DE10\u201312, DE40\u201344"
       ],
       "current": {
         "kind": "source-only",

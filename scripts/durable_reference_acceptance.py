@@ -42,6 +42,9 @@ VERIFICATION = {
     "tests/durable/test_pi_comparison_acceptance.py",
     "tests/durable/test_pi_comparison_coverage.py",
     "tests/durable/test_reference_codec.mts",
+    "scripts/durable_reference_artifacts.py",
+    "tests/durable/test_reference_artifacts.py",
+    ".github/workflows/ci.yml",
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {"DE01a", "DE01b1", "DE01b2", "DE01b3", "DE01b3a", "DE01b3b"}
@@ -228,6 +231,7 @@ DE_EVIDENCE = {
     "DE01b2": "de01b2-delivery-reconciliation-and-de01b3a-admission",
     "DE01b3": "de01b3a-local-acceptance-evidence",
     "DE01b3a": "de01b3a-local-acceptance-evidence",
+    "DE01b3b": "de01b3b-local-ci-and-artifact-implementation",
 }
 
 

@@ -534,3 +534,35 @@ raise SystemExit(o.main(['reference','--pi-source',sys.argv[4],'--output',sys.ar
         and p.stderr.strip() == f"REFERENCE EVIDENCE INVALID: {diagnostic}"
         and "Traceback" not in p.stderr
     )
+
+
+def test_verification_closure_includes_exact_ci_collector_and_tests():
+    expected = {
+        "tests/durable/test_pi_comparison.py",
+        "tests/durable/test_pi_comparison_cases.py",
+        "tests/durable/test_pi_comparison_acceptance.py",
+        "tests/durable/test_pi_comparison_coverage.py",
+        "tests/durable/test_reference_codec.mts",
+        "scripts/durable_reference_artifacts.py",
+        "tests/durable/test_reference_artifacts.py",
+        ".github/workflows/ci.yml",
+    }
+    assert a.VERIFICATION == expected
+    assert set(o.manifest()["verification"]) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "scripts/durable_reference_artifacts.py",
+        "tests/durable/test_reference_artifacts.py",
+        ".github/workflows/ci.yml",
+    ],
+)
+def test_new_verification_identity_drift_is_rejected(monkeypatch, name):
+    real_sha = o.sha
+    monkeypatch.setattr(
+        o, "sha", lambda path: "0" * 64 if path == o.ROOT / name else real_sha(path)
+    )
+    with pytest.raises(o.EvidenceError, match="Verification tool drift"):
+        o.manifest()

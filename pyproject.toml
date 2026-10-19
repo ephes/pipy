@@ -42,6 +42,7 @@ dev = [
     "mypy>=1.18",
     "pillow>=12,<13",
     "pytest>=8.0",
+    "pyyaml>=6,<7",
     "ruff>=0.14",
     "wasmtime>=49,<50",
 ]

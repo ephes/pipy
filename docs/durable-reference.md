@@ -397,7 +397,7 @@ P source anchors match the exact corresponding plan source cell; DE source ancho
 bind the actual slice contract line (or cumulative child range). Bounded current
 case/workload/oracle IDs and appropriate existing evidence links are explicit.
 Status must agree with the ledger, with cumulative parent status derived from
-its children. Unimplemented b3b has empty source-only own current evidence; its
+its children. b3b has empty reference-family own current evidence; its
 inherited_reference field separately attributes existing LOCAL b1/b2/b3a facts,
 with no CI/collector/uploaded-job claim. Validators reject omitted,
 duplicate or unknown IDs, changed ownership/future/source/status contracts and
@@ -409,3 +409,116 @@ registry. Every P row, including P43, remains OPEN. Reference evidence is partia
 DE02–DE45 still owe their concrete Python behavior, native tests, crash/race/wire
 and integration acceptance from the unchanged plan. b3b's real CI and selective
 artifact collection remain required before DE02 can start.
+
+
+## Mandatory reference CI and selective artifacts
+
+The `Durable pinned reference acceptance` job runs on every main push, pull
+request and manual CI dispatch, alongside the existing ten jobs. It anonymously
+fetches only commit `2ec55d808d455b1a64a2bf7888198207a096120a` from
+`https://github.com/earendil-works/pi.git` into a private new Git repository and
+checks tree `b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. The official Linux x64
+Node26.12.0 archive is checked against SHA256
+`fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded`
+and the versioned official SHASUMS file; bundled npm must be11.20.0. No upstream
+working tree, credentials, provider or mutable dependency cache participates.
+The uploader action's separate Node24 runtime does not select the reference Node.
+
+The private root is declared at the Acquire and Collector step `env` boundaries;
+the uploader uses the same controlled path in step `with`. The `runner` context
+is deliberately absent from job-level `env`, where Actions does not provide it.
+In the job's minimal child environment it runs the permanent codec test and
+exactly one fresh acceptance, using the existing CLI:
+
+```sh
+node tests/durable/test_reference_codec.mts
+python scripts/durable_pi_comparison.py acceptance \
+  --pi-source "$DURABLE_CI_ROOT/upstream" --output "$DURABLE_CI_ROOT/acceptance"
+```
+
+The job retains full bounded acquisition, runtime, codec and acceptance command
+logs. Inner case/workload/oracle/npm deadlines stay unchanged; the outer
+acceptance process has a1800-second operational ceiling, with GNU timeout sending
+INT followed by KILL after30seconds; the wrapper waits up to1840seconds. Existing
+runner process group termination/reaping handles its inner deadlines and
+KeyboardInterrupt. The eleven child ceilings total3180seconds; the Acquire
+step allows3300seconds including120seconds wrapper overhead. Checkout/setup/
+collector/upload each allow300seconds, artifact identity60seconds: all step
+ceilings total4560seconds. The5100-second job cap retains540seconds of margin;
+job cancellation cannot be assumed to provide the controlled inner deadline.
+Host termination or arbitrary
+SIGKILL cannot provide a universal no-orphan guarantee. Every required failure
+remains a failed job, including acquisition before acceptance creates its root.
+No missing prerequisite becomes a skip or a green upload.
+
+The new collector stages only exact registered textual roles:
+
+```sh
+python scripts/durable_reference_artifacts.py \
+  --acceptance "$DURABLE_CI_ROOT/acceptance" \
+  --job-evidence "$DURABLE_CI_ROOT/evidence" --output "$DURABLE_CI_ROOT/staged" \
+  --pipy-commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" \
+  --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --job-key "$GITHUB_JOB"
+```
+
+Output must be new and outside its inputs. Exit0 means verified textual staging
+of the complete original evidence; exit2 means invalid or partial evidence, not
+a semantic mismatch. Local mode is explicitly labelled local and cannot attest
+a GitHub upload. The wrapper writes schema1 `job.json` containing origin, exact
+workflow identity, completed command order, completion and the observed Node
+archive size/hash. Each named command has existing runner JSON/stdout/stderr
+metadata. Hosted order is source-init/fetch/ref/tree, node-download/shasums/
+extract/version, npm-version, codec, acceptance. Local validation records only
+actual codec/acceptance commands and no hosted download attestation.
+
+Schema1 `index.json` binds commit/repository/run/attempt/job key, acceptance and
+parent execution/manifest identities and every selected source/staged byte size
+and SHA256. `GITHUB_JOB` is a key; delivery additionally binds the numeric API
+job ID. The index has no self-hash; its uploaded bytes are hashed externally.
+Expected golden projection/witness files are independently recomputed before
+staging. All actual raw traces, witnesses, versioned E1 chunks, hardware/workload
+readbacks, four oracle pairs, H2 sidecar and result DB attestations remain intact.
+No ID/time/duration rules are added and no raw bytes are redacted to obtain a pass.
+
+Only exact named text files are eligible, with a32MiB file and256MiB aggregate
+limit, strict UTF-8 and no NUL. Reads reject traversal, aliases, symlink leaves or
+parents, hardlink aliases, nonregular files, changed identities and changed bytes
+before copying. Each directory is pinned with dir_fd/O_NOFOLLOW during opening,
+so replacing an intermediate directory cannot redirect a read.
+Unknown files are never selected. Invalid evidence preserves only independently
+safe registered wrapper logs and a failed/partial index, including missing roles.
+Its `missing` roles are fully examined even when another role is unsafe;
+`invalid` records unreadable/unsafe role classes without copying their bytes.
+Malformed nested helper inventories also produce exit2 and a failed index, with
+only the exception class recorded. It never requires an acceptance manifest to
+report an earlier failure.
+
+SQLite bytes, `archive.stdout`, `reference.tar` and the Node archive are explicitly
+`uploaded:false` with observed size/hash attestations; no DB binary is uploaded.
+Snapshot, node_modules, Git objects, private home/tmp/cache/npmrc, executables and
+unrelated files stay local. This is scripted synthetic input and observed raw
+runtime evidence: UUIDs, controlled scratch paths and mtime stay raw. Local
+operator paths are not hosted upload evidence. Hosted paths come from controlled
+RUNNER_TEMP/workspace; delivery audits actual staged bytes for unintended private
+content rather than rewriting them. Upstream MIT provenance is unchanged; the
+collector and workflow copy no additional upstream implementation.
+
+An always-run upload selects only the staging directory, rejects missing files,
+excludes hidden files and retains artifacts for14days. Artifact ID, URL and
+digest are recorded in job logs. Upload success cannot clear an earlier failure.
+After authorized push, delivery must download the actual uploaded artifact and
+verify its digest, index and every included byte/role plus binary exclusions,
+exact commit/run/attempt/API job/artifact identities and all six cases/H2x4/E1x2/
+12reads/3writes/four valid CLI1 mutants. Local tests, workflow source and a local
+stage do not establish this remote proof. Workflow execution is mandatory; server
+branch-protection enforcement is a separate read-only delivery observation, with
+no remote settings changes in this slice. DE02 stays blocked until real delivery.
+
+
+The local workflow gate separately executes official pinned actionlint1.7.12
+against the complete CI file; optional shellcheck/pyflakes integrations are
+disabled for this expression/context check. Permanent host-independent tests
+cover the known job-context misuse and compute actual inline child/step/job
+budgets. They do not substitute for actionlint or a successful hosted job.
+Their YAML parser is an explicit PyYAML dev dependency, locked without changes
+to any package version/artifact; ordinary Python tests still require no Node.

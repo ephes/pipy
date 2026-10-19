@@ -192,3 +192,117 @@ jobs:
         run: uv run python -m pipy_harness.native.codemode install
       - name: Run codemode isolation and production delivery probes
         run: uv run pytest -rs tests/test_native_codemode_runtime.py tests/test_native_codemode_worker.py tests/test_native_codemode_isolation.py tests/test_native_codemode_host.py tests/test_native_codemode_host_runtime.py tests/test_native_codemode_composite.py tests/test_native_codemode_t8b.py tests/test_native_codemode_delivery.py tests/test_native_codemode_delivery_pty.py tests/test_native_codemode_images.py
+
+  durable-reference:
+    name: Durable pinned reference acceptance
+    runs-on: ubuntu-24.04
+    # All step ceilings total76min; retain9min job margin for orchestration.
+    timeout-minutes: 85
+    steps:
+      - name: Check out repository
+        timeout-minutes: 5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        timeout-minutes: 5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+      - name: Acquire exact source and runtime, run codec and fresh acceptance
+        # Child ceilings3180s +120s wrapper overhead <=3300s step ceiling.
+        timeout-minutes: 55
+        env:
+          DURABLE_CI_ROOT: ${{ runner.temp }}/durable-reference-${{ github.run_id }}-${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import sys
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"])
+          sys.path.insert(0, str(workspace / "scripts"))
+          import durable_pi_comparison as o
+
+          root = Path(os.environ["DURABLE_CI_ROOT"])
+          root.mkdir(mode=0o700, exist_ok=False)
+          evidence = root / "evidence"
+          evidence.mkdir(mode=0o700)
+          source = root / "upstream"
+          node = root / "node"
+          node.mkdir(mode=0o700)
+          archive = node / "node-v26.12.0-linux-x64.tar.xz"
+          base = o.child_env(root)
+          # Explicit minimal child env: no inherited provider/GitHub tokens or Node hooks.
+          base.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", GIT_TERMINAL_PROMPT="0")
+          identity = {"pipy_commit": os.environ["GITHUB_SHA"], "repository": os.environ["GITHUB_REPOSITORY"], "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"], "job_key": os.environ["GITHUB_JOB"]}
+          job = {"schema_version": 1, "origin": "github-actions", "complete": False, "identity": identity, "commands": [], "node_archive": None}
+          o.dump(evidence / "job.json", job)
+
+          def run(label, command, timeout=120):
+              o.run(command, root, evidence, label, base, timeout)
+              job["commands"].append(label)
+              o.dump(evidence / "job.json", job)
+              return (evidence / (label + ".stdout")).read_text().strip()
+
+          run("source-init", ["git", "init", str(source)])
+          run("source-fetch", ["git", "-C", str(source), "-c", "credential.helper=", "-c", "http.extraHeader=", "fetch", "--no-tags", "--depth=1", "https://github.com/earendil-works/pi.git", o.PIN], 180)
+          assert run("source-ref", ["git", "-C", str(source), "rev-parse", "FETCH_HEAD^{commit}"]) == o.PIN
+          assert run("source-tree", ["git", "-C", str(source), "rev-parse", o.PIN + "^{tree}"]) == o.TREE
+          run("node-download", ["curl", "--fail", "--location", "--max-time", "180", "https://nodejs.org/dist/v26.12.0/" + archive.name, "--output", str(archive)], 200)
+          run("node-shasums", ["curl", "--fail", "--location", "--max-time", "60", "https://nodejs.org/dist/v26.12.0/SHASUMS256.txt", "--output", str(evidence / "node-shasums.txt")])
+          checksum = "fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded"
+          assert checksum + "  " + archive.name in (evidence / "node-shasums.txt").read_text().splitlines()
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == checksum
+          job["node_archive"] = {"bytes": archive.stat().st_size, "sha256": checksum}
+          o.dump(evidence / "job.json", job)
+          run("node-extract", ["tar", "-xJf", str(archive), "-C", str(node)])
+          base["PATH"] = str(node / "node-v26.12.0-linux-x64/bin") + os.pathsep + base["PATH"]
+          assert run("node-version", ["node", "--version"]) == "v26.12.0"
+          assert run("npm-version", ["npm", "--version"]) == "11.20.0"
+          run("codec", ["node", str(workspace / "tests/durable/test_reference_codec.mts")])
+          # Exactly ONE fresh bootstrap. No preceding reference invocation/replay.
+          run("acceptance", ["timeout", "--signal=INT", "--kill-after=30s", "1800s", sys.executable, str(workspace / "scripts/durable_pi_comparison.py"), "acceptance", "--pi-source", str(source), "--output", str(root / "acceptance")], 1840)
+          job["complete"] = True
+          o.dump(evidence / "job.json", job)
+          PY
+      - name: Collect closed textual evidence (also on early failure)
+        if: always()
+        timeout-minutes: 5
+        env:
+          DURABLE_CI_ROOT: ${{ runner.temp }}/durable-reference-${{ github.run_id }}-${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$DURABLE_CI_ROOT"
+          env -i PATH="$PATH" HOME="$DURABLE_CI_ROOT/collector-home" \
+            python "$GITHUB_WORKSPACE/scripts/durable_reference_artifacts.py" \
+            --acceptance "$DURABLE_CI_ROOT/acceptance" \
+            --job-evidence "$DURABLE_CI_ROOT/evidence" --output "$DURABLE_CI_ROOT/staged" \
+            --pipy-commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --job-key "$GITHUB_JOB"
+      - name: Upload selective reference evidence
+        timeout-minutes: 5
+        id: durable-artifact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2; action runtime node24
+        with:
+          name: durable-reference-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/durable-reference-${{ github.run_id }}-${{ github.run_attempt }}/staged/
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 14
+      - name: Record uploaded artifact identity
+        timeout-minutes: 1
+        if: always()
+        env:
+          ARTIFACT_ID: ${{ steps.durable-artifact.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.durable-artifact.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.durable-artifact.outputs.artifact-digest }}
+        run: |
+          printf 'artifact-id=%s\nartifact-url=%s\nartifact-digest=%s\n' "$ARTIFACT_ID" "$ARTIFACT_URL" "$ARTIFACT_DIGEST"

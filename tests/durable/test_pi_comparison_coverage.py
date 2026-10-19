@@ -146,3 +146,21 @@ raise SystemExit(o.main(['reference','--pi-source',sys.argv[2],'--output',sys.ar
         and p.stderr.strip() == "REFERENCE EVIDENCE INVALID: Malformed plan row"
         and "Traceback" not in p.stderr
     )
+
+
+def test_b3b_uses_inherited_families_without_claiming_hosted_success():
+    row = next(
+        row
+        for row in o.load(o.FIXTURES / "coverage.json")["rows"]
+        if row["id"] == "DE01b3b"
+    )
+    assert row["status"] == "IN_PROGRESS"
+    assert (
+        row["current"]["cases"]
+        == row["current"]["workloads"]
+        == row["current"]["oracles"]
+        == []
+    )
+    assert row["inherited_reference"]["owners"] == ["DE01b1", "DE01b2", "DE01b3a"]
+    assert row["inherited_reference"]["cases"] == list(o.contract.CASES)
+    assert "hosted execution/upload proof remains OPEN" in row["current"]["observables"]

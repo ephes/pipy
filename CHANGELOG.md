@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a mandatory pinned durable-reference CI job and closed selective textual
+  evidence collector, with early-failure metadata and explicit excluded DB/archive
+  attestations. Local implementation does not claim hosted delivery or native
+  durable parity; DE02 stays blocked until the actual pushed job/upload is audited.
+
 - The [durable acceptance command](docs/durable-reference.md#fresh-local-acceptance)
   now bootstraps all six pinned reference families once, executes twelve exported
   storage reads and three writes with persisted readbacks before bounded timing,
