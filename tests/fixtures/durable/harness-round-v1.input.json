@@ -1,0 +1,24 @@
+{
+  "clock_epoch_ms": 1700000000000,
+  "api": "fixture-durable-faux-v1",
+  "tool_name": "echo",
+  "tool_description": "The echo tool",
+  "tool_arguments": {
+    "text": "hi"
+  },
+  "tool_call_id": "c1",
+  "input": "go",
+  "progress_details": {
+    "old": 1
+  },
+  "tool_result": {
+    "output": [
+      {
+        "type": "text",
+        "text": "echo hi"
+      }
+    ],
+    "details": null
+  },
+  "answer": "done"
+}

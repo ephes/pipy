@@ -1,0 +1,8 @@
+{
+  "clock_epoch_ms": 1700000000000,
+  "old": "old",
+  "fresh": "fresh start",
+  "after": "after reset",
+  "summary": "summary",
+  "tail": "next"
+}

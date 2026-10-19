@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The [durable reference runner](docs/durable-reference.md) now verifies three
+  pinned real cases: the existing byte-identical kernel fixture, a faux-provider
+  echo/null-details round, and reset/summary context selection. A strict
+  multi-case manifest hashes the complete adapter closure; collision-free
+  tagged values and bounded witnessed identity/duration projections retain raw
+  evidence and ID-ordered scan relations. Sparse JS arrays are rejected before
+  serialization, preserving dense null/undefined distinctions. Real
+  lost-field/stale-head mutants remain valid traces and fail comparison.
+  Python durable parity remains open.
+
 - A verification-only [pinned durable reference runner](docs/durable-reference.md)
   executes Pi's actual kernel and memory storage in a private exact-commit
   snapshot, validates trace, exact archived source membership and dependency

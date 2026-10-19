@@ -2,12 +2,15 @@
  * Provenance and full notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt.
  * No product runtime imports this driver. */
 import assert from "node:assert/strict";
-import { realpathSync, writeFileSync } from "node:fs";
+import { realpathSync, readFileSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
 
 const root = realpathSync(process.cwd());
+const [caseId, inputPath, outputPath] = process.argv.slice(2);
+assert.ok(caseId && inputPath && outputPath, "Missing case invocation");
+const input = JSON.parse(readFileSync(inputPath, "utf8"));
 const resolutions: { specifier: string; path: string }[] = [];
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -20,6 +23,9 @@ registerHooks({
     return result;
   },
 });
+const { encode, validateInput } = await import("./durable_reference/contract.mts");
+validateInput(caseId, input);
+async function kernel() {
 // Dynamic imports ensure every transitive source resolution goes through the guard.
 const { createSession } = await import("./packages/durable/src/session/session.ts");
 const { MemoryStorage } = await import("./packages/durable/src/storage/memory.ts");
@@ -27,7 +33,7 @@ const { defineDoc } = await import("./packages/durable/src/documents.ts");
 const { BACKGROUND_CONTEXT: context } = await import("@earendil-works/chord/context");
 const steps: object[] = [];
 const storage = new MemoryStorage();
-const session = createSession(storage, { now: () => 1700000000000 });
+const session = createSession(storage, { now: () => input.clock_epoch_ms });
 session.subscribeCommits(publication => {
   steps.push({ op: "commit.publication", value: publication });
 });
@@ -75,13 +81,25 @@ try {
   await session.close(context);
 }
 steps.push({ op: "session.close", value: await session.closed });
-writeFileSync(resolve("trace.json"), JSON.stringify({ schema_version: 1,
-  case_id: "kernel-memory-v1", normalization: "finite-json-v1", steps }, (_key, value) => {
-    if (value === undefined) return { $undefined: true };
-    if (typeof value === "number") {
-      assert.ok(Number.isFinite(value), "Trace has a non-finite number");
-      assert.ok(!Number.isInteger(value) || Number.isSafeInteger(value), "Trace integer is unsafe");
-    }
-    return value;
-  }, 2) + "\n");
-writeFileSync(resolve("resolutions.json"), JSON.stringify(resolutions, null, 2) + "\n");
+return { schema_version: 1, case_id: caseId, normalization: "finite-json-v1", steps };
+}
+let trace;
+if (caseId === "kernel-memory-v1") trace = await kernel();
+else {
+  const module = caseId === "harness-round-v1"
+    ? await import("./durable_reference/cases/harness-round.mts")
+    : await import("./durable_reference/cases/context-heads.mts");
+  trace = { schema_version: 2, case_id: caseId,
+    normalization: caseId === "harness-round-v1" ? "harness-identity-v1" : "context-identity-v1",
+    codec: "tagged-js-v1", steps: [{ op: caseId === "harness-round-v1" ? "harness.settled" : "context.selection",
+    value: encode(await module.run(input)) }] };
+}
+writeFileSync(resolve(outputPath, "trace.json"), JSON.stringify(trace, (_key, value) => {
+  if (value === undefined) return { $undefined: true }; // legacy kernel v1 only
+  if (typeof value === "number") {
+    assert.ok(Number.isFinite(value), "Trace has a non-finite number");
+    assert.ok(!Number.isInteger(value) || Number.isSafeInteger(value), "Trace integer is unsafe");
+  }
+  return value;
+}, 2) + "\n");
+writeFileSync(resolve(outputPath, "resolutions.json"), JSON.stringify(resolutions, null, 2) + "\n");

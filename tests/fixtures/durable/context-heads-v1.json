@@ -1,0 +1,1456 @@
+{
+  "schema_version": 2,
+  "case_id": "context-heads-v1",
+  "normalization": "context-identity-v1",
+  "codec": "tagged-js-v1",
+  "steps": [
+    {
+      "op": "context.selection",
+      "value": {
+        "type": "object",
+        "entries": [
+          [
+            "history",
+            {
+              "type": "array",
+              "items": [
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "kind",
+                      "message"
+                    ],
+                    [
+                      "model",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "old"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "id",
+                      7
+                    ],
+                    [
+                      "conversationId",
+                      1
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "kind",
+                      "reset"
+                    ],
+                    [
+                      "model",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "fresh start"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "id",
+                      8
+                    ],
+                    [
+                      "conversationId",
+                      1
+                    ],
+                    [
+                      "head",
+                      8
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "kind",
+                      "message"
+                    ],
+                    [
+                      "model",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "assistant"
+                              ],
+                              [
+                                "content",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    {
+                                      "type": "object",
+                                      "entries": [
+                                        [
+                                          "type",
+                                          "text"
+                                        ],
+                                        [
+                                          "text",
+                                          "after reset"
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              [
+                                "api",
+                                "faux"
+                              ],
+                              [
+                                "provider",
+                                "faux"
+                              ],
+                              [
+                                "model",
+                                "faux-1"
+                              ],
+                              [
+                                "usage",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "input",
+                                      0
+                                    ],
+                                    [
+                                      "output",
+                                      0
+                                    ],
+                                    [
+                                      "cacheRead",
+                                      0
+                                    ],
+                                    [
+                                      "cacheWrite",
+                                      0
+                                    ],
+                                    [
+                                      "totalTokens",
+                                      0
+                                    ],
+                                    [
+                                      "cost",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "input",
+                                            0
+                                          ],
+                                          [
+                                            "output",
+                                            0
+                                          ],
+                                          [
+                                            "cacheRead",
+                                            0
+                                          ],
+                                          [
+                                            "cacheWrite",
+                                            0
+                                          ],
+                                          [
+                                            "total",
+                                            0
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ],
+                              [
+                                "stopReason",
+                                "stop"
+                              ],
+                              [
+                                "timestamp",
+                                2
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "id",
+                      9
+                    ],
+                    [
+                      "conversationId",
+                      1
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "kind",
+                      "summary"
+                    ],
+                    [
+                      "model",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "summary"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "id",
+                      10
+                    ],
+                    [
+                      "conversationId",
+                      1
+                    ],
+                    [
+                      "head",
+                      9
+                    ]
+                  ]
+                },
+                {
+                  "type": "object",
+                  "entries": [
+                    [
+                      "kind",
+                      "message"
+                    ],
+                    [
+                      "model",
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "next"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "id",
+                      11
+                    ],
+                    [
+                      "conversationId",
+                      1
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "first",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "head",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "kind",
+                        "reset"
+                      ],
+                      [
+                        "model",
+                        {
+                          "type": "array",
+                          "items": [
+                            {
+                              "type": "object",
+                              "entries": [
+                                [
+                                  "role",
+                                  "user"
+                                ],
+                                [
+                                  "content",
+                                  "fresh start"
+                                ],
+                                [
+                                  "timestamp",
+                                  1
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      [
+                        "id",
+                        8
+                      ],
+                      [
+                        "conversationId",
+                        1
+                      ],
+                      [
+                        "head",
+                        8
+                      ]
+                    ]
+                  }
+                ],
+                [
+                  "entries",
+                  {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "kind",
+                            "reset"
+                          ],
+                          [
+                            "model",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "role",
+                                      "user"
+                                    ],
+                                    [
+                                      "content",
+                                      "fresh start"
+                                    ],
+                                    [
+                                      "timestamp",
+                                      1
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "id",
+                            8
+                          ],
+                          [
+                            "conversationId",
+                            1
+                          ],
+                          [
+                            "head",
+                            8
+                          ]
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "kind",
+                            "message"
+                          ],
+                          [
+                            "model",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "role",
+                                      "assistant"
+                                    ],
+                                    [
+                                      "content",
+                                      {
+                                        "type": "array",
+                                        "items": [
+                                          {
+                                            "type": "object",
+                                            "entries": [
+                                              [
+                                                "type",
+                                                "text"
+                                              ],
+                                              [
+                                                "text",
+                                                "after reset"
+                                              ]
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    [
+                                      "api",
+                                      "faux"
+                                    ],
+                                    [
+                                      "provider",
+                                      "faux"
+                                    ],
+                                    [
+                                      "model",
+                                      "faux-1"
+                                    ],
+                                    [
+                                      "usage",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "input",
+                                            0
+                                          ],
+                                          [
+                                            "output",
+                                            0
+                                          ],
+                                          [
+                                            "cacheRead",
+                                            0
+                                          ],
+                                          [
+                                            "cacheWrite",
+                                            0
+                                          ],
+                                          [
+                                            "totalTokens",
+                                            0
+                                          ],
+                                          [
+                                            "cost",
+                                            {
+                                              "type": "object",
+                                              "entries": [
+                                                [
+                                                  "input",
+                                                  0
+                                                ],
+                                                [
+                                                  "output",
+                                                  0
+                                                ],
+                                                [
+                                                  "cacheRead",
+                                                  0
+                                                ],
+                                                [
+                                                  "cacheWrite",
+                                                  0
+                                                ],
+                                                [
+                                                  "total",
+                                                  0
+                                                ]
+                                              ]
+                                            }
+                                          ]
+                                        ]
+                                      }
+                                    ],
+                                    [
+                                      "stopReason",
+                                      "stop"
+                                    ],
+                                    [
+                                      "timestamp",
+                                      2
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "id",
+                            9
+                          ],
+                          [
+                            "conversationId",
+                            1
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                [
+                  "contributions",
+                  {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "fresh start"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "assistant"
+                              ],
+                              [
+                                "content",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    {
+                                      "type": "object",
+                                      "entries": [
+                                        [
+                                          "type",
+                                          "text"
+                                        ],
+                                        [
+                                          "text",
+                                          "after reset"
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              [
+                                "api",
+                                "faux"
+                              ],
+                              [
+                                "provider",
+                                "faux"
+                              ],
+                              [
+                                "model",
+                                "faux-1"
+                              ],
+                              [
+                                "usage",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "input",
+                                      0
+                                    ],
+                                    [
+                                      "output",
+                                      0
+                                    ],
+                                    [
+                                      "cacheRead",
+                                      0
+                                    ],
+                                    [
+                                      "cacheWrite",
+                                      0
+                                    ],
+                                    [
+                                      "totalTokens",
+                                      0
+                                    ],
+                                    [
+                                      "cost",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "input",
+                                            0
+                                          ],
+                                          [
+                                            "output",
+                                            0
+                                          ],
+                                          [
+                                            "cacheRead",
+                                            0
+                                          ],
+                                          [
+                                            "cacheWrite",
+                                            0
+                                          ],
+                                          [
+                                            "total",
+                                            0
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ],
+                              [
+                                "stopReason",
+                                "stop"
+                              ],
+                              [
+                                "timestamp",
+                                2
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                [
+                  "messages",
+                  {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "role",
+                            "user"
+                          ],
+                          [
+                            "content",
+                            "fresh start"
+                          ],
+                          [
+                            "timestamp",
+                            1
+                          ]
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "role",
+                            "assistant"
+                          ],
+                          [
+                            "content",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "type",
+                                      "text"
+                                    ],
+                                    [
+                                      "text",
+                                      "after reset"
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "api",
+                            "faux"
+                          ],
+                          [
+                            "provider",
+                            "faux"
+                          ],
+                          [
+                            "model",
+                            "faux-1"
+                          ],
+                          [
+                            "usage",
+                            {
+                              "type": "object",
+                              "entries": [
+                                [
+                                  "input",
+                                  0
+                                ],
+                                [
+                                  "output",
+                                  0
+                                ],
+                                [
+                                  "cacheRead",
+                                  0
+                                ],
+                                [
+                                  "cacheWrite",
+                                  0
+                                ],
+                                [
+                                  "totalTokens",
+                                  0
+                                ],
+                                [
+                                  "cost",
+                                  {
+                                    "type": "object",
+                                    "entries": [
+                                      [
+                                        "input",
+                                        0
+                                      ],
+                                      [
+                                        "output",
+                                        0
+                                      ],
+                                      [
+                                        "cacheRead",
+                                        0
+                                      ],
+                                      [
+                                        "cacheWrite",
+                                        0
+                                      ],
+                                      [
+                                        "total",
+                                        0
+                                      ]
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ],
+                          [
+                            "stopReason",
+                            "stop"
+                          ],
+                          [
+                            "timestamp",
+                            2
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "final",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "head",
+                  {
+                    "type": "object",
+                    "entries": [
+                      [
+                        "kind",
+                        "summary"
+                      ],
+                      [
+                        "model",
+                        {
+                          "type": "array",
+                          "items": [
+                            {
+                              "type": "object",
+                              "entries": [
+                                [
+                                  "role",
+                                  "user"
+                                ],
+                                [
+                                  "content",
+                                  "summary"
+                                ],
+                                [
+                                  "timestamp",
+                                  1
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      [
+                        "id",
+                        10
+                      ],
+                      [
+                        "conversationId",
+                        1
+                      ],
+                      [
+                        "head",
+                        9
+                      ]
+                    ]
+                  }
+                ],
+                [
+                  "entries",
+                  {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "kind",
+                            "summary"
+                          ],
+                          [
+                            "model",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "role",
+                                      "user"
+                                    ],
+                                    [
+                                      "content",
+                                      "summary"
+                                    ],
+                                    [
+                                      "timestamp",
+                                      1
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "id",
+                            10
+                          ],
+                          [
+                            "conversationId",
+                            1
+                          ],
+                          [
+                            "head",
+                            9
+                          ]
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "kind",
+                            "message"
+                          ],
+                          [
+                            "model",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "role",
+                                      "assistant"
+                                    ],
+                                    [
+                                      "content",
+                                      {
+                                        "type": "array",
+                                        "items": [
+                                          {
+                                            "type": "object",
+                                            "entries": [
+                                              [
+                                                "type",
+                                                "text"
+                                              ],
+                                              [
+                                                "text",
+                                                "after reset"
+                                              ]
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    [
+                                      "api",
+                                      "faux"
+                                    ],
+                                    [
+                                      "provider",
+                                      "faux"
+                                    ],
+                                    [
+                                      "model",
+                                      "faux-1"
+                                    ],
+                                    [
+                                      "usage",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "input",
+                                            0
+                                          ],
+                                          [
+                                            "output",
+                                            0
+                                          ],
+                                          [
+                                            "cacheRead",
+                                            0
+                                          ],
+                                          [
+                                            "cacheWrite",
+                                            0
+                                          ],
+                                          [
+                                            "totalTokens",
+                                            0
+                                          ],
+                                          [
+                                            "cost",
+                                            {
+                                              "type": "object",
+                                              "entries": [
+                                                [
+                                                  "input",
+                                                  0
+                                                ],
+                                                [
+                                                  "output",
+                                                  0
+                                                ],
+                                                [
+                                                  "cacheRead",
+                                                  0
+                                                ],
+                                                [
+                                                  "cacheWrite",
+                                                  0
+                                                ],
+                                                [
+                                                  "total",
+                                                  0
+                                                ]
+                                              ]
+                                            }
+                                          ]
+                                        ]
+                                      }
+                                    ],
+                                    [
+                                      "stopReason",
+                                      "stop"
+                                    ],
+                                    [
+                                      "timestamp",
+                                      2
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "id",
+                            9
+                          ],
+                          [
+                            "conversationId",
+                            1
+                          ]
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "kind",
+                            "message"
+                          ],
+                          [
+                            "model",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "role",
+                                      "user"
+                                    ],
+                                    [
+                                      "content",
+                                      "next"
+                                    ],
+                                    [
+                                      "timestamp",
+                                      1
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "id",
+                            11
+                          ],
+                          [
+                            "conversationId",
+                            1
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                [
+                  "contributions",
+                  {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "summary"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "assistant"
+                              ],
+                              [
+                                "content",
+                                {
+                                  "type": "array",
+                                  "items": [
+                                    {
+                                      "type": "object",
+                                      "entries": [
+                                        [
+                                          "type",
+                                          "text"
+                                        ],
+                                        [
+                                          "text",
+                                          "after reset"
+                                        ]
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              [
+                                "api",
+                                "faux"
+                              ],
+                              [
+                                "provider",
+                                "faux"
+                              ],
+                              [
+                                "model",
+                                "faux-1"
+                              ],
+                              [
+                                "usage",
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "input",
+                                      0
+                                    ],
+                                    [
+                                      "output",
+                                      0
+                                    ],
+                                    [
+                                      "cacheRead",
+                                      0
+                                    ],
+                                    [
+                                      "cacheWrite",
+                                      0
+                                    ],
+                                    [
+                                      "totalTokens",
+                                      0
+                                    ],
+                                    [
+                                      "cost",
+                                      {
+                                        "type": "object",
+                                        "entries": [
+                                          [
+                                            "input",
+                                            0
+                                          ],
+                                          [
+                                            "output",
+                                            0
+                                          ],
+                                          [
+                                            "cacheRead",
+                                            0
+                                          ],
+                                          [
+                                            "cacheWrite",
+                                            0
+                                          ],
+                                          [
+                                            "total",
+                                            0
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ],
+                              [
+                                "stopReason",
+                                "stop"
+                              ],
+                              [
+                                "timestamp",
+                                2
+                              ]
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": [
+                          {
+                            "type": "object",
+                            "entries": [
+                              [
+                                "role",
+                                "user"
+                              ],
+                              [
+                                "content",
+                                "next"
+                              ],
+                              [
+                                "timestamp",
+                                1
+                              ]
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                [
+                  "messages",
+                  {
+                    "type": "array",
+                    "items": [
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "role",
+                            "user"
+                          ],
+                          [
+                            "content",
+                            "summary"
+                          ],
+                          [
+                            "timestamp",
+                            1
+                          ]
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "role",
+                            "assistant"
+                          ],
+                          [
+                            "content",
+                            {
+                              "type": "array",
+                              "items": [
+                                {
+                                  "type": "object",
+                                  "entries": [
+                                    [
+                                      "type",
+                                      "text"
+                                    ],
+                                    [
+                                      "text",
+                                      "after reset"
+                                    ]
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          [
+                            "api",
+                            "faux"
+                          ],
+                          [
+                            "provider",
+                            "faux"
+                          ],
+                          [
+                            "model",
+                            "faux-1"
+                          ],
+                          [
+                            "usage",
+                            {
+                              "type": "object",
+                              "entries": [
+                                [
+                                  "input",
+                                  0
+                                ],
+                                [
+                                  "output",
+                                  0
+                                ],
+                                [
+                                  "cacheRead",
+                                  0
+                                ],
+                                [
+                                  "cacheWrite",
+                                  0
+                                ],
+                                [
+                                  "totalTokens",
+                                  0
+                                ],
+                                [
+                                  "cost",
+                                  {
+                                    "type": "object",
+                                    "entries": [
+                                      [
+                                        "input",
+                                        0
+                                      ],
+                                      [
+                                        "output",
+                                        0
+                                      ],
+                                      [
+                                        "cacheRead",
+                                        0
+                                      ],
+                                      [
+                                        "cacheWrite",
+                                        0
+                                      ],
+                                      [
+                                        "total",
+                                        0
+                                      ]
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ],
+                          [
+                            "stopReason",
+                            "stop"
+                          ],
+                          [
+                            "timestamp",
+                            2
+                          ]
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "entries": [
+                          [
+                            "role",
+                            "user"
+                          ],
+                          [
+                            "content",
+                            "next"
+                          ],
+                          [
+                            "timestamp",
+                            1
+                          ]
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          [
+            "requested_cutoff",
+            11
+          ],
+          [
+            "close",
+            {
+              "type": "object",
+              "entries": [
+                [
+                  "reason",
+                  "closed"
+                ]
+              ]
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

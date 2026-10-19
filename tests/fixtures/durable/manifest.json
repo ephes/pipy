@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "reference": {
     "commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
     "tree": "b51be844ffaf57e96d06a58d3f45ee90c6ba7401",
@@ -13,18 +13,128 @@
       "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
       "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
       "packages/durable/src/testing/storage-conformance.ts": "fa543ea2f7271ac1f23bc16eb0d1f69ba55b52d0f3a2865dd68d0ee34258392e",
-      "packages/coding-agent/src/experimental/source-resolver.ts": "c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6"
+      "packages/coding-agent/src/experimental/source-resolver.ts": "c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6",
+      "packages/durable/src/harness/harness.ts": "e2b53e7a88d547ac388a3d7368fea8e75e78046af8b34c110c266174d82590e8",
+      "packages/durable/src/harness/tool.ts": "775971bc5b39b6fcde883da1b72ce1b022ec168e6686765aa89fba4566a5fbab",
+      "packages/ai/src/providers/faux.ts": "aeaa8df95399776587ad0cfccccd3b498891a20c5c5846f935e04d9d09dd84a1",
+      "packages/durable/test/harness-tools.test.ts": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a",
+      "packages/durable/src/harness/context.ts": "c392e698d7f84a1fc4909c0b40964d74625edbe7b56dc1dfea28588dde47d635",
+      "packages/durable/test/harness-context.test.ts": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5",
+      "packages/durable/docs/spec.md": "dd1c2fcfd5a4d3aa4e176fa5ad072f2f97c0daf84aa84f215dcf01b1d582ac81"
     }
   },
   "runtime": {
     "node": "v26.12.0",
     "npm": "11.20.0"
   },
-  "case_id": "kernel-memory-v1",
-  "trace_schema": 1,
-  "normalization": "finite-json-v1",
+  "adapters": {
+    "scripts/durable_pi_reference.mts": {
+      "destination": "durable_pi_reference.mts",
+      "sha256": "690cf24d06ed49ec932082f1c34fa5ea83e80d7eca48cce96d89664b935ebef9"
+    },
+    "scripts/durable_reference/contract.mts": {
+      "destination": "durable_reference/contract.mts",
+      "sha256": "1c9c74348859378079d66bf3e9ef4f26918eb152df7f7e5ac84af7e458907326"
+    },
+    "scripts/durable_reference/cases/harness-round.mts": {
+      "destination": "durable_reference/cases/harness-round.mts",
+      "sha256": "b3e90af0f22897299eb5f64e54ff73f003fc3aca4c5b18371381bba3ce6f0c46"
+    },
+    "scripts/durable_reference/cases/context-heads.mts": {
+      "destination": "durable_reference/cases/context-heads.mts",
+      "sha256": "56ecd6f481ce2e9d5253ca2cecc0b4eebd612c63ced29e197b9e6aa1e01ec4da"
+    }
+  },
+  "comparison": {
+    "scripts/durable_pi_comparison.py": "1d024ea5579d52c5dcf720b7e0b3656c3e95f8f7034616311aa5e505733b8d3e",
+    "scripts/durable_reference_contract.py": "ba3f2ee694cefdc9d6b075b9e643cb0019889651954425fae986ff06a2339b64"
+  },
+  "cases": [
+    {
+      "id": "kernel-memory-v1",
+      "input": {
+        "path": "kernel-memory-v1.input.json",
+        "sha256": "bd291b3008a2830a0a22e0608a6678d70aa300116ac7d0683d166939a773b4c8"
+      },
+      "expected": {
+        "path": "kernel-memory-v1.json",
+        "sha256": "a74321597569dbe95e2d82516e4559ebf9b839c1f9f87156157879c3d48a5ef1"
+      },
+      "trace_schema": 1,
+      "normalization": "finite-json-v1",
+      "adapter": "durable_pi_reference.mts",
+      "required_modules": [
+        "packages/durable/src/session/session.ts",
+        "packages/durable/src/storage/memory.ts",
+        "packages/durable/src/documents.ts"
+      ],
+      "upstream_tests": [
+        {
+          "path": "packages/durable/src/testing/storage-conformance.ts",
+          "name": "source-derived atomic commit/document probe",
+          "sha256": "fa543ea2f7271ac1f23bc16eb0d1f69ba55b52d0f3a2865dd68d0ee34258392e"
+        }
+      ]
+    },
+    {
+      "id": "harness-round-v1",
+      "input": {
+        "path": "harness-round-v1.input.json",
+        "sha256": "36904161edda3b96fc8187510867b5a444e728945f0fd670652fa8b6a720cea5"
+      },
+      "expected": {
+        "path": "harness-round-v1.json",
+        "sha256": "ec4a7562061e748e503ec696532db6268c9ca53a938a63fb94f27d6a08a9d851"
+      },
+      "trace_schema": 2,
+      "normalization": "harness-identity-v1",
+      "adapter": "durable_pi_reference.mts",
+      "required_modules": [
+        "packages/durable/src/harness/harness.ts",
+        "packages/durable/src/harness/tool.ts",
+        "packages/durable/src/storage/memory.ts",
+        "packages/ai/src/providers/faux.ts"
+      ],
+      "upstream_tests": [
+        {
+          "path": "packages/durable/test/harness-tools.test.ts",
+          "name": "runs input, tool call, tool result, and answer, and settles the input",
+          "sha256": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a"
+        },
+        {
+          "path": "packages/durable/test/harness-tools.test.ts",
+          "name": "uses explicit null details instead of the last reported value",
+          "sha256": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a"
+        }
+      ]
+    },
+    {
+      "id": "context-heads-v1",
+      "input": {
+        "path": "context-heads-v1.input.json",
+        "sha256": "3d56bf3717df7fcca8cfb8e294a2d6130ff0e5966830b058f32c0c2b94b2ca31"
+      },
+      "expected": {
+        "path": "context-heads-v1.json",
+        "sha256": "375cabee3a0eb93565633a5fe3c352930212018ee09f3fb4e681cc197dfb010b"
+      },
+      "trace_schema": 2,
+      "normalization": "context-identity-v1",
+      "adapter": "durable_pi_reference.mts",
+      "required_modules": [
+        "packages/durable/src/harness/harness.ts",
+        "packages/durable/src/harness/context.ts",
+        "packages/durable/src/storage/memory.ts"
+      ],
+      "upstream_tests": [
+        {
+          "path": "packages/durable/test/harness-context.test.ts",
+          "name": "resolves self heads and uses the newest head marker",
+          "sha256": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5"
+        }
+      ]
+    }
+  ],
   "python_adapter": "OPEN",
-  "parity_rows": "OPEN",
-  "driver_sha256": "258d90ef4652018493755a75b39e58819a9e9ab5d818ac0058f6f062b899038c",
-  "expected_trace_sha256": "a74321597569dbe95e2d82516e4559ebf9b839c1f9f87156157879c3d48a5ef1"
+  "parity_rows": "OPEN"
 }

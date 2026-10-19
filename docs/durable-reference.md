@@ -1,155 +1,221 @@
 # Pinned durable reference verification
 
-DE01a supplies a verification tool for Pi durable **1.3.0**, commit
+The verification tools execute Pi durable **1.3.0**, commit
 `2ec55d808d455b1a64a2bf7888198207a096120a`, tree
-`b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. It executes the actual TypeScript
-Session kernel, MemoryStorage and typed documents. It does not implement a
-Python durable kernel or close any P01–P43 acceptance row. The Python comparison
-adapter remains **OPEN**; equality with an expected reference fixture proves
-reference reproducibility and the oracle mechanism only.
+`b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. DE01a introduced actual Session,
+MemoryStorage and document execution; DE01b1 adds real faux-provider/tool and
+context-head scenarios. These verify reference reproducibility and the oracle.
+The Python durable comparison adapter is **OPEN** and all P01–P43 rows remain
+**OPEN**. No native durable runtime is imported or implemented by these scripts.
 
 ## Reproduction
 
-Use a POSIX host with Git, tar, **Node v26.12.0 and npm 11.20.0** on PATH,
-Python supported by pipy, registry access and a local Git checkout root
-containing the exact reference commit. These exact runtime versions are the
-version-1 fixture contract, stricter than upstream's Node >=22.19.0 minimum.
-No provider credentials, CLI login or paid model calls are used.
+Use a POSIX host with Git, tar, **Node v26.12.0, npm 11.20.0**, supported Python,
+registry access and a local Git checkout root containing the exact pinned
+commit. These runtime versions are deliberately stricter than upstream's Node
+>=22.19.0 minimum. No provider credentials, login, paid model or CLI wrapper is
+used. Run with normal caller HOME; the runner creates a private synthetic child
+HOME/cache/npm configuration and does not propagate provider or Node injection
+variables.
 
 ```sh
 scratch="$(mktemp -d /tmp/pipy-durable-reference.XXXXXX)"
 uv run python scripts/durable_pi_comparison.py reference \
   --pi-source /Users/jochen/src/pi-mono --output "$scratch/reference"
-uv run pytest tests/durable/test_pi_comparison.py -q
+uv run pytest tests/durable/test_pi_comparison.py \
+  tests/durable/test_pi_comparison_cases.py -q
+node tests/durable/test_reference_codec.mts
 uv run python scripts/durable_pi_comparison.py compare \
-  tests/fixtures/durable/kernel-memory-v1.json "$scratch/reference/trace.json"
+  tests/fixtures/durable/harness-round-v1.json \
+  "$scratch/reference/harness-round-v1/trace.json"
 ```
 
-`--pi-source` must name a checkout root, not a package subdirectory or bare Git
-directory. `--output` must be a new directory outside the upstream checkout. The parent
-must exist. The runner uses owner-only scratch directories, archives the exact
-commit with read-only Git operations and installs its original root lockfile
-with `npm ci --ignore-scripts --no-audit --no-fund` **inside that snapshot**.
-It does not use upstream's working tree, node_modules, build products or CLI.
-Every archived file is hashed before installation and checked unchanged after
-installation and execution. No checkout, worktree or install runs upstream.
+The standalone codec regression uses the pinned Node v26.12.0 and imports the
+actual MTS encoder. It verifies dense undefined/null/literal-marker distinctions
+and rejects sparse arrays. Ordinary pytest does not launch Node or require a
+host Node version. DE01b3's mandatory reference CI must explicitly run this
+codec command alongside its real reference cases and negatives.
 
-The copied driver runs inside the snapshot with the pinned
-`packages/coding-agent/src/experimental/source-resolver.ts` preloaded. This
-resolves workspace packages to pinned source, including Telemetry's source
-exports. A module hook checks every subsequent non-builtin resolution and
-refuses any path outside the snapshot. Workspace imports must resolve under
-`packages/` and may contain no `node_modules` path component. Every resolved
-non-`node_modules` file must belong to the pre-install archive inventory and
-match its exact hash; an extra file under `packages/` is not pinned source.
-Third-party resolved modules require physical files and matching installed lock
-evidence. The copied driver starts before its module hook and is not a recorded
-module: its exact caller artifact hash is pinned separately. The preloaded
-resolver is separately checked against its archived source hash. No driver or
-instrumentation path receives an exception to the archived-source requirement.
+`reference` always runs all three registered cases, serially in fresh child
+processes and fresh storage/faux state, following one locked installation.
+`--output` must be a new owner-only directory outside upstream; its parent must
+exist. The upstream argument must name a checkout root, not a package directory
+or bare repository. The runner uses read-only `git archive` of the exact commit
+and original `package-lock.json`, then `npm ci --ignore-scripts --no-audit
+--no-fund` inside the private snapshot. It never uses the upstream working tree,
+node_modules or build products and never installs, checks out or builds there.
+Every archived file is hashed before installation and verified unchanged after
+installation and each case. Complete evidence is retained until explicitly
+removed by its owner. Each command has a deadline (900 seconds installation,
+60 seconds per case, 120 seconds otherwise); timeout/interruption kills and
+reaps the child process group.
 
-The child receives a small environment with synthetic HOME, npm configuration,
-cache and temporary directory; provider secrets and Node injection options are
-not propagated. The invoking shell's HOME stays unchanged. The driver uses only
-synthetic values and never opens product sessions or private user data. Scratch
-is retained deliberately for evidence; remove the directory when its local
-review/evidence retention is no longer needed. Commands have explicit deadlines
-(900 seconds for installation, 60 for the kernel probe, 120 for other commands);
-a deadline or interruption kills and reaps the child process group.
+Exit **0** requires all three complete real cases to match; **1** means complete,
+valid evidence has a semantic mismatch; **2** means invalid/unavailable evidence
+or a failed prerequisite/child. No missing case, runtime, dependency, source,
+input, fixture or module can become a successful skip. Standalone `compare`
+compares supplied traces and does not independently attest their provenance.
+Malformed lock objects and resolution records are invalid evidence, not valid
+mismatches. Existing ordinary Python CI does not run the durable reference.
 
-Exit **0** means the actual reference trace matched its pinned expected fixture;
-**1** means valid traces differ; **2** means unavailable/invalid evidence or a
-failed prerequisite. Malformed lock-package objects, dependency records and
-module-resolution path/specifier records raise explicit evidence errors and
-return 2; they do not receive the valid-mismatch status 1. There is no
-skip-as-pass mode. The standalone `compare`
-command only compares traces; it does not independently attest their provenance.
-Missing or stale Node/npm, ref, dependency, driver, fixture, module-resolution
-or source evidence cannot produce a successful reference run.
+## Closed manifest and source provenance
 
-## Trace and manifest version 1
+Manifest integer version **2** has shared reference/runtime identities, exact
+`adapters` and `comparison` hash maps, exactly three unique `cases`, and OPEN
+Python/parity status. Each case pins input/expected paths and SHA-256, trace and
+projection versions, entrypoint, required loaded source anchors, and exact
+source/test identity and hash. Unknown fields, versions, cases, profiles,
+destinations, duplicates, aliases, unsafe paths, missing files and drift reject.
+Serializable inputs contain only explicitly scripted synthetic values.
 
-The sanitized fixture lives at `tests/fixtures/durable/kernel-memory-v1.json`.
-Its envelope has exactly `schema_version`, `case_id`, `normalization`, and an
-ordered nonempty `steps` array. Each step has exactly `op` and `value`. The
-case is `kernel-memory-v1`, schema integer `1`, normalization `finite-json-v1`.
-Unknown versions/fields and boolean or float schema versions reject. Payloads
-are finite JSON: duplicate object keys, NaN/Infinity, overflow, non-UTF-8 scalar
-strings and integers beyond the interoperable safe range reject.
+The driver preloads pinned
+`packages/coding-agent/src/experimental/source-resolver.ts` with `node --import`.
+Its module hook refuses nonlocal modules and paths outside the snapshot. Every
+recorded file belongs to exactly one checked provenance class:
 
-Only these representation rules apply:
+- Original archived source, with original inventory membership and exact hash.
+  Workspace `@earendil-works/*` imports must resolve to `packages/` source and
+  may contain **no** `node_modules` component.
+- An exact caller adapter artifact from the four-file manifest map: driver,
+  tagged-value contract and the two case modules. Copied hashes are checked
+  after each case; archive collisions refuse. This is no directory exception:
+  undeclared helpers or newly invented `packages/` files reject.
+- A physically installed locked registry dependency, with matching package
+  version, resolved URL, integrity/link evidence and module hash unchanged from
+  the post-install dependency inventory. npm checks archive integrity during
+  installation. No global or upstream node_modules can supply a missing module.
 
-- JSON object key order is immaterial; array/step order remains significant.
-- Finite JSON numbers use their common numeric representation (`1` and `1.0`
-  compare equally); boolean `true` differs from `1`.
-- JavaScript `undefined` is encoded explicitly as `{"$undefined": true}`;
-  absent keys and `null` remain different. This marker is reserved by the trace
-  codec. No undefined field is silently dropped.
-- IDs and commit sequences remain the actual numeric reference values. The
-  driver injects a fixed synthetic clock; it does not erase or rebase observed
-  timestamps. A future language/ID/time adapter requires a versioned contract.
+The driver starts before its own hook; its exact copied hash is attested
+separately. The preloaded source resolver is also explicitly source-hashed.
+Both Python comparison artifacts are manifest-hashed before and after the run.
+The exact manifest byte hash is captured before validation and must remain the
+same after execution; updating a golden and its manifest hash mid-run cannot
+attest a different configuration from the one actually compared.
+Node builtins are runtime-internal, identified by the exact Node runtime pin;
+they are not claimed to be archived workspace files.
 
-Version 1 intentionally accepts only this single case. DE01b must introduce an
-explicit versioned multi-case manifest and validator dispatch, with registered
-case IDs, serializable scenario inputs and per-case observation contracts.
-Preserve the v1 fixture's provenance; do not bypass validation or relabel new
-Harness/tool/env traces as `kernel-memory-v1`. Chord operations here are reference
-trace data, not a requirement for Python's product wire encoding. A real Python
-adapter remains a later implementing slice's work.
+Four precisely named, already-extraneous records in the pinned lock are copied
+by npm into its hidden lock but not installed. They are recorded separately as
+`absent_extraneous_lock_records`, never as present or usable dependencies. This
+is no general missing-dependency allowance: an actual resolution through any
+such record fails.
 
-Errors retain name and message; snapshots, commit publications and Chord
-operations retain every captured field. Calls/effects, histories, usage and
-causal order must never be discarded to obtain equality. This minimal case has
-no provider/tool invocations or usage and therefore proves no such behavior.
-Its ten steps include absent read, conversation creation, document commit,
-rollback error, retained earlier/current snapshots, stored conversation read,
-commit publications and close. It is a small source-derived probe, not a port
-of the entire upstream conformance suite.
+## Trace versions and retained observations
 
-`manifest.json` pins ref/tree/package, source/lock/license hashes, driver hash,
-runtime, case/schema and expected fixture hash. A successful run retains:
+`kernel-memory-v1.json` remains byte-for-byte the DE01a fixture. Its envelope
+has `schema_version: 1`, `case_id`, `normalization: "finite-json-v1"` and ordered
+`steps`, each with `op`/`value`. Its ten steps retain absent read, conversation
+creation, full commit publications/Chord operations, document commit/rollback
+error, detached earlier/current history, storage read and close. IDs and commit
+sequences stay actual. Its reserved `{"$undefined": true}` marker remains a v1
+representation; Chord wire encoding is reference data, not Python product API.
 
-- `trace.json`, `resolutions.json` and `run.json`, including fixture/driver/oracle
-  hashes, archive hash, runtime, module content hashes and dependency evidence;
-- `source-sha256.json`, the complete extracted source inventory, verified after
-  installation and execution;
-- full stdout/stderr and command/exit/deadline metadata per child, plus the
-  exact archive and installed scratch snapshot.
+New cases use integer trace version **2**, the same envelope plus
+`codec: "tagged-js-v1"`, and one registered observation step:
 
-The installed dependency evidence checks package versions, resolved URLs,
-integrities and workspace-link targets against the unmodified lock. npm checks
-archive integrities while installing. Four precise, already-extraneous records
-in the pinned lock (nested typebox 1.1.38 and Anthropic SDK 0.91.1 records) are
-copied by npm into its hidden lock but are physically absent. They are retained
-under `absent_extraneous_lock_records`, separately from `present`; they are
-never counted as installed dependencies. No other missing dependency receives
-this treatment, and an actual module cannot resolve through such a record.
-Root upstream node_modules is neither inspected nor accepted as reference.
+| Case / profile | Actual observations |
+| --- | --- |
+| `harness-round-v1` / `harness-identity-v1` | Settled submission; complete oldest-first history and terminal task records; actual invocation args/count; two full provider request message lists with selected session/cache options; ProviderDoc, UsageDoc and session usage, LiveDoc, reports, faux counters and close |
+| `context-heads-v1` / `context-identity-v1` | Complete raw history, first reset-headed and final summary-headed ContextViews (head, entries, contributions, messages), requested final cutoff and close |
 
-## Provenance and remaining gates
+H1 deliberately adapts two upstream tests: the echo tool round and explicit
+null-details precedence. It acknowledges `details({old:1})`, then returns echo
+output with own `details: null`. API, tool call ID and semantic timestamps are
+scripted; faux prompt/cache usage is measured, including all nonzero counters
+and costs. C1 runs the source scenario's self reset, assistant, summary pointing
+at that assistant, then tail. Marker identity and head target remain distinct;
+selected order `[summary, after, tail]` is not numeric-ID order. No Vitest suite,
+private user data or real provider transcript is imported.
 
-The fixture was recorded from the actual isolated pinned kernel. Its operations
-were authored for pipy using the source contracts in
-`packages/durable/src/session/session.ts`, `storage/memory.ts`, `documents.ts`,
-`test/session-documents.test.ts`, `test/session-support.ts`, and
-`src/testing/storage-conformance.ts`. The manifest preserves SHA-256 identities
-for core inputs. The precise pin makes all remaining source identities available
-without depending on a mutable checkout. The upstream package and source resolver
-run from the archived MIT source; the complete upstream notice is retained in
-`tests/fixtures/durable/UPSTREAM-LICENSE.txt`: **Copyright (c) 2025 Mario Zechner**.
-The synthetic fixture contains no copied user/provider transcript.
+New observation values encode **every** ordinary object as
+`{"type":"object","entries":[[key, encodedValue], ...]}`, every array as
+`{"type":"array","items":[...]}`, and own undefined as
+`{"type":"undefined"}`. Null and finite scalar JSON stay scalar. Thus a literal
+payload object shaped like a codec marker cannot impersonate undefined.
+Absent keys, own undefined and null differ. Sparse arrays are rejected, including
+nested holes and inherited array indices; a missing own element cannot become
+null or own undefined during serialization. Duplicate object entries/JSON keys,
+invalid tags, nonfinite values, invalid Unicode scalar strings and unsafe
+integers (including integral floats/e-notation) reject. Object-key order alone
+is immaterial; true array order, boolean versus number and all payload fields
+remain significant. Integral finite `1.0` and `1` share numeric representation.
 
-Infrastructure tests cover known trace mutations, strict JSON/schema rejection,
-missing ref/runtime/dependencies, drift, module escape/missing closure evidence,
-private child environment and deadline cleanup. A separate actual reference
-command is mandatory; unit tests alone never claim reference execution.
+## Bounded projection with raw evidence
 
-[DE01b](specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices)
-retains semantic Harness/tool/env scenarios, four required oracle negatives
-(lost field, duplicate effect, post-abort write, stale head), complete DE/P
-mapping and the hardware/workload baseline. It must also add a pinned explicit
-`durable-reference` CI job that executes the real reference without skips and
-retains artifacts before DE02 starts. Current ordinary CI checks Python
-infrastructure but does **not** execute Node/reference; a green ordinary CI run
-cannot satisfy that future gate. No performance, real-provider or Python-native
-parity result is claimed by DE01a.
+Expected fixtures are actual **raw** synthetic reference observations, not
+handwritten output predictions. Python is the single projection owner for both
+expected and actual. It returns a projected trace plus a pointer witness; the
+raw trace is never mutated. Witness paths use JSON Pointer relative to the
+decoded observation, with rule, original and projected values. Recompute these
+from raw traces; supplied projection/witness files alone are not attestation.
+
+Projection is limited to these typed fields:
+
+- One global durable ID domain across entries, tasks and submission; root
+  conversation stays reserved `1`. Entry anchors derive from full history's
+  kinds/message roles and causal occurrence, tool-call versus answer; tasks
+  anchor to their terminal entry, submissions to the input. Entry
+  `id/conversationId/head/byTaskId/edits[].target`, submission
+  `id/conversationId/entry/answer`, task `id/conversationId/owner`, model-tool
+  input `assistant`, terminal result `entryId`, C1 requested cutoff and copies
+  in ContextView head/entries use the same reversible mapping. Unknown or
+  colliding identities reject. Selected context never invents its own anchors.
+- ProviderDoc `sessionId` and the two selected request `sessionId` observations
+  share a separate bijection. Reusing or changing an identity preserves that
+  correlation; it cannot collapse every request into the same constant.
+- Only H1 `toolResult.durationMs` in history and captured provider messages may
+  map finite nonnegative integer milliseconds to an elapsed-ms marker. It is
+  measured by upstream `performance.now()`, separately from Harness.now. Copies
+  must agree with the same history tool-call origin to project; a discrepant
+  copy remains numeric and is detected. Raw values and witness retain actual
+  durations. Field absence/type/unit remain significant.
+
+Semantic clocks are explicitly fixed, including historical faux timestamps;
+there is no timestamp rebasing or global clock/performance patch. Task
+started/ended times remain visible. Fixed tool-call IDs, arbitrary data fields
+named `id/timestamp/durationMs`, text/whitespace, errors, diagnostics, args,
+usage/cache/cost, call counts, histories and causal array order are preserved.
+Projected evidence additionally records adjacent numeric ID-order relations
+only for the actual oldest-first `/history` scans and H1's ascending `/tasks`
+scan. Upstream spec §1's entry ordering and the storage scan/mintId contract
+make these relations meaningful. A bijective old/reset ID swap must differ
+rather than disappear. This derives comparison facts without sorting any rows
+or imposing a total order across independent record allocations.
+
+The selected acknowledged boundaries do not claim full scheduler/stream or
+coalesced progress-publication equivalence. No sorting/drop rule masks events.
+
+Schema checks representation, not golden behavior: an absent tool-result
+`details` or coherent earlier context is valid input to comparison. Tests
+actually remove the observed own null-details field and substitute C1's prior
+context while keeping final raw history/cutoff. Both validate and exit **1**;
+malformed evidence exits **2**. Duplicate-effect/post-abort-write negatives
+remain required in b2.
+
+## Evidence, licensing and remaining gates
+
+Each successful run retains root `run.json`, exact archive, source and
+post-install dependency inventories, locked dependency evidence and complete
+per-command stdout/stderr/deadline/exit metadata. Each case directory retains
+copied input, raw `trace.json`, `resolutions.json`, actual/expected projections
+and pointer witnesses, and `result.json` with input/fixture/module hashes.
+Complete success requires all registered IDs; one case cannot cover an omission.
+
+The fixture manifest pins actual source/test identities. H1 adapts
+`packages/durable/test/harness-tools.test.ts`'s named tool-round and
+explicit-null-details tests; C1 adapts `harness-context.test.ts`'s newest/self
+head test, using small source-derived helpers. Reference code is MIT,
+**Copyright (c) 2025 Mario Zechner**; its complete notice remains in
+`tests/fixtures/durable/UPSTREAM-LICENSE.txt`, with attribution in adapted files.
+Committed fixture data is entirely scripted; private runtime logs stay outside
+version control.
+
+[Delivery index](specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices):
+b1 owns the above infrastructure/H1/C1 and two negatives. b2 retains actual
+H2 SQLite safe-policy recovery, H3 durable abort/late-write rejection, E1 real
+NodeExecutionEnv and the other two semantic negatives, rerunning prior cases.
+b3 retains hardware/exported workloads, exhaustive DE/P mapping and a mandatory
+pinned `durable-reference` CI job executing all required cases/four negatives
+with retained artifacts and actual pushed-commit success. DE02 is blocked until
+b3 is green; all original DE01 requirements remain cumulative. No performance,
+full env/platform, real-provider or Python-native parity result is claimed.

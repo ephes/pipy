@@ -362,21 +362,28 @@ def test_output_inside_upstream_is_refused(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "field,value",
+    "case_index,field,value",
     [
-        ("trace_schema", True),
-        ("python_adapter", "PASS"),
-        ("case_id", "other"),
-        ("schema_version", 2),
+        (0, "trace_schema", True),
+        (0, "trace_schema", 1.0),
+        (1, "trace_schema", True),
+        (1, "trace_schema", 2.0),
+        (1, "id", "other"),
+        (1, "id", True),
+        (None, "python_adapter", "PASS"),
+        (None, "schema_version", 3),
     ],
 )
-def test_manifest_contract_cannot_claim_other_schema_or_parity(tmp_path, field, value):
+def test_manifest_contract_cannot_claim_other_schema_or_parity(
+    tmp_path, case_index, field, value
+):
     import shutil
 
     fixtures = tmp_path / "fixtures"
     shutil.copytree(oracle.FIXTURES, fixtures)
     config = json.loads((fixtures / "manifest.json").read_text())
-    config[field] = value
+    target = config if case_index is None else config["cases"][case_index]
+    target[field] = value
     oracle.dump(fixtures / "manifest.json", config)
     with pytest.raises(ValueError):
         oracle.manifest(fixtures)

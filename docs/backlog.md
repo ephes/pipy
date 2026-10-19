@@ -102,11 +102,15 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE00 landed at `ad04766`. DE01a is in progress.**
-DE01 is split into pinned bootstrap/trace/minimal reference execution (DE01a)
-and semantic fixtures, four oracle negatives, hardware/workloads, full mapping
-and explicit reference CI (DE01b). DE02 depends on DE01b; all original DE01
-acceptances remain required. See [reference reproduction](durable-reference.md).
+**Execution is authorized; DE01a and its R1 repair landed; DE01b1 is in progress.**
+DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
+`35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
+successful in all ten jobs. DE01b is split sequentially before implementation:
+DE01b1 owns strict multi-case/provenance/projection plus H1/C1 and lost-field/
+stale-head negatives; DE01b2 owns H2/H3/E1 and duplicate-effect/post-abort-write
+negatives; DE01b3 owns hardware/workloads, exhaustive mapping and mandatory real
+reference CI. DE02 depends on DE01b3. All original DE01 acceptance remains
+cumulative and all P rows OPEN. See [reference reproduction](durable-reference.md).
 The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md) tracks all
 DE00–DE45 slices and P01–P43 requirements. The final plan review was
 Suggestions-only **ISSUES**, with both wording suggestions applied before the

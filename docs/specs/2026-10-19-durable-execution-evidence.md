@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00 landed; DE01a in progress; all parity rows OPEN**,
+Status: **DE01a and R1 landed; DE01b1 in progress; all parity rows OPEN**,
 2026-10-19. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -137,9 +137,11 @@ that coverage here. A local validation result is not a landed slice.
 | Slice | Work | Status | Evidence / review / main commit / push |
 | --- | --- | --- | --- |
 | DE00 | Experiment and work-order import | LANDED | E00-*; Opus 5.5 HIGH CLEAN; main/pushed `ad04766daefde48604f73112d1611f4389f40877`; CI 39236305603 success |
-| DE01a | Pinned bootstrap, trace/manifest contract and actual Kernel/Memory reference probe | OPEN | Implementation in progress; independent review/landing OPEN; no Python durable comparison adapter |
-| DE01b | Semantic Harness/tool/env fixtures; four oracle negatives; hardware/workloads; complete DE/P mapping; explicit reference CI | OPEN | Depends on DE01a; preserves remaining original DE01 acceptance; DE02 depends on DE01b |
-| DE02 | Records, memory storage and atomic session core | OPEN | None; all gates OPEN |
+| DE01a | Pinned bootstrap, trace/manifest contract and actual Kernel/Memory reference probe | LANDED | `97d623f`; initial CI failed; repaired by R1 `35142ec`; Python adapter OPEN |
+| DE01b1 | Strict multi-case/provenance/projection; H1/C1; lost-field/stale-head negatives | OPEN | Implementation authorized after R1 green; kernel fixture retained unchanged; all P OPEN |
+| DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | OPEN | Depends on b1; rerun all prior cases/four negatives |
+| DE01b3 | Hardware/workloads, exhaustive mapping, mandatory real pinned reference CI | OPEN | Depends on b2; all original DE01b acceptance retained cumulatively; blocks DE02 |
+| DE02 | Records, memory storage and atomic session core | OPEN | Blocked until DE01b3 is green |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -241,13 +243,14 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 landed on 2026-10-19. DE01 is split before implementation into DE01a and
-DE01b in the delivery index; DE02 depends on DE01b. Together they own the pinned
-reference adapter, known-mismatch negatives, sanitized fixture manifest,
-licensing/provenance and comparison schema. No required P behavior, real-provider
-evidence or performance budget has been measured by DE00. Subsequent gates may
-only close from concrete evidence; unavailable tooling/auth or an ISSUES verdict
-stays explicit.
+DE00, DE01a and its R1 test-isolation repair have landed (historical delivery
+evidence below). DE01b proceeds sequentially through b1 multi-case H1/C1 fixtures,
+b2 H2/H3/E1 recovery/abort/environment fixtures, and b3 workload/hardware baselines,
+complete manifest mapping and mandatory reference CI. DE02 remains blocked until
+DE01b3 is green. DE01b1 implementation evidence below does not close its pending
+independent delivery gates or any required P row. No real-provider evidence or
+performance budget is claimed. Subsequent gates close only from concrete
+evidence; unavailable tooling/auth and historical ISSUES verdicts stay explicit.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -278,6 +281,10 @@ OPEN until a later implementing slice provides real operations. Current CI has
 no reference execution, and its green result cannot imply that reference gate.
 
 ## DE01a local reference evidence
+
+The following local-phase entries preserve their then-open statuses and first
+ISSUES verdict. Actual subsequent DE01a/R1 landing and CI are recorded under
+[historical landing](#historical-de01a-and-r1-landing-de01b-split-before-implementation).
 
 Status: **implemented locally; independent review and landing OPEN**. See
 [reference reproduction and contract](../durable-reference.md). The exact final
@@ -386,7 +393,7 @@ freeze and the unchanged future DE01b boundaries. No P row is closed.
 
 ## DE01a-R1 — isolate the two evidenced CI test prerequisites
 
-Status: **local test-isolation repair verified; independent gates and landing OPEN**.
+Historical writer-freeze status: **local test-isolation repair verified; independent gates and landing OPEN**.
 
 | R1 part | Concrete prerequisite | Boundary |
 | --- | --- | --- |
@@ -508,3 +515,147 @@ the two private witness directories. The combined four-file freeze preserves
 all runner/product/manifest bytes and both previous commit/review histories.
 The coordinator's independent final full check and fresh whole-R1 review remain
 OPEN; no worker review, stage, commit or push has occurred.
+
+## Historical DE01a and R1 landing; DE01b split before implementation
+
+DE01a landed at `97d623f599e43eeb856cf5566ad5411d8d962830` after independent
+Opus 5.5 HIGH follow-up CLEAN (`/tmp/pipy-de01a-gate.OJD8G0/reviewfix/review-delta/`,
+recorded baseline `26121262b6ba819ee37482059bf823f2dc6d5e81`). Its initial
+[CI 39247137514](https://github.com/ephes/pipy/actions/runs/39247137514) failed;
+that failed result and earlier ISSUES remain history, not retroactive successes.
+R1 independently fixed the evidenced npm prerequisite and PTY readiness tests.
+Its first review was ISSUES; the coordinator rejected the paint-only warning
+using unchanged readiness-helper dispatch and an actual probe, and accepted the
+missing-table-blank-line suggestion. The resulting Opus 5.5 HIGH follow-up was
+CLEAN, result `/tmp/pipy-de01a-r1-gate.veuqv9ul/doc-table/review-delta/result.json`,
+recorded baseline `b2087d66ddb995491fc4ecfe2f25eb5eb2582789`.
+
+R1 landed at `35142ec28f720f010ffe670de86a2bc9f0cc016e`, tree
+`9d6a5d5d56daa48907441f7b46783d41e7e0e733`, independently confirmed as remote
+main. [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
+succeeded in all ten jobs. Each full Python 3.11/3.14/3.15 job recorded 12,771
+passed and 208 skipped; those skips are not passes and exact IDs were not printed.
+Each of two required-WASI jobs passed 441 with zero skips; four real-PTY jobs
+passed 17 each with zero skips. Full delivery/log audit:
+`/tmp/pipy-de01a-r1-gate.veuqv9ul/delivery/delivery-final.json` (141 log files,
+12,676 lines audited). These jobs do not execute the durable Node reference.
+
+Before DE01b implementation the authorized delivery split is b1 -> b2 -> b3,
+then DE02. b1 owns strict registry/provenance/projection and H1/C1 with two
+schema-valid semantic negatives; b2 retains actual H2/H3/E1 and the other two
+negatives; b3 retains hardware/workloads, exhaustive mapping and mandatory real
+reference CI. All original DE01 acceptance remains required, all P rows OPEN,
+and the Python durable comparison adapter remains absent. No b1 gate or review
+is claimed by this pre-implementation index entry.
+
+## DE01b1 — multi-case reference evidence
+
+Status: **implemented locally; independent full check/review/landing OPEN**.
+Base is R1 `35142ec28f720f010ffe670de86a2bc9f0cc016e`, confirmed clean on main
+before the delivery-index split and implementation. All P01–P43 rows and the
+absent Python comparison adapter remain OPEN. DE02 remains blocked by b3.
+
+The strict v2 registry executes exactly kernel-memory-v1, harness-round-v1 and
+context-heads-v1. Four exact MTS artifacts and both Python artifacts form closed
+hashed inventories; original sources, caller adapters and locked registry
+modules have separate provenance. No caller directory is an archive exception.
+New raw traces use collision-free tagged JS values; expected/actual projection
+and pointer witnesses are derived by the same Python owner while raw evidence
+is retained. The kernel fixture is byte-unchanged, SHA-256
+`a74321597569dbe95e2d82516e4559ebf9b839c1f9f87156157879c3d48a5ef1`.
+
+H1 is an explicit source adaptation combining the named upstream tool-round
+and explicit-null-details tests. Its actual run settles done with five complete
+entries, three terminal tasks, one echo invocation and two provider requests.
+It retains the own null details, offered schema, structured diagnostics,
+call/task/submission correlations, nonzero usage/cache counters, reports and
+close. Faux's API is a fixed input, not normalized random text; historical
+message/Harness clocks are explicit, and actual tool duration is retained raw.
+C1 executes actual self-head reset, assistant, summary and tail. Full history
+and both ContextViews preserve head-marker identity versus target, contributions,
+messages and final cutoff. No hand-authored expected runtime trace is used.
+
+A final fidelity check found a real pre-freeze oracle defect: globally swapping
+C1 old/reset IDs consistently could hide reversed ID-ordered history while
+remaining schema-valid. Source `packages/durable/docs/spec.md:259,5089,5179`
+defines ordered entry IDs and ID scans. The narrowly accepted repair retains
+adjacent order relations only for recorded history and H1 task scans. It neither
+sorts events nor imposes cross-kind allocation order. The original equal-0
+probe and mutant remain in `/tmp/pipy-de01b1-tgygcjxb/c1-id-order-probe.json` and
+`c1-id-order-mutant.json`; repaired CLI regressions require valid mismatch 1.
+Earlier reference runs remain evidence only for their earlier exact code hashes.
+
+The initial frozen candidate passed 153 tests with zero skips on each real Python
+3.11.13, 3.14.8 and 3.15.0, using normal HOME and isolated existing environments.
+It covers both valid semantic negatives, tagged undefined/null/literal fidelity,
+closed manifests/adapter modules, global ID collisions and scan-order changes,
+provider/duration copy correlation, arbitrary payload preservation, finite JSON,
+missing evidence, privacy and deadline cleanup. Explicit lint/format/mypy and
+rendered documentation verification are included in the freeze logs.
+
+Every actual complete run uses a fresh private exact-commit archive and original
+locked scratch npm installation. Source/dependency inventories and per-child
+commands, full stdout/stderr, exits and deadlines are retained under
+`/tmp/pipy-de01b1-tgygcjxb/`. Actual dependency refusal removes a previously
+resolved physical typebox module from a private COPY of a successful snapshot:
+Node exits 1, the outer runner exits 2, and no success manifest is produced.
+The original successful snapshots and upstream remain unmodified. Missing
+Node/ref/fixture and drift also exit 2; actual H1 lost-field and C1 stale-head
+mutants validate and exit 1, while unmutated traces exit 0.
+
+Remaining acceptance is explicit: b2 still owns H2 SQLite safety intersections,
+H3 durable abort/late-write refusal, E1 real env and duplicate-effect/post-abort
+mutants; b3 still owns exported workload/hardware measurement, exhaustive DE/P
+mapping and mandatory real pinned reference CI with pushed-job evidence. None
+of those boundaries is satisfied by b1 or ordinary Python CI. The upstream
+MIT notice (Mario Zechner 2025) remains complete and adapted files cite it.
+
+A final provenance guard also pins manifest bytes from before validation through
+execution and final revalidation. Its deterministic isolated control-flow
+regression changes a previously compared golden and its matching manifest hash:
+the old path returns 0, the repaired path returns 2 with no success manifest.
+This mocked bootstrap regression supplies no real reference evidence; its
+before/after logs are `manifest-drift-before.log` and
+`focused-manifest-guard.log`. The final actual runs after both accepted guards
+are `reference-freeze-a/` and `reference-freeze-b/`; earlier run directories
+remain tied to their earlier comparison-artifact hashes.
+
+
+## DE01b1 first-review repair disposition
+
+The first independent Opus 5.5/high review completed **ISSUES**, with three
+Suggestions and no Critical or Warning findings. Its historical result remains
+`/tmp/pipy-de01b1-gate.bUqBfmEu/review-first/result.json`, baseline
+`e6dcfe461f3f0dd287b768468d9d476c71241859`, reviewed tree
+`3165f199809a8ddfa03f44527d2dc5d60b72bdee`. The coordinator accepted all three
+small, material repairs; this does not rename that review CLEAN.
+
+- S1: reject sparse JS arrays before serialization, rather than aliasing holes
+  to null or own undefined. The permanent actual-encoder regression is
+  `tests/durable/test_reference_codec.mts`, explicitly invoked with pinned
+  Node v26.12.0; it adds no Node requirement to ordinary pytest. The same test
+  fails before the guard and passes afterward. Dense goldens remain unchanged.
+- S2: mutate actual v2 `cases[i].trace_schema` and `cases[i].id` fields; boolean
+  and floating-point schema versions are refused directly. The unsupported
+  top-level schema-version-3 negative and parity-claim negative remain.
+- S3: synchronize the next-gate paragraph and the authorized harness-spec
+  summary to landed DE01a/R1 and sequential b1/b2/b3 before DE02.
+
+The explicitly extended owned set is 21 files: the previous 19 plus
+`docs/harness-spec.md` and the standalone MTS codec regression. Repair logs,
+before/after hashes, two fresh pinned reference runs, semantic/prerequisite
+negatives and rendered docs evidence are retained under
+`/var/folders/79/dxyqffhn7753q_b9602pnfnm0000gn/T/pipy-de01b1-reviewfix-0zn2bzuq/`. The earlier freeze and its reference runs
+remain evidence for their earlier exact hashes. A fresh independent full check
+and scoped follow-up review are pending; the proved JS codec collision and its
+real regression justify that follow-up. No b2 implementation, P-row closure,
+Python durable adapter or reference-CI completion is claimed.
+
+Repair-focused acceptance is 159 passed with zero skips on each real Python
+3.11.13, 3.14.8 and 3.15.0, with normal HOME. Explicit Python lint, formatting
+and mypy pass. The permanent Node regression records Exit 1 before the guard
+and Exit 0 after it; a separate pre-fix probe records the actual hole/null
+collision. The two repaired-candidate reference directories are again named
+`reference-freeze-a/` and `reference-freeze-b/` under the new repair-log root;
+their manifests bind the new exact MTS hash closure, with unchanged golden
+hashes. All three cases and both schema-valid semantic negatives remain required.

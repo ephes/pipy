@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
-import re
 import shutil
 import signal
 import subprocess
@@ -38,8 +38,15 @@ ABSENT_EXTRANEOUS = frozenset(
 )
 
 
-class EvidenceError(ValueError):
-    """The run cannot supply valid reference evidence."""
+# Explicit sibling loading also works for tests that load this CLI by file path.
+_contract_spec = importlib.util.spec_from_file_location(
+    "durable_reference_contract",
+    Path(__file__).with_name("durable_reference_contract.py"),
+)
+assert _contract_spec is not None and _contract_spec.loader is not None
+contract = importlib.util.module_from_spec(_contract_spec)
+_contract_spec.loader.exec_module(contract)
+EvidenceError = contract.EvidenceError
 
 
 def sha(path: Path) -> str:
@@ -113,6 +120,9 @@ def dump(path: Path, value: Any) -> None:
 
 def trace(value: Any) -> dict[str, Any]:
     finite(value)
+    contract.validate_trace(value)
+    if value["schema_version"] == 2:
+        return value
     if type(value) is not dict or set(value) != {
         "schema_version",
         "case_id",
@@ -156,78 +166,44 @@ def _canonical(value: Any) -> str:
 
 
 def compare(expected: Any, actual: Any) -> bool:
-    return _canonical(trace(expected)) == _canonical(trace(actual))
-
-
-def _manifest_contract(value: Any) -> None:
-    if (
-        (
-            value["case_id"],
-            value["normalization"],
-            value["python_adapter"],
-            value["parity_rows"],
-        )
-        != ("kernel-memory-v1", "finite-json-v1", "OPEN", "OPEN")
-        or type(value["trace_schema"]) is not int
-        or value["trace_schema"] != 1
-    ):
-        raise EvidenceError("Unsupported manifest contract")
-    ref = value["reference"]
-    if type(ref) is not dict or set(ref) != {
-        "commit",
-        "tree",
-        "package",
-        "version",
-        "source_sha256",
-    }:
-        raise EvidenceError("Unknown reference manifest schema")
-    if ref["package"] != "@earendil-works/pi-durable":
-        raise EvidenceError("Reference package drift")
-    sources = ref["source_sha256"]
-    if (
-        type(sources) is not dict
-        or "package-lock.json" not in sources
-        or RESOLVER not in sources
-    ):
-        raise EvidenceError("Missing pinned source hashes")
-    for path, digest in sources.items():
-        if (
-            Path(path).is_absolute()
-            or ".." in Path(path).parts
-            or not re.fullmatch(r"[0-9a-f]{64}", digest)
-        ):
-            raise EvidenceError("Invalid pinned source hash")
-    if type(value["runtime"]) is not dict or set(value["runtime"]) != {"node", "npm"}:
-        raise EvidenceError("Unknown runtime manifest schema")
+    return _canonical(contract.project(trace(expected))[0]) == _canonical(
+        contract.project(trace(actual))[0]
+    )
 
 
 def manifest(fixtures: Path = FIXTURES, driver: Path = DRIVER) -> dict[str, Any]:
     value = load(fixtures / "manifest.json")
-    required = {
-        "schema_version",
+    contract.registry(value, ROOT, fixtures, load, sha, driver)
+    ref = contract.shape(
+        value["reference"],
+        {"commit", "tree", "package", "version", "source_sha256"},
         "reference",
-        "runtime",
-        "case_id",
-        "trace_schema",
-        "normalization",
-        "python_adapter",
-        "parity_rows",
-        "driver_sha256",
-        "expected_trace_sha256",
-    }
-    if type(value) is not dict or set(value) != required:
-        raise EvidenceError("Unknown manifest schema")
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
-        raise EvidenceError("Unsupported manifest version")
-    _manifest_contract(value)
-    ref = value["reference"]
-    if ref["commit"] != PIN or ref["tree"] != TREE or ref["version"] != "1.3.0":
+    )
+    if (ref["commit"], ref["tree"], ref["package"], ref["version"]) != (
+        PIN,
+        TREE,
+        "@earendil-works/pi-durable",
+        "1.3.0",
+    ):
         raise EvidenceError("Reference identity drift")
-    if value["driver_sha256"] != sha(driver):
-        raise EvidenceError("Driver hash drift")
-    if value["expected_trace_sha256"] != sha(fixtures / "kernel-memory-v1.json"):
-        raise EvidenceError("Fixture hash drift")
-    trace(load(fixtures / "kernel-memory-v1.json"))
+    sources = ref["source_sha256"]
+    if (
+        type(sources) is not dict
+        or not {"package-lock.json", "LICENSE", RESOLVER} <= sources.keys()
+    ):
+        raise EvidenceError("Missing pinned source hashes")
+    for path, digest in sources.items():
+        contract.safe_path(path)
+        contract.digest(digest)
+    runtime = contract.shape(value["runtime"], {"node", "npm"}, "runtime")
+    if runtime != {"node": "v26.12.0", "npm": "11.20.0"}:
+        raise EvidenceError("Runtime identity drift")
+    for case in value["cases"]:
+        for test in case["upstream_tests"]:
+            if sources.get(test["path"]) != test["sha256"]:
+                raise EvidenceError("Case source provenance drift")
+        if not set(case["required_modules"]) <= sources.keys():
+            raise EvidenceError("Case module provenance missing")
     return value
 
 
@@ -371,7 +347,7 @@ def module_dependencies(
 
 
 def _resolution_module(
-    snapshot: Path, item: Any, originals: dict[str, str]
+    snapshot: Path, item: Any, originals: dict[str, str], adapters: dict[str, str]
 ) -> tuple[str, str]:
     if type(item) is not dict or set(item) != {"path", "specifier"}:
         raise EvidenceError("Invalid module-resolution record")
@@ -398,29 +374,45 @@ def _resolution_module(
     ):
         raise EvidenceError("Workspace module did not resolve to pinned source")
     digest = sha(path)
-    if not registry and originals.get(relative) != digest:
+    if (
+        not registry
+        and originals.get(relative) != digest
+        and adapters.get(relative) != digest
+    ):
         raise EvidenceError("Resolved source is absent from pinned archive or changed")
     return relative, digest
 
 
 def verify_resolutions(
-    snapshot: Path, resolutions: Any, originals: dict[str, str]
+    snapshot: Path,
+    resolutions: Any,
+    originals: dict[str, str],
+    adapters: dict[str, str] | None = None,
+    required: list[str] | None = None,
 ) -> dict[str, str]:
     snapshot = snapshot.resolve()
     if type(resolutions) is not list or not resolutions:
         raise EvidenceError("Missing module-resolution evidence")
-    result = dict(_resolution_module(snapshot, item, originals) for item in resolutions)
-    for required in (
-        "packages/durable/src/session/session.ts",
-        "packages/durable/src/storage/memory.ts",
-        "packages/durable/src/documents.ts",
+    result = dict(
+        _resolution_module(snapshot, item, originals, adapters or {})
+        for item in resolutions
+    )
+    for anchor in (
+        required
+        if required is not None
+        else (
+            "packages/durable/src/session/session.ts",
+            "packages/durable/src/storage/memory.ts",
+            "packages/durable/src/documents.ts",
+        )
     ):
-        if required not in result:
+        if anchor not in result:
             raise EvidenceError("Required kernel module not executed")
     return result
 
 
 def reference(source: Path, output: Path, fixtures: Path = FIXTURES) -> int:
+    manifest_sha256 = sha(fixtures / "manifest.json")
     config = manifest(fixtures)
     if not (source / ".git").exists():
         raise EvidenceError("Reference source must be a checkout root")
@@ -453,6 +445,77 @@ def reference(source: Path, output: Path, fixtures: Path = FIXTURES) -> int:
         version = execute([binary, "--version"], binary + "-version").decode().strip()
         if version != config["runtime"][binary]:
             raise EvidenceError(f"Runtime version drift: {binary}")
+    originals, dependencies, dependency_hashes = install_reference(
+        source, snapshot, output, config, execute
+    )
+    adapters = copy_adapters(config, snapshot, originals)
+    results = []
+    for case in config["cases"]:
+        result = reference_case(
+            case,
+            snapshot,
+            output,
+            fixtures,
+            execute,
+            originals,
+            adapters,
+            dependencies,
+            dependency_hashes,
+        )
+        results.append(result)
+    # Revalidate caller artifacts and fixtures after all children, not just at startup.
+    manifest(fixtures)
+    if sha(fixtures / "manifest.json") != manifest_sha256:
+        raise EvidenceError("Manifest identity changed during reference execution")
+    complete = [item["id"] for item in results] == [
+        case["id"] for case in config["cases"]
+    ]
+    if not complete:
+        raise EvidenceError("Incomplete required case execution")
+    equal = all(item["equal"] for item in results)
+    dump(
+        output / "run.json",
+        {
+            "schema_version": 2,
+            "status": "reference-verified" if equal else "mismatch",
+            "complete": complete,
+            "required_cases": [c["id"] for c in config["cases"]],
+            "cases": results,
+            "reference": config["reference"],
+            "runtime": config["runtime"],
+            "manifest_sha256": manifest_sha256,
+            "comparison_sha256": config["comparison"],
+            "adapters": config["adapters"],
+            "archive_sha256": sha(output / "reference.tar"),
+            "source_inventory_sha256": sha(output / "source-sha256.json"),
+            "dependency_inventory_sha256": sha(output / "dependency-sha256.json"),
+            "source_verification": "unchanged-after-install-and-each-case",
+            "installed_dependencies": dependencies,
+            "python_adapter": "OPEN",
+            "parity_rows": "OPEN",
+        },
+    )
+    return 0 if equal else 1
+
+
+def copy_adapters(
+    config: Any, snapshot: Path, originals: dict[str, str]
+) -> dict[str, str]:
+    adapters = {}
+    for source_path, artifact in config["adapters"].items():
+        destination = snapshot / artifact["destination"]
+        if destination.exists() or artifact["destination"] in originals:
+            raise EvidenceError("Adapter/archive path collision")
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / source_path, destination)
+        adapters[artifact["destination"]] = artifact["sha256"]
+    verify_sources(snapshot, adapters)
+    return adapters
+
+
+def install_reference(
+    source: Path, snapshot: Path, output: Path, config: Any, execute: Any
+) -> tuple[dict[str, str], Any, dict[str, str]]:
     archive = execute(
         ["git", "-C", str(source), "archive", "--format=tar", PIN], "archive"
     )
@@ -474,47 +537,90 @@ def reference(source: Path, output: Path, fixtures: Path = FIXTURES) -> int:
     )
     verify_sources(snapshot, originals)
     dependencies = installed_dependencies(snapshot)
-    shutil.copyfile(DRIVER, snapshot / "durable_pi_reference.mts")
+    dependency_hashes = {
+        str(p.relative_to(snapshot)): sha(p)
+        for p in snapshot.rglob("*")
+        if "node_modules" in p.relative_to(snapshot).parts and p.is_file()
+    }
+    dump(output / "dependency-sha256.json", dependency_hashes)
+    return originals, dependencies, dependency_hashes
+
+
+def reference_case(
+    case: dict[str, Any],
+    snapshot: Path,
+    output: Path,
+    fixtures: Path,
+    execute: Any,
+    originals: dict[str, str],
+    adapters: dict[str, str],
+    dependencies: Any,
+    dependency_hashes: dict[str, str],
+) -> dict[str, Any]:
+    case_output = output / case["id"]
+    case_output.mkdir(mode=0o700)
+    # Copy the hashed input: children never reopen a mutable caller fixture mid-run.
+    input_path = case_output / "input.json"
+    shutil.copyfile(fixtures / case["input"]["path"], input_path)
+    if sha(input_path) != case["input"]["sha256"]:
+        raise EvidenceError("Input changed during copy")
     execute(
         [
             "node",
             "--import",
             str(snapshot / RESOLVER),
-            str(snapshot / "durable_pi_reference.mts"),
+            str(snapshot / case["adapter"]),
+            case["id"],
+            str(input_path),
+            str(case_output),
         ],
-        "kernel-memory",
+        case["id"],
         timeout=60,
     )
     verify_sources(snapshot, originals)
-    resolutions = load(snapshot / "resolutions.json")
-    modules = verify_resolutions(snapshot, resolutions, originals)
-    module_dependencies(snapshot, modules, dependencies)
-    actual = trace(load(snapshot / "trace.json"))
-    dump(output / "trace.json", actual)
-    dump(output / "resolutions.json", resolutions)
-    equal = compare(load(fixtures / "kernel-memory-v1.json"), actual)
-    dump(
-        output / "run.json",
-        {
-            "schema_version": 1,
-            "status": "reference-verified" if equal else "mismatch",
-            "reference": config["reference"],
-            "runtime": config["runtime"],
-            "manifest_sha256": sha(fixtures / "manifest.json"),
-            "driver_sha256": sha(DRIVER),
-            "oracle_sha256": sha(Path(__file__)),
-            "fixture_sha256": config["expected_trace_sha256"],
-            "archive_sha256": sha(output / "reference.tar"),
-            "source_inventory_sha256": sha(output / "source-sha256.json"),
-            "source_verification": "unchanged-after-install-and-execution",
-            "trace_sha256": sha(output / "trace.json"),
-            "installed_dependencies": dependencies,
-            "module_sha256": modules,
-            "python_adapter": "OPEN",
-            "parity_rows": "OPEN",
-        },
+    verify_sources(snapshot, adapters)
+    resolutions = load(case_output / "resolutions.json")
+    modules = verify_resolutions(
+        snapshot, resolutions, originals, adapters, case["required_modules"]
     )
-    return 0 if equal else 1
+    module_dependencies(snapshot, modules, dependencies)
+    for relative, digest in modules.items():
+        if (
+            "node_modules" in Path(relative).parts
+            and dependency_hashes.get(relative) != digest
+        ):
+            raise EvidenceError("Resolved dependency changed after installation")
+    actual = trace(load(case_output / "trace.json"))
+    if actual["case_id"] != case["id"]:
+        raise EvidenceError("Executed case identity drift")
+    projected, witness = contract.project(actual)
+    dump(case_output / "projected.json", projected)
+    dump(case_output / "projection-witness.json", witness)
+    expected = load(fixtures / case["expected"]["path"])
+    expected_projection, expected_witness = contract.project(trace(expected))
+    dump(case_output / "expected-projected.json", expected_projection)
+    dump(case_output / "expected-projection-witness.json", expected_witness)
+    equal = compare(expected, actual)
+    result = {
+        "id": case["id"],
+        "equal": equal,
+        "input_sha256": sha(input_path),
+        "raw_sha256": sha(case_output / "trace.json"),
+        "projected_sha256": sha(case_output / "projected.json"),
+        "witness_sha256": sha(case_output / "projection-witness.json"),
+        "expected_sha256": case["expected"]["sha256"],
+        "module_sha256": modules,
+        "module_provenance": {
+            path: "pinned-archive"
+            if path in originals
+            else "caller-adapter"
+            if path in adapters
+            else "locked-dependency"
+            for path in modules
+        },
+    }
+    dump(case_output / "result.json", result)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
