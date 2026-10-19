@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "reference": {
     "commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
     "tree": "b51be844ffaf57e96d06a58d3f45ee90c6ba7401",
@@ -35,7 +35,11 @@
       "packages/durable/test/harness-tasks.test.ts": "289f7cd084dc619201e816063abb1a1ae0bdf114d7a32a18370761986fbedccf",
       "packages/durable/src/env/node.ts": "8da3592f9d0d99ce0e97faaab2ae123dd8070270ece12036d5a6a10c69ea422b",
       "packages/durable/src/env/index.ts": "6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff",
-      "packages/durable/src/testing/env-conformance.ts": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e"
+      "packages/durable/src/testing/env-conformance.ts": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e",
+      "packages/durable/src/testing/storage-benchmark.ts": "8dae25ae6eb39d5e7fccc10df0258efb89c6a6d3ff9cef134eb4cb42385f89a5",
+      "packages/durable/src/testing/index.ts": "771ad9e6f6ce2f12a86e3c089eceaf4ca4084478bfddf272908fd93a9335084f",
+      "packages/durable/test/storage.bench.ts": "cac1b9e824538f9bbf470a63c130f9cbd3841daf5477592e19b574d590faf113",
+      "packages/durable/test/storage-memory.ts": "fe3bd4560fb90efbd84d9c4110a3734c859cb071c5029acf7b3eb8b1946654a7"
     }
   },
   "runtime": {
@@ -45,7 +49,7 @@
   "adapters": {
     "scripts/durable_pi_reference.mts": {
       "destination": "durable_pi_reference.mts",
-      "sha256": "0ceb0335ad05dcecd17d971fcf144f8cc5f8ac42060e502a068621daef7f1d2c"
+      "sha256": "2a50c2d7fb2e72f590ae5e8a82046d828a6812799e7fd925e706c30a0ad49cfd"
     },
     "scripts/durable_reference/contract.mts": {
       "destination": "durable_reference/contract.mts",
@@ -70,11 +74,16 @@
     "scripts/durable_reference/cases/env-conformance.mts": {
       "destination": "durable_reference/cases/env-conformance.mts",
       "sha256": "8e29561a5ac3a00dd0f8a28eb95acd6e9203c39c048c54a1b2e942c56c8c698d"
+    },
+    "scripts/durable_reference/cases/storage-baseline.mts": {
+      "destination": "durable_reference/cases/storage-baseline.mts",
+      "sha256": "a0d4ccf20ca31ef1b9d6b2c5ba4347ab7fe33f509e20117c059442ca4844c6be"
     }
   },
   "comparison": {
-    "scripts/durable_pi_comparison.py": "67e9f2b041b3cb322dd0bb1c5ac90c4b00b4b8486363faccdc2c5e2ebe199219",
-    "scripts/durable_reference_contract.py": "66b58157edec07c81a5be3e63ce2415b28eb9670d8379ee8b90478ee92be1d39"
+    "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
+    "scripts/durable_reference_acceptance.py": "ac3daed1be61c3639085603f6da2f5536d630c21e3b2674be1415e5258fd4e49",
+    "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12"
   },
   "cases": [
     {
@@ -256,5 +265,69 @@
     }
   ],
   "python_adapter": "OPEN",
-  "parity_rows": "OPEN"
+  "parity_rows": "OPEN",
+  "verification": {
+    "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
+    "tests/durable/test_pi_comparison_acceptance.py": "ef29bfe68e89625870e8089a8534748ee55acaae9d25cbb6027ce5d140267753",
+    "tests/durable/test_pi_comparison_cases.py": "0a0d536846424e613ee1f7d98d5ce7169a6d360a2c93f4bb65939099e9cff83b",
+    "tests/durable/test_pi_comparison_coverage.py": "68454be6d28bc0c4fb979e158cf93db1f20076bdb0260cf45732d7aa7d03d671",
+    "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
+  },
+  "workload": {
+    "id": "storage-baseline-v1",
+    "input": {
+      "path": "storage-baseline-v1.input.json",
+      "sha256": "42afd63f6755fe8168d9b5d2043205d947ee46c4f8acb1be031c7cc708a73c0a"
+    },
+    "adapter": "durable_pi_reference.mts",
+    "required_modules": [
+      "packages/durable/src/testing/storage-benchmark.ts",
+      "packages/durable/src/storage/memory.ts"
+    ],
+    "read_names": [
+      "exact entry lookup",
+      "entry page scan (100)",
+      "filtered task scan (50)",
+      "exact document address among many",
+      "document replay tail (0)",
+      "document replay tail (16)",
+      "document replay tail (128)",
+      "document replay tail (1024)",
+      "ancient historical read before newer base",
+      "recent historical read after newer base",
+      "fork-depth history scan (100)",
+      "fork-depth head lookup"
+    ],
+    "write_names": [
+      "commit one entry",
+      "commit 100 entries",
+      "commit mixed entry/task/submission/document"
+    ]
+  },
+  "oracles": [
+    {
+      "id": "lost-field",
+      "case": "harness-round-v1",
+      "mutation_version": 1
+    },
+    {
+      "id": "stale-head",
+      "case": "context-heads-v1",
+      "mutation_version": 1
+    },
+    {
+      "id": "duplicate-effect",
+      "case": "tool-recovery-v1",
+      "mutation_version": 1
+    },
+    {
+      "id": "post-abort-write",
+      "case": "durable-abort-v1",
+      "mutation_version": 1
+    }
+  ],
+  "coverage": {
+    "path": "coverage.json",
+    "sha256": "0b60a46aa6848f5c07fa56479d7e080ad8d1a4a1f6b09f1e08e53186f4d2cbef"
+  }
 }

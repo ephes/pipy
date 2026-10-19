@@ -8,6 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The [durable acceptance command](docs/durable-reference.md#fresh-local-acceptance)
+  now bootstraps all six pinned reference families once, executes twelve exported
+  storage reads and three writes with persisted readbacks before bounded timing,
+  records hardware/counts, and requires four freshly derived valid mismatch
+  mutants. Manifest3 binds the workload, verification tools and exhaustive95-row
+  DE/P current-versus-future index. Coverage statuses and source/contract anchors
+  match the ledger/plan, with future CI evidence separated from inherited local
+  observations. Malformed mutation inputs fail as invalid evidence; regression
+  controls distinguish negativeCLI2 from required semantic mismatch1.
+  Python parity remains open; mandatory hosted
+  reference CI and selective artifacts remain in DE01b3b.
+
 - The [pinned durable reference runner](docs/durable-reference.md) now executes
   real SQLite recovery across four replay-policy combinations, durable abort
   with refused late writes, and two exported Node environment byte/argv cases.
@@ -16,7 +28,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   outcomes fail as invalid evidence. Closed database sidecars are checked against
   physical bytes/hashes, and raw chunks must match actual settled streams.
   Python durable
-  parity remains open; mandatory reference CI and workloads remain in DE01b3.
+  parity remains open; local workload acceptance follows in DE01b3a and mandatory
+  hosted reference CI remains in DE01b3b.
 
 - The [durable reference runner](docs/durable-reference.md) now verifies three
   pinned real cases: the existing byte-identical kernel fixture, a faux-provider

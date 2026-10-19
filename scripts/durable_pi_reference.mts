@@ -24,7 +24,12 @@ registerHooks({
   },
 });
 const { encode, validateInput } = await import("./durable_reference/contract.mts");
-validateInput(caseId, input);
+if (caseId !== "storage-baseline-v1") validateInput(caseId, input);
+if (caseId === "storage-baseline-v1") {
+  const module = await import("./durable_reference/cases/storage-baseline.mts");
+  const value = await module.run(input);
+  writeFileSync(resolve(outputPath, "workload.json"), JSON.stringify({schema_version:1, id:caseId, codec:"tagged-js-v1", value:encode(value)},null,2)+"\n");
+} else {
 async function kernel() {
 // Dynamic imports ensure every transitive source resolution goes through the guard.
 const { createSession } = await import("./packages/durable/src/session/session.ts");
@@ -108,4 +113,5 @@ writeFileSync(resolve(outputPath, "trace.json"), JSON.stringify(trace, (_key, va
   }
   return value;
 }, 2) + "\n");
+}
 writeFileSync(resolve(outputPath, "resolutions.json"), JSON.stringify(resolutions, null, 2) + "\n");

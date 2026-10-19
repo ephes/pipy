@@ -31,12 +31,18 @@ ADAPTERS = {
 ADAPTERS.update(
     {
         f"scripts/durable_reference/cases/{name}.mts": f"durable_reference/cases/{name}.mts"
-        for name in ("tool-recovery", "durable-abort", "env-conformance")
+        for name in (
+            "tool-recovery",
+            "durable-abort",
+            "env-conformance",
+            "storage-baseline",
+        )
     }
 )
 COMPARISON = {
     "scripts/durable_pi_comparison.py",
     "scripts/durable_reference_contract.py",
+    "scripts/durable_reference_acceptance.py",
 }
 
 
@@ -1109,10 +1115,14 @@ def registry(
             "cases",
             "python_adapter",
             "parity_rows",
+            "workload",
+            "oracles",
+            "coverage",
+            "verification",
         },
         "manifest",
     )
-    if type(config["schema_version"]) is not int or config["schema_version"] != 2:
+    if type(config["schema_version"]) is not int or config["schema_version"] != 3:
         raise EvidenceError("Unsupported manifest version")
     if config["python_adapter"] != "OPEN" or config["parity_rows"] != "OPEN":
         raise EvidenceError("Unsupported parity claim")

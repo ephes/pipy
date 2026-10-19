@@ -4,7 +4,7 @@ The verification tools execute Pi durable **1.3.0**, commit
 `2ec55d808d455b1a64a2bf7888198207a096120a`, tree
 `b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. DE01a introduced actual Session,
 MemoryStorage and document execution; landed DE01b1 added real faux-provider/tool
-and context-head scenarios. DE01b2 adds SQLite recovery, durable abort and two
+and context-head scenarios. Landed DE01b2 added SQLite recovery, durable abort and two
 exported Node environment scenarios. These verify reference reproducibility and the oracle.
 The Python durable comparison adapter is **OPEN** and all P01–P43 rows remain
 **OPEN**. No native durable runtime is imported or implemented by these scripts.
@@ -35,7 +35,8 @@ The standalone codec regression uses the pinned Node v26.12.0 and imports the
 actual MTS encoder. It verifies dense undefined/null/literal-marker distinctions
 and rejects sparse arrays. Ordinary pytest does not launch Node or require a
 host Node version. DE01b3's mandatory reference CI must explicitly run this
-codec command alongside its real reference cases and negatives.
+codec command alongside fresh acceptance. This mandatory hosted job remains
+DE01b3b; a local pass does not establish pushed-job evidence.
 
 `reference` always runs all six registered case families, serially in fresh child
 processes and fresh storage/faux state, following one locked installation.
@@ -51,7 +52,7 @@ removed by its owner. Each command has a deadline (900 seconds installation,
 60 seconds per case, 120 seconds otherwise); timeout/interruption kills and
 reaps the child process group.
 
-Exit **0** requires all six complete real case families to match; **1** means complete,
+For `reference`, exit **0** requires all six complete real case families to match; **1** means complete,
 valid evidence has a semantic mismatch; **2** means invalid/unavailable evidence
 or a failed prerequisite/child. No missing case, runtime, dependency, source,
 input, fixture or module can become a successful skip. Standalone `compare`
@@ -61,7 +62,7 @@ mismatches. Existing ordinary Python CI does not run the durable reference.
 
 ## Closed manifest and source provenance
 
-Manifest integer version **2** has shared reference/runtime identities, exact
+Manifest integer version **3** has shared reference/runtime identities, exact
 `adapters` and `comparison` hash maps, exactly six unique `cases`, and OPEN
 Python/parity status. Each case pins input/expected paths and SHA-256, trace and
 projection versions, entrypoint, required loaded source anchors, and exact
@@ -77,8 +78,8 @@ recorded file belongs to exactly one checked provenance class:
 - Original archived source, with original inventory membership and exact hash.
   Workspace `@earendil-works/*` imports must resolve to `packages/` source and
   may contain **no** `node_modules` component.
-- An exact caller adapter artifact from the seven-file manifest map: driver,
-  tagged-value contract and the five case modules. Copied hashes are checked
+- An exact caller adapter artifact from the eight-file manifest map: driver,
+  tagged-value contract, the five trace case modules and the storage workload. Copied hashes are checked
   after each case; archive collisions refuse. This is no directory exception:
   undeclared helpers or newly invented `packages/` files reject.
 - A physically installed locked registry dependency, with matching package
@@ -88,7 +89,11 @@ recorded file belongs to exactly one checked provenance class:
 
 The driver starts before its own hook; its exact copied hash is attested
 separately. The preloaded source resolver is also explicitly source-hashed.
-Both Python comparison artifacts are manifest-hashed before and after the run.
+All three Python verification artifacts are manifest-hashed before and after the run.
+The separate closed verification inventory also hashes all four Python test modules
+and the permanent Node codec test. Manifest3 separately binds the one workload
+input/name/module contract, four oracle identities and coverage index; no timing
+result is a committed expected fixture.
 The exact manifest byte hash is captured before validation and must remain the
 same after execution; updating a golden and its manifest hash mid-run cannot
 attest a different configuration from the one actually compared.
@@ -306,11 +311,101 @@ with raw values and pointer witnesses retained; raw observations are not removed
 or rewritten. Private command logs stay outside version control.
 
 [Delivery index](specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices):
-b1 landed the infrastructure/H1/C1 and two negatives. b2 adds actual H2/H3/E1
-and the other two semantic negatives, rerunning prior cases; its independent
-gates and landing remain open until concrete delivery evidence.
-b3 retains hardware/exported workloads, exhaustive DE/P mapping and a mandatory
-pinned `durable-reference` CI job executing all required cases/four negatives
-with retained artifacts and actual pushed-commit success. DE02 is blocked until
-b3 is green; all original DE01 requirements remain cumulative. No performance,
-full env/platform, real-provider or Python-native parity result is claimed.
+b1 and b2 landed with independent CLEAN and audited pushed CI. Historical ISSUES
+and fixes remain in the evidence ledger. b3a adds the local acceptance below;
+b3b retains mandatory pinned real CI, selective synthetic artifacts and actual
+pushed-job success. DE02 is blocked until b3b is green; every original DE01
+requirement remains cumulative. No performance, full env/platform, paid-provider
+or Python-native parity result is claimed.
+
+## Fresh local acceptance
+
+```sh
+scratch="$(mktemp -d /tmp/pipy-durable-acceptance.XXXXXX)"
+uv run python scripts/durable_pi_comparison.py acceptance \
+  --pi-source /Users/jochen/src/pi-mono --output "$scratch/acceptance"
+uv run pytest tests/durable/test_pi_comparison.py \
+  tests/durable/test_pi_comparison_cases.py \
+  tests/durable/test_pi_comparison_acceptance.py \
+  tests/durable/test_pi_comparison_coverage.py -q
+node tests/durable/test_reference_codec.mts
+```
+
+Acceptance creates an exclusive private root, assigns an execution identity and
+bootstraps `reference` exactly once under `reference/`. It accepts no historical
+`--reference` bundle or reuse of an existing output. A six-case `reference`0 is
+only a six-case result; acceptance0 additionally requires the full H2x4/E1x2
+matrix, exported workload checks/readbacks, four fresh valid CLI1 mutants and
+complete coverage validation. Prerequisite, malformed, drifted, missing or failed
+child evidence returns2; a genuine required reference mismatch returns1. An
+oracle's invalid2 or unchanged/no-op0 is a failed acceptance, never a successful
+negative. Unit execution doubles/replays are labeled validator/wiring checks,
+never fresh reference evidence.
+
+`invocation.json` binds execution ID/root/start and initial manifest identity.
+Final `acceptance.json` attests the exact parent reference run SHA/assigned ID,
+manifest/coverage/input/verification closure, runtime, workload/hash/module facts,
+all four oracles and their full compare command/exit/stdout/stderr artifacts.
+Reference archive/source/dependency inventory bytes, copied source/adapters,
+physical resolved modules, actual input/raw/projection/witness/result/auxiliary
+files and DB byte hashes are rechecked. Start/end manifest and parent byte
+identities plus workload/oracle/command artifact hashes must remain unchanged;
+revalidating a substituted manifest or internally consistent replacement is not
+a freshness proof. Raw evidence is retained. No provenance validator allows a
+copied-only old bundle to stand in for the required new bootstrap.
+
+## Exported storage workload baseline
+
+The separate `storage-baseline-v1/workload.json` uses tagged-js-v1 observations,
+not the six-case trace schema or a timing golden. It invokes the actual exports
+in pinned `src/testing/storage-benchmark.ts`, using actual MemoryStorage and
+TIMING_SCALE (1,000 entries,300 tasks,300 family documents). The exported primary
+record count is1,870, including auxiliary documents and fork records; it is not
+revision/commit/byte count. Twelve unique exported reads use the dataset from the
+same live seed and each export's actual expected(dataset). The filtered-task
+name contains limit50, while this seed's expected result is5. Entry/address/head
+lookups return actual IDs. Replay tails0/16/128/1024, ancient/recent128/256 and
+eight-deep fork ancestry are exercised through the exports, not fabricated values.
+
+All12 untimed reads and three fresh untimed write/readback cases pass before any
+measurement. Ten measured complete read rounds add120 calls, with each result
+checked outside its timed span. Each of the three writers has three measured
+samples, each on another fresh seeded/closed MemoryStorage (12 write stores in
+all). Real exact entry/task/submission/address/document reads and request-index
+lookups verify complete persisted payloads, original baseline preservation,
+counts, common commit sequence and mixed record correlations. Return1/100/4 or
+an intercepted write list alone is insufficient. Storage closes in finally,
+including failure paths; no retained-memory figure is collected.
+
+Raw monotonic start/end spans separate import/process overhead, read seeding,
+correctness, each exported run, readbacks and completion. Write timing includes
+minting/batch construction and one transparent successful-commit observer append;
+seed/readback/assertion costs are outside that run span. The parent separately
+records total Node child seconds. This bounded-local-v1 protocol uses no warmups
+and differs from both upstream Vitest benchmarks and its ten-total-round memory
+study. Hardware reports only OS/release/arch, CPU model/count, total RAM and exact
+Node/npm/Python versions, without hostname, username or environment dumps.
+Measured durations are finite/nonnegative raw contextual evidence, with no
+throughput threshold, timing equality, performance parity or retained-heap claim.
+
+## Exhaustive current and future evidence index
+
+Version2 `tests/fixtures/durable/coverage.json` contains95 explicit rows:
+DE00–DE45, P01–P43 and DE01a/b1/b2/b3/b3a/b3b. Parent DE01 and b3 remain visible.
+Each row retains original canonical plan text, owner slices and future acceptance.
+P source anchors match the exact corresponding plan source cell; DE source anchors
+bind the actual slice contract line (or cumulative child range). Bounded current
+case/workload/oracle IDs and appropriate existing evidence links are explicit.
+Status must agree with the ledger, with cumulative parent status derived from
+its children. Unimplemented b3b has empty source-only own current evidence; its
+inherited_reference field separately attributes existing LOCAL b1/b2/b3a facts,
+with no CI/collector/uploaded-job claim. Validators reject omitted,
+duplicate or unknown IDs, changed ownership/future/source/status contracts and
+dangling or unrelated DE evidence links. Malformed plan rows and absent mutation
+preconditions fail as explicit invalid evidence2, with no lookup traceback.
+Source-only, reference-only and delivery evidence are distinguished; there is no
+native-parity evidence kind. Unexecuted future cases cannot enter the executed
+registry. Every P row, including P43, remains OPEN. Reference evidence is partial;
+DE02–DE45 still owe their concrete Python behavior, native tests, crash/race/wire
+and integration acceptance from the unchanged plan. b3b's real CI and selective
+artifact collection remain required before DE02 can start.

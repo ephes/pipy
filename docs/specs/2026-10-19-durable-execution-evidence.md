@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1 and DE01b1 landed; DE01b2 in progress; all parity rows OPEN**,
+Status: **DE01a, R1, DE01b1 and DE01b2 landed; DE01b3a in progress; all parity rows OPEN**,
 2026-10-19. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -139,9 +139,10 @@ that coverage here. A local validation result is not a landed slice.
 | DE00 | Experiment and work-order import | LANDED | E00-*; Opus 5.5 HIGH CLEAN; main/pushed `ad04766daefde48604f73112d1611f4389f40877`; CI 39236305603 success |
 | DE01a | Pinned bootstrap, trace/manifest contract and actual Kernel/Memory reference probe | LANDED | `97d623f`; initial CI failed; repaired by R1 `35142ec`; Python adapter OPEN |
 | DE01b1 | Strict multi-case/provenance/projection; H1/C1; lost-field/stale-head negatives | LANDED | `7acf5f7`; actual independent CLEAN and CI10/10; historical first ISSUES retained below; all P OPEN |
-| DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | OPEN | Depends on b1; rerun all prior cases/four negatives |
-| DE01b3 | Hardware/workloads, exhaustive mapping, mandatory real pinned reference CI | OPEN | Depends on b2; all original DE01b acceptance retained cumulatively; blocks DE02 |
-| DE02 | Records, memory storage and atomic session core | OPEN | Blocked until DE01b3 is green |
+| DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | LANDED | `28bc886`; actual independent CLEAN0; CI39286240678 success10/10; historical first ISSUES retained |
+| DE01b3a | Fresh executable local acceptance, hardware/exported workloads, four fresh mutants, exhaustive mapping | IN_PROGRESS | Depends on landed b2; all original DE01b acceptance retained cumulatively |
+| DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | OPEN | Depends on b3a; DE02 blocked until green b3b |
+| DE02 | Records, memory storage and atomic session core | OPEN | Blocked until DE01b3b is green |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -243,14 +244,12 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00, DE01a and its R1 test-isolation repair have landed (historical delivery
-evidence below). DE01b proceeds sequentially through b1 multi-case H1/C1 fixtures,
-b2 H2/H3/E1 recovery/abort/environment fixtures, and b3 workload/hardware baselines,
-complete manifest mapping and mandatory reference CI. DE02 remains blocked until
-DE01b3 is green. DE01b1 has now landed; current DE01b2 implementation evidence
-does not close its pending independent delivery gates or any required P row. No real-provider evidence or
-performance budget is claimed. Subsequent gates close only from concrete
-evidence; unavailable tooling/auth and historical ISSUES verdicts stay explicit.
+DE00, DE01a/R1, DE01b1 and DE01b2 have landed; historical local freezes and
+ISSUES remain below. Before b3a implementation the authorized b3 split is:
+local executable acceptance/workloads/hardware/four fresh mutants/exhaustive
+mapping in b3a, then mandatory real pinned CI/selective artifacts and actual
+successful pushed-job evidence in b3b. Every original b3 acceptance remains
+cumulative. DE02 is blocked until b3b is green; all P/Python-adapter rows OPEN.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -852,3 +851,224 @@ ISSUES remain historical. A renewed independent full and scoped Opus review are
 pending; the concrete empty-sidecar defect and new runner guard justify that
 follow-up, rather than reviewer agreement alone. Owned set remains20 files;
 all P/Python-adapter rows stay OPEN and DE02 remains blocked through b3.
+
+## DE01b2 delivery reconciliation and DE01b3a admission
+
+The pre-review malformed-outcome fix was not an Opus review. The first actual
+Opus5.5/high review remained ISSUES (two Suggestions, no Critical/Warning),
+with both sidecar/provenance findings accepted and repaired as recorded above.
+The subsequent actual independent scoped review is CLEAN0, baseline
+`a38d1a89318effa4168c02904c1fa5ba439b48e6`, reviewed tree
+`0ffcda19fd6b5d648c90c8ab1178fc7e24eb5aff`. The delivered/pushed main commit is
+`28bc886065a1086875e4b817c480f88152cf8933`.
+[CI39286240678](https://github.com/ephes/pipy/actions/runs/39286240678)
+succeeded10/10: each Python3.11/3.14/3.15 full suite12,919 passed/208 skipped,
+durable229 passed/zero skipped; four PTY jobs17/0, required WASI441/0 with actual
+runtime flag/pin. Coordinator checked remote/API and all141 archived files,
+12,690 lines plus hashes/counts; concrete delivery and complete-log evidence:
+`/tmp/pipy-de01b2-sidecar-gate.hQDe3D4Q/delivery/delivery-final.json` and
+`ci/complete-log-audit.json` there. Earlier GitHub status delay is historical.
+No historical ISSUES or earlier failed probe is relabeled CLEAN.
+
+Before code edits, b3a/b3b are split in the delivery index above and plan/backlog.
+b3a owns fresh local acceptance that bootstraps the reference once, preserves
+all six cases/H2x4/E1x2, executes four fresh schema-valid CLI1 mutants and actual
+exported twelve-read/three-write MemoryStorage workloads with correctness and
+persisted readbacks before bounded timing, records hardware/counts and a complete
+DE/P current/future index. b3b still owns mandatory actual pinned CI, selective
+artifact collection and actual successful pushed-job proof. Neither local b3a
+success nor six-case reference0 satisfies that remaining gate. No native durable
+kernel/Python adapter/P-row completion or performance equality is claimed.
+
+### DE01b3a local acceptance evidence
+
+Status: **implemented locally; independent full/review/landing OPEN**. Base is
+landed b2 `28bc886065a1086875e4b817c480f88152cf8933`. The owned scope is16 files,
+including exactly the six pre-authorized new files. No CI workflow or collector
+is implemented here. Manifest3 hashes eight copied MTS adapters, three Python
+verification artifacts, five verification tests, the closed one-workload/four-
+oracle registry and95-row coverage index. All six raw golden bytes, permanent
+Nodecodec test and upstream MIT notice remain byte-identical to delivered b2.
+
+The new `acceptance` frontdoor creates an exclusive private execution root and
+reference child itself; it has no historical-reference input. It bootstraps once,
+then requires six cases/H2x4/E1x2, actual exported workload correctness/readbacks,
+four freshly derived schema-valid compareCLI1 mutants, positiveCLI0 controls,
+coverage and unchanged exact provenance. Missing/malformed/drifted evidence is2;
+a required valid reference mismatch is1. A six-case `reference`0 is explicitly
+not full acceptance0, and local acceptance does not satisfy mandatory b3b CI.
+
+The first actual development acceptance completed0 in37.30s and is retained as
+its own earlier hash candidate. Final fresh candidate runs `acceptance-final-a`
+and `acceptance-final-b` completed0 in28.49s and38.36s respectively. Full commands,
+exits, normal HOME and before/after hashes are retained under
+`/var/folders/79/dxyqffhn7753q_b9602pnfnm0000gn/T/pipy-de01b3a-hfilr9k6/`.
+Each has a separate invocation/execution ID, exact pinned archive/lock/npm-ci,
+1,961 original files,28,647 physical dependency files,346 installed records and
+four precisely absent extraneous records (never usable dependencies). The six
+module closures remain703/761/760/768/761/13; the actual workload closure is18.
+`audit-final-results.json` verifies all current source/adapter/dependency/module,
+case input/raw/projection/witness/result/auxiliary/DB, parent manifest/run and
+workload/oracle/CLI artifact hashes, repeat projected trace equality and unchanged
+kernel bytes. An initial private audit used the macOS `/var` alias instead of
+the execution's canonical `/private/var` path and correctly failed its exact
+command-path check; the canonical-path audit passed without source changes.
+
+Workload report schema1 retains tagged raw observations and actual hardware:
+Darwin27.0.0 arm64, Apple M4 Max,16 logical CPUs,128GiB RAM; Nodev26.12.0,
+npm11.20.0, Python3.15.0. No hostname/username/environment dump is collected.
+TIMING_SCALE is1,000 entries/300 tasks/300 family documents and the actual
+exported primary count is1,870. All12 untimed exported read checks and all3
+fresh write/readback checks finish before measurement. Each acceptance records
+120 measured read calls and9 measured writes, with12 distinct freshly seeded
+write stores including correctness. All stores await close in finally. Real
+persisted entry/task/submission/address/document reads, full baseline preservation,
+counts, commit sequence and mixed correlations are checked; no return-literal or
+captured-write-list shortcut can establish persisted effects.
+
+These are contextual local milliseconds, not thresholds or timing goldens:
+
+| Exported run span | A median ms | B median ms | Samples per run |
+| --- | --- | --- | --- |
+| All12 read scenarios pooled | 0.017834 | 0.017792 | 120; per-scenario samples retained raw |
+| commit one entry | 0.005084 | 0.005708 | 3 fresh stores |
+| commit100 entries | 0.093125 | 0.097167 | 3 fresh stores |
+| commit mixed entry/task/submission/document | 0.011333 | 0.011792 | 3 fresh stores |
+
+All12 individual read actuals equal their export's expected(dataset); the filter
+returns5 and ID-returning reads use the actual dataset IDs. Raw spans separate
+seed/checks/run/readback; write run includes mint/batch work and one transparent
+successful-commit observer append. Child seconds include Node startup/imports.
+There are no warmups; this is bounded-local-v1, not the upstream Vitest or
+retained-memory protocol. No retained heap, backend-wide benchmark, throughput
+parity or Python performance conclusion is claimed.
+
+Permanent host-independent focused tests pass288/zero skips on each actual
+Python3.11.13/3.14.8/3.15.0. They preserve the prior229 tests and add workload
+shape/results/readbacks/timing, strict manifest3, complete coverage/ownership/
+future/link checks, actual compareCLI mutants and exclusive fresh-bootstrap
+wiring. No-op0, invalid-mutant2, lying readback, artifact/manifest identity drift
+cannot produce acceptance success. Unit execution doubles are explicitly labeled
+wiring checks. Separate actual Node fault probes inject a wrong exported read,
+a lying writer and a missing persisted readback: each throws before any timed
+read round, with all opened stores closed and archived/adapted bytes unchanged.
+These are fault-injection results, not extra successful baseline runs.
+
+All four fresh actual semantic mutants remain valid and compare1 in each final
+acceptance; originals compare0. Post-abort unique IDs are derived from the raw
+observed integer domain rather than assuming a fixed unused ID. Source/ref/
+fixture/runtime/dependency prerequisites still fail2, including removal of a
+physically resolved dependency in a private copied snapshot; original successful
+snapshots are unchanged. Exact source/test hashes and adapted Pi MIT provenance
+are in the manifest and workload header; full notice is retained.
+
+`coverage.json` accounts for all DE00–DE45, all P01–P43 and six DE01 children,
+including parent DE01/b3 and b3a/b3b. Each canonical future contract and original
+owner remains explicit; source-only/reference-only/delivery evidence never
+claims a native comparison. All P and Python adapter remain OPEN. Mandatory real
+pinned CI, selective artifacts and successful exact-pushed-job proof remain
+DE01b3b; DE02 stays blocked until that slice is green. Independent full and
+Opus review, commit/push and remote CI for b3a are not claimed by local evidence.
+
+### DE01b3a first Opus review — accepted five-finding repair
+
+The first actual independent Opus5.5/high review completed ISSUES with one
+Warning and four Suggestions, baseline `73e958774b21f613144d940b608e9fc807fe6fb5`,
+reviewed tree `5cc184b1bba52e4f099551931b6c5c64747b12ff`; result remains
+`/tmp/pipy-de01b3a-gate.bp_agb0y/review-first/result.json`. All five concrete
+findings were accepted. The material false-positive regression plus explicit
+new guards justify renewed independent full and scoped review, not agreement alone.
+
+W1: the original invalid-mutator wiring test corrupted the shared raw object,
+so its positive compare failed2 and no negative compare ran. Its earlier green
+result did not prove rejection of negativeCLI2; that test-coverage claim is
+withdrawn. Repair deep-copies before corruption and explicitly requires positive0
+and negative2, plus a guard-mutant test that must detect accepting2 as mismatch.
+The actual acceptance's four valid semantic mutants and original production
+exit check remain unchanged.
+
+S1 synchronizes plan status and the harness b3a/b3b split with delivered b2 and
+the DE02 dependency. S2 aligns coverage statuses with this ledger, separates
+unimplemented b3b's empty own current evidence from inherited reference facts,
+checks exact P source cells and concrete DE slice/line contracts and bounded
+existing evidence. Original future requirements remain. S3 adds explicit
+mutation/plan-row form and completeness guards; malformed evidence is2 without
+StopIteration/IndexError or a broad catch. S4 tests the forbidden historical
+reference option using both valid required arguments and its exact argparse
+unrecognized-option diagnostic. Owned set becomes17 solely for the authorized
+harness-spec synchronization; no b3b code, golden or projection changes.
+
+Complete repair logs and before/after proofs are retained under
+`/tmp/pipy-de01b3a-reviewfix-0umail3a/`; the initial16-file freeze and first
+ISSUES remain historical. Current local checks and renewed independent review
+are separate gates; no b3a CLEAN, delivery or hosted CI is claimed here.
+
+The repaired permanent invalid2 test now reaches positiveCLI0 and negativeCLI2,
+with no success manifest. A private single-condition guard mutation that accepts
+negative2 as mismatch makes that SAME permanent test fail (DID NOT RAISE), and
+would write an incorrect success; this is recorded in
+`invalid-before-after-mutant-results.json`. Against the exact reviewed old helper,
+the four missing-tool-result/empty-model/missing-late-commit/empty-variants CLI
+regressions fail with1/lookup tracebacks; repaired code returns2 without traceback.
+The plan-row regressions also require actual Python CLI2 for malformed shapes.
+These are isolated CLI/wiring proofs, not reference runtime passes.
+
+Coverage2 adds a closed inherited_reference boundary and retains all95 original
+IDs and byte-equal contract/future/owner/plan-cell values (`future-preservation-results.json`).
+Own b3b current evidence is empty/source-only; inherited local facts name their
+actual b1/b2/b3a owners and do not establish CI. DE line/slice contract anchors,
+matching bounded existing evidence and P source cells are checked; statuses match
+this ledger with cumulative parents derived from children. No future requirement
+or P-row acceptance is reduced. All six golden/input pairs, Nodecodec, workload
+MTS and Pi MIT notice remain unchanged from the first b3a freeze.
+
+The repaired focus passes306 tests/zero skips on each real Python3.11/3.14/3.15,
+with explicit lint/format/mypy and separate actual pinned Nodecodec. New exact-
+candidate fresh acceptance/audit/prerequisite/docs command logs and hashes are
+retained under the repair scratch above. The independent gate owns the renewed
+normal-HOME full and scoped Opus review of accepted W1/S1–S4 plus repair delta;
+no writer full, review, stage, commit or push is performed.
+
+### DE01b3a scoped S3 test-evidence correction
+
+The next actual scoped Opus5.5/high review remains **ISSUES**, with one
+Suggestion and zero Critical/Warning, baseline
+`9e3a2ecd1a750e165ac099ed352e1428667b4440`, reviewed tree
+`13b9a0f4a329ca9fcb1d17d5d21760793ed06d6b`;
+`/tmp/pipy-de01b3a-repair-gate._9rrthe_/review-delta/result.json`.
+The coordinator accepted this finding as directly coupled to S3. A further
+scoped round is valuable because the claimed guard coverage was not measured,
+not because another reviewer agreement is desired. Earlier ISSUES stays history.
+
+The prior plan tests supplied one-row files, so deleting the shape guard still
+returned2 from canonical completeness. Those tests did not independently prove
+that the shape guard ran. They now copy the entire canonical plan, corrupt only
+the one identified existing row, preserve every other row, and require the exact
+`Malformed plan row` CLI diagnostic. The validator-only CLI adapter returns0
+when parsing succeeds, so a deleted shape guard cannot produce a different
+successful-looking invalid2. No production parser/guard changes were needed.
+
+Mutation tests now require their exact reached diagnostics. Missing tool-result,
+empty model and missing late commit reach their explicit mutation guards.
+Empty variants is honestly rejected earlier by trace validation with
+`Incomplete recovery policy matrix`; it is not evidence that the later,
+unreachable missing-variant mutation guard ran. No production behavior is
+changed merely to make a test guard reachable.
+
+Before correction, private removal of the plan shape guard left all4 old tests
+green, and removal of the recovery-matrix schema guard left its old test green.
+After correction the8 original guard tests pass; the same permanent tests fail
+against private single-guard removals: all4 plan cases see accepted parsing/CLI0,
+three mutation cases see missing-guard IndexError/CLI1, and empty variants still
+returns2 but with the DIFFERENT later mutation diagnostic. Its diagnostic
+assertion therefore detects removal of the actual upstream schema boundary.
+Private mutants never modify production files and are not reference executions.
+
+Full command logs and original/private-mutant results are retained under
+`/tmp/pipy-de01b3a-s3-tests-2upjsast/`. This delta changes only the two tests,
+their closed manifest verification hashes and this precise evidence description
+within the existing17 owned paths. All production/verifier/MTS bytes, coverage,
+goldens/inputs, Nodecodec, MIT notice and prior broad runtime/full-check results
+remain unchanged. Prior acceptance runs attest their earlier manifest/test
+hashes; they are not relabeled fresh runs of this new manifest. Only relevant
+focus/static/docs checks repeat; independent scoped review remains pending.

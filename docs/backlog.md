@@ -102,7 +102,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1 landed; DE01b2 is in progress.**
+**Execution is authorized; DE01a, R1, DE01b1 and DE01b2 landed; DE01b3a is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -111,8 +111,13 @@ succeeded10/10 (each full suite12,849 passed/208 skipped). Its first ISSUES
 review remains historical in the evidence ledger. DE01b proceeds sequentially:
 DE01b1 owns strict multi-case/provenance/projection plus H1/C1 and lost-field/
 stale-head negatives; DE01b2 owns H2/H3/E1 and duplicate-effect/post-abort-write
-negatives; DE01b3 owns hardware/workloads, exhaustive mapping and mandatory real
-reference CI. DE02 depends on DE01b3. All original DE01 acceptance remains
+negatives. DE01b2 landed at `28bc886`, actual Opus5.5/high CLEAN0 and
+[CI39286240678](https://github.com/ephes/pipy/actions/runs/39286240678)10/10:
+each full suite12,919 passed/208 skipped, durable229/0. Its pre-review outcome
+repair and first ISSUES/S1/S2 remain historical. DE01b3a owns fresh local acceptance,
+exported hardware/workloads, four fresh mutants and exhaustive mapping; DE01b3b
+owns mandatory actual pinned CI, selective artifacts and pushed-job proof.
+DE02 depends on green DE01b3b. All original DE01 acceptance remains
 cumulative and all P rows OPEN. See [reference reproduction](durable-reference.md).
 The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md) tracks all
 DE00–DE45 slices and P01–P43 requirements. The final plan review was

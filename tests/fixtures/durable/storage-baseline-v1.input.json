@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "backend": "memory",
+  "scale": "timing",
+  "read_rounds": 10,
+  "write_samples": 3
+}

@@ -48,6 +48,13 @@ assert _contract_spec is not None and _contract_spec.loader is not None
 contract = importlib.util.module_from_spec(_contract_spec)
 _contract_spec.loader.exec_module(contract)
 EvidenceError = contract.EvidenceError
+_acceptance_spec = importlib.util.spec_from_file_location(
+    "durable_reference_acceptance",
+    Path(__file__).with_name("durable_reference_acceptance.py"),
+)
+assert _acceptance_spec is not None and _acceptance_spec.loader is not None
+acceptance = importlib.util.module_from_spec(_acceptance_spec)
+_acceptance_spec.loader.exec_module(acceptance)
 
 
 def sha(path: Path) -> str:
@@ -175,6 +182,7 @@ def compare(expected: Any, actual: Any) -> bool:
 def manifest(fixtures: Path = FIXTURES, driver: Path = DRIVER) -> dict[str, Any]:
     value = load(fixtures / "manifest.json")
     contract.registry(value, ROOT, fixtures, load, sha, driver)
+    acceptance.manifest(value, ROOT, fixtures, contract, load, sha)
     ref = contract.shape(
         value["reference"],
         {"commit", "tree", "package", "version", "source_sha256"},
@@ -732,10 +740,11 @@ def reference_case(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    probe = sub.add_parser("reference")
-    probe.add_argument("--pi-source", type=Path, required=True)
-    probe.add_argument("--output", type=Path, required=True)
-    probe.add_argument("--fixtures", type=Path, default=FIXTURES)
+    for command in ("reference", "acceptance"):
+        probe = sub.add_parser(command)
+        probe.add_argument("--pi-source", type=Path, required=True)
+        probe.add_argument("--output", type=Path, required=True)
+        probe.add_argument("--fixtures", type=Path, default=FIXTURES)
     check = sub.add_parser("compare")
     check.add_argument("expected", type=Path)
     check.add_argument("actual", type=Path)
@@ -745,6 +754,20 @@ def main(argv: list[str] | None = None) -> int:
             equal = compare(load(args.expected), load(args.actual))
             print("TRACE EQUAL (no parity claim)" if equal else "TRACE MISMATCH")
             return 0 if equal else 1
+        if args.command == "acceptance":
+            from types import SimpleNamespace
+
+            # Explicit verification dependencies, also available to isolated tests.
+            api = SimpleNamespace(**globals())
+            code = acceptance.execute(
+                api, args.pi_source.resolve(), args.output, args.fixtures
+            )
+            print(
+                "ACCEPTANCE VERIFIED (Python adapter/CI OPEN)"
+                if code == 0
+                else "ACCEPTANCE MISMATCH"
+            )
+            return code
         code = reference(args.pi_source.resolve(), args.output, args.fixtures)
         print(
             "REFERENCE VERIFIED (Python adapter OPEN)"

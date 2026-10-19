@@ -371,7 +371,7 @@ def test_output_inside_upstream_is_refused(tmp_path):
         (1, "id", "other"),
         (1, "id", True),
         (None, "python_adapter", "PASS"),
-        (None, "schema_version", 3),
+        (None, "schema_version", 4),
     ],
 )
 def test_manifest_contract_cannot_claim_other_schema_or_parity(
