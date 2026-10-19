@@ -2231,7 +2231,8 @@ def test_pty_tree_selector_escape_label_and_filter(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     tree = NativeSessionTree.create(workspace, session_dir=tmp_path / "sessions")
-    provider = _TreeMarkProvider()
+    provider = _TreeMarkProvider(wait_for_watcher=True)
+    prompt_held, release_prompt = _tree_turn_readiness(monkeypatch, provider)
     store = PromptHistoryStore(tmp_path / "history.json")
 
     ctx = _start_pty_repl_session(
@@ -2244,10 +2245,25 @@ def test_pty_tree_selector_escape_label_and_filter(
     )
     try:
         assert _wait_for(ctx.err_chunks, "escape interrupt"), "startup never painted"
+        deadline = time.monotonic() + 8
         os.write(ctx.in_master, b"alpha\n")
-        assert wait_for_input_ready_after(ctx.err_chunks, "MARK1[") is not None, (
-            "first turn did not return to ready input"
+        assert prompt_held.wait(max(0, deadline - time.monotonic())), (
+            "true final prompt acquisition was not observed"
         )
+        assert _wait_for(
+            ctx.err_chunks,
+            "TREE_FINAL_PROMPT_HELD",
+            timeout=max(0, deadline - time.monotonic()),
+        )
+        # The watcher ACK precedes MARK; the held true prompt cannot yet ACK.
+        assert wait_for_input_ready_after(ctx.err_chunks, "MARK1[", timeout=0) is None
+        release_prompt.set()
+        assert (
+            wait_for_input_ready_after(
+                ctx.err_chunks, "MARK1[", timeout=max(0, deadline - time.monotonic())
+            )
+            is not None
+        ), "first turn did not return to ready input"
 
         # Open the selector; label the highlighted entry, cycle the filter once,
         # then cancel with Escape. Ordered raw bytes need no paint delay.
@@ -2266,6 +2282,7 @@ def test_pty_tree_selector_escape_label_and_filter(
         os.write(ctx.in_master, b"\x04")
         ctx.worker.join(timeout=8.0)
     finally:
+        release_prompt.set()
         _finish_pty_repl_session(ctx)
 
     assert not ctx.worker.is_alive()

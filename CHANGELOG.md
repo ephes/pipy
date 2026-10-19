@@ -12,7 +12,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   executes Pi's actual kernel and memory storage in a private exact-commit
   snapshot, validates trace, exact archived source membership and dependency
   provenance, and rejects malformed, missing or mismatched evidence. Python
-  durable execution and parity remain pending.
+  durable execution and parity remain pending. Its missing-runtime unit tests
+  isolate successful prerequisites from host Node availability and version.
+  The existing PTY tree-selector test also waits for the true prompt's input
+  acknowledgement before sending selector commands.
 
 - A pinned [native durable execution work order](docs/specs/2026-10-19-durable-execution-plan.md),
   upstream surface audit and evidence ledger track the authorized implementation

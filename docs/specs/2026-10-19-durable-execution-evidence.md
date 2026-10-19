@@ -383,3 +383,128 @@ full logs, exits and before/after owned hashes live under
 `/tmp/pipy-de01a-reviewfix-dksx2jzb/`, including `reference-repair/run.json` and
 `review-fault-probes-results.json`. The checkpoint records the new twelve-file
 freeze and the unchanged future DE01b boundaries. No P row is closed.
+
+## DE01a-R1 — isolate the two evidenced CI test prerequisites
+
+Status: **local test-isolation repair verified; independent gates and landing OPEN**.
+
+| R1 part | Concrete prerequisite | Boundary |
+| --- | --- | --- |
+| R1a | Missing-npm unit test uses the manifest's successful Node-version response | No host Node prerequisite, runner or pin change |
+| R1b | Existing PTY selector test uses its neighbor's watcher/true-prompt fence | No product flush change, weaker assertion or longer timeout |
+
+Base: `97d623f599e43eeb856cf5566ad5411d8d962830` on main. The previous
+independent CLEAN and landed commit remain historical evidence, unchanged.
+Post-push [CI run 39247137514](https://github.com/ephes/pipy/actions/runs/39247137514)
+newly failed `test_missing_runtime_is_error_not_pass[npm]` on Python 3.11 and
+3.14: the unit test called real host Node before its missing-npm injection.
+A non-pinned or unavailable host Node therefore ended the runner before npm was
+attempted. This is a unit-test isolation defect; the reference runner correctly
+refuses runtime drift. The initially separate unchanged PTY failure was subsequently admitted as
+explicit R1b scope, below, before any PTY edit.
+
+Before changing the test, reproduce the failure with a synthetic foreign Node
+version and with no Node on PATH. R1a supplies only the preceding successful Node
+version response from the fixture manifest and rejects unexpected stub commands.
+Preserve missing-binary FileNotFoundError, outer exit 2 and the exact attempted
+binary assertion for both node/npm variants. Never relax the reference pin,
+install Node in ordinary CI as a workaround, change PTY assertions/timeouts or
+advance the DE01b reference-CI boundary. Owned paths are this evidence ledger,
+the durable comparison test module, the one targeted terminal PTY test module
+and release notes. This four-file scope was explicitly extended before the PTY
+change; it is not an unrecorded addition to the npm fix.
+
+Acceptance: deterministic before/after host-version/unavailable probes, focused
+checks on available real Python 3.11/3.14/3.15 in separate environments with normal
+HOME, explicit lint/format/mypy and docs/rendered links. The coordinator owns the
+definitive full check, a new independent full-hotfix Opus 5.5 HIGH review and
+separate commit/push. No amend or force-push. No product, runner, manifest,
+reference-source or other PTY-test change is included.
+
+R1 local verification uses `/tmp/pipy-de01a-r1-p6iwkb8p/`. An exact private
+archive of the base commit's comparison scripts, fixture and test module retains
+the old behavior without rewriting main: targeted tests fail only the npm case
+with either synthetic `node --version` = `v0.0.0` or no Node on PATH. The repaired
+targeted tests pass both variants in both environments. The synthetic PATHs keep
+`ps` available for the unrelated cleanup fixture. Earlier diagnostic PATHs also
+hid `ps`, causing an extra teardown error; those logs are retained and superseded
+by the corrected before/after probes.
+
+The test now returns the manifest's exact successful Node-version response before
+its missing-npm injection. Any other unexpected prerequisite command fails the
+test rather than escaping to host execution. Both missing-binary paths still
+raise FileNotFoundError and assert outer exit 2 and the exact attempted binary.
+The runner, manifest, runtime pin, schema and timeout are byte-unchanged
+from the base commit.
+
+Fresh separate locked environments using real Python 3.11.13, 3.14.8 and 3.15.0
+each pass all 81 focused tests without skips. Their sync, Python-version and test
+commands retain complete logs, exit codes and before/after owned hashes; HOME
+remains normal. Explicit Ruff lint/format and mypy pass. Documentation build and
+rendered links are recorded at freeze. No actual Pi reference run is claimed by
+these unit tests, and no new reference run is required for this unchanged runner.
+No broad full check or review was run by the writer; the coordinator owns the
+new R1 independent full-hotfix gate and subsequent separate commit/push.
+
+### R1b scope extension before the PTY test edit
+
+The coordinator explicitly expanded the same small R1 repair to the existing
+`test_pty_tree_selector_escape_label_and_filter`, alongside R1a's npm unit test.
+The target previously interpreted the first raw-mode acknowledgement after a
+provider MARK as final prompt readiness. A late active-turn watcher can emit
+that acknowledgement before the true outer prompt acquires raw mode; queuing
+`/tree` then lets the unchanged TCSAFLUSH discard its bytes.
+
+A deterministic real-PTY witness at
+`/tmp/pipy-de01a-pty-scout.Ucdc3Z/echo-drained/` demonstrates this race class on
+Python 3.14.8: MARK offset 13,526, watcher ACK 14,580, held true prompt 18,488,
+true prompt ACK 18,513. The former helper accepted the watcher ACK, six `/tree`
+bytes were queued, and FIONREAD changed from six before unchanged `tty.setraw`
+to zero afterward; the selector title never appeared. Cleanup ended the worker.
+This does not establish that the abbreviated CI capture used that exact
+interleaving. The scout's earlier incomplete probe remains separate evidence.
+
+R1b reuses the existing `_TreeMarkProvider(wait_for_watcher=True)` and
+`_tree_turn_readiness` fence already used by the immediate rehydration neighbor.
+Order watcher acquisition before MARK, hold the true prompt, prove that no
+post-MARK readiness acknowledgement exists while held, release it and wait for
+the true acknowledgement before sending `/tree`. Preserve one monotonic
+first-turn budget, cleanup release, all label/filter/cancel/provider/history
+assertions, timeouts and product TCSAFLUSH behavior. No new generic helper or
+product change is authorized. Focused acceptance includes the exact real-PTY
+case and adjacent existing readiness tests plus a meaningful old/new witness
+where practical. The independent full check and fresh whole-R1 Opus review cover
+both R1a/R1b before a separate repair commit/push.
+
+R1b local checks pass the exact real-PTY case, its immediate rehydration neighbor
+and all `test_pty_sync.py` cases on Python 3.11.13, 3.14.8 and 3.15.0: 16 passed,
+no skips in each environment. The existing helper and every other test/class
+definition remain unchanged; an AST audit also confirms R1a changes only its
+one intended test definition. Lint and formatting pass for both touched test
+modules. Mypy passes with the repository's local `src` included; an earlier
+partial invocation lacked that source discovery and is retained separately,
+without new ignores or product changes.
+
+A private diagnostic re-executes the exact base commit's old target function
+in memory, leaving repository files unchanged, under the original forced-late-
+watcher witness. It fails at the selector-ready assertion with MARK 13,526,
+watcher ACK 14,580, held prompt 18,488 and true prompt ACK 18,513; six queued bytes
+become zero after the unchanged flush. The selector title is absent and cleanup
+ends the worker. The base source hash was checked against its actual Git object.
+
+The repaired target was separately observed without forcing that now-impossible
+watcher order and without adding gates, sleeps, acknowledgements or echo drains.
+It passes with watcher ACK 13,511 before MARK 13,534, held prompt 18,488 and true
+ACK 18,512. The zero-time readiness check while held returns none; true ready-end
+18,520 equals the captured-output end before `/tree` is queued. The selector
+title appears at 25,276 and the worker ends. The existing test still checks
+label persistence, filter cycling, Escape cancellation and no extra provider
+turn. This establishes the race class and repaired fixture ordering, not the
+exact scheduling of the abbreviated original CI capture.
+
+Full logs, original/fixed captures and checked offsets are retained under the
+R1 evidence root, including `pty-old-new-audit.json`, `scope-ast-audit.json` and
+the two private witness directories. The combined four-file freeze preserves
+all runner/product/manifest bytes and both previous commit/review histories.
+The coordinator's independent final full check and fresh whole-R1 review remain
+OPEN; no worker review, stage, commit or push has occurred.

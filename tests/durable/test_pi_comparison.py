@@ -192,7 +192,7 @@ def test_missing_ref_is_error_not_pass(tmp_path, capsys):
 @pytest.mark.parametrize("binary", ["node", "npm"])
 def test_missing_runtime_is_error_not_pass(tmp_path, monkeypatch, binary):
     (tmp_path / "source/.git").mkdir(parents=True)
-    real_run = oracle.run
+    runtime = oracle.manifest()["runtime"]
     attempted = []
 
     def missing(command, cwd, output, label, env, timeout=120):
@@ -201,7 +201,9 @@ def test_missing_runtime_is_error_not_pass(tmp_path, monkeypatch, binary):
             raise FileNotFoundError(binary)
         if command[0] == "git":
             return (oracle.PIN if label == "ref" else oracle.TREE).encode()
-        return real_run(command, cwd, output, label, env, timeout)
+        if command == ["node", "--version"]:
+            return runtime["node"].encode()
+        raise AssertionError("Unexpected prerequisite command in isolated runtime test")
 
     monkeypatch.setattr(oracle, "run", missing)
     assert (
