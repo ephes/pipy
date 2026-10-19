@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import runpy
 import signal
 import socket
@@ -26,6 +27,36 @@ def _project(root: Path) -> Path:
         '[tool.pipy_docs]\nexclude_dirs = ["audit", "parity-loop/runs"]\n'
     )
     return root
+
+
+def _replace_config(config: Path, content: str) -> None:
+    pending = config.with_name(config.name + ".next")
+    pending.write_text(content, encoding="utf-8")
+    os.replace(pending, config)
+
+
+def test_config_save_keeps_complete_input_visible_to_preview_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    config = root / "zensical.toml"
+    configuration = runpy.run_path(str(SCRIPT))["configuration"]
+    previous = configuration(root)
+    updated = previous.replace(b"Docs fixture", b"Changed title")
+    observed = []
+
+    def interrupted_write(path: Path, text: str, *, encoding: str) -> int:
+        with path.open("w", encoding=encoding) as stream:
+            # Force the reader into the exact truncate-before-write interval.
+            # A direct save of the live config exposes an empty TOML document.
+            observed.append(configuration(root))
+            return stream.write(text)
+
+    monkeypatch.setattr(Path, "write_text", interrupted_write)
+    _replace_config(config, updated.decode("utf-8"))
+    assert observed == [previous]  # The forced interleaving actually executed.
+    assert configuration(root) == updated
+    assert not config.with_name(config.name + ".next").exists()
 
 
 def _build(root: Path) -> subprocess.CompletedProcess[str]:
@@ -227,8 +258,8 @@ def test_preview_mirrors_changes_reloads_config_and_cleans_up_child(
             # Zensical's preview serves its not-found page with HTTP 200.
             _wait_page(f"http://{address}/added/", "404 - Not found")
             config = root / "zensical.toml"
-            config.write_text(
-                config.read_text().replace("Docs fixture", "Changed title")
+            _replace_config(
+                config, config.read_text().replace("Docs fixture", "Changed title")
             )
             _wait_page(f"http://{address}/", "Changed title")
             with urllib.request.urlopen(

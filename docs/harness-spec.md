@@ -75,6 +75,30 @@ linked product-session, SDK and automation contracts govern the shipped runtime.
   documentation, its CI build and Read the Docs publication are shipped; see
   [documentation hosting](https://github.com/ephes/pipy/blob/main/CONTRIBUTING.md#documentation-hosting).
 
+An isolated [durable-run prototype](durable-prototype.md) (2026-10-19) explores
+persisted admissions and sequential task recovery using native provider/tool
+values and experimental SQLite state. It is opt-in through a standalone script,
+with no production entry-point, session-store or default behavior change. Its
+crash observations do not establish production durable-execution guarantees.
+The subsequent [canonical-loop spike](durable-loop-integration.md) replays the
+real `AgentLoop` through persisted provider/tool receipts and the existing
+product-message projection, with an experimental completed-message observer.
+It adds no production loop seam or terminal/UI recovery guarantee.
+
+The owner subsequently authorized the full native durable execution campaign on
+2026-10-19. The [implementation plan](specs/2026-10-19-durable-execution-plan.md),
+[pinned upstream audit](specs/2026-10-19-durable-upstream-audit.md) and
+[evidence ledger](specs/2026-10-19-durable-execution-evidence.md) own that
+program: controlled single-run recovery first, then the full durable
+scheduler, queues, committed streaming, extension contracts, compaction,
+subagent lifetimes, deterministic Python codemode and native product adoption.
+The existing JSONL product tree remains the shipped authority until an explicit
+migration slice; a durable session will have one complete backend authority,
+not JSONL and SQLite writers. Prototype whole-loop receipt replay is evidence
+for pure/fixed adapters, not a contract for arbitrary side-effecting hooks.
+DE00 prepares the isolated evidence import. Product runtime behavior, session
+formats and defaults remain unchanged; all required parity rows remain OPEN.
+
 ## Design Principles
 
 - Local first. Runs execute from a local workspace and local state remains under

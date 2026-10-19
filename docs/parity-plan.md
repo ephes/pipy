@@ -13,10 +13,16 @@ below are historical inventory, not work authorization. Reload reconciliation
 and the architecture programs are complete.
 
 The owner reaffirmed selected daily-use parity on 2026-10-01. The established
-Pi coding agent remains the reference; MCP/codemode is a separate feature-scope
-decision, and Pi's experimental durable runtime is a separate architecture
-watch track. See [the current scope decision](backlog.md#upstream-scope-decision-2026-10-01)
-and UP1 in the backlog for the pending upstream drift audit.
+Pi coding agent remains that program's reference; MCP/codemode was selected
+separately and completed as MCP1. On 2026-10-19 the owner promoted durable
+execution from watch to an authorized implementation campaign against a pinned Pi durable
+reference; see the [durable execution plan](specs/2026-10-19-durable-execution-plan.md)
+and [upstream audit](specs/2026-10-19-durable-upstream-audit.md). The historical
+experimental durable TUI has been removed upstream. The linked plan owns the
+native implementation; its [evidence ledger](specs/2026-10-19-durable-execution-evidence.md)
+starts with DE00's experimental import and all parity rows OPEN. Current product
+behavior is unchanged until the relevant implementation slices land.
+[The backlog](backlog.md) owns the current queue and scope decisions.
 
 ## Policy for selected surfaces
 

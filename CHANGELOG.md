@@ -8,6 +8,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- A pinned [native durable execution work order](docs/specs/2026-10-19-durable-execution-plan.md),
+  upstream surface audit and evidence ledger track the authorized implementation
+  campaign. Its initial import contains experiments, with no product recovery,
+  session-format or default change and no completed parity requirements.
+
+- A standalone [canonical-loop durability integration spike](docs/durable-loop-integration.md)
+  replays the real native agent loop over persisted rich provider/tool receipts,
+  verifies commit-before-completed-message observation and exercises hard-crash
+  recovery. Product entry points, defaults and session stores are unchanged.
+
+- An isolated [durable native run prototype](docs/durable-prototype.md) with an
+  offline provider, actual native tools, SQLite task checkpoints and reproducible
+  process-crash experiments. It changes no product runtime or session storage;
+  unsafe interrupted tools remain explicitly blocked for inspection.
+
 - Default Azure Responses requests now stream text and thinking through the
   shared Responses consumer, retaining Azure deployment/API-version, auth,
   cache and replay behavior. Explicit JSON client injection preserves the

@@ -98,6 +98,30 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Current queue
 
+The owner requested the full [native durable execution plan](specs/2026-10-19-durable-execution-plan.md)
+on 2026-10-19, against clean Pi durable 1.3.0 at
+`2ec55d808d455b1a64a2bf7888198207a096120a`; see the
+[published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
+**Execution is authorized; DE00 import preparation is in progress.** DE00
+reproduces and prepares the existing isolated experiments and plan for landing.
+The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md) tracks all
+DE00–DE45 slices and P01–P43 requirements. The final plan review was
+Suggestions-only **ISSUES**, with both wording suggestions applied before the
+handoff; it is not a CLEAN implementation gate. Delivery uses one writer on
+`main`, GPT-6.1 Sol HIGH implementation, independent Claude Code Opus 5.5 HIGH
+review and commit/push per green slice. No production durable feature, migration
+or default change is implemented in DE00. All parity requirements remain OPEN.
+
+The [first prototype](durable-prototype.md) and
+[canonical-loop spike](durable-loop-integration.md) provide measured crash and
+rich-content evidence. Controlled single-run recovery is the first milestone;
+the full plan also covers scheduler/queues, streaming, extensions, compaction,
+owned subagents, Python codemode recovery and native SDK/TUI/RPC integration.
+The prototype's unsafe blocking is an initial safety boundary; full parity
+requires Pi's explicit interrupted-error continuation without repeated effects.
+The historical experimental durable TUI was removed upstream; native pipy
+integration remains required. Existing product defaults/storage are unchanged.
+
 The [2026-10-18 quality audit and refactoring plan](specs/2026-10-18-refactoring-plan.md)
 collects the current architecture, provider-streaming and documentation audit.
 RF-C1 archive lifecycle/capture mapping ownership is complete (2026-10-18):
@@ -382,23 +406,23 @@ assessment, not a completed rebaseline or a fresh parity-gate result:
 - **Virtual models and classifier operations** are separate coverage decisions;
   current realignment does not establish parity for them. Image generation
   remains deferred.
-- **Pi durable execution** is a separate architecture watch track. Pi added an
-  experimental SQLite-backed coding-agent TUI (`5609b0d6c`) over `pi-durable`,
-  with persisted task progress, interrupted-run recovery, owned subagents,
-  per-conversation agents and a live task graph. Pipy's persistent JSONL
-  conversation tree does not provide equivalent task checkpoint/recovery
-  semantics. The experimental TUI still lacks the resume picker, forks/tree
-  navigation, images and `/login`; it is not the established-agent parity target.
-  Reassess when its contracts stabilize or a user need requires it. Adoption
-  needs an explicit architecture program, including recovery, cancellation,
-  storage and product-session compatibility decisions.
+- **Pi durable execution** was a separate architecture watch track under the
+  October scope decision. The owner expanded planning on 2026-10-19 to the full
+  [durable execution program](specs/2026-10-19-durable-execution-plan.md).
+  The former experimental SQLite TUI at `5609b0d6c` demonstrated recovery,
+  subagents and task views, but was removed by `7472cda0d6e`; it is historical
+  evidence, not the current package target. Pi durable 1.3.0 at the pinned ref
+  owns the execution comparison. Pipy's existing JSONL tree is not a durable
+  scheduler, and current production behavior stays unchanged in DE00.
 
 UP1 should also triage smaller established-agent changes such as provider/model
 CLI validation, provider retry and tool-schema handling, extension validation
 and tool previews. Compare each with pipy's implementation before calling it a
 gap. This decision did not authorize MCP implementation, parallel tools or a
 durable-runtime migration; MCP was authorized separately on 2026-10-12 (MCP1).
-Parallel tools and a durable-runtime migration remain unauthorized.
+The owner authorized the 2026-10-19 durable campaign, including parallel tool
+rounds and native storage migration as later implementation slices. DE00
+imports the experiments and work order; the later slices own those changes.
 
 ## Other work merged since 0.3.0
 
@@ -697,9 +721,10 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   the plan's deviations tables (parallel nested calls, the non-reach
   codemode globals, Radius setup, Windows process handling, and the
   differences the slices recorded).
-- **Pi durable execution and experimental TUI** (`5609b0d6c`): a separate
-  architecture watch track, not the established-agent parity target. Reassess
-  when contracts stabilize or a user need requires it; see the scope decision.
+- **Pi durable execution:** promoted from watch to full feature planning on
+  2026-10-19; see the [ordered program](specs/2026-10-19-durable-execution-plan.md).
+  The removed experimental TUI is historical integration evidence; current
+  durable package semantics and native pipy integration define completion.
 - **Virtual models and classifier operations:** separate feature-scope
   decisions, not covered by the completed realignment.
 - **Strict tool schemas** (Pi 0.86.0): only once a primary provider needs
@@ -809,10 +834,10 @@ Revisit these when an active item needs them or the Pi surface stabilizes.
   - per-model compaction overrides (Pi `46bde88a1`)
   - live Codex model discovery
 - **Standing deferrals:**
-  - Parallel tools, until latency evidence starts with explicitly safe reads
-    (plan DEV-87; Pi runs a response's tool calls concurrently by default and
-    honours `executionMode`).
-  - Image generation.
+  - Parallel tools (MCP plan DEV-87) remain unchanged in the shipped runtime;
+    the durable plan includes concurrent rounds and `executionMode` in DE25.
+  - General image generation remains separate; durable codemode model/image
+    globals are explicitly included in DE38 of the durable plan.
   - Distributed agents, durable lanes and server mode.
   - Full component/theme parity.
   - Measure startup/cancel latency and request size before setting performance
