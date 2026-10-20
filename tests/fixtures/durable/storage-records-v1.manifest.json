@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "phase": "values-records-a1",
+  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
+  "baseline_manifest_sha256": "81f6d1aca17ebe4f5927682d42a4cc08f4a5cddf0a783d084ca52be5a8bedf99",
+  "closure": {
+    "src/pipy_harness/native/durable/__init__.py": "b1b28d5a6cb478a0afb60cb24fbbfdd1b7774275ca2a2a88525d358b488273a0",
+    "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
+    "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
+    "src/pipy_harness/native/durable/storage.py": "d081e35c6803ddd9cc02c4b1165bfa9fd8b646042564f3f3af2e81863eab5c4d",
+    "tests/durable/test_json_codec.py": "18ff4301d8ea7fa42900a6c2ca35e28e091841a7e1688418666c3784d4c96aab",
+    "tests/durable/test_records.py": "0bd8d39c1f97cf7287ea8a2b648d402efaf1e746fd8066d2d6292f4f8f2c7735",
+    "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
+    "scripts/durable_storage_comparison.py": "b4f1e47b6767b2983d5fe3248492e5aedc4f7cb3a2aba802f2acfc0cd71aa577",
+    "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
+    "tests/fixtures/durable/storage-records-v1.input.json": "ec4b33e0e105944863a75f9183fa2c117ffc6bbd762fa3ae379a5bb935ca9adc"
+  },
+  "reference_sources": {
+    "packages/chord/src/json.ts": "d3a115dde2afa8e79c987b0fb188ec0bdba03939192859a20198a23b2892bb60",
+    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
+    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d"
+  }
+}

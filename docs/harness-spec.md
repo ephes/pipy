@@ -99,10 +99,13 @@ for pure/fixed adapters, not a contract for arbitrary side-effecting hooks.
 DE00 landed the isolated evidence import; DE01a and its R1 test-isolation repair
 landed the verification-only [pinned reference runner](durable-reference.md).
 DE01b1 multi-case and DE01b2 recovery/abort/environment fixtures have landed.
-DE01b3a landed with local fresh acceptance/workloads/mapping; DE01b3b now implements
-mandatory real reference CI and selective artifact/pushed-job proof.
-DE02 remains blocked until DE01b3b is green. Product runtime behavior, session
-formats and defaults remain unchanged; all required parity rows remain OPEN.
+DE01b3a landed with local fresh acceptance/workloads/mapping; DE01b3b landed
+mandatory real reference CI and audited selective artifact/pushed-job proof.
+DE02a1 now establishes owned finite values/versioned records and the Storage port;
+DE02a2 retains atomic detached Memory, raw-base/ancestry/indices/concurrency and
+storage comparisons; DE02b retains Session admission/seal/guard/adoption/publication/close.
+DE02a waits for a1+a2, DE02 for a+b and DE03 for b. All original acceptance remains
+cumulative. Product session formats/defaults stay unchanged; all P rows remain OPEN.
 
 ## Design Principles
 

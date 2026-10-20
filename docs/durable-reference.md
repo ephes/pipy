@@ -6,8 +6,10 @@ The verification tools execute Pi durable **1.3.0**, commit
 MemoryStorage and document execution; landed DE01b1 added real faux-provider/tool
 and context-head scenarios. Landed DE01b2 added SQLite recovery, durable abort and two
 exported Node environment scenarios. These verify reference reproducibility and the oracle.
-The Python durable comparison adapter is **OPEN** and all P01–P43 rows remain
-**OPEN**. No native durable runtime is imported or implemented by these scripts.
+The full Python durable Storage/Session comparison adapter is **OPEN**, as are all
+P01–P43 rows. The separate DE02a1 value/record comparison below now imports native
+value DTOs; the six-family DE01 scripts remain verification-only. Product code
+never imports a reference runner, and no native durable runtime is integrated.
 
 ## Reproduction
 
@@ -314,7 +316,10 @@ or rewritten. Private command logs stay outside version control.
 b1 and b2 landed with independent CLEAN and audited pushed CI. Historical ISSUES
 and fixes remain in the evidence ledger. b3a adds the local acceptance below;
 b3b retains mandatory pinned real CI, selective synthetic artifacts and actual
-pushed-job success. DE02 is blocked until b3b is green; every original DE01
+pushed-job success. b3b landed at `13d061d2` with actual Opus5.5 HIGH CLEAN,
+[CI39370449156](https://github.com/ephes/pipy/actions/runs/39370449156)11/11 and
+every uploaded artifact entry audited. DE02a1 now supplies only the bounded
+value/record/port seam below; every original DE01
 requirement remains cumulative. No performance, full env/platform, paid-provider
 or Python-native parity result is claimed.
 
@@ -390,8 +395,9 @@ throughput threshold, timing equality, performance parity or retained-heap claim
 
 ## Exhaustive current and future evidence index
 
-Version2 `tests/fixtures/durable/coverage.json` contains95 explicit rows:
-DE00–DE45, P01–P43 and DE01a/b1/b2/b3/b3a/b3b. Parent DE01 and b3 remain visible.
+Version2 `tests/fixtures/durable/coverage.json` contains99 explicit rows:
+DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b and DE02a/a1/a2/b. All cumulative
+parents remain visible, including the original DE02 acceptance unchanged.
 Each row retains original canonical plan text, owner slices and future acceptance.
 P source anchors match the exact corresponding plan source cell; DE source anchors
 bind the actual slice contract line (or cumulative child range). Bounded current
@@ -399,16 +405,18 @@ case/workload/oracle IDs and appropriate existing evidence links are explicit.
 Status must agree with the ledger, with cumulative parent status derived from
 its children. b3b has empty reference-family own current evidence; its
 inherited_reference field separately attributes existing LOCAL b1/b2/b3a facts,
-with no CI/collector/uploaded-job claim. Validators reject omitted,
+with actual b3b delivery recorded separately from inherited scenario ownership.
+Validators reject omitted,
 duplicate or unknown IDs, changed ownership/future/source/status contracts and
 dangling or unrelated DE evidence links. Malformed plan rows and absent mutation
 preconditions fail as explicit invalid evidence2, with no lookup traceback.
-Source-only, reference-only and delivery evidence are distinguished; there is no
-native-parity evidence kind. Unexecuted future cases cannot enter the executed
+Source-only, reference-only, delivery and the narrowly owned DE02a1 bounded-native
+value/record evidence are distinguished; no full native-parity evidence is claimed. Unexecuted future cases cannot enter the executed
 registry. Every P row, including P43, remains OPEN. Reference evidence is partial;
 DE02–DE45 still owe their concrete Python behavior, native tests, crash/race/wire
-and integration acceptance from the unchanged plan. b3b's real CI and selective
-artifact collection remain required before DE02 can start.
+and integration acceptance from the unchanged parent plan. DE02a2 retains the
+Memory/raw-base/index/Seq/race comparisons, then DE02b the complete Session cuts;
+DE03 requires b. A1 alone cannot complete DE02a, DE02 or any P row.
 
 
 ## Mandatory reference CI and selective artifacts
@@ -512,7 +520,8 @@ exact commit/run/attempt/API job/artifact identities and all six cases/H2x4/E1x2
 12reads/3writes/four valid CLI1 mutants. Local tests, workflow source and a local
 stage do not establish this remote proof. Workflow execution is mandatory; server
 branch-protection enforcement is a separate read-only delivery observation, with
-no remote settings changes in this slice. DE02 stays blocked until real delivery.
+no remote settings changes in this slice. That delivery was audited at
+`13d061d2`/CI39370449156; it is not native product parity.
 
 
 The local workflow gate separately executes official pinned actionlint1.7.12
@@ -522,3 +531,134 @@ cover the known job-context misuse and compute actual inline child/step/job
 budgets. They do not substitute for actionlint or a successful hosted job.
 Their YAML parser is an explicit PyYAML dev dependency, locked without changes
 to any package version/artifact; ordinary Python tests still require no Node.
+
+## Native value and record boundary — DE02a1
+
+`pipy_harness.native.durable.codec` owns already parsed finite JSON values.
+`OwnedJson(value)` validates/copies exact plain containers and scalars into a
+private immutable token tree; `thaw()` returns an independent plain tree each
+time. `encode_value`/`decode_value` validate a closed schema-version1 tree
+envelope. These are value/tree APIs, not public JSON text parsers. There is no
+arbitrary nesting256 cutoff; finite1500-level copies are tested. Ancestor cycles,
+nonplain/coercing containers, nonstring keys and nonfinite values reject without
+calling subclass hooks. Repeated acyclic aliases become independent copies.
+Equality and hashing of OwnedJson and its record/query/write/document DTO owners
+are explicitly representation-exact: float binary64 bits distinguish signed zero,
+and Python int versus float, stored object-member order and Python string
+spellings remain distinct. This is ordered owned-tree equality, not JSON-semantic
+equality or the JS verification transport. Equal owners have equal hashes;
+unequal representations remain separate set/dict keys. DE02a2 index lookup still
+requires JS UTF-16 identity independently of this representation equality.
+All finite binary64 payloads are supported: subnormals, large integral values,
+negative zero and lone-surrogate strings/keys survive. Exact Python ints must be
+exactly representable as finite binary64; bool remains distinct. IDs/Seq are
+separate exact positive safe integers; cursor positions are signed safe integers.
+No DE01 TraceSafeNumber/UTF-8-scalar restriction is imposed on product values.
+A parsed Python dict containing both an astral key and its literal surrogate-pair
+spelling has two members but only one JS UTF-16 property identity. That dict is
+unrepresentable and rejects without silently merging/dropping values. Each
+individual spelling/string/key is preserved; there is no NFC normalization,
+replacement or lone-surrogate ban. This is not duplicate JSON-text rejection.
+The Node key-recipe observation truthfully shows one property with last value2,
+not Node rejection. DE02a2 must use UTF-16 identity for request/kind/document
+indices, independently of raw Python DTO spellings.
+
+`records` supplies owned ConversationRecord, EntryRecord, TaskRecord,
+SubmissionRecord, DocumentRecord and DocumentCreate, with version1
+`encode_record`/`decode_record` envelopes. All declared fields and variant
+presence are retained. `to_tree()` returns detached values; constructors reject
+malformed/unknown fields and versions. `OMITTED` is removed only from selected
+optional top-level record fields, never from generic payloads or arrays. None is
+JSON null. This omission option belongs to constructors only: decode_record first
+owns a strict JSON tree, so decoded OMITTED rejects instead of disappearing.
+Record admission checks every top-level key's exact string type before
+omission membership or copying. Both versioned decoders check envelope keys
+before shape/set membership. These boundaries reject subclass keys without
+hash, equality or representation hooks; Storage DTOs take ownership before shape
+validation. Model-message fields remain full finite JSON here; canonical rich
+message semantics/codecs are still DE06. Diagnostics/reprs do not print payloads.
+
+```python
+from pipy_harness.native.durable.codec import OwnedJson, decode_value, encode_value
+from pipy_harness.native.durable.records import EntryRecord, decode_record, encode_record
+
+value = OwnedJson({"large": 2**60, "zero": -0.0, "items": [None]})
+assert decode_value(encode_value(value)).thaw()["items"] == [None]
+entry = EntryRecord({"id": 2, "conversationId": 1, "kind": "example", "data": None})
+assert decode_record(encode_record(entry)).to_tree()["data"] is None
+```
+
+`storage` defines the synchronous Storage Protocol and owned query/address,
+StorageWrite, Cursor, Page, EntryLookup and StoredDocument DTOs. Its full method
+surface retains later document/history/copy roles. A DTO accepting a delta/copy
+shape is not backend support. **A1 has no Python MemoryStorage or Session**.
+DE02a2 must implement atomic detached Memory, global root1/mint2/seq1 domains,
+ancestry/cursors/indices, concurrency barriers and the current raw-base seam;
+unsupported commands reject complete batches. DE02b retains all callback,
+revocation, cancellation, guard, acknowledgement-loss, adoption/publication and
+close semantics. Existing product sessions/storage/defaults are unchanged.
+
+### Bounded actual Pi versus Python comparison
+
+The separate `storage-records-v1.manifest.json` closes native modules, tests,
+script, input, caller adapter, pinned source hashes and the unchanged-form
+six-family manifest identity. It adds no ninth adapter to that registry and
+changes none of the six golden fixtures. Its phase is `values-records-a1`, not
+storage conformance. Source-authored synthetic inputs exercise16 distinct values and31
+record variants. The actual Node driver executes Chord `copyJson`/`isJsonValue`,
+then Node MemoryStorage.commit/exact-reads as a record producer. Python executes
+its real ownership codec and record encode/decode against those observed fields.
+Node Storage is reference production only; erased TS record types are not runtime
+constructors/validators and no Pi-invalid-record refusal is claimed.
+
+Create a NEW complete baseline acceptance for each fresh paired proof:
+
+```sh
+scratch="$(mktemp -d /tmp/pipy-durable-values.XXXXXX)"
+uv run python scripts/durable_pi_comparison.py acceptance \
+  --pi-source /Users/jochen/src/pi-mono --output "$scratch/acceptance"
+uv run python scripts/durable_storage_comparison.py run \
+  --acceptance "$scratch/acceptance" --output "$scratch/values-records"
+```
+
+`run` requires the ORIGINAL complete acceptance/archive/snapshot/closed DBs,
+re-attests its source/dependencies/case/workload/mutant hashes before and after,
+checks the actual Node/npm pins again, and executes one separately hashed
+caller artifact inside that private snapshot. It does not bootstrap by itself
+or re-label a historical/copy-only bundle as fresh: `fresh_reference_bootstrap`
+is false and the parent execution/hash is explicit. Two independent newly
+bootstrapped parents are required for delivery; replay remains replay.
+
+The verification-only scalar transport encodes numbers as exact binary64 bytes,
+strings/keys as UTF-16 code units and objects as sorted encoded-key pairs;
+arrays, fields, presence and values remain intact. This is neither the product
+codec nor Chord wire encoding. UTF-16 transport joins a valid surrogate pair to
+the astral Python spelling; it cannot separately test the literal-pair Python
+spelling. Those individual Python spelling roundtrips are native unit tests;
+the actual Pi observation tests the shared JS code-unit identity. One redundant
+transport sample was removed rather than claiming two distinct JS values.
+Raw observed/native/roundtrip trees, resolution provenance,
+Node-only commit context and actual ownership facts remain available. The alias
+negative changes the recorded independence witness, since JSON cannot carry a
+live alias graph. Four freshly derived valid field/ID/signed-zero/alias-witness
+mutants each require public comparison exit1, with independent positive exit0;
+invalid input is2 and cannot count as mismatch. The standalone command is:
+
+```sh
+uv run python scripts/durable_storage_comparison.py compare \
+  "$scratch/values-records/observed.json" "$scratch/values-records/native.json"
+```
+
+The same exit classification applies to `run`. After validating both outputs,
+Pi/native or Pi-consumed DTO roundtrip divergence writes result status `mismatch`
+and returns1. Its `mismatch-report.json` binds observed/native/roundtrip file
+names and SHA256 values, with independent equality flags for both comparisons.
+Invalid evidence or failed provenance remains2 and cannot produce a successful
+or semantic-mismatch result. A successful run retains `roundtrip.json` too.
+
+These local proofs do not extend hosted CI/collector roles. Ordinary pytest
+remains host-Node/network-independent. The existing hosted six-family gate and
+permanent `node tests/durable/test_reference_codec.mts` remain unchanged.
+Adapted record/storage/driver shapes retain MIT Copyright(c)2025 Mario Zechner;
+full notice remains in `tests/fixtures/durable/UPSTREAM-LICENSE.txt`. Exact
+reference identities and source hashes live in both closed manifests.

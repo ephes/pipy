@@ -47,7 +47,18 @@ VERIFICATION = {
     ".github/workflows/ci.yml",
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
-CHILDREN = {"DE01a", "DE01b1", "DE01b2", "DE01b3", "DE01b3a", "DE01b3b"}
+CHILDREN = {
+    "DE01a",
+    "DE01b1",
+    "DE01b2",
+    "DE01b3",
+    "DE01b3a",
+    "DE01b3b",
+    "DE02a",
+    "DE02a1",
+    "DE02a2",
+    "DE02b",
+}
 ALL_IDS = (
     {f"DE{i:02}" for i in range(46)} | {f"P{i:02}" for i in range(1, 44)} | CHILDREN
 )
@@ -154,7 +165,7 @@ def plan_rows(root: Path, c: Any) -> tuple[dict[str, list[str]], dict[str, int]]
     rows: dict[str, list[str]] = {}
     locations: dict[str, int] = {}
     for number, line in enumerate((root / PLAN).read_text().splitlines(), 1):
-        if not re.match(r"\| (?:DE\d\d(?:a|b[123](?:[ab])?)?|P\d\d) ", line):
+        if not re.match(r"\| (?:DE\d\d(?:a[12]?|b(?:[123](?:[ab])?)?)?|P\d\d) ", line):
             continue
         cells = [v.strip() for v in line.strip().strip("|").split("|")]
         key = cells[0].split(" / ")[0]
@@ -182,7 +193,9 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     text = text.split("## Slice status", 1)[1].split("## Next delivery gate", 1)[0]
     statuses: dict[str, str] = {}
     for line in text.splitlines():
-        if not re.match(r"\| (?:DE\d\d(?:a|b[123](?:[ab])?)?|P\d\d) \|", line):
+        if not re.match(
+            r"\| (?:DE\d\d(?:a[12]?|b(?:[123](?:[ab])?)?)?|P\d\d) \|", line
+        ):
             continue
         cells = [v.strip() for v in line.strip().strip("|").split("|")]
         key = cells[0]
@@ -203,14 +216,19 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     )
     for parent, children in [
         ("DE01b3", ["DE01b3a", "DE01b3b"]),
+        ("DE02a", ["DE02a1", "DE02a2"]),
+        ("DE02", ["DE02a", "DE02b"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
         states = {statuses[key] for key in children}
-        statuses[parent] = (
+        expected = (
             "LANDED"
             if states == {"LANDED"}
             else ("OPEN" if states == {"OPEN"} else "IN_PROGRESS")
         )
+        if parent in statuses:
+            require(statuses[parent] == expected, "Cumulative parent status drift", c)
+        statuses[parent] = expected
     return statuses
 
 
@@ -232,19 +250,30 @@ DE_EVIDENCE = {
     "DE01b3": "de01b3a-local-acceptance-evidence",
     "DE01b3a": "de01b3a-local-acceptance-evidence",
     "DE01b3b": "de01b3b-local-ci-and-artifact-implementation",
+    "DE02": "de02-split-before-product-implementation",
+    "DE02a": "de02-split-before-product-implementation",
+    "DE02a1": "de02a1-local-value-and-record-evidence",
+    "DE02a2": "de02-split-before-product-implementation",
+    "DE02b": "de02-split-before-product-implementation",
 }
 
 
 def de_current(row: Any, c: Any) -> None:
     key = row["id"]
     cases = (
-        ["kernel-memory-v1"]
-        if key == "DE01a"
+        ["values-records-a1"]
+        if key == "DE02a1"
         else (
-            list(c.CASES)[:3]
-            if key == "DE01b1"
+            ["kernel-memory-v1"]
+            if key == "DE01a"
             else (
-                list(c.CASES) if key in {"DE01", "DE01b2", "DE01b3", "DE01b3a"} else []
+                list(c.CASES)[:3]
+                if key == "DE01b1"
+                else (
+                    list(c.CASES)
+                    if key in {"DE01", "DE01b2", "DE01b3", "DE01b3a"}
+                    else []
+                )
             )
         )
     )
@@ -262,7 +291,9 @@ def de_current(row: Any, c: Any) -> None:
     require(
         current["kind"]
         == (
-            "reference-only"
+            "bounded-native"
+            if key == "DE02a1"
+            else "reference-only"
             if cases
             else ("delivery" if key == "DE00" else "source-only")
         ),
@@ -422,12 +453,16 @@ def coverage(value: Any, root: Path, c: Any) -> None:
             "current evidence",
         )
         require(
-            current["kind"] in {"source-only", "reference-only", "delivery"},
+            current["kind"] in {"source-only", "reference-only", "delivery"}
+            or (key == "DE02a1" and current["kind"] == "bounded-native"),
             "Native parity claim in reference index",
             c,
         )
         for name, allowed in [
-            ("cases", set(c.CASES)),
+            (
+                "cases",
+                set(c.CASES) | ({"values-records-a1"} if key == "DE02a1" else set()),
+            ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),
         ]:

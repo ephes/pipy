@@ -1,7 +1,7 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1, DE01b1, DE01b2 and DE01b3a landed; DE01b3b in progress; all parity rows OPEN**,
-2026-10-19. This ledger accompanies the
+Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 in progress; all parity rows OPEN**,
+2026-10-20. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
 index, not an upstream comparison result. The prototypes are experimental
@@ -141,8 +141,12 @@ that coverage here. A local validation result is not a landed slice.
 | DE01b1 | Strict multi-case/provenance/projection; H1/C1; lost-field/stale-head negatives | LANDED | `7acf5f7`; actual independent CLEAN and CI10/10; historical first ISSUES retained below; all P OPEN |
 | DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | LANDED | `28bc886`; actual independent CLEAN0; CI39286240678 success10/10; historical first ISSUES retained |
 | DE01b3a | Fresh executable local acceptance, hardware/exported workloads, four fresh mutants, exhaustive mapping | LANDED | Commit e3b2b391; actual CLEAN and CI39302403566 success10/10; reconciliation below |
-| DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | IN_PROGRESS | Depends on b3a; DE02 blocked until green b3b |
-| DE02 | Records, memory storage and atomic session core | OPEN | Blocked until DE01b3b is green |
+| DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | LANDED | `13d061d2`; actual Opus5.5 HIGH CLEAN; CI39370449156 success11/11 and uploaded artifact audited; delivery below |
+| DE02 | Records, memory storage and atomic session core | IN_PROGRESS | Cumulative a1+a2+b; original parent acceptance retained |
+| DE02a | Owned records/values, Storage port and detached atomic Memory | IN_PROGRESS | Cumulative a1+a2; no parent or P completion |
+| DE02a1 | Owned finite JSON, versioned records and Storage Protocol/DTOs | IN_PROGRESS | Implementation authorized; independent gates and delivery OPEN |
+| DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | OPEN | Requires a1; all original backend obligations retained |
+| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | OPEN | Requires a2; all original Session/draft/failure obligations retained |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -244,13 +248,12 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00, DE01a/R1, DE01b1, DE01b2 and DE01b3a have landed; historical local freezes
-and ISSUES remain below. DE01b3b is now implementing the remaining gate. The
-authorized cumulative b3 split is:
-local executable acceptance/workloads/hardware/four fresh mutants/exhaustive
-mapping in b3a, then mandatory real pinned CI/selective artifacts and actual
-successful pushed-job evidence in b3b. Every original b3 acceptance remains
-cumulative. DE02 is blocked until b3b is green; all P/Python-adapter rows OPEN.
+DE00 and DE01a/R1–DE01b3b have landed. DE02 now proceeds through DE02a1
+(values/records/port), DE02a2 (atomic Memory/raw-base/ancestry/storage comparison),
+then DE02b (Session/Tx/guard/adoption/publication/close). Both splits were approved
+and documented before product edits; the original DE02 row remains unchanged.
+DE02a is cumulative a1+a2; DE02 is cumulative a+b. DE03 waits for DE02b.
+All original acceptance and all P rows remain OPEN; a1 is not native Storage parity.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -1248,3 +1251,250 @@ The first docs build rejected an unquoted literal square-bracket example;
 backtick quoting fixes that link-parser error, with the failed log retained.
 No full/review/stage/commit/push is performed by the writer; new16-path freeze,
 normal-HOME independent full and scoped Opus review precede any delivery claim.
+
+## DE01b3b delivery reconciliation and DE02 admission
+
+DE01b3b landed/pushed at `13d061d2dd19ce85db097ef33938fa9869593e36`, tree
+`54f1fd6c87c94be772a276cf58f450b7bbb903a4`. The actual Opus5.5 HIGH implementation
+review is CLEAN; its first ISSUES and accepted context/budget/evidence repairs
+remain historical below and are not renamed. The coordinator independently
+verified [CI39370449156](https://github.com/ephes/pipy/actions/runs/39370449156),
+attempt1 success11/11: three full suites each13,050 passed/208 skipped; durable360
+without skips; four PTY jobs17/0; required WASI jobs441/0 with the actual pin.
+Independent local full:13,256 passed/2 skipped. Uploaded artifact12240918411,
+job118456897132, contains168 text payloads plus index,169 ZIP entries and seven
+explicit exclusions. The actual2,047,556-byte ZIP SHA256 is
+`d31beca75a87c7b489acdfc798047a92dcdd8bd5ce4fe895e953ea0e3007ad7a`.
+The coordinator independently rehashed every entry and the complete153-entry,
+13,476-line CI archive (SHA256
+`208824bdcc95b033d20cc90dcff8becdf603441136abfae38d16740c212eb378`).
+Full report: `/tmp/pipy-de01b3b-repair-gate.59ovcqqu/delivery/delivery-final.json`,
+SHA256 `c3b20f0bd4ae41b6d81d2d6becba6ce04d8ee251758212ce1e1b5d14a5eda591`.
+These are coordinator-audited delivery facts, not a new writer execution.
+
+### DE02 split before product implementation
+
+The approved DE02a/DE02b and DE02a1/DE02a2 split preserves the full original
+parent row. DE02a1 owns a versioned owned-value/record-tree codec and Storage
+Protocol/DTOs; DE02a2 owns the genuine atomic Memory and raw-base seam required
+by DE02b's revocable drafts. DE02b retains admission/cancellation, seal/prepare,
+read-after-write, owner checks, guard/poisoning, before/after acknowledgement
+failures, adoption-before-publication, listener/reentry and close/drain cuts.
+No Session behavior or native backend is implemented by a1. Typed documents,
+delta/copy/as-of/fork materialization and retention remain required by their
+owning later slices. Unsupported raw-base commands must reject entire batches.
+
+The approved product value domain is full finite binary64, including signed
+zero, above-safe integral payloads and lone-surrogate strings/indices. Exact
+Python integers must have an exact finite binary64 representation; IDs/Seq use
+a separate positive-safe domain and cursor positions a signed-safe domain.
+No arbitrary depth256 or duplicate-parser restriction is introduced. The codec
+owns already parsed values and versioned record trees; no unnecessary public
+text/byte parser is added. Rawbase is assigned to a2, not silently removed.
+All P rows stay OPEN. No product default/session integration changes are included.
+
+### DE02a1 local value and record evidence
+
+Status: **implementation in progress; independent review and delivery OPEN**.
+The native product now has an owned finite value codec, complete versioned
+record trees and validated Storage port DTOs. It has no MemoryStorage or Session.
+A separate verification manifest closes product/tests/input/driver/script and
+pinned sources; the original six-family registry and eight MTS adapter inventory
+remain unchanged. The bounded comparison is actual Chord value copy versus
+Python codec, and Pi-consumed records versus Python DTO roundtrip, never a
+Python backend comparison. Full Memory/Seq/index/ancestry/concurrency/raw-base
+and storage-mutant proofs remain required by DE02a2; Session/draft/adoption
+proofs remain DE02b. Local results and exact final hashes are recorded after
+execution, not inferred from this implementation status. All P rows OPEN.
+
+#### DE02a1 UTF-16 representability repair before independent gate
+
+The first candidate's real15-value/31-record probe and two later same-candidate
+paired runs were green at native manifest
+`853bcdb1345ecd85244b15af9b79c6454f22baceefeed00a3c14af3505ed6589`.
+They do not cover the following newly reproduced input. Public OwnedJson and
+versioned decode accepted a Python dict with both astral and literal surrogate-
+pair keys, although its two members have one JS UTF-16 property identity.
+Actual pinned Node/copyJson showed one last-wins property, not a Node refusal.
+The accepted repair rejects only that unrepresentable Python dict, preserving
+all individual strings, single keys and lone surrogates unchanged. It introduces
+no parser duplicate policy or valid-JS-value exclusion. DE02a2 explicitly retains
+UTF-16-equivalent request/task/document index semantics.
+
+Permanent direct-value/versioned-value/record tests failed3/4positive against the
+old guard and pass after repair. Removing just the new guard privately reproduces
+those same3 failures while all4 positive spelling cases still pass. The first
+private-plugin attempt failed to import; it is preserved as a tooling failure,
+not counted as a guard proof. The effective mutant adds only the private plugin
+path and leaves tracked bytes unchanged. Full before/after logs and the actual
+Node recipe are under `/private/tmp/pipy-de02a-cjkqx7yn/utf16-*`. Final fresh
+17-value/31-record paired results and exact hashes follow after execution.
+
+#### DE02a1 first frozen local verification (2026-10-20; superseded below)
+
+The repaired candidate binds native manifest
+`a0ea49e30eafd11eb201689c6056080bf53f4e1a313ab9d1500407b53ebdb3b0`.
+This is the first frozen candidate, not the later plain-key repair candidate.
+Two independent fresh baseline acceptances each execute all six families,
+H2x4/E1x2, twelve read/three write workloads and four original semantic negatives.
+Their separately executed a1 probes each compare17 values/31 consumed records
+and preserve actual UTF-16 recipe facts: same units, one JS property, last value2.
+Each fresh field/ID/signed-zero/alias-witness mutant is valid mismatch1 with a
+separate positive0. Source and dependencies are re-attested before/after; neither
+probe claims to bootstrap or implement native Memory/Session.
+
+| Local gate | Actual result / complete local log locator |
+| --- | --- |
+| Fresh pair1 | Bootstrap0/91.16s, a1 comparison0/8.54s; `utf16-final-bootstrap-1/`, `utf16-final-comparison-1/` |
+| Fresh pair2 | Bootstrap0/91.66s, a1 comparison0/8.54s; `utf16-final-bootstrap-2/`, `utf16-final-comparison-2/` |
+| Permanent durable focus | Python3.11.13,3.14.8,3.15.0 each507 passed,0 skipped; `utf16-final-focus311/`, `utf16-final-focus314/`, `utf16-final-focus315/` |
+| Codec and static | Actual separate Nodev26.12.0 codec0, same byte-identical permanent MTS target; Ruff, formatting, strict product and combined mypy0 |
+| Public invalid controls | Positive0; malformed record, missing parent and missing file each2; closed manifest version/ref/inventory/hash guards covered by permanent actual CLI tests |
+| Review/full/delivery | OPEN; independent coordinator-owned normal-HOME full and actual Opus5.5 HIGH still required; writer performed neither |
+
+All local locators are below `/private/tmp/pipy-de02a-cjkqx7yn/`; full commands,
+stdout/stderr, actual exits/HOME and source hashes are retained. `final-pairs.json`
+records distinct parent/probe execution IDs and exact result hashes. Earlier
+15-value candidates and failed diagnostics remain separate evidence. This is
+bounded JSON/record DTO proof; DE02a2 Memory/index/Seq/ancestry/raw-base/race and
+DE02b Session/draft/adoption/failure requirements remain OPEN. No P row closes.
+
+#### DE02a1 plain-key admission repair before independent full/review
+
+The independent pre-gate rejected the first freeze before running full or Opus:
+`/tmp/pipy-de02a1-gate.8o3ghnto/gate-fail-early.json` and its
+`record-key-hooks-result.{json,py,log}` show EntryRecord optional omission invoking
+a caller str-subclass hash hook and accepting its nonplain key. Direct OwnedJson
+already rejected the same input without hooks. This is not an Opus review finding;
+no a1 review verdict exists yet. The first freeze and its earlier green results
+remain historical evidence, not evidence for the repaired bytes.
+
+The same narrow public-boundary investigation reproduced two connected envelope
+holes: decode_record's shape membership and decode_value's key-set comparison
+accepted str-subclass keys after invoking equality/hash hooks. Exactly three
+explicit exact-string-key guards now precede omission/copy or envelope membership.
+They use generic diagnostics without rendering caller values. The Storage DTOs
+already owned input before validating shape; their product code is unchanged.
+A separate public before/after probe also covers an opaque object key: previously
+its hash ran during record copying; the repaired boundary rejects it without hooks.
+No JSON domain, depth, number, Unicode or parser policy is changed, and no Node
+record-constructor validation is claimed.
+
+Permanent tests reset hook counters immediately before the public call. Against
+private product files whose four SHA256 values exactly match the first freeze,
+the final tests produce5 failures/3 safe-DTO passes. Removing only the record,
+record-envelope or value-envelope guard separately produces3/1/1 targeted failures;
+non-omitted record keys fail the empty-hook assertion, not merely a broad exception
+expectation. The repaired full durable focus passes515 cases with0 skips on each
+of Python3.11.13,3.14.8,3.15.0, including existing plain-key/optional-omission
+positives. Ruff, formatting, strict product and combined mypy pass; the actual
+separate Nodev26.12.0 codec test also passes.
+
+Full stdout/stderr, commands, actual exits, normal HOME and source hashes for this
+repair are under `/private/tmp/pipy-de02a1-key-repair-ecn39ojk/`. Original public
+observations are in `public-original/`, repaired observations in `public-repaired/`,
+permanent original regressions in `original-permanent-regressions/`, and individual
+guard probes in `guard-mutant-{record,shape,envelope}/`. These expected negative
+exits remain explicitly separate from positive checks. Fresh hash-bound pairs and
+final ownership evidence follow below; independent full/review/delivery, DE02a2,
+DE02b and all P rows remain OPEN.
+
+The final plain-key candidate binds native manifest
+`922867181e1336bc25f7273ed0c6871dae6e8ce2e602c51a45497c54db77a911`.
+Both new baseline acceptances are actual fresh bootstraps at the unchanged Pi pin;
+each executes six families, H2x4/E1x2, twelve reads/three writes and four original
+semantic mutants. Their separate a1 probes each compare17 values/31 records,
+attest14 original source modules and retain actual UTF-16 last-wins recipe facts.
+Each probe freshly executes field/ID/number/alias-witness negative CLI1 and a
+separate positive CLI0; malformed record/missing parent/missing file controls
+remain invalid CLI2, never mismatch1. The original baseline manifest remains
+`81f6d1aca17ebe4f5927682d42a4cc08f4a5cddf0a783d084ca52be5a8bedf99`.
+
+| Final plain-key pair | Actual result / complete log locator |
+| --- | --- |
+| Pair1 | Fresh acceptance0/138.80s in `acceptance-1/`; separate a1 comparison0/8.60s in `comparison-1/` |
+| Pair2 | Fresh acceptance0/138.64s in `acceptance-2/`; separate a1 comparison0/8.61s in `comparison-2/` |
+| Invalid controls | `final-invalids/` and `final-invalid-artifacts/`; positive0, three invalid2 |
+| Closure/source audit | `final-audit/`, `audit-results.json`, `final-pairs.json`; original95 futures/contracts,99 rows/43 OPEN, six fixtures/eight adapters/Node codec/MIT unchanged |
+
+All these locators are under the repair directory above. Both pairs have distinct
+parent and probe execution IDs and exact result hashes in `final-pairs.json`.
+The first freeze remains `/private/tmp/pipy-de02a-cjkqx7yn/freeze.json`; its logs
+are not relabeled as current. The new freeze binds all22 owned paths and records
+the precise delta to that first frozen state. No native MemoryStorage, Session,
+parent delivery, parity closure or independent reviewer verdict is inferred.
+
+#### DE02a1 first independent review and accepted repair
+
+The first actual Opus5.5 HIGH review is valid **ISSUES**,2 Warnings/2 Suggestions,
+not CLEAN: `/private/tmp/pipy-de02a1-repair-gate.csjz5sr3/review-startup-retry/result.json`.
+Its recorded baseline is `f46d8dc90d860a1509452eac0b8ddc6001f6ecb8`, reviewed tree
+`3341c9a4555135ff909444a58f286588e59d3f40`. All four findings were accepted;
+the scoped follow-up is justified by real signed-zero equality collapse and
+run-mismatch misclassification, not a request for cosmetic agreement. Previous
+first-freeze and plain-key candidate logs remain historical and unchanged.
+
+| Finding | Accepted repair / proof boundary |
+| --- | --- |
+| W1 owned equality/hash | Explicit representation-exact equality: float bits, Python int/float type, object-member order and Python string spelling. Derived identity tokens only revisit already validated scalars; DTO owners inherit it. JS-number/UTF-16 comparison and future index identity remain separate. |
+| W2 actual run mismatch | Valid Pi/native and Pi-consumed DTO roundtrip differences return1 with hash-bound mismatch report/result; invalid input/provenance remains2. Separate real runtime fault-injection runs test both differences, not compare-only units. |
+| S1 repeated sample | Remove duplicate17th transport value, retain16 distinct values/31 records. UTF-16 decoding selects astral spelling; literal-pair Python spelling is covered by native unit tests, not falsely claimed as a second Pi value. |
+| S2 decoder omission | Strict owned JSON validation precedes record shape validation and direct owner adoption; constructor-only OMITTED cannot disappear on decode. Constructors still omit selected optional fields, without key hooks. |
+
+The earlier17-value logs count17 executed inputs, not17 distinct JS values or two
+transported Python spellings. They are not overwritten or reused as final repair
+proof. Targeted permanent before tests failed11 with2 representation-preservation
+positives; initial after12/13 exposed one incorrect new test expectation (the
+scripted astral-key payload is1), corrected without changing that payload. The
+old execute-function injection fails exactly2 new run tests while positive0 and
+invalid2 controls pass. Reverting only owned equality produces9 failures with3
+representation-preservation positives; reverting only decoder JSON admission
+reproduces its omission failure. Complete logs and exact final repair results
+are recorded under `/private/tmp/pipy-de02a1-opus-repair-z1wy4_sx/` below.
+
+The first static pass flagged test complexity; two small unit closure factories
+were extracted in the same owned test file, retaining every assertion. Earlier
+532-case passes preceded that test-only cleanup, so final focus checks are rerun
+at the final manifest. Neither this repair nor its tests implement Memory/Session,
+change the six-family/eight-adapter registry, or close a P row. Independent scoped
+review/full/delivery remain pending; no earlier ISSUES result is relabeled CLEAN.
+
+#### DE02a1 final local evidence after first-review repair
+
+Final native manifest:
+`ccda52728c99eec928e11c94b3a9c8ed7de96865496c0aad7d9a49ca11d1c45c`.
+Two fresh baseline acceptances remain six-family/H2x4/E1x2/workload/four-oracle
+executions; each separately runs the final16-distinct-value/31-record native
+comparison, preserving14 actual source-module hashes. Both normal probes pass0
+and preserve four valid semantic negatives1 with independent positives0.
+
+| Final gate | Actual result / full log locator below repair directory |
+| --- | --- |
+| Fresh pair1 | `acceptance-1/`0/89.15s; `comparison-1/`0/9.78s |
+| Fresh pair2 | `acceptance-2/`0/88.64s; `comparison-2/`0/9.76s |
+| Final durable focus | `final-focus311/`, `final-focus314/`, `final-focus315/`: each532P0S |
+| Static/codec | Final Ruff/format/combined mypy0, strict product mypy0; actual isolated Node26.12.0 permanent codec0 |
+| Actual native-output fault | `actual-run-native/`1/8.07s; `run-native-output/result.json` status mismatch, equality flags false/true |
+| Actual DTO-roundtrip fault | `actual-run-roundtrip/`1/8.00s; `run-roundtrip-output/result.json` status mismatch, flags true/false |
+| Original execute runtime controls | `actual-old-run-native/`, `actual-old-run-roundtrip/`: each actual Node0 then outer2/no mismatch result, reproducing W2 |
+| Invalid controls | `final-invalids/` positive0 and malformed/missing-parent/missing-file2; actual invalid-output run also2/no result |
+
+The fault-injection probes really execute the pinned Node driver and the actual
+run/main path; they alter a valid Python output or the post-native DTO decoder.
+They reuse the identified newly bootstrapped parents and reset only the exact
+private caller adapter between runs. They are **not new bootstrap or candidate
+PASS claims**. Original execute controls use only its exact pre-repair function
+in a private injection wrapper; no tracked/gate/upstream source changes occur.
+`actual-run-proofs.json` binds each exit/report/observed-output/runtime command,
+compares report hashes and verifies valid mismatches remain CLI1. Report raw trees
+and all stdout/stderr are retained. Ordinary pytest's four execute/main tests use
+an explicitly labeled bootstrap stub, independently of these actual Node proofs.
+
+All local files are below `/private/tmp/pipy-de02a1-opus-repair-z1wy4_sx/`.
+`final-pairs.json` records distinct parent/probe IDs and result hashes;
+`command-index.json` includes expected nonzero repro/mutant/control commands,
+not just successful tails. Full prior evidence and ISSUES remain unchanged.
+The freeze includes all22 owned hashes, exact accepted-baseline repair delta and
+caller-authored review context inputs. Final docs/render/link checks are recorded
+in that freeze. Independent full/scoped Opus review/delivery remain coordinator-
+owned and pending; DE02a2/DE02b and all parity rows stay OPEN.

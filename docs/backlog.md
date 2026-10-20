@@ -102,7 +102,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1, DE01b1, DE01b2 and DE01b3a landed; DE01b3b is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -120,7 +120,14 @@ success10/10 (each full suite12,996 passed/208 skipped, durable306/0). Its first
 ISSUES and accepted test-evidence repairs remain historical. DE01b3a owns fresh local acceptance,
 exported hardware/workloads, four fresh mutants and exhaustive mapping; DE01b3b
 owns mandatory actual pinned CI, selective artifacts and pushed-job proof.
-DE02 depends on green DE01b3b. All original DE01 acceptance remains
+DE01b3b landed at `13d061d2`, actual Opus5.5 HIGH CLEAN and
+[CI39370449156](https://github.com/ephes/pipy/actions/runs/39370449156) success11/11,
+with every uploaded artifact entry audited. DE02 is split before product edits:
+DE02a1 values/records/Storage Protocol, then DE02a2 atomic detached Memory with
+raw-base/ancestry/indices/concurrency and full storage comparisons, then DE02b
+Session/Tx/guard/adoption/publication/close. DE02a waits for a1+a2; DE02 waits for
+a+b and DE03 requires b. No cumulative acceptance or P row is removed.
+All original DE01 acceptance remains
 cumulative and all P rows OPEN. See [reference reproduction](durable-reference.md).
 The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md) tracks all
 DE00–DE45 slices and P01–P43 requirements. The final plan review was

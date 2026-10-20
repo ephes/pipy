@@ -8,6 +8,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add native owned finite JSON and versioned record-tree codecs, validated
+  Storage port DTOs and a bounded actual Pi value/consumed-record comparison.
+  Full binary64 payloads, signed zero, lone-surrogate keys and deep ownership
+  survive; IDs remain a separate safe-integer domain. Parsed Python objects with
+  two UTF-16-equivalent keys reject as unrepresentable, without merging values
+  or excluding individual surrogate strings. Coverage now retains99
+  cumulative delivery/parity rows. Record omission and versioned envelope
+  admission reject nonplain keys before hashing, comparison or copying, without
+  invoking caller hooks. Owned equality/hash preserve float bits, Python numeric
+  types and ordered representation; versioned record decode rejects constructor-
+  only omission. The actual comparison uses16 distinct JS values and reports
+  valid run mismatches as exit1 with hashed evidence, while invalid evidence is2.
+  This DE02a1 seam has no Python MemoryStorage,
+  Session or product-default integration; DE02a2/DE02b and all parity rows remain
+  open. The preceding mandatory reference CI/upload gate was fully audited at
+  `13d061d2`/CI39370449156; historical review findings remain recorded.
+
 - Add a mandatory pinned durable-reference CI job and closed selective textual
   evidence collector, with early-failure metadata and explicit excluded DB/archive
   attestations. Local implementation does not claim hosted delivery or native

@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 95
+    assert len(value["rows"]) == 99
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -148,13 +148,13 @@ raise SystemExit(o.main(['reference','--pi-source',sys.argv[2],'--output',sys.ar
     )
 
 
-def test_b3b_uses_inherited_families_without_claiming_hosted_success():
+def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     row = next(
         row
         for row in o.load(o.FIXTURES / "coverage.json")["rows"]
         if row["id"] == "DE01b3b"
     )
-    assert row["status"] == "IN_PROGRESS"
+    assert row["status"] == "LANDED"
     assert (
         row["current"]["cases"]
         == row["current"]["workloads"]
@@ -163,4 +163,30 @@ def test_b3b_uses_inherited_families_without_claiming_hosted_success():
     )
     assert row["inherited_reference"]["owners"] == ["DE01b1", "DE01b2", "DE01b3a"]
     assert row["inherited_reference"]["cases"] == list(o.contract.CASES)
-    assert "hosted execution/upload proof remains OPEN" in row["current"]["observables"]
+    assert "CI39370449156" in row["current"]["observables"]
+    assert "inherited explicitly" in row["current"]["observables"]
+
+
+@pytest.mark.parametrize("parent", ["DE02a", "DE02"])
+def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
+    root = tmp_path / "root"
+    path = root / a.LEDGER
+    path.parent.mkdir(parents=True)
+    source = (o.ROOT / a.LEDGER).read_text()
+    rows = source.splitlines()
+    index = next(
+        i for i, line in enumerate(rows) if line.startswith("| " + parent + " |")
+    )
+    assert "| IN_PROGRESS |" in rows[index]
+    rows[index] = rows[index].replace("| IN_PROGRESS |", "| LANDED |")
+    path.write_text("\n".join(rows) + "\n")
+    with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
+        a.ledger_status(root, o.contract)
+
+
+def test_bounded_native_evidence_is_owned_only_by_actual_a1_child():
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == "DE02a2")
+    row["current"].update(kind="bounded-native", cases=["values-records-a1"])
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
