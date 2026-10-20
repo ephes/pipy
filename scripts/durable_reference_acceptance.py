@@ -57,6 +57,8 @@ CHILDREN = {
     "DE02a",
     "DE02a1",
     "DE02a2",
+    "DE02a2a",
+    "DE02a2b",
     "DE02b",
 }
 ALL_IDS = (
@@ -165,7 +167,9 @@ def plan_rows(root: Path, c: Any) -> tuple[dict[str, list[str]], dict[str, int]]
     rows: dict[str, list[str]] = {}
     locations: dict[str, int] = {}
     for number, line in enumerate((root / PLAN).read_text().splitlines(), 1):
-        if not re.match(r"\| (?:DE\d\d(?:a[12]?|b(?:[123](?:[ab])?)?)?|P\d\d) ", line):
+        if not re.match(
+            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?)?|P\d\d) ", line
+        ):
             continue
         cells = [v.strip() for v in line.strip().strip("|").split("|")]
         key = cells[0].split(" / ")[0]
@@ -194,7 +198,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for line in text.splitlines():
         if not re.match(
-            r"\| (?:DE\d\d(?:a[12]?|b(?:[123](?:[ab])?)?)?|P\d\d) \|", line
+            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?)?|P\d\d) \|", line
         ):
             continue
         cells = [v.strip() for v in line.strip().strip("|").split("|")]
@@ -216,6 +220,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     )
     for parent, children in [
         ("DE01b3", ["DE01b3a", "DE01b3b"]),
+        ("DE02a2", ["DE02a2a", "DE02a2b"]),
         ("DE02a", ["DE02a1", "DE02a2"]),
         ("DE02", ["DE02a", "DE02b"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
@@ -254,6 +259,8 @@ DE_EVIDENCE = {
     "DE02a": "de02-split-before-product-implementation",
     "DE02a1": "de02a1-local-value-and-record-evidence",
     "DE02a2": "de02-split-before-product-implementation",
+    "DE02a2a": "de02a1-delivery-and-de02a2-pre-code-split",
+    "DE02a2b": "de02a1-delivery-and-de02a2-pre-code-split",
     "DE02b": "de02-split-before-product-implementation",
 }
 
@@ -277,6 +284,8 @@ def de_current(row: Any, c: Any) -> None:
             )
         )
     )
+    if key == "DE02a2a":
+        cases = ["memory-tables-a2a-v1"]
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -292,7 +301,7 @@ def de_current(row: Any, c: Any) -> None:
         current["kind"]
         == (
             "bounded-native"
-            if key == "DE02a1"
+            if key in {"DE02a1", "DE02a2a"}
             else "reference-only"
             if cases
             else ("delivery" if key == "DE00" else "source-only")
@@ -454,14 +463,16 @@ def coverage(value: Any, root: Path, c: Any) -> None:
         )
         require(
             current["kind"] in {"source-only", "reference-only", "delivery"}
-            or (key == "DE02a1" and current["kind"] == "bounded-native"),
+            or (key in {"DE02a1", "DE02a2a"} and current["kind"] == "bounded-native"),
             "Native parity claim in reference index",
             c,
         )
         for name, allowed in [
             (
                 "cases",
-                set(c.CASES) | ({"values-records-a1"} if key == "DE02a1" else set()),
+                set(c.CASES)
+                | ({"values-records-a1"} if key == "DE02a1" else set())
+                | ({"memory-tables-a2a-v1"} if key == "DE02a2a" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),

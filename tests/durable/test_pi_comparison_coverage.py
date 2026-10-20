@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 99
+    assert len(value["rows"]) == 101
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE02a", "DE02"])
+@pytest.mark.parametrize("parent", ["DE02a2", "DE02a", "DE02"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -184,9 +184,34 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
         a.ledger_status(root, o.contract)
 
 
-def test_bounded_native_evidence_is_owned_only_by_actual_a1_child():
+def test_bounded_native_evidence_cannot_be_claimed_by_cumulative_parent():
     value = o.load(o.FIXTURES / "coverage.json")
     row = next(row for row in value["rows"] if row["id"] == "DE02a2")
     row["current"].update(kind="bounded-native", cases=["values-records-a1"])
     with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize("child", ["DE02a2b", "DE02b", "DE02a", "DE02"])
+def test_table_evidence_is_owned_only_by_actual_internal_child(child):
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE02a2a"]["current"]["cases"] == ["memory-tables-a2a-v1"]
+    assert rows["DE02a2a"]["current"]["kind"] == "bounded-native"
+    assert rows["DE02a2b"]["current"]["kind"] == "source-only"
+    assert rows["DE02a2b"]["current"]["cases"] == []
+    rows[child]["current"].update(kind="bounded-native", cases=["memory-tables-a2a-v1"])
+    with pytest.raises(
+        o.EvidenceError, match="Native parity claim|Unknown current|ownership drift"
+    ):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize("bad", ["DE02a2c", "DE02a3", "DE02a2aa"])
+def test_only_exact_new_child_ids_are_accepted(bad):
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == "DE02a2b")
+    row["id"] = bad
+    with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
         a.coverage(value, o.ROOT, o.contract)

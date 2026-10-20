@@ -318,8 +318,8 @@ and fixes remain in the evidence ledger. b3a adds the local acceptance below;
 b3b retains mandatory pinned real CI, selective synthetic artifacts and actual
 pushed-job success. b3b landed at `13d061d2` with actual Opus5.5 HIGH CLEAN,
 [CI39370449156](https://github.com/ephes/pipy/actions/runs/39370449156)11/11 and
-every uploaded artifact entry audited. DE02a1 now supplies only the bounded
-value/record/port seam below; every original DE01
+every uploaded artifact entry audited. DE02a1 landed the bounded value/record/port seam below; DE02a2a adds only the
+internal table comparison; every original DE01
 requirement remains cumulative. No performance, full env/platform, paid-provider
 or Python-native parity result is claimed.
 
@@ -395,8 +395,8 @@ throughput threshold, timing equality, performance parity or retained-heap claim
 
 ## Exhaustive current and future evidence index
 
-Version2 `tests/fixtures/durable/coverage.json` contains99 explicit rows:
-DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b and DE02a/a1/a2/b. All cumulative
+Version2 `tests/fixtures/durable/coverage.json` contains101 explicit rows:
+DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b and DE02a/a1/a2/a2a/a2b/b. All cumulative
 parents remain visible, including the original DE02 acceptance unchanged.
 Each row retains original canonical plan text, owner slices and future acceptance.
 P source anchors match the exact corresponding plan source cell; DE source anchors
@@ -410,13 +410,13 @@ Validators reject omitted,
 duplicate or unknown IDs, changed ownership/future/source/status contracts and
 dangling or unrelated DE evidence links. Malformed plan rows and absent mutation
 preconditions fail as explicit invalid evidence2, with no lookup traceback.
-Source-only, reference-only, delivery and the narrowly owned DE02a1 bounded-native
-value/record evidence are distinguished; no full native-parity evidence is claimed. Unexecuted future cases cannot enter the executed
+Source-only, reference-only, delivery and the narrowly owned DE02a1/a2a bounded-native
+value/record and internal-table evidence are distinguished; no full native-parity evidence is claimed. Unexecuted future cases cannot enter the executed
 registry. Every P row, including P43, remains OPEN. Reference evidence is partial;
 DE02–DE45 still owe their concrete Python behavior, native tests, crash/race/wire
-and integration acceptance from the unchanged parent plan. DE02a2 retains the
-Memory/raw-base/index/Seq/race comparisons, then DE02b the complete Session cuts;
-DE03 requires b. A1 alone cannot complete DE02a, DE02 or any P row.
+and integration acceptance from the unchanged parent plan. DE02a2a owns internal tables/index/Seq/race comparisons; DE02a2b retains raw-base
+in the same candidate and cumulative bounded Storage proof. A2 waits both; b waits
+a2b and DE03 requires b. Neither a1 nor a2a alone can complete DE02a, DE02 or any P row.
 
 
 ## Mandatory reference CI and selective artifacts
@@ -662,3 +662,144 @@ permanent `node tests/durable/test_reference_codec.mts` remain unchanged.
 Adapted record/storage/driver shapes retain MIT Copyright(c)2025 Mario Zechner;
 full notice remains in `tests/fixtures/durable/UPSTREAM-LICENSE.txt`. Exact
 reference identities and source hashes live in both closed manifests.
+
+
+## Internal table comparison (DE02a2a)
+
+The separate `memory-tables-a2a-v1` phase executes real pinned Node MemoryStorage
+against the internal synchronous Python table engine. It is a bounded table
+comparison, not complete Storage/Session parity or product integration. A2b must
+add current raw-base documents **inside the same private candidate/authority**
+and finish cumulative bounded Protocol acceptance. A2a refuses document reads,
+finds/scans and any document-containing batch; it returns no fabricated empty
+results. Delta/fork document families remain owned by their later plan slices.
+All P rows remain OPEN. The original six DE01 fixtures, eight-adapter closure,
+mandatory hosted CI, selective collector and permanent Node codec are unchanged.
+The new comparison is a separate local interface, not part of that hosted job.
+
+```sh
+# Fresh private owner-only root; normal caller HOME, isolated child state.
+scratch="$(mktemp -d /tmp/pipy-durable-tables.XXXXXX)"
+uv run python scripts/durable_pi_comparison.py acceptance \
+  --pi-source /Users/jochen/src/pi-mono --output "$scratch/parent"
+uv run python scripts/durable_storage_comparison.py run \
+  --acceptance "$scratch/parent" --output "$scratch/a1"
+uv run python scripts/durable_memory_comparison.py run \
+  --acceptance "$scratch/parent" --output "$scratch/tables"
+uv run python scripts/durable_memory_comparison.py compare \
+  "$scratch/tables/observed.json" "$scratch/tables/native.json"
+```
+
+Each run needs a new output and absent caller destination in the private snapshot.
+`run` executes the real driver; it honestly records `fresh_reference_bootstrap:false`
+and binds the complete original parent acceptance execution/hash. Two new parent
+bootstraps with their own a1/table executions form final local evidence. Copying
+or replaying an old bundle is not a fresh execution. Exact archive, original
+lock/dependency/source/module hashes and Node26.12.0/npm11.20.0 are verified using
+the existing fail-closed bootstrap; no upstream writes/providers/user data occur.
+`storage-memory-v1.manifest.json` closes the native implementation, two test
+files, caller, input and all a1 helper artifacts (16 paths), plus exact five
+pinned source hashes. Hash direction is code/tests/coverage → baseline manifest
+→ a1 manifest → table manifest; no manifest hashes itself. Start/end manifest
+and original parent byte identities are checked. The child deadline is60s and
+process-group cleanup is inherited from the bootstrap; no missing prerequisite
+or runtime failure becomes a skip.
+
+Seventeen **actual exported Node** `createStorageConformance` cases are selected
+by their exact source names in the input; each uses fresh real MemoryStorage,
+exactly-once callback and finally-close. `reference-context.json` records these
+identities/counts; `conformance-raw.json` retains all255 ordered calls, full typed
+arguments/results, error names/messages/stacks/causes. These Node assertions
+alone are not Python conformance. Seven **derived paired recipes** separately
+exercise both actual implementations: identity/highwater/Seq/empty/exhaustion,
+replacement/status/request-index, ancestry/markers/owners, cursors, UTF-16 keys,
+live ownership observations and ID exhaustion. They currently contain70 ordered
+operations; the arrays and all outcomes are preserved. Indexed-string recipes
+are a table-only projection of the source case that also covers documents, not
+a claim to execute that whole source case in Python. Missing/null/undefined and
+all record fields remain distinguishable. Source-order request winners have no
+fallback after removal, and legacy cursors without order use the table default,
+rejecting an opposite explicit query order.
+
+Raw Memory accepts a dangling parent without Session graph validation. Descending
+entry iteration is lazy: a page reads only its `limit+1` lookahead, a scoped point
+lookup stops at its first match, and a head lookup returns a local marker before
+unneeded ancestor access. Both scan orders stop when the accumulated parent cap
+falls below the query minimum. Ascending deliberately builds the capped segment
+list before yielding entries. The paired recipe pins these cuts with accepted
+raw records; native controls also retain the required parent access when an
+ascending scan or page lookahead really needs it. No new graph validation or
+exception normalization is introduced.
+
+The dedicated transport preserves finite binary64 bits and UTF-16 code units;
+object members are sorted by their encoded UTF-16 keys for cross-language
+verification only. IDs/Seq and cursor after positions are typed roles. Negative
+integral Number cursor positions are converted to exact Python integers only at
+that cursor boundary; payload numbers and signed zero are untouched. Raw backend
+labels are retained; comparison projects only `backend` to `storage` and Python
+`RuntimeError`/`StorageClosedError` names to Node `Error`. Error messages and
+StorageRequestError, call order, IDs, commit sequences, records and cursors are
+not normalized. This is separate from representation-exact OwnedJson equality.
+
+`native-context.json` records two independently constructed literal Python
+surrogate-pair spellings; UTF-16 transport by itself cannot prove those Python
+spellings. Native tests additionally prove actual retained-input/read/page/old-
+snapshot isolation and placement independence, with real contended write/write,
+write/read, write/mint and write/close barriers on the common authority. The
+scripted ownership recipe records its actual commit/read/mutate/reread calls and
+facts; serialized facts do not replace these live tests.
+
+For both public `run` and `compare`,0 means bounded equality,1 means a schema-valid
+semantic mismatch,2 means invalid evidence/prerequisite. Recorded argument packs
+are validated by the same per-operation shape/DTO guard as recipe arguments,
+including write/query/ID/cursor fields and zero-argument roles. They are not
+required to equal scripted values: valid wrong arguments remain semantic1;
+null packs or malformed fields are invalid2. The14-role guard includes exact
+task/submission reads, while the current70-operation trace contains12 roles;
+no paired public-trace CLI proof is claimed for the two absent exact-read roles. A mismatch run emits
+`result.json` plus `mismatch-report.json` binding raw and projected hashes; its raw
+expected/actual files can be passed back to `compare`. Invalid runs emit no
+successful result or semantic mismatch report. Seven freshly derived valid
+field/ID/Seq/request-index/status-index/cursor/alias mutations each require a
+separate positive CLI0 and negative CLI1; CLI2 is refused as a mutation pass.
+These are local table-oracle mutations, not the four DE01 semantic mutants.
+
+Product code imports no verification tool or fixture. Table/scan code and selected
+source-derived cases retain MIT Copyright(c)2025 Mario Zechner; exact sources are
+pinned in the new manifest, and the full [upstream notice](https://github.com/ephes/pipy/blob/main/tests/fixtures/durable/UPSTREAM-LICENSE.txt)
+is preserved. [The delivery ledger](specs/2026-10-19-durable-execution-evidence.md#de02a2a-local-table-evidence)
+records actual local checks, source limits and the pending independent gate.
+
+
+## Observed raw table page-limit boundary
+
+For the exact pinned `MemoryStorage` source (`memory.ts:203–210`, table loops
+`447–462`, `547–566`, `575–592`, entry loop `515–538`), the observed integer limits
+**0, -1, -2 and +1** have the following boundary in all four table scans:
+
+| Observed limit | Empty table or filtered nonmatching records | Matching records |
+| --- | --- | --- |
+|0 | Empty page, no next cursor | Raw failure |
+|-1 or -2 | Raw failure | Raw failure |
+|+1 | Empty page, no next cursor | One full record and the expected ordered cursor when a second record exists |
+
+Actual pinned Node v26.12.0 throws `TypeError` with message
+`Cannot read properties of undefined (reading 'id')` for those failure rows.
+Current native Python throws `IndexError` with message `tuple index out of range`.
+The page builder slices first and then accesses the last item when constructing
+`next`; the underlying scans do not impose a positivity check. In particular,
+negative-limit empty pages do **not** behave like limit0 empty pages. The permanent
+48-case native matrix covers four scans × empty/nonempty/filtered-nomatch × these
+four explicit limits, exact full pages/cursors and the raw Python exception.
+This empirical domain is not an untested rule for every nonpositive value.
+
+The independent actual Node/Python48-row probe retains both raw exception
+classes/messages/stacks and exact nine source-module hashes. It reads an
+identified pinned snapshot with new Memory instances and is explicitly not
+another bootstrap or full-reference acceptance. No Node dependency is introduced
+into ordinary pytest. No error-class equality or full native error parity is
+claimed; errors are not projected to force this boundary into the70-operation
+paired trace. Existing paired cases and their explicit language projection remain
+unchanged. A new positivity guard would change the actual limit0 no-match result,
+so this raw backend boundary is deliberately preserved. Session admission and
+product integration remain later work; every P row stays OPEN.

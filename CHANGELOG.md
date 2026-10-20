@@ -8,6 +8,21 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add an internal atomic in-memory durable table engine with detached records,
+  global IDs/commit sequences, replacement indices, ancestry-aware entry scans,
+  marker lookup, source-lazy descending/point/head reads, minimum-cap stops,
+  UTF-16 string identity and one authority for writes/reads/mint/
+  close. A separate pinned comparison runs17 exported Node conformance cases and
+  seven paired Node/Python recipes, with valid field/ID/sequence/index/cursor/alias
+  mutants and native fault/contention tests. Recorded argument packs receive the
+  existing per-operation shape/DTO validation: malformed evidence is exit2, valid
+  wrong values remain mismatch1. Raw scan limit0/-1/-2/+1 boundaries are pinned
+  by regression coverage, retaining actual Pi outcomes and distinct raw language
+  errors without a new positivity policy. Coverage retains101 cumulative rows.
+  This DE02a2a stage has no product factory or Session integration and explicitly
+  refuses documents; DE02a2b raw-base/cumulative Storage and DE02b remain open,
+  together with every parity row.
+
 - Add native owned finite JSON and versioned record-tree codecs, validated
   Storage port DTOs and a bounded actual Pi value/consumed-record comparison.
   Full binary64 payloads, signed zero, lone-surrogate keys and deep ownership

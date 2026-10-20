@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 in progress; all parity rows OPEN**,
+Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a in progress; all parity rows OPEN**,
 2026-10-20. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -144,9 +144,11 @@ that coverage here. A local validation result is not a landed slice.
 | DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | LANDED | `13d061d2`; actual Opus5.5 HIGH CLEAN; CI39370449156 success11/11 and uploaded artifact audited; delivery below |
 | DE02 | Records, memory storage and atomic session core | IN_PROGRESS | Cumulative a1+a2+b; original parent acceptance retained |
 | DE02a | Owned records/values, Storage port and detached atomic Memory | IN_PROGRESS | Cumulative a1+a2; no parent or P completion |
-| DE02a1 | Owned finite JSON, versioned records and Storage Protocol/DTOs | IN_PROGRESS | Implementation authorized; independent gates and delivery OPEN |
-| DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | OPEN | Requires a1; all original backend obligations retained |
-| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | OPEN | Requires a2; all original Session/draft/failure obligations retained |
+| DE02a1 | Owned finite JSON, versioned records and Storage Protocol/DTOs | LANDED | b1aa0562; actual Opus5.5 HIGH CLEAN; CI39387254837 success11/11 and artifact audited; historical ISSUES retained |
+| DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | IN_PROGRESS | Cumulative a2a+a2b; original backend acceptance retained |
+| DE02a2a | Internal atomic table Memory and current native/reference oracle | IN_PROGRESS | No product/default or document capability; independent gates pending |
+| DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | OPEN | Requires a2a; a2 incomplete until this child lands |
+| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | OPEN | Requires a2b; all original Session/draft/failure obligations retained |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -248,12 +250,12 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 and DE01a/R1–DE01b3b have landed. DE02 now proceeds through DE02a1
-(values/records/port), DE02a2 (atomic Memory/raw-base/ancestry/storage comparison),
-then DE02b (Session/Tx/guard/adoption/publication/close). Both splits were approved
-and documented before product edits; the original DE02 row remains unchanged.
-DE02a is cumulative a1+a2; DE02 is cumulative a+b. DE03 waits for DE02b.
-All original acceptance and all P rows remain OPEN; a1 is not native Storage parity.
+DE00 through DE01b3b and DE02a1 have landed. The coordinator activates a2a→a2b
+before product edits: a2a internal atomic tables/indices/ancestry/concurrency with
+its own actual oracle, then a2b raw-base documents in the SAME candidate and full
+cumulative bounded Storage proof. DE02a2 waits both; DE02a waits a1+a2a+a2b;
+DE02b waits a2b; DE02 waits b and DE03 waits b. Original parent acceptance remains
+unchanged. All P rows OPEN; no partial backend/product factory/default release.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -1498,3 +1500,369 @@ The freeze includes all22 owned hashes, exact accepted-baseline repair delta and
 caller-authored review context inputs. Final docs/render/link checks are recorded
 in that freeze. Independent full/scoped Opus review/delivery remain coordinator-
 owned and pending; DE02a2/DE02b and all parity rows stay OPEN.
+
+## DE02a1 delivery and DE02a2 pre-code split
+
+Actual landed main b1aa0562e3d096cd7dbc3da992ab92b310936bf1 has actual
+Opus5.5 HIGH CLEAN0, independent full13428P2S and CI39387254837 attempt1 all11
+SUCCESS. The coordinator independently audited all153 logs and the uploaded
+artifact. Earlier ISSUES2W2S and plain-key pre-gate evidence remain unchanged;
+the landed repairs preserve repr-exact equality/hash, strict decoder JSON,
+16 distinct transport values and run mismatch1 versus invalid2.
+
+The approved a2a/a2b split retains every original DE02a2 requirement. A2a is an
+internal table stage with one authority/private candidate/one adoption and its
+own actual Node/Python oracle, ownership and deterministic concurrency. A2b adds
+raw-base documents inside that SAME candidate and completes cumulative bounded
+Protocol acceptance. No Session or product integration is authorized.
+
+Exactly101 coverage IDs retain original95 future/contract text and all43 P OPEN.
+A2a current evidence is populated only after actual execution; a2b remains
+source-only. Neither parent a2/a nor b/DE03 can land early. This split is recorded
+before any new product implementation in this slice.
+
+
+## DE02a2a local table evidence
+
+This section preserves the first freeze candidate and its checks. It was
+superseded by the pre-review lazy-ancestry finding documented below; no full or
+Opus review ran on it, and these checks are not a CLEAN verdict.
+
+The sole-writer candidate implements internal `MemoryStorage` tables in
+`src/pipy_harness/native/durable/memory.py`, with one common authority across
+commit, mint, every read/index/scan and close. A complete private replacement
+contains tables/indices/global IDs/commit Seq; fallible preparation finishes
+before one adoption. Supported final-write validation and injected private-index
+failure leave old public observations/counters intact. Deterministic contended
+write/write, write/read, write/mint and write/close tests witness attempted common
+lock acquisition and join all threads. Exact/read/page/retained-input and old
+snapshot ownership, both scan orders, ancestry caps/segment ordering, marker vs
+head, complete replacements, UTF-16 equivalent index keys and distinct lone
+surrogates are tested. Legacy cursor order follows the table default; removing
+a request winner has no fallback. No global clock or ID normalization is used.
+
+This child explicitly refuses document reads/finds/scans and whole batches with
+document writes. There is no product factory/default/SDK integration, full
+Storage claim, Session admission/Tx or P-row completion. DE02a2b must add current
+raw-base documents inside this same candidate/authority and finish all cumulative
+bounded Protocol acceptance. Original delta/fork document and Session-owned
+requirements remain with their original later slices; a2/a/b/DE03 cannot land early.
+
+The new own `storage-memory-v1` input/manifest and caller select17 actual exported
+Node conformance cases by exact names at pinned storage-conformance.ts98–1674.
+Their real255 calls/arguments/results/errors remain in `conformance-raw.json`;
+exactly-once callbacks and finally-close facts are separate from the seven
+**derived paired recipes**,62 ordered actual Node/Python operations. This is not
+Python execution of the exported TypeScript cases. The source indexed-string
+case1552 additionally covers documents; a2a's table projection is labelled as
+derived. A1's16 value/31 record probes and all six DE01 families remain intact.
+
+Raw traces retain finite binary64 bits, UTF-16 units, own missing/null/undefined,
+fields, ordered effects and errors. Only verification object-key ordering,
+backend label and explicit RuntimeError/StorageClosedError→Error language names
+are projected. Typed signed cursor Number→Python integer conversion is limited
+to that role. Payload negative zero/large finite numbers are untouched; native
+literal-pair spelling tests and repr-exact OwnedJson identity remain distinct
+from JS UTF-16 index identity. Serialized alias facts are observations from
+actual commit/read/mutate/reread calls, not substitutes for live ownership proofs.
+
+Local evidence root: `/private/tmp/pipy-de02a2a-0k0b6h0a/`. Complete commands,
+normal caller HOME, exits and stdout/stderr are retained per-command. The initial
+exploratory chain (baseline38.38s, a1 7.14s, table9.39s, all0) is historical evidence
+for its earlier manifest, not one of the two final chains. Initial fixture setup
+used an unsuitable system Python and failed import; the logged project-environment
+retry succeeded. A signed-cursor transport-role failure, initial static/type/test
+failures and a private mutation-hook setup failure are preserved, not pass claims.
+The run-report regression caught projected backend labels being fed back into a
+raw schema: reports now bind raw compare-compatible traces plus projected hashes.
+
+Focused Python3.11/3.14/3.15 suites each passed598 tests with0 skips. Ruff lint,
+format check, strict product mypy and combined tool/test mypy passed. The actual
+permanent Node26.12.0 codec test passed separately under minimal child environment.
+Seven private individual product guard removals each fail the corresponding
+permanent test: namespace, Seq, private-candidate isolation, conditional request
+removal, cursor fallback, UTF-16 identity and common read authority. Oracle guard
+mutants prove accepting invalid2 or reclassifying valid run mismatch as2 breaks
+permanent tests. These private mutants are negative controls, not candidate passes.
+Unit-only run/controller tests clearly replace bootstrap/child execution; actual
+Node-backed fault runs and final chain results are indexed separately below.
+
+MIT Copyright(c)2025 Mario Zechner and the complete upstream license are retained;
+the new manifest pins exact original five source hashes and the16-artifact caller/
+native/test/input/helper closure. Hashes flow baseline→a1→a2a with no self-cycle.
+Independent full, actual Opus review, commit/push and remote evidence remain
+coordinator-owned and pending for this candidate. All43 P remain OPEN.
+
+
+Final local chain/negative index (same candidate table manifest
+`fe7a2d3115f3f93fcb9b47527edfea034446c5dfe91d8a7a38df1a5867e7fbd9`):
+
+| Proof | Actual outcome and retained evidence |
+| --- | --- |
+| Fresh chain1 | `final-1-baseline/`0/44.68s → `final-1-a1/`0/7.16s → `final-1-a2a/`0/9.37s; parent execution `4ced5843-3770-4540-9ad9-4731aa392934` |
+| Fresh chain2 | `final-2-baseline/`0/40.83s → `final-2-a1/`0/7.62s → `final-2-a2a/`0/9.82s; parent execution `a88013c4-7cba-4f09-9c68-bd39e69007b1` |
+| Both table runs |17 exported Node cases/255 calls;7 paired scenarios/62 operations;7 fresh positive0/negative1 mutants;16 resolved original reference modules |
+| Actual run mismatches | `actual-run-{field,id,seq,request-index,status-index,cursor,alias}/`: actual Node0 then outer1, hash-bound raw/projected mismatch reports |
+| Actual invalid run | `actual-run-invalid/`: actual Node0 then invalid native outcome gives outer2; no result/mismatch report |
+| Missing runtime | `actual-run-missing-runtime/`2: real missing Node spawn, no result/mismatch report |
+| Audits | `final-audit/`0, `actual-run-audit/`0; complete `final-pairs.json`, `audit-results.json`, `actual-run-proofs.json`; no orphan runtime children |
+
+Actual run fault probes reuse the first complete fresh parent and reset only its
+exact hash-checked private caller file. They execute the real pinned driver and
+public run/main path, intentionally alter a valid native output or prerequisite,
+and are neither fresh bootstrap nor candidate PASS claims. Each valid mismatch
+report's raw pair re-compares as1; invalid2 never receives a mismatch report.
+The separate unit bootstrap stubs are not included in these runtime claims.
+`command-index.json` and the18-file freeze include full logs/exits, expected
+negative controls, earlier failures, docs/render-link verification and exact
+current hashes. No writer full/review/commit/push was performed; independent
+whole-slice gates and actual delivery remain open.
+
+
+## DE02a2a pre-review lazy-ancestry repair
+
+The independent gate stopped **before full or Opus review** with `FAIL_EARLY`:
+`/private/tmp/pipy-de02a2a-gate.cjopgym2/gate-fail-early.json`, SHA
+`09a4c9586c91de9b95e69d6a6a870bae9cc03a7f303190289e1d772331f5c773`.
+It compared actual pinned Node with the first frozen candidate, not a source-only
+hypothesis. A raw batch with root1, conversation2(parent999,at10), entries3(head3)
+and4 is accepted. Node returns local page4/next4, scoped entry3/Seq1 and marker3;
+Python eagerly visited999 and raised KeyError for all three. This is an accepted
+correctness defect; the first freeze and earlier passing checks remain unchanged
+at `/private/tmp/pipy-de02a2a-0k0b6h0a/`, not a CLEAN or final-candidate claim.
+
+The repair makes segment/descending-entry iteration lazy; scoped entry stops at
+its first result, head returns the first child marker, and scans consume only
+`limit+1` entries. Both orders stop before following a parent whose accumulated
+cap is below the minimum. Ascending still deliberately builds the complete
+capped segment list before yielding. No Parent/Owner/cycle validation, raw-storage
+scope reduction, exception translation or generic error normalization was added.
+Global authority/private candidate/one adoption, indices, cursors, source-order
+request winners, UTF-16 identity and all later raw-base/Session obligations remain.
+
+New private evidence root: `/private/tmp/pipy-de02a2a-lazy-xv90sflp/`. All18 original
+owned bytes were checked and archived before repair; the root's full finding and
+actual Node/Python repros were read. Permanent native regressions first produced
+5 failed/3 passed (`lazy-before/`): three local reads and two minimum-cap stops
+fail, while required-parent controls already pass. After repair,28 native tests
+pass (`lazy-after/`). Five individually removed page/point/head/min-cap/ascending
+guards each fail the intended permanent test with the expected KeyError999 or
+DID NOT RAISE diagnostic (`guard-matrix/`, `guard-results.json`). These are actual
+negative controls, not exception-only pass claims.
+
+The versioned ancestry recipe now has eight extra actual paired operations:
+accepted raw dangling-parent seed, local page/point/marker, descending/ascending
+minimum-cap stops, absent point above parent cap, and capped ascending local
+results. The seven derived scenarios now contain70 operations.17 exact exported
+Node cases/255 calls are unchanged and remain separate from those paired recipes.
+A separate actual Node control reads only the exact pinned snapshot: six local/
+capped results plus three required-parent TypeErrors (ascending, insufficient
+page lookahead and head below local bound), with all nine loaded source hashes
+matching git objects. It preserves raw errors without projecting them into Python
+or claiming another fresh bootstrap (`actual-node-controls/`). Native controls
+also require those parent accesses rather than swallowing their KeyErrors.
+
+Current table manifest SHA:
+`846c71bb477600032b8d61dea94c03c1753d4fec50bc65a8b47d0bbfe885b333`.
+Closed hashes/coverage are updated without changing original fixtures/goldens,
+adapter closure, historical future requirements or Session/document scope.
+Focused3.11/3.14/3.15 suites each pass606 tests/0 skips; Ruff/format, strict product
+and combined mypy pass. The actual separate Node26.12.0 codec also passes.
+Two entirely new final original parents bootstrap all six DE01 families/workloads/
+four mutants before a1 and the repaired table run:
+
+| New final chain | Actual exits/times |
+| --- | --- |
+|1 | baseline0/82.80s → a1 0/7.99s → table0/10.52s |
+|2 | baseline0/79.20s → a1 0/8.00s → table0/10.52s |
+
+Each table execution has17 exported cases,255 calls,70 paired operations,16
+resolved original reference modules and seven newly derived valid positiveCLI0/
+negativeCLI1 mutants. `final-pairs.json` binds distinct parent/a1/table execution
+IDs and exact output/manifest hashes; `audit-results.json` verifies provenance.
+Raw observations and complete logs remain private. These new runs supersede no
+historical result by renaming: they explicitly validate the repaired candidate.
+Independent whole-slice full/actual Opus and delivery are still pending; no Opus
+review exists for this a2a candidate. All18 paths and all43 P OPEN are retained;
+a2b raw-base in the same state authority and cumulative Protocol proof remain
+mandatory before a2/a/DE02b/DE03 can complete.
+
+
+The repaired-candidate `actual-run-field/` executes actual pinned Node0 then
+public run/main1 with a valid native field mutation and a hash-bound raw/projected
+mismatch report. `actual-run-invalid/` executes actual Node0 then malformed native
+outcome2; `actual-run-missing-runtime/` is real missing-Node2. Neither invalid run
+emits result/mismatch reports. These explicit fault probes reuse new final
+parent1, are not new bootstraps/PASS claims, and are audited in
+`actual-run-proofs.json`; no orphan runtime child remains. The earlier seven
+actual run faults remain evidence only for the first freeze. The final command
+index, rendered-links check and18-SHA freeze record this new candidate separately.
+
+
+## DE02a2a pre-review recorded-argument repair
+
+A second independent pre-Opus gate stopped the lazy-repaired freeze754d after its
+completed normal-HOME full:13502 passed/2 skipped, exit0,1134.12s. This full is
+**historical pre-material-repair evidence only**, not the current full gate. Its
+full log SHA is `c5c591447df3e6e67e87cd8dc47aa0aa7f11ea6c1ba803c0b745edfe8e881657`;
+skips were the unset codemode-required-runtime flag and case-insensitive filesystem.
+All18 bytes and the product map were unchanged before/after that full. No Opus
+review has started for a2a. The final gate finding is
+`/private/tmp/pipy-de02a2a-repair-gate.ot9_76od/gate-fail-early-arguments.json`,
+SHA `301d3776f4a340d2ef0ea545a5f3e1b6a64ea130ef7c7949b60b26f5a7ddac88`;
+its repro SHA is `60c6a19ee55a85cecb2feaf1ca6bf1f6c54b8a6ee7d5869584f51d120665d24a`.
+The actual Node trace's root commit argument pack alone was changed to tagged
+null. `_recipe_args` already rejected it, but `trace` checked only generic owned
+JSON, so the public compare returned semantic1 instead of invalid2. This is an
+accepted evidence-classification defect, not a runtime mismatch or review verdict.
+
+The sole production-tool change is one line: trace now calls existing
+`_recipe_args(op, decoded_args)` instead of only `OwnedJson(decoded_args)`.
+There is no recipe-value equality or argument/result truth hardcoding. Product
+source, MTS caller and70-operation recipe remain byte-unchanged from freeze754d.
+The shared shape/DTO guard covers all14 registered operation roles; only12 are
+currently present in paired traces. Exact task/submission reads have direct
+argument-guard tests, not fabricated paired public-CLI evidence. Null packs and
+malformed write/query/ID/cursor/limit/request/zero-argument fields are invalid2;
+valid wrong IDs, an absent optional write field, different queries and signed
+cursor arguments remain semantic1. Existing seven valid output mutants remain1.
+
+New private evidence root: `/private/tmp/pipy-de02a2a-args-lqi_ig86/`. All18 previous
+frozen bytes were verified and archived before edits. The permanent matrix first
+produced21 failed/18 passed (`arguments-before/`): all12 public-trace null packs
+and nine malformed field cases wrongly returned1;14 existing helper tests and
+four valid-wrong-argument cases already passed. After the one-line fix all39 pass
+(`arguments-after/`). Every invalid public compare has its own positive0 control
+and specific guard diagnostic. The unchanged original gate Node trace replays as
+positive0/null-root-argument2 (`gate-original-positive/`, `gate-original-invalid/`);
+this is explicitly compare-only replay, not another Node execution or bootstrap.
+Focused3.11/3.14/3.15 each pass645 tests/0 skips; Ruff/format and strict product/
+combined mypy pass. Hash closure/coverage observables are updated, with all101
+IDs,99 prior contract/future strings and all43 P OPEN preserved. The earlier
+freezes, failures and full logs remain immutable. No new product/MTS/recipe,
+Session/default or document capability is introduced; a2b remains mandatory.
+
+
+Current table manifest SHA:
+`d817cee520791ddea9c9a7d6acba7eef0212d96090add8b33923db0c74d43f88`.
+Two new original complete parents execute the entire pinned baseline acceptance
+once each, then actual a1 and the current table adapter:
+
+| New argument-repair chain | Actual exits/times |
+| --- | --- |
+|1 | baseline0/86.93s → a1 0/7.68s → table0/10.22s |
+|2 | baseline0/86.81s → a1 0/7.68s → table0/10.21s |
+
+Each table run retains17 exported Node cases/255 calls, seven paired scenarios/
+70 operations and seven newly generated valid positive0/negative1 mutants.
+`final-pairs.json` binds distinct execution IDs and exact hashes; the complete
+archive/source/module/dependency/DB attestations are checked before and after.
+The permanent Node26.12.0 codec test passes separately under minimal child env.
+`actual-argument-matrix/` is compare-only replay of this candidate's freshly
+observed Node trace: all12 recorded roles have positive0/null-pack2 with the exact
+guard diagnostic, and four valid wrong argument changes remain1. Its complete
+logs and source trace hash are indexed in `actual-argument-results.json`; the
+task/submission roles remain direct-helper tests, not fabricated CLI cases.
+
+`actual-run-field/` really executes pinned Node0 and public run/main1 with a
+hash-bound raw/projected mismatch report. `actual-run-invalid/` really executes
+Node0 then malformed outcome2; real missing Node is2. Neither invalid run emits
+result/mismatch reports. These explicitly reuse new parent1/reset only its exact
+private caller, never claim another fresh bootstrap/PASS, and are hash-audited
+in `actual-run-proofs.json` with no orphan children. Entire phase/stdout/stderr/
+child-command evidence remains under the new private root. Final docs/rendered
+links and the18-file freeze complete the local handoff; independent post-material-
+repair full and FIRST whole-slice actual Opus review are still required.
+
+
+## DE02a2a first-review raw-limit disposition
+
+The first actual whole-slice Opus5.5 HIGH review returned **ISSUES**, one Warning
+and two Suggestions, not CLEAN. Its result is
+`/private/tmp/pipy-de02a2a-args-gate.yog2zvok/review-first/result.json`,
+SHA `482713fcbbf030136980dc8014b8348253ba3d8a83cd6f2831faf2255557db23`,
+baseline `e522ab23cda55d654f6e9b47e8049d4d4e38eb6c`, reviewed tree
+`bccaa4fcd3a38aa7afdac8367dddad44267f23e6`. Earlier pre-review failures and all
+original frozen artifacts retain their original meaning.
+
+| Finding | Disposition and bounded change |
+| --- | --- |
+| W1: raw nonpositive page-limit behavior lacked an explicit contract/regression | Accepted for permanent tests/docs after actual pinned observation. Preserve the actual behavior; add no positivity policy or error normalization. |
+| S1: full candidate/index reconstruction can cost proportional to stored data per commit | Declined for this slice. Correctness is unaffected and no performance claim is made. An unmeasured incremental index redesign would change the shared-state authority proof; retain one complete private candidate and one adoption. This suggestion is not reported as fixed. |
+| S2: duplicate active child-status block under Backlog History | Accepted. Merge into the active durable entry, preserving the `de02a2-internal-tabledocument-children` heading anchor and all parent dependencies. |
+
+The original private investigation is
+`/private/tmp/pipy-de02a2a-review-limits-jufyo7i7/with-minus2/`.
+It executes actual pinned Node MemoryStorage and current native storage against
+identical source-derived seeds: four scans × empty/nonempty/filtered-nomatch ×
+limits0,-1,-2,+1 =48 rows. Its `matrix.json` SHA is
+`12e0f90ac2fe08b56391386f9b73c4885efc46d0c35ccd6daaa7038dd5689fb6`.
+Twenty rows fulfill and28 reject. Limit0 without matches returns an empty page,
+while matching limit0 fails; -1/-2 fail even without matches; +1 has exact pages
+and ordered cursors. Node throws raw TypeError (`Cannot read properties of
+undefined (reading 'id')`); Python throws raw IndexError (`tuple index out of range`).
+Both complete raw result files retain messages/stacks and nine exact original
+source-module hashes. This is a real read-only probe of an identified retained
+snapshot, **not** another bootstrap or full acceptance. The source page builder
+is pinned `memory.ts:203–210`, with scan loops447–462/515–538/547–566/575–592.
+No claim about every nonpositive limit or equal language exception classes follows.
+
+New private repair evidence is
+`/private/tmp/pipy-de02a2a-review-fix-9571ocdp/`. All18 original frozen bytes were
+verified and archived before edits. The permanent native48-row matrix passes;
+it checks full independent records, exact cursor presence/order and raw Python
+IndexError type/message, without requiring Node in ordinary pytest. A private
+positivity-policy mutant fails36 tests/12 pass, while a private error-normalizer
+mutant fails28/20 pass. Both use the same permanent tests and fail on the intended
+outcome boundary, not setup; their expected exit1 logs remain intact. The original
+backend passes all48. No product, comparison runner, MTS caller or recipe changed.
+
+`runtime-before.json` attests409 files byte-for-byte against the reviewed baseline:
+374 product Python files, six comparison Python files, ten MTS reference artifacts,
+15 input/golden recipes, the permanent Node codec test and three package/lock/CI
+files. The canonical map SHA is
+`35b63f8b6fb4245d2856b955a966ea12b7a33efc40ae29b71c6e015034b1f8da`.
+The independent normal-HOME full from that baseline passed13541/2 skipped, exit0,
+1137.74s; complete log SHA
+`533ae72a91f053d37689cf22965d4e7a57992bc841c9fb591cf7bd42db56819a`.
+Its skips are the unset codemode-required-runtime flag and case-insensitive
+filesystem. This is unchanged-runtime evidence **before** the new tests/docs/hash
+metadata, not a claim that a new whole full was run. Current focused Python3.11,
+3.14 and3.15 Durable suites each pass693/0 skipped. Ruff/format, strict product
+mypy and combined mypy pass; the standalone actual Node26.12.0 codec passes with
+minimal child environment. The18-path ownership and all43 P OPEN are retained;
+a2b raw-base inside the same authority/candidate, cumulative Storage and Session
+DE02b remain required. The next independent review is scoped to these accepted
+findings, the declined performance suggestion and the repair delta from e522,
+not another first whole-slice review. No self-review or delivery pass is claimed.
+
+
+Current closed table manifest SHA:
+`3dd333040fe0d1cb1bf25e96ee8517914fa71009a4789e969473c0c05c87835b`.
+Two entirely new parent bootstraps execute complete DE01 acceptance, followed by
+real a1 and table execution at these final code/test/coverage/manifest hashes:
+
+| Raw-limit regression final chain | Actual exits/times |
+| --- | --- |
+|1 | baseline0/75.69s → a1 0/8.04s → table0/10.57s |
+|2 | baseline0/75.27s → a1 0/7.96s → table0/10.58s |
+
+Both table runs retain17 actual exported cases/255 calls, seven derived paired
+scenarios/70 operations and seven freshly generated valid positiveCLI0/negativeCLI1
+mutants. `final-pairs.json` binds distinct parent/a1/table execution IDs and all
+manifest/result hashes; `audit-results.json` re-attests archive, dependency,
+source/module and database evidence and preserves all99 prior contract/future
+texts,101 IDs and31 protected artifacts. Child a1/table execution explicitly
+reuses each complete fresh original parent, not another bootstrap.
+
+
+`actual-run-field/` really executes pinned Node0 then public run/main1 with a
+schema-valid native field mutation and hash-bound raw/projected mismatch report.
+`actual-run-invalid/` executes Node0 then malformed outcome2; real missing Node
+is2 in `actual-run-missing-runtime/`. Invalid/prerequisite runs emit no result
+or mismatch report. These fault probes explicitly reuse new final parent1 and
+reset only its exact private caller; they are not new bootstraps or pass claims.
+`actual-run-proofs.json` verifies the distinct boundaries and no orphan children.
+Full stdout/stderr/child-command logs are preserved. The final rendered-docs/
+local-link audit, runtime-after409-byte map and18-SHA freeze complete this local
+handoff; independent scoped review/delivery remain root-owned and pending.
