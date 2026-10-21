@@ -1,10 +1,10 @@
 This file is for coding agents working in this repository. It records local project instructions that should be visible to Codex, Claude, Pi, and similar tools.
 
 ## Start Here
-- **Trunk-based development: work directly on `main`.** Do not create
-  `feature/*`, topic, or side branches for routine work. If you start on a
-  non-`main` branch, switch back to `main` first. See **Source Control** below
-  for the full policy.
+- **`main` is the integration branch.** Land small, reviewable, green
+  increments on `main`. Short-lived branches and git worktrees are fine when
+  they help, for example to run independent work in parallel. See **Source
+  Control** below.
 - Use `docs/backlog.md` as the current task-slice index. It names the next small, reviewable slice and the main deferred boundaries.
 - Use `docs/harness-spec.md` for harness architecture, native runtime direction, adapter boundaries, privacy constraints, and broader deferred design.
 - Use `docs/session-storage.md` before changing session capture, archive layout, catalog commands, automatic capture, sync behavior, or privacy policy.
@@ -86,14 +86,15 @@ contract before writing more code.
   `PIPY_CONFIG_HOME`, `PIPY_NATIVE_THEME_PATH`, and/or `HOME`, or restore the
   settings file before finishing.
 
-## Source Control (trunk-based development)
-- **This repo uses trunk-based development.** Do routine work directly on `main`
-  in small, reviewable, green increments.
-- Do not create `feature/*`, topic, or other side branches for routine work. If
-  you start a session and discover you are on a non-`main` branch, switch back
-  to `main` before making changes when the worktree is clean. If the branch
-  already contains completed work, merge it back to `main` promptly, validate
-  `main`, and continue from `main`.
+## Source Control
+- `main` is the integration branch and stays releasable. Land work there in
+  small, reviewable, green increments. Working directly on `main` is the
+  default for sequential work.
+- Short-lived branches and git worktrees are allowed when they help, for
+  example to run independent slices in parallel or to isolate an experiment.
+  Merge them back to `main` promptly, validate `main` after the merge, then
+  remove the worktree and branch. Do not let long-lived side branches
+  accumulate unlanded work.
 - Run `just check` (and `prek` hooks if a `.pre-commit-config.yaml` is present — `pre-commit` is not installed) and keep each commit's tests/lint/typecheck green so `main` stays releasable.
 
 ## Session Capture
