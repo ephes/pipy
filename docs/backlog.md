@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a and DE02b2b landed; DE02b3 is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d and DE03a is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -153,12 +153,25 @@ by Opus5.5 HIGH; delta CLEAN; a package-inventory name repair, delta CLEAN; no C
 claim); b2b, the first exposed internal Session (the owner line, sync and async
 commit, the cancellation matrix, publication and close), landed at `eb1e3ba7`
 (Codex gpt-6.1-sol HIGH, five rounds to CLEAN; no CI claim), so DE02b2 is
-delivered; b3 (in progress) is the cumulative paired Session acceptance and the
-final gate: closed recipes against the pinned Pi `SessionImpl` and the native
-Session in sync and async modes, with a closed map of every original DE02/DE02b
-cell. DE02b waits all four children, DE02 waits
-a1+a2+b and DE03 waits b. No cumulative acceptance or P row is removed.
-This internal stage has no product/default/SDK availability or empty document shims.
+delivered; b3, the cumulative paired Session acceptance and the final gate
+(closed recipes against the pinned Pi `SessionImpl` and the native Session in
+sync and async modes, with a closed map of every original DE02/DE02b cell),
+landed at `d2e62390` (Codex gpt-6.1-sol HIGH, one Warning repaired, then CLEAN;
+no CI claim). DE02b and DE02 are therefore delivered. No cumulative acceptance
+or P row is removed. This internal stage has no product/default/SDK
+availability or empty document shims.
+
+### DE03 SQLite store split
+
+DE03 is split a→b→c→d before code, every original cell retained: **a** path
+ownership, owner-only files, shared-filesystem refusal and a minimal verified
+connection lifecycle (in progress; the on-disk contract is in
+[the storage document](session-storage.md#durable-sqlite-store-internal)); **b**
+schema v1, the migration runner and open-time integrity; **c** `SqliteStorage`
+with contract cases, real failures and crash cuts; **d** the paired pinned Pi
+SQLite oracle, Session over SQLite and the P43 workload. DE03 waits all four and
+DE04 waits DE03. Each DE03 slice also runs its new tests on the Ubuntu macmini
+(Root decision D10).
 
 ### General durable execution and other current work
 

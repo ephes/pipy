@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 107
+    assert len(value["rows"]) == 111
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE02b", "DE02"])
+@pytest.mark.parametrize("parent", ["DE03"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -184,7 +184,7 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
         a.ledger_status(root, o.contract)
 
 
-@pytest.mark.parametrize("parent", ["DE02a2", "DE02a", "DE02b2"])
+@pytest.mark.parametrize("parent", ["DE02a2", "DE02a", "DE02b2", "DE02b", "DE02"])
 def test_delivered_parent_cannot_reopen_while_children_are_landed(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -204,14 +204,13 @@ def test_session_split_children_keep_original_parent_contract():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
-    assert rows["DE02b"]["status"] == "IN_PROGRESS"
+    assert rows["DE02b"]["status"] == "LANDED"
     assert rows["DE02b"]["future"].startswith(
         "Retain original DE02 commit/adoption acceptance"
     )
     assert "b1a+b1b+b2+b3" in rows["DE02b"]["future"]
-    for child in ("DE02b1a", "DE02b1b", "DE02b2", "DE02b2a", "DE02b2b"):
+    for child in ("DE02b1a", "DE02b1b", "DE02b2", "DE02b2a", "DE02b2b", "DE02b3"):
         assert rows[child]["status"] == "LANDED"
-    assert rows["DE02b3"]["status"] == "IN_PROGRESS"
     for child in ("DE02b1a", "DE02b2", "DE02b2a", "DE02b2b"):
         current = rows[child]["current"]
         assert current["kind"] == "source-only"
@@ -225,9 +224,7 @@ def test_session_split_children_keep_original_parent_contract():
         assert current["cases"] == [case]
         assert current["workloads"] == current["oracles"] == []
     assert rows["DE02a2b"]["status"] == rows["DE02a2"]["status"] == "LANDED"
-    assert rows["DE02a"]["status"] == "LANDED" and rows["DE02"]["status"] == (
-        "IN_PROGRESS"
-    )
+    assert rows["DE02a"]["status"] == rows["DE02"]["status"] == "LANDED"
 
 
 def test_bounded_native_evidence_cannot_be_claimed_by_cumulative_parent():
@@ -337,7 +334,7 @@ def test_session_commit_oracle_evidence_is_owned_only_by_b3(child):
         a.coverage(value, o.ROOT, o.contract)
 
 
-@pytest.mark.parametrize("change", ["case", "kind", "extra-case", "landed-parent"])
+@pytest.mark.parametrize("change", ["case", "kind", "extra-case", "reopened-parent"])
 def test_b3_cannot_claim_other_or_broader_evidence(change):
     value = o.load(o.FIXTURES / "coverage.json")
     rows = {row["id"]: row for row in value["rows"]}
@@ -349,6 +346,77 @@ def test_b3_cannot_claim_other_or_broader_evidence(change):
     elif change == "extra-case":
         row["current"]["cases"] = ["session-commit-b3-v1", "kernel-memory-v1"]
     else:
-        rows["DE02b"]["status"] = "LANDED"
+        rows["DE02b"]["status"] = "IN_PROGRESS"
     with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_sqlite_split_children_keep_original_parent_contract():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    parent = rows["DE03"]
+    assert parent["status"] == "IN_PROGRESS"
+    assert parent["contract"].startswith("Implement local SQLite backend/schema")
+    assert parent["future"].startswith("Two processes/aliases cannot own one DB;")
+    assert "DE03 completes only after its a+b+c+d children" in parent["future"]
+    assert rows["DE03a"]["status"] == "IN_PROGRESS"
+    for child in ("DE03b", "DE03c", "DE03d"):
+        assert rows[child]["status"] == "OPEN"
+    for key in ("DE03", "DE03a", "DE03b", "DE03c", "DE03d"):
+        current = rows[key]["current"]
+        assert current["kind"] == "source-only"
+        assert current["cases"] == current["workloads"] == current["oracles"] == []
+        assert rows[key]["evidence"][0].endswith("#de02b3-delivery-and-de03-split")
+    assert "ownership.py" in rows["DE03a"]["contract"]
+    assert "sqlite_schema.py" in rows["DE03b"]["contract"]
+    assert "SqliteStorage" in rows["DE03c"]["contract"]
+    assert "openNodeSqliteStorage" in rows["DE03d"]["future"]
+    assert rows["DE04"]["status"] == "OPEN"
+    assert "Carried from DE02b3" in rows["DE04"]["current"]["observables"]
+
+
+@pytest.mark.parametrize("child", ["DE03a", "DE03b", "DE03c", "DE03d"])
+def test_sqlite_parent_cannot_land_with_any_open_child(tmp_path, child):
+    root = tmp_path / "root"
+    path = root / a.LEDGER
+    path.parent.mkdir(parents=True)
+    rows = (o.ROOT / a.LEDGER).read_text().splitlines()
+    for key in ("DE03a", "DE03b", "DE03c", "DE03d", "DE03"):
+        index = next(
+            i for i, line in enumerate(rows) if line.startswith("| " + key + " |")
+        )
+        state = "OPEN" if key == child else "LANDED"
+        rows[index] = (
+            rows[index]
+            .replace("| IN_PROGRESS |", f"| {state} |")
+            .replace("| OPEN |", f"| {state} |")
+        )
+    path.write_text("\n".join(rows) + "\n")
+    with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
+        a.ledger_status(root, o.contract)
+
+
+@pytest.mark.parametrize(
+    "bad", ["DE03e", "DE03a1", "DE03aa", "DE03b1", "DE04a", "DE03"]
+)
+def test_only_exact_sqlite_child_ids_are_accepted(bad):
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == "DE03a")
+    row["id"] = bad
+    with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize("child", ["DE03", "DE03a", "DE03b", "DE03c", "DE03d"])
+@pytest.mark.parametrize(
+    "case", ["kernel-memory-v1", "session-commit-b3-v1", "memory-current-base-a2b-v1"]
+)
+def test_sqlite_children_cannot_claim_reference_or_native_case_evidence(child, case):
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == child)
+    row["current"].update(kind="bounded-native", cases=[case])
+    with pytest.raises(
+        o.EvidenceError, match="Native parity claim|Unknown current|ownership drift"
+    ):
         a.coverage(value, o.ROOT, o.contract)

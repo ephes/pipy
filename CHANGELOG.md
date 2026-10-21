@@ -8,6 +8,49 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private path ownership and a verified connection lifecycle for the
+  future durable SQLite store (internal; no product, default or public API
+  change). One process owns a store path at a time through an exclusive lock
+  on a never-deleted `<name>.lock` file. A second owner, in another process or
+  in the same process through a symbolic-link, relative, `..`, case or Unicode
+  normalization alias, is refused at once without touching the owned database,
+  and hard-linked files and a symbolic-link database name are refused even
+  when nobody owns the store. `create` and `open` are explicit: invalid input
+  or an `open` of a missing path changes nothing on disk, `create` refuses
+  leftover SQLite files and removes the database again if a later step fails,
+  and `open` checks the database header before SQLite reads the file, refusing
+  anything but a WAL database, or a leftover rollback journal, without
+  changing a byte. Contract boundary. The store directory is private to the
+  owning user (owned by that user, mode `0700`; missing directories are
+  created that way, and keeping an existing one private is the caller's part).
+  While any owner holds a store, from the moment an open or create of it
+  starts until its close has completed, renaming, replacing, hard-linking or
+  deleting any store file (the database, its `-wal`, `-shm` and `-journal`,
+  and the lock file), by any actor, is outside the contract. pipy detects some
+  of these cases on a best-effort basis (the identity checks under the lock,
+  after connecting and after configuration; the parking of descriptors that
+  reach a claimed database; the re-check before each unlink of a failed
+  create) but guarantees nothing about them. SQLite's own guidance is the
+  same: do not rename, unlink or replace an open database or its journal. With
+  the store files left in place, the guarantees hold: one owner per store
+  across processes and within the process, owner-only file modes, no
+  descriptor of a store file held by another owner in this process is ever
+  closed by pipy, and invalid input, an `open` of a missing path and a store
+  refused before its lock is taken have no filesystem effect. Pi durable 1.3.0
+  has no cross-process locking at all, so this remains strictly stronger than
+  the reference. Created directories are 0700 and every store file is 0600
+  whatever the umask; existing files with group or other bits are tightened,
+  and shared or network filesystems are refused. Every SQLite setting is
+  explicit and read back (WAL, synchronous FULL with full fsync on macOS,
+  in-memory temporary storage, untrusted schema off, and secure delete on
+  every platform, so deleted rows are zeroed in the database file), and close
+  checkpoints the log, closes the connection and releases the lock even when a
+  step fails. A forked child keeps no copy of the lock and never finalizes an
+  inherited connection, which would otherwise delete a later owner's
+  write-ahead log. Real-process tests cover SIGKILL recovery, umasks, exec and
+  fork on macOS and Ubuntu; the schema, storage semantics and every parity
+  requirement remain open.
+
 - Add the paired acceptance for the first internal durable Session
   (verification only; no product, default or public API change). Closed
   recipes drive the actual pinned Pi Session and the native Session, in both the

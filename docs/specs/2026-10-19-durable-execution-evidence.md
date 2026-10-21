@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a and DE02a2b landed; DE02b1a in progress; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03 split, DE03a in progress; all parity rows OPEN**,
 2026-10-21. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -142,20 +142,24 @@ that coverage here. A local validation result is not a landed slice.
 | DE01b2 | H2 SQLite recovery, H3 abort, E1 actual env; duplicate-effect/post-abort-write negatives | LANDED | `28bc886`; actual independent CLEAN0; CI39286240678 success10/10; historical first ISSUES retained |
 | DE01b3a | Fresh executable local acceptance, hardware/exported workloads, four fresh mutants, exhaustive mapping | LANDED | Commit e3b2b391; actual CLEAN and CI39302403566 success10/10; reconciliation below |
 | DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | LANDED | `13d061d2`; actual Opus5.5 HIGH CLEAN; CI39370449156 success11/11 and uploaded artifact audited; delivery below |
-| DE02 | Records, memory storage and atomic session core | IN_PROGRESS | Cumulative a1+a2+b; original parent acceptance retained |
+| DE02 | Records, memory storage and atomic session core | LANDED | Cumulative a1+a2+b all delivered (b closed by DE02b3 d2e62390); original parent acceptance retained; no P completion |
 | DE02a | Owned records/values, Storage port and detached atomic Memory | LANDED | Cumulative a1+a2 both delivered; no P completion |
 | DE02a1 | Owned finite JSON, versioned records and Storage Protocol/DTOs | LANDED | b1aa0562; actual Opus5.5 HIGH CLEAN; CI39387254837 success11/11 and artifact audited; historical ISSUES retained |
 | DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | LANDED | Cumulative a2a+a2b both delivered; original backend acceptance retained |
 | DE02a2a | Internal atomic table Memory and current native/reference oracle | LANDED | 85390e2b; actual Opus5.5 HIGH CLEAN; CI39408774643 success11/11, complete logs/artifact audited; review history preserved |
 | DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | LANDED | 72253352; Opus5.5 HIGH ISSUES (one Suggestion) repaired, Codex gpt-6.1-sol HIGH delta CLEAN; push verified; CI not a delivery gate (run 39545767044 started, not awaited) |
-| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | IN_PROGRESS | Cumulative b1a+b1b+b2+b3; all original Session/draft/failure obligations retained |
+| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | LANDED | Cumulative b1a+b1b+b2+b3 all delivered; all original Session/draft/failure obligations retained |
 | DE02b1a | Private guarded Storage and lifecycle owner over real Memory | LANDED | 992c2102; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
 | DE02b1b | Actual pinned Node guard oracle and paired guard recipes | LANDED | cb38caf3; Codex gpt-6.1-sol HIGH ISSUES (two Warnings) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
 | DE02b2 | First internal Session/Tx over the same owner | LANDED | Cumulative b2a+b2b both delivered (be6ee84e, eb1e3ba7); callback API decision recorded before code |
 | DE02b2a | Private Tx core and mutable raw-base drafts, no commit entrypoint | LANDED | be6ee84e; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; inventory-name repair delta CLEAN; push verified; no CI claim |
 | DE02b2b | First exposed internal Session: line, async driver, publication and close | LANDED | eb1e3ba7; Codex gpt-6.1-sol HIGH r1 ISSUES (one Critical, four Warnings), r2 (one Critical, one Warning), r3 (one Critical, three Warnings; Root removed the claimer-delivery mechanism), r4 (one Warning), r5 CLEAN; push verified; no CI claim |
-| DE02b3 | Cumulative paired Session acceptance and final b gate | IN_PROGRESS | Local paired Session evidence below; independent gates pending |
-| DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
+| DE02b3 | Cumulative paired Session acceptance and final b gate | LANDED | d2e62390; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14223 passed; push verified; no CI claim |
+| DE03 | SQLite authority and local ownership | IN_PROGRESS | Cumulative a+b+c+d (split 2026-10-21); every original cell retained |
+| DE03a | Path ownership, owner-only files and minimal connection lifecycle | IN_PROGRESS | Local and Linux (macmini) evidence below; independent gates pending |
+| DE03b | Schema v1, migration runner and open-time integrity | OPEN | None; all gates OPEN |
+| DE03c | SqliteStorage, contract cases, real failures and crash cuts | OPEN | None; all gates OPEN |
+| DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
 | DE06 | Canonical checkpoint/request/outcome codecs | OPEN | None; all gates OPEN |
@@ -256,19 +260,18 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a and
-DE02b2b have landed, so the cumulative DE02a2, DE02a and DE02b2 parents are
-delivered. DE02b is split b1a→b1b→b2→b3 before product edits: b1a the private
-guarded Storage/lifecycle owner and b1b its actual pinned Node oracle (both
-landed), b2 the first internal Session/Tx over that same owner (landed through
-b2a, the private Tx core and raw-base drafts, and b2b, the first exposed
-Session), b3 cumulative paired Session acceptance and the final b gate (in
-progress).
-DE02b2 waited both, DE02b waits all four children,
-DE02 waits a1+a2+b and DE03 waits b. Original parent acceptance remains
-unchanged. All P rows OPEN; no partial backend/product factory/default release.
-Delivery from 2026-10-21: local `just check`, Codex gpt-6.1-sol HIGH CLEAN and a
-pushed SHA verified with `git ls-remote`; GitHub CI is not a delivery gate.
+DE00 through DE02b3 have landed, so DE01 and DE02 with all their children are
+delivered. DE03 is split a→b→c→d before code (see
+[the split](#de02b3-delivery-and-de03-split)): DE03a path ownership, owner-only
+files and a minimal verified connection lifecycle (in progress); DE03b schema v1,
+the migration runner and open-time integrity; DE03c `SqliteStorage` with contract
+cases, real failures and crash cuts; DE03d the paired pinned Pi SQLite oracle,
+Session over SQLite and the P43 workload. DE03 waits all four and DE04 waits
+DE03. Original parent acceptance remains unchanged. All P rows OPEN; no partial
+backend/product factory/default release. Delivery from 2026-10-21: local
+`just check`, Codex gpt-6.1-sol HIGH CLEAN and a pushed SHA verified with
+`git ls-remote`; GitHub CI is not a delivery gate. Each DE03 slice also records
+Linux evidence from the Ubuntu macmini (Root decision D10).
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -3441,3 +3444,1052 @@ passed, 176 with the coverage tests under `-X dev -W error`), `pytest
 tests/durable` (1327 passed), the extension-generation inventory and
 architecture tests (348 passed), ruff check/format, `mypy src tests`, the strict
 docs build and the rendered-link check pass locally on Python 3.15 only.
+
+## DE02b3 delivery and DE03 split
+
+DE02b3 landed at `d2e62390612b73f5e877a21dacaeaf64c337afda` on origin/main (tree
+`750ea302`, verified with `git ls-remote`). Root's local `just check` exited 0
+with 14223 passed and the same two known skips; no CI result is claimed. Review,
+Codex `gpt-6.1-sol` HIGH: round 1 **ISSUES**, no Critical and one Warning (a
+valid Node/native mismatch became exit2 because the mutant positive controls
+compared against native traces), repaired by Claude Code `claude-opus-5-5` MAX
+(the controls compare the observed Node trace with itself and each mutant, as in
+a1/a2b/b1b; a real-subprocess regression; both fresh chains rerun); round 2
+**CLEAN**. With b1a, b1b, b2 and b3 delivered, the cumulative DE02b parent is
+LANDED, and with a1, a2 and b delivered, so is DE02; the acceptance script
+derives both statuses from their children. All43 P rows stay OPEN.
+
+The coordinator issued the DE03a work order the same day, with the read-only DE03
+SQLite prep as its binding design. Root accepted its recommendations D1–D13 as
+written:
+
+1. D1: payload columns are BLOB surrogatepass-UTF-8 JSON (lossless); identity
+   columns are ASCII JSON.
+2. D2: where Pi's Memory and SQLite disagree, Python SQLite follows Memory
+   reference semantics, each difference proven by an actual paired probe in a
+   later slice.
+3. D3: `synchronous=FULL` plus `fullfsync` and `checkpoint_fullfsync` on macOS
+   for the product; NORMAL stays available for parity and benchmark runs.
+4. D4: an error raised by COMMIT poisons the raw instance.
+5. D5: an existing own regular file with `nlink == 1` and group/other bits is
+   chmod-ed to 0600; symlinks, hardlinks and foreign owners are refused.
+6. D6: open-time `quick_check` only after an unclean shutdown; tests run
+   `integrity_check` after every cut.
+7. D7: no table prefix.
+8. D8: shared and network filesystems are refused in DE03a.
+9. D9: explicit `create` and `open` opener modes, so nothing is created by
+   accident.
+10. D10 (owner-approved 2026-10-21): every DE03 slice also runs its new tests on
+    the Ubuntu macmini over SSH, in an isolated directory with a project-local
+    venv on the system Python, recorded here as Linux evidence.
+11. D11: schema v1 is Pi's v2 shape with Pi's names plus the Python deltas; DE27
+    bumps the format version with the first delta.
+12. D12: fork cleanup and the in-process lock-inode registry belong to DE03a.
+13. D13: DE03 is split a→b→c→d, recorded before DE03a code.
+
+Before code, the coordinator's split was recorded, preserving every original
+DE03 cell cumulatively (plan §5 rows; the coverage index now has 111 rows):
+**a** path ownership, owner-only files, shared-filesystem refusal and a minimal
+verified connection lifecycle; **b** schema v1, the migration runner and
+open-time integrity; **c** `SqliteStorage` with backend-agnostic contract cases,
+real failures and crash cuts (it may split into c1 and c2 before code); **d** the
+paired pinned Pi SQLite oracle, Session over SQLite and the P43 workload. The
+original cells map to the children as follows: two processes or aliases, a (d
+adds the Session close releasing the lock); SIGKILL owner then reopen, a, b, c
+and d; transactional schema failure and newer refusal, b; acknowledgement loss,
+c and d; integrity checks, b and c; no world-readable database, journal or lock,
+a (c again after real workloads); query cursors, c and d; storage and private
+lifecycle docs, a through d. DE03 waits all four children and DE04 waits DE03.
+All43 P rows stay OPEN.
+
+## DE03a local ownership evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` MAX, sole writer on main from clean HEAD
+`d2e62390`; no subagents. Upstream was read only through `git show` at the pin.
+Nothing is committed or pushed and no CI result is claimed.
+
+**Bookkeeping before code.** The split, the DE02b3 delivery and the coverage
+wiring were recorded first: plan §5 rows DE03a–DE03d (the DE03 acceptance cell
+now ends "DE03 completes only after its a+b+c+d children"), 111 coverage rows,
+and in the acceptance script the four children, the plan and ledger row
+patterns for `c`/`d` suffixes, the cumulative DE03 parent and the evidence
+anchors. The coverage tests then move to DE02b/DE02 LANDED, keep DE03 from
+landing before all four children, accept only the exact child IDs and let no
+DE03 row claim case evidence. The four new rows shift the plan lines of DE04–DE45
+by four, so every DE source anchor was recomputed. The carried DE02b3 risk (Pi's
+late read of top-level entry-draft keys) is recorded on DE04, its owner.
+
+**Design.** Two private modules, neither exported:
+
+- `native/durable/ownership.py`. Exact `str` path and exact `create`/`open`
+  ingress, then read-only resolution: `realpath` of the deepest existing
+  ancestor plus the file name (only `create` continues below missing
+  directories, through plain names). Read-only prechecks refuse a missing
+  (`open`) or existing (`create`, also any `-wal`/`-shm`/`-journal`) database,
+  symbolic links, second hard links, other users' files and files the owner
+  cannot read and write, and the filesystem classifier refuses shared and
+  network mounts (macOS `fstatfs` `MNT_LOCAL` on APFS/HFS+; Linux the type of
+  the directory descriptor's own `mnt_id` line in `/proc/self/mountinfo`). Only
+  then are missing directories created `0o700` and the never-deleted
+  `<db>.lock` opened `O_NOFOLLOW|O_CLOEXEC`, made `0600`, checked against the
+  in-process registry (keyed by the lock inode) and `flock`ed non-blocking; the
+  lock name must still name the locked inode, and diagnostic JSON is written.
+  Under the lock `create` makes the database `O_EXCL` `0600` and flushes the
+  directory (F_FULLFSYNC on macOS); `open` re-checks and tightens the database
+  and sidecars (D5) and records the `-wal` size for the D6 policy. The registry
+  lock is held across `fork()`; the child closes every inherited lock copy,
+  poisons the owners and pins inherited connections.
+- `native/durable/sqlite_connection.py`. `open_owned_database(path, mode=,
+  durability=)` admits its input and checks SQLite (3.37+, serialized) before
+  any effect, takes ownership, connects with `mode=rw`, checks the opened file's
+  identity, sets every PRAGMA and reads it back, requires WAL (`create` switches
+  the new database; `open` refuses a non-WAL file unchanged), and checks
+  identity again. A failure removes what `create` made and always frees the
+  lock; a cleanup failure is a note on the original error. Close: TRUNCATE
+  checkpoint, connection close, lock release, each in `finally`; a repeated
+  close raises the first close's error.
+
+**Probes before code** (scratch, macOS Python 3.15.0/SQLite 3.53.1 and the
+macmini's Python 3.12.3/SQLite 3.45.1): a second open file description in one
+process is refused (`EAGAIN`) on both; Linux `fdinfo` `mnt_id` selects the
+mount line exactly (ext4 home and `/tmp`, tmpfs `/dev/shm`); `journal_mode=WAL`
+on an empty database writes a 4096-byte header at once; SQLite deletes stale
+`-journal`/`-wal` files next to a new empty database; under umask `0o777` a
+pre-created `0600` database still gets `0600` `-wal`, `-shm` and `-journal`;
+`F_FULLFSYNC` works on an APFS directory descriptor. **Fork hazard, reproduced
+on both systems:** a child forked from an owner that closes or merely finalizes
+the inherited connection after the owner's clean close deletes a later owner's
+crash-left `-wal` and `-shm` by name; the later owner's committed rows are lost
+while `integrity_check` still says `ok`. Exiting with `os._exit` or pinning the
+connection (`Py_IncRef`) keeps every row. This is why the fork hook pins.
+
+**Tests** (`tests/durable/test_sqlite_ownership.py`, 41 functions and 115
+cases; 13 cases run real children through the new bounded helper
+`tests/durable/sqlite_child_support.py`, which follows `test_memory_storage.py`:
+own session and process group, a JSON-line handshake, per-event deadlines,
+killing and reaping the whole group and a group-gone check).
+
+- Ingress without effects: 23 invalid inputs (bytes, `Path`, `PurePosixPath`, a
+  hooked `str` subclass as path, mode or durability, NUL, empty, a trailing `/`,
+  `.` and `..`, a 248-byte name, an unencodable name, `missing/..` and the four
+  reserved suffixes) leave the directory empty and run no hook; the 247-byte
+  boundary works; an `open` of a missing file or of missing directories creates
+  nothing; an old or non-serialized SQLite is refused first; `create` leaves an
+  existing database or stale sidecar untouched; a file used as a parent
+  directory is refused.
+- Lifecycle: `create` then `open` keep `0700` directories and `0600` files,
+  write the diagnostics, use close-on-exec and remove `-wal`/`-shm` on close;
+  every setting reads back for `full` and `normal`; a setting that does not
+  read back refuses the store; `open` refuses a rollback-journal database and a
+  garbage file unchanged, twice, so the lock was freed; a failed `create`
+  removes only its own files; a cleanup failure becomes a note on the cause;
+  close frees the lock and raises its first failure again; an abandoned
+  transaction is discarded; a database swapped in before `connect` is never
+  written; one replaced during configuration is refused; a lock file replaced
+  while it is being locked is refused and its old inode is not held; every new
+  directory entry is flushed.
+- Aliases and links: a second in-process open through the same, a relative, a
+  `..`, a `.` or a symbolic-link directory path meets the same owner; case and
+  Unicode-normalization variants meet the same lock where the filesystem
+  aliases them (runtime detection, never skipped) and name another file where it
+  does not; a symbolic-link database name and a hard-linked database are refused
+  even when unowned and without creating a lock; symbolic or hard links as
+  `-wal`, `-shm`, `-journal` or lock are refused; files of another effective
+  user are refused (simulated in-process, since `chown` needs privileges);
+  group and other bits are removed; files the owner cannot read and write are
+  refused; eight concurrent threads, opening or creating, admit exactly one
+  owner; the fork hooks hold the registry lock.
+- Filesystem classifier: twelve mount-table fixtures (ext4, XFS, tmpfs and an
+  overmounted Btrfs accepted; proc, nfs4, cifs, fuse.sshfs, 9p, virtiofs,
+  overlay and vfat refused), three fail-closed `fdinfo` cases, ten macOS cases,
+  the real test directory classified local on each host, and an injected NFS
+  mount refused before any effect.
+- Real processes: a second process is refused with the holder's process ID in
+  the diagnostic and admitted after the owner closes (same and case-variant
+  spelling); SIGKILL at idle after five committed WAL transactions, then a
+  reopen reports `wal_size_at_open > 0`, all rows, `integrity_check` ok, `0600`
+  modes, a free lock and replaced stale diagnostics; umasks 000, 002, 022, 077
+  and 777 keep every mode; an exec child holds no store descriptor; a forked
+  grandchild has closed its lock copy, is poisoned, and the store opens while it
+  lives on after the owner is SIGKILLed; the forked-finalization scenario with
+  its unpinned negative control; garbage and misleading lock contents never
+  decide.
+
+**Private negative controls** (scratch matrix, not in the permanent suite).
+Each of 27 source mutants of the two modules was applied in place, the whole new
+suite ran against it, and the original bytes were restored and checked by
+sha256 after every mutant. Every mutant with designated tests made them fail
+(failing cases in brackets): registry check (7), `flock` (3), lock name
+re-check (1), fork-child close (1), fork pin (1), fork lock hold (1), hard links
+(5), symbolic links (5), owner (1), owner access by name (4), `fchmod` (2),
+directory `chmod` (1), stale-sidecar refusal (3), classifier call (1), read-only
+precheck (10), diagnostics (5), reserved suffixes (2), an inheritable lock (2),
+non-WAL open (1), identity before configuration (2) and after it (1), lock
+release on a failed close (1), failed-create cleanup (3), PRAGMA read-back (2),
+`trusted_schema` (2) and the runtime check (2). The directory-flush mutant
+survives by design: a flush's durability is not observable without power loss.
+The permanent suite keeps the unpinned fork negative control.
+
+| Check (macOS 27.0.1 arm64, `.venv` Python 3.15.0, SQLite 3.53.1) | Exit / result |
+| --- | --- |
+| `pytest tests/durable/test_sqlite_ownership.py` under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 115 passed each |
+| the new and coverage tests together under `-X dev -W error` | 0; 216 passed |
+| coverage and acceptance tests, after the cascade | 0; 153 passed |
+| `pytest tests/durable` | 0; 1469 passed |
+| `tests/test_native_session_extension_generation.py` and `tests/test_architecture_*.py` | 0; 348 passed |
+| the 13 test files that read the changed documents | 0; 677 passed |
+| `ruff check .`, `ruff format --check .` | 0, 0 |
+| `mypy src tests` | 0; 898 files |
+| `scripts/docs.py build` (zensical `--strict`) and a rendered-link check of the six changed pages | 0 ("No issues found"); 1026 local links on the six pages, none broken |
+| private mutant matrix | 0; 27 mutants, no designated failure missing |
+
+**Linux evidence (macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1)**, per
+Root decision D10. The isolated directory
+`~/pipy-de03-linux/de03a-20261021T164132Z/` (mode `0700`) holds a copy of the
+working tree (`git ls-files -co --exclude-standard`, 3929 files, sent with
+`rsync` over SSH using the launchd agent socket for those commands only) and a
+project-local venv on the system Python (`UV_PYTHON_DOWNLOADS=never uv venv
+--python /usr/bin/python3.12`, then `uv sync --frozen`). The uv cache, `TMPDIR`
+and every pytest `--basetemp` stayed inside it; nothing else was installed or
+changed. The directory is on ext4. The pre-code probes above ran there first.
+
+| Remote run (`run-de03a.sh`) | Exit / result |
+| --- | --- |
+| `uv venv`, `uv sync --frozen` | 0, 0 |
+| coverage and acceptance tests | 0; 153 passed |
+| the new and coverage tests under `-X dev -W error` | 0; 216 passed |
+| the new tests under `-X dev -W error`, 20 runs | 20 of 20 exit 0; 115 passed each |
+| processes of this user naming the directory, outside the run's own session | 0 |
+
+The first Linux run (its logs kept as `run1`, before the early identity check)
+found a time-dependent assertion: a refusal after the lock is taken rewrites
+the lock's diagnostic `acquired_at`, which has one-second resolution, and the
+read-back test compared the lock file's bytes. It failed in that run and in 2 of
+its 20 repeats; the test now compares everything except the diagnostic
+contents. That run's leftover check also matched its own SSH wrapper shell,
+gone afterwards; the check now excludes its own session. On Linux the case and
+normalization variants take the case-sensitive branch and the classifier the
+`mnt_id` branch; the umask, fork, finalization and SIGKILL tests behave as on
+macOS. Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/logs/` (local) and
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/linux/remote-logs/` (copied back; `run1/` holds the first run).
+
+**Manifest cascade and chain binding.** Only three files the baseline manifest
+hashes changed: the acceptance script, the coverage test and `coverage.json`. No
+file of the a1, a2b, b1b or b3 closures changed. The cascade (baseline → a1 →
+a2b → b1b → b3) ran last over closure and parent hashes only: baseline
+`90d6d629…3d57`, a1 `177d7259…2bd9`, a2b `a6f81107…3f58`, b1b `171d8820…ab69`
+and b3 `0484a4ad…265d`. Closure verification exits 0: b3's `configuration()`,
+which validates b1b, a2b, a1 and the baseline, passes; no closure entry is
+stale; and the key-level diff against HEAD is exactly those three baseline
+entries plus the parent hashes derived from them. No chain-bound source
+changed, so no chain reran, and the DE02b3 binding still holds:
+`final-pairs.json` (sha256 `715c3246…4613`) binds the manifests committed at
+`d2e62390` byte for byte, both chains' acceptance and child results are intact
+and PASS, and of the 63 files any landed manifest hashes only the three
+bookkeeping files differ from HEAD.
+
+**Deviations from the prep, with reasons.**
+
+1. The connection lifecycle lives in a new `sqlite_connection.py`, so
+   `ownership.py` imports no `sqlite3` and DE03c builds `sqlite.py` on top.
+2. Exact `str` paths only (the prep also allowed an exact `PurePath`): a probe
+   showed `str(PurePosixPath("a") / StrSubclass("b"))` runs the subclass's
+   `startswith` and `__radd__` hooks.
+3. The fork hook also pins inherited connections, beyond "never touch an
+   inherited connection": Python finalizes them at exit otherwise (probe above).
+4. `open` requires an existing WAL database instead of switching it, so a
+   foreign rollback-journal database keeps its bytes (a DE03b acceptance).
+5. Database names ending in `.lock`, `-wal`, `-shm` or `-journal` are refused,
+   so another store's sidecar is never opened as a database.
+6. The Linux classifier selects the mount table line by the descriptor's
+   `mnt_id`, not by path prefix; overlayfs, FUSE, 9p, virtiofs and FAT-family
+   types fail closed. macOS requires `MNT_LOCAL` and an APFS or HFS+ type.
+7. D5 as implemented: a file found by name must be readable and writable by its
+   owner (a read-only `0400` database is refused, not made writable); a file this
+   process just created under a restrictive umask is fixed through its open
+   descriptor.
+8. New directory entries are flushed with `F_FULLFSYNC` on macOS, matching the
+   D3 durability class.
+
+**Prep versus reality, flagged.** Ubuntu's SQLite 3.45.1 is built with
+`SQLITE_SECURE_DELETE` (default on) while the macOS development build has it
+off; the prep assumed "not enabled". DE03a leaves `secure_delete` at the build
+default and reads it nowhere; freed-page residue therefore differs by platform
+until Root decides. Root has since decided `secure_delete=ON` on every platform
+(see [the secure delete decision](#de03a-secure-delete-decision)). Every other
+prep assumption held on both systems.
+
+**Open risks for DE03b and later.** (1) `open` refuses non-WAL files before any
+write (round 1 showed that a hot rollback journal was still rolled back first;
+see [the repair](#de03a-round-1-codex-review-repair)), but a foreign WAL-mode
+file is opened, and close checkpoints it; DE03b's
+application-id check must run before anything writes, and its refusal path
+should close without a checkpoint if "bytes unchanged" is to hold for foreign
+WAL files. (2) Close's TRUNCATE checkpoint can return busy while a foreign
+reader (a DE10 inspector) holds a snapshot; it is not an error and the WAL then
+stays. (3) Raw-connection users must serialize with `close()`; DE03c's authority
+lock owns that. (4) A child forked by native code that skips Python's fork hooks
+keeps a lock copy until it exits or executes (the owner's `LOCK_UN` still
+releases it), and its inherited connection is not pinned. (5) Deleting the lock
+file or hard-linking the database while it is open, and bind mounts of a single
+file, are outside the contract. (6) Settled by
+[the secure delete decision](#de03a-secure-delete-decision); old WAL frames keep
+deleted content until a checkpoint truncates the log.
+
+### DE03a secure delete decision
+
+Root decision on the flagged `secure_delete` difference (2026-10-21): set
+`PRAGMA secure_delete=ON` explicitly in the connection lifecycle on both
+platforms and read it back like every other setting, so deleted private content
+leaves no plaintext residue in freed database space and macOS and Linux behave
+the same. Write-ahead-log frames and freed filesystem blocks remain a
+documented limit: `secure_delete` zeroes freed b-tree content, not earlier WAL
+frames, which a checkpoint removes when it truncates the log.
+
+**Implementation.** `("secure_delete", "ON", 1)` joins the explicit settings in
+`sqlite_connection._settings`. Like the others it is a connection-level setting
+applied before the journal mode and read back (`PRAGMA secure_delete` must return
+1), so a store whose SQLite does not honour it is refused. The module
+docstring, `docs/session-storage.md` ("Deleted content"), the harness-spec
+spelling list and the CHANGELOG entry state it with the limit: in WAL mode the
+database file keeps earlier page images until a checkpoint copies the zeroed
+pages in, and earlier WAL frames keep them until a checkpoint truncates the log.
+The DE03a coverage observables now name the setting and the probe, so the
+manifest cascade ran again (below).
+
+**Tests.** The read-back test requires `secure_delete` 1 for `full` and `normal`
+on both systems. A new deterministic residue probe,
+`test_a_deleted_row_leaves_no_residue_in_the_database_file[ON|OFF]`, commits a
+random marker row, which the closing checkpoint writes into the database file
+(the closed file contains it). A second session inserts a second marker and
+deletes both. While that session is open, the `-wal` still holds both markers in
+its earlier frames, which is the documented limit. The `-wal` carries no SQLite
+lock; the database file is read only while closed, because closing another
+descriptor of it would drop SQLite's per-process locks. After close the `-wal`
+and `-shm` are gone and neither marker is in the database file. The `OFF`
+variant monkeypatches the setting off as a negative control and must find both
+markers in the file, so the probe demonstrably sees residue.
+
+**Harness fix found by the rerun.** One of the first twenty macOS repeats, and
+one mutant run, failed in the forked-finalization test's teardown, not in its
+assertions. After the forked grandchild exits and before launchd reaps it, its
+process group holds only a zombie, and macOS answers `killpg` on such a group
+with `EPERM`; Linux accepts it. A probe that leaves a zombie with
+`waitid(WNOWAIT)` shows both behaviours. The helper read `EPERM` as "alive" and
+then raised from `killpg(SIGKILL)`. It now ignores `EPERM` (and a vanished
+group) when killing, and still waits, bounded, for the group to disappear; a new
+deterministic test builds a zombie-only group the same way. The suite now has
+118 cases.
+
+**Negative control.** The new `secure-delete` mutant (the setting removed) fails
+the read-back test for both durabilities and the probe's `ON` variant on macOS,
+whose SQLite defaults to off. On Ubuntu the build default would mask it, which
+is why the setting is explicit. The final matrix: 28 mutants; the unmodified
+module passes all 118 cases, every mutant with designated tests fails them, and
+the directory-flush mutant survives by design.
+
+**Reruns after every change.** These results supersede the DE03a tables and
+manifest hashes above.
+
+| Check | macOS 27.0.1 arm64, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| new tests under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 118 passed each | 20 of 20 exit 0; 118 passed each |
+| the new and coverage tests under `-X dev -W error` | 0; 219 passed | 0; 219 passed |
+| coverage and acceptance tests | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1472 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (898 files) | not run |
+| strict docs build and rendered links on the six changed pages | 0 ("No issues found"); 1030 local links, none broken | not run |
+| private mutant matrix | 0; 28 mutants, no designated failure missing | not run |
+| leftover processes naming the directory | not applicable | 0 |
+
+The Linux set ran in a new isolated directory,
+`~/pipy-de03-linux/de03a-20261021T175216Z/`, with the same procedure: a copy of
+the working tree (`git ls-files -co --exclude-standard`, 3929 files), a
+system-Python venv with `uv sync --frozen`, and the uv cache, `TMPDIR` and pytest
+temporary directories inside it. Its first run (logs kept as `run1/`, before the
+harness fix, 117 cases) was green on every step, as `EPERM` cannot occur on
+Linux; the final run above used the final tree. After it succeeded the earlier
+directory `~/pipy-de03-linux/de03a-20261021T164132Z/` was deleted; nothing else
+was removed and no process was left. Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/secure-delete-logs/`
+(macOS) and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/secure-delete-linux/remote-logs/` (Linux, copied back).
+
+**Cascade.** Only `coverage.json` changed among hashed files this time. The
+cascade ran last again: baseline `63f2ded1…6a08`, a1 `6b568eb9…adc0`, a2b
+`774e14c8…b4e4`, b1b `643f5cc2…2ca7` and b3 `f54bd94b…eb9a`. Closure
+verification exits 0 with no stale entry, and the key-level diff against HEAD
+is still the three bookkeeping hashes plus the parent hashes derived from them.
+No chain-bound file changed, and the DE02b3 `final-pairs.json` binding still
+holds (the binding check exits 0).
+
+### DE03a round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH on tree `d3bd3a8e`: **ISSUES**, no
+Critical and three Warnings, all accepted by the coordinator and repaired by
+Claude Code `claude-opus-5-5` MAX; no CI result is claimed.
+
+- **Warning 1: a refused `open` let SQLite roll a hot journal back first.**
+  `_configure` read `PRAGMA journal_mode` on a writable connection, and that
+  first read recovered a crashed rollback-journal writer before the non-WAL
+  check refused. Reproduced before the repair: the database shrank from
+  1,024,000 to 8,192 bytes and its journal was deleted. Now an existing
+  `-journal` refuses `open`, in the read-only precheck and again under the lock
+  (a durable store is WAL-only, so a journal can only belong to a crashed
+  foreign writer or an interrupted switch to WAL). `open` also reads the
+  100-byte header itself through a check that `ownership.acquire` runs on a
+  read-only descriptor, before the lock (a refused file gets no lock file) and
+  again under it, before any mode change: the magic string, a power-of-two page
+  size from 512 to 65536, and write/read versions 2 (WAL). The journal-mode check
+  after connecting stays as defense in depth. After the repair the reproduction
+  refuses with both files byte-identical.
+- **Warning 2: a failed directory flush after `create` left a zero-byte
+  database.** The flush ran outside creation's cleanup, so an injected `EIO`
+  left the empty database, the lock was released without an owner, and later
+  `create` and `open` both refused. The flush now sits inside the cleanup
+  scope, which removes the new file only if it is still the inode this create
+  made and keeps the flush error as the cause (a cleanup failure is a note).
+  Reproduced before the repair; after it only the lock file remains and
+  `create` succeeds on retry.
+- **Warning 3: `os.waitid` in a test.** It exists on macOS only from Python
+  3.13 (the local 3.11.13 and 3.12.15 interpreters have none). The helper now
+  waits for the zombie state through `/proc/<pid>/stat` on Linux and
+  `ps -o stat=` on macOS, checked on macOS 3.15 and 3.11 and on Linux 3.12. A
+  scan of the four new files found no other 3.12+ or 3.13+ API (`pidfd`,
+  `os.path.splitroot`, `Path.walk`, `itertools.batched`, `typing.override`,
+  sqlite3 `autocommit`/`setconfig`), and all four byte-compile under 3.11.
+
+**New tests** (128 cases). Header refusals for an empty file, foreign text, a
+truncated header, a bad page size, a bad magic string with every other field
+valid, and a real rollback-journal database: `StorageConfigurationError`,
+twice, with bytes, modes and the absence of a lock file unchanged. The
+journal-mode check is still exercised with the header check disabled. A real
+hot journal comes from a child that crashes (`os._exit`) mid-transaction with
+spilled pages; plain SQLite rolls a copy back, which proves the journal is hot,
+while `open` refuses with both files byte-identical and no lock file. A stale
+journal next to a WAL store is refused with everything, the lock's contents
+included, unchanged. A journal that appears after the precheck, and a database
+replaced with garbage, are refused under the lock. An injected flush `EIO`
+after `create` leaves only the lock, and `create` then works. Tests that assert
+"nothing changed" for an existing store now first give its lock distinctive
+contents, so a refusal that wrongly took the lock shows even when the same
+process wrote the same diagnostics within the same second; the matrix found
+that gap.
+
+**Negative controls.** Eight new mutants: the journal refusal (shared, precheck
+only, under the lock only), the header check (precheck only, under the lock
+only), the magic string, the format versions and the flush outside the cleanup.
+A first matrix run showed that the precheck-journal and magic mutants survived;
+the lock marking and the bad-magic fixture above close both gaps. Final matrix:
+36 mutants, the unmodified modules pass all 128 cases, every mutant with
+designated tests fails them, and only the directory-flush mutant survives, by
+design.
+
+**Results after the repair.** These supersede the earlier DE03a tables.
+
+| Check | macOS 27.0.1, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| new tests under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 128 passed each | 20 of 20 exit 0; 128 passed each |
+| the new and coverage tests under `-X dev -W error` | 0; 229 passed | 0; 229 passed |
+| coverage and acceptance tests | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1482 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (898 files) | not run |
+| strict docs build and rendered links | 0 ("No issues found"); 1033 local links on the six pages, none broken | not run |
+| private mutant matrix | 0; 36 mutants, no designated failure missing | not run |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new tests also ran once on the locally installed uv Python 3.11.13 (SQLite
+3.49.1) and 3.12.15 under `-X dev -W error`: 128 passed each. They used
+throwaway venvs in scratch with their own uv cache, built from a snapshot of the
+working tree; the project `.venv` and `uv.lock` were untouched. A first macOS
+battery run of the docs-dependent tests failed the preview-server timing test
+(`test_docs_build.py`, which builds its own temporary project) while those
+installs loaded the machine; on a quiet machine it passed, as above.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03a-20261021T183831Z/`, with the same procedure. Its first
+run (logs kept as `run1/`, before the test tightening) was green too. After the
+final run the previous directory `~/pipy-de03-linux/de03a-20261021T175216Z/` was
+deleted; nothing else was removed and no process was left.
+
+**Cascade.** `coverage.json` changed again (the observables name the header
+check, the journal refusal and the flush cleanup), so the cascade ran last:
+baseline `6b97645a…4df3`, a1 `ed5c537d…2729`, a2b `10833934…a19e`, b1b
+`d9ea20e4…a0ce` and b3 `ac145f5f…f961`. Closure verification exits 0 with no
+stale entry, the key-level diff against HEAD is still the three bookkeeping
+hashes plus the derived parents, and the DE02b3 binding check exits 0.
+
+**What remains for DE03b.** A foreign WAL-mode SQLite file passes the format
+check. SQLite may then run WAL recovery, which writes only the `-shm`, and close
+checkpoints it into the database. The same pre-connect header read is the place
+for DE03b's identity gate (the application ID at bytes 68–71, the user version
+at 60–63), so foreign or newer stores are refused before SQLite opens them and
+those refusals also leave bytes unchanged. A stale `-wal` from another database
+next to a valid header is still SQLite's to judge.
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r1-logs/` (macOS: `macos-final-*.log`,
+`mutant-matrix-final.log`, the reproductions `hot-journal-*-fix.log` and
+`flush-eio-*-fix.log`, cascade, closure and binding), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r1-pycompat/`
+(Python 3.11 and 3.12) and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r1-linux/remote-logs/` (Linux).
+
+### DE03a round-2 Codex review repair
+
+Round 2 review, Codex `gpt-6.1-sol` HIGH on tree `79b1a51b`: **ISSUES**, one
+Critical, caused by the round-1 repair, accepted by the coordinator and
+repaired by Claude Code `claude-opus-5-5` MAX; no CI result is claimed.
+
+- **Critical: a refused second open released the owner's SQLite locks.** The
+  round-1 header precheck opened and closed the database before the in-process
+  registry was consulted. POSIX record locks belong to the process, and
+  closing any descriptor of a file drops all of them, SQLite's included.
+  Reproduced before the repair on macOS, and on Linux against the round-1
+  sources: with owner A holding a committed row, an external
+  `locking_mode=EXCLUSIVE` writer got "database is locked" before the refused
+  second open and wrote after it, and A's later write dropped the intruder's
+  row. After the repair the writer stays blocked, A's rows survive and
+  `integrity_check` is ok.
+
+**Repair.** The descriptor rule is now an invariant, documented in both
+modules' docstrings and in the harness spec for the later DE03 slices (DE03b's
+identity gate reads header bytes too):
+
+- The read-only precheck uses `lstat` only again. The header check moved into
+  a gate that runs after the directory is opened and before the lock, under
+  the registry lock, and only once neither the lock inode nor the database
+  inode is owned in this process.
+- The registry also holds each owner's database inode, claimed under the
+  registry lock before any descriptor opens it and before connecting. An owned
+  database under another name (a rename, or a bind-mounted single file) is
+  refused unread as well. (Round 5: renaming a held store's files is outside
+  the contract; this refusal then holds only within the owning process, as
+  best-effort detection.)
+- Every descriptor on an existing store file (database, sidecar or lock file)
+  is opened under the registry lock and identified by `fstat` first. One that
+  reached another owner's claimed database, because a rename raced the open,
+  is parked on that owner and closed in its release, after its connection is
+  closed; any other is closed under the same lock hold, so no owner can claim
+  and connect in between. This also closes a second data-loss path in the
+  round-1 code, probed with its sources: a rename racing the lock-file open
+  let the Linux lock step take `flock` on the owned database and write its
+  diagnostics into it (8192 bytes became 86, and after the owner closed SQLite
+  reported "file is not a database"); on macOS the `flock` conflicted and the
+  open was refused.
+- The storage document tells callers not to open an owned store with a second
+  SQLite connection from the owning process.
+
+**Audit.** Every place the two modules and the test helpers open a descriptor
+on a store file, or might while a connection of the process exists:
+
+| Site | Round 1 | Now | Why it is safe |
+| --- | --- | --- | --- |
+| `open` precheck | opened and closed the database for the header before the registry check: **unsafe** (the Critical) | `lstat` only | no descriptor |
+| header gate (new), before the lock | — | under the registry lock, after the lock-inode and database-inode check | no owner of that inode exists in the process, and owners claim before they connect; an inode a racing rename substituted is identified and parked if claimed |
+| lock step: lock file open, `fchmod`, diagnostics, close on refusal | identity checked only after `flock`: **unsafe under a race** (the truncation above) | the descriptor is identified first and parked if a rename put a claimed database there | `flock` belongs to one open file description, so closing another descriptor of the lock file never releases it (probed on macOS and Linux); SQLite never opens the lock file |
+| header re-read under the lock | own lock held, not connected; a rename between `lstat` and `open` could reach another owner's database: **unsafe under a race** | claim, then the identified open, all under the registry lock | as for the gate |
+| owner-only normalization (`fchmod`, D5) of the database and sidecars | the same race | the identified open under the registry lock | as above; sidecars are not claimed (documented limit: another owner's live `-shm` reaches a sidecar name only by a rename that already breaks that owner's store) |
+| `create` | new `O_EXCL` inode | claimed under the registry lock before `fchmod` | nobody holds locks on a new inode |
+| failed-create cleanup, `discard_created_files` | directory descriptor and `unlink` by name | unchanged | no descriptor on the file |
+| identity checks after connecting | `os.stat` | unchanged | no descriptor |
+| close and failed open | SQLite closes its own descriptors, then the lock descriptor closes | the release also closes parked descriptors, after `flock` is released and still under the registry lock | the owner's connection is closed, and no new owner claims and connects during the release |
+| fork child hook | closes inherited lock copies | also parked copies | record locks are not inherited, and closing (never `LOCK_UN`) a shared `flock` description keeps the parent's lock |
+| lock diagnostics read and write | lock file only | unchanged | lock file |
+| filesystem classifier (`/proc/self/fdinfo`, `/proc/self/mountinfo`), directory descriptors and flushes | not store files | unchanged | SQLite takes no locks there |
+| test helper `tree()`, which reads every file | ran in the alias test while the store was open: **unsafe** | that test uses the new `lstat`-only `listing()`; every other call runs with no store open in the process, as its docstring now states | no descriptor while connected |
+| residue test reading `-wal` while connected | harmless (SQLite takes no lock on `-wal`) but against the rule | reads it in a child process | another process |
+| other test reads (`read_bytes`, raw `sqlite3.connect`) | all with no store open in the process | unchanged | checked one by one |
+
+**New tests** (136 cases, 8 new):
+
+- The alias test now holds a committed row, tries `open` and `create`
+  through each alias (the same path, relative, `..`, `.`, a symlinked
+  directory), and asserts that an external `locking_mode=EXCLUSIVE` writer
+  stays blocked, that nothing was opened (no parked descriptor) and, after a
+  further write and a reopen, that every row is there and `integrity_check` is
+  ok. The case and Unicode-normalization variants (runtime-detected) and the
+  concurrent in-process open race check the same. Behavior is asserted before
+  mechanism, so the tests fail on other implementations for the lost lock.
+- An owned database renamed to another name, or moved in under the opened
+  name after the lock, is refused unread. The moved-in case runs through
+  `open_owned_database` and through `acquire_path`, which reads no header, so
+  only the claim can refuse it. (Round 5: both are best-effort detection.)
+- The lock step's own registry check refuses a second in-process owner before
+  `flock`.
+- A rename that puts an owned database under the opened name at each
+  descriptor open (the gate, the re-read under the lock, the normalization,
+  the lock file) is refused, the external writer stays blocked, and the parked
+  descriptor is closed once the owner closes.
+- Against the exact round-1 sources (from tree `79b1a51b`), 14 of the 17
+  selected tests fail on macOS: 7 with `'wrote' == 'database is locked'` (the
+  five aliases and both case or normalization variants), the renamed and
+  moved-in cases with `disk I/O error` or "DID NOT RAISE", and the race cases
+  with another error or none. The three that pass are the lock step's registry
+  check (round 1 had it) and the two concurrent runs, which only catch the bug
+  when a refused thread reads after the winner connected. On Linux 12 of 17
+  fail: the five aliases with `'wrote'` (ext4 is case-sensitive, so the
+  variants name other files and pass), and the same inode and race cases.
+
+**Negative controls.** Seven new mutants: the round-1 shape (a header read
+through a raw descriptor before the gate), the gate without its ownership
+check, database inodes ignored by the registry check, no claim under the lock,
+a claimed descriptor closed instead of parked, the lock step without its
+identity check, and parked descriptors never closed. Six mutants were
+re-anchored to the moved code. Removing the whole precheck no longer fails the
+hard-link test, because the gate now repeats the `lstat` checks before the
+lock in `open` mode, so that mutant is designated to the `create` and
+stale-journal refusals; it still fails 21 tests. Final matrix: 43 mutants, the
+unmodified modules pass all 136 cases, every mutant fails its designated
+tests, and only the directory-flush mutant survives, by design.
+
+**Results after the repair.** These supersede the earlier DE03a tables.
+
+| Check | macOS 27.0.1, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| new tests under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 136 passed each | 20 of 20 exit 0; 136 passed each |
+| the new and coverage tests under `-X dev -W error` | 0; 237 passed | 0; 237 passed |
+| coverage and acceptance tests | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1490 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (898 files) | not run |
+| strict docs build and rendered links | 0 ("No issues found"); 1035 local links on the six pages, none broken | not run |
+| private mutant matrix | 0; 43 mutants, no designated failure missing | not run |
+| the reviewer's scenario (probe) | round 1: the writer wrote; now: blocked, rows and `integrity_check` ok | the same |
+| closing another lock-file descriptor (probe) | `flock` kept | `flock` kept |
+| rename racing the lock-file open (probe) | round 1: refused; now: refused, data intact | round 1: database truncated, "file is not a database"; now: refused, data intact |
+| new regressions on the round-1 sources | exit 1; 14 of 17 fail | exit 1; 12 of 17 fail |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new tests also ran on the locally installed uv Python 3.11.13 (SQLite
+3.49.1) and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 136 passed each,
+in throwaway venvs in scratch built from a snapshot of the working tree; the
+project `.venv` and `uv.lock` were untouched. A first macOS battery and a first
+Linux run (kept as `run1/`), before the behavior-first reordering of the
+assertions, were green with the same counts.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03a-20261021T194236Z/`, with the same procedure plus the
+probes and the round-1 sources for the negative control. After the final run
+the previous directory `~/pipy-de03-linux/de03a-20261021T183831Z/` was deleted;
+nothing else was removed and no process was left.
+
+**Cascade.** `coverage.json` changed again: the DE03a observables name the
+ownership check before the header read, the database-inode claims, the parked
+descriptors and the lost-lock regressions. That one string is the only change
+against the round-1 tree. The cascade ran last: baseline `0be20682…c0e2`, a1
+`7a081f05…bd6d`, a2b `ca921c09…fd02`, b1b `23b30250…13ca` and b3
+`6f40e51d…da39`. Closure verification exits 0 with no stale entry, the
+key-level diff against HEAD is still the three bookkeeping hashes plus the
+derived parents, and the DE02b3 binding check exits 0 (no chain-bound source
+changed).
+
+**What remains for DE03b.** The identity gate (application ID, user version)
+reads header bytes too, so it runs inside the same format check, or through
+another descriptor opened by the same identified-open rule.
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r2-logs/` (macOS: `macos-final2-*.log`,
+`mutant-matrix-final2.log`, the probes `lost-locks-*-fix.log`,
+`flock-close-macos.log` and `probe-lockfile-race-*-macos.log`,
+`regressions-on-round1-sources-final.log`, cascade, closure and binding),
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r2-pycompat/` (Python 3.11 and 3.12) and
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r2-linux/remote-logs/` (Linux).
+
+### DE03a round-3 Codex review repair
+
+Round 3 review, Codex `gpt-6.1-sol` HIGH on tree `9634edeb`: **ISSUES**, one
+Critical, caused by the round-2 repair, accepted by the coordinator with a Root
+decision, and repaired by Claude Code `claude-opus-5-5` MAX; no CI result is
+claimed.
+
+- **Critical: a claim moved while a descriptor of its first inode stayed
+  parked.** `_claim_database` replaced an owner's claim. A's lock step claimed
+  X, a racing open parked an X descriptor on A, a replacement made A's checks
+  under the lock move the claim to Y, and another owner then opened X; closing
+  A closed the parked X descriptor and released the new owner's SQLite locks.
+  Reproduced before the repair on macOS and Linux: an external
+  `locking_mode=EXCLUSIVE` writer was blocked before A closed, wrote after, and
+  its row was gone after the new owner's next write.
+- **Root decision:** a database-inode claim is never reassigned. A name that
+  now names another inode, before or after connecting, fails the open; the
+  claim stays until everything parked on it is closed under the registry
+  lock, and only then is released.
+
+**Repair.**
+
+- `_claim_database` refuses (`UnsupportedStoragePath`, "changed while
+  opening") when the owner already claims another inode; it never moves a
+  claim. Parked descriptors therefore always reference their owner's claimed
+  inode, and the owner's release closes them in the registry lock hold that
+  drops the claim.
+- Right after connecting, before any SQL, `PathOwner.check_connected()`
+  proves from the process's descriptors (`/dev/fd`, `/proc/self/fd`) that
+  SQLite opened the claimed inode: a descriptor of it that is neither a lock
+  nor a parked descriptor exists. It replaces the name check before
+  configuration; the name is still checked after configuration. Name checks
+  cannot see a rename away and back around the connect, and that case, probed
+  on the round-2 code on both systems, left A's connection on an inode nobody
+  had claimed: Y's own next owner read its header through a raw descriptor,
+  which dropped A's locks, and an external writer got in.
+- A failed `create` removes files by name only while the name still names the
+  database it made. Before, the sidecar names were unlinked unconditionally,
+  so a file renamed under one of them was deleted; now the skipped cleanup is
+  a note on the original error.
+- Docs: both module docstrings, the harness-spec invariant (now a list), the
+  storage document and the changelog.
+
+**The invariant, site by site.** A descriptor of inode I is closed only while
+no SQLite connection of this process can hold locks on I. Every connection of
+the process belongs to an owner (a second connection from the owning process
+is outside the contract); it holds no lock before its first statement, and
+`check_connected` proves before that statement that it sits on its owner's
+claimed inode. Claims are exclusive, never move, and are dropped only after
+the owner's connection is closed. So a connection that can hold locks on I
+means I is claimed by a live owner.
+
+| Site | Why it holds |
+| --- | --- |
+| header gate before the lock | under the registry lock, I is claimed by nobody (checked by `lstat` before opening, and the opened descriptor is identified by `fstat`: a claimed inode is parked, never closed); nobody can claim and connect before the close in the same hold |
+| lock step | the lock descriptor is identified first and parked if it reached a claimed database; otherwise it is the lock file, which SQLite never opens, or an unclaimed inode; closing another descriptor of the lock file keeps its `flock` |
+| claim and checks under the lock | the claim is made (or the open fails) before any descriptor; the re-read and the owner-only normalization identify each descriptor, park a claimed one, and close only this owner's claimed inode, which it has not connected to, or a sidecar (unclaimed by design; documented limit) |
+| `create` | a new `O_EXCL` inode, claimed under the registry lock before `fchmod`; nobody holds locks on it |
+| connecting | SQLite opens by name; until its first statement it holds no locks, and `check_connected` refuses before that statement unless it sits on the claimed inode; refusing closes it through SQLite, whose own descriptors are released by SQLite |
+| release (`_unlock`) | parked descriptors reference this owner's claimed inode, which only this owner may connect to; its connection is closed before the release; they are closed in the registry lock hold that drops the claim, after `flock` is released, so nobody claims and connects in between |
+| failed open, failed `acquire` | the connection, if any, is closed first; cleanup uses a directory descriptor and unlinks by name only while the name names the created inode; then the release above |
+| close | checkpoint, connection close, then the release above |
+| fork child hook | closes inherited lock and parked copies, never `LOCK_UN`; record locks are per process and not inherited, so the child holds none, and the parent's `flock` description stays locked by its own copy; inherited connections are pinned |
+| descriptor scan, identity checks after connecting | `fstat` and `os.stat` only; listing `/dev/fd` or `/proc/self/fd` opens and closes a descriptor of that directory, which no lock covers |
+| tests | `tree()` only with no store open in the process, `listing()` by `lstat`, the `-wal` scan in a child; the new tests read Y's bytes only after the refused connection was closed |
+
+**New tests** (141 cases, 4 new, one case added to an existing test):
+
+- The reviewer's sequence, through a seam around the checks under the lock:
+  A's open is refused, the parked descriptor is closed at its release, and
+  X's next owner keeps the external writer out and its rows after A is gone.
+  The assertions are behavior first, so the test fails on the round-2 code
+  with `'wrote' == 'database is locked'`.
+- The same race with the replacement after the checks under the lock: the
+  connection lands on Y and is refused right after connecting, Y's bytes are
+  unchanged, and X's next owner keeps its locks.
+- A rename away and back around the connect: the open is refused although
+  every name check passes, and Y's own next owner keeps the external writer
+  out.
+- A failed `create` whose name was replaced removes nothing by that name: a
+  foreign file under a sidecar name survives, with the skipped cleanup as a
+  note.
+- A valid store moved under the name after the lock is refused, a third case
+  of the change-after-precheck test; garbage is now written in place there, so
+  that case still reaches the header re-read under the lock.
+- Against the exact round-2 sources (from tree `9634edeb`), on macOS and
+  Linux alike, 4 of the 7 selected tests fail: the sequence and the
+  away-and-back case with `'wrote'`, the moved-in store with "DID NOT RAISE"
+  and the failed create with the foreign file deleted. The connect-time
+  variant passes there too (round 2 refused it already; it covers the
+  release order).
+
+**Negative controls.** Three new mutants (a claim that moves, no descriptor
+check after connecting, failed-create cleanup without the identity check);
+the old name-check-before-configuration mutant became the descriptor-check
+mutant, and the claim mutant was re-anchored. Final matrix: 45 mutants, the unmodified modules pass
+all 141 cases, every mutant fails its designated tests, and only the
+directory-flush mutant survives, by design.
+
+**Results after the repair.** These supersede the earlier DE03a tables.
+
+| Check | macOS 27.0.1, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| new tests under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 141 passed each | 20 of 20 exit 0; 141 passed each |
+| the new and coverage tests under `-X dev -W error` | 0; 242 passed | 0; 242 passed |
+| coverage and acceptance tests | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1495 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (898 files) | not run |
+| strict docs build and rendered links | 0 ("No issues found"); 1037 local links on the six pages, none broken | not run |
+| private mutant matrix | 0; 45 mutants, no designated failure missing | not run |
+| the reviewer's sequence (probe) | round 2: the writer wrote after A closed; now: A refused, blocked, rows and `integrity_check` ok | the same |
+| a rename away and back around the connect (probe) | round 2: A opened on Y and the writer got in; now: refused | the same |
+| new regressions on the round-2 sources | exit 1; 4 of 7 fail | exit 1; 4 of 7 fail |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new tests also ran on the locally installed uv Python 3.11.13 (SQLite
+3.49.1) and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 141 passed each,
+in throwaway venvs in scratch built from a snapshot of the working tree; the
+project `.venv` and `uv.lock` were untouched.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03a-20261021T205626Z/`, with the same procedure plus the
+probes and the round-2 sources for the negative control. After the run the
+previous directory `~/pipy-de03-linux/de03a-20261021T194236Z/` was deleted;
+nothing else was removed and no process was left.
+
+**Cascade.** `coverage.json` changed again: the DE03a observables name the
+never-moving claims, the descriptor check after connecting, the failed-create
+rule and the round-3 regressions. That one string is the only change against
+the round-2 tree. The cascade ran last: baseline `fd565374…82fb`, a1
+`ec656105…ae24`, a2b `89a78a92…30cd`, b1b `2542a650…47b1` and b3
+`785ac100…8990`. Closure verification exits 0 with no stale entry, the
+key-level diff against HEAD is still the three bookkeeping hashes plus the
+derived parents, and the DE02b3 binding check exits 0 (no chain-bound source
+changed).
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r3-logs/` (macOS: `macos-final-*.log`,
+`mutant-matrix-final.log`, the probes `claim-reassign-*-fix.log` and
+`connect-aba-*-fix.log`, `regressions-on-round2-sources.log`, cascade, closure
+and binding), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r3-pycompat/` (Python 3.11 and 3.12) and
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r3-linux/remote-logs/` (Linux).
+
+### DE03a round-4 Codex review repair and contract boundary
+
+Round 4 review, Codex `gpt-6.1-sol` HIGH on tree `0f4d2771`: **ISSUES**, two
+Critical, and the review harness reported non-convergence (exit 4: the
+Critical count did not fall over two rounds). Repaired by Claude Code
+`claude-opus-5-5` MAX under a Root decision to simplify; no CI result is
+claimed.
+
+- **C1, coupled to the round-3 repair.** The descriptor scan after connecting
+  could not prove that the matching descriptor belonged to this connection.
+  Overlapping opens can each pass on the other connection's descriptor, and
+  pinned descriptors inherited across `fork()` fool it too.
+- **C2, caused by the round-3 repair.** Failed-create cleanup checked the
+  database's identity before the sidecar loop and then unlinked the database
+  unconditionally, so a replacement arriving during the loop was deleted.
+  Reproduced before the repair with an injected configuration failure and a
+  replacement at the first sidecar `lstat`: the replacement was gone.
+- **Root decision.** Every finding since round 2 needed store files renamed
+  or replaced during an open. Instead of patching further, that window
+  becomes an explicit contract boundary, the descriptor scan goes, and C2 is
+  fixed anyway.
+
+**Removed.** `PathOwner.check_connected()`, its `/dev/fd` and `/proc/self/fd`
+scan (`_open_descriptors`, `_identity`, `_DESCRIPTORS`), the test
+`test_a_connection_that_landed_on_another_inode_is_refused_though_the_name_returns`
+(it asserted a guarantee for a rename away and back around the connect, now
+outside the contract, and only the removed scan made it pass) and the scan's
+mutant.
+
+**Kept.** Exact-`str` ingress; the `lstat`-only precheck; the in-process
+registry check by lock inode and database inode before any descriptor on a
+store file is opened (round 2: a second open in the owning process never opens
+or closes a descriptor of an owned inode); claims that never move (round 3);
+parking of any descriptor that `fstat` shows reached a claimed inode, closed
+only with its claim; and the `os.stat` name checks against the claimed inode
+under the lock, right after connecting (restored in place of the scan) and
+after configuration, refusing on a mismatch as best-effort detection.
+
+**C2 repair.** `discard_created_files` re-checks, right before each unlink (a
+sidecar or the database), that the name still names the inode the create made;
+otherwise it unlinks nothing more and the cause becomes a note on the original
+error. The regression replays the reviewer's sequence and fails on the exact
+round-3 sources (the only test of the file that does).
+
+**Contract boundary**, now in both module docstrings, the harness spec and the
+storage document:
+
+> The store directory is private to the owning user (owned by that user, mode
+> `0700`; missing directories are created that way, and keeping an existing one
+> private is the caller's part). Renaming, replacing or hard-linking store
+> files (the database, its `-wal`, `-shm` and `-journal`, and the lock file),
+> by any actor, while an open, create or close of that store is in progress is
+> outside the contract: the identity checks under the lock, after connecting
+> and after configuration, the parking of descriptors that reach a claimed
+> database and the re-check before each unlink of a failed create are
+> best-effort detection, not a guarantee. Outside that window the guarantees
+> hold: one owner per store across processes and within the process,
+> owner-only file modes, no descriptor of a store file another owner in this
+> process holds is ever closed by pipy, and invalid input, an `open` of a
+> missing path and a store refused before its lock is taken have no filesystem
+> effect. Pi durable 1.3.0 has no cross-process locking at all, so this remains
+> strictly stronger than the reference.
+
+This supersedes the guarantee wording of the round-2 and round-3 sections for
+renames during an open. The changelog says the same in one sentence. (Round 5:
+this boundary is superseded; it now covers the whole ownership lifetime.)
+
+**Tests.** 141 cases.
+
+- Removed: the away-and-back test above.
+- Reclassified, unchanged, into a "Best-effort detection (outside the
+  contract)" section at the end of the file, with their two helpers. They
+  stay because each pins a check the code keeps and passes deterministically:
+  - the change after the precheck (journal, garbage in place, a valid store
+    moved in);
+  - the lock file replaced while locking;
+  - the database swapped before connecting;
+  - the database replaced while configuring;
+  - an owned database moved in after the lock (both openers);
+  - a rename racing each descriptor open (four moments);
+  - the round-3 claim sequence;
+  - the replacement seen at connect;
+  - the failed create whose name was replaced;
+  - the new cleanup regression.
+- Kept as guarantees, since none renames anything during an open, create or
+  close: the second process and every in-process alias, case and Unicode
+  variants, the concurrent in-process opens, the lock step's registry check, an
+  owned database under another name (renamed while idle, before the second open
+  starts; round 5 moved it to best-effort detection), hard links and symbolic
+  links made before the open, and all mode,
+  umask, fork, exec, SIGKILL, header, journal, durability and residue tests.
+
+**Negative controls.** The scan's mutant was dropped. The mutant for the name
+check right after connecting is back, and the round-3 cleanup mutant was
+replaced by two, one for the re-check before a sidecar unlink and one for the
+re-check before the database unlink. Final matrix: 46 mutants,
+the unmodified modules pass all 141 cases, every mutant fails its designated
+tests, and only the directory-flush mutant survives, by design.
+
+**Results after the repair.** These supersede the earlier DE03a tables.
+
+| Check | macOS 27.0.1, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| new tests under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 141 passed each | 20 of 20 exit 0; 141 passed each |
+| the new and coverage tests under `-X dev -W error` | 0; 242 passed | 0; 242 passed |
+| coverage and acceptance tests | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1495 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (898 files) | not run |
+| strict docs build and rendered links | 0 ("No issues found"); 1039 local links on the six pages, none broken | not run |
+| private mutant matrix | 0; 46 mutants, no designated failure missing | not run |
+| the whole test file on the round-3 sources | exit 1; only the cleanup regression fails (1 failed, 140 passed) | exit 1; the same |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new tests also ran on the locally installed uv Python 3.11.13 (SQLite
+3.49.1) and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 141 passed each,
+in throwaway venvs in scratch built from a snapshot of the working tree; the
+project `.venv` and `uv.lock` were untouched.
+
+Linux ran in a new isolated directory, `~/pipy-de03-linux/de03a-20261021T214058Z/`, with the round-3 sources
+for the negative control. After the run the previous directory
+`~/pipy-de03-linux/de03a-20261021T205626Z/` was deleted; nothing else was
+removed and no process was left.
+
+**Cascade.** `coverage.json` changed again: the DE03a observables drop the
+scan and the removed test, and name the contract boundary and the re-check
+before each unlink. That one string is the only change against the round-3
+tree. The cascade ran last: baseline `ae883f3c…f0ac`, a1 `76d2df95…5e3b`, a2b
+`30d55063…b51f`, b1b `50585529…e757` and b3 `e6332c7e…d96b`. Closure
+verification exits 0 with no stale entry, the key-level diff against HEAD is
+still the three bookkeeping hashes plus the derived parents, and the DE02b3
+binding check exits 0 (no chain-bound source changed).
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r4-logs/` (macOS: `macos-final-*.log`,
+`mutant-matrix-final.log`, `c2-regression-before-fix.log`,
+`tests-on-round3-sources.log`, cascade, closure and binding),
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r4-pycompat/` (Python 3.11 and 3.12) and
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r4-linux/remote-logs/` (Linux).
+
+### DE03a round-5 Codex review repair: the boundary covers the ownership lifetime
+
+Round 5 review, Codex `gpt-6.1-sol` HIGH on tree `4e2f27e5`: **ISSUES**, one
+Critical in the documentation, accepted with a Root decision and repaired by
+Claude Code `claude-opus-5-5` MAX. There is no product code change, only
+docstrings, documents and tests; no CI result is claimed.
+
+- **Critical: the storage document promised one owner per store across processes
+  after renames outside an open, create or close, and that fails.** Reproduced
+  by the reviewer: create and checkpoint a store, rename its database while the
+  owner is idle, and open the renamed path in another process. The second owner
+  succeeds and commits while the first connection returns stale rows; renaming
+  only the idle owner's lock file also admits a second owner. The database-inode
+  registry protects only the owning process, and a lock file beside a name
+  cannot hold across a rename of the file or of the lock.
+- **Root decision:** the boundary covers the whole ownership lifetime instead of
+  being enforced.
+
+**Contract boundary.** Now word for word, markup aside, in both module
+docstrings, the harness spec, the storage document, the changelog and here; a
+test checks that:
+
+> **Contract boundary.** The store directory is private to the owning user
+> (owned by that user, mode `0700`; missing directories are created that way,
+> and keeping an existing one private is the caller's part). While any owner
+> holds a store, from the moment an open or create of it starts until its
+> close has completed, renaming, replacing, hard-linking or deleting any store
+> file (the database, its `-wal`, `-shm` and `-journal`, and the lock file),
+> by any actor, is outside the contract. pipy detects some of these cases on a
+> best-effort basis (the identity checks under the lock, after connecting and
+> after configuration; the parking of descriptors that reach a claimed
+> database; the re-check before each unlink of a failed create) but guarantees
+> nothing about them. SQLite's own guidance is the same: do not rename, unlink
+> or replace an open database or its journal. With the store files left in
+> place, the guarantees hold: one owner per store across processes and within
+> the process, owner-only file modes, no descriptor of a store file held by
+> another owner in this process is ever closed by pipy, and invalid input, an
+> `open` of a missing path and a store refused before its lock is taken have
+> no filesystem effect. Pi durable 1.3.0 has no cross-process locking at all,
+> so this remains strictly stronger than the reference.
+
+This supersedes the round-4 boundary and the rename-related guarantee wording of
+the round-2 to round-4 sections, which now carry short round-5 notes. The plan's
+DE03a cell (aliases meet one lock, a second process is refused) stays true with
+the store files left in place.
+
+**Tests.** 142 cases.
+
+- Reclassified: `test_an_owned_database_under_another_name_is_refused_unread`
+  (an owned database renamed while idle) moved into the best-effort section. It
+  shows that the owning process's registry still refuses the renamed database
+  before any descriptor opens it and that the owner's locks survive; across
+  processes nothing holds, as the reviewer showed.
+- New: `test_the_contract_boundary_reads_the_same_everywhere_it_is_stated` takes
+  the boundary from `ownership`'s docstring and requires it word for word
+  (markup, line breaks and indentation aside) in `sqlite_connection.py`, the
+  harness spec, the storage document, this ledger and the changelog.
+- No test was deleted this round, and no other test changed.
+- What the kept guarantee tests prove, with no store file renamed, replaced,
+  hard-linked or deleted while a store is held:
+  - a second process is refused while the owner lives, and after SIGKILL the
+    lock is free again, so ownership is exclusive across processes;
+  - a second open in the owning process through every path alias (the same path,
+    relative, `..`, `.`, a symbolic-link directory) and through a case or
+    Unicode-normalization variant is refused before any descriptor of the store
+    opens; `create` through the alias is refused; an external
+    `locking_mode=EXCLUSIVE` writer stays blocked; and later writes keep every
+    row;
+  - concurrent in-process opens admit exactly one owner, and the refused ones
+    never release its locks; the lock step's own registry check refuses before
+    `flock`;
+  - hard links and symbolic links made while no owner holds the store are
+    refused even unowned;
+  - and the mode, umask, owner-only normalization, fork, exec, SIGKILL recovery,
+    header, journal, durability and residue tests are unchanged.
+
+**Results after the repair.** These supersede the earlier DE03a tables.
+
+| Check | macOS 27.0.1, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| new tests under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 142 passed each | 20 of 20 exit 0; 142 passed each |
+| the new and coverage tests under `-X dev -W error` | 0; 243 passed | 0; 243 passed |
+| coverage and acceptance tests | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1496 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (898 files) | not run |
+| strict docs build and rendered links | 0 ("No issues found"); 1041 local links on the six pages, none broken | not run |
+| leftover processes naming the directory | not applicable | 0 |
+
+The mutant matrix and the Python 3.11 and 3.12 runs were not repeated: no
+product code changed, and the moved test kept its name, so every mutant's
+designated tests are the same.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03a-20261021T221825Z/`. After the run the previous
+directory `~/pipy-de03-linux/de03a-20261021T214058Z/` was deleted; nothing else
+was removed and no process was left.
+
+**Cascade.** `coverage.json` changed again: the DE03a observables name the
+lifetime boundary, move the renamed-while-idle case to best-effort detection and
+add the consistency check. That one string is the only change against the
+round-4 tree. The cascade ran last: baseline `5511ec99…1d57`, a1
+`7a22652a…a2b4`, a2b `bbe41291…45a9`, b1b `051fd6b2…3348` and b3
+`5b08e135…c2e5`. Closure verification exits 0 with no stale entry, the key-level
+diff against HEAD is still the three bookkeeping hashes plus the derived
+parents, and the DE02b3 binding check exits 0 (no chain-bound source changed).
+
+Logs:
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r5-logs/`
+(macOS) and
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r5-linux/remote-logs/`
+(Linux).

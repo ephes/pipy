@@ -421,10 +421,13 @@ cumulative a2 and a parents are delivered. DE02b is split b1a→b1b→b2→b3: t
 landed b1a private guard/lifecycle owner has native tests only (source-only index
 evidence); b1b alone owns the bounded-native `session-guard-b1b-v1` case, its
 actual pinned Node guard oracle; both have landed. b2 is split b2a→b2b: the
-landed b2a private Tx core and raw-base drafts and the in-progress b2b first
-internal Session (line, sync and async commit, publication, close) have native
-tests only (source-only index evidence). DE02b2 waits both, DE02b waits all four children and DE03 requires
-b. No child alone can complete DE02, DE02b or any P row.
+landed b2a private Tx core and raw-base drafts and the landed b2b first internal
+Session (line, sync and async commit, publication, close) have native tests only
+(source-only index evidence), and the landed b3 alone owns the bounded-native
+`session-commit-b3-v1` case, so DE02b and DE02 are delivered. DE03 is split
+a→b→c→d before code; DE03a's ownership and connection tests are native only
+(source-only index evidence), and the paired SQLite oracle belongs to DE03d. No
+child alone can complete DE03 or any P row.
 
 
 ## Mandatory reference CI and selective artifacts

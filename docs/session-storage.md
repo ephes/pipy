@@ -699,6 +699,129 @@ The sync recipes use `--ignore-existing` so one machine does not overwrite anoth
 
 Because session data can contain sensitive project context, use a sync backend that matches the privacy level of the data. For cloud sync, prefer encryption before upload.
 
+## Durable SQLite store (internal)
+
+> Internal groundwork of the [durable execution campaign](specs/2026-10-19-durable-execution-plan.md)
+> (slice DE03a): not exported, not used by any product path, and separate from
+> the workflow archive above. A durable store never syncs through the archive
+> recipes.
+
+A durable store is one SQLite database file that a single process owns from
+opening until it closes. These rules describe the files on disk.
+
+| File | Purpose | Lifetime |
+| --- | --- | --- |
+| `<name>` | SQLite database in WAL mode | until the user deletes it |
+| `<name>-wal`, `<name>-shm` | SQLite write-ahead log and its index | while open; a clean close removes them, a crashed owner leaves them for the next open to recover |
+| `<name>-journal` | SQLite rollback journal | transient |
+| `<name>.lock` | owner lock | never deleted |
+
+**Create and open.** `create` makes the database, and any missing parent
+directories, and refuses an existing database or a leftover `-wal`, `-shm` or
+`-journal` (SQLite would silently delete stale sidecars next to a new empty
+database). `open` reads the 100-byte database header itself before SQLite sees
+the file: anything but an SQLite database in WAL mode is refused, and so is an
+existing `-journal`, the trace of a crashed rollback-journal writer or of an
+interrupted switch to WAL that SQLite would otherwise roll back into the
+database on its first read. A refused file keeps its bytes and mode and gets no
+lock file. A database renamed or replaced while it is being opened is refused
+where the change is seen, even when the replacement is a valid store; this is
+best-effort detection (see the contract boundary below). Invalid input, and an
+`open` of a missing path, change nothing on disk. A failed `create`, including
+one whose new directory entry cannot be flushed, removes the database it made,
+as long as its name still names it; the lock file and created directories stay,
+and `create` can simply be retried. A database name cannot end in `.lock`,
+`-wal`, `-shm` or `-journal`, so another store's sidecar is never opened as a
+database.
+
+**Permissions.** Directories created for a store are `0700`. The database, its
+SQLite sidecars and the lock file are `0600` whatever the umask; SQLite gives
+its sidecars the database's mode. An existing file with group or other bits is
+set to `0600` when it is a regular file owned by the user, readable and
+writable by it and with a single link. Symbolic links, hard links, other users'
+files and files the owner cannot read and write are refused. Existing parent
+directories keep their permissions, so keep a store in a private directory.
+
+**Ownership.** The owner holds an exclusive, non-blocking `flock` on
+`<name>.lock` until it closes. A second owner, in another process or in the same
+process through any path, is refused at once; nothing waits and nothing is
+stolen by age. The kernel releases the lock when the owner exits or is killed.
+The lock file holds diagnostic JSON (process ID, acquisition time, pipy
+version) that only appears in error messages and never decides ownership. The
+lock is not taken on the database itself: on macOS that makes SQLite report
+"database is locked". A refused second open never opens the owned database,
+because closing any descriptor of it would release the owner's SQLite locks;
+for the same reason, do not open an owned store with another SQLite connection
+from the owning process.
+
+**Aliases.** The directory is resolved with `realpath`, so symbolic-link and
+relative directories and `..` reach the same lock. On case- or
+normalization-insensitive filesystems (APFS by default) case and Unicode
+variants of the name reach the same lock file. The database name itself must
+not be a symbolic link, and a database, sidecar or lock with a second hard link
+is refused, because its other names would carry different lock and journal
+names. Bind mounts of a single file, and deleting the lock file or hard-linking
+the database while it is open, are outside this contract.
+
+**Contract boundary.** The store directory is private to the owning user (owned
+by that user, mode `0700`; missing directories are created that way, and keeping
+an existing one private is the caller's part). While any owner holds a store,
+from the moment an open or create of it starts until its close has completed,
+renaming, replacing, hard-linking or deleting any store file (the database, its
+`-wal`, `-shm` and `-journal`, and the lock file), by any actor, is outside the
+contract. pipy detects some of these cases on a best-effort basis (the identity
+checks under the lock, after connecting and after configuration; the parking of
+descriptors that reach a claimed database; the re-check before each unlink of a
+failed create) but guarantees nothing about them. SQLite's own guidance is the
+same: do not rename, unlink or replace an open database or its journal. With the
+store files left in place, the guarantees hold: one owner per store across
+processes and within the process, owner-only file modes, no descriptor of a
+store file held by another owner in this process is ever closed by pipy, and
+invalid input, an `open` of a missing path and a store refused before its lock
+is taken have no filesystem effect. Pi durable 1.3.0 has no cross-process
+locking at all, so this remains strictly stronger than the reference.
+
+**Processes and fork.** Every descriptor is close-on-exec. A child forked from
+an owner closes its copy of the lock and cannot use the store. It also never
+closes the inherited SQLite connection, not even at interpreter exit: closing it
+after the owner's clean close would delete a later owner's write-ahead log by
+name and lose committed transactions. A child forked by native code that skips
+Python's fork hooks keeps a lock copy until it exits or executes another
+program; the owner's close still releases the lock.
+
+**Unsupported filesystems.** Shared and network filesystems are refused before
+any effect. On macOS the directory must be on a local APFS or HFS+ volume. On
+Linux the directory's own mount must be ext2, ext3, ext4, XFS, Btrfs, F2FS,
+tmpfs, ZFS, bcachefs, JFS, ReiserFS or NILFS2; NFS, SMB/CIFS, FUSE, 9p,
+virtiofs, overlayfs, FAT, exFAT and unknown types are refused.
+
+**Durability.** The store uses `synchronous=FULL`, plus `fullfsync` and
+`checkpoint_fullfsync` on macOS, so a commit survives power loss when the
+device honours flushes; new directory entries are flushed the same way. Pi's
+`NORMAL`, where the newest commit may be lost on power or host failure, stays
+available for parity and benchmark runs. Every other setting is explicit and
+read back on open: WAL with a 1000-page automatic checkpoint, a 5 second busy
+timeout, `temp_store=MEMORY` (no temporary on-disk copies of rows),
+`trusted_schema=OFF` and `secure_delete=ON`. Close runs a TRUNCATE checkpoint,
+then closes the connection, then releases the lock, each step even when the
+previous one failed. SQLite 3.37 or newer in serialized threading mode is
+required.
+
+**Deleted content.** `secure_delete=ON` is set on every platform (Ubuntu's
+SQLite enables it by default, the SQLite bundled with the macOS development
+Python does not), so SQLite overwrites deleted rows and freed pages with zeros.
+It does not reach older copies. In WAL mode the zeroed pages reach the database
+file only at a checkpoint, so until then the file can still hold the earlier
+page images; write-ahead-log frames written before a deletion keep them until a
+checkpoint truncates the log. Every clean close runs that checkpoint; a crashed
+owner's log keeps them until a later one. Blocks that the filesystem freed when
+a file was truncated or removed are outside SQLite's control.
+
+**Backup and deletion.** Back up a closed store (the database plus any `-wal`)
+or use SQLite's backup API. To delete a store, remove the database and its
+`-wal`, `-shm` and `-journal`; remove the lock file only while no process owns
+the store.
+
 ## Future Direction
 
 The current implementation stays file-based. Finalized JSONL and Markdown files

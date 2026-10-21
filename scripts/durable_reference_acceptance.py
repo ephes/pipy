@@ -66,6 +66,10 @@ CHILDREN = {
     "DE02b2a",
     "DE02b2b",
     "DE02b3",
+    "DE03a",
+    "DE03b",
+    "DE03c",
+    "DE03d",
 }
 ALL_IDS = (
     {f"DE{i:02}" for i in range(46)} | {f"P{i:02}" for i in range(1, 44)} | CHILDREN
@@ -174,7 +178,7 @@ def plan_rows(root: Path, c: Any) -> tuple[dict[str, list[str]], dict[str, int]]
     locations: dict[str, int] = {}
     for number, line in enumerate((root / PLAN).read_text().splitlines(), 1):
         if not re.match(
-            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?)?|P\d\d) ", line
+            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|[cd])?|P\d\d) ", line
         ):
             continue
         cells = [v.strip() for v in line.strip().strip("|").split("|")]
@@ -204,7 +208,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for line in text.splitlines():
         if not re.match(
-            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?)?|P\d\d) \|", line
+            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|[cd])?|P\d\d) \|", line
         ):
             continue
         cells = [v.strip() for v in line.strip().strip("|").split("|")]
@@ -231,6 +235,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE02b", ["DE02b1a", "DE02b1b", "DE02b2", "DE02b3"]),
         ("DE02a", ["DE02a1", "DE02a2"]),
         ("DE02", ["DE02a", "DE02b"]),
+        ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
         states = {statuses[key] for key in children}
@@ -277,6 +282,11 @@ DE_EVIDENCE = {
     "DE02b2a": "de02b1b-delivery-and-de02b2a-admission",
     "DE02b2b": "de02b2a-delivery-and-de02b2b-admission",
     "DE02b3": "de02b2b-delivery-and-de02b3-admission",
+    "DE03": "de02b3-delivery-and-de03-split",
+    "DE03a": "de02b3-delivery-and-de03-split",
+    "DE03b": "de02b3-delivery-and-de03-split",
+    "DE03c": "de02b3-delivery-and-de03-split",
+    "DE03d": "de02b3-delivery-and-de03-split",
 }
 
 

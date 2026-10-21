@@ -143,11 +143,17 @@ commit listeners run first and a throw fails the Session while the durable
 commit still resolves; host commit and close listeners are contained and
 reported. Close seals the line, runs close listeners once, and seals the guard
 and closes Storage only once accepted work has drained; a failure closes Storage
-only after the line holder leaves. DE02b3 (in progress) is the final cumulative
-gate: the [Session commit comparison](durable-reference.md#session-commit-comparison-de02b3)
+only after the line holder leaves. DE02b3 (landed `d2e62390`) is the final
+cumulative gate: the [Session commit comparison](durable-reference.md#session-commit-comparison-de02b3)
 runs closed recipes against the pinned Pi `SessionImpl` and this Session in both
 modes, with a closed map of every original DE02/DE02b cell to paired scenarios or
-native tests. DE02 waits a1+a2+b; DE03 waits b.
+native tests, so DE02b and DE02 are delivered. DE03 is split a→b→c→d before code.
+DE03a (in progress) adds the private `native/durable/ownership.py` (one owner per
+canonical store path through a never-deleted lock sidecar, owner-only files,
+shared-filesystem refusal and fork safety) and `native/durable/sqlite_connection.py`
+(a minimal verified connection lifecycle); the on-disk contract is in
+[Durable SQLite store](session-storage.md#durable-sqlite-store-internal). Schema
+(DE03b), Storage semantics (DE03c) and the paired Pi oracle (DE03d) follow.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 
@@ -262,6 +268,90 @@ Python spellings of the first Session (DE02b2b), with no Pi analogue:
 - Waits. `aclose()` and `await_closed()` take no cancel view: cancelling the
   awaiting task gives the wait up and, like a cancelled or timed-out `close()`,
   never undoes the seal, the drain or the Storage close.
+
+Python spellings of the durable SQLite ownership (DE03a). Pi durable has no path
+lock, file modes or filesystem checks ("One process owns a storage at a time;
+there is no cross-process locking"), so these rules are pipy's own:
+
+- One owner per canonical path. `open_owned_database(path, mode=..., durability=...)`
+  admits an exact `str` path only: a `PurePosixPath` can carry a `str` subclass
+  whose hooks run while it is converted, so callers convert paths themselves.
+  The owner holds a non-blocking exclusive `flock` on the never-deleted
+  `<db>.lock` from opening until it closes. A second owner in another process,
+  or in this process through any alias, is refused at once
+  (`StorageOwnershipError`); an in-process registry of lock inodes and
+  claimed database inodes refuses it before `flock` is asked, and before any
+  descriptor opens the owned database. Lock contents are diagnostics only.
+- Explicit `create` and `open`, where Pi opens or creates and runs `mkdir -p`
+  without modes. `create` refuses an existing database or stale SQLite sidecar
+  and removes the database it made if a later step fails, including the flush
+  of its directory entry. `open` checks the database header itself and refuses
+  anything but a WAL database, and any rollback journal, before SQLite reads
+  the file, so a refusal never lets SQLite roll a hot journal back. Refused
+  input, a refused file or a missing path has no filesystem effect.
+- Owner-only files; links, other users' files and shared filesystems are
+  refused, as the [storage document](session-storage.md#durable-sqlite-store-internal)
+  describes. Durability `full` (synchronous FULL, plus `fullfsync` on macOS) is
+  the default; `normal` is Pi's class, for parity and benchmark runs.
+- `secure_delete=ON` on every platform, read back like every other setting
+  (Root decision; Ubuntu's SQLite enables it by default, the macOS development
+  build does not), so deleted rows and freed pages are zeroed. In WAL mode the
+  database file holds the earlier page images until a checkpoint copies the
+  zeroed pages in, and write-ahead-log frames written before a deletion keep
+  them until a checkpoint truncates the log, as every clean close does.
+- Close order: Pi's TRUNCATE checkpoint, then the connection close, then the
+  lock release, each in `finally`; a repeated close raises the first close's
+  error again. Users of the raw connection (the DE03c Storage) serialize with
+  `close()`.
+- POSIX record locks, an invariant for every DE03 slice (DE03b's identity gate
+  reads header bytes too): closing any descriptor of a file releases every
+  POSIX record lock the process holds on it, SQLite's included, whichever
+  descriptor took them. So pipy never opens a descriptor of a store file
+  another owner in this process holds:
+  - A second open whose lock inode or database inode (by `lstat`) is owned in
+    this process is refused before any descriptor on a store file is opened.
+  - Every owner claims its database inode in the registry before it connects,
+    and a claim never moves to another inode. A created database is a new
+    `O_EXCL` inode, claimed before it is written.
+  - As belt and braces, every descriptor on an existing store file (database,
+    sidecar or lock file) is opened under the registry lock and identified by
+    `fstat` first. One that reached a database another owner here claimed is
+    parked on that owner and closed only in the registry lock hold that drops
+    that claim, after the owner's connection is closed.
+  - Closing another descriptor of the lock file never releases its `flock`,
+    which belongs to one open file description (natively on the allowed local
+    filesystems; Linux emulates `flock` with POSIX locks on NFS, which is
+    refused).
+  - A second SQLite connection to an owned store from the owning process is
+    outside the contract.
+- Contract boundary. The store directory is private to the owning user (owned by
+  that user, mode `0700`; missing directories are created that way, and keeping
+  an existing one private is the caller's part). While any owner holds a store,
+  from the moment an open or create of it starts until its close has completed,
+  renaming, replacing, hard-linking or deleting any store file (the database,
+  its `-wal`, `-shm` and `-journal`, and the lock file), by any actor, is
+  outside the contract. pipy detects some of these cases on a best-effort basis
+  (the identity checks under the lock, after connecting and after configuration;
+  the parking of descriptors that reach a claimed database; the re-check before
+  each unlink of a failed create) but guarantees nothing about them. SQLite's
+  own guidance is the same: do not rename, unlink or replace an open database or
+  its journal. With the store files left in place, the guarantees hold: one
+  owner per store across processes and within the process, owner-only file
+  modes, no descriptor of a store file held by another owner in this process is
+  ever closed by pipy, and invalid input, an `open` of a missing path and a
+  store refused before its lock is taken have no filesystem effect. Pi durable
+  1.3.0 has no cross-process locking at all, so this remains strictly stronger
+  than the reference. (Review rounds 2 to 5: the round-2 finding, a header read
+  that opened the owned database before the registry check, needed no rename and
+  is fixed; the later findings needed store files renamed or replaced while a
+  store was held, which this boundary leaves to best-effort detection, so the
+  round-3 descriptor scan was removed.)
+- Fork. The registry lock is held across `fork()`. The child closes its copy of
+  every lock (never `LOCK_UN`), every inherited owner raises
+  `StorageForkedError` there (its `close()` does nothing), and inherited
+  connections are pinned so the child never finalizes them: finalizing one
+  after the owner's clean close deletes a later owner's WAL by name, losing its
+  committed transactions (probed on macOS and Linux).
 
 The bounded Storage port admits document points by exact built-in type before
 comparison/coercion/hash/repr. Foreign objects and str/int subclasses cannot run
