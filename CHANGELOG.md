@@ -8,6 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Extend internal durable MemoryStorage with current raw-base document create,
+  base replacement/version transitions, retirement, detached materialization and
+  exact address/scope scans inside the same table candidate, global ID/sequence
+  authority and single adoption. Mixed late failures roll back all tables,
+  documents, indices and counters. Document cursors preserve Pi's ascending,
+  order-ignoring behavior. The cumulative pinned comparison retains table proofs
+  and adds actual document operations,14 valid semantic mutants and live native
+  mixed rollback/ownership/concurrency tests. Delta/copy/numeric history/fork
+  materialization and Session integration remain later slices; no product default
+  or parity requirement is closed. Exact built-in document-point admission rejects
+  foreign objects/subclasses before comparisons or user hooks under the authority.
+
 - Add an internal atomic in-memory durable table engine with detached records,
   global IDs/commit sequences, replacement indices, ancestry-aware entry scans,
   marker lookup, source-lazy descending/point/head reads, minimum-cap stops,

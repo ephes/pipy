@@ -102,7 +102,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a landed; DE02a2b is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -129,7 +129,9 @@ with every uploaded artifact entry audited.
 DE02 is split before product edits:
 DE02a1 values/records/Storage Protocol landed at `b1aa0562`, actual Opus5.5 HIGH
 CLEAN0 and audited [CI39387254837](https://github.com/ephes/pipy/actions/runs/39387254837)
-success11/11. DE02a2a owns internal atomic tables and the bounded actual Node/Python
+success11/11. DE02a2a landed at `85390e2b`, actual Opus5.5 HIGH CLEAN and audited
+[CI39408774643](https://github.com/ephes/pipy/actions/runs/39408774643) success11/11.
+It owns internal atomic tables and the bounded actual Node/Python
 table comparison; DE02a2b must add raw-base documents inside the same authority/
 candidate and complete cumulative Storage acceptance. DE02a2 waits both; DE02a
 waits a1+a2; DE02b Session/Tx/guard/adoption/publication/close waits a2b; DE03 waits b. No cumulative acceptance or P row is removed.

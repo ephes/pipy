@@ -1,7 +1,7 @@
-"""DE02a2a actual internal table comparison. run/compare:0 equal,1 mismatch,2 invalid.
+"""DE02a2b actual bounded tables/current-base comparison. run/compare:0 equal,1 mismatch,2 invalid.
 
-Exported Node conformance is separate from seven paired scripted scenarios.
-No document capability, Session, product factory or full Storage parity claim.
+Exported Node conformance is separate from the paired scripted SCENARIOS below.
+Current raw-base only; no delta/copy/history, Session, product or full parity claim.
 """
 
 from __future__ import annotations
@@ -34,16 +34,19 @@ from pipy_harness.native.durable.records import (  # noqa: E402
 from pipy_harness.native.durable.storage import (  # noqa: E402
     ConversationQuery,
     Cursor,
+    DocumentAddress,
+    DocumentQuery,
     EntryLookup,
     EntryQuery,
     Page,
     StorageRequestError,
     StorageWrite,
+    StoredDocument,
     SubmissionQuery,
     TaskQuery,
 )
 
-PHASE = "memory-tables-a2a-v1"
+PHASE = "memory-current-base-a2b-v1"
 INPUT = ROOT / "tests/fixtures/durable/storage-memory-v1.input.json"
 MANIFEST = ROOT / "tests/fixtures/durable/storage-memory-v1.manifest.json"
 DRIVER = ROOT / "scripts/durable_reference/cases/storage-memory.mts"
@@ -83,6 +86,10 @@ EXPORTED = (
     "stores passive write submissions without input-only lifecycle states",
     "keeps one global record ID namespace and rejects exhausted ID minting",
     "rejects every operation after close",
+    "keeps indexed string identities lossless",
+    "indexes logical addresses and exact-scope scans independently",
+    "keeps document lifecycle failures atomic and gives create-plus-retire an empty lifetime",
+    "rolls back record tables and secondary indexes when a document command fails",
 )
 SCENARIOS = (
     "identity",
@@ -92,6 +99,10 @@ SCENARIOS = (
     "utf16",
     "ownership",
     "exhaustion",
+    "documents",
+    "document-atomic",
+    "document-utf16",
+    "document-ownership",
 )
 OPERATIONS = {
     "mint",
@@ -108,8 +119,27 @@ OPERATIONS = {
     "scan_submissions",
     "ownership",
     "close",
+    "document",
+    "find_document",
+    "scan_documents",
+    "document_ownership",
 }
-MUTANTS = ("field", "id", "seq", "request-index", "status-index", "cursor", "alias")
+MUTANTS = (
+    "field",
+    "id",
+    "seq",
+    "request-index",
+    "status-index",
+    "cursor",
+    "alias",
+    "document-field",
+    "document-id",
+    "document-seq",
+    "document-address",
+    "document-scope-index",
+    "document-cursor",
+    "document-alias",
+)
 require = v.require
 load = v.load
 dump = v.dump
@@ -180,7 +210,18 @@ def _recipe_args(op: str, a: Any) -> None:
         {"writes"}
         if op == "commit"
         else {"id"}
-        if op in {"conversation", "entry", "task", "submission", "ownership"}
+        if op
+        in {
+            "conversation",
+            "entry",
+            "task",
+            "submission",
+            "ownership",
+            "document",
+            "document_ownership",
+        }
+        else {"address"}
+        if op == "find_document"
         else {"conversation_id", "request_id"}
         if op == "request"
         else {"conversation_id"}
@@ -190,7 +231,9 @@ def _recipe_args(op: str, a: Any) -> None:
         else set()
     )
     optional = (
-        {"conversation_id"}
+        {"at", "python_pair_fields"}
+        if op in {"document", "find_document"}
+        else {"conversation_id"}
         if op == "entry"
         else {"bound"}
         if op == "head"
@@ -211,6 +254,7 @@ def _recipe_args(op: str, a: Any) -> None:
     if op == "commit":
         for write in o.contract.array(a["writes"], "scripted writes"):
             StorageWrite(write)
+    _document_arguments(op, a)
     if op == "request":
         require(type(a["request_id"]) is str, "Malformed request key")
     if op.startswith("scan_"):
@@ -220,6 +264,7 @@ def _recipe_args(op: str, a: Any) -> None:
             "scan_entries": EntryQuery,
             "scan_tasks": TaskQuery,
             "scan_submissions": SubmissionQuery,
+            "scan_documents": DocumentQuery,
         }[op]
         query(a["query"])
     if "cursor" in a:
@@ -240,12 +285,27 @@ def _recipe_args(op: str, a: Any) -> None:
         a.get("python_pair_fields", []), "Python spelling fields"
     ):
         require(
-            path in [["query", "kind"], ["request_id"]],
+            path
+            in [
+                ["query", "kind"],
+                ["request_id"],
+                ["address", "kind"],
+                ["address", "key"],
+            ],
             "Unknown Python spelling boundary",
         )
 
 
+def _document_arguments(op: str, a: Any) -> None:
+    if op == "find_document":
+        DocumentAddress(a["address"])
+    if "at" in a:
+        require(a["at"] == "current", "Only current document reads are supported")
+
+
 def _dto(value: Any) -> Any:
+    if type(value) is StoredDocument:
+        return value.to_tree()
     if isinstance(value, Record):
         return value.to_tree()
     if type(value) is EntryLookup:
@@ -265,10 +325,16 @@ def arguments(step: Any, cache: dict[str, Any], spellings: list[Any]) -> Any:
     a = v.decode(step["args"])
     for path in a.pop("python_pair_fields", []):
         require(
-            path in [["query", "kind"], ["request_id"]],
+            path
+            in [
+                ["query", "kind"],
+                ["request_id"],
+                ["address", "kind"],
+                ["address", "key"],
+            ],
             "Unknown Python spelling boundary",
         )
-        target = a["query"] if len(path) == 2 else a
+        target = a[path[0]] if len(path) == 2 else a
         key = path[-1]
         text = target[key]
         require(type(text) is str, "Expected string spelling")
@@ -330,9 +396,46 @@ def _ownership(store: MemoryStorage, a: Any) -> Any:
     }
 
 
+def _document_ownership(store: MemoryStorage, a: Any) -> Any:
+    shared = {"items": [None, -0.0, 2**60, "\ud800"]}
+    writes = [
+        {
+            "type": "document.create",
+            "record": {"id": a["id"], "kind": "owned", "scope": {"kind": "session"}},
+            "content": {
+                "kind": "base",
+                "version": 1,
+                "value": {"left": shared, "right": shared},
+            },
+        }
+    ]
+    before = v.encode(writes)
+    seq = store.commit(tuple(StorageWrite(w) for w in writes))
+    shared["items"].append("caller")
+    materialized = store.document(a["id"])
+    assert materialized is not None
+    first: Any = materialized.to_tree()
+    source_detached = len(first["value"]["left"]["items"]) == 4
+    first["value"]["left"]["items"].append("read")
+    placements_independent = len(first["value"]["right"]["items"]) == 4
+    reread = store.document(a["id"])
+    assert reread is not None
+    again: Any = reread.to_tree()
+    return {
+        "calls": [
+            {"op": "commit", "args": before, "result": v.encode(seq)},
+            {"op": "document", "id": a["id"], "mutated": v.encode(first)},
+            {"op": "document", "id": a["id"], "result": v.encode(again)},
+        ],
+        "source_detached": source_detached,
+        "placements_independent": placements_independent,
+        "read_detached": len(again["value"]["left"]["items"]) == 4,
+    }
+
+
 def invoke(store: MemoryStorage, op: str, a: Any) -> Any:
-    if op == "mint":
-        return store.mint_id()
+    if op in {"mint", "close"}:
+        return {"mint": store.mint_id, "close": store.close}[op]()
     if op == "commit":
         return store.commit(tuple(StorageWrite(w) for w in a["writes"]))
     if op in {"conversation", "task", "submission"}:
@@ -350,20 +453,29 @@ def invoke(store: MemoryStorage, op: str, a: Any) -> Any:
         )
     if op == "head":
         return store.find_latest_head_marker(a["conversation_id"], a.get("bound"))
-    if op == "ownership":
-        return _ownership(store, a)
-    if op == "close":
-        return store.close()
+    if op in {"ownership", "document_ownership"}:
+        return {"ownership": _ownership, "document_ownership": _document_ownership}[op](
+            store, a
+        )
+    if op in {"document", "find_document"}:
+        return _document_invoke(store, op, a)
     query = {
         "scan_conversations": ConversationQuery,
         "scan_entries": EntryQuery,
         "scan_tasks": TaskQuery,
         "scan_submissions": SubmissionQuery,
+        "scan_documents": DocumentQuery,
     }.get(op)
     if query is None:
         raise o.EvidenceError("Unknown table operation")
     cursor = Cursor(**_cursor(a["cursor"])) if "cursor" in a else None
     return getattr(store, op)(query(a["query"]), a["limit"], cursor)
+
+
+def _document_invoke(store: MemoryStorage, op: str, a: Any) -> Any:
+    if op == "document":
+        return store.document(a["id"], a.get("at", "current"))
+    return store.find_document(DocumentAddress(a["address"]), a.get("at", "current"))
 
 
 def native(value: Any) -> tuple[Any, Any]:
@@ -430,6 +542,8 @@ def _result(op: str, value: Any) -> None:
                 "entry",
                 "head",
                 "close",
+                "document",
+                "find_document",
             },
             "Unexpected undefined result",
         )
@@ -444,6 +558,10 @@ def _result(op: str, value: Any) -> None:
         shape(tree, {"entry", "commitSeq"}, "observed entry lookup")
         EntryRecord(tree["entry"])
         safe_integer(tree["commitSeq"])
+    elif op == "document":
+        StoredDocument(tree)
+    elif op == "find_document":
+        RECORD_TYPES["document"](tree)
     elif op.startswith("scan_"):
         _page_value(
             tree,
@@ -452,9 +570,10 @@ def _result(op: str, value: Any) -> None:
                 "scan_entries": "entry",
                 "scan_tasks": "task",
                 "scan_submissions": "submission",
+                "scan_documents": "document",
             }[op],
         )
-    elif op == "ownership":
+    elif op in {"ownership", "document_ownership"}:
         shape(
             tree,
             {"calls", "source_detached", "placements_independent", "read_detached"},
@@ -508,7 +627,15 @@ def trace(value: Any) -> Any:
             else:
                 shape(outcome, {"status", "error"}, "rejected result")
                 require(outcome["status"] == "rejected", "Unknown result status")
-                error = shape(outcome["error"], {"name", "message"}, "rejected error")
+                error = outcome["error"]
+                require(
+                    type(error) is dict
+                    and set(error)
+                    in ({"name", "message"}, {"name", "message", "cause"}),
+                    "Malformed rejected error",
+                )
+                if "cause" in error:
+                    _raw_tag(error["cause"])
                 require(
                     type(error["name"]) is str
                     and error["name"]
@@ -593,6 +720,13 @@ def _mutation(raw: Any, name: str) -> Any:
         "status-index": ("replacement", "running"),
         "cursor": ("cursor", "desc"),
         "alias": ("ownership", "owned"),
+        "document-field": ("documents", "record"),
+        "document-id": ("documents", "materialized"),
+        "document-seq": ("documents", "materialized"),
+        "document-address": ("documents", "record"),
+        "document-scope-index": ("documents", "page"),
+        "document-cursor": ("documents", "page"),
+        "document-alias": ("document-ownership", "owned"),
     }[name]
     rows = [s for s in value["scenarios"] if s["id"] == scenario]
     require(len(rows) == 1, "Missing mutation scenario")
@@ -614,11 +748,31 @@ def _mutation(raw: Any, name: str) -> Any:
         tree["items"][0]["state"] = {"status": "pending", "checkpoint": None}
     elif name == "cursor":
         tree["next"]["after"] += 1
+    elif name.startswith("document-"):
+        _document_mutation(name, tree)
     else:
         tree["placements_independent"] = False
     outcome["value"] = v.encode(tree)
     trace(value)
     return value
+
+
+def _document_mutation(name: str, tree: Any) -> None:
+    if name == "document-field":
+        require("key" in tree, "Missing document optional mutation field")
+        del tree["key"]
+    elif name == "document-id":
+        tree["record"]["id"] += 100
+    elif name == "document-seq":
+        tree["record"]["createdAt"] += 1
+    elif name == "document-address":
+        tree["id"] += 100
+    elif name == "document-scope-index":
+        tree["items"][0]["scope"] = {"kind": "task", "taskId": 1}
+    elif name == "document-cursor":
+        tree["next"]["after"] += 1
+    else:
+        tree["placements_independent"] = False
 
 
 def execute_mutants(output: Path, raw: Any, env: dict[str, str]) -> Any:
@@ -915,7 +1069,13 @@ def execute(parent: Path, output: Path) -> int:
             "scenarios": len(SCENARIOS),
             "exported_node_cases": len(EXPORTED),
             "product_integration": False,
-            "document_capability": False,
+            "document_capability": "current-raw-base-only",
+            "unsupported_document_capabilities": [
+                "delta",
+                "copy",
+                "numeric-history",
+                "fork-materialization",
+            ],
             "full_storage_parity": False,
         },
     )

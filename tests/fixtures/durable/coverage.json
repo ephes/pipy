@@ -3530,7 +3530,7 @@
         "observables": "Internal table engine only: actual pinned Node17 exported cases separate from7 paired scripted scenarios/70 operations, seven valid mutants and native authority/ownership/barrier and lazy-read/min-cap tests. No raw-base documents, Session, product default or full Storage parity; a2b remains mandatory. Recorded argument packs use the existing op-specific typed shape guard; malformed is invalid2, valid wrong values remain mismatch1. Native48-row limit0/-1/-2/+1 regressions preserve pinned outcomes; distinct raw Node/Python errors are retained, not paired error equality."
       },
       "future": "Real current Node/Python table operations, two fresh pinned paired chains, field/ID/Seq/request/status/cursor/alias mutants and failure/barrier proofs. No document support, product factory/default or full Storage claim; a2b remains mandatory.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02a1-delivery-and-de02a2-pre-code-split",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -3556,16 +3556,18 @@
         "Supported late-document failure rolls back tables/indexes/documents/counters; mixed concurrency/ownership plus two fresh cumulative native storage comparisons and document/index mutants. Original a2 requirements retained; a2 and a wait both children, b waits a2b, DE03 waits b; all P OPEN."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "memory-current-base-a2b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "Pre-code approved child, no runtime proof yet."
+        "observables": "Internal cumulative tables/current raw-base: actual pinned Node21 exported cases/326 calls separate from11 paired recipes/128 operations,14 valid field/ID/Seq/table/document-index/cursor/alias mutants; native one-authority late mixed rollback/allocation/ownership/barriers and source page boundaries. No delta/copy/numeric-history/fork materialization, Session/product/default or full parity claim; independent delivery pending. Exact built-in point admission prevents foreign hooks/reentry under authority; 44 ingress/closed/control/reentry/version regressions preserve current-only and raw-version boundaries."
       },
       "future": "Supported late-document failure rolls back tables/indexes/documents/counters; mixed concurrency/ownership plus two fresh cumulative native storage comparisons and document/index mutants. Original a2 requirements retained; a2 and a wait both children, b waits a2b, DE03 waits b; all P OPEN.",
-      "status": "OPEN",
+      "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a1-delivery-and-de02a2-pre-code-split",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2a-delivery-and-de02a2b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {

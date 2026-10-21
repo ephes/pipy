@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a in progress; all parity rows OPEN**,
+Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a landed; DE02a2b in progress; all parity rows OPEN**,
 2026-10-20. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -146,8 +146,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE02a | Owned records/values, Storage port and detached atomic Memory | IN_PROGRESS | Cumulative a1+a2; no parent or P completion |
 | DE02a1 | Owned finite JSON, versioned records and Storage Protocol/DTOs | LANDED | b1aa0562; actual Opus5.5 HIGH CLEAN; CI39387254837 success11/11 and artifact audited; historical ISSUES retained |
 | DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | IN_PROGRESS | Cumulative a2a+a2b; original backend acceptance retained |
-| DE02a2a | Internal atomic table Memory and current native/reference oracle | IN_PROGRESS | No product/default or document capability; independent gates pending |
-| DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | OPEN | Requires a2a; a2 incomplete until this child lands |
+| DE02a2a | Internal atomic table Memory and current native/reference oracle | LANDED | 85390e2b; actual Opus5.5 HIGH CLEAN; CI39408774643 success11/11, complete logs/artifact audited; review history preserved |
+| DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | IN_PROGRESS | a2a delivered; same-authority raw-base implementation authorized; independent gates pending |
 | DE02b | Session/Tx admission, seal/guard/adopt/publication/close | OPEN | Requires a2b; all original Session/draft/failure obligations retained |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
@@ -1866,3 +1866,259 @@ reset only its exact private caller; they are not new bootstraps or pass claims.
 Full stdout/stderr/child-command logs are preserved. The final rendered-docs/
 local-link audit, runtime-after409-byte map and18-SHA freeze complete this local
 handoff; independent scoped review/delivery remain root-owned and pending.
+
+
+## DE02a2a delivery and DE02a2b admission
+
+DE02a2a landed at `85390e2b2c3504902ca1e917ea333aedfecbf1d7`, exact independently
+CLEAN tree `b0b93167fb27199ba6839196f3d39ee07db2b4df`, actual Opus5.5 HIGH.
+[CI39408774643](https://github.com/ephes/pipy/actions/runs/39408774643) attempt1
+succeeded11/11; the coordinator independently audited all153 logs and the actual
+uploaded artifact. Prior FAIL_EARLY findings, first ISSUES/W1/S1/S2 and scoped
+navigation ISSUES retain their historical verdicts; the performance suggestion
+was declined, not fixed. The navigation-only repair preserved all runtime bytes.
+
+Before a2b product edits, the existing a2a→a2b split remains unchanged: a2b adds
+current raw-base documents INSIDE the same authority/private candidate/adoption,
+global IDs/Seq and all cumulative bounded Storage cuts. A2/a wait both delivered
+children; Session/Tx DE02b waits a2b and DE03 waits b. All101 IDs, original
+contract/future text and all43 P OPEN remain. Delta/copy/numeric historical/fork
+materialization remain later DE04/DE27; no product/default/SDK integration follows.
+
+
+## DE02a2b local cumulative raw-base evidence
+
+Local implementation evidence, not a landed verdict or P closure. Private root:
+`/private/tmp/pipy-de02a2b-w0d996ij/`. The initial clean HEAD/tree were exactly
+`85390e2b2c3504902ca1e917ea333aedfecbf1d7` /
+`b0b93167fb27199ba6839196f3d39ee07db2b4df`; all18 owned files were archived before
+edits. Actual a2a delivery/review history and the pre-code a2b admission above are
+retained. The original101 IDs and every preexisting contract/future cell remain;
+a2a is LANDED, a2b IN_PROGRESS, cumulative a2/a IN_PROGRESS, b/DE03 OPEN, all43 P OPEN.
+
+Raw-base document state, exact address pointers and scope indices now live in
+the same `_State`, lock, global IDs/Seq and private commit candidate as tables.
+Per-ID grouping permits create+retire and live base-change+retire in either order;
+duplicate content/retire, unknown/retired IDs and global reuse fail. Full value/
+version replacement, exact record policy fields, empty lifetimes/claimed IDs,
+conditional address-pointer removal, singleton/empty-family and exact scope-kind
+identity follow pinned `memory.ts:606–675,733–858`. Current exact reads never
+follow address replacements. Document cursors ignore order and emit ascending
+continuations. Unsupported delta/copy/numeric historical/fork materialization
+remains an explicit whole-batch/request boundary for DE04/DE27, not fake empties.
+No a1 codec/records/Storage-port source, Session, product factory/default/SDK,
+original six fixtures/eight-adapter closure, hosted CI or collector is changed.
+
+The native late-conflict/allocation regression reaches
+`_validate_document_candidate` after private primary tables, owner/status/request/
+entry indices, actual documents, addresses and scope indices all exist. Its spy
+asserts those candidate fields before the supported final cardinality failure;
+MemoryError is separately injected after successful validation but before the
+single adoption. Both preserve the original authority object, every public
+primary/index/read, global counters and already-minted gap, and permit later
+use. Unsupported preflight alone does not prove this cut. Mixed write/write,
+write/read, write/mint, write/close and failed-writer/waiter tests witness an actual
+blocked acquisition at the same authority using Events/Barrier-style boundaries,
+with release/join cleanup. Static assignment checks the full existing Storage
+Protocol; closed refusal covers all methods and a supported mixed batch.
+
+Permanent native table/document coverage passes119 tests, including all prior
+76 table tests/boundaries with the obsolete document-refusal expectation replaced
+by supported current behavior and retained unsupported/closed refusal. Against
+the original a2a backend,34 selected public new-document regressions fail due to
+actual document refusal (`old-public-doc-regression/`); the broader41-row old
+probe also contains expected absent preparation hooks/barriers and is not claimed
+as41 reached public guards. On the final implementation, five private guard
+mutants fail the intended permanent tests: removed cardinality1F/1P, unconditional
+pointer removal3F/5P, wrong cursor label1F/2P, merged scope-kind1F and raw Python
+string identity1F. Whole logs, not just summaries, are retained.
+
+The separate current phase is `memory-current-base-a2b-v1`; old table-only
+bundles are not accepted as this cumulative phase. It retains all17 exact
+exported Node table cases and all original seven paired recipes/70 operations.
+Four further exact exported Node cases cover indexed strings, logical addresses,
+lifecycle and rollback:21 actual Node cases/326 calls total. Some full exported
+Node cases exercise deferred delta/history APIs; they remain Node-only assertions,
+not a full Python suite claim. Four added **derived paired** document/mixed/
+UTF-16/live-ownership recipes bring the actual paired trace to11 scenarios/128
+operations.14 independent valid field/ID/Seq/table/document-address/scope/cursor/
+alias mutants require actual positiveCLI0 and negativeCLI1. Calls, fields, IDs,
+sequences, missing/null, signed binary64 bits and UTF-16 units are preserved.
+Native spelling witnesses separately construct five literal Python surrogate pairs.
+
+The18-role argument guard covers17 actual recorded roles; only exact submission
+lacks a paired trace operation and has a direct helper guard instead. Malformed
+document ID/address/point/size is public CLI2 with specific diagnostics; valid
+wrong document ID/address/scope arguments remain schema-valid CLI1. New tests
+initially had two inaccurate expected diagnostic strings (2F/5P), corrected to
+the actual precise existing guard messages; no validator was relaxed. The current
+seven diagnostic/mismatch controls pass on all three Python versions.
+
+Current focused Python3.11/3.14/3.15 suites each pass766/0 skips. Ruff/format,
+strict product mypy and combined10-file mypy pass; the actual standalone
+Node26.12.0 codec passes separately with minimal child environment. One expected
+diagnostic literal received formatting while the focused suites were starting;
+its before/after AST is identical (`test-format-identity.json`), and the seven
+relevant controls were rerun on all three versions after formatting. No semantic
+code change followed the final closure. Initial Unicode/helper invocation/input
+construction, path-collision, lint/type/format failures remain explicit local
+history rather than passes; executable verification phases retain full logs.
+
+A separate actual pinned Node/native12-row document scan probe executes fresh
+instances using the identified exploratory parent's pinned snapshot. Empty/
+nonempty/filtered-nomatch ×0/-1/-2/+1 yields five fulfilled/seven rejected rows,
+with exact successful pages/cursors. Raw Node TypeError and native IndexError
+names/messages/stacks stay distinct; all nine resolved original source hashes
+match exact git objects and snapshot bytes. `raw-document-limits-final/matrix.json`
+binds the current product hash and both complete raw results. This is an actual
+retained-snapshot probe, **not another bootstrap** or equal-error-class claim.
+No positivity rule or general error normalization is added.
+
+The earlier exploratory parent acceptance0/41.43s and actual a2b0/15.13s demonstrate
+first runtime progress at their own earlier candidate hashes. The wrapper-label/
+output-directory collision exited2 before execution; the corrected unique output
+is separately logged. Those exploratory artifacts do not substitute for the two
+new final complete baseline→a1→a2b chains required below. Original a2a and earlier
+DE01/a1 failures, local references, independent reviews and delivered CI remain
+immutable history. All substantial source adaptation retains MIT Copyright(c)2025
+Mario Zechner and the unchanged full upstream notice. The writer runs no full or
+independent review; the coordinator owns the definitive full/first a2b Opus gate
+and authorized delivery. No self-verdict is supplied.
+
+
+Final cumulative table/document manifest SHA:
+`2b0952403cadc03c37073970c9d0897af37b35f25637f733217d80112043f67a`.
+Two new private original parents execute the complete pinned six-family/H2/E1/
+workload/four-mutant DE01 acceptance, then actual a1 and cumulative a2b:
+
+| Final a2b chain | Actual exits/times |
+| --- | --- |
+|1 | baseline0/104.21s → a1 0/7.57s → a2b0/16.19s |
+|2 | baseline0/100.65s → a1 0/7.59s → a2b0/16.21s |
+
+`final-pairs.json` binds distinct parent/a1/a2b execution IDs and exact
+acceptance/result/manifest hashes. Each child honestly records no fresh bootstrap
+of its own. `audit-results.json` re-attests complete archive/source/module/lock/
+dependency/DB evidence before and after, verifies21/326 and retained17/255, exact
+old seven recipes and all101 original contract/future cells. The separate final
+raw-document matrix SHA is
+`d6f3e9afd8459485976b208138f253aac4c1bcb68e5937311acf89ce2a8a5ab6`;
+it binds current product SHA
+`22e6d43bdd69962725bddf59986f3b546e124055793ce703bc18ce98fb596ca3`.
+
+`actual-run-document-address/` executes actual pinned Node0 and native code,
+then injects a schema-valid wrong document-address result: public run/main exits1
+and emits hash-bound raw/projected `result.json`/`mismatch-report.json` which can
+be rechecked through compare. `actual-run-invalid/` executes Node0 then a
+malformed native outcome2; `actual-run-missing-runtime/` has real missing-Node2.
+Invalid/prerequisite runs emit no result or mismatch report. These separate
+fault probes reuse new final parent1/reset only its exact private caller, not
+another bootstrap or passing acceptance. `actual-run-proofs.json` verifies these
+boundaries and child cleanup. All complete command/stdout/stderr and child
+metadata remain private under the new root. The final18-file freeze carries
+local docs/rendered-link/static evidence and the caller-authored whole-slice
+review context. Independent full/first a2b Opus5.5 HIGH review, commit/push and
+hosted CI remain coordinator-owned and pending; no writer full or self-pass.
+
+
+## DE02a2b pre-review foreign-point admission repair
+
+The independent gate stopped the first local18-file freeze **before any full or
+Opus review**. Original freeze SHA
+`bc943b721f3e513c372570346b3e8317fb56227dcc78d2c0e9fb7b738f1457c3` and all
+prior local proofs remain immutable. The gate finding is
+`/private/tmp/pipy-de02a2b-gate.039qzxfv/gate-fail-early.json`, SHA
+`f511666d142af37408717292c6ddbaf289cf9f22f1d6a18fc26a8ffc2cad7771`;
+its point-data SHA is
+`0ed5d45fc1abe8f07db45a8737f61275fe952393901b773d7cd7305385fbb064` and executed
+probe SHA `3b60c47438efc2d388c1510a4693da3b4463fa632d7662f966ee84086346a3d7`.
+`_current` compared an unadmitted foreign Python object with `current` while
+holding the Storage authority. Its `__ne__` both forged admission and ran under
+the lock; reentering public mint_id deadlocked. The gate bounded, terminated and
+reaped its own child group. This is invalid Python input and a real authority
+callback defect, not a raw-version or schema-valid Pi Point parity discrepancy.
+
+Before the code repair, Plan/Harness/port reproduction explicitly required exact
+built-in admission before comparison/coercion/hash/repr and prohibited arbitrary
+caller hooks under authority. No original101 contract/future cell changed.
+The only product repair is `_current`: exact builtin-str/current first, otherwise
+existing exact positive-safe integer admission, then declared unsupported numeric
+history. Foreign objects and str/int subclasses reach no hook. No RLock, bypass,
+foreign call outside the lock, new positivity policy or error normalization was
+introduced. Closed refusal still linearizes under the same authority.
+
+The connected ingress audit found that owned DocumentQuery/Address/StorageWrite
+construction already rejects foreign values through OwnedJson before internal
+point/value comparisons. Raw scan query types and cursors have exact type guards;
+those remain intact. No extra a1 file edit is needed. Direct document/find,
+query-point construction and raw scan ingress are all covered, together with
+closed-before-invalid behavior. Existing primitive/finite/UTF-16/ID/Seq, atomic
+candidate and table/page behavior remain required.
+
+New private root: `/private/tmp/pipy-de02a2b-point-qx3o7xg5/`. Forty-four permanent
+cases first produced12 failed/32 passed: ten direct admission cases failed,
+while query ownership/closed/exact controls already held; both real reentry
+children timed out after executing the hook under lock. After repair all44 pass.
+Hooks cover eq/ne/repr/str/hash/int/index, str/int subclasses and an eq-only
+fallback, with counters reset immediately before the public boundary and no
+input representation in errors. Exact-current succeeds and numeric1 remains
+Unsupported. Raw content versions0/-1/1.5/1 remain accepted and retained, separate
+from defineDoc's positive-safe definition policy; the gate independently proved
+that raw/definition distinction before discovering the point bug.
+
+The permanent child regression starts a new own session/group, verifies its PID/
+PGID, fences import readiness separately (10s), then allows the point call with
+an independent2s operation deadline. On failure it terminates/escalates only its
+own group, communicates/waits and records reaped/group-absent evidence; ordinary
+pytest requires no Node or network. On the corrected code both children reject
+without entering any hook and retain next minted ID2. A private exact removed-
+guard mutant reproduces12F/32P, including both real reentry timeouts; all child
+lifecycle artifacts prove cleanup. Earlier before/after and current mutant logs
+remain separate, never reported as passes. No a2b full/review result yet exists.
+
+
+Current repair checks: Python3.11/3.14/3.15 each810 passed/0 skipped, including163
+Storage cases. Ruff/format, strict product5-file and combined10-file mypy pass;
+actual standalone Node26.12.0 codec passes separately. All prior five document
+index/cursor/UTF-16 guard mutants still fail the intended tests at the current
+product hash. `point-child-lifecycle.json` audits14 actual own-child records:
+four bounded deadlock negatives (before and removed-guard), ten hook-free
+positives (after/current three-version suites), all reaped and group-absent.
+No test depends on host Node/network, copied credentials or global state.
+
+Two entirely new complete final chains bind current closure/manifest
+`bef8cecaa5059344ee38f92212237cc247b59d323ec924a38c5fbbb16c6dfd7d`:
+
+| Point-repair final chain | Actual exits/times |
+| --- | --- |
+|1 | baseline0/71.44s → a1 0/7.43s → a2b0/16.15s |
+|2 | baseline0/68.20s → a1 0/7.24s → a2b0/15.93s |
+
+They retain21 actual exported Node cases/326 calls, all original17/255 and seven
+unchanged paired table recipes,11 paired scenarios/128 operations total, plus14
+fresh schema-valid positiveCLI0/negativeCLI1 mutants each. Full reference/source/
+module/dependency/archive/DB and current closure attestations are repeated before/
+after and bound by distinct execution IDs in `final-pairs.json`. An a1/a2b child
+is explicitly not another bootstrap. The current raw document12-row matrix SHA
+is `c28ad7ebbe14bed076d691b121887f306360bb3f6e81753aa3779b7604dca3fb`, bound to
+product SHA `257104652872dd949d24e2b5f0350512f627ecbb596c2049a3cff913f4b1ba2c`.
+
+`version-domain-proof.json` SHA
+`70e94233ceeb7bfc715d764a2e60775f0726307b4276c7f38d53990d8eada39d`
+records a new actual pinned Node/current-native raw create/change/read probe for
+versions0/-1/1.5/1, all four retained exactly. Actual defineDocFamily separately
+rejects0/-1/1.5 and accepts1. Its32 original source and664 physical pinned
+package-module hashes are validated against the original source/dependency
+inventories plus complete parent reference attestation. This uses an identified
+new final parent's snapshot, not another bootstrap; real raw StorageWrite and
+minted DocumentId annotations are retained, with no tsc-validation claim.
+
+Actual current Node-backed run document-address mismatch1 again emits a bound
+raw/projected report; malformed native outcome2 and missing Node2 emit no result/
+mismatch report. These additional public-run fault probes honestly reuse final
+parent1; they do not turn old/copy-only evidence into fresh acceptance. All
+commands/stdout/stderr/child artifacts are retained under the new root. The
+original failed freeze and gate proofs remain unchanged. Source/fixtures/Session
+boundaries and all P OPEN remain; no a2b independent full or Opus result exists.
+The next gate is one independent full followed by the first whole-slice actual
+Opus5.5 HIGH review, coordinator-owned, not a scoped reuse of an a2a review.

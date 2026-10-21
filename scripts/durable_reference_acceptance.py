@@ -260,7 +260,7 @@ DE_EVIDENCE = {
     "DE02a1": "de02a1-local-value-and-record-evidence",
     "DE02a2": "de02-split-before-product-implementation",
     "DE02a2a": "de02a1-delivery-and-de02a2-pre-code-split",
-    "DE02a2b": "de02a1-delivery-and-de02a2-pre-code-split",
+    "DE02a2b": "de02a2a-delivery-and-de02a2b-admission",
     "DE02b": "de02-split-before-product-implementation",
 }
 
@@ -286,6 +286,8 @@ def de_current(row: Any, c: Any) -> None:
     )
     if key == "DE02a2a":
         cases = ["memory-tables-a2a-v1"]
+    if key == "DE02a2b":
+        cases = ["memory-current-base-a2b-v1"]
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -301,7 +303,7 @@ def de_current(row: Any, c: Any) -> None:
         current["kind"]
         == (
             "bounded-native"
-            if key in {"DE02a1", "DE02a2a"}
+            if key in {"DE02a1", "DE02a2a", "DE02a2b"}
             else "reference-only"
             if cases
             else ("delivery" if key == "DE00" else "source-only")
@@ -463,7 +465,10 @@ def coverage(value: Any, root: Path, c: Any) -> None:
         )
         require(
             current["kind"] in {"source-only", "reference-only", "delivery"}
-            or (key in {"DE02a1", "DE02a2a"} and current["kind"] == "bounded-native"),
+            or (
+                key in {"DE02a1", "DE02a2a", "DE02a2b"}
+                and current["kind"] == "bounded-native"
+            ),
             "Native parity claim in reference index",
             c,
         )
@@ -472,7 +477,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 "cases",
                 set(c.CASES)
                 | ({"values-records-a1"} if key == "DE02a1" else set())
-                | ({"memory-tables-a2a-v1"} if key == "DE02a2a" else set()),
+                | ({"memory-tables-a2a-v1"} if key == "DE02a2a" else set())
+                | ({"memory-current-base-a2b-v1"} if key == "DE02a2b" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),

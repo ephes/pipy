@@ -318,8 +318,8 @@ and fixes remain in the evidence ledger. b3a adds the local acceptance below;
 b3b retains mandatory pinned real CI, selective synthetic artifacts and actual
 pushed-job success. b3b landed at `13d061d2` with actual Opus5.5 HIGH CLEAN,
 [CI39370449156](https://github.com/ephes/pipy/actions/runs/39370449156)11/11 and
-every uploaded artifact entry audited. DE02a1 landed the bounded value/record/port seam below; DE02a2a adds only the
-internal table comparison; every original DE01
+every uploaded artifact entry audited. DE02a1 landed the bounded value/record/port seam below; DE02a2a landed its
+internal table comparison and DE02a2b adds bounded current raw-base documents; every original DE01
 requirement remains cumulative. No performance, full env/platform, paid-provider
 or Python-native parity result is claimed.
 
@@ -666,16 +666,27 @@ reference identities and source hashes live in both closed manifests.
 
 ## Internal table comparison (DE02a2a)
 
-The separate `memory-tables-a2a-v1` phase executes real pinned Node MemoryStorage
-against the internal synchronous Python table engine. It is a bounded table
-comparison, not complete Storage/Session parity or product integration. A2b must
-add current raw-base documents **inside the same private candidate/authority**
-and finish cumulative bounded Protocol acceptance. A2a refuses document reads,
-finds/scans and any document-containing batch; it returns no fabricated empty
-results. Delta/fork document families remain owned by their later plan slices.
-All P rows remain OPEN. The original six DE01 fixtures, eight-adapter closure,
-mandatory hosted CI, selective collector and permanent Node codec are unchanged.
-The new comparison is a separate local interface, not part of that hosted job.
+The delivered `memory-tables-a2a-v1` phase at `85390e2b` was an internal
+**table-only** comparison:17 actual exported Node cases/255 calls, seven paired
+recipes/70 operations and seven valid mutants. It explicitly refused documents.
+Its actual Opus5.5 HIGH CLEAN and [CI39408774643](https://github.com/ephes/pipy/actions/runs/39408774643)
+success11/11 were independently audited. Historical ISSUES, accepted raw-limit/
+navigation repairs and the declined performance suggestion remain in the ledger.
+Those old private manifests/bundles retain their table-only meaning. The current
+CLI advances to the cumulative a2b phase below; it accepts no old-phase shim.
+
+## Current raw-base storage comparison (DE02a2b)
+
+`memory-current-base-a2b-v1` executes real pinned Node MemoryStorage and real
+internal Python tables/current raw-base documents, with no product/factory/SDK
+integration or full Storage/Session parity claim. Create, base change/version
+transition, retire, current materialization, exact-address find and exact-scope
+scan all use the **same private candidate/authority and one adoption** as tables.
+Delta/copy/numeric historical/fork materialization reject whole requests/batches
+and remain DE04/DE27. A2/a wait delivered children; Session DE02b and DE03 stay
+gated. All43 P remain OPEN. Original six DE01 fixtures, eight-adapter closure,
+hosted CI/collector and permanent Node codec remain unchanged; this local
+comparison is separate from that hosted job.
 
 ```sh
 # Fresh private owner-only root; normal caller HOME, isolated child state.
@@ -705,18 +716,21 @@ and original parent byte identities are checked. The child deadline is60s and
 process-group cleanup is inherited from the bootstrap; no missing prerequisite
 or runtime failure becomes a skip.
 
-Seventeen **actual exported Node** `createStorageConformance` cases are selected
+Twenty-one **actual exported Node** `createStorageConformance` cases are selected
 by their exact source names in the input; each uses fresh real MemoryStorage,
 exactly-once callback and finally-close. `reference-context.json` records these
-identities/counts; `conformance-raw.json` retains all255 ordered calls, full typed
+identities/counts; `conformance-raw.json` retains all326 ordered calls, full typed
 arguments/results, error names/messages/stacks/causes. These Node assertions
-alone are not Python conformance. Seven **derived paired recipes** separately
+alone are not Python conformance. Eleven **derived paired recipes** separately
 exercise both actual implementations: identity/highwater/Seq/empty/exhaustion,
 replacement/status/request-index, ancestry/markers/owners, cursors, UTF-16 keys,
-live ownership observations and ID exhaustion. They currently contain70 ordered
+live ownership observations, ID exhaustion and current documents/mixed rollback.
+They contain128 ordered
 operations; the arrays and all outcomes are preserved. Indexed-string recipes
-are a table-only projection of the source case that also covers documents, not
-a claim to execute that whole source case in Python. Missing/null/undefined and
+retain their table-only derived labels. The full exported indexed-string case
+also runs in Node, but none of the exported Node assertions alone claims Python
+suite completeness. Added Node lifecycle/address/rollback cases can use deferred
+history/delta APIs; paired Python recipes execute only the declared supported seam. Missing/null/undefined and
 all record fields remain distinguishable. Source-order request winners have no
 fallback after removal, and legacy cursors without order use the table default,
 rejecting an opposite explicit query order.
@@ -741,7 +755,7 @@ labels are retained; comparison projects only `backend` to `storage` and Python
 StorageRequestError, call order, IDs, commit sequences, records and cursors are
 not normalized. This is separate from representation-exact OwnedJson equality.
 
-`native-context.json` records two independently constructed literal Python
+`native-context.json` records five independently constructed literal Python
 surrogate-pair spellings; UTF-16 transport by itself cannot prove those Python
 spellings. Native tests additionally prove actual retained-input/read/page/old-
 snapshot isolation and placement independence, with real contended write/write,
@@ -754,13 +768,13 @@ semantic mismatch,2 means invalid evidence/prerequisite. Recorded argument packs
 are validated by the same per-operation shape/DTO guard as recipe arguments,
 including write/query/ID/cursor fields and zero-argument roles. They are not
 required to equal scripted values: valid wrong arguments remain semantic1;
-null packs or malformed fields are invalid2. The14-role guard includes exact
-task/submission reads, while the current70-operation trace contains12 roles;
-no paired public-trace CLI proof is claimed for the two absent exact-read roles. A mismatch run emits
+null packs or malformed fields are invalid2. The18-role guard includes all current
+methods plus live ownership operations;128 recorded operations cover17 roles.
+Exact submission has a direct helper guard, not a fabricated paired CLI claim. A mismatch run emits
 `result.json` plus `mismatch-report.json` binding raw and projected hashes; its raw
 expected/actual files can be passed back to `compare`. Invalid runs emit no
-successful result or semantic mismatch report. Seven freshly derived valid
-field/ID/Seq/request-index/status-index/cursor/alias mutations each require a
+successful result or semantic mismatch report. Fourteen freshly derived valid
+field/ID/Seq/request/status/document-address/scope/cursor/alias mutations require a
 separate positive CLI0 and negative CLI1; CLI2 is refused as a mutation pass.
 These are local table-oracle mutations, not the four DE01 semantic mutants.
 
@@ -768,7 +782,8 @@ Product code imports no verification tool or fixture. Table/scan code and select
 source-derived cases retain MIT Copyright(c)2025 Mario Zechner; exact sources are
 pinned in the new manifest, and the full [upstream notice](https://github.com/ephes/pipy/blob/main/tests/fixtures/durable/UPSTREAM-LICENSE.txt)
 is preserved. [The delivery ledger](specs/2026-10-19-durable-execution-evidence.md#de02a2a-local-table-evidence)
-records actual local checks, source limits and the pending independent gate.
+records historical table checks and delivery. The [a2b admission](specs/2026-10-19-durable-execution-evidence.md#de02a2a-delivery-and-de02a2b-admission)
+retains the cumulative open boundary and current independent gate.
 
 
 ## Observed raw table page-limit boundary
@@ -803,3 +818,58 @@ paired trace. Existing paired cases and their explicit language projection remai
 unchanged. A new positivity guard would change the actual limit0 no-match result,
 so this raw backend boundary is deliberately preserved. Session admission and
 product integration remain later work; every P row stays OPEN.
+
+
+## Raw-base grouping and ownership contract
+
+Document actions are grouped per ID against the pre-batch state: at most one
+create/base-content command and one retire. Create+retire and live base-change+
+retire work in either command order. Duplicate content/retire, unknown/retired IDs
+and global ID reuse fail. New empty lifetimes stamp createdAt==retiredAt and keep
+the ID consumed. Final live address cardinality is checked only after the entire
+private table/document candidate and its owner/status/request/entry/address/scope
+indices exist. A supported late address conflict and an allocation fault both
+leave the old authority/counters unchanged; unsupported delta/copy preflight is
+not used as a substitute for this proof. No fallible document application occurs
+after table publication. The deliberately complete candidate has no performance
+parity claim; the earlier incremental-index performance suggestion stays declined.
+
+An address distinguishes session/conversation/task scope, kind and singleton
+versus explicit family key (including empty key). UTF-16 identity applies to kind
+and key, preserving distinct lone surrogates; representation-exact OwnedJson
+identity remains separate. Retire-old/create-new at one address works in either
+order. A create+retire at an occupied address has net-zero cardinality; conditional
+pointer removal preserves the existing current incarnation. `document(id)` never
+follows an address replacement; `find_document(address)` does. A base replaces
+the entire object/version; retained policy fields remain exact and current
+materialization has deltasSinceBase0. Returning them does not implement history.
+
+Document cursors deliberately ignore `order`, resume after the signed-safe ID
+ascending and emit ascending next cursors. They do not use table `scanStart`.
+Actual pinned Node/native12-row document limit observation (empty/nonempty/
+filtered-no-match ×0/-1/-2/+1) retains the same source page-builder cuts described
+above:0 without matches empty;0 matching and -1/-2 fail; +1 exact pages/cursors.
+Raw Node TypeError and native IndexError remain distinct. This separate probe
+uses an identified snapshot and claims neither another bootstrap nor paired
+error-class equality. No positivity policy or error normalizer is introduced.
+
+Ordinary host-independent tests cover all Protocol methods/closed refusal, live
+input/read/page/old-snapshot/placement ownership, late mixed rollback/allocation,
+UTF-16 indices and witnessed mixed write/write, write/read, write/mint, write/close
+and failed-writer/waiter settlement on one actual authority. Private guard mutants
+remove final cardinality, conditional pointer removal, ascending document cursor,
+scope-kind and UTF-16 identity; the permanent tests reject each. Actual exported
+Node cases, paired operations, CLI mutants, raw-limit probes and live native
+concurrency tests are distinct evidence, never clones or replacements.
+
+
+## Python point admission boundary
+
+Public document/read/find/scan ingress requires exact built-in types before any
+comparison/coercion/hash/repr of caller data. Only exact `current` or positive-safe
+integer Seq is a Point; a2b numeric history remains unsupported. Foreign Python
+objects and subclasses cannot execute hooks under the Storage authority. Query
+DTO ownership rejects foreign values before point validation; close refusal
+remains under the same non-reentrant authority. This input-safety boundary does
+not restrict raw content.version: raw0/-1/1.5 retain their actual Memory meaning,
+separate from later defineDoc's positive-safe definition policy.

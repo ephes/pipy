@@ -1,8 +1,8 @@
-"""Internal table-only Memory stage. No product factory or document capability.
+"""Internal detached tables and current raw-base documents; no product factory.
 
 Source-derived Pi durable 1.3.0 memory.ts/scan.ts, MIT (c)2025 Mario Zechner;
-notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. DE02a2b must add raw-base
-state INSIDE this candidate/authority before cumulative backend completion.
+notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. Delta/copy/historical/fork
+materialization remain later capabilities; Session authority is not implemented.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from threading import Lock
-from typing import NoReturn, TypeVar, cast
+from typing import TypeVar, cast
 
 from .records import (
     RECORD_TYPES,
@@ -71,6 +71,9 @@ class _State:
     statuses: dict[tuple[str, str], tuple[int, ...]] = field(default_factory=dict)
     entries: dict[int, tuple[int, ...]] = field(default_factory=dict)
     heads: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    documents: dict[int, StoredDocument] = field(default_factory=dict)
+    addresses: dict[tuple[object, ...], int] = field(default_factory=dict)
+    scopes: dict[tuple[object, ...], tuple[int, ...]] = field(default_factory=dict)
     next_id: int = 2
     next_seq: int = 1
 
@@ -124,33 +127,53 @@ def _prepare(state: _State, writes: tuple[StorageWrite, ...]) -> _State:
     if type(writes) is not tuple or any(type(w) is not StorageWrite for w in writes):
         raise StorageRequestError("Expected owned write tuple")
     trees = [write.to_tree() for write in writes]
-    if any(cast(str, value["type"]).startswith("document.") for value in trees):
-        raise UnsupportedStorageOperation("Documents require DE02a2b")
+    if any(
+        value["type"] == "document.copy"
+        or (
+            "content" in value
+            and cast(dict[str, object], value["content"])["kind"] != "base"
+        )
+        for value in trees
+    ):
+        raise UnsupportedStorageOperation("Document delta/copy requires DE04/DE27")
     if state.next_seq > SAFE_INTEGER:
         raise RuntimeError(
             f"Commit sequence {state.next_seq} does not strictly increase"
         )
     _claims(state, trees)
+    actions = _document_actions(trees)
     candidate = replace(
         state,
         tables={k: dict(v) for k, v in state.tables.items()},
         roles=dict(state.roles),
         entry_seqs=dict(state.entry_seqs),
         requests=dict(state.requests),
+        documents=dict(state.documents),
+        addresses=dict(state.addresses),
         next_seq=state.next_seq + 1,
     )
     for write in trees:
-        candidate = _write(candidate, write, state.next_seq)
-    return _indexes(candidate)
+        if not cast(str, write["type"]).startswith("document."):
+            candidate = _write(candidate, write, state.next_seq)
+    candidate, live_counts = _prepare_documents(
+        state, candidate, actions, state.next_seq
+    )
+    return _validate_document_candidate(_indexes(candidate), live_counts)
 
 
 def _claims(state: _State, trees: list[dict[str, object]]) -> None:
     claims: dict[int, str] = {}
     for write in trees:
         kind = cast(str, write["type"])
-        id = cast(int, cast(dict[str, object], write["value"])["id"])
+        if kind in {"document.change", "document.retire"}:
+            continue
+        document = kind == "document.create"
+        id = cast(
+            int, cast(dict[str, object], write["record" if document else "value"])["id"]
+        )
+        kind = "document" if document else kind
         existing, earlier = state.roles.get(id), claims.get(id)
-        if kind in {"conversation", "entry"}:
+        if kind in {"conversation", "entry", "document"}:
             if existing is not None:
                 raise RuntimeError(f"ID {id} already belongs to {existing}")
             if earlier is not None:
@@ -161,6 +184,120 @@ def _claims(state: _State, trees: list[dict[str, object]]) -> None:
             if earlier is not None and earlier != kind:
                 raise RuntimeError(f"ID {id} is written as two record types")
         claims[id] = kind
+
+
+def _scope_key(value: dict[str, object]) -> tuple[object, ...]:
+    kind = cast(str, value["kind"])
+    return (kind,) if kind == "session" else (kind, value[kind + "Id"])
+
+
+def _address_key(value: dict[str, object]) -> tuple[object, ...]:
+    return (
+        _scope_key(cast(dict[str, object], value["scope"])),
+        _units(cast(str, value["kind"])),
+        ("family", _units(cast(str, value["key"])))
+        if "key" in value
+        else ("singleton",),
+    )
+
+
+def _document_actions(trees: list[dict[str, object]]) -> dict[int, dict[str, object]]:
+    actions: dict[int, dict[str, object]] = {}
+    for write in trees:
+        kind = write["type"]
+        if kind not in {"document.create", "document.change", "document.retire"}:
+            continue
+        id = cast(
+            int,
+            cast(dict[str, object], write["record"])["id"]
+            if kind == "document.create"
+            else write["id"],
+        )
+        action = actions.setdefault(id, {})
+        if kind == "document.retire":
+            if action.get("retire"):
+                raise RuntimeError(f"Document {id} is retired more than once")
+            action["retire"] = True
+        else:
+            if "content" in action:
+                raise RuntimeError(f"Document {id} has more than one content command")
+            action["content"] = write["content"]
+            if kind == "document.create":
+                action["create"] = write["record"]
+    return actions
+
+
+def _materialize_base(
+    stored: StoredDocument | None, id: int, action: dict[str, object], seq: int
+) -> StoredDocument:
+    existing = None if stored is None else stored.to_tree()
+    if "create" not in action and existing is None:
+        raise RuntimeError(f"Unknown document: {id}")
+    if "create" in action and existing is not None:
+        raise RuntimeError(f"Document {id} already exists")
+    record = cast(dict[str, object], existing["record"]) if existing is not None else {}
+    if "retiredAt" in record:
+        raise RuntimeError(f"Document {id} is retired")
+    if "create" in action:
+        record = {**cast(dict[str, object], action["create"]), "createdAt": seq}
+    content = cast(dict[str, object], action.get("content", {}))
+    if content:
+        materialized = {
+            "record": record,
+            "version": content["version"],
+            "value": content["value"],
+            "deltasSinceBase": 0,
+        }
+    else:
+        assert existing is not None
+        materialized = existing
+    if action.get("retire"):
+        materialized = {**materialized, "record": {**record, "retiredAt": seq}}
+    return StoredDocument(materialized)
+
+
+def _prepare_documents(
+    previous: _State, candidate: _State, actions: dict[int, dict[str, object]], seq: int
+) -> tuple[_State, dict[tuple[object, ...], int]]:
+    live_counts: dict[tuple[object, ...], int] = {}
+    for id, action in actions.items():
+        document = _materialize_base(previous.documents.get(id), id, action, seq)
+        record = cast(dict[str, object], document.to_tree()["record"])
+        key = _address_key(record)
+        current = previous.addresses.get(key)
+        count = live_counts.get(key, 0 if current is None else 1)
+        if action.get("retire") and current == id:
+            count -= 1
+        if "create" in action and not action.get("retire"):
+            count += 1
+        live_counts[key] = count
+        candidate.documents[id] = document
+        if "create" in action:
+            candidate.roles[id] = "document"
+            candidate = replace(candidate, next_id=max(candidate.next_id, id + 1))
+        # Source order can create a replacement before the old retirement.
+        if action.get("retire") and candidate.addresses.get(key) == id:
+            del candidate.addresses[key]
+        if "create" in action and not action.get("retire"):
+            candidate.addresses[key] = id
+    scopes: dict[tuple[object, ...], list[int]] = {}
+    for id, stored in sorted(candidate.documents.items()):
+        record = cast(dict[str, object], stored.to_tree()["record"])
+        scopes.setdefault(
+            _scope_key(cast(dict[str, object], record["scope"])), []
+        ).append(id)
+    candidate = replace(candidate, scopes={k: tuple(v) for k, v in scopes.items()})
+    return candidate, live_counts
+
+
+def _validate_document_candidate(
+    candidate: _State, live_counts: dict[tuple[object, ...], int]
+) -> _State:
+    # Final cardinality, after all supported table/document preparation. Never
+    # publish a partial candidate, including on a late conflict/allocation fault.
+    if any(count > 1 for count in live_counts.values()):
+        raise RuntimeError("Document address already has a current incarnation")
+    return candidate
 
 
 def _write(state: _State, write: dict[str, object], seq: int) -> _State:
@@ -210,7 +347,7 @@ def _query(value: Query, cls: type[Query], limit: int) -> dict[str, object]:
 
 
 class MemoryStorage:
-    """Internal incomplete backend stage: tables only; documents explicitly refuse."""
+    """Internal bounded Storage: tables/current raw-base, one candidate authority."""
 
     def __init__(self) -> None:
         self._lock = Lock()
@@ -450,27 +587,65 @@ class MemoryStorage:
                 self._scan("submission", query, SubmissionQuery, limit, cursor),
             )
 
-    def _documents(self) -> NoReturn:
-        self._open()
-        raise UnsupportedStorageOperation("Documents require DE02a2b")
-
     def document(
         self, id: DocumentId, at: DocumentPoint = "current"
     ) -> StoredDocument | None:
         with self._lock:
-            self._documents()
+            self._open()
+            safe_integer(id)
+            _current(at)
+            stored = self._state.documents.get(id)
+            if stored is None or "retiredAt" in cast(
+                dict[str, object], stored.to_tree()["record"]
+            ):
+                return None
+            return StoredDocument(stored.to_tree())
 
     def find_document(
         self, address: DocumentAddress, at: DocumentPoint = "current"
     ) -> DocumentRecord | None:
         with self._lock:
-            self._documents()
+            self._open()
+            _current(at)
+            if type(address) is not DocumentAddress:
+                raise StorageRequestError("Expected owned document address")
+            id = self._state.addresses.get(_address_key(address.to_tree()))
+            return (
+                None
+                if id is None
+                else DocumentRecord(self._state.documents[id].to_tree()["record"])
+            )
 
     def scan_documents(
         self, query: DocumentQuery, limit: int, cursor: Cursor | None = None
     ) -> Page[DocumentRecord]:
         with self._lock:
-            self._documents()
+            self._open()
+            value = _query(query, DocumentQuery, limit)
+            _current(cast(DocumentPoint, value["at"]))
+            if cursor is not None and type(cursor) is not Cursor:
+                raise StorageRequestError("Invalid storage cursor")
+            after = None if cursor is None else cursor.after
+            records: list[DocumentRecord] = []
+            for id in self._state.scopes.get(
+                _scope_key(cast(dict[str, object], value["scope"])), ()
+            ):
+                if len(records) > limit:
+                    break
+                if after is not None and id <= after:
+                    continue
+                record = cast(
+                    dict[str, object], self._state.documents[id].to_tree()["record"]
+                )
+                if "retiredAt" in record or (
+                    "kind" in value
+                    and _units(cast(str, record["kind"]))
+                    != _units(cast(str, value["kind"]))
+                ):
+                    continue
+                records.append(DocumentRecord(record))
+            # Unlike table scans, source cursorId ignores order entirely.
+            return _page(records, limit, "ascending")
 
     def close(self) -> None:
         with self._lock:
@@ -494,3 +669,12 @@ def _matches(record: dict[str, object], query: dict[str, object]) -> bool:
         elif actual != expected:
             return False
     return True
+
+
+def _current(at: DocumentPoint) -> None:
+    # Admit exact built-ins before comparison/coercion/repr: invalid Python
+    # objects must never execute caller hooks under the non-reentrant authority.
+    if type(at) is str and at == "current":
+        return
+    safe_integer(at)
+    raise UnsupportedStorageOperation("Numeric document history requires DE04/DE27")

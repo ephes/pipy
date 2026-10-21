@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a in progress**, 2026-10-20. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a landed; DE02a2b in progress**, 2026-10-20. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not
@@ -604,3 +604,19 @@ admit duplicate effects; unpreservable existing private data; or a live acceptan
 requirement lacking the needed authorized provider/capability. Preserve work and
 logs. Routine implementation uncertainty calls for a smaller slice/probe, not a
 silent scope cut or an unattended endless review loop.
+
+
+### Python Storage ingress and authority
+
+Every public document-point ingress admits only exact built-in `str` value
+`current` or exact built-in positive safe `int` Seq before any value comparison,
+coercion, hashing or diagnostic representation. Subclasses and foreign Python
+objects are invalid input, not alternate JSON/Point representations. No arbitrary
+caller hook may run under the Storage authority. Owned query/address/write DTOs
+admit their values before backend use. The same close linearization and every
+method's closed refusal remain; no reentrant lock or calling foreign hooks outside
+the lock substitutes for admission. Valid numeric document points remain the
+declared unsupported historical boundary in a2b. Raw document content.version is
+a separate finite-number role:0/-1/1.5 are retained by raw Storage, independent of
+later positive-safe defineDoc definition validation. Original future rows and
+cumulative Session/document requirements are unchanged.

@@ -199,8 +199,8 @@ def test_table_evidence_is_owned_only_by_actual_internal_child(child):
     rows = {row["id"]: row for row in value["rows"]}
     assert rows["DE02a2a"]["current"]["cases"] == ["memory-tables-a2a-v1"]
     assert rows["DE02a2a"]["current"]["kind"] == "bounded-native"
-    assert rows["DE02a2b"]["current"]["kind"] == "source-only"
-    assert rows["DE02a2b"]["current"]["cases"] == []
+    assert rows["DE02a2b"]["current"]["kind"] == "bounded-native"
+    assert rows["DE02a2b"]["current"]["cases"] == ["memory-current-base-a2b-v1"]
     rows[child]["current"].update(kind="bounded-native", cases=["memory-tables-a2a-v1"])
     with pytest.raises(
         o.EvidenceError, match="Native parity claim|Unknown current|ownership drift"

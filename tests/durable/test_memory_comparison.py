@@ -23,11 +23,11 @@ def test_actual_native_recipe_and_separate_python_spelling_witness():
     value, witness = m.native(m.load(m.INPUT))
     m.trace(value)
     assert [s["id"] for s in value["scenarios"]] == list(m.SCENARIOS)
-    assert sum(len(s["operations"]) for s in value["scenarios"]) == 70
+    assert sum(len(s["operations"]) for s in value["scenarios"]) == 128
     assert m.comparison(value, value) == 0
     assert [x["python_codepoints"] for x in witness["python_spellings"]] == [
         [0xD83D, 0xDE00]
-    ] * 2
+    ] * 5
     rows = {s["id"]: {x["id"]: x for x in s["operations"]} for s in value["scenarios"]}
     assert m.v.decode(rows["identity"]["exact"]["outcome"]["value"])["commitSeq"] == 2
     assert rows["identity"]["closed"]["outcome"]["status"] == "rejected"
@@ -79,9 +79,7 @@ def cli(m, tmp_path, expected, actual, wanted):
     return p
 
 
-@pytest.mark.parametrize(
-    "name", ["field", "id", "seq", "request-index", "status-index", "cursor", "alias"]
-)
+@pytest.mark.parametrize("name", module().MUTANTS)
 def test_real_native_valid_mutants_are_cli1_never_invalid2(tmp_path, name):
     m = module()
     raw, _ = m.native(m.load(m.INPUT))
@@ -112,7 +110,7 @@ def test_invalid_trace_cli2_is_not_a_valid_mismatch(tmp_path, corrupt):
     if corrupt == "version":
         bad["schema_version"] = True
     elif corrupt == "phase":
-        bad["phase"] = "memory-current-base-a2b-v1"
+        bad["phase"] = "memory-tables-a2a-v1"
     elif corrupt == "empty":
         bad["scenarios"] = []
     elif corrupt == "scenario-null":
@@ -176,7 +174,7 @@ def test_closed_table_manifest_fails_before_runtime_or_output(
     m = module()
     value = m.load(m.MANIFEST)
     if change == "phase":
-        value["phase"] = "memory-current-base-a2b-v1"
+        value["phase"] = "memory-tables-a2a-v1"
     elif change == "ref":
         value["reference_commit"] = "0" * 40
     elif change == "closure":
@@ -329,7 +327,7 @@ def _unit_child(m, observed, calls, mutation):
             {
                 "schema_version": 1,
                 "phase": m.PHASE,
-                "scenarios": 7,
+                "scenarios": len(m.SCENARIOS),
                 "exported_cases": [
                     {"name": name, "callback_calls": 1, "closed": True, "operations": 1}
                     for name in m.EXPORTED
@@ -375,7 +373,15 @@ def _unit_child(m, observed, calls, mutation):
 def _valid_operation_arguments():
     values = {
         op: {"id": 2}
-        for op in ("conversation", "entry", "task", "submission", "ownership")
+        for op in (
+            "conversation",
+            "entry",
+            "task",
+            "submission",
+            "ownership",
+            "document",
+            "document_ownership",
+        )
     }
     values.update(
         {
@@ -384,6 +390,9 @@ def _valid_operation_arguments():
             "commit": {"writes": []},
             "request": {"conversation_id": 1, "request_id": "synthetic"},
             "head": {"conversation_id": 1, "bound": 2},
+            "find_document": {
+                "address": {"kind": "cache", "scope": {"kind": "session"}}
+            },
         }
     )
     for op in ("scan_conversations", "scan_entries", "scan_tasks", "scan_submissions"):
@@ -392,11 +401,16 @@ def _valid_operation_arguments():
             "limit": 2,
             "cursor": {"after": 0, "order": "ascending"},
         }
+    values["scan_documents"] = {
+        "query": {"scope": {"kind": "session"}, "at": "current"},
+        "limit": 2,
+        "cursor": {"after": 0, "order": "descending"},
+    }
     return values
 
 
 @pytest.mark.parametrize("op", sorted(module().OPERATIONS))
-def test_existing_argument_guard_covers_all_14_registered_roles(op):
+def test_existing_argument_guard_covers_all_18_registered_roles(op):
     m = module()
     arguments = _valid_operation_arguments()
     assert set(arguments) == m.OPERATIONS
@@ -418,13 +432,14 @@ def _recorded_step(raw, op, *, scenario=None, identity=None):
     return matches[0]
 
 
-@pytest.mark.parametrize("op", sorted(module().OPERATIONS - {"task", "submission"}))
-def test_recorded_12_roles_null_argument_pack_is_public_cli_invalid2(tmp_path, op):
+@pytest.mark.parametrize("op", sorted(module().OPERATIONS - {"submission"}))
+def test_recorded_17_roles_null_argument_pack_is_public_cli_invalid2(tmp_path, op):
     m = module()
     raw, _ = m.native(m.load(m.INPUT))
-    assert {step["op"] for row in raw["scenarios"] for step in row["operations"]} == (
-        m.OPERATIONS - {"task", "submission"}
-    )  # These two exact reads are not current recorded recipe operations.
+    assert (
+        {step["op"] for row in raw["scenarios"] for step in row["operations"]}
+        == (m.OPERATIONS - {"submission"})
+    )  # Exact submission is not a recorded recipe operation; direct helper guard remains.
     bad = json.loads(json.dumps(raw))
     _recorded_step(bad, op)["args"] = ["null"]
     cli(m, tmp_path, raw, raw, 0)
@@ -505,6 +520,66 @@ def test_recorded_valid_wrong_arguments_remain_semantic_cli1(tmp_path, change):
     m._recipe_args(op, args)  # Wrong values are still valid call shapes.
     step["args"] = m.v.encode(args)
     assert bad != raw
+    m.trace(bad)
+    cli(m, tmp_path, raw, raw, 0)
+    cli(m, tmp_path, raw, bad, 1)
+
+
+@pytest.mark.parametrize(
+    "op,args,diagnostic",
+    [
+        (
+            "document",
+            {"id": True},
+            "Expected exact safe integer in the selected role domain",
+        ),
+        (
+            "document",
+            {"id": 2, "at": None},
+            "Only current document reads are supported",
+        ),
+        ("find_document", {"address": None}, "Expected plain record object"),
+        (
+            "scan_documents",
+            {"query": {"scope": {"kind": "session"}, "at": "current"}, "limit": True},
+            "Malformed scan size",
+        ),
+    ],
+)
+def test_document_argument_forms_are_cli_invalid2_not_semantic_mismatch(
+    tmp_path, op, args, diagnostic
+):
+    m = module()
+    raw, _ = m.native(m.load(m.INPUT))
+    bad = json.loads(json.dumps(raw))
+    _recorded_step(bad, op)["args"] = m.v.encode(args)
+    cli(m, tmp_path, raw, raw, 0)
+    result = cli(m, tmp_path, raw, bad, 2)
+    assert diagnostic in result.stderr
+
+
+@pytest.mark.parametrize(
+    "op,args",
+    [
+        ("document", {"id": 999}),
+        (
+            "find_document",
+            {"address": {"scope": {"kind": "session"}, "kind": "absent"}},
+        ),
+        (
+            "scan_documents",
+            {
+                "query": {"scope": {"kind": "task", "taskId": 999}, "at": "current"},
+                "limit": 2,
+            },
+        ),
+    ],
+)
+def test_valid_wrong_document_arguments_stay_public_mismatch1(tmp_path, op, args):
+    m = module()
+    raw, _ = m.native(m.load(m.INPUT))
+    bad = json.loads(json.dumps(raw))
+    _recorded_step(bad, op)["args"] = m.v.encode(args)
     m.trace(bad)
     cli(m, tmp_path, raw, raw, 0)
     cli(m, tmp_path, raw, bad, 1)
