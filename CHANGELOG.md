@@ -8,6 +8,37 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add the first internal durable Session (private; no product, default or public
+  API change). One FIFO mutation line inside the existing lifecycle owner runs
+  one transaction at a time through a blocking `commit()` and an asyncio
+  `acommit()` that drive the same transaction core; the async form sends each
+  storage call to the event loop's default executor and owns no thread. The
+  commit order follows Pi: a cancel view is checked only when a queued commit
+  gets its turn, a callback that caught a failed read cannot commit, pending
+  operations are drained before the line moves on, an adoption failure fails the
+  Session and rejects the durable commit, and committed changes are published
+  synchronously before the commit returns. Cancelling an `acommit` task while
+  its callback runs rolls the commit back; once the callback has settled, the
+  commit completes and only the waiter is cancelled. Internal listeners fail the
+  Session on a throw while the durable commit still resolves; host commit and
+  close listeners are contained and reported. Close seals the line, runs close
+  listeners once and closes storage only after accepted work has drained, and a
+  failure closes storage only after the running transaction leaves the line.
+  Re-entering the Session from its own transaction raises instead of
+  deadlocking, also when waiting for close. Handing the line to the next
+  transaction is a single step, so no queued waiter can miss its wake-up; a
+  second closer never drains while close listeners are still starting; a
+  backend close claimed on an event-loop thread runs in the loop's executor;
+  and no listener is released while the Session's lock is held. A close
+  listener may call `close()` (it returns without waiting, as in Pi). A commit
+  never waits for a background storage close; a process-control failure in
+  that background close is reported through the event loop's exception
+  handler. Deterministic
+  sync and async tests over the real in-memory backend cover the pinned Pi
+  session and storage-failure cases, and nineteen private negative controls
+  must each fail. The paired Pi acceptance (b3) and
+  every parity requirement remain open.
+
 - Add a private durable transaction core and raw-base document drafts (internal;
   no commit entrypoint and no product, default or public API change). Each
   transaction operation runs over the guarded Storage and suspends only on one

@@ -1,12 +1,21 @@
-"""Private Session lifecycle owner and guarded Storage (DE02b1a); no Session/Tx.
+"""Private Session lifecycle owner and guarded Storage (DE02b1a, line DE02b2b).
 
 One owner governs the first failure, report-once, guarded-call registration,
 the final-stage guard admission seal, drain and backend-close-once. Every
-future Session/Tx component must read and write through ``owner.storage`` (or a
-``reading`` facade of it) and consume this same owner; no second failure latch
-or raw-backend route exists. The Session-line admission seal (queued commits
-and on-line reads, DE02b2) is a distinct, earlier phase; this module provides
-only the final guard seal that ``close`` and ``fail`` apply.
+Session/Tx component reads and writes through ``owner.storage`` (or a
+``reading`` facade of it) and consumes this same owner; no second failure latch
+or raw-backend route exists.
+
+DE02b2b adds the Session mutation line to this owner (it has no failure state
+of its own): one FIFO of tickets, at most one holder, and a line seal that is a
+distinct, earlier phase than the guard seal. Close seals the line, runs the
+close-begin hook once, and seals the guard only when the line has no holder and
+no queued ticket (Pi enqueues its close job behind accepted work); the backend
+close claim waits for that same drained line. A first failure seals the line,
+rejects every queued ticket at once with ``SessionFailed``, runs the close-begin
+hook before the report, and closes the backend only after the holder leaves.
+With no ticket ever admitted the line is always drained, so the DE02b1a
+behaviour is unchanged.
 
 Semantics adapted from Pi durable 1.3.0 ``packages/durable/src/session/session.ts``
 (``fail``, ``close``, ``FailureLatch``, ``GuardedStorage``; git blob
@@ -54,6 +63,17 @@ Python spelling, documented decisions:
   positivity rule or error normalisation. A raw backend error for an ill-typed
   argument (Memory's ``RecordError``) is not a ``StorageRequestError`` and fails
   the owner like any backend error; typed ingress belongs to Session/Tx.
+* Line tickets are owned objects: the lock compares them by identity only and
+  wakes a sync ticket through this Condition, an async one through its owned
+  wake callback outside the lock (a callback raising ``RuntimeError`` because
+  its loop closed counts as a cancelled ticket and passes the line on).
+  Leaving the line and granting the next ticket are one locked step, and the
+  leaver owns that wake-up, so no hand-off is lost. The close-begin and
+  line-drained hooks and async closed-wakes also run outside the lock; the line
+  drains only after the close-begin hook finished. A ``close()`` from inside
+  that hook (on its thread) requests close and returns without waiting, as
+  Pi's nested ``close()`` returns the same pending closing promise. A bound close runner may move
+  a claimed backend close off an event-loop thread into owned executor work.
 * Backend ``close()`` is synchronous and runs on the thread that claims it; it
   must not itself wait for this owner's close. A close error never replaces an
   exception the claiming thread is already raising (a guarded call's original
@@ -67,7 +87,9 @@ Python spelling, documented decisions:
 from __future__ import annotations
 
 import math
+import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Condition, Lock
@@ -213,6 +235,31 @@ _REQUESTED: Final = "requested"
 _RUNNING: Final = "running"
 _DONE: Final = "done"
 
+_QUEUED: Final = "queued"
+_GRANTED: Final = "granted"
+_CANCELLED: Final = "cancelled"
+_REJECTED: Final = "rejected"
+_LEFT: Final = "left"
+
+
+@final
+class _LineTicket:
+    """One admission to the Session line (DE02b2b); compared by identity only.
+
+    ``wake`` is ``None`` for a sync waiter (woken through the owner Condition)
+    or an owned callback that schedules an async waiter's wake-up on its loop.
+    ``tasks`` holds the async holder's caller and settlement tasks, for
+    reentry detection by identity.
+    """
+
+    __slots__ = ("state", "tasks", "thread", "wake")
+
+    def __init__(self, wake: Callable[[], object] | None = None) -> None:
+        self.state: str = _QUEUED
+        self.thread = threading.get_ident()
+        self.wake = wake
+        self.tasks: tuple[object, ...] = ()
+
 
 def _view(value: CancelView | None) -> CancelView | None:
     if value is not None and type(value) is not CancelView:
@@ -234,11 +281,23 @@ class SessionLifecycle:
 
     __slots__ = (
         "_backend",
+        "_close_begun",
+        "_close_hook_done",
+        "_close_hook_thread",
+        "_close_runner",
         "_close_error",
         "_close_state",
+        "_closed_wakes",
         "_cond",
         "_end",
         "_failure",
+        "_holder",
+        "_line_done",
+        "_line_sealed",
+        "_on_close_begin",
+        "_on_line_drained",
+        "_queue",
+        "_rejected_wakes",
         "_reporter",
         "_sealed",
         "_storage",
@@ -255,6 +314,19 @@ class SessionLifecycle:
         self._close_state: str = _IDLE
         self._close_error: BaseException | None = None
         self._end: SessionEnd | None = None
+        # DE02b2b Session line: FIFO tickets, one holder, line seal before guard seal.
+        self._line_sealed = False
+        self._line_done = False
+        self._close_begun = False
+        self._close_hook_done = False
+        self._close_hook_thread: int | None = None
+        self._close_runner: Callable[[Callable[[], object]], bool] | None = None
+        self._queue: deque[_LineTicket] = deque()
+        self._holder: _LineTicket | None = None
+        self._rejected_wakes: list[Callable[[], object]] = []
+        self._closed_wakes: list[Callable[[], object]] = []
+        self._on_close_begin: Callable[[], None] | None = None
+        self._on_line_drained: Callable[[], None] | None = None
         self._storage = GuardedStorage(self, None)
 
     @property
@@ -294,12 +366,21 @@ class SessionLifecycle:
             self._finish(error, raising=False)
 
     def request_close(self) -> None:
-        """Seal guarded admission and start close without waiting (idempotent)."""
+        """Seal the line and start close without waiting (idempotent).
+
+        The close-begin hook runs once, here. Guarded admission is sealed and
+        backend close requested once the line is drained: at once without a
+        holder or queued ticket, otherwise when the last ticket leaves.
+        """
         with self._cond:
-            self._sealed = True
-            if self._close_state is _IDLE:
-                self._close_state = _REQUESTED
-        pending = self._close_if_drained()
+            self._line_sealed = True
+        try:
+            self._begin_close()
+        finally:
+            try:
+                self._drain_line()
+            finally:
+                pending = self._close_if_drained()
         if pending is not None:
             raise pending
 
@@ -316,6 +397,10 @@ class SessionLifecycle:
         view = _view(cancel)
         deadline = _deadline(timeout)
         self.request_close()
+        if self._in_close_hook():
+            # Pi: a close from a close listener returns the same pending
+            # closing promise; waiting here would wait for this very hook.
+            return
         self._wait_done(view, deadline)
         error = self._close_error
         if error is not None:
@@ -402,6 +487,16 @@ class SessionLifecycle:
         self._sealed = True
         if self._close_state is _IDLE:
             self._close_state = _REQUESTED
+        # Seal the line and reject every queued ticket at once (Pi runs each
+        # into its health check); async wakes follow outside the lock.
+        self._line_sealed = True
+        if self._queue:
+            for ticket in self._queue:
+                ticket.state = _REJECTED
+                if ticket.wake is not None:
+                    self._rejected_wakes.append(ticket.wake)
+            self._queue.clear()
+            self._cond.notify_all()
         return True
 
     def _settle(self) -> BaseException | None:
@@ -434,9 +529,17 @@ class SessionLifecycle:
         pending: BaseException | None = None
         try:
             if first is not None:
-                self._report(first)
+                # Pi ``fail``: close begins (its listeners run) before the report.
+                try:
+                    self._begin_close()
+                finally:
+                    self._report(first)
         finally:
-            pending = self._close_if_drained()
+            try:
+                self._wake_rejected()
+                self._drain_line()
+            finally:
+                pending = self._close_if_drained()
         if pending is not None and not raising:
             raise pending
 
@@ -450,9 +553,18 @@ class SessionLifecycle:
         """
         with self._cond:
             claim = self._close_state is _REQUESTED and self._underway == 0
+            # The backend closes behind the line (Pi's close job on the line).
+            claim = claim and self._holder is None and not self._queue
             if claim:
                 self._close_state = _RUNNING
-        return self._run_close() if claim else None
+            runner = self._close_runner
+        if not claim:
+            return None
+        # A claimer on an event loop hands the claimed close to owned executor
+        # work; the outcome is shared through ``_close_error`` and ``_end``.
+        if runner is not None and runner(self._run_close):
+            return None
+        return self._run_close()
 
     def _run_close(self) -> BaseException | None:
         error: BaseException | None = None
@@ -473,6 +585,8 @@ class SessionLifecycle:
             )
             self._close_state = _DONE
             self._cond.notify_all()
+            wakes, self._closed_wakes = self._closed_wakes, []
+        _wake_all(wakes)
         if first:
             assert error is not None
             self._report(error)
@@ -509,6 +623,218 @@ class SessionLifecycle:
         try:
             reporter(error, SESSION_FAILED_REPORT)
         except Exception:  # noqa: BLE001 - reports never fail what ran them
+            pass
+
+    # -- the Session line (DE02b2b) ---------------------------------------------
+
+    def _bind_line(
+        self,
+        on_close_begin: Callable[[], None],
+        on_line_drained: Callable[[], None],
+        close_runner: Callable[[Callable[[], object]], bool] | None = None,
+    ) -> None:
+        """Install the Session's close-begin and line-drained hooks once.
+
+        ``close_runner`` may take a claimed backend close off the calling thread
+        (returning True); otherwise the claimer runs it inline.
+        """
+        with self._cond:
+            if self._on_close_begin is not None or self._line_sealed:
+                raise RuntimeError("The Session line is already bound or sealed")
+            self._on_close_begin = on_close_begin
+            self._on_line_drained = on_line_drained
+            self._close_runner = close_runner
+
+    def _assert_usable(self) -> None:
+        """Pi ``assertUsable``: health first, then the line seal."""
+        with self._cond:
+            failure, sealed = self._failure, self._line_sealed
+        if failure is not None:
+            raise SessionFailed(failure) from failure
+        if sealed:
+            raise SessionClosedError()
+
+    def _line_holder(self) -> _LineTicket | None:
+        with self._cond:
+            return self._holder
+
+    def _line_enter(self, ticket: _LineTicket) -> None:
+        """Admit ``ticket`` (health, then the line seal); grant it if idle."""
+        with self._cond:
+            refused, closed = self._failure, self._line_sealed
+            if refused is None and not closed:
+                self._queue.append(ticket)
+                if self._holder is None:
+                    self._grant()
+        if refused is not None:
+            raise SessionFailed(refused) from refused
+        if closed:
+            raise SessionClosedError()
+
+    def _line_wait(self, ticket: _LineTicket) -> None:
+        """Block a sync ticket until it holds the line or was rejected."""
+        with self._cond:
+            while ticket.state is _QUEUED:
+                self._cond.wait()
+            rejected = ticket.state is _REJECTED
+            failure = self._failure
+        if rejected:
+            assert failure is not None
+            raise SessionFailed(failure) from failure
+
+    def _line_granted(self, ticket: _LineTicket) -> bool:
+        """After an async wake-up: True when held, raises when rejected."""
+        with self._cond:
+            state, failure = ticket.state, self._failure
+        if state is _REJECTED:
+            assert failure is not None
+            raise SessionFailed(failure) from failure
+        return state is _GRANTED
+
+    def _line_leave(self, ticket: _LineTicket) -> BaseException | None:
+        """The holder leaves: grant the next ticket, then drain and claim close.
+
+        Returns a process-control close error for a caller not already raising.
+        """
+        with self._cond:
+            if self._holder is not ticket:
+                raise RuntimeError("Only the line holder can leave the line")
+            ticket.state = _LEFT
+            # Leaving and granting the next ticket are one step, so no entrant
+            # can grant a queued ticket without owning its wake-up.
+            granted = self._pass_line()
+        try:
+            self._wake_granted(granted)
+            self._drain_line()
+        finally:
+            pending = self._close_if_drained()
+        return pending
+
+    def _line_abandon(self, ticket: _LineTicket) -> BaseException | None:
+        """A cancelled async waiter: unqueue it, or pass an unused grant on."""
+        with self._cond:
+            if ticket.state is _QUEUED:
+                self._queue.remove(ticket)
+                ticket.state = _CANCELLED
+            held = ticket.state is _GRANTED and self._holder is ticket
+        if held:
+            return self._line_leave(ticket)
+        return None
+
+    def _grant(self) -> _LineTicket | None:
+        # Caller holds the lock and the line has no holder. Leaving grants the
+        # next ticket in the same step, so a line without a holder has an empty
+        # queue: an entrant can only ever grant itself (FIFO is kept).
+        while self._queue:
+            ticket = self._queue.popleft()
+            if ticket.state is _QUEUED:
+                ticket.state = _GRANTED
+                self._holder = ticket
+                return ticket
+        return None
+
+    def _pass_line(self) -> _LineTicket | None:
+        """Caller holds the lock: clear the holder and grant the next ticket.
+
+        A sync grant is notified here; an async grant is returned and the
+        caller must wake it outside the lock (``_wake_granted``).
+        """
+        self._holder = None
+        ticket = self._grant()
+        if ticket is None:
+            return None
+        if ticket.wake is None:
+            self._cond.notify_all()
+            return None
+        return ticket
+
+    def _wake_granted(self, ticket: _LineTicket | None) -> None:
+        while ticket is not None:
+            wake = ticket.wake
+            assert wake is not None, "only async grants are woken here"
+            try:
+                wake()
+                return
+            except RuntimeError:  # its loop is closed: a cancelled ticket
+                with self._cond:
+                    if self._holder is not ticket:
+                        return
+                    ticket.state = _CANCELLED
+                    ticket = self._pass_line()
+
+    def _wake_rejected(self) -> None:
+        with self._cond:
+            wakes, self._rejected_wakes = self._rejected_wakes, []
+        _wake_all(wakes)
+
+    def _begin_close(self) -> None:
+        """Run the close-begin hook once (Pi ``#notifyClose``)."""
+        with self._cond:
+            first = not self._close_begun
+            hook = self._on_close_begin
+            self._close_begun = True
+            if first and hook is not None:
+                self._close_hook_thread = threading.get_ident()
+        if not first:
+            return
+        try:
+            if hook is not None:
+                hook()
+        finally:
+            # The line may drain (and clear what the hook reads) only now.
+            with self._cond:
+                self._close_hook_done = True
+                self._close_hook_thread = None
+
+    def _in_close_hook(self) -> bool:
+        """Whether this thread is running the close-begin hook right now."""
+        with self._cond:
+            return self._close_hook_thread == threading.get_ident()
+
+    def _drain_line(self) -> None:
+        """Once the sealed line has no holder or ticket: Pi's close line job.
+
+        It waits for the close-begin hook to finish (a second closer never
+        drains under a running hook). The line-drained hook runs once, then the
+        guard is sealed and backend close requested; the claim follows in
+        ``_close_if_drained``.
+        """
+        with self._cond:
+            run = (
+                self._line_sealed
+                and self._close_hook_done
+                and not self._line_done
+                and self._holder is None
+                and not self._queue
+            )
+            if run:
+                self._line_done = True
+        if not run:
+            return
+        hook = self._on_line_drained
+        try:
+            if hook is not None:
+                hook()
+        finally:
+            with self._cond:
+                self._sealed = True
+                if self._close_state is _IDLE:
+                    self._close_state = _REQUESTED
+
+    def _when_closed(self, wake: Callable[[], object]) -> bool:
+        """Register an async closed-wake; False when close is already done."""
+        with self._cond:
+            if self._close_state is _DONE:
+                return False
+            self._closed_wakes.append(wake)
+            return True
+
+
+def _wake_all(wakes: list[Callable[[], object]]) -> None:
+    for wake in wakes:
+        try:
+            wake()
+        except RuntimeError:  # noqa: S110 - that waiter's loop is closed
             pass
 
 

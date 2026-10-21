@@ -474,6 +474,42 @@ class _DocumentCache:
             self._documents.clear()
 
 
+async def _load_document(
+    storage: GuardedStorage,
+    cache: _DocumentCache,
+    raw: RawDoc,
+    key: _Key,
+    address: DocumentAddress,
+) -> CommittedDocument | None:
+    """Pi ``#loadDocument``: a cache hit of this version, else a cold load.
+
+    Shared by Tx acquisition and the Session's on-line snapshot miss; both
+    run while the line is held, so every cache write is a line job.
+    """
+    cached = cache.get(key)
+    if cached is not None and cached.version == raw.version:
+        return cached
+    if cached is not None:
+        cache.drop(key)
+    record = await _Io(partial(storage.find_document, address, "current"))
+    if record is None:
+        return None
+    stored = await _Io(partial(storage.document, DocumentId(record.id), "current"))
+    if stored is None:
+        tree = _tree(record)
+        raise RuntimeError(
+            f"Current document {tree['id']} ({tree['kind']}) cannot be read"
+        )
+    value = cast(Tree, stored.to_tree())
+    loaded = CommittedDocument(
+        DocumentRecord(value["record"]), value["version"], OwnedJson(value["value"])
+    )
+    _check_scope(raw, loaded.record)
+    _check_version(raw, loaded.record, loaded.version)
+    cache.install(key, loaded)
+    return loaded
+
+
 # -- drafts ---------------------------------------------------------------------
 
 _OPEN: Final = "open"
@@ -992,6 +1028,7 @@ class _TxCore:
         self._documents: list[_DocEntry] = []
         self._latest: dict[_Key, _DocEntry] = {}
         self._plans: list[_Plan] = []
+        self._table_count = 0
 
     # -- phase and lifecycle helpers ---------------------------------------
 
@@ -1376,31 +1413,7 @@ class _TxCore:
     async def _load(
         self, raw: RawDoc, key: _Key, address: DocumentAddress
     ) -> CommittedDocument | None:
-        """Pi ``#loadDocument``: a cache hit of this version, else a cold load."""
-        cached = self._cache.get(key)
-        if cached is not None and cached.version == raw.version:
-            return cached
-        if cached is not None:
-            self._cache.drop(key)
-        record = await _Io(partial(self._storage.find_document, address, "current"))
-        if record is None:
-            return None
-        stored = await _Io(
-            partial(self._storage.document, DocumentId(record.id), "current")
-        )
-        if stored is None:
-            tree = _tree(record)
-            raise RuntimeError(
-                f"Current document {tree['id']} ({tree['kind']}) cannot be read"
-            )
-        value = cast(Tree, stored.to_tree())
-        loaded = CommittedDocument(
-            DocumentRecord(value["record"]), value["version"], OwnedJson(value["value"])
-        )
-        _check_scope(raw, loaded.record)
-        _check_version(raw, loaded.record, loaded.version)
-        self._cache.install(key, loaded)
-        return loaded
+        return await _load_document(self._storage, self._cache, raw, key, address)
 
     async def _find_retirement(self, entry: _DocEntry) -> None:
         cached = self._cache.get(entry.key)
@@ -1540,6 +1553,18 @@ class _TxCore:
             if following is not current:
                 self._submissions[sid] = following
 
+    def table_changes(
+        self, writes: tuple[StorageWrite, ...]
+    ) -> tuple[StorageWrite, ...]:
+        """The committed table writes of the assembled batch, in batch order.
+
+        Pi ``#publish`` keeps entry, submission, conversation and task writes;
+        the batch places them before every document write.
+        """
+        if not self._assembled:
+            raise RuntimeError("Table changes require an assembled transaction")
+        return writes[: self._table_count]
+
     def _batch(self, plans: list[_Plan]) -> tuple[StorageWrite, ...]:
         writes = [
             StorageWrite({"type": kind, "value": record.to_tree()})
@@ -1554,6 +1579,7 @@ class _TxCore:
             for task in self._tasks.values()
             if task.write is not None
         ]
+        self._table_count = len(writes)
         for plan in plans:
             if plan.content is not None:
                 writes.append(plan.content)

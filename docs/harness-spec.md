@@ -122,7 +122,7 @@ has no Session/Tx. DE02b1b (landed `cb38caf3`) compares it with the pinned Pi
 sides, with paired recipes and schema-valid guard mutants; Pi's post-close
 line-job seal window, report-versus-outcome order on a healthy close failure and
 Python-only `BaseException` handling are explicitly not compared. b2 is split
-b2a→b2b. DE02b2a (in progress) adds the private `native/durable/tx.py` core with
+b2a→b2b. DE02b2a (landed `be6ee84e`) adds the private `native/durable/tx.py` core with
 no commit entrypoint and no `Session` name. Each Tx operation is a synchronous
 prologue followed by an `async` body that suspends only on `_Io`, one guarded
 backend call; an inline sync driver runs the bodies on the thread that created
@@ -131,9 +131,20 @@ resolution, and stages definition-free `RawDoc` documents (session or
 conversation scope; task scope is refused). Mutable `Draft`/`DraftList` views copy
 every placed value and are all revoked at prepare. Value-identical changes write
 and publish nothing, and adoption swaps committed values in a cache that never
-holds a candidate. b2b adds the first exposed Session (line, async driver,
-publication, close) over the same owner and core; b3 is the final cumulative
-gate. DE02 waits a1+a2+b; DE03 waits b.
+holds a candidate. DE02b2b (in progress) adds the first exposed internal
+`Session` in the private `native/durable/session_core.py`, not exported: the
+FIFO mutation line lives inside the b1a owner (no second failure state), and a
+sync `commit()` and an async `acommit()` drive the one b2a core. Settlement
+follows Pi's `#runCommit` order: health then cancel view at the grant, the
+callback, health again, then seal, pending check and drain, prepare, the guarded
+commit, adoption (an adoption failure fails the Session and rejects the durable
+commit) and synchronous publication, all before the line is left. Internal
+commit listeners run first and a throw fails the Session while the durable
+commit still resolves; host commit and close listeners are contained and
+reported. Close seals the line, runs close listeners once, and seals the guard
+and closes Storage only once accepted work has drained; a failure closes Storage
+only after the line holder leaves. b3 is the final cumulative gate. DE02 waits
+a1+a2+b; DE03 waits b.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 
@@ -162,6 +173,87 @@ Python spellings of the Tx core, with no Pi analogue or deliberately narrower:
   callback. Before backend admission it is the callback's failure and rolls
   back; after the callback settles, owned settlement cannot be cut. Only an
   explicit cancel view is Pi's abort signal.
+
+Python spellings of the first Session (DE02b2b), with no Pi analogue:
+
+- One core, two drivers. `commit()` runs the callback and settlement inline on
+  the calling thread; `acommit()` binds the transaction to the running loop, runs
+  each operation eagerly up to its first backend call (as a JS async function
+  runs to its first await), sends each guarded backend call to the loop's
+  default executor and continues on the loop. An in-flight memoized backend call
+  is awaited, never run twice. The Session owns no thread or loop. A capped
+  default executor only slows operations: a held call occupies one worker while
+  the others continue.
+- Transaction affinity. A `SyncTx` and its drafts belong to the committing
+  thread, an `AsyncTx` and its drafts to the committing loop's thread; other
+  threads get `TxAffinityError`.
+- Sync waits never block an event loop. `commit()`, `read_on_line()`, a
+  `snapshot()` cache miss, `close()` and `wait_closed()` raise `RuntimeError` on a
+  thread with a running event loop; use the `a`-prefixed or `await_closed()`
+  forms there.
+- A sync callback that returns an awaitable is a callback failure: the commit
+  rolls back and raises `TypeError` (a never-started coroutine is closed; a
+  caller-owned Future or Task is left alone). `acommit()` awaits a returned
+  awaitable until it is a value, as `await change(tx)` flattens promises.
+- Handles. `AsyncTx` operations return `TxOp` awaitables whose `await` is
+  shielded, so a cancelled awaiter never cancels the owned operation. Prologue
+  errors (`TransactionSettled`, `ReadAfterWrite`, argument ingress) raise at call
+  time instead of returning a rejected promise.
+- Cancellation cuts. A cancel view is checked only when the ticket is granted
+  (`CommitCancelled`; the callback never runs) and is ignored once the callback
+  runs. `Task.cancel` of a queued `acommit` waiter unqueues it at once, and a
+  granted ticket it never used passes the line on. After the callback settles,
+  settlement is an owned shielded task: the commit stays durable, adopted and
+  published, and only the waiter gets `CancelledError`. A process-control
+  exception after backend admission fails the Session, since the outcome is
+  unknown.
+- Reentry. A Session entry that would queue behind the caller's own line hold
+  (`commit`, `acommit`, `read_on_line`, a snapshot miss, `close`, `aclose`),
+  called from the holder thread or the holder's caller or settlement task,
+  raises `ReentrantSessionCall` before admission or sealing. A task the callback
+  spawns queues normally; `request_close()` is allowed anywhere.
+- Failure. The first failure rejects every queued ticket at once with
+  `SessionFailed` (Pi runs each one into its health check), runs the close
+  listeners before the report, and closes Storage only after the holder leaves.
+  Close listeners run on the thread that begins close or latches the failure.
+- Listeners. A listener returning a Future is reported through a done-callback,
+  never awaited; a returned coroutine is closed unstarted and handled as a
+  `TypeError("Session listeners are synchronous")`, which for an internal
+  listener fails the Session. A process-control exception from any listener fails the
+  Session and propagates. The reporter receives `(error, "session_failed")` or
+  `(error, "listener_error")`; reporter exceptions are contained. Listener
+  registries compare callables by identity only.
+- Line hand-off and close. Leaving the line and granting the next ticket are
+  one locked step whose waker owns the wake-up, so a new entrant never takes a
+  queued ticket's turn or loses its wake-up. The line drains only after the
+  close listeners started by the first closer have run. A backend close claimed
+  on an event-loop thread (by `aclose()` or by a settlement leaving the line) runs
+  as owned work in the loop's default executor; elsewhere the claimer runs it.
+  No listener reference is released while the owner lock is held, so a
+  callable's `__del__` never runs under it. `wait_closed()` and `await_closed()`
+  from the line holder raise `ReentrantSessionCall`, like `close()`.
+- Close listeners re-entering the Session. As Pi's nested `close()` returns the
+  same pending closing promise, `close()` or `aclose()` from inside a close
+  listener (on the thread running it) requests close and returns without
+  waiting; `request_close()` is always allowed. `wait_closed()` and
+  `await_closed()` there raise `ReentrantSessionCall`, since no end exists yet,
+  and commits are refused like any commit after the seal.
+- Background close work. A backend close claimed on an event-loop thread runs
+  in the loop's default executor, and no commit, line leave or drain waits for
+  it: a commit returns as soon as it is settled and published. Its outcome is
+  shared: the close error and the end reach every `close()`, `aclose()` and
+  closed-waiter. Background close work reports process-control exceptions
+  (a reporter's) through the loop exception handler; once the loop is closed,
+  through `threading.excepthook` (the default prints the traceback to stderr;
+  it ignores `SystemExit`), falling back to a stderr traceback if that hook
+  fails. The fallback never raises. The exception is not delivered to a
+  specific closer. Without a
+  running loop the claimer closes inline and a reporter's process-control
+  exception propagates to it, as in b1a. A drain after a callback failure never
+  lets a close error replace the callback's error.
+- Waits. `aclose()` and `await_closed()` take no cancel view: cancelling the
+  awaiting task gives the wait up and, like a cancelled or timed-out `close()`,
+  never undoes the seal, the drain or the Storage close.
 
 The bounded Storage port admits document points by exact built-in type before
 comparison/coercion/hash/repr. Foreign objects and str/int subclasses cannot run

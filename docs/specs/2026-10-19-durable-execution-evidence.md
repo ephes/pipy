@@ -152,8 +152,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE02b1a | Private guarded Storage and lifecycle owner over real Memory | LANDED | 992c2102; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
 | DE02b1b | Actual pinned Node guard oracle and paired guard recipes | LANDED | cb38caf3; Codex gpt-6.1-sol HIGH ISSUES (two Warnings) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
 | DE02b2 | First internal Session/Tx over the same owner | IN_PROGRESS | Cumulative b2a+b2b (split 2026-10-21 by the accepted design); callback API decision recorded before code |
-| DE02b2a | Private Tx core and mutable raw-base drafts, no commit entrypoint | IN_PROGRESS | Local Tx-core evidence below; independent gates pending |
-| DE02b2b | First exposed internal Session: line, async driver, publication and close | OPEN | Requires b2a |
+| DE02b2a | Private Tx core and mutable raw-base drafts, no commit entrypoint | LANDED | be6ee84e; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; inventory-name repair delta CLEAN; push verified; no CI claim |
+| DE02b2b | First exposed internal Session: line, async driver, publication and close | IN_PROGRESS | Local Session evidence below; independent gates pending |
 | DE02b3 | Cumulative paired Session acceptance and final b gate | OPEN | Requires b2 |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
@@ -256,13 +256,14 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b, DE02b1a and DE02b1b have landed,
-so the cumulative DE02a2 and DE02a parents are delivered. DE02b is split
+DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b and DE02b2a have
+landed, so the cumulative DE02a2 and DE02a parents are delivered. DE02b is split
 b1a→b1b→b2→b3 before product edits: b1a the private guarded Storage/lifecycle
 owner and b1b its actual pinned Node oracle (both landed), b2 the first internal
 Session/Tx over that same owner, b3 cumulative paired Session acceptance and the
 final b gate. b2 is split again b2a→b2b: b2a the private Tx core and raw-base
-drafts without a commit entrypoint (in progress), b2b the first exposed Session.
+drafts without a commit entrypoint (landed), b2b the first exposed Session (in
+progress).
 DE02b2 waits both, DE02b waits all four children,
 DE02 waits a1+a2+b and DE03 waits b. Original parent acceptance remains
 unchanged. All P rows OPEN; no partial backend/product factory/default release.
@@ -2692,3 +2693,504 @@ tests, the whole extension-generation file, the architecture tests, the Tx test
 file (also 20 times and under `-W error`), `pytest tests/durable` (1092), the
 matrix (25/25), ruff, format and `mypy src tests` exit 0 (logs `fix-names-*`).
 `tx.py` is in no manifest closure, so no hashed file changed.
+
+
+## DE02b2a delivery and DE02b2b admission
+
+DE02b2a landed at `be6ee84e0f356a62dda5adbf0ec365f05711e99f` on origin/main (tree
+`b64d82bf`, verified with `git ls-remote`). Root's local `just check` exited 0
+with 13988 passed and the same two known skips; no CI result is claimed. Round 1
+review, Codex `gpt-6.1-sol` HIGH: **ISSUES**, one Critical (draft `__eq__` handed
+live backing containers to a foreign reflected `__eq__`) and one Warning (a
+`str`-subclass `RawDoc` scope hashed under the cache lock), repaired with a class
+audit; round 2 delta **CLEAN**. The full check then failed two package-wide AST
+inventory tests on the private names `retire` and `abort` in `tx.py`, fixed by
+renaming; round 3 rename delta **CLEAN**. A coordinator pre-review also corrected
+Pi's phase-before-ingress order. DE02b2a is LANDED; DE02b2, DE02b and DE02 stay
+IN_PROGRESS, DE03 OPEN and all43 P rows OPEN.
+
+The coordinator issued the DE02b2b work order the same day. The read-only DE02b2
+design proposal (§1, §2, §4, §5 and the b2b rows of §7) is binding, with these
+Root decisions:
+
+1. Everything coupled to the first commit surface lands in b2b: the FIFO line
+   inside the b1a `SessionLifecycle` (no second failure state), the async driver
+   over the existing `_TxCore`, `commit`/`acommit`, `read_on_line`/
+   `aread_on_line`, raw `snapshot`/`asnapshot`, pending seal and drain, the
+   cancellation matrix, reentry by holder identity (no `RLock`), both
+   acknowledgement cuts, adopt failure rejecting the triggering commit, an
+   internal-listener failure poisoning while the durable commit resolves,
+   contained host listeners, close listeners and every close and wait entry.
+   b3 is the paired Pi acceptance only.
+2. The owner amendments in `session.py` are authorized exactly as proposal §5:
+   line state, tickets counting toward the close-drain predicate (requested, no
+   call underway, no holder and an empty queue), the claim on line release, the
+   close hook and async closed-waiters woken with `call_soon_threadsafe`. b1a and
+   b1b behaviour without a line must stay identical; a change to a hashed closure
+   file needs the manifest cascade last and both fresh b1b chains.
+3. Asyncio cancellation reaching a running callback is the callback's own
+   outcome; once the callback settles, settlement is owned and shielded and only
+   the waiter gets `CancelledError`.
+4. The loop's default executor, no owned threads; the capped-executor slowdown
+   risk is documented.
+5. Publications carry the adopted cached `OwnedJson` (identity-shared with
+   `snapshot`); table changes carry the committed `StorageWrite` objects.
+6. b2a carry-forwards: await an in-flight memoized `_Io` instead of re-running
+   it; drain pending handles before the line is left; loop-bound affinity for
+   `AsyncTx` and drafts; off-line snapshot readers see the old or the new
+   revision, never a candidate.
+7. b1b carry-forwards: Pi's close-to-guard-seal window (off-line guard reads
+   admitted until the close line job) and `fail()`→close routed behind the
+   running line job, both proven natively.
+8. The Python-only rules are documented in `docs/harness-spec.md`.
+
+## DE02b2b local Session evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` HIGH, sole writer on main from clean HEAD
+`be6ee84e`; no subagents. Nothing is committed or pushed and no CI result is
+claimed. Upstream was read only through `git show` at the pin.
+
+**Shape.** The new private module `native/durable/session_core.py` holds
+`Session`, `SyncTx`/`AsyncTx`, `TxOp`, the async driver and
+`CommitPublication`; it is not exported from the package. `session.py` gains
+the authorized owner amendments only; `tx.py` gains a shared document loader
+(used by Tx acquisition and the snapshot miss) and the table-write count that
+publication needs.
+
+- **Line state machine.** The b1a `SessionLifecycle` owns one FIFO of
+  `_LineTicket`s and at most one holder, under its existing `Condition`, with
+  no failure state of its own. Admission checks health, then the line seal, and
+  grants at once when idle. Leaving grants the next queued ticket (a sync
+  ticket wakes through the Condition, an async one through
+  `call_soon_threadsafe`; a wake whose loop is closed counts as cancelled and
+  passes the line on). The first failure seals the line and rejects every queued
+  ticket at once with `SessionFailed`. Close seals the line and runs the close
+  listeners once; when the line has no holder and no ticket, the drained hook
+  clears listeners and the document cache, then the guard is sealed and backend
+  close requested. The backend close claim requires a requested close, no
+  guarded call underway, no holder and an empty queue. Without a line every
+  predicate holds, so b1a behaviour is unchanged.
+- **Async driver.** `acommit()` binds the Tx to the running loop. Each
+  `AsyncTx` operation's body runs eagerly up to its first backend call, which
+  goes to the loop's default executor; a task continues the body on the loop.
+  An in-flight memoized `_Io` is awaited through the driver's map of submitted
+  calls, never run again. `TxOp.__await__` is `asyncio.shield`, every op
+  outcome is observed, and a failed op nobody awaited never logs.
+- **Cancellation linearization.** The cancel view is read only at the grant,
+  after health. A callback runs in the caller's thread or task; asyncio
+  cancellation reaching it is its own outcome. When it settles, the core is
+  sealed synchronously (failure: abort; success: pending check and prepare,
+  eagerly up to the first backend call), and the rest (drain, assembly, the
+  guarded commit, adoption, publication, leaving the line) is an owned task the
+  waiter awaits through `asyncio.shield`. A process-control exception after
+  backend admission fails the owner.
+- **Publication.** Built after adoption and before leaving the line, only when
+  a listener exists: the committed table `StorageWrite` objects in batch order,
+  then the adopted `RawDocumentChange`s, whose values are the very `OwnedJson`
+  objects that `snapshot()` returns. Internal listeners run first and fail the
+  owner on an exception (the rest of the publication is still delivered and
+  the commit resolves); host commit and close listeners are contained and
+  reported as `"listener_error"`.
+
+**Test to Pi anchor mapping** (`tests/durable/test_session_commit.py`, real
+`MemoryStorage` behind a delegating wrapper that holds a call, or faults before
+delegating or after the real call). Each behaviour runs as a sync `commit()` and
+an async `acommit()` variant unless noted; async variants run inside
+`asyncio.run` with loop exception reports treated as failures.
+
+| Pi anchor or plan cut | Scenario |
+| --- | --- |
+| docs 605, 137, 120 | publication delivered before the commit returns; table changes are the committed `StorageWrite` objects; document value `is` the snapshot value; snapshots identity-stable |
+| docs 459, 207 | old revision visible (same object) while the backend commit is held; an escaped nested draft read from another thread or the loop raises `DraftRevoked`; a returned draft (async: a returned op handle) is revoked |
+| docs 591 | cold cache reloads an equal, distinct incarnation; absent document is `None` |
+| docs 352 | a captured Tx rejects `doc`, `conversation` and `set_task` |
+| docs 174, 228, 479 | value no-op and failed callbacks publish nothing; retire and recreate publish the retired then the created change with `retiredAt`/`createdAt` |
+| docs 284, 311, 337 (async only) | the line stays held (holder and queue witnessed) until a held pending acquisition drains; `PendingTxOperations`, the handle raises `TransactionSettled`, no initializer or mint; the callback error wins |
+| docs 250, 549 (async only) | concurrent duplicate `doc()` returns the same handle and draft, one init, one mint; retire racing pending acquisition |
+| tables 82 (async only) | an unawaited write sets the phase before suspension |
+| b2a carry-forward (async only) | an in-flight memoized committed task read is awaited by a second body, one backend call (two-worker executor, FIFO sentinel) |
+| queued cancel versus running callback | view-cancelled queued ticket never entered, FIFO kept; Task-cancelled queued (async) and granted-but-unused (async) tickets pass the line on; a view cancelled after the grant or during a held commit is ignored; `Task.cancel` in the callback rolls back, or commits when swallowed (async); `Task.cancel` during a held backend commit: durable, published, waiter `CancelledError` (async) |
+| H276 | a caught failed read, then a write raises `SessionFailed`; then a plain return is health-checked |
+| late-read discard | a held Tx read while an off-line mint fails ends with `SessionFailed`; nothing committed |
+| H267, H291, docs 440 | cut before delegating, after the real commit, and a `StorageRequestError` commit: original error, owner failed, no adoption, publication or retry; the after-commit probe shows the write |
+| commit-before-adopt; adopt failure | an internal listener sees the backend seq returned and the cache adopted; an injected adoption failure rejects the durable commit and fails the Session |
+| H328, H466, H431 | internal listener failure poisons while the commit resolves and the rest is delivered; host commit and close listeners contained (`seen == ["commit", "close"]`); Future and coroutine listeners reported (async) and an internal coroutine listener fails the Session |
+| reentry | callbacks and listeners calling commit, close, read-on-line or a snapshot miss get `ReentrantSessionCall` (a hit is allowed; `request_close()` from a listener is allowed); a spawned task queues behind its spawner (async); sync entries on a loop thread raise `RuntimeError` (async) |
+| docs 622, 632 and close | close listeners once with disposers; admitted and queued commits and a queued snapshot miss settle before close; later admission "Session is closed"; guard reads admitted until the line drains, then sealed; backend closed once; a failure under a held line closes Storage only after release; close listeners before the report; bulk rejection of a queued ticket; `aclose` on the holder's loop does not deadlock (async); a cancelled close wait keeps the seal and drain |
+| Python-only | sync callback returning an awaitable rolls back; process-control exception in the callback rolls back; a listener's process-control exception fails and propagates (sync) |
+
+Two owner-level unit tests cover abandoning a queued sync ticket and a wake whose
+loop is closed passing the line on, and a test checks that a lifecycle without
+any line ticket still seals and closes at once (b1a behaviour).
+
+**Negative controls.** Twelve private source mutants are built consistently
+(every module from the mutated one onward, so `session.py` and `tx.py` mutants
+reach `session_core.py`), and each must fail designated scenarios that pass
+unmodified: line hold during drain, the pending check (`tx.py`), the settlement
+shield, the `TxOp` shield, the queued-cancel cut, the post-callback health
+check, adopt-fail→fail, internal-versus-host routing, the line-drain close
+predicate and close-listener ordering (`session.py`), bulk rejection
+(`session.py`) and the in-flight memoized call. 22 of 22 designated runs fail
+for the intended reason, with no unreaped thread.
+
+**session.py changed, so the b1b chains reran.** The cascade ran last
+(baseline → a1 → a2b → b1b; only the acceptance script, the coverage test and
+`coverage.json` drifted in the baseline and only `session.py` in the guard
+closure): baseline `e29d0e33…d3cf`, a1 `97ab2699…8b10`, a2b `12d71a36…11e2`, b1b
+`afb1a739…9b6a`; every hashed path matches (12, 11, 18, 25 entries). Two new
+owner-only roots then each ran a fresh pinned baseline acceptance, a1, a2b and
+b1b against that same parent on Node 26.12.0 and npm 11.20.0, with no fallback
+runtime and no process group left behind.
+
+| Chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline0/49.86s → a1 0/8.21s → a2b0/17.21s → b1b0/26.63s |
+| 2 | baseline0/49.01s → a1 0/8.90s → a2b0/18.18s → b1b0/24.26s |
+
+`final-pairs.json` (sha256 `f7cb82e7…f2da`) binds eight distinct execution IDs
+(parents `6c8111cc…`/`d8aab6e5…`; b1b `9f9178dc…`/`85e71beb…`), each child's
+parent execution and the manifest hashes above. Every child records PASS and
+`fresh_reference_bootstrap: false`; each b1b run has 27 scenarios and all18
+mutants positive0/negative1.
+
+| Check (Python 3.15, `.venv`) | Exit / result |
+| --- | --- |
+| focused: new file, b1a guard, b1b comparison, b2a core, coverage, acceptance | 0; 469 passed |
+| `pytest tests/durable/test_session_commit.py`, 20 sequential runs | 20 of 20 exit 0; 94 passed each |
+| the same file under `-X dev -W error` | 0; 94 passed |
+| `pytest tests/durable` (after the cascade) | 0; 1186 passed |
+| `tests/test_native_session_extension_generation.py` and `tests/test_architecture_*.py` | 0; 348 passed |
+| negative-control matrix script | 0; 22/22 designated failures, unmodified 22/22 pass |
+| manifest cascade and closure verification | 0; no mismatch |
+| two fresh b1b chains | 0 and 0 (table above) |
+| `ruff check .`, `ruff format --check .` | 0, 0 |
+| `mypy src tests` | 0; 893 files |
+| `scripts/docs.py build` (zensical `--strict`) and a rendered local link/anchor check of the five changed pages | 0 ("No issues found"); 0, 842 local links, 0 bad |
+
+**Deviations, with reasons.**
+
+- `aclose()` and `await_closed()` take no cancel view: cancelling the awaiting
+  task is the asyncio give-up, and it keeps the seal, drain and backend close
+  like a cancelled `close()`. A view would need async watchers on `CancelLatch`,
+  which Root did not request.
+- Every sync entry that may wait for the line (`read_on_line`, a snapshot miss,
+  `close`, `wait_closed` as well as `commit`) refuses a running-loop thread, so
+  no blocking wait can deadlock against an async holder on that loop.
+- `read_on_line()` refuses a job returning an awaitable, like `commit()`.
+- Close and failure: when the line is idle at close, the drained job runs at
+  once instead of after Pi's few microtasks; Pi's close-to-guard-seal window
+  exists while the line is busy, which the native test proves.
+- Following an already-settled acquisition, `retire_doc` returns a settled
+  handle (also in the sync driver); Pi's `.then` follower stays pending for one
+  microtask.
+- Close listeners on failure run on the thread that latched it (possibly an
+  executor thread for an async Tx read).
+- Cache adoption stays under the cache lock: all cache writes are line jobs, so
+  an off-line snapshot reader sees the old or the new incarnation per document.
+
+**Open risks for b3.** A capped or replaced default executor serializes
+operations (correct, slower); asyncio shutdown cancelling a leftover settlement
+after admission fails the Session (unknown outcome); the bulk rejection,
+reentry and loop-thread rules have no Pi analogue and are not paired; the
+listener context argument, retention/eviction, `unloadDocuments`, scoped
+commits and typed documents remain with their owners.
+
+### DE02b2b round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH, of tree `8d8685df`: **ISSUES**, one
+Critical and four Warnings, all concurrency defects; the coordinator accepted
+all five and Claude Code `claude-opus-5-5` HIGH repaired them. No CI result is
+claimed.
+
+- **Critical: lost wake-up in the line hand-off.** The leaver cleared the holder
+  in one locked step and granted the next ticket in a later one. An entrant in
+  between could grant the queued ticket without notifying or waking it, so both
+  stayed stuck and close was blocked. Leaving now clears the holder and grants
+  the next ticket in one locked step (`_pass_line`): a sync grant is notified
+  under the lock, and an async grant is returned and woken outside it by the
+  leaver. A wake whose loop is closed passes the line on in the same way. A line
+  without a holder therefore has an empty queue, so an entrant can only grant
+  itself and FIFO order holds.
+- **Warning: drain under a running close hook.** A second closer could drain
+  the line, clearing the close listeners, after the first closer began close but
+  before its hook copied them. The drain now also requires the close-begin hook
+  to have finished (`_close_hook_done`); the hook's thread drains afterwards.
+- **Warning: backend close on the event loop.** `aclose()`, or a settlement
+  leaving the line, could run the blocking backend `close()` on the loop. The
+  owner now takes an optional close runner: the Session's runner hands a close
+  claimed on a running loop to the loop's default executor (joined by
+  `asyncio.run`). The claim, admission seal, close-once and shared outcome
+  (`_close_error`, the end) are unchanged, and a claimer with no running loop
+  still closes inline as in b1a.
+- **Warning: `wait_closed`/`await_closed` from the holder.** Both now raise
+  `ReentrantSessionCall` for the line holder, as `close`/`aclose` do.
+- **Warning: listener finalizers under the owner lock.** Clearing the registries
+  under the owner lock could drop a last reference and run a callable's
+  `__del__` there. Registries are now detached under the lock and dropped after
+  it (`take()`, and `discard()` returns the old list). Other drops were audited:
+  tickets, futures and wake partials stay referenced by their waiters or are
+  released after unlocking; publications, handles and drafts are never dropped
+  under a Session lock; the document cache lock drops only owned committed values.
+
+Regressions in `tests/durable/test_session_commit.py`:
+
+- `hand-off-never-loses-a-wake-up` (sync and async waiter) replaces the owner
+  Condition with an instrumented one that pauses the leaver right after a lock
+  exit where no one holds the line but a ticket is queued. The pre-repair split
+  hits that window: an entrant then grants the queued ticket there and it is
+  never woken. In the repaired owner the window never occurs, and A, B, C commit
+  in FIFO order.
+- `second-closer-never-drains-under-a-running-close-hook` pauses the first
+  closer at the same kind of barrier, once close has begun and before its hook
+  ran.
+- `blocking-backend-close-runs-off-the-event-loop` holds the backend close; the
+  loop keeps running and the `aclose` waiter can be cancelled.
+- `backend-close-awaiting-a-loop-task-completes`: a failing async commit leaves
+  the line on the loop, and the backend close waits for a task on that loop.
+- `wait-closed-from-the-holder-is-reentrant` (sync and async).
+- `listener-finalizers-never-run-under-the-owner-lock` (sync and async): commit,
+  internal and close listeners whose finalizer takes the owner lock with a
+  bounded acquire.
+
+The async `failure-while-line-held` witness now checks that the close is not even
+claimed, because a claimed close may now complete on an executor thread.
+
+Five new private mutants each make their regressions fail: the split hand-off,
+the removed close-hook gate, an inline close on the loop, missing wait reentry
+checks, and listeners dropped under the lock. Seventeen mutants in all; the
+matrix shows 31 of 31 designated runs failing for the intended reason, with no
+unreaped thread (`repair-r1-mutant-matrix.log`).
+
+`session.py` changed again, so the cascade reran last (baseline drift: only
+`coverage.json`; guard closure: only `session.py`). The new hashes are baseline
+`f07ff822…3697`, a1 `d1cce3ae…c413`, a2b `7ce9cc57…8482` and b1b `34d2d284…aa1b`;
+every hashed path matches. Both chains then ran fresh again on Node 26.12.0 and
+npm 11.20.0, on new owner-only roots. The chains above are superseded; their
+`final-pairs.json` is kept as `final-pairs-superseded-pre-r1.json`.
+
+| Repair chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline0/51.73s → a1 0/7.65s → a2b0/16.05s → b1b0/22.63s |
+| 2 | baseline0/48.30s → a1 0/7.83s → a2b0/16.70s → b1b0/23.53s |
+
+The new `final-pairs.json` (sha256 `59cbee88…01eb`) binds eight distinct execution
+IDs (parents `a81d7374…`/`04801775…`; b1b `45c6fffa…`/`682cf10d…`). Every child
+records PASS and `fresh_reference_bootstrap: false`, and each b1b run has 27
+scenarios with all18 mutants positive0/negative1.
+
+| Check (repair rerun, logs `repair-r1-*`) | Exit / result |
+| --- | --- |
+| focused: new file, b1a guard, b1b comparison, b2a core, coverage, acceptance | 0; 483 passed |
+| new file, 20 sequential runs | 20 of 20 exit 0; 108 passed each |
+| new file under `-X dev -W error` | 0; 108 passed |
+| `pytest tests/durable` | 0; 1200 passed |
+| extension-generation inventory and architecture tests | 0; 348 passed |
+| negative-control matrix | 0; 31/31 |
+| cascade and closure verification | 0; no mismatch |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (893 files) |
+| strict docs build; rendered link check of the five changed pages | 0; 0 bad links |
+
+### DE02b2b round-2 Codex review repair
+
+Round 2 delta review, Codex `gpt-6.1-sol` HIGH, of tree `7e763112`: **ISSUES**,
+one Critical and one Warning, both introduced by the round-1 repair. The
+coordinator accepted both and Claude Code `claude-opus-5-5` HIGH repaired them.
+No CI result is claimed.
+
+- **Critical: a close listener calling `close()` deadlocked.** The round-1 gate
+  makes the line drain only after the close-begin hook has finished, so a close
+  listener that waited for close (`subscribe_close(session.close)`) waited for its
+  own hook. The pinned Pi `close()` sets `#closing` before `#notifyClose()`, so a
+  nested `close()` returns the same pending closing promise without blocking or
+  throwing. The owner now records the thread running the close-begin hook
+  (`_close_hook_thread`). `close()` from that thread requests close and returns
+  without waiting (`SessionLifecycle.close`, also reached through
+  `GuardedStorage.close`); `Session.close()` skips its holder and loop-thread
+  refusals there, and `aclose()` likewise returns without waiting. `wait_closed()`
+  and `await_closed()` from the hook thread raise `ReentrantSessionCall`, since no
+  end exists yet. `request_close()` stays allowed, and commits are refused as
+  after any seal. The round-1 guarantee stands: an independent second closer
+  still never drains before the first closer's hook has run.
+- **Warning: a reporter process-control exception during an off-loop close was
+  consumed.** The Session now records the off-loop close job. The `aclose()` or
+  the settlement leave (`_aleave`) that triggered it awaits it (`_take_close`), as
+  an inline claimer would. A reporter exception propagates to that claimer, and a
+  process-control close error is raised there unless it is already raising.
+  Other closers get the recorded close error. A job no Session waiter took goes to
+  the loop's exception handler instead of being dropped. The inline path is
+  unchanged.
+
+Regressions: `close-listener-calling-close-completes` (the reviewer's exact
+case, sync). `close-listeners-reentering-the-session` covers close listeners
+calling `close`, `request_close`, `wait_closed` and `commit`, and through
+`asyncio.run` also `aclose` and `await_closed` (sync), or spawning `aclose`,
+`await_closed` and `acommit` tasks around an outer `aclose` (async). Only the
+waits are reported (`ReentrantSessionCall`), plus the sealed commit.
+`off-loop-close-delivers-reporter-exception-to-its-claimer` (async): the backend
+close raises `RuntimeError`, the reporter raises a `BaseException`; the
+triggering `aclose` gets it and a second `aclose` gets the close error.
+`inline-close-reporter-exception-still-propagates` (sync) shows the inline path
+is unchanged.
+
+Two new mutants (a nested close that waits, and an `aclose` that does not take
+its close job) each fail their regressions; the 19-mutant matrix shows 34 of 34
+designated runs failing, with no unreaped thread (`repair-r2-mutant-matrix.log`).
+
+`session.py` changed again, so the cascade reran last (baseline drift: only
+`coverage.json`; guard closure: only `session.py`). The new hashes are baseline
+`67f7ac88…9fe0`, a1 `c57695640…30fb`, a2b `d64b231e…d093` and b1b
+`1335c84f…9934`, with every hashed path matching. Both chains ran fresh again on
+Node 26.12.0 and npm 11.20.0 on new owner-only roots. The round-1 chains are
+superseded (`final-pairs-superseded-r1.json`).
+
+| Repair-2 chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline0/40.94s → a1 0/7.33s → a2b0/15.42s → b1b0/23.78s |
+| 2 | baseline0/39.34s → a1 0/7.82s → a2b0/16.63s → b1b0/23.43s |
+
+The new `final-pairs.json` (sha256 `0597bf5e…2b49`) binds eight distinct
+execution IDs (parents `c5b1a135…`/`8e21e7c3…`; b1b `5a959fdd…`/`6157bd2b…`).
+Every child records PASS and `fresh_reference_bootstrap: false`, and each b1b run
+has 27 scenarios with all18 mutants positive0/negative1.
+
+| Check (repair-2 rerun, logs `repair-r2-*`) | Exit / result |
+| --- | --- |
+| focused: new file, b1a guard, b1b comparison, b2a core, coverage, acceptance | 0; 490 passed |
+| new file, 20 sequential runs | 20 of 20 exit 0; 115 passed each |
+| new file under `-X dev -W error` | 0; 115 passed |
+| `pytest tests/durable` | 0; 1207 passed |
+| extension-generation inventory and architecture tests | 0; 348 passed |
+| negative-control matrix | 0; 34/34 |
+| cascade and closure verification | 0; no mismatch |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (893 files) |
+| strict docs build; rendered link check of the five changed pages | 0; 0 bad links |
+
+### DE02b2b round-3 review: simplification by Root decision
+
+Round 3 delta review, Codex `gpt-6.1-sol` HIGH, of tree `7d31de8b`: **ISSUES**,
+one Critical and three Warnings, all in the round-2 mechanism that handed an
+off-loop backend close's outcome to the waiter that triggered it (`_close_job`,
+`_take_close`, `_close_job_taken`, `_aleave` awaiting the close):
+
+- Critical: a commit awaited the background close before returning, so it
+  deadlocked when a commit listener requested close and the backend close
+  waited for an event set after `await acommit(...)`.
+- Warning: the taken flag was set before the shielded wait finished, so
+  cancelling the claiming `aclose()` suppressed the fallback report.
+- Warning: a second closer on another loop could take the first closer's
+  future.
+- Warning: the drain after a callback failure let a process-control close error
+  replace the callback's error.
+
+The finding count rose from two to four inside one mechanism, so Root
+decided to remove it rather than patch it further. Claude Code
+`claude-opus-5-5` HIGH removed the mechanism entirely. Async line leaves,
+settlement and the drain never await a backend close again, so a commit
+returns as soon as it is settled and published. The round-1 off-loop
+runner stays: the close is claimed under the lock, runs in the loop's default
+executor, and records the shared outcome (`_close_error`, the end) for every
+closer. A process-control exception escaping that background job (a
+reporter's) is caught on the executor thread and handed to the owning loop's
+`call_exception_handler` through `call_soon_threadsafe`, or to
+`sys.unraisablehook` if the loop is closed. It is not delivered to a specific
+closer. The inline path (no running loop) is unchanged: a reporter's
+process-control exception propagates to the inline claimer, as in b1a.
+`_drain_async` now always leaves with `raising=True`. The round-1 fixes and the
+round-2 nested-close fix are kept. `session.py` is unchanged in this round
+(guard closure unchanged).
+
+Regressions:
+
+- `commit-result-independent-of-backend-close`: the reviewer's Critical case
+  now completes.
+- `concurrent-aclose-on-different-loops`: two `asyncio.run(aclose())` threads
+  share one held close.
+- `callback-error-survives-a-process-control-close-error` (sync and async): the
+  `ValueError` reaches the committer, and closers get the recorded close error.
+- `off-loop-close-reporter-outcome-reaches-loop-handler` and
+  `cancelled-aclose-never-loses-the-reporter-outcome`: a custom loop exception
+  handler sees the reporter's `BaseException` exactly once, while closers get
+  the recorded `RuntimeError`.
+
+The `off-loop-close-delivery` mutant is replaced by
+`background-close-outcome-reported`, which swallows the outcome and fails both
+handler regressions; the 19-mutant matrix shows 35 of 35 designated runs
+failing, with no unreaped thread (`repair-r3-mutant-matrix.log`).
+
+The coverage observables changed, so the cascade reran (baseline drift: only
+`coverage.json`; guard closure unchanged): baseline `44d93af6…ac55`, a1
+`ea6c32ce…aedc`, a2b `57981eaa…1008` and b1b `94e86343…7be8`, with every hashed
+path matching. The b1b manifest file changed, so both chains ran fresh again on
+Node 26.12.0 and npm 11.20.0 on new owner-only roots. The round-2 chains are
+superseded (`final-pairs-superseded-r2.json`).
+
+| Repair-3 chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline0/47.75s → a1 0/7.43s → a2b0/16.50s → b1b0/22.05s |
+| 2 | baseline0/70.28s → a1 0/8.53s → a2b0/15.88s → b1b0/22.00s |
+
+The new `final-pairs.json` (sha256 `dcf828d1…73a7`) binds eight distinct execution
+IDs (parents `d30712a0…`/`c17534ba…`; b1b `a43f106e…`/`5983eebb…`). Every child
+records PASS and `fresh_reference_bootstrap: false`, and each b1b run has 27
+scenarios with all18 mutants positive0/negative1.
+
+| Check (repair-3 rerun, logs `repair-r3-*`) | Exit / result |
+| --- | --- |
+| focused: new file, b1a guard, b1b comparison, b2a core, coverage, acceptance | 0; 495 passed |
+| new file, 20 sequential runs | 20 of 20 exit 0; 120 passed each |
+| new file under `-X dev -W error` | 0; 120 passed |
+| `pytest tests/durable` | 0; 1212 passed |
+| extension-generation inventory and architecture tests | 0; 348 passed |
+| negative-control matrix | 0; 35/35 |
+| cascade and closure verification | 0; no mismatch |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (893 files) |
+| strict docs build; rendered link check of the five changed pages | 0; 0 bad links |
+
+### DE02b2b round-4 Codex review repair
+
+Round 4 delta review, Codex `gpt-6.1-sol` HIGH, of tree `2cdac4ac`: **ISSUES**,
+one Warning caused by the round-3 repair and accepted by the coordinator. No CI
+result is claimed.
+
+- **Warning: the closed-loop fallback lost the reporter's exception.** Once its
+  loop is closed, background close work passed a `SimpleNamespace` to
+  `sys.unraisablehook`, which the default hook rejects with `TypeError`, so the
+  exception was lost. The fallback (`_report_unhandled`) now calls
+  `threading.excepthook` with a public `threading.ExceptHookArgs`. The default
+  hook prints the traceback to stderr and ignores `SystemExit`. If a custom hook
+  fails, the traceback is printed to stderr directly; the fallback itself never
+  raises. The loop-handler path and everything else are unchanged.
+
+Regressions (sync, on a manually managed loop whose executor holds the backend
+close while the loop is closed):
+
+- `closed-loop-background-outcome-reaches-default-excepthook` installs the stock
+  `threading.__excepthook__` (pytest replaces it during tests).
+- `closed-loop-background-outcome-survives-a-failing-excepthook` installs a hook
+  that raises.
+
+Both capture stderr and assert a unique marker in the reporter's exception
+appears exactly once. Closers still get the recorded close error. The existing
+`background-close-outcome-reported` control now also swallows the closed-loop
+fallback and fails both new regressions, so there are still 19 mutants; the
+matrix shows 37 of 37 designated runs failing, with no unreaped thread
+(`repair-r4-mutant-matrix.log`).
+
+No hashed file changed in this round: `session.py`, `coverage.json`, the
+acceptance script and every closure file are unchanged, and a cascade dry run
+reports no manifest change. The round-3 chains and `final-pairs.json`
+(`dcf828d1…73a7`) therefore still bind the current manifests, and no chain
+reran.
+
+| Check (repair-4 rerun, logs `repair-r4-*`) | Exit / result |
+| --- | --- |
+| focused: new file, b1a guard, b1b comparison, b2a core, coverage, acceptance | 0; 497 passed |
+| new file, 20 sequential runs | 20 of 20 exit 0; 122 passed each |
+| new file under `-X dev -W error` | 0; 122 passed |
+| `pytest tests/durable` | 0; 1214 passed |
+| extension-generation inventory and architecture tests | 0; 348 passed |
+| negative-control matrix | 0; 37/37 |
+| cascade dry run (no hashed change) | 0; no manifest change |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (893 files) |
+| strict docs build; rendered link check of the five changed pages | 0; 0 bad links |

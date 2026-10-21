@@ -210,9 +210,9 @@ def test_session_split_children_keep_original_parent_contract():
     )
     assert "b1a+b1b+b2+b3" in rows["DE02b"]["future"]
     assert rows["DE02b1a"]["status"] == rows["DE02b1b"]["status"] == "LANDED"
-    assert rows["DE02b2"]["status"] == rows["DE02b2a"]["status"] == "IN_PROGRESS"
-    for child in ("DE02b2b", "DE02b3"):
-        assert rows[child]["status"] == "OPEN"
+    assert rows["DE02b2a"]["status"] == "LANDED"
+    assert rows["DE02b2"]["status"] == rows["DE02b2b"]["status"] == "IN_PROGRESS"
+    assert rows["DE02b3"]["status"] == "OPEN"
     for child in ("DE02b1a", "DE02b2", "DE02b2a", "DE02b2b", "DE02b3"):
         current = rows[child]["current"]
         assert current["kind"] == "source-only"
@@ -309,5 +309,10 @@ def test_tx_core_split_keeps_original_b2_contract():
     assert "DE02b2 completes only after both" in rows["DE02b2"]["future"]
     assert "no commit entrypoint" in rows["DE02b2a"]["contract"]
     assert "Session/line/async driver" not in rows["DE02b2a"]["contract"]
+    assert "none moves to b3" in rows["DE02b2b"]["future"]
+    assert "No reference oracle (b3)" in rows["DE02b2b"]["current"]["observables"]
+    assert rows["DE02b2b"]["evidence"][0].endswith(
+        "#de02b2a-delivery-and-de02b2b-admission"
+    )
     for key in ("DE04", "DE27"):
         assert "session-documents.test.ts 190" in rows[key]["current"]["observables"]

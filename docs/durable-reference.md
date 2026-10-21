@@ -420,9 +420,10 @@ in the same candidate and cumulative bounded Storage proof. Both have landed, so
 cumulative a2 and a parents are delivered. DE02b is split b1a→b1b→b2→b3: the
 landed b1a private guard/lifecycle owner has native tests only (source-only index
 evidence); b1b alone owns the bounded-native `session-guard-b1b-v1` case, its
-actual pinned Node guard oracle; both have landed. b2 is split b2a→b2b: the b2a
-private Tx core and raw-base drafts have native tests only (source-only index
-evidence). DE02b2 waits both, DE02b waits all four children and DE03 requires
+actual pinned Node guard oracle; both have landed. b2 is split b2a→b2b: the
+landed b2a private Tx core and raw-base drafts and the in-progress b2b first
+internal Session (line, sync and async commit, publication, close) have native
+tests only (source-only index evidence). DE02b2 waits both, DE02b waits all four children and DE03 requires
 b. No child alone can complete DE02, DE02b or any P row.
 
 
@@ -937,7 +938,9 @@ Caller settlements are recorded per step, never interleaved into effects.
 `session.close()`; b1a seals inside `close()`. Recipes never admit a guarded call
 between a close start and a `quiesce` barrier (Node: one `setImmediate` drain;
 native: the closer finished or is blocked behind a held backend call), and the
-validator enforces this. That window, with a busy Session line, belongs to DE02b2.
+validator enforces this. That window, with a busy Session line, belongs to DE02b2;
+DE02b2b implements it natively (guard reads stay admitted until the line drains)
+and proves it in native tests only, not in this oracle.
 Also not compared: the order of report versus outcome publication for a healthy
 close failure (b1a publishes first; Pi reports first), Python-only
 `BaseException` handling, non-Error JS throw values, Harness `safeReport` and

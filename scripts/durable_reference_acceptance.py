@@ -275,7 +275,7 @@ DE_EVIDENCE = {
     "DE02b1b": "de02b1a-delivery-and-de02b1b-admission",
     "DE02b2": "de02a2b-delivery-and-de02b-split",
     "DE02b2a": "de02b1b-delivery-and-de02b2a-admission",
-    "DE02b2b": "de02b1b-delivery-and-de02b2a-admission",
+    "DE02b2b": "de02b2a-delivery-and-de02b2b-admission",
     "DE02b3": "de02a2b-delivery-and-de02b-split",
 }
 
