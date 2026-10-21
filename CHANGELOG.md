@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add an internal pinned Pi oracle for the private durable Session storage guard
+  (verification only; no product, default or public API change). A bounded
+  subclass of Pi's `SessionImpl` exposes its guarded Storage; 27 paired recipes
+  drive it and the native lifecycle owner over real in-memory backends, comparing
+  per-call outcomes, ordered backend/report/close effects and the terminal end.
+  Eighteen schema-valid guard mutants must mismatch, and the native owner's
+  private negative controls are rerun through the same recipes. The comparison
+  also repairs a stale closure hash in the existing table-comparison manifest.
+  The Session line, Tx and every parity requirement remain open.
+
 - Add a private durable Session storage guard and lifecycle owner (internal; no
   product, default or public API change). One owner latches the first storage
   failure, reports it once, registers every guarded backend call, seals guarded

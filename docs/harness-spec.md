@@ -110,15 +110,19 @@ create/change/retire, materialization and exact address/scope scans inside that
 same candidate/authority, with cumulative bounded Storage acceptance (Opus5.5 HIGH
 ISSUES one Suggestion, repaired; Codex gpt-6.1-sol HIGH delta CLEAN; no CI claim),
 so DE02a2 and DE02a are delivered. Delta/copy/numeric history/fork materialization
-remain later. DE02b is split b1a→b1b→b2→b3. DE02b1a (in progress) adds the private
+remain later. DE02b is split b1a→b1b→b2→b3. DE02b1a (landed `992c2102`) adds the private
 `native/durable/session.py` owner: one lifecycle object governs the first failure,
 report-once, guarded-call registration, the final-stage guard admission seal,
 drain and backend-close-once, and a Storage-shaped guard delegates all sixteen
 methods unchanged. Reads exempt only `StorageRequestError` or a cancelled caller
 view; commit/mint are never exempt; a call underway when another fails ends with
 `SessionFailed`; the last call to retire closes the backend. It is not exported and
-has no Session/Tx; b1b adds its pinned Node oracle, b2 the first Session/Tx over
-the same owner, b3 the final cumulative gate. DE02 waits a1+a2+b; DE03 waits b.
+has no Session/Tx. DE02b1b (in progress) compares it with the pinned Pi
+`SessionImpl` guard through a bounded driver subclass, over real Memory on both
+sides, with paired recipes and schema-valid guard mutants; Pi's post-close
+line-job seal window, report-versus-outcome order on a healthy close failure and
+Python-only `BaseException` handling are explicitly not compared. b2 adds the
+first Session/Tx over the same owner, b3 the final cumulative gate. DE02 waits a1+a2+b; DE03 waits b.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 

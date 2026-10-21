@@ -2,10 +2,10 @@
   "schema_version": 1,
   "phase": "memory-current-base-a2b-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "548293ddf3ecd88582ed283e9dc547dc11e91511a5f7077531b75baf4237b244",
-  "a1_manifest_sha256": "fec17ab3aeddd66f3fa4cda8f9047b4a2842be044b72e18bc2d8f2ee7e12b10f",
+  "baseline_manifest_sha256": "829fb0e9ba4793647eed1b34fe3594a654c5d707eb186309f35f300c6c64364c",
+  "a1_manifest_sha256": "aed143977813424dd25ee37a6c65c50a0178329fd5b8cca97b2bad16838a09d5",
   "closure": {
-    "scripts/durable_memory_comparison.py": "59ac046f6ca06c345a574d55a4bee3840ad0838cb703827867646b86028fa461",
+    "scripts/durable_memory_comparison.py": "5678689d60e3f21b80b77b19cfc7a79d31fe1f291e001389d6775de3f9bd3a85",
     "scripts/durable_reference/cases/storage-memory.mts": "a0d6cf477c8388f8ad3f73d29e43111b4f5d07f65f2e3ba0bb5540462be878df",
     "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
     "scripts/durable_storage_comparison.py": "b4f1e47b6767b2983d5fe3248492e5aedc4f7cb3a2aba802f2acfc0cd71aa577",

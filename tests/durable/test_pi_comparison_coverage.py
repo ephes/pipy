@@ -209,13 +209,18 @@ def test_session_split_children_keep_original_parent_contract():
         "Retain original DE02 commit/adoption acceptance"
     )
     assert "b1a+b1b+b2+b3" in rows["DE02b"]["future"]
-    assert rows["DE02b1a"]["status"] == "IN_PROGRESS"
-    for child in ("DE02b1b", "DE02b2", "DE02b3"):
+    assert rows["DE02b1a"]["status"] == "LANDED"
+    assert rows["DE02b1b"]["status"] == "IN_PROGRESS"
+    for child in ("DE02b2", "DE02b3"):
         assert rows[child]["status"] == "OPEN"
-    for child in ("DE02b1a", "DE02b1b", "DE02b2", "DE02b3"):
+    for child in ("DE02b1a", "DE02b2", "DE02b3"):
         current = rows[child]["current"]
         assert current["kind"] == "source-only"
         assert current["cases"] == current["workloads"] == current["oracles"] == []
+    current = rows["DE02b1b"]["current"]
+    assert current["kind"] == "bounded-native"
+    assert current["cases"] == ["session-guard-b1b-v1"]
+    assert current["workloads"] == current["oracles"] == []
     assert rows["DE02a2b"]["status"] == rows["DE02a2"]["status"] == "LANDED"
     assert rows["DE02a"]["status"] == "LANDED" and rows["DE02"]["status"] == (
         "IN_PROGRESS"
@@ -263,4 +268,33 @@ def test_only_exact_session_child_ids_are_accepted(bad):
     row = next(row for row in value["rows"] if row["id"] == "DE02b1a")
     row["id"] = bad
     with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize(
+    "child", ["DE02b", "DE02b1a", "DE02b2", "DE02b3", "DE02", "DE02a2b", "DE03"]
+)
+def test_guard_oracle_evidence_is_owned_only_by_b1b(child):
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE02b1b"]["current"]["cases"] == ["session-guard-b1b-v1"]
+    rows[child]["current"].update(kind="bounded-native", cases=["session-guard-b1b-v1"])
+    with pytest.raises(
+        o.EvidenceError, match="Native parity claim|Unknown current|ownership drift"
+    ):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize("change", ["case", "kind", "extra-case"])
+def test_b1b_cannot_claim_other_or_broader_evidence(change):
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == "DE02b1b")
+    if change == "case":
+        row["current"]["cases"] = ["memory-current-base-a2b-v1"]
+    elif change == "kind":
+        row["current"]["kind"] = "source-only"
+    else:
+        row["current"]["cases"] = ["session-guard-b1b-v1", "kernel-memory-v1"]
+    with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

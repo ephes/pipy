@@ -149,8 +149,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE02a2a | Internal atomic table Memory and current native/reference oracle | LANDED | 85390e2b; actual Opus5.5 HIGH CLEAN; CI39408774643 success11/11, complete logs/artifact audited; review history preserved |
 | DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | LANDED | 72253352; Opus5.5 HIGH ISSUES (one Suggestion) repaired, Codex gpt-6.1-sol HIGH delta CLEAN; push verified; CI not a delivery gate (run 39545767044 started, not awaited) |
 | DE02b | Session/Tx admission, seal/guard/adopt/publication/close | IN_PROGRESS | Cumulative b1a+b1b+b2+b3; all original Session/draft/failure obligations retained |
-| DE02b1a | Private guarded Storage and lifecycle owner over real Memory | IN_PROGRESS | Local native guard evidence below; independent gates pending |
-| DE02b1b | Actual pinned Node guard oracle and paired guard recipes | OPEN | Requires b1a |
+| DE02b1a | Private guarded Storage and lifecycle owner over real Memory | LANDED | 992c2102; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
+| DE02b1b | Actual pinned Node guard oracle and paired guard recipes | IN_PROGRESS | Local guard-oracle evidence and two fresh chains below; independent gates pending |
 | DE02b2 | First internal Session/Tx over the same owner | OPEN | Requires b1b; callback API decision before code |
 | DE02b3 | Cumulative paired Session acceptance and final b gate | OPEN | Requires b2 |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
@@ -254,11 +254,11 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE01b3b, DE02a1, DE02a2a and DE02a2b have landed, so the cumulative
-DE02a2 and DE02a parents are delivered. DE02b is split b1a→b1b→b2→b3 before
-product edits: b1a the private guarded Storage/lifecycle owner, b1b its actual
-pinned Node oracle, b2 the first internal Session/Tx over that same owner, b3
-cumulative paired Session acceptance and the final b gate. DE02b waits all four;
+DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b and DE02b1a have landed, so the
+cumulative DE02a2 and DE02a parents are delivered. DE02b is split b1a→b1b→b2→b3
+before product edits: b1a the private guarded Storage/lifecycle owner (landed),
+b1b its actual pinned Node oracle (in progress), b2 the first internal Session/Tx
+over that same owner, b3 cumulative paired Session acceptance and the final b gate. DE02b waits all four;
 DE02 waits a1+a2+b and DE03 waits b. Original parent acceptance remains
 unchanged. All P rows OPEN; no partial backend/product factory/default release.
 Delivery from 2026-10-21: local `just check`, Codex gpt-6.1-sol HIGH CLEAN and a
@@ -2278,3 +2278,161 @@ Full matrix (bounded waits 1s): unmodified 0/105; read-role exemption 29;
 post-call health check 4; late-error health check 4; admission seal 4;
 registration 11; drain wait 9; first-cause-only 4; close-once 13; no worker
 thread left alive.
+
+## DE02b1a delivery and DE02b1b admission
+
+DE02b1a landed at `992c210287b5f890322d494a4159c51e3ff78dfb` on origin/main (tree
+`15cba7f5`, verified with `git ls-remote`). Root's local `just check` exited 0
+with 13832 passed and the same two known skips; no CI result is claimed. Round 1
+review, Codex `gpt-6.1-sol` HIGH: **ISSUES** with one Critical (final
+classification and retirement were not one atomic step) and one Warning (a close
+`BaseException` replaced an in-flight `BaseException`); both were accepted and
+repaired by Claude Opus 5.5 HIGH (see the round-1 repair above). Round 2 delta
+review: **CLEAN**. DE02b1a is LANDED; DE02b and DE02 stay IN_PROGRESS, DE03 OPEN
+and all43 P rows OPEN.
+
+The coordinator issued the DE02b1b work order the same day, with the read-only
+oracle prep as its binding design. Root decisions on top of the prep: the
+recipes stay out of Pi's window between `session.close()` and its later
+line-job guard seal (that window belongs to the DE02b2 Session line); report
+versus outcome order for a healthy close failure, Python-only `BaseException`
+handling, non-Error JS throw values, Harness `safeReport` and close listeners are
+explicitly not compared; the Node side closes only through `SessionImpl.close`
+because Pi's `GuardedStorage.close` is not close-once; ordinary-error fatality is
+sampled on 3 of 13 read roles (b1a's native suite covers all 13); the
+implementer runs two fresh chains with no fallback runtime; b1a's private
+mutants are rerun through `native()` as negative controls; every Python
+observation follows a join, Event or held blocker.
+
+## DE02b1b local guard oracle evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` HIGH, sole writer on main from clean HEAD
+`992c2102`; no subagents. b1a's `session.py` and its test file are unchanged; every
+prep §5 API assumption held against the landed module (the round-1 repair added
+only private helpers). Upstream was read only through `git show` at the pin.
+
+New: `scripts/durable_session_guard_comparison.py`, the driver
+`scripts/durable_reference/cases/session-guard.mts`, the closed recipe
+`tests/fixtures/durable/session-guard-v1.input.json`, its closed manifest
+`session-guard-v1.manifest.json` and `tests/durable/test_session_guard_comparison.py`.
+The coverage index moves DE02b1a to LANDED and gives DE02b1b the bounded-native
+case `session-guard-b1b-v1` (IN_PROGRESS); DE02b/DE02/DE03 stay cumulative and
+all43 P rows OPEN. The acceptance script and coverage tests add b1b's exclusive
+ownership of that case. The manifest cascade (baseline → a1 → a2b → b1b) ran last.
+
+**Pre-existing a2b manifest drift, repaired in the cascade.** Since the a2b
+delivery commit `72253352`, `storage-memory-v1.manifest.json` pinned
+`scripts/durable_memory_comparison.py` at `59ac046f…` while the committed file
+hashes to `5678689d…` (the round-1 docstring repair landed after the final
+manifest). `durable_memory_comparison.py run` therefore exited2 ("Table artifact
+drift") on HEAD, and b1b's cascading `configuration()` would too. The cascade
+refreshes exactly that one closure entry; it asserts every other a2b closure
+entry already matched. A new permanent test runs the cascaded b1b
+`configuration()`, which also validates the current a2b and a1 manifests.
+
+**Design.** The Node driver subclasses the pinned `SessionImpl` (imported from its
+module, since the package exports only `createSession`) with a `guarded` getter
+over the protected Storage and a recording `report`; nothing else is overridden.
+It closes only through `SessionImpl.close`. A controlled backend wraps real pinned
+`MemoryStorage`; the native side wraps real native `MemoryStorage` the same way
+and drives `SessionLifecycle` with named, non-daemon, reaped threads. 27 paired
+scenarios/307 steps cover all16 delegates, 14 read variants under request error,
+cancelled error and cancelled success, never-exempt commit/mint, three sampled
+fatal read roles plus fatal mint, Pi tests 121/132/156/192/267/276/291/301/358/410,
+a direct `fail`, health before seal, concurrent and cancelled closers, a
+synchronous throw and a refused commit proven unapplied. The comparison covers
+per-step outcomes, the ordered effect log and the terminal end, with a closed
+error-kind projection and no class-name map.
+
+**Not compared (Root decisions).** Pi's window between `session.close()` and its
+later line-job guard seal belongs to DE02b2; recipes stay out of it and the
+validator enforces a `quiesce` or close-entry barrier. Report versus outcome
+order for a healthy close failure, Python-only `BaseException`, non-Error JS
+throws, Harness `safeReport` and close listeners are not paired; b1a's native
+tests keep the Python-only behavior. Ordinary-error fatality is sampled on 3 of
+13 read roles.
+
+**Mutants and negative controls.** All18 schema-valid guard mutants of the actual
+trace give compare1 and the unmodified positive0; each also runs in the permanent
+tests. Rerunning b1a's eleven private source mutants through `native()` (bounded
+waits 1s) gives mismatch1 for eight: read-role exemption, post-call health check,
+late-error health check, admission seal, registration, drain wait,
+first-cause-only and close-once. The other three stay equal (0) by design:
+split success settle and split error settle need the exact lock-boundary race
+that only b1a's `RaceCondition` scenarios reach, and close-error-replaces-inflight
+needs a Python-only process-control exception. No worker thread outlives a
+scenario. The native recipe set is identical across 20 consecutive runs in one
+test. Five actual Node runs on the exploratory development parent's snapshot (a
+probe, not chain evidence) produced byte-identical traces equal to native.
+
+**Two fresh chains.** After all code, test and coverage edits and the final
+cascade, two new owner-only private roots each ran a fresh pinned baseline
+acceptance, then a1, a2b and b1b against that same parent, on Node26.12.0 and
+npm11.20.0 with no fallback runtime. No process group outlived its step.
+
+| Chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline0/45.93s → a1 0/8.00s → a2b0/16.26s → b1b0/22.48s |
+| 2 | baseline0/33.34s → a1 0/7.43s → a2b0/15.98s → b1b0/21.97s |
+
+`final-pairs.json` (sha256 `a637e0e1…d811`) binds eight distinct execution IDs
+(parents `6f9723cc…`/`e654895c…`; b1b `7d305846…`/`062ed8f6…`), each child's
+parent execution, the acceptance/result hashes and the manifest hashes:
+baseline `829fb0e9…364c`, a1 `aed14397…09d5`, a2b `21f23ba5…dad3`, b1b
+`e1fa4bf3…10b5`. Every child records `fresh_reference_bootstrap: false` and
+PASS; each b1b run compared Node to native at0 and ran all18 mutants as
+positive0/negative1 (72 child exits in total). Separate public CLI controls on
+chain 1's evidence gave0 for observed versus native,1 for every mutant and2 for
+seven invalid traces, a missing parent and an existing output, with nothing
+written. The standalone `node tests/durable/test_reference_codec.mts` passes on
+Node26.12.0. Ruff check/format, `mypy src tests`, `pytest tests/durable`, the
+strict docs build and the rendered-link check pass locally on Python 3.15 only;
+`just check`, independent review, commit and push remain Root's. No CI result is
+claimed.
+
+### DE02b1b round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH: **ISSUES**, two Warnings, both accepted
+by the coordinator and repaired by Claude Code `claude-opus-5-5` HIGH; no CI
+result is claimed.
+
+- **Warning — an unreaped native worker could hang `run`.** Workers are
+  non-daemon and `native()` ran inside the CLI process, so after cleanup raised
+  the unreaped-thread error, interpreter shutdown waited on the stuck thread and
+  exit2 never arrived. `run` now executes the native recipes in a bounded child
+  (`… native OUTPUT`, internal subcommand) through the existing fail-closed
+  `o.run` with a minimal environment and a 120s deadline; the child writes
+  `native.json`/`native-context.json` and leaves through `os._exit`, so a stuck
+  worker cannot block its exit, and at the deadline the whole process group is
+  killed and reaped. The child's `native-guard.json` metadata is bound into
+  `result.json`. New tests: a real child with a never-released worker exits2
+  promptly with no `native.json`; `run` with a real native child that never exits
+  returns2 after the (test-lowered) deadline, the child process is gone, and no
+  `result.json`, `mismatch-report.json` or `native.json` exists. The in-process
+  unreaped-thread unit test still releases its gate, so pytest never waits on it.
+- **Warning — `compare` artifact overstatement.** The reference section implied
+  that a `compare` mismatch writes hash-bound reports. It now states that only
+  `run` writes `result.json`/`mismatch-report.json`; `compare` returns its exit
+  code only and attests no provenance. The manifest scope text and this ledger
+  made no such claim.
+
+The repair changes the comparison script and its test file, both in the b1b
+manifest closure, so the cascade reran (baseline, a1 and a2b manifests
+unchanged; b1b manifest now `ee8dbe9d…18c6`) and both chains ran fresh again. The
+earlier two chains above are superseded (their `final-pairs.json` is retained as
+`final-pairs-superseded-pre-r1.json`).
+
+| Repair chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline0/41.50s → a1 0/7.76s → a2b0/15.98s → b1b0/22.93s |
+| 2 | baseline0/40.34s → a1 0/7.62s → a2b0/16.09s → b1b0/22.79s |
+
+The new `final-pairs.json` (sha256 `fedbb973…cf66`) binds eight distinct
+execution IDs (parents `7fcae3e2…`/`cb0a2226…`; b1b `2819c878…`/`e27f03f6…`),
+each with PASS, `fresh_reference_bootstrap: false`, native child exit0, Node
+versus native0 and all18 mutants positive0/negative1 (72 child exits). The 29
+public CLI controls on repair chain 1 again match0/1/2 exactly. `pytest
+tests/durable` passes 1028; ruff, format, `mypy src tests`, the strict docs build
+and the rendered-link check pass (Python 3.15 only).
+

@@ -491,7 +491,7 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative/source contract only; split 2026-10-21 into b1a/b1b/b2/b3 with every original cell retained. Only the b1a child owns native guard evidence."
+        "observables": "Cumulative/source contract only; split 2026-10-21 into b1a/b1b/b2/b3 with every original cell retained. Child evidence stays with its owner: b1a native guard tests (landed) and the b1b bounded pinned guard oracle."
       },
       "future": "Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b; DE02b itself completes only after its b1a+b1b+b2+b3 children.",
       "status": "IN_PROGRESS",
@@ -3595,10 +3595,10 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Private native SessionLifecycle/GuardedStorage over real MemoryStorage: permanent deterministic tests of all16 delegates/both facades, 13 read-role exemptions versus never-exempt commit/mint, Pi132/156/192/267/291/301/410 guard cases, concurrent/cancelled closers, reporter and BaseException decisions, atomic settle-versus-fail races and in-flight close-error preservation; eleven private source mutants each fail reached-guard tests. No reference oracle (b1b), Session/Tx (b2), product/default or P closure; independent delivery pending."
+        "observables": "Private native SessionLifecycle/GuardedStorage over real MemoryStorage: permanent deterministic tests of all16 delegates/both facades, 13 read-role exemptions versus never-exempt commit/mint, Pi132/156/192/267/291/301/410 guard cases, concurrent/cancelled closers, reporter and BaseException decisions, atomic settle-versus-fail races and in-flight close-error preservation; eleven private source mutants each fail reached-guard tests. No reference oracle (b1b), Session/Tx (b2), product/default or P closure; delivered at 992c2102 (Codex gpt-6.1-sol HIGH ISSUES one Critical/one Warning, repaired by Opus5.5 HIGH; delta CLEAN; no CI claim)."
       },
       "future": "Deterministic permanent native tests: all16 delegates, 13 read-role exemptions versus never-exempt commit/mint, underway-call failure, paged-read seal, first-cause and close-failure, concurrent and cancelled closers, reporter and BaseException decisions, plus reached-guard private negative controls. No public Session, Tx, reference oracle or P closure.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -3624,16 +3624,18 @@
         "Paired recipes, schema-valid guard mutants, a closed manifest and two fresh pinned chains over the same b1a owner. No Session/Tx surface or P closure."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "session-guard-b1b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "Pre-code approved child, no runtime proof yet."
+        "observables": "Internal guard/lifecycle oracle: actual pinned SessionImpl GuardedStorage via a bounded driver subclass (guarded getter, recorded report; close only through SessionImpl.close) versus the native b1a owner, each over real Memory: 27 paired recipes/307 steps (14 read variants x request/cancelled/success exemption, never-exempt commit/mint, Pi121/132/156/192/267/276/291/301/358/410 anchors, concurrent/cancelled closers, reentrant report, sync throw, refused commit), 18 schema-valid guard mutants and 8 of 11 b1a private mutants caught through native(). Not compared: Pi's post-close line-job guard-seal window (b2), report/outcome order on healthy close failure, Python-only BaseException, non-Error throws, safeReport, close listeners. No Session line/Tx/product or P closure; independent delivery pending."
       },
       "future": "Paired recipes, schema-valid guard mutants, a closed manifest and two fresh pinned chains over the same b1a owner. No Session/Tx surface or P closure.",
-      "status": "OPEN",
+      "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02b1a-delivery-and-de02b1b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {

@@ -411,16 +411,17 @@ Validators reject omitted,
 duplicate or unknown IDs, changed ownership/future/source/status contracts and
 dangling or unrelated DE evidence links. Malformed plan rows and absent mutation
 preconditions fail as explicit invalid evidence2, with no lookup traceback.
-Source-only, reference-only, delivery and the narrowly owned DE02a1/a2a bounded-native
-value/record and internal-table evidence are distinguished; no full native-parity evidence is claimed. Unexecuted future cases cannot enter the executed
+Source-only, reference-only, delivery and the narrowly owned DE02a1/a2a/a2b/b1b
+bounded-native value/record, internal-table and guard evidence are distinguished; no full native-parity evidence is claimed. Unexecuted future cases cannot enter the executed
 registry. Every P row, including P43, remains OPEN. Reference evidence is partial;
 DE02–DE45 still owe their concrete Python behavior, native tests, crash/race/wire
 and integration acceptance from the unchanged parent plan. DE02a2a owns internal tables/index/Seq/race comparisons; DE02a2b retains raw-base
 in the same candidate and cumulative bounded Storage proof. Both have landed, so the
-cumulative a2 and a parents are delivered. DE02b is split b1a→b1b→b2→b3: the b1a
-private guard/lifecycle owner has native tests only (source-only index evidence);
-its actual Node guard oracle is b1b. DE02b waits all four children and DE03
-requires b. No child alone can complete DE02, DE02b or any P row.
+cumulative a2 and a parents are delivered. DE02b is split b1a→b1b→b2→b3: the
+landed b1a private guard/lifecycle owner has native tests only (source-only index
+evidence); b1b alone owns the bounded-native `session-guard-b1b-v1` case, its
+actual pinned Node guard oracle. DE02b waits all four children and DE03 requires
+b. No child alone can complete DE02, DE02b or any P row.
 
 
 ## Mandatory reference CI and selective artifacts
@@ -878,3 +879,99 @@ DTO ownership rejects foreign values before point validation; close refusal
 remains under the same non-reentrant authority. This input-safety boundary does
 not restrict raw content.version: raw0/-1/1.5 retain their actual Memory meaning,
 separate from later defineDoc's positive-safe definition policy.
+
+
+## Session guard comparison (DE02b1b)
+
+`session-guard-b1b-v1` compares the **guard and lifecycle owner only**: pinned Pi
+`SessionImpl`'s protected guarded Storage against the private native b1a
+`SessionLifecycle`/`GuardedStorage`, each over a fresh real Memory backend per
+scenario. There is no Session line, Tx, product, factory or full Session parity
+claim, and all43 P rows remain OPEN.
+
+```sh
+# Same fresh parent as the a1/a2b children above; a new output each time.
+uv run python scripts/durable_session_guard_comparison.py run \
+  --acceptance "$scratch/parent" --output "$scratch/guard"
+uv run python scripts/durable_session_guard_comparison.py compare \
+  "$scratch/guard/observed.json" "$scratch/guard/native.json"
+```
+
+**Node oracle.** The package entry exports only `createSession`, so the driver
+`scripts/durable_reference/cases/session-guard.mts` imports `SessionImpl` from
+`packages/durable/src/session/session.ts` in the pinned snapshot. A bounded
+subclass adds only a `guarded` getter over the protected `storage` (the
+module-private `GuardedStorage`) and records `report`; `beforeClose`,
+`assertUsable` and `conversationCreated` stay inherited. `reference-context.json`
+records the base class, the exact own members and that `guarded` is a
+`GuardedStorage` distinct from the backend. Closing goes only through
+`SessionImpl.close`: Pi's `GuardedStorage.close` is not close-once, so the
+native facade's close-once `close()` is the owner's role, not a Pi guard claim.
+A controlled backend wraps real `MemoryStorage` and scripts per-handle holds and
+outcomes (pass, throw, abort-then-throw as in Pi test 410, synchronous throw)
+plus a held or throwing backend close (after the real close, as in Pi test 192).
+Guarded calls start synchronously, so the backend reads the caller's handle; the
+native side uses a thread-local handle.
+
+**Recipes and trace.** `tests/fixtures/durable/session-guard-v1.input.json` is a
+closed recipe of27 scenarios/307 steps: all16 delegates pass through; 14 read
+variants (13 roles plus the scoped `entry` form) under request error, cancelled
+error and cancelled success stay healthy; commit and mint are never exempt
+(request error or a cancelled facade); ordinary errors are fatal on mint and on
+3 of 13 sampled read roles (b1a's native suite covers all13); Pi
+harness-storage-failure tests 121/132/156/192/267/276/291/301/358/410 anchor the
+late-read, paged-drain, close-failure, first-cause, invalid-request, reentrant
+report and cancelled-read cases; concurrent and cancelled closers, a direct
+`fail`, health-before-seal admission, a synchronous throw and a refused commit
+proven unapplied by an unguarded backend read complete the set. Both sides emit
+one trace shape: per-step outcomes, an ordered effect log (backend call/return,
+report with `failure_visible`, close enter/exit) and the terminal end. Errors
+project to a closed kind set by strict predicates (scripted identity,
+`SessionFailed` with cause, the plain closed `Error`, the closer's abort reason,
+real `StorageRequestError`, otherwise unclassified); no class-name map is used.
+Caller settlements are recorded per step, never interleaved into effects.
+
+**Bounds.** Pi seals the guard in a line job some microtasks after
+`session.close()`; b1a seals inside `close()`. Recipes never admit a guarded call
+between a close start and a `quiesce` barrier (Node: one `setImmediate` drain;
+native: the closer finished or is blocked behind a held backend call), and the
+validator enforces this. That window, with a busy Session line, belongs to DE02b2.
+Also not compared: the order of report versus outcome publication for a healthy
+close failure (b1a publishes first; Pi reports first), Python-only
+`BaseException` handling, non-Error JS throw values, Harness `safeReport` and
+close listeners. b1a's native tests keep the Python-only behavior. Every native
+observation follows a join, an Event or a held blocker; threads are named,
+non-daemon and reaped, and an unreaped thread is invalid evidence. `run` executes
+the native recipes in a bounded child process (120s deadline, minimal
+environment) that exits without waiting on a stuck worker and whose process group
+is killed and reaped at the deadline, so a never-returning worker still ends `run`
+with exit2.
+
+**Exit contract.** `run` and `compare` exit0 for bounded equality,1 for a
+schema-valid semantic mismatch and2 for invalid evidence or a failed
+prerequisite. Only `run` writes artifacts: hash-bound `result.json` (plus
+`mismatch-report.json` on1), and nothing of either on2. `compare` returns only
+its exit code; it writes no artifact and attests no provenance. A native `unsettled` outcome or end, or a pending handle outside
+the declared blockers, is a valid Python mismatch; in a Node trace it is invalid.
+Eighteen schema-valid guard mutants (exemption flips, late success or late error
+leaking, first-cause replacement, report twice or missing, close before drain,
+double close, admission after seal, swallowed or missing close failure, a waiter
+cancel undoing close, seal before health, an unguarded synchronous throw, an
+admitted reentrant report, a split cause) each need positive0 and negative1. As
+native negative controls, b1a's private source mutants run through `native()`:
+eight produce mismatch1, and the three that only b1a's native race and
+`BaseException` scenarios reach (split success/error settle, close error
+replacing an in-flight exception) stay equal by design.
+
+`session-guard-v1.manifest.json` closes the a2b inventory plus `session.py`, its
+test file, this script, the driver, the input and the comparison tests, pins six
+reference sources and the two upstream test files, and states the scope above.
+Hash direction is code/tests/coverage → baseline → a1 → a2b → b1b. The run copies
+the driver to `snapshot/session-guard.mts`, checks Node26.12.0/npm11.20.0 and
+module and dependency provenance, and records `fresh_reference_bootstrap: false`,
+`session_line`, `tx` and `full_session_parity` all false. Adapted upstream test
+support keeps MIT Copyright(c)2025 Mario Zechner and the full
+[upstream notice](https://github.com/ephes/pipy/blob/main/tests/fixtures/durable/UPSTREAM-LICENSE.txt).
+The [b1b admission](specs/2026-10-19-durable-execution-evidence.md#de02b1a-delivery-and-de02b1b-admission)
+and [local evidence](specs/2026-10-19-durable-execution-evidence.md#de02b1b-local-guard-oracle-evidence)
+record the gates and the two fresh chains.

@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a in progress**, 2026-10-21. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a landed; DE02b1b in progress**, 2026-10-21. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not

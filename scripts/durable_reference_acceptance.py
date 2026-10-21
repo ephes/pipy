@@ -251,6 +251,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
     )
 
 
+BOUNDED_NATIVE = {"DE02a1", "DE02a2a", "DE02a2b", "DE02b1b"}
 DE_EVIDENCE = {
     "DE00": "de00-acceptance-evidence",
     "DE01": "de01-split-acceptance",
@@ -268,7 +269,7 @@ DE_EVIDENCE = {
     "DE02a2b": "de02a2a-delivery-and-de02a2b-admission",
     "DE02b": "de02-split-before-product-implementation",
     "DE02b1a": "de02a2b-delivery-and-de02b-split",
-    "DE02b1b": "de02a2b-delivery-and-de02b-split",
+    "DE02b1b": "de02b1a-delivery-and-de02b1b-admission",
     "DE02b2": "de02a2b-delivery-and-de02b-split",
     "DE02b3": "de02a2b-delivery-and-de02b-split",
 }
@@ -297,6 +298,8 @@ def de_current(row: Any, c: Any) -> None:
         cases = ["memory-tables-a2a-v1"]
     if key == "DE02a2b":
         cases = ["memory-current-base-a2b-v1"]
+    if key == "DE02b1b":
+        cases = ["session-guard-b1b-v1"]
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -312,7 +315,7 @@ def de_current(row: Any, c: Any) -> None:
         current["kind"]
         == (
             "bounded-native"
-            if key in {"DE02a1", "DE02a2a", "DE02a2b"}
+            if key in BOUNDED_NATIVE
             else "reference-only"
             if cases
             else ("delivery" if key == "DE00" else "source-only")
@@ -474,10 +477,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
         )
         require(
             current["kind"] in {"source-only", "reference-only", "delivery"}
-            or (
-                key in {"DE02a1", "DE02a2a", "DE02a2b"}
-                and current["kind"] == "bounded-native"
-            ),
+            or (key in BOUNDED_NATIVE and current["kind"] == "bounded-native"),
             "Native parity claim in reference index",
             c,
         )
@@ -487,7 +487,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 set(c.CASES)
                 | ({"values-records-a1"} if key == "DE02a1" else set())
                 | ({"memory-tables-a2a-v1"} if key == "DE02a2a" else set())
-                | ({"memory-current-base-a2b-v1"} if key == "DE02a2b" else set()),
+                | ({"memory-current-base-a2b-v1"} if key == "DE02a2b" else set())
+                | ({"session-guard-b1b-v1"} if key == "DE02b1b" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),
