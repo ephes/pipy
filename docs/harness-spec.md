@@ -117,14 +117,51 @@ drain and backend-close-once, and a Storage-shaped guard delegates all sixteen
 methods unchanged. Reads exempt only `StorageRequestError` or a cancelled caller
 view; commit/mint are never exempt; a call underway when another fails ends with
 `SessionFailed`; the last call to retire closes the backend. It is not exported and
-has no Session/Tx. DE02b1b (in progress) compares it with the pinned Pi
+has no Session/Tx. DE02b1b (landed `cb38caf3`) compares it with the pinned Pi
 `SessionImpl` guard through a bounded driver subclass, over real Memory on both
 sides, with paired recipes and schema-valid guard mutants; Pi's post-close
 line-job seal window, report-versus-outcome order on a healthy close failure and
-Python-only `BaseException` handling are explicitly not compared. b2 adds the
-first Session/Tx over the same owner, b3 the final cumulative gate. DE02 waits a1+a2+b; DE03 waits b.
+Python-only `BaseException` handling are explicitly not compared. b2 is split
+b2a→b2b. DE02b2a (in progress) adds the private `native/durable/tx.py` core with
+no commit entrypoint and no `Session` name. Each Tx operation is a synchronous
+prologue followed by an `async` body that suspends only on `_Io`, one guarded
+backend call; an inline sync driver runs the bodies on the thread that created
+it. The core enforces Pi's table read phase, final-owner checks and submission
+resolution, and stages definition-free `RawDoc` documents (session or
+conversation scope; task scope is refused). Mutable `Draft`/`DraftList` views copy
+every placed value and are all revoked at prepare. Value-identical changes write
+and publish nothing, and adoption swaps committed values in a cache that never
+holds a candidate. b2b adds the first exposed Session (line, async driver,
+publication, close) over the same owner and core; b3 is the final cumulative
+gate. DE02 waits a1+a2+b; DE03 waits b.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
+
+Python spellings of the Tx core, with no Pi analogue or deliberately narrower:
+
+- Prologues keep Pi's order: open, then the phase rule, then argument ingress.
+  A write sets the table-write phase before its arguments are validated, so an
+  invalid write still ends the read phase, as in Pi. Ingress is narrower than
+  Pi's: an ill-typed ID raises `TypeError` synchronously, before any guarded
+  backend call, where a raw Memory `RecordError` would otherwise fail the owner.
+- A transaction and its drafts belong to the thread whose driver created them;
+  other threads get `TxAffinityError`. A draft checks revocation first, so a
+  settled draft read from any thread raises `DraftRevoked` (a `TypeError`, as a
+  revoked Pi Proxy throws).
+- No caller object reaches a live working tree or runs under the document
+  cache lock. Draft equality and membership (`==`, `in`, `index`, `count`,
+  `remove`, the `values()`/`items()` views) compare detached copies, so even a
+  nested operand sees only copies. Object keys, list indices and slice bounds
+  must be exact built-ins, and a value is treated as a draft view only when its
+  type is exactly `Draft` or `DraftList`. `RawDoc` stores only canonical
+  built-in scope, history and fork values, and cache keys are rebuilt from them.
+- Raw-base no-op suppression compares values. Pi's op-based rule, under which a
+  structural shift/unshift no-op still writes a delta (Pi
+  `session-documents.test.ts` 190), is a DE04/DE27 obligation.
+- Asyncio cancellation of an `acommit` caller (DE02b2b) reaches the running
+  callback. Before backend admission it is the callback's failure and rolls
+  back; after the callback settles, owned settlement cannot be cut. Only an
+  explicit cancel view is Pi's abort signal.
 
 The bounded Storage port admits document points by exact built-in type before
 comparison/coercion/hash/repr. Foreign objects and str/int subclasses cannot run

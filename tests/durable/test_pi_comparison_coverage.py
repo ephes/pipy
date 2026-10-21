@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 105
+    assert len(value["rows"]) == 107
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE02b", "DE02"])
+@pytest.mark.parametrize("parent", ["DE02b2", "DE02b", "DE02"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -209,11 +209,11 @@ def test_session_split_children_keep_original_parent_contract():
         "Retain original DE02 commit/adoption acceptance"
     )
     assert "b1a+b1b+b2+b3" in rows["DE02b"]["future"]
-    assert rows["DE02b1a"]["status"] == "LANDED"
-    assert rows["DE02b1b"]["status"] == "IN_PROGRESS"
-    for child in ("DE02b2", "DE02b3"):
+    assert rows["DE02b1a"]["status"] == rows["DE02b1b"]["status"] == "LANDED"
+    assert rows["DE02b2"]["status"] == rows["DE02b2a"]["status"] == "IN_PROGRESS"
+    for child in ("DE02b2b", "DE02b3"):
         assert rows[child]["status"] == "OPEN"
-    for child in ("DE02b1a", "DE02b2", "DE02b3"):
+    for child in ("DE02b1a", "DE02b2", "DE02b2a", "DE02b2b", "DE02b3"):
         current = rows[child]["current"]
         assert current["kind"] == "source-only"
         assert current["cases"] == current["workloads"] == current["oracles"] == []
@@ -262,7 +262,7 @@ def test_only_exact_new_child_ids_are_accepted(bad):
         a.coverage(value, o.ROOT, o.contract)
 
 
-@pytest.mark.parametrize("bad", ["DE02b4", "DE02b1c", "DE02b2a", "DE02b11"])
+@pytest.mark.parametrize("bad", ["DE02b4", "DE02b1c", "DE02b2c", "DE02b3a", "DE02b11"])
 def test_only_exact_session_child_ids_are_accepted(bad):
     value = o.load(o.FIXTURES / "coverage.json")
     row = next(row for row in value["rows"] if row["id"] == "DE02b1a")
@@ -272,7 +272,8 @@ def test_only_exact_session_child_ids_are_accepted(bad):
 
 
 @pytest.mark.parametrize(
-    "child", ["DE02b", "DE02b1a", "DE02b2", "DE02b3", "DE02", "DE02a2b", "DE03"]
+    "child",
+    ["DE02b", "DE02b1a", "DE02b2", "DE02b2a", "DE02b2b", "DE02b3", "DE02", "DE03"],
 )
 def test_guard_oracle_evidence_is_owned_only_by_b1b(child):
     value = o.load(o.FIXTURES / "coverage.json")
@@ -298,3 +299,15 @@ def test_b1b_cannot_claim_other_or_broader_evidence(change):
         row["current"]["cases"] = ["session-guard-b1b-v1", "kernel-memory-v1"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)
+
+
+def test_tx_core_split_keeps_original_b2_contract():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE02b2"]["future"].startswith("Callback API decision recorded")
+    assert "DE02b2 completes only after both" in rows["DE02b2"]["future"]
+    assert "no commit entrypoint" in rows["DE02b2a"]["contract"]
+    assert "Session/line/async driver" not in rows["DE02b2a"]["contract"]
+    for key in ("DE04", "DE27"):
+        assert "session-documents.test.ts 190" in rows[key]["current"]["observables"]

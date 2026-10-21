@@ -8,6 +8,25 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a private durable transaction core and raw-base document drafts (internal;
+  no commit entrypoint and no product, default or public API change). Each
+  transaction operation runs over the guarded Storage and suspends only on one
+  guarded backend call; an inline driver runs it on the owning thread. The core
+  rejects table reads after the first table write (a write, even with invalid
+  arguments, ends the read phase, as in Pi), validates new owned work
+  against each owner's final candidate, resolves submission settlements and
+  task replacements at assembly, and stages session and conversation documents
+  without a definition. Mutable drafts copy every placed value and are all
+  revoked when the transaction prepares or aborts; comparisons hand caller
+  objects only detached copies, and keys, indices and document specs accept
+  exact built-ins only, so no caller hook sees the working tree or runs under
+  the document cache lock. A value-identical change
+  writes and publishes nothing, and adoption swaps committed values into a cache
+  that never holds a candidate. Deterministic tests over the real in-memory
+  backend cover the pinned Pi table and document transaction cases, and ten
+  private negative controls must each fail. The exposed Session, its line,
+  asynchronous commits, publication and every parity requirement remain open.
+
 - Add an internal pinned Pi oracle for the private durable Session storage guard
   (verification only; no product, default or public API change). A bounded
   subclass of Pi's `SessionImpl` exposes its guarded Storage; 27 paired recipes

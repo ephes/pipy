@@ -395,9 +395,9 @@ throughput threshold, timing equality, performance parity or retained-heap claim
 
 ## Exhaustive current and future evidence index
 
-Version2 `tests/fixtures/durable/coverage.json` contains105 explicit rows:
-DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b, DE02a/a1/a2/a2a/a2b/b and
-DE02b1a/b1b/b2/b3. All cumulative
+Version2 `tests/fixtures/durable/coverage.json` contains107 explicit rows:
+DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b, DE02a/a1/a2/a2a/a2b/b,
+DE02b1a/b1b/b2/b3 and DE02b2a/b2b. All cumulative
 parents remain visible, including the original DE02 acceptance unchanged.
 Each row retains original canonical plan text, owner slices and future acceptance.
 P source anchors match the exact corresponding plan source cell; DE source anchors
@@ -420,7 +420,9 @@ in the same candidate and cumulative bounded Storage proof. Both have landed, so
 cumulative a2 and a parents are delivered. DE02b is split b1a→b1b→b2→b3: the
 landed b1a private guard/lifecycle owner has native tests only (source-only index
 evidence); b1b alone owns the bounded-native `session-guard-b1b-v1` case, its
-actual pinned Node guard oracle. DE02b waits all four children and DE03 requires
+actual pinned Node guard oracle; both have landed. b2 is split b2a→b2b: the b2a
+private Tx core and raw-base drafts have native tests only (source-only index
+evidence). DE02b2 waits both, DE02b waits all four children and DE03 requires
 b. No child alone can complete DE02, DE02b or any P row.
 
 

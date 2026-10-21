@@ -150,8 +150,10 @@ that coverage here. A local validation result is not a landed slice.
 | DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | LANDED | 72253352; Opus5.5 HIGH ISSUES (one Suggestion) repaired, Codex gpt-6.1-sol HIGH delta CLEAN; push verified; CI not a delivery gate (run 39545767044 started, not awaited) |
 | DE02b | Session/Tx admission, seal/guard/adopt/publication/close | IN_PROGRESS | Cumulative b1a+b1b+b2+b3; all original Session/draft/failure obligations retained |
 | DE02b1a | Private guarded Storage and lifecycle owner over real Memory | LANDED | 992c2102; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
-| DE02b1b | Actual pinned Node guard oracle and paired guard recipes | IN_PROGRESS | Local guard-oracle evidence and two fresh chains below; independent gates pending |
-| DE02b2 | First internal Session/Tx over the same owner | OPEN | Requires b1b; callback API decision before code |
+| DE02b1b | Actual pinned Node guard oracle and paired guard recipes | LANDED | cb38caf3; Codex gpt-6.1-sol HIGH ISSUES (two Warnings) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
+| DE02b2 | First internal Session/Tx over the same owner | IN_PROGRESS | Cumulative b2a+b2b (split 2026-10-21 by the accepted design); callback API decision recorded before code |
+| DE02b2a | Private Tx core and mutable raw-base drafts, no commit entrypoint | IN_PROGRESS | Local Tx-core evidence below; independent gates pending |
+| DE02b2b | First exposed internal Session: line, async driver, publication and close | OPEN | Requires b2a |
 | DE02b3 | Cumulative paired Session acceptance and final b gate | OPEN | Requires b2 |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
@@ -254,11 +256,14 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b and DE02b1a have landed, so the
-cumulative DE02a2 and DE02a parents are delivered. DE02b is split b1a→b1b→b2→b3
-before product edits: b1a the private guarded Storage/lifecycle owner (landed),
-b1b its actual pinned Node oracle (in progress), b2 the first internal Session/Tx
-over that same owner, b3 cumulative paired Session acceptance and the final b gate. DE02b waits all four;
+DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b, DE02b1a and DE02b1b have landed,
+so the cumulative DE02a2 and DE02a parents are delivered. DE02b is split
+b1a→b1b→b2→b3 before product edits: b1a the private guarded Storage/lifecycle
+owner and b1b its actual pinned Node oracle (both landed), b2 the first internal
+Session/Tx over that same owner, b3 cumulative paired Session acceptance and the
+final b gate. b2 is split again b2a→b2b: b2a the private Tx core and raw-base
+drafts without a commit entrypoint (in progress), b2b the first exposed Session.
+DE02b2 waits both, DE02b waits all four children,
 DE02 waits a1+a2+b and DE03 waits b. Original parent acceptance remains
 unchanged. All P rows OPEN; no partial backend/product factory/default release.
 Delivery from 2026-10-21: local `just check`, Codex gpt-6.1-sol HIGH CLEAN and a
@@ -2436,3 +2441,254 @@ public CLI controls on repair chain 1 again match0/1/2 exactly. `pytest
 tests/durable` passes 1028; ruff, format, `mypy src tests`, the strict docs build
 and the rendered-link check pass (Python 3.15 only).
 
+
+## DE02b1b delivery and DE02b2a admission
+
+DE02b1b landed at `cb38caf3d2225e4b06467208b8f31475812cc76e` on origin/main (tree
+`0f105928`, verified with `git ls-remote`). Root's local `just check` exited 0
+with 13924 passed and the same two known skips; no CI result is claimed. Round 1
+review, Codex `gpt-6.1-sol` HIGH: **ISSUES** with two Warnings (a stuck native
+worker blocked exit 2; the docs overstated `compare` artifacts), both repaired by
+Claude Opus 5.5 HIGH with both fresh chains rerun (see the round-1 repair above).
+Round 2 delta review: **CLEAN**, scoped only by the unchanged 557 KB recipe
+fixture being too large for the review bundle. DE02b1b is LANDED; DE02b and DE02
+stay IN_PROGRESS, DE03 OPEN and all43 P rows OPEN.
+
+The coordinator issued the DE02b2a work order the same day, with the read-only
+DE02b2 design proposal as its binding design. Root accepted decisions D1–D6 and
+settled its open points:
+
+1. DE02b2 splits into b2a and b2b. b2a is the private Tx core and raw-base
+   drafts with no `commit`/`acommit` and no public `Session`; its tests compose
+   the guard, the core, the guard's commit and adoption only inside the test
+   module. b2b is the first exposed Session: owner line, async driver,
+   cancellation matrix, publication and the close amendments.
+2. The core is async-ready now: its operations are coroutines whose only
+   suspension is the private `_Io` backend request. b2a ships the inline sync
+   driver; b2b adds the async driver over the same core.
+3. Asyncio cancellation reaching a running callback is the callback's own
+   failure before backend admission and cannot cut owned settlement afterwards.
+   This is b2b work, recorded now in plan §3.2 and the harness spec.
+4. Value-based raw-base no-op suppression is accepted. Pi
+   `session-documents.test.ts` 190 (a structural shift/unshift no-op still writes
+   a delta) is a cumulative DE04/DE27 obligation.
+5. Plan §3.2 "stop publication" after a failure means later publications.
+6. Deferred scope keeps its named owners; `RawDoc` refuses task scope.
+7. b2a must not change the guard/lifecycle behaviour of `session.py`; the
+   owner amendments (line, close predicate) belong to b2b.
+8. The clock is an injected millisecond `now`; tests use a deterministic one.
+
+## DE02b2a local Tx core evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` HIGH, sole writer on main from clean HEAD
+`cb38caf3`. Nothing is committed or pushed and no CI result is claimed.
+
+**Shape.** The new private module `native/durable/tx.py` is not exported from
+the package and has no `commit`/`acommit` or `Session` name; `session.py` is
+unchanged.
+
+- **Core and driver.** Each `_TxCore` operation is a synchronous prologue in Pi's
+  order: open check (then thread affinity), the phase rule (a write sets the
+  table-write phase, a read applies `ReadAfterWrite`), argument ingress and
+  memo lookup. One `async` body follows. A body awaits only `_Io`, one guarded backend
+  call that runs at most once, so a memoized committed task read shares its
+  `_Io`. The driver turns each body into a handle that the core tracks (Pi
+  `#track`), which is how a duplicate `doc()` returns the same handle. The sync
+  driver runs bodies inline on the thread that created it. Retiring after an
+  acquisition asks the driver for a follower handle instead of awaiting another
+  operation. `settle_failure()` returns pending handles, and `settle_success()`
+  raises `PendingTxOperations` carrying them; draining them is the driver's job.
+- **Drafts.** One `_DraftChange` owns each document's working tree. Every
+  `Draft`/`DraftList` method checks first that the change is open
+  (`DraftRevoked`, a `TypeError`), then the driver's affinity
+  (`TxAffinityError`). Child views are cached by node identity. Every placement
+  validates and deep-copies its value, and placing a view copies its subtree.
+  Slices and `pop` return detached plain values. Copy, deepcopy and pickle are
+  refused, drafts are unhashable and `repr` never raises. Prepare flips the
+  state for every view at once (nested, escaped or returned), before assembly
+  and so before Storage admission; abort and adoption keep them revoked.
+- **Cache and adoption.** `_DocumentCache` holds only `CommittedDocument`
+  values, under its own lock. A cold load installs the committed incarnation, as
+  Pi `#loadDocument` does. Adoption installs a created incarnation, swaps a
+  changed loaded one only while it is still the occupant, and evicts a retired
+  record. It returns `RawDocumentChange` values that share the cached
+  `OwnedJson`.
+
+**Test to Pi anchor mapping** (`tests/durable/test_session_tx_core.py`). The
+module composes the b1a guard, the core, the guard's commit and adoption only
+inside the test, in Pi `#runCommit` order, over real `MemoryStorage` behind a
+delegating wrapper. Pending and late operations use a test-only stepping
+driver that suspends bodies at their `_Io`, which is how b2b's async driver
+will interleave them.
+
+| Pi anchor (pinned tests) | Scenario |
+| --- | --- |
+| tables 82 | reads only before the first table write; documents after it |
+| tables 121 | sync `set_task`/`settle_submission`/`place_submission` set the phase, also when their arguments are invalid |
+| tables 104, 132 | limits and cursors pass through unchanged; minted IDs and staging |
+| tables 188, 213 | staged task owner; missing, abort-marked, terminal and completing owners changed later in the same callback; nothing leaks into storage |
+| tables 303, 330 | owned strict table JSON; complete replacement with deterministic `startedAt`/`endedAt` |
+| tables 354 (principle) | conversation document after a table write, publication conversation |
+| docs 78, 120, 137 | create on first access; cache identity; publication shares the cached value |
+| docs 158, 174 | copy per placement; value no-op writes and publishes nothing |
+| docs 207, 459 | escaped, nested and returned drafts revoked; cross-thread read while the backend commit is held raises `DraftRevoked` and the old revision stays visible |
+| docs 228, 405 | callback failure and assembly failure abort every change |
+| docs 250, 363, 380 | memoized acquisition; scope/version mismatch; non-JSON rejected before admission |
+| docs 479, 519, 549, 591 | retire/recreate, retire without acquisition, retire after acquisition (sync), cold reload |
+| docs 284, 311, 352 | pending acquisition rejected and drained; no late initializer or mint; expired Tx |
+
+Pi's prologue order (`#write`, `#read`, `settleSubmission`, `setTask`) has its
+own scenarios. An invalid write still sets the phase: the three sync writers,
+and `append_entry`, `create_conversation`, `create_task` and `create_submission`,
+with ingress failures and a validation failure inside the body. A read with
+invalid arguments sets nothing, and after a write it raises `ReadAfterWrite`
+first. `set_task` creates its task entry and runs the candidate checks before it
+validates the record shape. Further scenarios cover submission resolution,
+ingress before the guard,
+draft affinity and API, the cache pointer swap and evict, adopt-once and
+`RawDoc` validation.
+
+**Negative controls.** Ten private source mutants are compiled from `tx.py`
+and each must fail its designated scenarios, which pass unmodified. The mutants
+remove the phase check, owner validation, the open re-check after `_Io`, the
+revocation check, copy-on-placement and no-op suppression. One restores
+"ingress before phase" (the phase is set only after argument admission). Three
+restore the round-1 review defects: live containers in comparisons, non-exact
+draft keys, and caller values in `RawDoc` and cache keys. The matrix log shows
+25 of 25 designated runs failing for the intended reason and no unreaped
+thread.
+
+| Check (Python 3.15, `.venv`) | Exit / result |
+| --- | --- |
+| `pytest tests/durable/test_session_tx_core.py tests/durable/test_pi_comparison_coverage.py tests/durable/test_pi_comparison_acceptance.py` | 0; 175 passed |
+| `pytest tests/durable/test_session_tx_core.py`, 20 sequential runs | 20 of 20 exit 0; 60 passed each |
+| the same file under `-W error` (unraisable warnings as errors) | 0; 60 passed |
+| `pytest tests/durable` | 0; 1092 passed |
+| negative-control matrix script | 0; 25/25 designated failures, unmodified 25/25 pass |
+| manifest cascade baseline → a1 → a2b → b1b, then closure verification | 0; every hashed path matches (12, 11, 18, 25 entries) |
+| `ruff check .`, `ruff format --check .` | 0, 0 |
+| `mypy src tests` | 0; 891 files |
+| `scripts/docs.py build` (zensical `--strict`) and a rendered local link/anchor check of the five changed pages | 0 ("No issues found"); 0, 834 local links, 0 bad |
+
+The coverage and acceptance wiring adds child rows DE02b2a (IN_PROGRESS) and
+DE02b2b (OPEN) under DE02b2, moves DE02b1b to LANDED, and records Pi
+`session-documents.test.ts` 190 in the DE04/DE27 observables. Because that
+wiring changes files hashed by the baseline manifest, the cascade ran last: the
+baseline manifest is now `e9ca8b7a…b583`, records `2429e234…bc10`, memory
+`0ddf041a…9ce7` and guard `f87ca6ba…68f0`. No closure source file changed, so
+no comparison chain reran.
+
+**Pre-review ordering repair.** The coordinator's pre-review check rejected the
+earlier "ingress before the phase rule" spelling as an observable divergence
+from pinned Pi. `#write`, `settleSubmission` and `setTask` set the write phase
+right after `#assertOpen`, before touching their arguments; `#read` applies
+`ReadAfterWrite` before them. Every `_TxCore` prologue now follows that order,
+and the "bad ingress flips nothing" assertions were replaced by the Pi-faithful
+scenarios above, guarded by the new "ingress before phase" mutant. A re-scan of
+the other prologues found one more ordering divergence, also repaired: Pi
+`setTask` creates the task entry and runs the candidate checks before its copy,
+so a failed call still fixes the task's position in the batch. The checks above
+are the post-repair reruns (logs `fix-order-*`). Python ingress that remains
+narrower than Pi's is reported to the coordinator, not changed: synchronous
+ID, ownership, settlement-status and flag checks, and JSON validation of a plain
+`set_task` tree before the candidate checks.
+
+**Deviations, with reasons.**
+
+- Operations are a synchronous prologue plus a spawned body, not one `async def`
+  each. Pi's prologue errors are synchronous and its duplicate `doc()` returns
+  the memoized promise; keeping both in the core avoids duplicating staging
+  logic in b2b. `_Io` stays the only body suspension.
+- Adoption swaps under the cache's own lock, not the owner lock, because
+  `session.py` must not change; b2b may move it under the line.
+- Thread affinity is enforced by the driver, so drafts carry it in b2a.
+- The "open re-check before initializer, mint or install" is read as staging the
+  target (Pi X612–637). Like Pi, a late cold load still installs a committed
+  incarnation, which is never a candidate.
+- Deferred with their owners: task-scope documents and terminal-task document
+  retirement (DE04); fork, copies and families (DE27); root creation,
+  `conversationCreated`, submission trace links and telemetry injection (Harness
+  and observation slices); `CommitPublication` and listeners (b2b).
+
+### DE02b2a round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH, of tree `e8b3474c`: **ISSUES**, one
+Critical and one Warning. The coordinator accepted both, and Claude Code
+`claude-opus-5-5` HIGH repaired them. No CI result is claimed. Both belong to
+the same class as the earlier a2b foreign-point defect: caller-controlled Python
+objects reaching internals or running hooks.
+
+- **Critical: draft comparisons handed out the live tree.** `Draft.__eq__` and
+  `DraftList.__eq__` compared their backing containers. A reflected `__eq__` on a
+  caller object could therefore keep the live tree and mutate the candidate
+  without validation, copy or thread checks, even after prepare revoked the
+  draft. Comparisons and membership now use detached copies, so even a nested
+  operand sees only copies. Every other draft path was audited (list below).
+- **Warning: caller values in cache keys.** `RawDoc` accepted a `str`
+  subclass as its scope, and `_resolve` put that object into the cache key, so
+  its `__hash__`/`__eq__` ran under the non-reentrant cache lock (the reviewer
+  reproduced a deadlock). `RawDoc` now accepts exact built-ins only for kind,
+  version, scope, history and fork, and stores canonical literals. `_resolve`
+  re-checks them and builds keys only from canonical built-ins, so a spec changed
+  after construction raises `TypeError` before any lock.
+
+**Audited draft paths and disposition.**
+
+| Path | Disposition |
+| --- | --- |
+| `Draft`/`DraftList` `__eq__` (and the derived `__ne__`) | Both sides detached; operands are views only when their exact type is `Draft`/`DraftList` |
+| `DraftList` `__contains__`, `index`, `count`, `remove` | Detached copy; `start`/`stop` must be exact ints |
+| `Draft` `values()`/`items()` membership | Goes through the views' detached `__eq__` |
+| `Draft` keys: `__getitem__`, `__delitem__`, `__contains__`, `get`, `pop`, `setdefault`, `__setitem__` | Exact `str` only; other keys raise or miss without hashing |
+| `DraftList` indices and slices: get, set, delete, `insert`, `pop` | Exact ints; slice bounds exact ints or `None`; no caller `__index__` runs |
+| Placement (`__setitem__`, `insert`, `append`, `extend`, `update`, slice assignment) | Exact view types (a spoofed `__class__` is never consulted); `OwnedJson` copy. A caller iterable runs only while it supplies values and gets no container |
+| Iteration: `Draft.__iter__`, `DraftList.__iter__`/`__reversed__`, `keys()` | Yields only keys, scalars or guarded views, with a revocation check per step |
+| Slicing reads, `pop`, `popitem`, `snapshot()` | Detached plain values or `OwnedJson` |
+| `__repr__`, `__format__` | No payload, never raises |
+| `__copy__`, `__deepcopy__`, `__reduce_ex__`, `__reduce__`, `__getstate__`, `__setattr__`, `__hash__` | Refused or unhashable |
+| No `sort` or key-callback API | Not offered |
+
+Core paths where caller values meet hashing or comparison were also checked.
+The ownership kind and keys are now checked as exact strings before any set
+membership test. Entry, submission and `set_task` trees need exact `str` keys.
+The entry `head` is compared only as an exact `str`. A settlement is detached
+before its status check, and `submission_by_request` takes an exact `str`.
+Queries, limits and cursors still pass through unchanged; Memory admits them
+by exact type before using them under its lock. The guard runs no argument code
+under the owner lock.
+
+New scenarios:
+
+- `draft-comparison-never-hands-out-live-containers`. A retaining matcher is
+  passed through `==` on both views and as a nested operand, then through `in`,
+  `count`, `index`, `remove` and the `values()`/`items()` views. Every retained
+  container is mutated before and after commit; the candidate and committed
+  value stay unchanged and nothing retained is a view.
+- `draft-foreign-keys-indices-and-spoofs-run-no-hook`: hashed and `str`-subclass
+  keys, `__index__` objects as indices and slice bounds, and a spoofed
+  `__class__`. No hook runs.
+- `raw-doc-exact-builtins-and-no-hook-under-cache-lock`. A spec tampered with
+  after construction goes to `cache.peek` on a joined worker thread; its hook
+  uses a bounded lock acquire to detect the deadlock shape. The scenario also
+  covers `str`/`int` subclass fields in the constructor and canonical stored
+  values.
+
+The three new mutants make these fail. The `RawDoc` mutant records the hook
+running under the cache lock instead of hanging. The checks table above is the
+post-repair rerun (logs `repair-r1-*`); the cascade reran because the coverage
+observables and the plan cell changed.
+
+### DE02b2a package inventory name repair
+
+Root's `just check` on the round-2 snapshot (tree `7e1a96eb`) exited 1. Two
+package-wide AST inventory tests in
+`tests/test_native_session_extension_generation.py` scan every native module for
+watched attribute names, and they counted private names in `tx.py`: attribute
+loads of the plan/memo field `retire` (r3c2) and the `_DraftChange.abort()` call
+(r3b). The private names were renamed (`retire` to `retiring`, `abort` to
+`discard`) with no behaviour change; the inventory tests keep their scope. Both
+tests, the whole extension-generation file, the architecture tests, the Tx test
+file (also 20 times and under `-W error`), `pytest tests/durable` (1092), the
+matrix (25/25), ruff, format and `mypy src tests` exit 0 (logs `fix-names-*`).
+`tx.py` is in no manifest closure, so no hashed file changed.

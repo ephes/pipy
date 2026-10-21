@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a, DE02a2b and DE02b1a landed; DE02b1b is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a, DE02a2b, DE02b1a and DE02b1b landed; DE02b2a is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -143,9 +143,13 @@ Codex gpt-6.1-sol HIGH reviews. DE02a2 and DE02a are therefore delivered.
 DE02b is split b1a→b1b→b2→b3: b1a, the private guarded Storage and lifecycle
 owner with deterministic native tests, landed at `992c2102` (Codex gpt-6.1-sol
 HIGH ISSUES, one Critical and one Warning, repaired by Opus5.5 HIGH; delta CLEAN;
-no CI claim); b1b (in progress) is its actual pinned Node guard oracle with paired
-recipes, guard mutants and two fresh chains; b2 the first internal Session/Tx over
-that same owner; b3 cumulative paired Session acceptance and the final gate. DE02b waits all four, DE02 waits
+no CI claim); b1b, its actual pinned Node guard oracle with paired recipes, guard
+mutants and two fresh chains, landed at `cb38caf3` (Codex gpt-6.1-sol HIGH ISSUES,
+two Warnings, repaired by Opus5.5 HIGH; delta CLEAN; no CI claim); b2 the first
+internal Session/Tx over that same owner, split again b2a→b2b: b2a (in progress)
+is the private Tx core and mutable raw-base drafts without a commit entrypoint,
+b2b the first exposed Session; b3 cumulative paired Session acceptance and the
+final gate. DE02b2 waits b2a+b2b, DE02b waits all four children, DE02 waits
 a1+a2+b and DE03 waits b. No cumulative acceptance or P row is removed.
 This internal stage has no product/default/SDK availability or empty document shims.
 

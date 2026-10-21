@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a landed; DE02b1b in progress**, 2026-10-21. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a and DE02b1b landed; DE02b2a in progress**, 2026-10-21. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not
@@ -165,10 +165,27 @@ capability only when its durable admission/state transitions and tests exist.
    A thrown acknowledgement may have committed. Request IDs reconcile that
    ambiguity. Invalid/cancelled read exceptions stay scoped as in the reference;
    preparation/hook validation failures before backend admission roll back.
+   "Stop publication" means later publications: as in the reference
+   (`session.ts` 806–817), a failure an internal commit listener raises still
+   lets the current publication reach its remaining listeners, and the durable
+   triggering commit resolves.
 6. Close seals reservation/admission, lets admitted commits settle and joins
    invocation work before backend/lock release. Close is resumable shutdown;
    durable abort is a separate state transition. A noncooperative child requires
    process containment or a truthful blocker, never premature owner release.
+
+Python spellings recorded before the first Session code (2026-10-21):
+
+- Asyncio cancellation of an `acommit` caller (DE02b2b) reaches the running
+  callback, unlike the reference's abort signal. Before backend admission it is
+  the callback's own failure and rolls the commit back; once the callback
+  settles, settlement is owned work that caller cancellation cannot cut. Only an
+  explicit cancel view is the reference abort signal.
+- Raw-base no-op suppression (DE02b2a) compares the prepared value with the
+  loaded one. The reference's op-based rule, under which a structural no-op such
+  as shift then unshift still writes and publishes a delta
+  (`session-documents.test.ts` 190), is a cumulative DE04/DE27 obligation, not a
+  dropped DE02b requirement.
 
 ### 3.3 Versioning, identity and uncertain effects
 
@@ -373,7 +390,9 @@ no public claim of full parity at this milestone.
 | DE02b / DE02a2b | Session/Tx admission, revocable candidates, seal/prepare/guard, uncancellable admitted settlement, adoption/publication and close. | Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b; DE02b itself completes only after its b1a+b1b+b2+b3 children. |
 | DE02b1a / DE02a2b | Private native guarded Storage and lifecycle owner: first failure, admission seal, call registration, drain, backend-close-once and report-once over the real Memory backend. | Deterministic permanent native tests: all16 delegates, 13 read-role exemptions versus never-exempt commit/mint, underway-call failure, paged-read seal, first-cause and close-failure, concurrent and cancelled closers, reporter and BaseException decisions, plus reached-guard private negative controls. No public Session, Tx, reference oracle or P closure. |
 | DE02b1b / DE02b1a | Actual pinned Node guard oracle through a bounded driver subclass of the exported SessionImpl exposing its protected guarded storage, with paired Node/Python guard recipes. | Paired recipes, schema-valid guard mutants, a closed manifest and two fresh pinned chains over the same b1a owner. No Session/Tx surface or P closure. |
-| DE02b2 / DE02b1b | First bounded internal Session and Tx over the same owner: FIFO line admission, sync and suspending callbacks, table phase/final owners, nested-revocable raw-base drafts, pending-operation seal/drain, prepare/discard/adopt, acknowledgement cuts, publication and close draining accepted work. | Callback API decision recorded before code; no-op suppression and late-initializer/mint gates; adopt failure rejects while an internal-listener failure poisons a durable commit that still resolves. The first exposed commit carries all coupled lifecycle/failure/publication behavior; may split again before code. |
+| DE02b2 / DE02b1b | First bounded internal Session and Tx over the same owner: FIFO line admission, sync and suspending callbacks, table phase/final owners, nested-revocable raw-base drafts, pending-operation seal/drain, prepare/discard/adopt, acknowledgement cuts, publication and close draining accepted work. | Callback API decision recorded before code; no-op suppression and late-initializer/mint gates; adopt failure rejects while an internal-listener failure poisons a durable commit that still resolves. The first exposed commit carries all coupled lifecycle/failure/publication behavior; may split again before code. Split 2026-10-21 into b2a+b2b; DE02b2 completes only after both. |
+| DE02b2a / DE02b1b | Private sans-IO Tx core and mutable raw-base drafts over the same owner, with an inline sync driver and no commit entrypoint: table phase rules, internal current/committed task resolution, final-owner validation, replace and submission resolution, value no-op suppression, prepare/abort/adopt against a committed-only document cache, nested-revocable drafts. | Deterministic native tests composing guard, core, guard commit and adopt only inside the test module: Pi tables 82/104/121/132/188/213/303/330/354 and documents 78/158/174/207/228/363/380/405/479/519, escaped/nested/returned/cross-thread draft revocation and no late initializer/mint after a backend call; ten private negative controls, including Pi's phase-before-ingress order and no caller hook reaching live drafts or cache keys. No public Session, line, async driver, publication or P closure. |
+| DE02b2b / DE02b2a | First exposed internal Session over the same owner and core: owner line and close-predicate amendments, sync and async commit with handles and pending seal/drain, cancellation matrix, reentry, acknowledgement cuts, adopt-reject, publication and listeners, close and snapshot. | The first commit surface carries every coupled lifecycle/failure/publication behavior and none moves to b3; negative controls cover the line hold during drain, pending check, shield, queued-cancel cut, post-callback health check, adopt-fail→fail, internal-versus-host routing, line-drain close predicate and close-listener ordering. |
 | DE02b3 / DE02b2 | Cumulative actual paired Session acceptance and the final DE02b delivery gate. | Every original DE02b cell proven cumulatively; DE02b waits b1a+b1b+b2+b3, DE02 waits a1+a2+b and DE03 waits b; all P OPEN. |
 | DE03 / DE02b | Implement local SQLite backend/schema and persistent path lock, owner-only creation, query cursors and initial migration discipline. | Two processes/aliases cannot own one DB; SIGKILL owner then reopen; transactional schema failure/newer refusal, acknowledgement loss and integrity checks; no world-readable DB/journal/lock. Storage/private lifecycle docs. |
 | DE04 / DE03 | Add minimal typed document singleton/family/scopes, initial/base/update/retire and one mutation authority. | Atomic entries/tasks/docs; copied inputs/reads, invalid JSON, init/checkpoint exceptions rollback, terminal task doc retirement; shared mutable readers/writers race barriers. Document contract. |
