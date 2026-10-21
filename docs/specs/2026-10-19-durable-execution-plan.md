@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a landed; DE02a2b in progress**, 2026-10-20. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a in progress**, 2026-10-21. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not
@@ -370,7 +370,11 @@ no public claim of full parity at this milestone.
 | DE02a2 / DE02a1 | Detached atomic MemoryStorage: one ID namespace/root1/mint2/seq1, complete replacements, fork-visible reads/cursors/indices, current raw-base create/change/retire atomic with tables. | Full DE02a backend acceptance: invalid-last-write rollback, retained/read ownership, deterministic concurrency barriers, real raw-base draft seam for b, two fresh native storage comparisons and schema-valid index/sequence/cursor/alias mutants. Request IDs, task kinds and document kind/key identities compare by exact UTF-16 code units across equivalent Python spellings. Unsupported delta/copy/as-of/fork document commands reject whole batches; cumulative DE04/DE27 requirements retained. |
 | DE02a2a / DE02a1 | Internal atomic table Memory stage with one authority/candidate/adoption, global IDs/Seq, complete replacement indexes, ancestry/cursors/close and deterministic concurrency. | Real current Node/Python table operations, two fresh pinned paired chains, field/ID/Seq/request/status/cursor/alias mutants and failure/barrier proofs. No document support, product factory/default or full Storage claim; a2b remains mandatory. |
 | DE02a2b / DE02a2a | Current raw-base documents and address/scope indexes inside the same table candidate/authority, with full cumulative bounded Storage Protocol acceptance. | Supported late-document failure rolls back tables/indexes/documents/counters; mixed concurrency/ownership plus two fresh cumulative native storage comparisons and document/index mutants. Original a2 requirements retained; a2 and a wait both children, b waits a2b, DE03 waits b; all P OPEN. |
-| DE02b / DE02a2b | Session/Tx admission, revocable candidates, seal/prepare/guard, uncancellable admitted settlement, adoption/publication and close. | Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b. |
+| DE02b / DE02a2b | Session/Tx admission, revocable candidates, seal/prepare/guard, uncancellable admitted settlement, adoption/publication and close. | Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b; DE02b itself completes only after its b1a+b1b+b2+b3 children. |
+| DE02b1a / DE02a2b | Private native guarded Storage and lifecycle owner: first failure, admission seal, call registration, drain, backend-close-once and report-once over the real Memory backend. | Deterministic permanent native tests: all16 delegates, 13 read-role exemptions versus never-exempt commit/mint, underway-call failure, paged-read seal, first-cause and close-failure, concurrent and cancelled closers, reporter and BaseException decisions, plus reached-guard private negative controls. No public Session, Tx, reference oracle or P closure. |
+| DE02b1b / DE02b1a | Actual pinned Node guard oracle through a bounded driver subclass of the exported SessionImpl exposing its protected guarded storage, with paired Node/Python guard recipes. | Paired recipes, schema-valid guard mutants, a closed manifest and two fresh pinned chains over the same b1a owner. No Session/Tx surface or P closure. |
+| DE02b2 / DE02b1b | First bounded internal Session and Tx over the same owner: FIFO line admission, sync and suspending callbacks, table phase/final owners, nested-revocable raw-base drafts, pending-operation seal/drain, prepare/discard/adopt, acknowledgement cuts, publication and close draining accepted work. | Callback API decision recorded before code; no-op suppression and late-initializer/mint gates; adopt failure rejects while an internal-listener failure poisons a durable commit that still resolves. The first exposed commit carries all coupled lifecycle/failure/publication behavior; may split again before code. |
+| DE02b3 / DE02b2 | Cumulative actual paired Session acceptance and the final DE02b delivery gate. | Every original DE02b cell proven cumulatively; DE02b waits b1a+b1b+b2+b3, DE02 waits a1+a2+b and DE03 waits b; all P OPEN. |
 | DE03 / DE02b | Implement local SQLite backend/schema and persistent path lock, owner-only creation, query cursors and initial migration discipline. | Two processes/aliases cannot own one DB; SIGKILL owner then reopen; transactional schema failure/newer refusal, acknowledgement loss and integrity checks; no world-readable DB/journal/lock. Storage/private lifecycle docs. |
 | DE04 / DE03 | Add minimal typed document singleton/family/scopes, initial/base/update/retire and one mutation authority. | Atomic entries/tasks/docs; copied inputs/reads, invalid JSON, init/checkpoint exceptions rollback, terminal task doc retirement; shared mutable readers/writers race barriers. Document contract. |
 | DE05 / DE04 | Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open. | Kill before reservation, after running intent, before/after checkpoint; repeated resume stable; invocation cannot write after completion; storage error seals all later work. Task/effect contract. |
@@ -573,6 +577,18 @@ when gates pass. After final DE45, require the entire matrix and actual native
 default path to pass, confirm main/remote CI and report exclusions/live limits
 separately. Do not substitute a generic parity score or existing MCP goal-check
 for this durable feature's acceptance.
+
+**Owner decisions of 2026-10-21 (appended; earlier history unchanged).** From
+DE02b1a onward, Claude Code `claude-opus-5-5` HIGH implements and repairs, and
+Codex `gpt-6.1-sol` HIGH reviews through `codex-review-loop`. This supersedes the
+GPT-implements/Opus-reviews assignment above for later slices only; earlier
+slices remain recorded as GPT-implemented and Opus-reviewed. GitHub CI is no
+longer a delivery gate (Actions quota): delivery requires local `just check`, a
+Codex CLEAN review and the pushed SHA verified with `git ls-remote`. Docs for
+DE02a2b and later slices claim no CI result. The "no branch/worktree policy
+exception" rule above is withdrawn: `AGENTS.md` now allows short-lived branches
+and worktrees, so independent slices may run in parallel and merge to `main` in
+turn. Dependent slices still wait for their dependency to land on `main`.
 
 ## 8. Effort, decision points and stop conditions
 

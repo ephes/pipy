@@ -1,7 +1,7 @@
 # Native durable execution evidence ledger
 
-Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a landed; DE02a2b in progress; all parity rows OPEN**,
-2026-10-20. This ledger accompanies the
+Status: **DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a and DE02a2b landed; DE02b1a in progress; all parity rows OPEN**,
+2026-10-21. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
 index, not an upstream comparison result. The prototypes are experimental
@@ -143,12 +143,16 @@ that coverage here. A local validation result is not a landed slice.
 | DE01b3a | Fresh executable local acceptance, hardware/exported workloads, four fresh mutants, exhaustive mapping | LANDED | Commit e3b2b391; actual CLEAN and CI39302403566 success10/10; reconciliation below |
 | DE01b3b | Mandatory real pinned CI, selective artifacts and successful pushed-job proof | LANDED | `13d061d2`; actual Opus5.5 HIGH CLEAN; CI39370449156 success11/11 and uploaded artifact audited; delivery below |
 | DE02 | Records, memory storage and atomic session core | IN_PROGRESS | Cumulative a1+a2+b; original parent acceptance retained |
-| DE02a | Owned records/values, Storage port and detached atomic Memory | IN_PROGRESS | Cumulative a1+a2; no parent or P completion |
+| DE02a | Owned records/values, Storage port and detached atomic Memory | LANDED | Cumulative a1+a2 both delivered; no P completion |
 | DE02a1 | Owned finite JSON, versioned records and Storage Protocol/DTOs | LANDED | b1aa0562; actual Opus5.5 HIGH CLEAN; CI39387254837 success11/11 and artifact audited; historical ISSUES retained |
-| DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | IN_PROGRESS | Cumulative a2a+a2b; original backend acceptance retained |
+| DE02a2 | Atomic detached Memory, raw-base seam, ancestry/indices/concurrency and native storage comparisons | LANDED | Cumulative a2a+a2b both delivered; original backend acceptance retained |
 | DE02a2a | Internal atomic table Memory and current native/reference oracle | LANDED | 85390e2b; actual Opus5.5 HIGH CLEAN; CI39408774643 success11/11, complete logs/artifact audited; review history preserved |
-| DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | IN_PROGRESS | a2a delivered; same-authority raw-base implementation authorized; independent gates pending |
-| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | OPEN | Requires a2b; all original Session/draft/failure obligations retained |
+| DE02a2b | Current raw-base documents in same candidate and cumulative bounded Protocol proof | LANDED | 72253352; Opus5.5 HIGH ISSUES (one Suggestion) repaired, Codex gpt-6.1-sol HIGH delta CLEAN; push verified; CI not a delivery gate (run 39545767044 started, not awaited) |
+| DE02b | Session/Tx admission, seal/guard/adopt/publication/close | IN_PROGRESS | Cumulative b1a+b1b+b2+b3; all original Session/draft/failure obligations retained |
+| DE02b1a | Private guarded Storage and lifecycle owner over real Memory | IN_PROGRESS | Local native guard evidence below; independent gates pending |
+| DE02b1b | Actual pinned Node guard oracle and paired guard recipes | OPEN | Requires b1a |
+| DE02b2 | First internal Session/Tx over the same owner | OPEN | Requires b1b; callback API decision before code |
+| DE02b3 | Cumulative paired Session acceptance and final b gate | OPEN | Requires b2 |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -250,12 +254,15 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE01b3b and DE02a1 have landed. The coordinator activates a2a→a2b
-before product edits: a2a internal atomic tables/indices/ancestry/concurrency with
-its own actual oracle, then a2b raw-base documents in the SAME candidate and full
-cumulative bounded Storage proof. DE02a2 waits both; DE02a waits a1+a2a+a2b;
-DE02b waits a2b; DE02 waits b and DE03 waits b. Original parent acceptance remains
+DE00 through DE01b3b, DE02a1, DE02a2a and DE02a2b have landed, so the cumulative
+DE02a2 and DE02a parents are delivered. DE02b is split b1a→b1b→b2→b3 before
+product edits: b1a the private guarded Storage/lifecycle owner, b1b its actual
+pinned Node oracle, b2 the first internal Session/Tx over that same owner, b3
+cumulative paired Session acceptance and the final b gate. DE02b waits all four;
+DE02 waits a1+a2+b and DE03 waits b. Original parent acceptance remains
 unchanged. All P rows OPEN; no partial backend/product factory/default release.
+Delivery from 2026-10-21: local `just check`, Codex gpt-6.1-sol HIGH CLEAN and a
+pushed SHA verified with `git ls-remote`; GitHub CI is not a delivery gate.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -2122,3 +2129,152 @@ original failed freeze and gate proofs remain unchanged. Source/fixtures/Session
 boundaries and all P OPEN remain; no a2b independent full or Opus result exists.
 The next gate is one independent full followed by the first whole-slice actual
 Opus5.5 HIGH review, coordinator-owned, not a scoped reuse of an a2a review.
+
+
+## DE02a2b delivery and DE02b split
+
+DE02a2b landed at `72253352d243fb12491e7c4429c6265e0e7e3149` on origin/main
+(tree `8f85fe7befcb2db4178a4bed939aa07a378a13a7`). Round 1 whole-slice review,
+Claude Code `claude-opus-5-5` HIGH: **ISSUES** with one Suggestion (a stale
+"seven" scenario count in the `scripts/durable_memory_comparison.py` docstring).
+Claude Opus 5.5 HIGH repaired it by removing the number. Round 2 delta review,
+Codex `gpt-6.1-sol` HIGH through `codex-review-loop`: **CLEAN**, model/effort
+proven, no omissions. The push started
+[CI39545767044](https://github.com/ephes/pipy/actions/runs/39545767044), which was
+not awaited; no CI result is claimed for a2b. With a2a and a2b delivered, the
+cumulative DE02a2 and DE02a parents are LANDED; all43 P rows stay OPEN.
+
+Owner decisions of 2026-10-21 (plan §7, appended): Claude Code
+`claude-opus-5-5` HIGH implements and repairs, Codex `gpt-6.1-sol` HIGH reviews;
+GitHub CI is no longer a delivery gate (local `just check`, Codex CLEAN and a
+`git ls-remote`-verified push are). Earlier slices keep their recorded
+GPT-implemented/Opus-reviewed history.
+
+Before product edits, the coordinator split DE02b into four children, preserving
+every original DE02/DE02b cell cumulatively (plan §5 rows, coverage index
+105 rows): **b1a** private guarded Storage plus lifecycle owner (first failure,
+admission seal, registration, drain, backend-close-once, report-once) with
+deterministic permanent native tests; **b1b** the actual pinned Node guard oracle
+through a bounded `SessionImpl` driver subclass, paired recipes, mutants, closed
+manifest and two fresh chains; **b2** the first internal Session+Tx over the same
+owner (FIFO line, sync and suspending callbacks, drafts, pending-operation drain,
+adoption, acknowledgement cuts, publication, close), which may split again before
+code; **b3** cumulative paired Session acceptance and the final b gate. DE02b
+waits all four, DE02 waits a1+a2+b and DE03 waits b.
+
+
+## DE02b1a local guard evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` HIGH, sole writer on main from clean HEAD
+`72253352`. New private module `src/pipy_harness/native/durable/session.py`
+(not exported from `native/durable/__init__.py`) and permanent tests
+`tests/durable/test_session_storage_guard.py`. No codec/records/Storage-port/
+Memory product file, reference adapter, fixture input or CI file changed.
+Semantics are adapted from pinned `session/session.ts` (`fail`, `close`,
+`FailureLatch`, `GuardedStorage`; blob `b22e9c56…`, sha256
+`cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186`) and
+`errors.ts` (`SessionFailed`), MIT Copyright (c) 2025 Mario Zechner.
+
+`SessionLifecycle` is the single owner of one backend. One ordinary
+`Condition` guards only its state: first failure, guard seal, registered-call
+count and close state (idle, requested, running, done). Linearization points:
+admission checks health, then the seal, and registers the call in one locked
+step; the backend call runs unlocked; classification and the first-failure latch
+happen in one locked step after the call; retirement decrements under the lock.
+`fail` latches once, seals and requests close but never waits. Close is
+"last retirer closes": the thread that retires the final registered call, or the
+requester when none is underway, claims the requested close and runs backend
+`close()` once outside the lock, then publishes the shared outcome. No cleanup
+thread exists, so none needs reaping. `GuardedStorage` is a Storage-shaped facade
+with identical signatures for all sixteen methods; `reading(view)` binds an
+immutable `CancelView` over an owned `CancelLatch` to the same owner, consulted
+only to classify a thrown read error.
+
+Classification mirrors `#call`: a failed owner turns any later error or success
+into `SessionFailed(first cause)`; reads exempt only `StorageRequestError` or a
+cancelled caller view; commit and mint are never exempt; a non-`Exception`
+`BaseException` is never exempt, latches if first and is re-raised unchanged.
+Admission after failure raises `SessionFailed`, after the seal
+`SessionClosedError("Session is closed")`. A healthy backend-close failure becomes
+the cause; with an earlier failure the cause stays and the close error still
+reaches every closer. A cancelled or timed-out close waiter raises without undoing
+the seal, drain or pending close. Reports run once, outside the lock, after the
+seal and after the failing call retired; reporter `Exception`s are contained
+(Pi Harness `safeReport`), other `BaseException`s propagate. Python-spelling
+differences, recorded rather than hidden: a healthy close failure is reported
+after the outcome is published (a reporter calling close cannot wait on its own
+cleanup), and another thread may close a drained backend while the failing
+thread reports. Arguments pass unchanged, so a raw `RecordError` for an ill-typed
+argument fails the owner; typed ingress belongs to Session/Tx.
+
+The permanent file registers 99 scenarios, each run against the real module
+and, for item 8, against private source mutants: all sixteen delegates through
+both facades with exact args (both `entry` forms, defaults, cursors, current
+point) and identical result objects; the 13 read roles × request-error exempt,
+cancelled-view exempt, ordinary poisons and cancelled success returned; commit/
+mint never exempt; Pi 132 (mint/commit × late success/late error), Pi 156 with a
+witnessed blocked close wait and an exact backend-state check at close entry,
+Pi 192 race and healthy close failure, external double `fail`, concurrent and
+cancelled closers including a synchronous close throw, Pi 267/291/301/410,
+reporter outside the lock, reporter process control, `BaseException` decisions,
+the a2b foreign-point pass-through and closed refusal before Memory. Two further
+tests check static and `inspect.signature` Protocol conformance and argument
+validation. Eight private mutants (read-role exemption, post-call health check,
+late-error health check, admission seal, registration, drain wait,
+first-cause-only, close-once) each fail their designated reached-guard scenarios
+in the permanent suite; the unmodified module passes them.
+
+Full private mutant matrix (all 99 scenarios per module, scratch runner, bounded
+waits lowered to 1s): unmodified 0/99 failed; read-role exemption 28 failed
+(13 request-error, 13 cancelled-view, Pi 301, Pi 410); post-call health check 3;
+late-error health check 3; admission seal 4; registration 8; drain wait 8;
+first-cause-only 2; close-once 9; no worker thread left alive. The implementer
+reported repeated deterministic runs (20 consecutive clean runs of the guard
+file), the durable directory, Ruff, mypy and the strict docs build to the
+coordinator with exact commands and log paths, on Python 3.15 only (the existing
+`.venv`). No 3.11/3.14 run, full suite, independent review or reference chain is
+claimed for this slice yet.
+
+### DE02b1a round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH: **ISSUES**, one Critical and one
+Warning; the coordinator verified both at source and accepted them. Repaired by
+Claude Code `claude-opus-5-5` HIGH; no CI result is claimed.
+
+- **Critical — final classification and retirement were two lock sections.** A
+  `fail()` from another thread could latch between a call's post-call health
+  check (or late-failure classification) and its unregistration, so a call still
+  registered at the failure returned success or an exempt/original error instead
+  of `SessionFailed`. Pi runs catch, `finally` deletion and `assertHealthy`
+  synchronously. Now unregistration and final classification (success: health;
+  error: late failure, exemption and first-failure latch) are ONE locked step,
+  followed by report and close claim outside the lock. A `finally` guard
+  unregisters only if something escapes before that step.
+- **Warning — cleanup could replace an in-flight `BaseException`.** A process-
+  control backend-close error (e.g. `SystemExit`) raised by the last retirer
+  replaced the call's own exception (e.g. `KeyboardInterrupt`). Now a close error
+  never replaces an exception the claiming thread is already raising: it is
+  latched as the first cause if none exists, reported once then, and raised to
+  every `close()` caller. A process-control close error is additionally raised by
+  a claimer with nothing else to raise (`fail`, `request_close`, or a guarded call
+  that would otherwise return), so it is never silently lost. A reporter's own
+  process-control exception still propagates as before.
+
+New permanent scenarios (105 total, 118 tests in the file):
+`settle-atomic-race[acquire|release-success|exempt-error]` use a test-only
+`RaceCondition` that runs `fail()` on another, joined thread exactly at the
+target call's first owner-lock acquire or release after the backend returned
+(no sleeps) and assert Pi's invariant: a call registered when the failure
+latched ends with `SessionFailed`, otherwise it keeps its own outcome.
+`close-error-never-replaces-inflight-base-exception` covers
+KeyboardInterrupt + SystemExit and the closer's view;
+`close-process-control-raised-when-nothing-else-raises` covers `fail` and a
+retiring successful read as claimers. The pre-repair module fails exactly these
+three regressions (race release success/exempt-error, in-flight replacement).
+Three new private mutants each fail their designated scenario: split success
+settle 1/105, split error settle 1/105, close error replaces in-flight 1/105.
+Full matrix (bounded waits 1s): unmodified 0/105; read-role exemption 29;
+post-call health check 4; late-error health check 4; admission seal 4;
+registration 11; drain wait 9; first-cause-only 4; close-once 13; no worker
+thread left alive.

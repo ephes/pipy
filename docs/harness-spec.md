@@ -105,12 +105,22 @@ DE02a1 landed owned finite values/versioned records and the Storage port.
 DE02a2a landed an internal table engine and bounded actual Node/Python table
 comparison: one authority, private preparation and one state adoption, including
 indices, ancestry, cursors, ownership and deterministic contention proofs. It is
-not integrated into the product. DE02a2b adds current raw-base create/change/retire,
-materialization and exact address/scope scans inside that same candidate/authority,
-with cumulative bounded Storage acceptance. Its independent delivery is pending;
-delta/copy/numeric history/fork materialization and Session work remain later. DE02a2 waits both children; DE02a waits
-a1+a2; DE02b admission/seal/guard/adoption/publication/close waits a2b; DE03 waits b. All original acceptance remains
-cumulative. Product session formats/defaults stay unchanged; all P rows remain OPEN.
+not integrated into the product. DE02a2b landed (`72253352`) current raw-base
+create/change/retire, materialization and exact address/scope scans inside that
+same candidate/authority, with cumulative bounded Storage acceptance (Opus5.5 HIGH
+ISSUES one Suggestion, repaired; Codex gpt-6.1-sol HIGH delta CLEAN; no CI claim),
+so DE02a2 and DE02a are delivered. Delta/copy/numeric history/fork materialization
+remain later. DE02b is split b1a→b1b→b2→b3. DE02b1a (in progress) adds the private
+`native/durable/session.py` owner: one lifecycle object governs the first failure,
+report-once, guarded-call registration, the final-stage guard admission seal,
+drain and backend-close-once, and a Storage-shaped guard delegates all sixteen
+methods unchanged. Reads exempt only `StorageRequestError` or a cancelled caller
+view; commit/mint are never exempt; a call underway when another fails ends with
+`SessionFailed`; the last call to retire closes the backend. It is not exported and
+has no Session/Tx; b1b adds its pinned Node oracle, b2 the first Session/Tx over
+the same owner, b3 the final cumulative gate. DE02 waits a1+a2+b; DE03 waits b.
+All original acceptance remains cumulative. Product session formats/defaults stay
+unchanged; all P rows remain OPEN.
 
 The bounded Storage port admits document points by exact built-in type before
 comparison/coercion/hash/repr. Foreign objects and str/int subclasses cannot run

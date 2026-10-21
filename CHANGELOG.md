@@ -8,6 +8,19 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a private durable Session storage guard and lifecycle owner (internal; no
+  product, default or public API change). One owner latches the first storage
+  failure, reports it once, registers every guarded backend call, seals guarded
+  admission on close or failure, drains calls underway and closes the backend
+  exactly once, with the last call to retire performing that close. The guard
+  delegates all sixteen Storage methods unchanged; reads exempt only invalid
+  requests or a cancelled caller view, commit and ID mint are never exempt, and a
+  call still underway when the owner fails ends with `SessionFailed`. Close
+  waiters may give up without undoing the seal, drain or pending close.
+  Deterministic tests over the real in-memory backend cover the pinned Pi guard
+  cases and private negative controls. The Session/Tx surface, its Node oracle
+  and every parity requirement remain open.
+
 - Extend internal durable MemoryStorage with current raw-base document create,
   base replacement/version transitions, retirement, detached materialization and
   exact address/scope scans inside the same table candidate, global ID/sequence

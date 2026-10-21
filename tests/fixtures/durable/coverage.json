@@ -390,10 +390,10 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative/source contract only; this child has no own executed backend/session proof."
+        "observables": "Cumulative parent: LANDED only through its delivered children DE02a1 (b1aa0562) and DE02a2 (a2a+a2b); no separate own executed proof."
       },
       "future": "All original DE02a obligations remain cumulative: a1 value/record/port proof plus a2 Memory/raw-base/ancestry/index/concurrency and full native storage comparison. No Session adoption or P closure.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02-split-before-product-implementation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -458,10 +458,10 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative/source contract only; this child has no own executed backend/session proof."
+        "observables": "Cumulative parent: LANDED only through its delivered children DE02a2a (85390e2b) and DE02a2b (72253352); no separate own executed proof."
       },
       "future": "Full DE02a backend acceptance: invalid-last-write rollback, retained/read ownership, deterministic concurrency barriers, real raw-base draft seam for b, two fresh native storage comparisons and schema-valid index/sequence/cursor/alias mutants. Request IDs, task kinds and document kind/key identities compare by exact UTF-16 code units across equivalent Python spellings. Unsupported delta/copy/as-of/fork document commands reject whole batches; cumulative DE04/DE27 requirements retained.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02-split-before-product-implementation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -484,17 +484,17 @@
       "plan_cells": [
         "DE02b / DE02a2b",
         "Session/Tx admission, revocable candidates, seal/prepare/guard, uncancellable admitted settlement, adoption/publication and close.",
-        "Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b."
+        "Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b; DE02b itself completes only after its b1a+b1b+b2+b3 children."
       ],
       "current": {
         "kind": "source-only",
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative/source contract only; this child has no own executed backend/session proof."
+        "observables": "Cumulative/source contract only; split 2026-10-21 into b1a/b1b/b2/b3 with every original cell retained. Only the b1a child owns native guard evidence."
       },
-      "future": "Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b.",
-      "status": "OPEN",
+      "future": "Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b; DE02b itself completes only after its b1a+b1b+b2+b3 children.",
+      "status": "IN_PROGRESS",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02-split-before-product-implementation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -513,7 +513,7 @@
         "DE03"
       ],
       "contract": "Implement local SQLite backend/schema and persistent path lock, owner-only creation, query cursors and initial migration discipline.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:374 (DE03 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:378 (DE03 contract)",
       "plan_cells": [
         "DE03 / DE02b",
         "Implement local SQLite backend/schema and persistent path lock, owner-only creation, query cursors and initial migration discipline.",
@@ -545,7 +545,7 @@
         "DE04"
       ],
       "contract": "Add minimal typed document singleton/family/scopes, initial/base/update/retire and one mutation authority.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:375 (DE04 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:379 (DE04 contract)",
       "plan_cells": [
         "DE04 / DE03",
         "Add minimal typed document singleton/family/scopes, initial/base/update/retire and one mutation authority.",
@@ -577,7 +577,7 @@
         "DE05"
       ],
       "contract": "Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:376 (DE05 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:380 (DE05 contract)",
       "plan_cells": [
         "DE05 / DE04",
         "Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open.",
@@ -609,7 +609,7 @@
         "DE06"
       ],
       "contract": "Production checkpoint/request/outcome codecs using canonical `agent/messages.py`, `agent/request.py`, provider and tool outcome DTOs; extract audited finite encoding rather than importing scripts.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:377 (DE06 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:381 (DE06 contract)",
       "plan_cells": [
         "DE06 / DE05",
         "Production checkpoint/request/outcome codecs using canonical `agent/messages.py`, `agent/request.py`, provider and tool outcome DTOs; extract audited finite encoding rather than importing scripts.",
@@ -641,7 +641,7 @@
         "DE07"
       ],
       "contract": "Add durable generation prepare/request/settlement phases using native request snapshot and `ProviderTurnExecutor` transport seams, fixed/pure adapters only; share loop policy rather than run entire product loop on resume.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:378 (DE07 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:382 (DE07 contract)",
       "plan_cells": [
         "DE07 / DE06",
         "Add durable generation prepare/request/settlement phases using native request snapshot and `ProviderTurnExecutor` transport seams, fixed/pure adapters only; share loop policy rather than run entire product loop on resume.",
@@ -673,7 +673,7 @@
         "DE08"
       ],
       "contract": "Add sequential native tool intent/result state with stored prepared args and safety intersection; controlled blocked uncertainty for this milestone.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:379 (DE08 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:383 (DE08 contract)",
       "plan_cells": [
         "DE08 / DE07",
         "Add sequential native tool intent/result state with stored prepared args and safety intersection; controlled blocked uncertainty for this milestone.",
@@ -705,7 +705,7 @@
         "DE09"
       ],
       "contract": "Add committed completed-message/outcome projection and reconnect/drain sequence to Python observers, replacing state-first mutation for this mode.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:380 (DE09 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:384 (DE09 contract)",
       "plan_cells": [
         "DE09 / DE08",
         "Add committed completed-message/outcome projection and reconnect/drain sequence to Python observers, replacing state-first mutation for this mode.",
@@ -737,7 +737,7 @@
         "DE10"
       ],
       "contract": "Add active-execution compatibility and redacted inspect/recovery resolution operations, supported version rules and terminal read-only access.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:381 (DE10 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:385 (DE10 contract)",
       "plan_cells": [
         "DE10 / DE09",
         "Add active-execution compatibility and redacted inspect/recovery resolution operations, supported version rules and terminal read-only access.",
@@ -769,7 +769,7 @@
         "DE11"
       ],
       "contract": "Expose opt-in new durable Python product-session factory plus explicit reopen/close, with one path authority; adapt existing `coding/product_session.py` seams. Existing defaults stay until DE44.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:382 (DE11 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:386 (DE11 contract)",
       "plan_cells": [
         "DE11 / DE10",
         "Expose opt-in new durable Python product-session factory plus explicit reopen/close, with one path authority; adapt existing `coding/product_session.py` seams. Existing defaults stay until DE44.",
@@ -801,7 +801,7 @@
         "DE12"
       ],
       "contract": "Expose opt-in headless native start/resume/inspect via existing CLI composition, graceful disconnect/exit and documented state locations; real-provider acceptance probe when auth available.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:383 (DE12 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:387 (DE12 contract)",
       "plan_cells": [
         "DE12 / DE11",
         "Expose opt-in headless native start/resume/inspect via existing CLI composition, graceful disconnect/exit and documented state locations; real-provider acceptance probe when auth available.",
@@ -833,7 +833,7 @@
         "DE13"
       ],
       "contract": "Implement **Pi interrupted-error continuation** for unsafe recovered top-level model-issued tool calls, retaining uncertainty diagnostics; replace initial blocking default for supported tasks.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:391 (DE13 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:395 (DE13 contract)",
       "plan_cells": [
         "DE13 / DE12",
         "Implement **Pi interrupted-error continuation** for unsafe recovered top-level model-issued tool calls, retaining uncertainty diagnostics; replace initial blocking default for supported tasks.",
@@ -865,7 +865,7 @@
         "DE14"
       ],
       "contract": "Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:392 (DE14 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:396 (DE14 contract)",
       "plan_cells": [
         "DE14 / DE13",
         "Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection.",
@@ -897,7 +897,7 @@
         "DE15"
       ],
       "contract": "Add immutable task/conversation ownership, durable waiting/completing, candidate-state child admission, allSettled/failFast and wait-cycle detection.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:393 (DE15 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:397 (DE15 contract)",
       "plan_cells": [
         "DE15 / DE14",
         "Add immutable task/conversation ownership, durable waiting/completing, candidate-state child admission, allSettled/failFast and wait-cycle detection.",
@@ -929,7 +929,7 @@
         "DE16"
       ],
       "contract": "Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:394 (DE16 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:398 (DE16 contract)",
       "plan_cells": [
         "DE16 / DE15",
         "Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups.",
@@ -961,7 +961,7 @@
         "DE17"
       ],
       "contract": "Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel, timer failures and parked work wake behavior. Integrate native retry/overflow classifiers.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:395 (DE17 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:399 (DE17 contract)",
       "plan_cells": [
         "DE17 / DE16",
         "Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel, timer failures and parked work wake behavior. Integrate native retry/overflow classifiers.",
@@ -993,7 +993,7 @@
         "DE18"
       ],
       "contract": "Durable input/write submissions, request-ID scope/dedupe, settlement objects and withdraw/status/wait APIs. Adapt `coding/session_controller.py` admission boundary without dual queue ownership.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:396 (DE18 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:400 (DE18 contract)",
       "plan_cells": [
         "DE18 / DE17",
         "Durable input/write submissions, request-ID scope/dedupe, settlement objects and withdraw/status/wait APIs. Adapt `coding/session_controller.py` admission boundary without dual queue ownership.",
@@ -1025,7 +1025,7 @@
         "DE19"
       ],
       "contract": "Durable inbox, steer/follow-up modes, deterministic postTools/final boundaries, passive writes, failed-run policy and abort queue behavior.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:397 (DE19 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:401 (DE19 contract)",
       "plan_cells": [
         "DE19 / DE18",
         "Durable inbox, steer/follow-up modes, deterministic postTools/final boundaries, passive writes, failed-run policy and abort queue behavior.",
@@ -1057,7 +1057,7 @@
         "DE20"
       ],
       "contract": "Complete entry/context head/edit/contribution derivation, system named sections/tool deltas, missing-tool-result synthesis and historical cutoff reads.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:398 (DE20 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:402 (DE20 contract)",
       "plan_cells": [
         "DE20 / DE19",
         "Complete entry/context head/edit/contribution derivation, system named sections/tool deltas, missing-tool-result synthesis and historical cutoff reads.",
@@ -1089,7 +1089,7 @@
         "DE21"
       ],
       "contract": "Durable extension registry/agent configuration, selected tools/modelTools/deferred/callers, ordered wrappers/sections, per-conversation model/env and host settings resolution.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:399 (DE21 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:403 (DE21 contract)",
       "plan_cells": [
         "DE21 / DE20",
         "Durable extension registry/agent configuration, selected tools/modelTools/deferred/callers, ordered wrappers/sections, per-conversation model/env and host settings resolution.",
@@ -1121,7 +1121,7 @@
         "DE22"
       ],
       "contract": "Implement explicit durable hook composition and first-writer memos; adapt supported native extension hooks, classify unsupported effects.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:400 (DE22 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:404 (DE22 contract)",
       "plan_cells": [
         "DE22 / DE21",
         "Implement explicit durable hook composition and first-writer memos; adapt supported native extension hooks, classify unsupported effects.",
@@ -1153,7 +1153,7 @@
         "DE23"
       ],
       "contract": "Registry/resource reload and versioned task handover, in-flight snapshot retention, extension removal/reinstall and document-token compatibility.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:401 (DE23 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:405 (DE23 contract)",
       "plan_cells": [
         "DE23 / DE22",
         "Registry/resource reload and versioned task handover, in-flight snapshot retention, extension removal/reinstall and document-token compatibility.",
@@ -1185,7 +1185,7 @@
         "DE24"
       ],
       "contract": "General tool repair/schema/final-arg checkpoints, nested keyed admissions/results and structured output/diagnostics/control mapping, native extension/MCP adapters.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:402 (DE24 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:406 (DE24 contract)",
       "plan_cells": [
         "DE24 / DE23",
         "General tool repair/schema/final-arg checkpoints, nested keyed admissions/results and structured output/diagnostics/control mapping, native extension/MCP adapters.",
@@ -1217,7 +1217,7 @@
         "DE25"
       ],
       "contract": "Complete concurrent/sequential tool-round scheduler and executionMode override, nested abandonment, addTools/terminate/handoff controls and round settlement.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:403 (DE25 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:407 (DE25 contract)",
       "plan_cells": [
         "DE25 / DE24",
         "Complete concurrent/sequential tool-round scheduler and executionMode override, nested abandonment, addTools/terminate/handoff controls and round settlement.",
@@ -1249,7 +1249,7 @@
         "DE26"
       ],
       "contract": "Committed streaming partials and tool output/details/diagnostics/usage throttling, flush and bounded live slots. Integrate canonical event/partial adapters behind commit projection.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:404 (DE26 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:408 (DE26 contract)",
       "plan_cells": [
         "DE26 / DE25",
         "Committed streaming partials and tool output/details/diagnostics/usage throttling, flush and bounded live slots. Integrate canonical event/partial adapters behind commit projection.",
@@ -1281,7 +1281,7 @@
         "DE27"
       ],
       "contract": "Complete document histories/families/checkpoint policies/access-driven migrations, definition-free copy/retirement and bounded document/context retention.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:405 (DE27 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:409 (DE27 contract)",
       "plan_cells": [
         "DE27 / DE26",
         "Complete document histories/families/checkpoint policies/access-driven migrations, definition-free copy/retirement and bounded document/context retention.",
@@ -1313,7 +1313,7 @@
         "DE28"
       ],
       "contract": "Document/conversation views, watch baseline+subscription, event streams and live task graph as convergent adapters to committed state.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:406 (DE28 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:410 (DE28 contract)",
       "plan_cells": [
         "DE28 / DE27",
         "Document/conversation views, watch baseline+subscription, event streams and live task graph as convergent adapters to committed state.",
@@ -1345,7 +1345,7 @@
         "DE29"
       ],
       "contract": "Durable manual/background/blocking compaction tasks, pinned summarizer request, retry/usage/failure and stale summary submissions; reuse native compaction policy/extract pure selection.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:412 (DE29 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:416 (DE29 contract)",
       "plan_cells": [
         "DE29 / DE28",
         "Durable manual/background/blocking compaction tasks, pinned summarizer request, retry/usage/failure and stale summary submissions; reuse native compaction policy/extract pure selection.",
@@ -1377,7 +1377,7 @@
         "DE30"
       ],
       "contract": "Conversation fork/context-at-entry and per-doc fork policies; reset/handoff and transcript/tree semantics.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:413 (DE30 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:417 (DE30 contract)",
       "plan_cells": [
         "DE30 / DE29",
         "Conversation fork/context-at-entry and per-doc fork policies; reset/handoff and transcript/tree semantics.",
@@ -1409,7 +1409,7 @@
         "DE31"
       ],
       "contract": "Native subagent tool on owned conversations/tasks, foreground/background routes and conversation selection APIs, completing tool-result and owned-child cleanup.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:414 (DE31 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:418 (DE31 contract)",
       "plan_cells": [
         "DE31 / DE30",
         "Native subagent tool on owned conversations/tasks, foreground/background routes and conversation selection APIs, completing tool-result and owned-child cleanup.",
@@ -1441,7 +1441,7 @@
         "DE32"
       ],
       "contract": "Portable execution env and host capability conformance adapters: stable fs namespace, bounded readers/listing/watch readiness/overflow, shell argv/string, cancellation, windows/spill and cleanup. Reuse native tool filesystem/process seams.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:415 (DE32 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:419 (DE32 contract)",
       "plan_cells": [
         "DE32 / DE31",
         "Portable execution env and host capability conformance adapters: stable fs namespace, bounded readers/listing/watch readiness/overflow, shell argv/string, cancellation, windows/spill and cleanup. Reuse native tool filesystem/process seams.",
@@ -1473,7 +1473,7 @@
         "DE33"
       ],
       "contract": "Close built-in read/write/edit/bash/available PowerShell semantics, per-file mutation ordering, bounded rich results and optional Python image processor parity.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:416 (DE33 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:420 (DE33 contract)",
       "plan_cells": [
         "DE33 / DE32",
         "Close built-in read/write/edit/bash/available PowerShell semantics, per-file mutation ordering, bounded rich results and optional Python image processor parity.",
@@ -1505,7 +1505,7 @@
         "DE34"
       ],
       "contract": "Tool-search extension/activation and codemode discovery/namespace/schema snapshots; adapt existing `coding/codemode_discovery.py` and extension/MCP exposure.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:417 (DE34 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:421 (DE34 contract)",
       "plan_cells": [
         "DE34 / DE33",
         "Tool-search extension/activation and codemode discovery/namespace/schema snapshots; adapt existing `coding/codemode_discovery.py` and extension/MCP exposure.",
@@ -1537,7 +1537,7 @@
         "DE35"
       ],
       "contract": "Python WASI deterministic recovery capability and journal protocol foundation in `codemode/{host,worker,prelude}.py` plus durable task docs: start pin, clock/seed/fingerprint/deadline and issue acknowledgements.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:418 (DE35 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:422 (DE35 contract)",
       "plan_cells": [
         "DE35 / DE34",
         "Python WASI deterministic recovery capability and journal protocol foundation in `codemode/{host,worker,prelude}.py` plus durable task docs: start pin, clock/seed/fingerprint/deadline and issue acknowledgements.",
@@ -1569,7 +1569,7 @@
         "DE36"
       ],
       "contract": "Deliver/replay journal in order, catch-up barrier and keyed nested-call reattachment; divergence/noncatchable guest stop and owned-call cleanup.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:419 (DE36 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:423 (DE36 contract)",
       "plan_cells": [
         "DE36 / DE35",
         "Deliver/replay journal in order, catch-up barrier and keyed nested-call reattachment; divergence/noncatchable guest stop and owned-call cleanup.",
@@ -1601,7 +1601,7 @@
         "DE37"
       ],
       "contract": "Atomic successful store/result and rewindable/fork/as-of store; stable output/spill/image directories, recorded globals/result mapping and timeout/module upgrade outcomes.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:420 (DE37 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:424 (DE37 contract)",
       "plan_cells": [
         "DE37 / DE36",
         "Atomic successful store/result and rewindable/fork/as-of store; stable output/spill/image directories, recorded globals/result mapping and timeout/module upgrade outcomes.",
@@ -1633,7 +1633,7 @@
         "DE38"
       ],
       "contract": "Durable codemode models catalog, classify/image internal nested tools, secret stripping, max-four concurrency, structured errors/usage/image notes and cancellation.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:421 (DE38 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:425 (DE38 contract)",
       "plan_cells": [
         "DE38 / DE37",
         "Durable codemode models catalog, classify/image internal nested tools, secret stripping, max-four concurrency, structured errors/usage/image notes and cancellation.",
@@ -1665,7 +1665,7 @@
         "DE39"
       ],
       "contract": "Content-free telemetry schema/report/trace/metric adapters and host callback error containment, optional exporter integration using current telemetry architecture.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:422 (DE39 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:426 (DE39 contract)",
       "plan_cells": [
         "DE39 / DE38",
         "Content-free telemetry schema/report/trace/metric adapters and host callback error containment, optional exporter integration using current telemetry architecture.",
@@ -1697,7 +1697,7 @@
         "DE40"
       ],
       "contract": "Portable JSONL storage alternative with main markers, sidecars, torn-tail recovery, detach, reclamation and explicit fsync guarantees; same storage port, never dual writer.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:423 (DE40 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:427 (DE40 contract)",
       "plan_cells": [
         "DE40 / DE39",
         "Portable JSONL storage alternative with main markers, sidecars, torn-tail recovery, detach, reclamation and explicit fsync guarantees; same storage port, never dual writer.",
@@ -1729,7 +1729,7 @@
         "DE41"
       ],
       "contract": "Unified native product persistence adapter and explicit legacy JSONL-tree migration/export/import; preserve existing IDs/branches/compactions/custom entries/images without inventing past task execution.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:429 (DE41 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:433 (DE41 contract)",
       "plan_cells": [
         "DE41 / DE40",
         "Unified native product persistence adapter and explicit legacy JSONL-tree migration/export/import; preserve existing IDs/branches/compactions/custom entries/images without inventing past task execution.",
@@ -1761,7 +1761,7 @@
         "DE42"
       ],
       "contract": "Terminal integration via existing reducer/projection/session controller: durable queue/progress/retry/compaction, reopen picker, subagent conversation/task inspection, recovery notices and clean disconnect.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:430 (DE42 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:434 (DE42 contract)",
       "plan_cells": [
         "DE42 / DE41",
         "Terminal integration via existing reducer/projection/session controller: durable queue/progress/retry/compaction, reopen picker, subagent conversation/task inspection, recovery notices and clean disconnect.",
@@ -1793,7 +1793,7 @@
         "DE43"
       ],
       "contract": "Native JSON/RPC and public SDK parity for submission/status/watch/recovery/task/queue/tree controls with existing protocol compatibility.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:431 (DE43 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:435 (DE43 contract)",
       "plan_cells": [
         "DE43 / DE42",
         "Native JSON/RPC and public SDK parity for submission/status/watch/recovery/task/queue/tree controls with existing protocol compatibility.",
@@ -1825,7 +1825,7 @@
         "DE44"
       ],
       "contract": "Stable integration: make durable execution the supported native default after campaign gate evidence; remove temporary opt-in restriction/duplicate execution ownership and migrate old entry points directly.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:432 (DE44 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:436 (DE44 contract)",
       "plan_cells": [
         "DE44 / DE43",
         "Stable integration: make durable execution the supported native default after campaign gate evidence; remove temporary opt-in restriction/duplicate execution ownership and migrate old entry points directly.",
@@ -1857,7 +1857,7 @@
         "DE45"
       ],
       "contract": "Independent end-to-end acceptance audit, final comparison matrix/evidence and release readiness. Fix discoveries only in scoped follow-up slices with their own checks/review/commit/push.",
-      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:433 (DE45 contract)",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:437 (DE45 contract)",
       "plan_cells": [
         "DE45 / DE44",
         "Independent end-to-end acceptance audit, final comparison matrix/evidence and release readiness. Fix discoveries only in scoped follow-up slices with their own checks/review/commit/push.",
@@ -3562,12 +3562,144 @@
         ],
         "workloads": [],
         "oracles": [],
-        "observables": "Internal cumulative tables/current raw-base: actual pinned Node21 exported cases/326 calls separate from11 paired recipes/128 operations,14 valid field/ID/Seq/table/document-index/cursor/alias mutants; native one-authority late mixed rollback/allocation/ownership/barriers and source page boundaries. No delta/copy/numeric-history/fork materialization, Session/product/default or full parity claim; independent delivery pending. Exact built-in point admission prevents foreign hooks/reentry under authority; 44 ingress/closed/control/reentry/version regressions preserve current-only and raw-version boundaries."
+        "observables": "Internal cumulative tables/current raw-base: actual pinned Node21 exported cases/326 calls separate from11 paired recipes/128 operations,14 valid field/ID/Seq/table/document-index/cursor/alias mutants; native one-authority late mixed rollback/allocation/ownership/barriers and source page boundaries. No delta/copy/numeric-history/fork materialization, Session/product/default or full parity claim; delivered at 72253352 (Opus5.5 HIGH ISSUES one Suggestion, repaired; Codex gpt-6.1-sol HIGH delta CLEAN; no CI claim). Exact built-in point admission prevents foreign hooks/reentry under authority; 44 ingress/closed/control/reentry/version regressions preserve current-only and raw-version boundaries."
       },
       "future": "Supported late-document failure rolls back tables/indexes/documents/counters; mixed concurrency/ownership plus two fresh cumulative native storage comparisons and document/index mutants. Original a2 requirements retained; a2 and a wait both children, b waits a2b, DE03 waits b; all P OPEN.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2a-delivery-and-de02a2b-admission",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+      ],
+      "inherited_reference": {
+        "owners": [],
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "None; native proof is not inherited from old reference-only cases."
+      }
+    },
+    {
+      "id": "DE02b1a",
+      "owners": [
+        "DE02b1a"
+      ],
+      "contract": "Private native guarded Storage and lifecycle owner: first failure, admission seal, call registration, drain, backend-close-once and report-once over the real Memory backend.",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:374 (DE02b1a contract)",
+      "plan_cells": [
+        "DE02b1a / DE02a2b",
+        "Private native guarded Storage and lifecycle owner: first failure, admission seal, call registration, drain, backend-close-once and report-once over the real Memory backend.",
+        "Deterministic permanent native tests: all16 delegates, 13 read-role exemptions versus never-exempt commit/mint, underway-call failure, paged-read seal, first-cause and close-failure, concurrent and cancelled closers, reporter and BaseException decisions, plus reached-guard private negative controls. No public Session, Tx, reference oracle or P closure."
+      ],
+      "current": {
+        "kind": "source-only",
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "Private native SessionLifecycle/GuardedStorage over real MemoryStorage: permanent deterministic tests of all16 delegates/both facades, 13 read-role exemptions versus never-exempt commit/mint, Pi132/156/192/267/291/301/410 guard cases, concurrent/cancelled closers, reporter and BaseException decisions, atomic settle-versus-fail races and in-flight close-error preservation; eleven private source mutants each fail reached-guard tests. No reference oracle (b1b), Session/Tx (b2), product/default or P closure; independent delivery pending."
+      },
+      "future": "Deterministic permanent native tests: all16 delegates, 13 read-role exemptions versus never-exempt commit/mint, underway-call failure, paged-read seal, first-cause and close-failure, concurrent and cancelled closers, reporter and BaseException decisions, plus reached-guard private negative controls. No public Session, Tx, reference oracle or P closure.",
+      "status": "IN_PROGRESS",
+      "evidence": [
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+      ],
+      "inherited_reference": {
+        "owners": [],
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "None; native proof is not inherited from old reference-only cases."
+      }
+    },
+    {
+      "id": "DE02b1b",
+      "owners": [
+        "DE02b1b"
+      ],
+      "contract": "Actual pinned Node guard oracle through a bounded driver subclass of the exported SessionImpl exposing its protected guarded storage, with paired Node/Python guard recipes.",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:375 (DE02b1b contract)",
+      "plan_cells": [
+        "DE02b1b / DE02b1a",
+        "Actual pinned Node guard oracle through a bounded driver subclass of the exported SessionImpl exposing its protected guarded storage, with paired Node/Python guard recipes.",
+        "Paired recipes, schema-valid guard mutants, a closed manifest and two fresh pinned chains over the same b1a owner. No Session/Tx surface or P closure."
+      ],
+      "current": {
+        "kind": "source-only",
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "Pre-code approved child, no runtime proof yet."
+      },
+      "future": "Paired recipes, schema-valid guard mutants, a closed manifest and two fresh pinned chains over the same b1a owner. No Session/Tx surface or P closure.",
+      "status": "OPEN",
+      "evidence": [
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+      ],
+      "inherited_reference": {
+        "owners": [],
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "None; native proof is not inherited from old reference-only cases."
+      }
+    },
+    {
+      "id": "DE02b2",
+      "owners": [
+        "DE02b2"
+      ],
+      "contract": "First bounded internal Session and Tx over the same owner: FIFO line admission, sync and suspending callbacks, table phase/final owners, nested-revocable raw-base drafts, pending-operation seal/drain, prepare/discard/adopt, acknowledgement cuts, publication and close draining accepted work.",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:376 (DE02b2 contract)",
+      "plan_cells": [
+        "DE02b2 / DE02b1b",
+        "First bounded internal Session and Tx over the same owner: FIFO line admission, sync and suspending callbacks, table phase/final owners, nested-revocable raw-base drafts, pending-operation seal/drain, prepare/discard/adopt, acknowledgement cuts, publication and close draining accepted work.",
+        "Callback API decision recorded before code; no-op suppression and late-initializer/mint gates; adopt failure rejects while an internal-listener failure poisons a durable commit that still resolves. The first exposed commit carries all coupled lifecycle/failure/publication behavior; may split again before code."
+      ],
+      "current": {
+        "kind": "source-only",
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "Pre-code approved child, no runtime proof yet."
+      },
+      "future": "Callback API decision recorded before code; no-op suppression and late-initializer/mint gates; adopt failure rejects while an internal-listener failure poisons a durable commit that still resolves. The first exposed commit carries all coupled lifecycle/failure/publication behavior; may split again before code.",
+      "status": "OPEN",
+      "evidence": [
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+      ],
+      "inherited_reference": {
+        "owners": [],
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "None; native proof is not inherited from old reference-only cases."
+      }
+    },
+    {
+      "id": "DE02b3",
+      "owners": [
+        "DE02b3"
+      ],
+      "contract": "Cumulative actual paired Session acceptance and the final DE02b delivery gate.",
+      "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:377 (DE02b3 contract)",
+      "plan_cells": [
+        "DE02b3 / DE02b2",
+        "Cumulative actual paired Session acceptance and the final DE02b delivery gate.",
+        "Every original DE02b cell proven cumulatively; DE02b waits b1a+b1b+b2+b3, DE02 waits a1+a2+b and DE03 waits b; all P OPEN."
+      ],
+      "current": {
+        "kind": "source-only",
+        "cases": [],
+        "workloads": [],
+        "oracles": [],
+        "observables": "Pre-code approved child, no runtime proof yet."
+      },
+      "future": "Every original DE02b cell proven cumulatively; DE02b waits b1a+b1b+b2+b3, DE02 waits a1+a2+b and DE03 waits b; all P OPEN.",
+      "status": "OPEN",
+      "evidence": [
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {

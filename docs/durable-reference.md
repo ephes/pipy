@@ -395,8 +395,9 @@ throughput threshold, timing equality, performance parity or retained-heap claim
 
 ## Exhaustive current and future evidence index
 
-Version2 `tests/fixtures/durable/coverage.json` contains101 explicit rows:
-DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b and DE02a/a1/a2/a2a/a2b/b. All cumulative
+Version2 `tests/fixtures/durable/coverage.json` contains105 explicit rows:
+DE00–DE45, P01–P43, DE01a/b1/b2/b3/b3a/b3b, DE02a/a1/a2/a2a/a2b/b and
+DE02b1a/b1b/b2/b3. All cumulative
 parents remain visible, including the original DE02 acceptance unchanged.
 Each row retains original canonical plan text, owner slices and future acceptance.
 P source anchors match the exact corresponding plan source cell; DE source anchors
@@ -415,8 +416,11 @@ value/record and internal-table evidence are distinguished; no full native-parit
 registry. Every P row, including P43, remains OPEN. Reference evidence is partial;
 DE02–DE45 still owe their concrete Python behavior, native tests, crash/race/wire
 and integration acceptance from the unchanged parent plan. DE02a2a owns internal tables/index/Seq/race comparisons; DE02a2b retains raw-base
-in the same candidate and cumulative bounded Storage proof. A2 waits both; b waits
-a2b and DE03 requires b. Neither a1 nor a2a alone can complete DE02a, DE02 or any P row.
+in the same candidate and cumulative bounded Storage proof. Both have landed, so the
+cumulative a2 and a parents are delivered. DE02b is split b1a→b1b→b2→b3: the b1a
+private guard/lifecycle owner has native tests only (source-only index evidence);
+its actual Node guard oracle is b1b. DE02b waits all four children and DE03
+requires b. No child alone can complete DE02, DE02b or any P row.
 
 
 ## Mandatory reference CI and selective artifacts
@@ -683,8 +687,8 @@ integration or full Storage/Session parity claim. Create, base change/version
 transition, retire, current materialization, exact-address find and exact-scope
 scan all use the **same private candidate/authority and one adoption** as tables.
 Delta/copy/numeric historical/fork materialization reject whole requests/batches
-and remain DE04/DE27. A2/a wait delivered children; Session DE02b and DE03 stay
-gated. All43 P remain OPEN. Original six DE01 fixtures, eight-adapter closure,
+and remain DE04/DE27. A2b landed at `72253352`, so a2/a are delivered; Session
+DE02b (split b1a→b1b→b2→b3) and DE03 stay gated. All43 P remain OPEN. Original six DE01 fixtures, eight-adapter closure,
 hosted CI/collector and permanent Node codec remain unchanged; this local
 comparison is separate from that hosted job.
 
@@ -783,7 +787,8 @@ source-derived cases retain MIT Copyright(c)2025 Mario Zechner; exact sources ar
 pinned in the new manifest, and the full [upstream notice](https://github.com/ephes/pipy/blob/main/tests/fixtures/durable/UPSTREAM-LICENSE.txt)
 is preserved. [The delivery ledger](specs/2026-10-19-durable-execution-evidence.md#de02a2a-local-table-evidence)
 records historical table checks and delivery. The [a2b admission](specs/2026-10-19-durable-execution-evidence.md#de02a2a-delivery-and-de02a2b-admission)
-retains the cumulative open boundary and current independent gate.
+and [a2b delivery](specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split)
+record the a2b gates and the DE02b split; no CI result is claimed for a2b.
 
 
 ## Observed raw table page-limit boundary

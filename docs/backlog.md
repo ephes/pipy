@@ -67,8 +67,9 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 
 ## Working rules
 
-- **Trunk-based, one writer.** Work happens on `main` with one writer in the
-  shared checkout, and each chunk is committed before the next starts
+- **`main` integrates; one writer per checkout.** Work lands on `main` in
+  small committed chunks, with one writer per checkout. Independent slices may
+  run in parallel in short-lived worktrees and merge to `main` in turn
   (`AGENTS.md`). Read-only investigators can run concurrently. They report
   findings and do not edit this index.
 - **Checks.** Run focused tests plus `just check`, and run `prek` when
@@ -102,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a landed; DE02a2b is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a and DE02a2b landed; DE02b1a is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -124,7 +125,7 @@ DE01b3b landed at `13d061d2`, actual Opus5.5 HIGH CLEAN and
 [CI39370449156](https://github.com/ephes/pipy/actions/runs/39370449156) success11/11,
 with every uploaded artifact entry audited.
 
-### DE02a2 internal table/document children
+### DE02a2 internal table/document children and the DE02b split
 
 DE02 is split before product edits:
 DE02a1 values/records/Storage Protocol landed at `b1aa0562`, actual Opus5.5 HIGH
@@ -132,9 +133,18 @@ CLEAN0 and audited [CI39387254837](https://github.com/ephes/pipy/actions/runs/39
 success11/11. DE02a2a landed at `85390e2b`, actual Opus5.5 HIGH CLEAN and audited
 [CI39408774643](https://github.com/ephes/pipy/actions/runs/39408774643) success11/11.
 It owns internal atomic tables and the bounded actual Node/Python
-table comparison; DE02a2b must add raw-base documents inside the same authority/
-candidate and complete cumulative Storage acceptance. DE02a2 waits both; DE02a
-waits a1+a2; DE02b Session/Tx/guard/adoption/publication/close waits a2b; DE03 waits b. No cumulative acceptance or P row is removed.
+table comparison. DE02a2b landed at `72253352` with raw-base documents inside the
+same authority/candidate and cumulative Storage acceptance: round 1 Claude Code
+Opus5.5 HIGH ISSUES (one Suggestion, repaired), round 2 Codex gpt-6.1-sol HIGH
+delta CLEAN. Its push started CI39545767044, which was not awaited; from
+2026-10-21 GitHub CI is not a delivery gate (local `just check`, Codex CLEAN and a
+`git ls-remote`-verified push are), and Claude Code Opus5.5 HIGH implements while
+Codex gpt-6.1-sol HIGH reviews. DE02a2 and DE02a are therefore delivered.
+DE02b is split b1a→b1b→b2→b3: b1a (in progress) is the private guarded Storage
+and lifecycle owner with deterministic native tests; b1b its actual pinned Node
+oracle; b2 the first internal Session/Tx over that same owner; b3 cumulative
+paired Session acceptance and the final gate. DE02b waits all four, DE02 waits
+a1+a2+b and DE03 waits b. No cumulative acceptance or P row is removed.
 This internal stage has no product/default/SDK availability or empty document shims.
 
 ### General durable execution and other current work
@@ -146,7 +156,8 @@ DE00–DE45 slices and P01–P43 requirements. The final plan review was
 Suggestions-only **ISSUES**, with both wording suggestions applied before the
 handoff; it is not a CLEAN implementation gate. Delivery uses one writer on
 `main`, GPT-6.1 Sol HIGH implementation, independent Claude Code Opus 5.5 HIGH
-review and commit/push per green slice. No production durable feature, migration
+review and commit/push per green slice; from 2026-10-21 Claude Code Opus 5.5 HIGH
+implements and Codex gpt-6.1-sol HIGH reviews, and GitHub CI is not a delivery gate. No production durable feature, migration
 or default change is implemented in DE00. All parity requirements remain OPEN.
 
 The [first prototype](durable-prototype.md) and

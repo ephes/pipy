@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 101
+    assert len(value["rows"]) == 105
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE02a2", "DE02a", "DE02"])
+@pytest.mark.parametrize("parent", ["DE02b", "DE02"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -184,6 +184,44 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
         a.ledger_status(root, o.contract)
 
 
+@pytest.mark.parametrize("parent", ["DE02a2", "DE02a"])
+def test_delivered_parent_cannot_reopen_while_children_are_landed(tmp_path, parent):
+    root = tmp_path / "root"
+    path = root / a.LEDGER
+    path.parent.mkdir(parents=True)
+    rows = (o.ROOT / a.LEDGER).read_text().splitlines()
+    index = next(
+        i for i, line in enumerate(rows) if line.startswith("| " + parent + " |")
+    )
+    assert "| LANDED |" in rows[index]
+    rows[index] = rows[index].replace("| LANDED |", "| IN_PROGRESS |")
+    path.write_text("\n".join(rows) + "\n")
+    with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
+        a.ledger_status(root, o.contract)
+
+
+def test_session_split_children_keep_original_parent_contract():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE02b"]["status"] == "IN_PROGRESS"
+    assert rows["DE02b"]["future"].startswith(
+        "Retain original DE02 commit/adoption acceptance"
+    )
+    assert "b1a+b1b+b2+b3" in rows["DE02b"]["future"]
+    assert rows["DE02b1a"]["status"] == "IN_PROGRESS"
+    for child in ("DE02b1b", "DE02b2", "DE02b3"):
+        assert rows[child]["status"] == "OPEN"
+    for child in ("DE02b1a", "DE02b1b", "DE02b2", "DE02b3"):
+        current = rows[child]["current"]
+        assert current["kind"] == "source-only"
+        assert current["cases"] == current["workloads"] == current["oracles"] == []
+    assert rows["DE02a2b"]["status"] == rows["DE02a2"]["status"] == "LANDED"
+    assert rows["DE02a"]["status"] == "LANDED" and rows["DE02"]["status"] == (
+        "IN_PROGRESS"
+    )
+
+
 def test_bounded_native_evidence_cannot_be_claimed_by_cumulative_parent():
     value = o.load(o.FIXTURES / "coverage.json")
     row = next(row for row in value["rows"] if row["id"] == "DE02a2")
@@ -192,7 +230,9 @@ def test_bounded_native_evidence_cannot_be_claimed_by_cumulative_parent():
         a.coverage(value, o.ROOT, o.contract)
 
 
-@pytest.mark.parametrize("child", ["DE02a2b", "DE02b", "DE02a", "DE02"])
+@pytest.mark.parametrize(
+    "child", ["DE02a2b", "DE02b", "DE02b1a", "DE02b1b", "DE02a", "DE02"]
+)
 def test_table_evidence_is_owned_only_by_actual_internal_child(child):
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
@@ -212,6 +252,15 @@ def test_table_evidence_is_owned_only_by_actual_internal_child(child):
 def test_only_exact_new_child_ids_are_accepted(bad):
     value = o.load(o.FIXTURES / "coverage.json")
     row = next(row for row in value["rows"] if row["id"] == "DE02a2b")
+    row["id"] = bad
+    with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize("bad", ["DE02b4", "DE02b1c", "DE02b2a", "DE02b11"])
+def test_only_exact_session_child_ids_are_accepted(bad):
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == "DE02b1a")
     row["id"] = bad
     with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
         a.coverage(value, o.ROOT, o.contract)
