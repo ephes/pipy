@@ -254,7 +254,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
     )
 
 
-BOUNDED_NATIVE = {"DE02a1", "DE02a2a", "DE02a2b", "DE02b1b"}
+BOUNDED_NATIVE = {"DE02a1", "DE02a2a", "DE02a2b", "DE02b1b", "DE02b3"}
 DE_EVIDENCE = {
     "DE00": "de00-acceptance-evidence",
     "DE01": "de01-split-acceptance",
@@ -276,7 +276,7 @@ DE_EVIDENCE = {
     "DE02b2": "de02a2b-delivery-and-de02b-split",
     "DE02b2a": "de02b1b-delivery-and-de02b2a-admission",
     "DE02b2b": "de02b2a-delivery-and-de02b2b-admission",
-    "DE02b3": "de02a2b-delivery-and-de02b-split",
+    "DE02b3": "de02b2b-delivery-and-de02b3-admission",
 }
 
 
@@ -305,6 +305,8 @@ def de_current(row: Any, c: Any) -> None:
         cases = ["memory-current-base-a2b-v1"]
     if key == "DE02b1b":
         cases = ["session-guard-b1b-v1"]
+    if key == "DE02b3":
+        cases = ["session-commit-b3-v1"]
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -493,7 +495,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"values-records-a1"} if key == "DE02a1" else set())
                 | ({"memory-tables-a2a-v1"} if key == "DE02a2a" else set())
                 | ({"memory-current-base-a2b-v1"} if key == "DE02a2b" else set())
-                | ({"session-guard-b1b-v1"} if key == "DE02b1b" else set()),
+                | ({"session-guard-b1b-v1"} if key == "DE02b1b" else set())
+                | ({"session-commit-b3-v1"} if key == "DE02b3" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),

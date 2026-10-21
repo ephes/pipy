@@ -1,0 +1,764 @@
+{
+ "schema_version": 1,
+ "phase": "session-commit-b3-v1",
+ "clock": 1700000000000,
+ "errors": [
+  {"id": "E1", "kind": "error", "message": "disk gone"},
+  {"id": "R1", "kind": "request", "message": "bad batch"},
+  {"id": "X1", "kind": "error", "message": "callback failed"},
+  {"id": "B1", "kind": "error", "message": "listener bug"},
+  {"id": "B2", "kind": "error", "message": "close listener bug"}
+ ],
+ "docs": {
+  "Live": {"kind": "test.live", "version": 1, "scope": "conversation", "history": "latest", "fork": "initial", "initial": {"items": [], "nested": {"count": 0}, "other": {"label": "x"}}},
+  "Notes": {"kind": "test.notes", "version": 1, "scope": "conversation", "history": "rewindable", "fork": "asOf", "initial": {"text": ""}},
+  "Counter": {"kind": "test.counter", "version": 1, "scope": "session", "initial": {"count": 0}},
+  "Late": {"kind": "test.late", "version": 1, "scope": "session", "initial": {"count": 0}}
+ },
+ "cells": {
+  "DE02:cross-record-atomicity": {"paired": ["atomic-before-ack", "after-ack-applied", "d405-assembly-rollback", "tb188-213-final-owner"], "native": ["test_session_tx_core.py::docs405-assembly-failure-rolls-back-prepared-documents", "test_session_tx_core.py::tables213-final-owner-missing-terminal-completing-abort-atomic"], "why": "One batch commits or nothing: a refused, ack-lost or assembly-failed commit leaves no table/document write and no adopted revision."},
+  "DE02:before-after-ack-failure": {"paired": ["atomic-before-ack", "after-ack-applied", "h291-request-error-commit"], "native": ["test_session_commit.py::h267-h291-docs440-cut-before-delegating", "test_session_commit.py::h267-h291-docs440-cut-after-real-commit", "test_session_commit.py::h291-request-error-from-commit-is-never-exempt"], "why": "A commit failing before or after the backend applied it is fatal and never adopted; a StorageRequestError from commit is never exempt."},
+  "DE02:immutable-ids": {"paired": ["tb132-minted-ids", "ids-not-reused"], "native": ["test_session_tx_core.py::tables132-minted-ids-and-staging"], "why": "Minted IDs come from Storage and are never reused after a rolled-back callback."},
+  "DE02:no-alias-ingress": {"paired": ["ingress-no-alias", "ingress-pending-nested-copy", "d158-copy-per-placement"], "native": ["test_session_tx_core.py::tables303-owned-strict-table-json", "test_session_tx_core.py::docs158-copies-assigned-values-per-placement"], "why": "Table rows and draft placements own detached copies; a caller mutation after the op settles reaches nothing stored, published or returned, while a nested one made while the append is pending is captured on both sides (top-level keys are not exercised)."},
+  "DE02b:read-after-write": {"paired": ["tb82-121-read-after-write"], "native": ["test_session_tx_core.py::tables82-reads-only-before-first-table-write", "test_session_commit.py::tables82-unawaited-write-sets-phase-at-once"], "why": "Table reads only before the first table write (also a sync set_task); document access stays allowed."},
+  "DE02b:final-owner-checks": {"paired": ["tb188-213-final-owner"], "native": ["test_session_tx_core.py::tables188-staged-task-owner-and-conversation-change", "test_session_tx_core.py::tables213-task-owner-final-candidate"], "why": "New owned work is validated against the owner's final candidate at assembly."},
+  "DE02b:no-late-initializer": {"paired": ["d311-no-late-init", "d284-pending-acquisition"], "native": ["test_session_tx_core.py::docs311-no-late-initializer-or-mint", "test_session_commit.py::docs311-no-late-initializer-or-mint"], "why": "An acquisition finishing after settlement never initializes, mints or stages."},
+  "DE02b:no-draft-escape": {"paired": ["d207-escaped-returned-draft", "d352-captured-tx", "d250-memoized-duplicate"], "native": ["test_session_tx_core.py::docs207-escaped-nested-returned-drafts-revoked", "test_session_commit.py::docs207-returned-draft-revoked", "test_session_commit.py::docs352-expired-tx-rejects-every-use", "test_session_commit.py::async-tx-and-drafts-are-loop-bound", "test_session_commit.py::sync-tx-is-thread-bound"], "why": "Escaped, nested and returned drafts and a captured Tx are revoked at settlement; affinity is Python-only and native."},
+  "DE02b:queued-cancel-cut": {"paired": ["queued-view-cancel"], "native": ["test_session_commit.py::cancel-view-queued-never-enters-fifo-kept", "test_session_commit.py::task-cancel-queued-detaches-at-once", "test_session_commit.py::task-cancel-granted-unused-ticket-passed-on"], "why": "A cancelled queued commit never enters its callback and FIFO order holds; Task.cancel rows are Python-only."},
+  "DE02b:running-callback-and-admitted-commit": {"paired": ["view-cancel-in-callback-ignored", "view-cancel-during-held-commit", "cancelled-tx-read-exempt"], "native": ["test_session_commit.py::cancel-view-after-grant-is-ignored", "test_session_commit.py::task-cancel-in-callback-propagated-rolls-back", "test_session_commit.py::task-cancel-in-callback-swallowed-commits", "test_session_commit.py::task-cancel-during-held-commit-stays-durable"], "why": "Cancellation after the grant neither cuts a running callback nor an admitted commit; a cancelled caller's failed read is exempt."},
+  "DE02b:first-failure-poisoning": {"paired": ["h276-caught-read-then-write", "h276-caught-read-then-return", "failure-rejects-queued", "fail-under-held-line"], "native": ["test_session_commit.py::h276-caught-failed-read-then-write-fails", "test_session_commit.py::h276-caught-failed-read-then-return-health-checked", "test_session_commit.py::bulk-reject-queued-tickets-on-failure", "test_session_storage_guard.py::pi192-first-failure-wins-then-close-throws"], "why": "The first failure wins and poisons every later Tx call, the post-callback health check and every queued commit (rejection timing is Python-only)."},
+  "DE02b:late-read-discard": {"paired": ["late-read-discard"], "native": ["test_session_commit.py::late-read-discarded-after-off-line-failure", "test_session_guard_comparison.py::test_native_negative_controls_through_actual_paired_recipes"], "why": "A read underway when another call fails the Session ends with SessionFailed and nothing it read is used."},
+  "DE02b:commit-before-adopt-publication": {"paired": ["commit-before-adopt-publish", "d78-120-137-create-change-identity", "d605-publication-synchronous"], "native": ["test_session_commit.py::commit-returned-and-adopted-before-publication", "test_session_commit.py::docs605-137-synchronous-publication-and-identities"], "why": "Storage returns, the revision is adopted (snapshots share the published value), then listeners run before the caller resumes."},
+  "DE02b:publication-after-storage-only": {"paired": ["atomic-before-ack", "after-ack-applied", "d174-empty-batch", "d479-retire-recreate"], "native": ["test_session_commit.py::docs174-228-479-publication-shapes"], "why": "Only an acknowledged, adopted commit publishes; empty and failed batches publish nothing."},
+  "DE02b:adopt-failure": {"paired": [], "native": ["test_session_commit.py::adopt-failure-rejects-durable-commit-and-fails"], "why": "Native-only: the bounded Pi subclass has no route into the #host-built Transaction.adopt."},
+  "DE02b:listeners": {"paired": ["h328-internal-listener-poisons", "h466-host-close-listeners-contained", "h431-rejected-promise-listener", "d622-close-listeners-unsubscribe"], "native": ["test_session_commit.py::h328-internal-listener-poisons-durable-commit-resolves", "test_session_commit.py::h466-host-commit-and-close-listeners-contained", "test_session_commit.py::h431-awaitable-listeners-reported-never-awaited", "test_session_commit.py::internal-coroutine-listener-closed-and-poisons"], "why": "Internal listener errors fail the Session while the commit resolves; host and close listeners are contained and reported; coroutine listeners are Python-only."},
+  "DE02b:reentry": {"paired": [], "native": ["test_session_commit.py::reentry-from-callback-refused-before-sealing", "test_session_commit.py::reentry-from-listener-reported-request-close-allowed", "test_session_commit.py::spawned-task-queues-behind-its-spawner", "test_session_commit.py::wait-closed-from-the-holder-is-reentrant"], "why": "Native-only: Pi hangs on a line reentry (types.ts Session contract); Python refuses it with ReentrantSessionCall."},
+  "DE02b:close-drain-barriers": {"paired": ["d632-admitted-before-close", "busy-line-guard-window", "idle-close-quiesce", "fail-under-held-line", "failure-rejects-queued"], "native": ["test_session_commit.py::docs632-close-settles-admitted-and-queued-guard-reads-until-drain", "test_session_commit.py::failure-while-line-held-backend-close-waits-for-release", "test_session_commit.py::close-listeners-run-before-the-failure-report", "test_session_commit.py::cancelled-close-wait-keeps-seal-and-drain"], "why": "Close seals admission at once, settles admitted and queued work, admits guard reads until the line drains, then closes Storage once."},
+  "DE02b2:no-op-suppression": {"paired": ["d174-empty-batch"], "native": ["test_session_tx_core.py::docs174-value-no-op-writes-and-publishes-nothing"], "why": "A value no-op writes and publishes nothing; the op-based structural no-op (session-documents 190) stays DE04/DE27."},
+  "DE02b:committed-snapshots": {"paired": ["d459-old-revision-held-commit", "d591-cold-load", "d78-120-137-create-change-identity", "d228-callback-failure-aborts"], "native": ["test_session_commit.py::docs459-207-old-revision-while-commit-held-escaped-draft-revoked", "test_session_commit.py::docs591-cold-cache-reloads-from-storage", "test_session_tx_core.py::docs228-callback-failure-aborts-every-change"], "why": "Snapshots return the committed revision only: the old one while a commit is held, the cold-loaded one, never a candidate."},
+  "DE02b:pending-operations": {"paired": ["d284-pending-acquisition", "d337-callback-error-wins"], "native": ["test_session_commit.py::docs284-pending-acquisition-line-held-until-drained", "test_session_commit.py::docs337-callback-error-wins-over-pending"], "why": "Pending Tx operations are drained before the line moves on; a callback error wins over the pending check."},
+  "DE02:kernel-storage-spec": {"paired": [], "native": [], "docs": ["docs/harness-spec.md", "docs/durable-reference.md#session-commit-comparison-de02b3"], "why": "Documentation atom: the harness spec's durable Session section and the durable-reference comparison section cross-link a1/a2/b."}
+ },
+ "programs": {
+  "new-conversation": [
+   {"tx": "create_conversation", "ownership": {"kind": "ownerless"}, "bind": "c"},
+   {"return": {"bind": "c"}}
+  ],
+  "conversation-and-note": [
+   {"tx": "create_conversation", "ownership": {"kind": "ownerless"}},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}, "bind": "e"},
+   {"return": {"bind": "e", "key": "id"}}
+  ],
+  "conversation-done": [
+   {"tx": "create_conversation", "ownership": {"kind": "ownerless"}},
+   {"return": {"value": "done"}}
+  ],
+  "note": [
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}, "bind": "e"},
+   {"return": {"bind": "e"}}
+  ],
+  "seed-live": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_push": "live", "path": ["items"], "values": ["a", "b"]}
+  ],
+  "tb132": [
+   {"tx": "create_conversation", "ownership": {"kind": "ownerless"}, "bind": "c"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note", "data": "one"}, "bind": "first"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "summary", "head": "self"}, "bind": "headed"},
+   {"tx": "create_task", "kind": "test.work", "version": 1, "input": {"path": "x"}, "checkpoint": {"phase": "start"}, "ownership": {"kind": "conversation"}, "conversation": 2, "background": true, "bind": "task"},
+   {"return": {"binds": ["c", "first", "headed", "task"]}}
+  ],
+  "atomic": [
+   {"tx": "create_conversation", "ownership": {"kind": "ownerless"}},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}},
+   {"tx": "doc", "doc": "Counter", "bind": "counter"},
+   {"draft_set": "counter", "path": ["count"], "value": 1}
+  ],
+  "note-and-live": [
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}},
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "uncertain"}
+  ],
+  "mint-then-throw": [
+   {"tx": "create_conversation", "ownership": {"kind": "ownerless"}},
+   {"throw": "X1"}
+  ],
+  "ingress": [
+   {"local": "payload", "value": {"nested": {"value": 1}}},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "data", "data": {"$local": "payload"}}, "bind": "e"},
+   {"mutate_local": "payload", "path": ["nested", "value"], "value": 2},
+   {"return": {"bind": "e"}}
+  ],
+  "pending-ingress": [
+   {"local": "payload", "value": {"kind": "data", "data": {"nested": {"value": 1}}}},
+   {"start_tx": "append_entry", "conversation": 2, "draft": {"$local": "payload"}, "handle": "pending"},
+   {"mutate_local": "payload", "path": ["data", "nested", "value"], "value": 2},
+   {"await": "pending", "bind": "e"},
+   {"return": {"bind": "e"}}
+  ],
+  "create-task": [
+   {"tx": "create_task", "kind": "test.work", "version": 1, "input": {"path": "a"}, "checkpoint": {"phase": "start"}, "ownership": {"kind": "conversation"}, "conversation": 2, "bind": "t"},
+   {"return": {"bind": "t"}}
+  ],
+  "tb82": [
+   {"tx": "conversation", "id": 2, "bind": "c"},
+   {"tx": "scan_conversations", "query": {}, "limit": 1, "bind": "page"},
+   {"tx": "scan_tasks", "query": {"conversationId": 2}, "limit": 10},
+   {"tx": "scan_entries", "query": {"conversationId": 2}, "limit": 10},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}},
+   {"catch": [{"tx": "conversation", "id": 2}], "mark": "conversation"},
+   {"catch": [{"tx": "task", "id": 1}], "mark": "task"},
+   {"catch": [{"tx": "entry", "id": 1}], "mark": "entry"},
+   {"catch": [{"tx": "scan_conversations", "query": {}, "limit": 10}], "mark": "scan_conversations"},
+   {"catch": [{"tx": "scan_entries", "query": {"conversationId": 2}, "limit": 10}], "mark": "scan_entries"},
+   {"tx": "doc", "doc": "Notes", "conversation": 2, "bind": "notes"},
+   {"draft_set": "notes", "path": ["text"], "value": "after write"},
+   {"return": {"binds": ["c", "page"]}}
+  ],
+  "tb121": [
+   {"tx": "task", "id": 3, "bind": "t"},
+   {"tx": "set_task", "record": {"$bind": "t"}},
+   {"catch": [{"tx": "task", "id": 3}], "mark": "task"}
+  ],
+  "abort-marked-owner": [
+   {"tx": "create_task", "kind": "test.work", "version": 1, "input": {"path": "aborting"}, "checkpoint": {"phase": "start"}, "ownership": {"kind": "conversation"}, "conversation": 2},
+   {"tx": "create_conversation", "ownership": {"kind": "task", "taskId": 3}},
+   {"tx": "set_task", "record": {"id": 3, "conversationId": 2, "kind": "test.work", "version": 1, "input": {"path": "aborting"}, "background": false, "abortRequested": true, "state": {"status": "pending", "checkpoint": {"phase": "start"}}}}
+  ],
+  "staged-owner": [
+   {"tx": "create_task", "kind": "test.work", "version": 1, "input": {"path": "background"}, "checkpoint": {"phase": "start"}, "ownership": {"kind": "conversation"}, "conversation": 2, "background": true, "bind": "sup"},
+   {"tx": "create_conversation", "ownership": {"kind": "task", "taskId": 5}, "bind": "child"},
+   {"return": {"binds": ["sup", "child"]}}
+  ],
+  "count-one": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["nested", "count"], "value": 1},
+   {"tx": "doc", "doc": "Counter", "bind": "counter"},
+   {"draft_set": "counter", "path": ["count"], "value": 1}
+  ],
+  "placement": [
+   {"local": "shared", "value": {"label": "shared"}},
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["other"], "value": {"$local": "shared"}},
+   {"draft_set": "live", "path": ["copy"], "value": {"$local": "shared"}},
+   {"mutate_local": "shared", "path": ["label"], "value": "mutated"}
+  ],
+  "value-no-op": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["nested", "count"], "value": 0},
+   {"draft_push": "live", "path": ["items"], "values": ["z"]},
+   {"draft_pop": "live", "path": ["items"]}
+  ],
+  "escape": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "escaped"},
+   {"draft_get": "escaped", "path": ["items"], "bind": "items"},
+   {"draft_set": "escaped", "path": ["message"], "value": "inside"}
+  ],
+  "return-draft": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "returned"},
+   {"return": {"bind": "returned"}}
+  ],
+  "callback-throws": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"tx": "doc", "doc": "Counter", "bind": "counter"},
+   {"draft_set": "live", "path": ["message"], "value": "lost"},
+   {"draft_set": "counter", "path": ["count"], "value": 5},
+   {"throw": "X1"}
+  ],
+  "kept": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "kept"}
+  ],
+  "pending-doc": [
+   {"start_tx": "doc", "doc": "Live", "conversation": 2, "handle": "pending"}
+  ],
+  "after-pending": [
+   {"mark": "j2-in"},
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "after"}
+  ],
+  "late-doc": [
+   {"start_tx": "doc", "doc": "Late", "handle": "pending"}
+  ],
+  "pending-throw": [
+   {"start_tx": "doc", "doc": "Live", "conversation": 2, "handle": "pending"},
+   {"throw": "X1"}
+  ],
+  "capture": [
+   {"bind_tx": "captured"}
+  ],
+  "duplicate": [
+   {"start_tx": "doc", "doc": "Live", "conversation": 2, "handle": "first"},
+   {"start_tx": "doc", "doc": "Live", "conversation": 2, "handle": "second"},
+   {"await": "first", "bind": "d1"},
+   {"await": "second", "bind": "d2"},
+   {"draft_set": "d1", "path": ["message"], "value": "once"}
+  ],
+  "held-change": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_push": "live", "path": ["items"], "values": ["c"]},
+   {"draft_set": "live", "path": ["nested", "count"], "value": 9}
+  ],
+  "counter-one": [
+   {"tx": "doc", "doc": "Counter", "bind": "counter"},
+   {"draft_set": "counter", "path": ["count"], "value": 1}
+  ],
+  "assembly-fails": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "lost"},
+   {"tx": "doc", "doc": "Counter", "bind": "counter"},
+   {"draft_set": "counter", "path": ["count"], "value": 2},
+   {"tx": "set_task", "record": {"id": 999, "conversationId": 2, "kind": "missing", "version": 1, "input": null, "background": false, "abortRequested": false, "state": {"status": "pending", "checkpoint": {"phase": "start"}}}}
+  ],
+  "next": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "next"},
+   {"tx": "doc", "doc": "Counter", "bind": "counter"},
+   {"draft_set": "counter", "path": ["count"], "value": 3}
+  ],
+  "retire-recreate": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "old"},
+   {"draft_set": "old", "path": ["message"], "value": "final"},
+   {"tx": "retire_doc", "doc": "Live", "conversation": 2},
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "new"},
+   {"draft_set": "new", "path": ["message"], "value": "new"}
+  ],
+  "retire": [
+   {"tx": "retire_doc", "doc": "Live", "conversation": 2}
+  ],
+  "push-c": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_push": "live", "path": ["items"], "values": ["c"]}
+  ],
+  "hold-a": [
+   {"mark": "a-in"},
+   {"hold": "a"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "a"}}
+  ],
+  "queued-b": [
+   {"mark": "b-in"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "b"}}
+  ],
+  "queued-c": [
+   {"mark": "c-in"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "c"}}
+  ],
+  "hold-only": [
+   {"mark": "a-in"},
+   {"hold": "a"}
+  ],
+  "cancelled-read": [
+   {"catch": [{"tx": "task", "id": 1}], "mark": "read"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "after"}}
+  ],
+  "caught-then-write": [
+   {"catch": [{"tx": "task", "id": 1}], "mark": "read"},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}}
+  ],
+  "caught-then-return": [
+   {"catch": [{"tx": "task", "id": 1}], "mark": "read"},
+   {"return": {"value": "ok"}}
+  ],
+  "late-read": [
+   {"tx": "task", "id": 1},
+   {"tx": "append_entry", "conversation": 2, "draft": {"kind": "note"}}
+  ],
+  "admitted": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "admitted"}
+  ],
+  "queued": [
+   {"tx": "doc", "doc": "Live", "conversation": 2, "bind": "live"},
+   {"draft_set": "live", "path": ["message"], "value": "queued"}
+  ]
+ },
+ "scenarios": [
+  {"id": "tb132-minted-ids", "pi_anchor": "session-tables.test.ts 132", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j1", "program": "tb132"},
+   {"id": "s01", "op": "raw_read", "call": {"op": "task", "args": {"id": 5}}},
+   {"id": "s02", "op": "raw_read", "call": {"op": "entry", "args": {"id": 4}}},
+   {"id": "s03", "op": "close_start", "handle": "closer"},
+   {"id": "s04", "op": "quiesce"},
+   {"id": "s05", "op": "settle", "handle": "closer"},
+   {"id": "s06", "op": "await_end"}
+  ]},
+  {"id": "atomic-before-ack", "pi_anchor": "harness-storage-failure.test.ts 267; session-documents.test.ts 440", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "arm_close", "hold": true},
+   {"id": "s01", "op": "arm", "target": "commit", "gate": "g1", "hold": false, "outcome": {"throw_before": "E1"}},
+   {"id": "s02", "op": "start", "job": "j1", "program": "atomic"},
+   {"id": "s03", "op": "await_close_entered"},
+   {"id": "s04", "op": "raw_read", "call": {"op": "conversation", "args": {"id": 2}}},
+   {"id": "s05", "op": "raw_read", "call": {"op": "find_document", "args": {"address": {"kind": "test.counter", "scope": {"kind": "session"}}}}},
+   {"id": "s06", "op": "release_close"},
+   {"id": "s07", "op": "settle", "job": "j1"},
+   {"id": "s08", "op": "await_end"}
+  ]},
+  {"id": "after-ack-applied", "pi_anchor": "harness-storage-failure.test.ts 267; session-documents.test.ts 440", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "before"},
+   {"id": "s02", "op": "arm_close", "hold": true},
+   {"id": "s03", "op": "arm", "target": "commit", "gate": "g1", "hold": false, "outcome": {"throw_after": "E1"}},
+   {"id": "s04", "op": "start", "job": "j1", "program": "note-and-live"},
+   {"id": "s05", "op": "await_close_entered"},
+   {"id": "s06", "op": "raw_read", "call": {"op": "entry", "args": {"id": 3}}},
+   {"id": "s07", "op": "raw_read", "call": {"op": "document", "args": {"id": 4}}},
+   {"id": "s08", "op": "call", "job": "j2", "program": "note"},
+   {"id": "s09", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s10", "op": "release_close"},
+   {"id": "s11", "op": "settle", "job": "j1"},
+   {"id": "s12", "op": "await_end"}
+  ]},
+  {"id": "h291-request-error-commit", "pi_anchor": "harness-storage-failure.test.ts 291", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "arm", "target": "commit", "gate": "g1", "hold": false, "outcome": {"throw_before": "R1"}},
+   {"id": "s02", "op": "call", "job": "j1", "program": "note"},
+   {"id": "s03", "op": "call", "job": "j2", "program": "note"},
+   {"id": "s04", "op": "await_end"}
+  ]},
+  {"id": "ids-not-reused", "pi_anchor": "session-tables.test.ts 132; session-documents.test.ts 228", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j1", "program": "mint-then-throw"},
+   {"id": "s01", "op": "call", "job": "j2", "program": "new-conversation"},
+   {"id": "s02", "op": "raw_read", "call": {"op": "conversation", "args": {"id": 2}}},
+   {"id": "s03", "op": "raw_read", "call": {"op": "conversation", "args": {"id": 3}}},
+   {"id": "s04", "op": "close_start", "handle": "closer"},
+   {"id": "s05", "op": "quiesce"},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "ingress-no-alias", "pi_anchor": "session-tables.test.ts 303", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "ingress"},
+   {"id": "s02", "op": "raw_read", "call": {"op": "entry", "args": {"id": 3}}},
+   {"id": "s03", "op": "inspect", "bind": "payload"},
+   {"id": "s04", "op": "close_start", "handle": "closer"},
+   {"id": "s05", "op": "quiesce"},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "ingress-pending-nested-copy", "pi_anchor": "transaction.ts 365-385 (record copied after the awaits)", "modes": ["async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "pending-ingress"},
+   {"id": "s02", "op": "raw_read", "call": {"op": "entry", "args": {"id": 3}}},
+   {"id": "s03", "op": "inspect", "bind": "payload"},
+   {"id": "s04", "op": "close_start", "handle": "closer"},
+   {"id": "s05", "op": "quiesce"},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "tb82-121-read-after-write", "pi_anchor": "session-tables.test.ts 82/121", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "create-task"},
+   {"id": "s02", "op": "call", "job": "j2", "program": "tb82"},
+   {"id": "s03", "op": "snapshot", "doc": "Notes", "conversation": 2},
+   {"id": "s04", "op": "call", "job": "j3", "program": "tb121"},
+   {"id": "s05", "op": "raw_read", "call": {"op": "task", "args": {"id": 3}}},
+   {"id": "s06", "op": "close_start", "handle": "closer"},
+   {"id": "s07", "op": "quiesce"},
+   {"id": "s08", "op": "settle", "handle": "closer"},
+   {"id": "s09", "op": "await_end"}
+  ]},
+  {"id": "tb188-213-final-owner", "pi_anchor": "session-tables.test.ts 188/213", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "abort-marked-owner"},
+   {"id": "s02", "op": "raw_read", "call": {"op": "task", "args": {"id": 3}}},
+   {"id": "s03", "op": "raw_read", "call": {"op": "conversation", "args": {"id": 4}}},
+   {"id": "s04", "op": "call", "job": "j2", "program": "staged-owner"},
+   {"id": "s05", "op": "raw_read", "call": {"op": "conversation", "args": {"id": 6}}},
+   {"id": "s06", "op": "close_start", "handle": "closer"},
+   {"id": "s07", "op": "quiesce"},
+   {"id": "s08", "op": "settle", "handle": "closer"},
+   {"id": "s09", "op": "await_end"}
+  ]},
+  {"id": "d78-120-137-create-change-identity", "pi_anchor": "session-documents.test.ts 78/120/137", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record", "bind": "published"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "s1"},
+   {"id": "s03", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "s2"},
+   {"id": "s04", "op": "identity", "a": "s1", "b": "s2"},
+   {"id": "s05", "op": "identity", "a": "published", "b": "s1"},
+   {"id": "s06", "op": "call", "job": "j2", "program": "count-one"},
+   {"id": "s07", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "s3"},
+   {"id": "s08", "op": "identity", "a": "s3", "b": "s1"},
+   {"id": "s09", "op": "identity", "a": "published", "b": "s3"},
+   {"id": "s10", "op": "inspect", "bind": "s1"},
+   {"id": "s11", "op": "close_start", "handle": "closer"},
+   {"id": "s12", "op": "quiesce"},
+   {"id": "s13", "op": "settle", "handle": "closer"},
+   {"id": "s14", "op": "await_end"}
+  ]},
+  {"id": "d158-copy-per-placement", "pi_anchor": "session-documents.test.ts 158", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "call", "job": "j2", "program": "placement"},
+   {"id": "s03", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s04", "op": "inspect", "bind": "shared"},
+   {"id": "s05", "op": "close_start", "handle": "closer"},
+   {"id": "s06", "op": "quiesce"},
+   {"id": "s07", "op": "settle", "handle": "closer"},
+   {"id": "s08", "op": "await_end"}
+  ]},
+  {"id": "d174-empty-batch", "pi_anchor": "session-documents.test.ts 174", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "call", "job": "j2", "program": "value-no-op"},
+   {"id": "s03", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s04", "op": "close_start", "handle": "closer"},
+   {"id": "s05", "op": "quiesce"},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "d207-escaped-returned-draft", "pi_anchor": "session-documents.test.ts 207", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "call", "job": "j2", "program": "escape"},
+   {"id": "s03", "op": "use", "action": {"draft_get": "escaped", "path": ["message"]}},
+   {"id": "s04", "op": "use", "action": {"draft_set": "escaped", "path": ["message"], "value": "outside"}},
+   {"id": "s05", "op": "use", "action": {"draft_get": "items", "path": [0]}},
+   {"id": "s06", "op": "use", "action": {"draft_push": "items", "path": [], "values": ["outside"]}},
+   {"id": "s07", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s08", "op": "call", "job": "j3", "program": "return-draft"},
+   {"id": "s09", "op": "use", "action": {"draft_get": "returned", "path": ["message"]}},
+   {"id": "s10", "op": "close_start", "handle": "closer"},
+   {"id": "s11", "op": "quiesce"},
+   {"id": "s12", "op": "settle", "handle": "closer"},
+   {"id": "s13", "op": "await_end"}
+  ]},
+  {"id": "d228-callback-failure-aborts", "pi_anchor": "session-documents.test.ts 228", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "before"},
+   {"id": "s03", "op": "call", "job": "j2", "program": "callback-throws"},
+   {"id": "s04", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "after"},
+   {"id": "s05", "op": "identity", "a": "before", "b": "after"},
+   {"id": "s06", "op": "snapshot", "doc": "Counter"},
+   {"id": "s07", "op": "call", "job": "j3", "program": "kept"},
+   {"id": "s08", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s09", "op": "close_start", "handle": "closer"},
+   {"id": "s10", "op": "quiesce"},
+   {"id": "s11", "op": "settle", "handle": "closer"},
+   {"id": "s12", "op": "await_end"}
+  ]},
+  {"id": "d284-pending-acquisition", "pi_anchor": "session-documents.test.ts 284", "modes": ["async"], "steps": [
+   {"id": "s00", "op": "raw_commit", "writes": [{"type": "conversation", "value": {"id": 2}}, {"type": "document.create", "record": {"id": 3, "kind": "test.live", "scope": {"kind": "conversation", "conversationId": 2}, "history": "latest", "fork": "initial"}, "content": {"kind": "base", "version": 1, "value": {"items": ["a", "b"], "nested": {"count": 0}, "other": {"label": "x"}}}}]},
+   {"id": "s01", "op": "arm", "target": "find_document", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s02", "op": "start", "job": "j1", "program": "pending-doc"},
+   {"id": "s03", "op": "await_entered", "gate": "g1"},
+   {"id": "s04", "op": "start", "job": "j2", "program": "after-pending"},
+   {"id": "s05", "op": "await_queued", "job": "j2"},
+   {"id": "s06", "op": "observe", "blocked_by": ["j1", "j2", "pending"]},
+   {"id": "s07", "op": "release", "gate": "g1"},
+   {"id": "s08", "op": "settle", "job": "j1"},
+   {"id": "s09", "op": "settle", "handle": "pending"},
+   {"id": "s10", "op": "settle", "job": "j2"},
+   {"id": "s11", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s12", "op": "close_start", "handle": "closer"},
+   {"id": "s13", "op": "quiesce"},
+   {"id": "s14", "op": "settle", "handle": "closer"},
+   {"id": "s15", "op": "await_end"}
+  ]},
+  {"id": "d311-no-late-init", "pi_anchor": "session-documents.test.ts 311", "modes": ["async"], "steps": [
+   {"id": "s00", "op": "arm", "target": "find_document", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s01", "op": "start", "job": "j1", "program": "late-doc"},
+   {"id": "s02", "op": "await_entered", "gate": "g1"},
+   {"id": "s03", "op": "release", "gate": "g1"},
+   {"id": "s04", "op": "settle", "job": "j1"},
+   {"id": "s05", "op": "settle", "handle": "pending"},
+   {"id": "s06", "op": "close_start", "handle": "closer"},
+   {"id": "s07", "op": "quiesce"},
+   {"id": "s08", "op": "settle", "handle": "closer"},
+   {"id": "s09", "op": "await_end"}
+  ]},
+  {"id": "d337-callback-error-wins", "pi_anchor": "session-documents.test.ts 337", "modes": ["async"], "steps": [
+   {"id": "s00", "op": "raw_commit", "writes": [{"type": "conversation", "value": {"id": 2}}, {"type": "document.create", "record": {"id": 3, "kind": "test.live", "scope": {"kind": "conversation", "conversationId": 2}, "history": "latest", "fork": "initial"}, "content": {"kind": "base", "version": 1, "value": {"items": ["a", "b"], "nested": {"count": 0}, "other": {"label": "x"}}}}]},
+   {"id": "s01", "op": "arm", "target": "find_document", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s02", "op": "start", "job": "j1", "program": "pending-throw"},
+   {"id": "s03", "op": "await_entered", "gate": "g1"},
+   {"id": "s04", "op": "release", "gate": "g1"},
+   {"id": "s05", "op": "settle", "job": "j1"},
+   {"id": "s06", "op": "settle", "handle": "pending"},
+   {"id": "s07", "op": "close_start", "handle": "closer"},
+   {"id": "s08", "op": "quiesce"},
+   {"id": "s09", "op": "settle", "handle": "closer"},
+   {"id": "s10", "op": "await_end"}
+  ]},
+  {"id": "d352-captured-tx", "pi_anchor": "session-documents.test.ts 352", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "capture"},
+   {"id": "s02", "op": "use", "tx": "captured", "action": {"tx": "doc", "doc": "Live", "conversation": 2}},
+   {"id": "s03", "op": "use", "tx": "captured", "action": {"tx": "conversation", "id": 2}},
+   {"id": "s04", "op": "use", "tx": "captured", "action": {"tx": "set_task", "record": {}}},
+   {"id": "s05", "op": "close_start", "handle": "closer"},
+   {"id": "s06", "op": "quiesce"},
+   {"id": "s07", "op": "settle", "handle": "closer"},
+   {"id": "s08", "op": "await_end"}
+  ]},
+  {"id": "d250-memoized-duplicate", "pi_anchor": "session-documents.test.ts 250", "modes": ["async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "duplicate"},
+   {"id": "s02", "op": "identity", "a": "d1", "b": "d2"},
+   {"id": "s03", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s04", "op": "close_start", "handle": "closer"},
+   {"id": "s05", "op": "quiesce"},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "d459-old-revision-held-commit", "pi_anchor": "session-documents.test.ts 459", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "before"},
+   {"id": "s03", "op": "arm", "target": "commit", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s04", "op": "start", "job": "j2", "program": "held-change"},
+   {"id": "s05", "op": "await_entered", "gate": "g1"},
+   {"id": "s06", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "during"},
+   {"id": "s07", "op": "identity", "a": "before", "b": "during"},
+   {"id": "s08", "op": "release", "gate": "g1"},
+   {"id": "s09", "op": "settle", "job": "j2"},
+   {"id": "s10", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "after"},
+   {"id": "s11", "op": "identity", "a": "before", "b": "after"},
+   {"id": "s12", "op": "inspect", "bind": "before"},
+   {"id": "s13", "op": "close_start", "handle": "closer"},
+   {"id": "s14", "op": "quiesce"},
+   {"id": "s15", "op": "settle", "handle": "closer"},
+   {"id": "s16", "op": "await_end"}
+  ]},
+  {"id": "d405-assembly-rollback", "pi_anchor": "session-documents.test.ts 405", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "call", "job": "j2", "program": "counter-one"},
+   {"id": "s03", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "live-before"},
+   {"id": "s04", "op": "snapshot", "doc": "Counter", "bind": "counter-before"},
+   {"id": "s05", "op": "call", "job": "j3", "program": "assembly-fails"},
+   {"id": "s06", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "live-after"},
+   {"id": "s07", "op": "identity", "a": "live-before", "b": "live-after"},
+   {"id": "s08", "op": "snapshot", "doc": "Counter", "bind": "counter-after"},
+   {"id": "s09", "op": "identity", "a": "counter-before", "b": "counter-after"},
+   {"id": "s10", "op": "call", "job": "j4", "program": "next"},
+   {"id": "s11", "op": "snapshot", "doc": "Counter"},
+   {"id": "s12", "op": "close_start", "handle": "closer"},
+   {"id": "s13", "op": "quiesce"},
+   {"id": "s14", "op": "settle", "handle": "closer"},
+   {"id": "s15", "op": "await_end"}
+  ]},
+  {"id": "d479-retire-recreate", "pi_anchor": "session-documents.test.ts 479", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record", "bind": "published"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "call", "job": "j2", "program": "retire-recreate"},
+   {"id": "s03", "op": "identity", "a": "old", "b": "new"},
+   {"id": "s04", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "current"},
+   {"id": "s05", "op": "identity", "a": "published", "b": "current"},
+   {"id": "s06", "op": "call", "job": "j3", "program": "retire"},
+   {"id": "s07", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s08", "op": "call", "job": "j4", "program": "retire"},
+   {"id": "s09", "op": "close_start", "handle": "closer"},
+   {"id": "s10", "op": "quiesce"},
+   {"id": "s11", "op": "settle", "handle": "closer"},
+   {"id": "s12", "op": "await_end"}
+  ]},
+  {"id": "d591-cold-load", "pi_anchor": "session-documents.test.ts 591", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "raw_commit", "writes": [{"type": "conversation", "value": {"id": 2}}, {"type": "document.create", "record": {"id": 3, "kind": "test.live", "scope": {"kind": "conversation", "conversationId": 2}, "history": "latest", "fork": "initial"}, "content": {"kind": "base", "version": 1, "value": {"items": ["a", "b"], "nested": {"count": 0}, "other": {"label": "x"}}}}]},
+   {"id": "s01", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "s1"},
+   {"id": "s02", "op": "snapshot", "doc": "Live", "conversation": 2, "bind": "s2"},
+   {"id": "s03", "op": "identity", "a": "s1", "b": "s2"},
+   {"id": "s04", "op": "call", "job": "j1", "program": "push-c"},
+   {"id": "s05", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s06", "op": "close_start", "handle": "closer"},
+   {"id": "s07", "op": "quiesce"},
+   {"id": "s08", "op": "settle", "handle": "closer"},
+   {"id": "s09", "op": "await_end"}
+  ]},
+  {"id": "queued-view-cancel", "pi_anchor": "session.ts 716-723", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "start", "job": "j1", "program": "hold-a"},
+   {"id": "s02", "op": "await_mark", "mark": "a-in"},
+   {"id": "s03", "op": "start", "job": "j2", "program": "queued-b", "context": "cancellable"},
+   {"id": "s04", "op": "await_queued", "job": "j2"},
+   {"id": "s05", "op": "start", "job": "j3", "program": "queued-c"},
+   {"id": "s06", "op": "await_queued", "job": "j3"},
+   {"id": "s07", "op": "cancel", "job": "j2"},
+   {"id": "s08", "op": "release", "hold": "a"},
+   {"id": "s09", "op": "settle", "job": "j1"},
+   {"id": "s10", "op": "settle", "job": "j2"},
+   {"id": "s11", "op": "settle", "job": "j3"},
+   {"id": "s12", "op": "raw_read", "call": {"op": "scan_entries", "args": {"query": {"conversationId": 2, "order": "ascending"}, "limit": 10}}},
+   {"id": "s13", "op": "close_start", "handle": "closer"},
+   {"id": "s14", "op": "quiesce"},
+   {"id": "s15", "op": "settle", "handle": "closer"},
+   {"id": "s16", "op": "await_end"}
+  ]},
+  {"id": "view-cancel-in-callback-ignored", "pi_anchor": "session.ts 721-726", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "start", "job": "j1", "program": "hold-a", "context": "cancellable"},
+   {"id": "s02", "op": "await_mark", "mark": "a-in"},
+   {"id": "s03", "op": "cancel", "job": "j1"},
+   {"id": "s04", "op": "release", "hold": "a"},
+   {"id": "s05", "op": "settle", "job": "j1"},
+   {"id": "s06", "op": "raw_read", "call": {"op": "entry", "args": {"id": 3}}},
+   {"id": "s07", "op": "close_start", "handle": "closer"},
+   {"id": "s08", "op": "quiesce"},
+   {"id": "s09", "op": "settle", "handle": "closer"},
+   {"id": "s10", "op": "await_end"}
+  ]},
+  {"id": "view-cancel-during-held-commit", "pi_anchor": "session.ts 748-751", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "arm", "target": "commit", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s02", "op": "start", "job": "j1", "program": "note", "context": "cancellable"},
+   {"id": "s03", "op": "await_entered", "gate": "g1"},
+   {"id": "s04", "op": "cancel", "job": "j1"},
+   {"id": "s05", "op": "release", "gate": "g1"},
+   {"id": "s06", "op": "settle", "job": "j1"},
+   {"id": "s07", "op": "close_start", "handle": "closer"},
+   {"id": "s08", "op": "quiesce"},
+   {"id": "s09", "op": "settle", "handle": "closer"},
+   {"id": "s10", "op": "await_end"}
+  ]},
+  {"id": "cancelled-tx-read-exempt", "pi_anchor": "session.ts 1105-1111; harness-storage-failure.test.ts 410", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "arm", "target": "task", "gate": "g1", "hold": false, "outcome": {"abort_then_throw": "E1"}, "job": "j1"},
+   {"id": "s02", "op": "call", "job": "j1", "program": "cancelled-read", "context": "cancellable"},
+   {"id": "s03", "op": "call", "job": "j2", "program": "note"},
+   {"id": "s04", "op": "close_start", "handle": "closer"},
+   {"id": "s05", "op": "quiesce"},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "h276-caught-read-then-write", "pi_anchor": "harness-storage-failure.test.ts 276", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "arm", "target": "task", "gate": "g1", "hold": false, "outcome": {"throw_before": "E1"}},
+   {"id": "s02", "op": "call", "job": "j1", "program": "caught-then-write"},
+   {"id": "s03", "op": "await_end"}
+  ]},
+  {"id": "h276-caught-read-then-return", "pi_anchor": "harness-storage-failure.test.ts 276; session.ts 727-729", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "arm", "target": "task", "gate": "g1", "hold": false, "outcome": {"throw_before": "E1"}},
+   {"id": "s02", "op": "call", "job": "j1", "program": "caught-then-return"},
+   {"id": "s03", "op": "await_end"}
+  ]},
+  {"id": "late-read-discard", "pi_anchor": "harness-storage-failure.test.ts 132; session.ts 1096-1117", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "arm", "target": "task", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s02", "op": "arm", "target": "mint", "gate": "g2", "hold": false, "outcome": {"throw_before": "E1"}},
+   {"id": "s03", "op": "start", "job": "j1", "program": "late-read"},
+   {"id": "s04", "op": "await_entered", "gate": "g1"},
+   {"id": "s05", "op": "guard_read", "call": {"op": "mint", "args": {}}},
+   {"id": "s06", "op": "release", "gate": "g1"},
+   {"id": "s07", "op": "settle", "job": "j1"},
+   {"id": "s08", "op": "await_end"}
+  ]},
+  {"id": "failure-rejects-queued", "pi_anchor": "session.ts 222-229, 716-722", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "close", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "start", "job": "j1", "program": "hold-a"},
+   {"id": "s02", "op": "await_mark", "mark": "a-in"},
+   {"id": "s03", "op": "start", "job": "j2", "program": "queued-b"},
+   {"id": "s04", "op": "await_queued", "job": "j2"},
+   {"id": "s05", "op": "start", "job": "j3", "program": "queued-c"},
+   {"id": "s06", "op": "await_queued", "job": "j3"},
+   {"id": "s07", "op": "fail", "error": "E1"},
+   {"id": "s08", "op": "release", "hold": "a"},
+   {"id": "s09", "op": "settle", "job": "j1"},
+   {"id": "s10", "op": "settle", "job": "j2"},
+   {"id": "s11", "op": "settle", "job": "j3"},
+   {"id": "s12", "op": "await_end"}
+  ]},
+  {"id": "commit-before-adopt-publish", "pi_anchor": "session.ts 756-766", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "internal", "action": "record", "bind": "published", "deferred": true, "hit": {"doc": "Live", "conversation": 2, "bind": "hit"}}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "subscribe", "listener": "L1"},
+   {"id": "s03", "op": "call", "job": "j2", "program": "count-one"},
+   {"id": "s04", "op": "identity", "a": "hit", "b": "published"},
+   {"id": "s05", "op": "inspect", "bind": "hit"},
+   {"id": "s06", "op": "close_start", "handle": "closer"},
+   {"id": "s07", "op": "quiesce"},
+   {"id": "s08", "op": "settle", "handle": "closer"},
+   {"id": "s09", "op": "await_end"}
+  ]},
+  {"id": "h328-internal-listener-poisons", "pi_anchor": "harness-storage-failure.test.ts 328", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "internal", "action": "throw", "error": "B1"}, {"id": "L2", "kind": "commit", "action": "record"}, {"id": "L3", "kind": "close", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j1", "program": "conversation-and-note"},
+   {"id": "s01", "op": "await_end"}
+  ]},
+  {"id": "h466-host-close-listeners-contained", "pi_anchor": "harness-storage-failure.test.ts 466", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "throw", "error": "B1"}, {"id": "L2", "kind": "commit", "action": "record"}, {"id": "L3", "kind": "close", "action": "throw", "error": "B2"}, {"id": "L4", "kind": "close", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j1", "program": "conversation-and-note"},
+   {"id": "s01", "op": "close_start", "handle": "closer"},
+   {"id": "s02", "op": "quiesce"},
+   {"id": "s03", "op": "settle", "handle": "closer"},
+   {"id": "s04", "op": "await_end"}
+  ]},
+  {"id": "d605-publication-synchronous", "pi_anchor": "session-documents.test.ts 605", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "commit", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j1", "program": "conversation-done"},
+   {"id": "s01", "op": "close_start", "handle": "closer"},
+   {"id": "s02", "op": "quiesce"},
+   {"id": "s03", "op": "settle", "handle": "closer"},
+   {"id": "s04", "op": "await_end"}
+  ]},
+  {"id": "h431-rejected-promise-listener", "pi_anchor": "harness-storage-failure.test.ts 431", "modes": ["async"], "listeners": [{"id": "L1", "kind": "commit", "action": "reject", "error": "B1"}, {"id": "L2", "kind": "close", "action": "reject", "error": "B2"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j1", "program": "conversation-and-note"},
+   {"id": "s01", "op": "start", "job": "j2", "program": "hold-only"},
+   {"id": "s02", "op": "await_mark", "mark": "a-in"},
+   {"id": "s03", "op": "close_start", "handle": "closer"},
+   {"id": "s04", "op": "release", "hold": "a"},
+   {"id": "s05", "op": "settle", "job": "j2"},
+   {"id": "s06", "op": "quiesce"},
+   {"id": "s07", "op": "settle", "handle": "closer"},
+   {"id": "s08", "op": "await_end"}
+  ]},
+  {"id": "d622-close-listeners-unsubscribe", "pi_anchor": "session-documents.test.ts 622", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "close", "action": "record"}, {"id": "L2", "kind": "close", "action": "record"}], "steps": [
+   {"id": "s00", "op": "unsubscribe", "listener": "L2"},
+   {"id": "s01", "op": "close_start", "handle": "closer"},
+   {"id": "s02", "op": "quiesce"},
+   {"id": "s03", "op": "settle", "handle": "closer"},
+   {"id": "s04", "op": "await_end"}
+  ]},
+  {"id": "d632-admitted-before-close", "pi_anchor": "session-documents.test.ts 632", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "call", "job": "j1", "program": "seed-live"},
+   {"id": "s02", "op": "arm", "target": "commit", "gate": "g1", "hold": true, "outcome": "pass"},
+   {"id": "s03", "op": "start", "job": "j2", "program": "admitted"},
+   {"id": "s04", "op": "await_entered", "gate": "g1"},
+   {"id": "s05", "op": "start", "job": "j3", "program": "queued"},
+   {"id": "s06", "op": "await_queued", "job": "j3"},
+   {"id": "s07", "op": "snapshot", "doc": "Counter", "handle": "absent"},
+   {"id": "s08", "op": "await_queued", "handle": "absent"},
+   {"id": "s09", "op": "close_start", "handle": "closer"},
+   {"id": "s10", "op": "call", "job": "j4", "program": "note"},
+   {"id": "s11", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s12", "op": "release", "gate": "g1"},
+   {"id": "s13", "op": "settle", "job": "j2"},
+   {"id": "s14", "op": "settle", "job": "j3"},
+   {"id": "s15", "op": "settle", "handle": "absent"},
+   {"id": "s16", "op": "quiesce"},
+   {"id": "s17", "op": "settle", "handle": "closer"},
+   {"id": "s18", "op": "await_end"}
+  ]},
+  {"id": "busy-line-guard-window", "pi_anchor": "session.ts 495-528, 1085-1089", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "start", "job": "j1", "program": "hold-a"},
+   {"id": "s02", "op": "await_mark", "mark": "a-in"},
+   {"id": "s03", "op": "close_start", "handle": "closer"},
+   {"id": "s04", "op": "guard_read", "call": {"op": "conversation", "args": {"id": 2}}},
+   {"id": "s05", "op": "release", "hold": "a"},
+   {"id": "s06", "op": "settle", "job": "j1"},
+   {"id": "s07", "op": "quiesce"},
+   {"id": "s08", "op": "guard_read", "call": {"op": "conversation", "args": {"id": 2}}},
+   {"id": "s09", "op": "settle", "handle": "closer"},
+   {"id": "s10", "op": "await_end"}
+  ]},
+  {"id": "idle-close-quiesce", "pi_anchor": "session.ts 495-528", "modes": ["sync", "async"], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "close_start", "handle": "closer"},
+   {"id": "s02", "op": "quiesce"},
+   {"id": "s03", "op": "guard_read", "call": {"op": "conversation", "args": {"id": 2}}},
+   {"id": "s04", "op": "call", "job": "j1", "program": "note"},
+   {"id": "s05", "op": "snapshot", "doc": "Live", "conversation": 2},
+   {"id": "s06", "op": "settle", "handle": "closer"},
+   {"id": "s07", "op": "await_end"}
+  ]},
+  {"id": "fail-under-held-line", "pi_anchor": "session.ts 222-229", "modes": ["sync", "async"], "listeners": [{"id": "L1", "kind": "close", "action": "record"}], "steps": [
+   {"id": "s00", "op": "call", "job": "j0", "program": "new-conversation"},
+   {"id": "s01", "op": "start", "job": "j1", "program": "hold-a"},
+   {"id": "s02", "op": "await_mark", "mark": "a-in"},
+   {"id": "s03", "op": "fail", "error": "E1"},
+   {"id": "s04", "op": "release", "hold": "a"},
+   {"id": "s05", "op": "settle", "job": "j1"},
+   {"id": "s06", "op": "await_end"}
+  ]}
+ ]
+}

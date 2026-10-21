@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b and DE02b2a landed; DE02b2b is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a and DE02b2b landed; DE02b3 is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -150,9 +150,13 @@ internal Session/Tx over that same owner, split again b2a→b2b: b2a, the privat
 Tx core and mutable raw-base drafts without a commit entrypoint, landed at
 `be6ee84e` (Codex gpt-6.1-sol HIGH ISSUES, one Critical and one Warning, repaired
 by Opus5.5 HIGH; delta CLEAN; a package-inventory name repair, delta CLEAN; no CI
-claim); b2b (in progress) is the first exposed internal Session: the owner line,
-sync and async commit, the cancellation matrix, publication and close; b3
-cumulative paired Session acceptance and the final gate. DE02b2 waits b2a+b2b, DE02b waits all four children, DE02 waits
+claim); b2b, the first exposed internal Session (the owner line, sync and async
+commit, the cancellation matrix, publication and close), landed at `eb1e3ba7`
+(Codex gpt-6.1-sol HIGH, five rounds to CLEAN; no CI claim), so DE02b2 is
+delivered; b3 (in progress) is the cumulative paired Session acceptance and the
+final gate: closed recipes against the pinned Pi `SessionImpl` and the native
+Session in sync and async modes, with a closed map of every original DE02/DE02b
+cell. DE02b waits all four children, DE02 waits
 a1+a2+b and DE03 waits b. No cumulative acceptance or P row is removed.
 This internal stage has no product/default/SDK availability or empty document shims.
 

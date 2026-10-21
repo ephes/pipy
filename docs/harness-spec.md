@@ -131,7 +131,7 @@ resolution, and stages definition-free `RawDoc` documents (session or
 conversation scope; task scope is refused). Mutable `Draft`/`DraftList` views copy
 every placed value and are all revoked at prepare. Value-identical changes write
 and publish nothing, and adoption swaps committed values in a cache that never
-holds a candidate. DE02b2b (in progress) adds the first exposed internal
+holds a candidate. DE02b2b (landed `eb1e3ba7`) adds the first exposed internal
 `Session` in the private `native/durable/session_core.py`, not exported: the
 FIFO mutation line lives inside the b1a owner (no second failure state), and a
 sync `commit()` and an async `acommit()` drive the one b2a core. Settlement
@@ -143,8 +143,11 @@ commit listeners run first and a throw fails the Session while the durable
 commit still resolves; host commit and close listeners are contained and
 reported. Close seals the line, runs close listeners once, and seals the guard
 and closes Storage only once accepted work has drained; a failure closes Storage
-only after the line holder leaves. b3 is the final cumulative gate. DE02 waits
-a1+a2+b; DE03 waits b.
+only after the line holder leaves. DE02b3 (in progress) is the final cumulative
+gate: the [Session commit comparison](durable-reference.md#session-commit-comparison-de02b3)
+runs closed recipes against the pinned Pi `SessionImpl` and this Session in both
+modes, with a closed map of every original DE02/DE02b cell to paired scenarios or
+native tests. DE02 waits a1+a2+b; DE03 waits b.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 
@@ -249,8 +252,13 @@ Python spellings of the first Session (DE02b2b), with no Pi analogue:
   fails. The fallback never raises. The exception is not delivered to a
   specific closer. Without a
   running loop the claimer closes inline and a reporter's process-control
-  exception propagates to it, as in b1a. A drain after a callback failure never
-  lets a close error replace the callback's error.
+  exception propagates to it, as in b1a. So a failing sync `commit()` whose
+  thread leaves the line returns only after it has run the claimed backend close:
+  its outcome and the storage effect order match Pi, but Pi settles the commit
+  before its close job runs, so only the moment the caller sees the rejection
+  differs. A backend close must therefore never wait for the failing caller's
+  post-commit work. A drain after a callback failure never lets a close error
+  replace the callback's error.
 - Waits. `aclose()` and `await_closed()` take no cancel view: cancelling the
   awaiting task gives the wait up and, like a cancelled or timed-out `close()`,
   never undoes the seal, the drain or the Storage close.

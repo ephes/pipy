@@ -980,3 +980,109 @@ support keeps MIT Copyright(c)2025 Mario Zechner and the full
 The [b1b admission](specs/2026-10-19-durable-execution-evidence.md#de02b1a-delivery-and-de02b1b-admission)
 and [local evidence](specs/2026-10-19-durable-execution-evidence.md#de02b1b-local-guard-oracle-evidence)
 record the gates and the two fresh chains.
+
+## Session commit comparison (DE02b3)
+
+`session-commit-b3-v1` is the cumulative paired acceptance for the first internal
+Session: the actual pinned Pi `SessionImpl` against the private native
+`session_core.Session` in **both** native modes, sync `commit()` on owned threads
+and async `acommit()` on one event loop, each over a fresh real Memory backend
+per scenario. It closes the DE02b gate together with the
+[guard comparison](#session-guard-comparison-de02b1b) (b1b) and the a1/a2
+storage comparisons above; there is no product, factory, typed-document, fork or
+full Session parity claim, and all43 P rows remain OPEN.
+
+```sh
+# Same fresh parent as the a1/a2b/b1b children above; a new output each time.
+uv run python scripts/durable_session_commit_comparison.py run \
+  --acceptance "$scratch/parent" --output "$scratch/commit"
+uv run python scripts/durable_session_commit_comparison.py compare \
+  "$scratch/commit/observed.json" "$scratch/commit/native-sync.json"
+```
+
+**Node oracle.** `scripts/durable_reference/cases/session-commit.mts` uses the
+same bounded `SessionImpl` subclass as b1b (a `guarded` getter for off-line
+guard reads and a recording `report`; nothing else is overridden) and closes only
+through `SessionImpl.close`. Two oracle adaptations are recorded in the manifest
+scope: raw-base documents are `defineDoc` tokens with `checkpointWhen: () =>
+true`, so every loaded change is written as a base like the native raw-base
+writes, and `createTask` receives a structural task-definition stub. The clock
+is a constant and the document timer is declined, so nothing is swept or
+evicted. `reference-context.json` records the own members, zero sweeps and the
+number of admitted `document.change` writes, all of them bases.
+
+**Recipes and trace.** `tests/fixtures/durable/session-commit-v1.input.json`
+holds 41 closed scenarios (405 steps; 35 also run in sync mode): commit and
+tables (minted IDs, before/after-acknowledgement cuts, a request error from
+commit, IDs never reused, ingress with no alias, read-after-write, final owners),
+raw-base documents (create/change/adopt identities, copy per placement, the
+empty batch, escaped/returned drafts, callback failure, pending acquisitions, no
+late initializer, a captured Tx, memoized duplicates, the old revision during a
+held commit, assembly rollback, retire and recreate, a cold load), line and
+cancel-view cuts, failure poisoning and late-read discard, publication order and
+listener containment, and close drain windows. Callbacks are closed programs
+interpreted identically on both sides. Each scenario yields per-step outcomes,
+one ordered effect log (backend call and return with arguments and values,
+publication with its changes, close listeners, reports, initializers, marks,
+caught errors, close enter/exit) and the terminal end. Errors project to a closed
+kind set (scripted identity, `SessionFailed` with its cause, the commit's abort
+reason, `ReadAfterWrite` with its method, revoked drafts, settled Tx, pending
+operations, closed Session, request errors, and plain core errors with
+byte-equal messages); anything else is `unclassified` with its producing side and
+never compares equal. Publication change order is compared strictly.
+
+**Cell map.** The recipe's closed `cells` map splits every original DE02,
+DE02b and retained DE02b2 cell into 22 atoms and names, for each, the paired
+scenarios and the native tests (resolved by `ast` against the b1a, b1b, b2a and
+b2b suites) that carry it. Adoption failure and reentry are native-only (the
+bounded subclass cannot reach the host-built `Transaction.adopt`; Pi hangs on a
+line reentry), and the "Kernel/storage spec" atom is this section with the
+[harness spec](harness-spec.md).
+
+**Bounds.** Every concurrent fork is joined by a barrier before the next
+effect-producing step; after an idle close no guard read runs before a `quiesce`,
+while a busy line keeps guard reads admitted until it drains (Pi seals its guard
+in the close line job). Native-only, never paired: adoption failure, reentry,
+every `Task.cancel` row, Tx/draft affinity, coroutine listeners, bulk
+queued-rejection timing, background-close reporter routing, process-control
+exceptions, a sync callback returning an awaitable, and a sync commit settling
+while its own inline backend close is held (without a loop the failing commit's
+thread runs the claimed close before it returns; recipes settle it after the held
+close is released). Not exercised: a caller mutating an entry draft's top-level
+keys while the append is pending (Pi reads them after its awaits, native at the
+call; a nested mutation is captured on both sides and is paired). Not compared
+at all: typed documents, migrations, families, task-scope documents and
+terminal-task retirement, deltas and op-based no-ops, forks, `documentState`,
+`watchDoc`, retention, `unloadDocuments`, telemetry and listener context, Harness
+hooks and SQLite.
+
+**Exit contract and controls.** As for b1b: `run` and `compare` exit0 for equality
+(Node against both native modes), 1 for a schema-valid mismatch and2 for invalid
+evidence or a failed prerequisite (`compare` of two native traces of different
+modes is invalid); only `run` writes `result.json` (plus `mismatch-report.json`
+on1). The native recipes run in a bounded child with a 240s deadline. Twenty-four
+schema-valid trace mutants (queued cancel running the callback, cancellation
+rolling back a running or admitted commit, FIFO reorder, read-after-write
+allowed, unchecked final owners, reused IDs, a late initializer, a live escaped
+draft, pending operations committed, the callback error lost, a caught read
+committing, a late read leaking, before-ack applied, after-ack adopted,
+publication before the commit returns or on failure, internal listener errors
+reported only or rejecting the commit, host listeners skipping the rest, close
+before admitted work, admission after close, close listeners after the report,
+the guard sealed early) each need, in every `run` and whatever the native
+outcome, positive0 (the observed trace against itself) and negative1 (against the
+mutant), as in a1/a2b/b1b, so a valid Node/native mismatch still exits1 with
+`result.json` and `mismatch-report.json`; the permanent tests also compare each
+mutant with every native mode it runs in. Rerun through the native runner, b2b's nineteen source mutants flip the
+designed cells (the line hold during drain and the pending check in async mode;
+the queued-cancel cut, post-callback health check, internal-versus-host routing,
+close predicate and close-listener order in both), leave the Python-only ones
+equal and fail closed (exit2) for a close run on the event loop.
+
+`session-commit-v1.manifest.json` closes the b1b inventory plus `tx.py`,
+`session_core.py`, their native test files, this script, the driver, the input
+and the comparison tests; it pins twelve reference sources and four upstream test
+files and states the scope above. Hash direction is code/tests/coverage →
+baseline → a1 → a2b → b1b → b3. The [b3 admission](specs/2026-10-19-durable-execution-evidence.md#de02b2b-delivery-and-de02b3-admission)
+and [local evidence](specs/2026-10-19-durable-execution-evidence.md#de02b3-local-session-comparison-evidence)
+record the gates and the two fresh chains.

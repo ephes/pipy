@@ -491,7 +491,7 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative/source contract only; split 2026-10-21 into b1a/b1b/b2/b3 with every original cell retained, and b2 split again into b2a/b2b. Child evidence stays with its owner: b1a native guard tests and the b1b bounded pinned guard oracle (both landed), the b2a native Tx-core tests (landed) and the b2b native Session tests."
+        "observables": "Cumulative/source contract only; split 2026-10-21 into b1a/b1b/b2/b3 with every original cell retained, and b2 split again into b2a/b2b. Child evidence stays with its owner: b1a native guard tests and the b1b bounded pinned guard oracle (both landed), the b2a native Tx-core tests and the b2b native Session tests (both landed), and the b3 bounded paired Session oracle with its closed cell map (in progress)."
       },
       "future": "Retain original DE02 commit/adoption acceptance: queued cancellation cutoff versus running callback, read-after-write, final-owner checks, no late initializer/draft escape, first-failure poisoning and late-read discard, before/after-ack storage failure, commit-before-adopt/publication, listener/reentry and close/drain barriers. DE02 parent completes only after a1+a2+b; DE02b itself completes only after its b1a+b1b+b2+b3 children.",
       "status": "IN_PROGRESS",
@@ -3663,10 +3663,10 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative parent: split 2026-10-21 into b2a (private Tx core and raw-base drafts, no commit entrypoint; landed) and b2b (first exposed internal Session; in progress); every original cell retained. No separate own executed proof."
+        "observables": "Cumulative parent: split 2026-10-21 into b2a (private Tx core and raw-base drafts, no commit entrypoint; landed be6ee84e) and b2b (first exposed internal Session; landed eb1e3ba7); every original cell retained. No separate own executed proof."
       },
       "future": "Callback API decision recorded before code; no-op suppression and late-initializer/mint gates; adopt failure rejects while an internal-listener failure poisons a durable commit that still resolves. The first exposed commit carries all coupled lifecycle/failure/publication behavior; may split again before code. Split 2026-10-21 into b2a+b2b; DE02b2 completes only after both.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -3729,10 +3729,10 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Private first internal Session (native/durable/session_core.py, not exported) over the b1a owner and the b2a core, with the FIFO line and close amendments inside native/durable/session.py; native tests only in tests/durable/test_session_commit.py, sync commit() and async acommit() variants over the real Memory behind a delegating wrapper: Pi harness-storage-failure 267/276/291/328/431/466 and session-documents 120/137/207/250/284/311/337/352/440/459/549/591/605/622/632 anchors; the cancellation matrix (view-cancelled queued ticket never entered with FIFO kept, Task-cancelled queued and granted-unused tickets passed on, view ignored once granted, Task.cancel in the callback rolling back or swallowed, Task.cancel during a held backend commit leaving it durable and published); acknowledgement cuts before delegating and after the real commit; adopt failure rejecting the durable commit and failing the Session; commit returned and adopted before publication; internal listeners poisoning while the commit resolves, host and close listeners contained, awaitable listeners reported; reentry from callbacks and listeners; sync entries refused on an event-loop thread; close draining admitted and queued work with guard reads admitted until the line drains, a failure under a held line closing Storage only after release, close listeners before the report and bulk rejection of queued tickets; round-1 review regressions: an atomic line hand-off that never loses a wake-up (barrier at the exact window), no drain under a running close hook, backend close off the event loop, holder reentry for wait_closed/await_closed and no listener finalizer under the owner lock; round-2 regressions: close listeners re-entering the Session (a nested close returns without waiting, as Pi's nested close() returns the same closing promise; waits raise ReentrantSessionCall) ; round-3 simplification: commit results never wait for a background backend close, whose process-control outcome reaches the loop exception handler exactly once (also when the closer was cancelled), concurrent aclose() on different loops and a callback error surviving a process-control close error. Nineteen private source mutants across session.py, tx.py and session_core.py (line hold during drain, pending check, settlement shield, TxOp shield, queued-cancel cut, post-callback health check, adopt-fail->fail, internal-versus-host routing, line-drain close predicate, close-listener ordering, bulk rejection, in-flight memoized call, atomic hand-off, close-hook gate, close off the loop, wait-closed reentry, detach outside the lock, nested close returns, background close outcome reported) each fail designated scenarios. No reference oracle (b3), product/default or P closure; independent delivery pending."
+        "observables": "Private first internal Session (native/durable/session_core.py, not exported) over the b1a owner and the b2a core, with the FIFO line and close amendments inside native/durable/session.py; native tests only in tests/durable/test_session_commit.py, sync commit() and async acommit() variants over the real Memory behind a delegating wrapper: Pi harness-storage-failure 267/276/291/328/431/466 and session-documents 120/137/207/250/284/311/337/352/440/459/549/591/605/622/632 anchors; the cancellation matrix (view-cancelled queued ticket never entered with FIFO kept, Task-cancelled queued and granted-unused tickets passed on, view ignored once granted, Task.cancel in the callback rolling back or swallowed, Task.cancel during a held backend commit leaving it durable and published); acknowledgement cuts before delegating and after the real commit; adopt failure rejecting the durable commit and failing the Session; commit returned and adopted before publication; internal listeners poisoning while the commit resolves, host and close listeners contained, awaitable listeners reported; reentry from callbacks and listeners; sync entries refused on an event-loop thread; close draining admitted and queued work with guard reads admitted until the line drains, a failure under a held line closing Storage only after release, close listeners before the report and bulk rejection of queued tickets; round-1 review regressions: an atomic line hand-off that never loses a wake-up (barrier at the exact window), no drain under a running close hook, backend close off the event loop, holder reentry for wait_closed/await_closed and no listener finalizer under the owner lock; round-2 regressions: close listeners re-entering the Session (a nested close returns without waiting, as Pi's nested close() returns the same closing promise; waits raise ReentrantSessionCall) ; round-3 simplification: commit results never wait for a background backend close, whose process-control outcome reaches the loop exception handler exactly once (also when the closer was cancelled), concurrent aclose() on different loops and a callback error surviving a process-control close error. Nineteen private source mutants across session.py, tx.py and session_core.py (line hold during drain, pending check, settlement shield, TxOp shield, queued-cancel cut, post-callback health check, adopt-fail->fail, internal-versus-host routing, line-drain close predicate, close-listener ordering, bulk rejection, in-flight memoized call, atomic hand-off, close-hook gate, close off the loop, wait-closed reentry, detach outside the lock, nested close returns, background close outcome reported) each fail designated scenarios. No reference oracle (b3), product/default or P closure; delivered at eb1e3ba7 (Codex gpt-6.1-sol HIGH: r1 ISSUES one Critical/four Warnings, r2 one Critical/one Warning, r3 one Critical/three Warnings answered by Root removing the claimer-delivery mechanism, r4 one Warning, r5 CLEAN; local just check 14110 passed; no CI claim)."
       },
       "future": "The first commit surface carries every coupled lifecycle/failure/publication behavior and none moves to b3; negative controls cover the line hold during drain, pending check, shield, queued-cancel cut, post-callback health check, adopt-fail\u2192fail, internal-versus-host routing, line-drain close predicate and close-listener ordering.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02b2a-delivery-and-de02b2b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -3758,16 +3758,18 @@
         "Every original DE02b cell proven cumulatively; DE02b waits b1a+b1b+b2+b3, DE02 waits a1+a2+b and DE03 waits b; all P OPEN."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "session-commit-b3-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "Pre-code approved child, no runtime proof yet."
+        "observables": "Actual pinned SessionImpl (bounded driver subclass: guarded getter and recorded report only; raw-base documents with checkpointWhen always true and a structural task stub as recorded oracle adaptations) versus the private native session_core.Session in sync commit() and async acommit() modes over real Memory: 41 closed scenarios (35 in sync), a closed 22-atom cell map retaining every original DE02/DE02b/DE02b2 cell with its paired scenarios and ast-resolved native b1a/b1b/b2a/b2b tests, strict effect order including publication changes, 24 schema-valid trace mutants and b2b's nineteen source mutants through the native runner (seven designed flips, close-off-loop fails closed). Native-only: adoption failure, reentry, Task.cancel rows, affinity, coroutine listeners, bulk-rejection timing, background-close reporter routing and a sync commit settling under its own held inline close; not exercised: top-level entry-draft keys mutated while an append is pending. No typed documents, product/default, full Session parity or P closure; independent delivery pending."
       },
       "future": "Every original DE02b cell proven cumulatively; DE02b waits b1a+b1b+b2+b3, DE02 waits a1+a2+b and DE03 waits b; all P OPEN.",
-      "status": "OPEN",
+      "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de02a2b-delivery-and-de02b-split",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de02b2b-delivery-and-de02b3-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {

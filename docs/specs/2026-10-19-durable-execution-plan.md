@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a, DE02b1b and DE02b2a landed; DE02b2b in progress**, 2026-10-21. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02a1 landed; DE02a2a and DE02a2b landed; DE02b1a, DE02b1b, DE02b2a and DE02b2b landed; DE02b3 in progress**, 2026-10-21. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not
@@ -608,6 +608,12 @@ DE02a2b and later slices claim no CI result. The "no branch/worktree policy
 exception" rule above is withdrawn: `AGENTS.md` now allows short-lived branches
 and worktrees, so independent slices may run in parallel and merge to `main` in
 turn. Dependent slices still wait for their dependency to land on `main`.
+
+**Owner decisions of 2026-10-21, later the same day (appended; earlier history
+unchanged).** New implementation dispatches run Claude Code `claude-opus-5-5`
+at **MAX** effort instead of HIGH; repairs and review continue as above. Review
+and repair cycles still run per slice under the value-driven rules; the owner is
+asked only when a slice would exceed 12 review rounds.
 
 ## 8. Effort, decision points and stop conditions
 

@@ -8,6 +8,24 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add the paired acceptance for the first internal durable Session
+  (verification only; no product, default or public API change). Closed
+  recipes drive the actual pinned Pi Session and the native Session, in both the
+  blocking `commit()` and the asyncio `acommit()` form, over their real
+  in-memory backends, and compare outcomes, the ordered storage calls and
+  returns, publications, listener and close events and the terminal end for 41
+  scenarios: commit atomicity before and after the storage acknowledgement, IDs,
+  ingress copies, the table read phase, final owners, raw-base documents
+  (identities, placement copies, empty batches, revoked drafts, pending
+  acquisitions, assembly rollback, retirement, cold loads), cancellation cuts,
+  failure poisoning, publication order and listener containment, and close
+  draining. A closed map ties every original DE02/DE02b requirement to paired
+  scenarios or native tests. Twenty-four schema-valid trace mutants must
+  mismatch, the b2b source mutants are rerun as negative controls, and the
+  native recipes run in a bounded child process. Python-only behaviour
+  (reentry, task cancellation, affinity, coroutine listeners, rejection timing)
+  stays covered by the native suites, and every parity requirement remains open.
+
 - Add the first internal durable Session (private; no product, default or public
   API change). One FIFO mutation line inside the existing lifecycle owner runs
   one transaction at a time through a blocking `commit()` and an asyncio

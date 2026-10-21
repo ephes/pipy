@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE02b2", "DE02b", "DE02"])
+@pytest.mark.parametrize("parent", ["DE02b", "DE02"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -184,7 +184,7 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
         a.ledger_status(root, o.contract)
 
 
-@pytest.mark.parametrize("parent", ["DE02a2", "DE02a"])
+@pytest.mark.parametrize("parent", ["DE02a2", "DE02a", "DE02b2"])
 def test_delivered_parent_cannot_reopen_while_children_are_landed(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -209,18 +209,21 @@ def test_session_split_children_keep_original_parent_contract():
         "Retain original DE02 commit/adoption acceptance"
     )
     assert "b1a+b1b+b2+b3" in rows["DE02b"]["future"]
-    assert rows["DE02b1a"]["status"] == rows["DE02b1b"]["status"] == "LANDED"
-    assert rows["DE02b2a"]["status"] == "LANDED"
-    assert rows["DE02b2"]["status"] == rows["DE02b2b"]["status"] == "IN_PROGRESS"
-    assert rows["DE02b3"]["status"] == "OPEN"
-    for child in ("DE02b1a", "DE02b2", "DE02b2a", "DE02b2b", "DE02b3"):
+    for child in ("DE02b1a", "DE02b1b", "DE02b2", "DE02b2a", "DE02b2b"):
+        assert rows[child]["status"] == "LANDED"
+    assert rows["DE02b3"]["status"] == "IN_PROGRESS"
+    for child in ("DE02b1a", "DE02b2", "DE02b2a", "DE02b2b"):
         current = rows[child]["current"]
         assert current["kind"] == "source-only"
         assert current["cases"] == current["workloads"] == current["oracles"] == []
-    current = rows["DE02b1b"]["current"]
-    assert current["kind"] == "bounded-native"
-    assert current["cases"] == ["session-guard-b1b-v1"]
-    assert current["workloads"] == current["oracles"] == []
+    for child, case in (
+        ("DE02b1b", "session-guard-b1b-v1"),
+        ("DE02b3", "session-commit-b3-v1"),
+    ):
+        current = rows[child]["current"]
+        assert current["kind"] == "bounded-native"
+        assert current["cases"] == [case]
+        assert current["workloads"] == current["oracles"] == []
     assert rows["DE02a2b"]["status"] == rows["DE02a2"]["status"] == "LANDED"
     assert rows["DE02a"]["status"] == "LANDED" and rows["DE02"]["status"] == (
         "IN_PROGRESS"
@@ -316,3 +319,36 @@ def test_tx_core_split_keeps_original_b2_contract():
     )
     for key in ("DE04", "DE27"):
         assert "session-documents.test.ts 190" in rows[key]["current"]["observables"]
+
+
+@pytest.mark.parametrize(
+    "child",
+    ["DE02b", "DE02b1a", "DE02b1b", "DE02b2", "DE02b2b", "DE02", "DE03"],
+)
+def test_session_commit_oracle_evidence_is_owned_only_by_b3(child):
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE02b3"]["current"]["cases"] == ["session-commit-b3-v1"]
+    rows[child]["current"].update(kind="bounded-native", cases=["session-commit-b3-v1"])
+    with pytest.raises(
+        o.EvidenceError, match="Native parity claim|Unknown current|ownership drift"
+    ):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+@pytest.mark.parametrize("change", ["case", "kind", "extra-case", "landed-parent"])
+def test_b3_cannot_claim_other_or_broader_evidence(change):
+    value = o.load(o.FIXTURES / "coverage.json")
+    rows = {row["id"]: row for row in value["rows"]}
+    row = rows["DE02b3"]
+    if change == "case":
+        row["current"]["cases"] = ["session-guard-b1b-v1"]
+    elif change == "kind":
+        row["current"]["kind"] = "source-only"
+    elif change == "extra-case":
+        row["current"]["cases"] = ["session-commit-b3-v1", "kernel-memory-v1"]
+    else:
+        rows["DE02b"]["status"] = "LANDED"
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)

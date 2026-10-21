@@ -151,10 +151,10 @@ that coverage here. A local validation result is not a landed slice.
 | DE02b | Session/Tx admission, seal/guard/adopt/publication/close | IN_PROGRESS | Cumulative b1a+b1b+b2+b3; all original Session/draft/failure obligations retained |
 | DE02b1a | Private guarded Storage and lifecycle owner over real Memory | LANDED | 992c2102; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
 | DE02b1b | Actual pinned Node guard oracle and paired guard recipes | LANDED | cb38caf3; Codex gpt-6.1-sol HIGH ISSUES (two Warnings) repaired by Opus5.5 HIGH, delta CLEAN; push verified; no CI claim |
-| DE02b2 | First internal Session/Tx over the same owner | IN_PROGRESS | Cumulative b2a+b2b (split 2026-10-21 by the accepted design); callback API decision recorded before code |
+| DE02b2 | First internal Session/Tx over the same owner | LANDED | Cumulative b2a+b2b both delivered (be6ee84e, eb1e3ba7); callback API decision recorded before code |
 | DE02b2a | Private Tx core and mutable raw-base drafts, no commit entrypoint | LANDED | be6ee84e; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; inventory-name repair delta CLEAN; push verified; no CI claim |
-| DE02b2b | First exposed internal Session: line, async driver, publication and close | IN_PROGRESS | Local Session evidence below; independent gates pending |
-| DE02b3 | Cumulative paired Session acceptance and final b gate | OPEN | Requires b2 |
+| DE02b2b | First exposed internal Session: line, async driver, publication and close | LANDED | eb1e3ba7; Codex gpt-6.1-sol HIGH r1 ISSUES (one Critical, four Warnings), r2 (one Critical, one Warning), r3 (one Critical, three Warnings; Root removed the claimer-delivery mechanism), r4 (one Warning), r5 CLEAN; push verified; no CI claim |
+| DE02b3 | Cumulative paired Session acceptance and final b gate | IN_PROGRESS | Local paired Session evidence below; independent gates pending |
 | DE03 | SQLite authority and local ownership | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -256,15 +256,15 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b and DE02b2a have
-landed, so the cumulative DE02a2 and DE02a parents are delivered. DE02b is split
-b1a→b1b→b2→b3 before product edits: b1a the private guarded Storage/lifecycle
-owner and b1b its actual pinned Node oracle (both landed), b2 the first internal
-Session/Tx over that same owner, b3 cumulative paired Session acceptance and the
-final b gate. b2 is split again b2a→b2b: b2a the private Tx core and raw-base
-drafts without a commit entrypoint (landed), b2b the first exposed Session (in
+DE00 through DE01b3b, DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a and
+DE02b2b have landed, so the cumulative DE02a2, DE02a and DE02b2 parents are
+delivered. DE02b is split b1a→b1b→b2→b3 before product edits: b1a the private
+guarded Storage/lifecycle owner and b1b its actual pinned Node oracle (both
+landed), b2 the first internal Session/Tx over that same owner (landed through
+b2a, the private Tx core and raw-base drafts, and b2b, the first exposed
+Session), b3 cumulative paired Session acceptance and the final b gate (in
 progress).
-DE02b2 waits both, DE02b waits all four children,
+DE02b2 waited both, DE02b waits all four children,
 DE02 waits a1+a2+b and DE03 waits b. Original parent acceptance remains
 unchanged. All P rows OPEN; no partial backend/product factory/default release.
 Delivery from 2026-10-21: local `just check`, Codex gpt-6.1-sol HIGH CLEAN and a
@@ -3194,3 +3194,250 @@ reran.
 | cascade dry run (no hashed change) | 0; no manifest change |
 | `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (893 files) |
 | strict docs build; rendered link check of the five changed pages | 0; 0 bad links |
+
+
+## DE02b2b delivery and DE02b3 admission
+
+DE02b2b landed at `eb1e3ba739fb71b99eaad2621fc5544d07eef74f` on origin/main (tree
+`c3bd05dc`, verified with `git ls-remote`). Root's local `just check` exited 0
+with 14110 passed and the same two known skips; no CI result is claimed. Review,
+Codex `gpt-6.1-sol` HIGH: round 1 **ISSUES**, one Critical (a lost wake-up in the
+line hand-off) and four Warnings (close hook versus drain race; a blocking backend
+close on the loop; missing wait reentry checks; a listener `__del__` under the
+owner lock); round 2 one Critical and one Warning caused by that repair (a nested
+close deadlock, fixed by following Pi's same-pending-promise behaviour; a
+swallowed off-loop reporter outcome); round 3 one Critical and three Warnings,
+all caused by the round-2 claimer-delivery mechanism, which Root removed (commits
+never await a backend close; unobserved background-close outcomes reach the loop
+exception handler); round 4 one Warning (the closed-loop fallback used an object
+the default unraisable hook rejects; now `threading.excepthook` with a stderr
+fallback); round 5 **CLEAN**. DE02b2b and the derived DE02b2 parent are LANDED;
+DE02b and DE02 stay IN_PROGRESS, DE03 OPEN and all43 P rows OPEN.
+
+The coordinator issued the DE02b3 work order the same day, with the read-only
+DE02b3 oracle prep as its binding design and these Root decisions:
+
+1. Probe first: a three-scenario probe (a table commit, a document
+   create/change/adopt with publication, a failure/acknowledgement cut) on both
+   sides and both native modes, stopping for a b3a/b3b split if a b2b product
+   repair were needed, or if the work clearly exceeded about 40 scenarios or 2.5k
+   new lines. Product code stays untouched inside this slice.
+2. Re-check all eleven prep API assumptions against the landed b2b and adapt the
+   driver, not the product.
+3. Not paired, stated in the docs and the manifest scope: adoption failure,
+   reentry, every `Task.cancel` row, affinity, coroutine listeners,
+   bulk-rejection timing and background-close reporter routing.
+4. Accepted oracle adaptations: `checkpointWhen: () => true` for byte-comparable
+   raw-base writes and a structural task-definition stub.
+5. DE02b3 moves to IN_PROGRESS with case `session-commit-b3-v1`; Root moves it,
+   DE02b and DE02 to LANDED in the next slice's bookkeeping; all P rows stay OPEN
+   and plan §5 row text is unchanged.
+6. The manifest cascade baseline → a1 → a2b → b1b → b3 runs last, then two fresh
+   chains on Node 26.12.0/npm 11.20.0 bind every execution ID in
+   `final-pairs.json`.
+
+The worker stopped once, at the size trigger, after the probe: no b2b product
+repair was needed, and the full oracle was green in-process but about 3k lines.
+Root's decisions on that report (2026-10-21):
+
+- The sync inline-close timing (below) is accepted as a documented Python
+  spelling, stays native-only in the scope string and is a DE03 risk.
+- One slice, about 3k lines accepted: the script was compacted (a table-driven
+  backend wrapper, dispatch tables, merged validator rules) and all four C901
+  findings were fixed by restructuring, without `noqa`.
+- The reported deviations are accepted: the closed `error{message}` kind with
+  byte-equal messages, `unclassified` carrying its producing side, conversation
+  ids in publications, return values in backend return effects, B13 through Pi
+  D405's own cut, and Pi's terminal-task scan of task-scope documents named as
+  not compared (DE04); the d405 bind-site fix and its validator rule stay.
+- The driver's bounded private reads of `owner._cond`/`owner._queue` are
+  acceptable and documented; the entry-draft copy-timing difference is recorded
+  as not exercised, with a cheap paired scenario for the part both sides share.
+
+The owner's 2026-10-21 decisions (implementer effort MAX for new dispatches;
+review/repair cycles continue per slice and the owner is asked only beyond 12
+review rounds) are appended to plan §7.
+
+## DE02b3 local Session comparison evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` MAX, sole writer on main from clean HEAD
+`eb1e3ba7`; no subagents. No product module or native test changed
+(`session.py`, `session_core.py`, `tx.py`, `memory.py` and the b1a/b2a/b2b suites
+are untouched). Upstream was read only through `git show` at the pin.
+
+**Probe first.** Three probe scenarios (a table commit with minted IDs, a
+document create/change/adopt with publication, a failure after the storage
+acknowledgement) ran on a probe-only development parent against both native
+modes. All eleven prep API assumptions held on the landed b2b, so no b2b product
+repair was needed. The one difference was a timing rule, not a defect: in sync
+mode a failing commit whose backend close the recipe held stayed unsettled where
+Pi had already rejected it, because without an event loop the failing caller's
+thread runs the claimed backend close inline before it returns (b2b's close rule).
+Recipes therefore release such a held close before settling the commit; Root
+accepted this as the Python spelling, the harness spec states it, and it is
+native-only in the manifest scope.
+
+New: `scripts/durable_session_commit_comparison.py`, the driver
+`scripts/durable_reference/cases/session-commit.mts`, the closed recipe
+`tests/fixtures/durable/session-commit-v1.input.json`, its closed manifest
+`session-commit-v1.manifest.json` and `tests/durable/test_session_commit_comparison.py`.
+The coverage index moves DE02b2b and DE02b2 to LANDED and gives DE02b3 the
+bounded-native case `session-commit-b3-v1` (IN_PROGRESS); DE02b/DE02 stay
+cumulative, DE03 OPEN and all43 P rows OPEN. The acceptance script and coverage
+tests add b3's exclusive ownership of that case. The manifest cascade (baseline
+→ a1 → a2b → b1b → b3) ran last; only the baseline entries for the acceptance
+script, the coverage test and `coverage.json` changed, plus the parent hashes
+that follow from them.
+
+**Design.** The Node driver reuses b1b's bounded `SessionImpl` subclass
+(`guarded` getter, recorded `report`; nothing else overridden, closed only
+through `SessionImpl.close`) over a controlled backend wrapping real pinned
+`MemoryStorage`, with per-operation FIFO directives (pass, throw before or after
+the inner call, abort then throw, optional hold). Documents are `defineDoc`
+tokens with `checkpointWhen: () => true`; `createTask` gets a structural
+task-definition stub; the clock is constant and the timer declined, and the
+driver asserts zero sweeps and that every admitted `document.change` is a base.
+The native driver wraps real native `MemoryStorage` the same way and runs each
+scenario in its mode: sync commits on named, reaped threads; async commits as
+tasks on one `asyncio.run` loop whose default executor has eight workers.
+Callbacks are closed programs that both sides interpret identically. 41
+scenarios (405 steps; 35 scenarios/343 steps also in sync) cover the cell map's
+22 atoms; the comparison covers per-step outcomes, the ordered effect log (calls
+and returns with values, publications with their changes, close listeners,
+reports, initializers, marks, caught errors, close entry and exit) and the
+terminal end. The validator rejects unjoined concurrent forks before an
+effect-producing step, guard reads after an idle close without a `quiesce`, and
+any bind name bound at two sites.
+
+**Deviations from the prep (accepted by Root).** Plain core errors that are not
+a closed Session, a settled Tx or pending operations project to
+`error{message}` with byte-equal messages instead of new per-class kinds;
+`unclassified` carries its producing side, so it never compares equal;
+publication changes carry their conversation id; backend return effects carry
+the returned values; the assembly-rollback cell (prep B13) is paired through
+Pi's own D405 cut; and Pi's terminal-task scan of task-scope documents is named
+as not compared (DE04). The d405 scenario's snapshot binds first collided with
+its callback's draft binds, so both sides agreed on a meaningless identity; the
+binds were renamed and the validator now rejects any bind name bound at two
+sites. The native driver's `await_queued` barrier reads the lifecycle owner's
+private `_cond` and `_queue` under its condition, read-only and only in the
+driver, to see that a ticket is enqueued; Pi admits at the call, so the Node
+side needs no barrier.
+
+**Entry-draft copy timing, not exercised.** Pi's `#appendEntry` reads the
+caller's entry draft after its awaits; the native core copies it at the call.
+A nested mutation while the append is pending is captured by both sides, and the
+paired `ingress-pending-nested-copy` scenario proves it. Mutating a top-level key
+while the append is pending diverges (probe only: Pi stores the changed key,
+native the original, async mode), so that case is not exercised and is a
+DE03/DE04 follow-up.
+
+**Mutants and negative controls.** All24 schema-valid trace mutants give
+compare1 against every native mode they run in (permanent tests), and in every
+`run` the observed trace gives0 against itself and1 against each mutant
+(after the round-1 repair below). b2b's nineteen private source mutants, rerun
+through the native runner, flip exactly the designed cells: the line hold during
+drain and the pending check in async mode; the queued-cancel cut, the
+post-callback health check, internal-versus-host listener routing, the close
+predicate and close-listener order in both modes. Eleven stay equal (0) by
+design because only native-only paths reach them: adoption failure,
+`Task.cancel` shields (two), bulk rejection, the in-flight memo, the atomic
+hand-off and close-hook races, wait-closed reentry, finalizers under the lock,
+nested close from a close listener and background-close routing. A close run on
+the event loop fails closed (exit2: the held backend call is never released).
+The native recipe set is identical across 20 consecutive runs per mode, with
+151 threads started and reaped per run and none left over; three actual Node runs
+on the probe parent's snapshot (a probe, not chain evidence) produced
+byte-identical traces (`db979d14…8609`) equal to both native modes.
+
+**Two fresh chains.** After all code, test and coverage edits and the final
+cascade, two new owner-only private roots each ran a fresh pinned baseline
+acceptance, then a1, a2b, b1b and b3 against that same parent, on Node26.12.0 and
+npm11.20.0 with no fallback runtime. No process outlived its step.
+
+| Chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline 0/37.99s → a1 0/8.49s → a2b 0/17.61s → b1b 0/24.60s → b3 0/52.14s |
+| 2 | baseline 0/40.11s → a1 0/8.33s → a2b 0/17.05s → b1b 0/24.44s → b3 0/51.86s |
+
+`final-pairs.json` (sha256 `523e81eb…3652`) binds ten distinct execution IDs
+(parents `bc60e9b4…`/`49cbf98d…`; b3 `e1652696…`/`2321d556…`), each child's
+parent execution, the acceptance/result hashes and the manifest hashes: baseline
+`d0c53635…9bbc`, a1 `3a0ea476…7a4c`, a2b `fdb12150…e882`, b1b `50bd7e21…b9ae`, b3
+`acc9d121…dcfd`. Every child records `fresh_reference_bootstrap: false` and PASS.
+Each b3 run compared Node to native at0 in both modes and ran all24 mutants as
+positive0/negative1 in every mode they run in (90 child exits per run, 180 in
+total); each b1b run again ran its 18 mutants as positive0/negative1. Both chains'
+Node traces are byte-identical (`db979d14…8609`, as in the three probe runs), and
+so are their native traces. Separate public CLI controls on chain 1's evidence
+gave0 for observed versus both native modes,1 for all 45 mutant/mode pairs and2
+for 18 invalid traces, a sync-versus-async native pair, a missing parent and an
+existing output, with nothing written. Ruff check/format, `mypy src tests`, the
+new and coverage tests under `-X dev -W error`, `pytest tests/durable` (1326
+passed), the docs-dependent suites outside it, the extension-generation inventory
+and architecture tests (348 passed), the strict docs build and the rendered-link
+check (866 local links on the five changed pages) pass locally on Python 3.15
+only; `just check`, independent review, commit and push remain Root's. No CI
+result is claimed.
+
+**Open risks for DE03.** The sync inline close makes a failing sync commit's
+caller wait for its backend close, so a slow close adds latency to that one
+caller; a backend close that waited on the caller's post-commit work would
+deadlock (the harness spec now forbids it). The `await_queued` barrier depends on
+private owner fields that a refactor could rename; a renamed field raises in the
+bounded native child, which exits2, so the comparison cannot pass silently. Pi's late read of top-level entry-draft keys is
+not exercised and must be decided before the product surface exposes appends.
+
+### DE02b3 round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH on tree `ad6d023b`: **ISSUES**, no
+Critical and one Warning, accepted by the coordinator and repaired by Claude Code
+`claude-opus-5-5` MAX; no CI result is claimed.
+
+- **Warning — a valid mismatch became exit2.** `execute_mutants()` ran each
+  mutant's positive control as `compare observed.json native-<mode>.json`. Once
+  the Node-versus-native comparison had already found a valid mismatch, that
+  control failed ("Positive session comparison failed"), so `run` exited2
+  instead of1 and wrote neither `result.json` nor `mismatch-report.json` (the
+  reviewer reproduced it with the schema-valid late-read-leak mutant). The
+  controls now follow a1, a2b and b1b: in every `run` the observed Node trace is
+  compared with itself (positive0) and with each mutant (negative1),
+  independent of the native outcome. A Node pair compares both mode
+  projections, and a projection only selects scenarios, so a mutant is still
+  caught in every mode that contains it; the permanent tests keep comparing each
+  mutant with every native mode it runs in. a1, a2b and b1b already compare
+  against the observed trace and do not have this latent pattern; nothing
+  outside b3 changed. A new controller test runs the real `execute_mutants()`
+  (only the Node and native children are unit children, through the existing
+  `o.run` seam; every control is an actual CLI compare child) on a schema-valid
+  native mismatch (late-read-leak in async mode). It requires exit1,
+  `result.json` with status mismatch and Node/native codes sync0/async1, all48
+  controls at0/1, and `mismatch-report.json` bound in `artifacts_sha256` and
+  binding the compared traces. On the unrepaired script the same test fails
+  with "Positive session comparison failed" (exit2).
+
+The repair changes the comparison script and its test file, both in the b3
+closure, so the cascade reran (baseline, a1, a2b and b1b manifests unchanged;
+b3 manifest now `8dcec3f8…bace`) and both chains ran fresh again. The two chains
+above are superseded; their `final-pairs.json` is retained as
+`final-pairs-superseded-pre-r1.json` (sha256 `523e81eb…3652`), and the new file
+binds that hash.
+
+| Repair chain | Actual exits/times |
+| --- | --- |
+| 1 | baseline 0/39.33s → a1 0/8.04s → a2b 0/16.68s → b1b 0/23.63s → b3 0/30.80s |
+| 2 | baseline 0/35.20s → a1 0/7.99s → a2b 0/16.88s → b1b 0/23.85s → b3 0/31.79s |
+
+The new `final-pairs.json` (sha256 `715c3246…4613`) binds ten distinct execution
+IDs (parents `6dd327dd…`/`e31ce725…`; b3 `5e8a44f5…`/`ac36aeb0…`), each with PASS
+and `fresh_reference_bootstrap: false`. Each b3 run compared Node with native
+at0 in both modes and ran all24 mutants as positive0/negative1 (48 control
+children per run, 96 in total); each b1b run again gave its 18 mutants
+positive0/negative1. The traces are unchanged: Node `db979d14…8609` and
+identical native traces in both chains. The 68 public CLI controls on repair
+chain 1 again match0/1/2 exactly, with nothing written. The comparison tests (102
+passed, 176 with the coverage tests under `-X dev -W error`), `pytest
+tests/durable` (1327 passed), the extension-generation inventory and
+architecture tests (348 passed), ruff check/format, `mypy src tests`, the strict
+docs build and the rendered-link check pass locally on Python 3.15 only.
