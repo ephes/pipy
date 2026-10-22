@@ -1216,3 +1216,7 @@ current baseline parent before and after execution, source/resolver/dependency
 bytes, runtime versions and copied-driver identity. Two fresh complete chains
 are still required for delivery. Delta/copy/history/as-of capabilities remain
 DE27, product defaults do not change, and all43 P rows remain OPEN.
+
+## Additive streaming line scanner (DE32a)
+
+[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. Integrated delivery gates are pending.

@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE03", "DE03d", "DE06"])
+@pytest.mark.parametrize("parent", ["DE06", "DE32"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -185,7 +185,7 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
 
 
 @pytest.mark.parametrize(
-    "parent", ["DE02a2", "DE02a", "DE02b2", "DE02b", "DE02", "DE03c"]
+    "parent", ["DE02a2", "DE02a", "DE02b2", "DE02b", "DE02", "DE03c", "DE03d", "DE03"]
 )
 def test_delivered_parent_cannot_reopen_while_children_are_landed(tmp_path, parent):
     root = tmp_path / "root"
@@ -358,7 +358,7 @@ def test_sqlite_split_children_keep_original_parent_contract():
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
     parent = rows["DE03"]
-    assert parent["status"] == "IN_PROGRESS"
+    assert parent["status"] == "LANDED"
     assert parent["contract"].startswith("Implement local SQLite backend/schema")
     assert parent["future"].startswith("Two processes/aliases cannot own one DB;")
     assert "DE03 completes only after its a+b+c+d children" in parent["future"]
@@ -367,7 +367,7 @@ def test_sqlite_split_children_keep_original_parent_contract():
     assert rows["DE03b"]["status"] == "LANDED"
     assert "delivered at f6024e56" in rows["DE03b"]["current"]["observables"]
     assert rows["DE03c"]["status"] == "LANDED"
-    assert rows["DE03d"]["status"] == "IN_PROGRESS"
+    assert rows["DE03d"]["status"] == "LANDED"
     for key in ("DE03", "DE03a", "DE03b", "DE03c", "DE03d"):
         current = rows[key]["current"]
         assert current["kind"] == "source-only"
@@ -514,7 +514,7 @@ def test_current_sqlite_summaries_match_delivered_children():
         assert "a2c4c6d" in current
         assert "final gates pending" not in current
         assert "review and delivery gates pending" not in current
-    assert rows["DE03"]["status"] == "IN_PROGRESS"
+    assert rows["DE03"]["status"] == "LANDED"
     assert rows["DE03c"]["status"] == rows["DE03c2"]["status"] == "LANDED"
 
 
@@ -554,7 +554,7 @@ def test_sqlite_d_split_retains_original_acceptance_and_exact_ids():
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
     assert rows["DE03d1"]["status"] == "LANDED"
-    assert rows["DE03d2"]["status"] == "IN_PROGRESS"
+    assert rows["DE03d2"]["status"] == "LANDED"
     assert "DE03d completes only after its d1+d2 children" in rows["DE03d"]["future"]
     assert rows["DE04"]["plan_cells"][0] == "DE04 / DE03"
     for child in ("DE03d1", "DE03d2"):
@@ -564,3 +564,11 @@ def test_sqlite_d_split_retains_original_acceptance_and_exact_ids():
         assert rows[child]["current"]["cases"] == (
             [] if child == "DE03d1" else ["storage-sqlite-d2-v1"]
         )
+
+
+def test_scanner_split_retains_full_environment_join():
+    rows = {r["id"]: r for r in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    assert rows["DE32a"]["plan_cells"][0] == "DE32a / DE00"
+    assert rows["DE32b"]["plan_cells"][0] == "DE32b / DE31 + DE32a"
+    assert "every original DE32 acceptance" in rows["DE32b"]["future"]
+    assert rows["DE33"]["plan_cells"][0] == "DE33 / DE32"

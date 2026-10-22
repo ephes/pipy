@@ -48,6 +48,8 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE32a",
+    "DE32b",
     "DE01a",
     "DE01b1",
     "DE01b2",
@@ -245,6 +247,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE02", ["DE02a", "DE02b"]),
         ("DE03c", ["DE03c1", "DE03c2"]),
         ("DE06", ["DE06a", "DE06b"]),
+        ("DE32", ["DE32a", "DE32b"]),
         ("DE03d", ["DE03d1", "DE03d2"]),
         ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
@@ -270,8 +273,18 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
     )
 
 
-BOUNDED_NATIVE = {"DE02a1", "DE02a2a", "DE02a2b", "DE02b1b", "DE02b3", "DE03d2"}
+BOUNDED_NATIVE = {
+    "DE32a",
+    "DE02a1",
+    "DE02a2a",
+    "DE02a2b",
+    "DE02b1b",
+    "DE02b3",
+    "DE03d2",
+}
 DE_EVIDENCE = {
+    "DE32a": "de32-pre-code-scanner-split",
+    "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
     "DE01": "de01-split-acceptance",
     "DE01a": "de01a-local-reference-evidence",

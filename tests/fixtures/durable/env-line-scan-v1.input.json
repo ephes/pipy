@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "generator": "mulberry32-upstream-5000-v1",
+  "seeds": 5000,
+  "chunk_sizes": [1, 2, 3, 7, 65536],
+  "pieces": ["0a", "0a", "61", "6263", "efbbbf", "c3a9", "e282ac", "f09f9880", "e282", "ff", "80", "f09f", "0d0a"]
+}

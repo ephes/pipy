@@ -4779,3 +4779,9 @@ attests Pi Memory/SQLite/reopen separately from native SQLite/reopen, with exact
 observed divergence witnesses and a single already-approved unused-mint reopen
 boundary. It supplies internal backend evidence; runtime integration and all
 campaign parity closures remain separately gated.
+
+## Additive streaming line scanner (DE32a)
+
+[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. Integrated delivery gates are pending.
+
+The standalone DE32a reference boundary requires a checkout root with `.git`, resolves the source once before child execution and rejects output inside that root before creating artifacts. Duplicate Node response keys are invalid evidence; neither source-path normalization nor parsing changes product scanner semantics.

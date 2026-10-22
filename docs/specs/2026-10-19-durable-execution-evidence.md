@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c landed, DE03d IN_PROGRESS, DE03d1 LANDED, DE03d2 IN_PROGRESS, DE03 IN_PROGRESS; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE32/DE32a IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -155,15 +155,15 @@ that coverage here. A local validation result is not a landed slice.
 | DE02b2a | Private Tx core and mutable raw-base drafts, no commit entrypoint | LANDED | be6ee84e; Codex gpt-6.1-sol HIGH ISSUES (one Critical, one Warning) repaired by Opus5.5 HIGH, delta CLEAN; inventory-name repair delta CLEAN; push verified; no CI claim |
 | DE02b2b | First exposed internal Session: line, async driver, publication and close | LANDED | eb1e3ba7; Codex gpt-6.1-sol HIGH r1 ISSUES (one Critical, four Warnings), r2 (one Critical, one Warning), r3 (one Critical, three Warnings; Root removed the claimer-delivery mechanism), r4 (one Warning), r5 CLEAN; push verified; no CI claim |
 | DE02b3 | Cumulative paired Session acceptance and final b gate | LANDED | d2e62390; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14223 passed; push verified; no CI claim |
-| DE03 | SQLite authority and local ownership | IN_PROGRESS | Cumulative a+b+c+d (split 2026-10-21); every original cell retained |
+| DE03 | SQLite authority and local ownership | LANDED | Cumulative a+b+c+d (split 2026-10-21); every original cell retained |
 | DE03a | Path ownership, owner-only files and minimal connection lifecycle | LANDED | 0d37f64a; Codex gpt-6.1-sol HIGH r1 three Warnings, r2–r5 one or two Criticals each (r4 harness non-convergence, Root simplification with an explicit contract boundary), r6 CLEAN, repaired by Opus5.5 MAX; local just check 14392 passed; push verified; no CI claim |
 | DE03b | Schema v1, migration runner and open-time integrity | LANDED | f6024e56; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14459 passed; push verified; no CI claim |
 | DE03c | SqliteStorage, contract cases, real failures and crash cuts | LANDED | Cumulative c1+c2 delivered at 1563bb68 and a2c4c6d2; every original cell retained |
 | DE03c1 | SqliteStorage tables and backend-agnostic contract cases | LANDED | `1563bb68`; Codex HIGH r3 CLEAN after two repairs; local known docs-preview flake, isolated rerun 16/16; remote verified |
 | DE03c2 | SqliteStorage documents, write refusals and crash cuts | LANDED | a2c4c6d2; final Opus5.5 HIGH R4 CLEAN unscoped, reviewed tree matched commit, push remote verified; known docs-preview exception recorded below |
-| DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | IN_PROGRESS | Cumulative d1+d2; all original acceptance retained |
+| DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | LANDED | Cumulative d1+d2; all original acceptance retained |
 | DE03d1 | Session over SQLite and bounded native current-base workload | LANDED | 8ab38d20; final Opus5.5 HIGH R4 CLEAN, owner known-preview-flake exception, isolated16 PASS, push/remote verified |
-| DE03d2 | Closed paired SQLite oracle and final DE03 gate | IN_PROGRESS | Actual paired driver/comparator implementation; final gates pending |
+| DE03d2 | Closed paired SQLite oracle and final DE03 gate | LANDED | 2dba6008; exact-tree Opus5.5 HIGH R3 CLEAN, known-preview-flake exception, isolated standard16 PASS, two fresh chains, push/remote verified |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
@@ -194,7 +194,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE29 | Durable compaction | OPEN | None; all gates OPEN |
 | DE30 | Fork, reset and handoff | OPEN | None; all gates OPEN |
 | DE31 | Owned native subagents | OPEN | None; all gates OPEN |
-| DE32 | Execution environment capabilities | OPEN | None; all gates OPEN |
+| DE32 | Execution environment capabilities | IN_PROGRESS | Cumulative; waits DE32a + DE32b |
+| DE32a | Pure streaming scanner | IN_PROGRESS | Implementation gates pending |
+| DE32b | Remaining environment adapters | OPEN | Every original DE32 acceptance retained |
 | DE33 | Built-in tools and image semantics | OPEN | None; all gates OPEN |
 | DE34 | Tool search and codemode discovery | OPEN | None; all gates OPEN |
 | DE35 | Python WASI deterministic start/journal | OPEN | None; all gates OPEN |
@@ -266,23 +268,22 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE02b3 and DE03a/b/c1/c2 have landed. DE03c is LANDED at
-`a2c4c6d`; DE03 stays IN_PROGRESS until DE03d completes d1 (native Session/SQLite/workload, LANDED at `8ab38d20`)
-and d2 (paired Pi SQLite/D2(a)–(f)/final gate, IN_PROGRESS). DE04 waits for
-that cumulative DE03 acceptance. In parallel, additive DE06a is integrated on
-main and LANDED at `caf4d34e`; its checkpoint/runtime integration child DE06b is OPEN
-and waits for DE05 and DE06a. All 43 P rows remain OPEN.
+DE00 through DE02b3 and cumulative DE03 are delivered. DE03c is LANDED at
+`a2c4c6d`; DE03d1 landed at `8ab38d20`, DE03d2 and cumulative DE03d/DE03
+landed at `2dba6008`. DE04's DE03 prerequisite is satisfied. Additive DE06a is
+LANDED at `caf4d34e`; DE06b is OPEN and waits for DE05 and DE06a.
+DE32a's bounded scanner is integrating on delivered D2; DE32 and DE32a remain
+IN_PROGRESS, DE32b OPEN, DE33 waits full DE32. All 43 P rows remain OPEN.
 
-Current implementation and repairs belong to Codex. Independent delivery review
-is Claude Code `claude-opus-5-5` HIGH through the installed review-loop harness.
-Each slice requires local `just check`, strict docs build and rendered links
-when docs change, exact-tree CLEAN, a targeted commit, normal push and remote
-SHA confirmation with `git ls-remote`. GitHub CI is not a gate. The c2 delivery
-used the owner's documented known-preview-flake exception, not a green full
-check. DE03d2's next gates include two fresh reference chains after the final
-integrated manifest cascade and accepted review repairs. Every DE03 slice also records Ubuntu
-macmini evidence under the D10 isolation rules. Historical dated results and
-reviewer assignments below retain their original provenance.
+Codex owns implementation/repairs; Claude Code `claude-opus-5-5` HIGH through
+the installed harness owns independent delivery review. Root owns integrated
+fullcheck, strict docs/rendered links, two fresh campaign chains and fresh actual
+scanner oracles after the final baseline→records→memory→guard→commit→SQLite→scanner
+cascade, exact-tree review, commit, push and remote confirmation. Worker-branch
+Node comparisons remain historical source-valid evidence, with superseded
+manifest bindings. GitHub CI is not a gate. D2 used the owner's documented
+known-preview-flake exception; its standard isolated16 rerun passed. Historical
+dated outcomes and reviewer assignments below retain their original provenance.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -6812,3 +6813,118 @@ coordinator gates; no CLEAN or delivery is claimed.
 Focused metadata/config174 passed6.86s after this prose correction. All six
 manifest bytes and bound source/test hashes remain unchanged; full closure
 verification reports zero stale entries. Final review remains pending.
+
+## DE32 pre-code scanner split
+
+DE32a depends only on DE00 and owns the pure bounded streaming scanner and immutable seven-field result. DE32b depends on DE31 and DE32a and retains every original DE32 filesystem, reader, listing, watch, shell, cancellation, window/spill and cleanup acceptance, including scanner integration. DE32 is IN_PROGRESS and completes only when both children land. DE33 still depends on full DE32; DE34/35 are unchanged. All 43 P rows remain OPEN. Local implementation evidence and integration review are pending.
+
+### DE32a local scanner evidence
+
+The private scanner implements all seven raw-offset/decoded-size fields without
+filesystem or runtime integration. The standalone Node driver imports the actual
+pinned scanner/decoder, preloads the pinned resolver and refuses unexpected
+loaded modules. A closed tiny seed profile generates 5000 upstream seeds and
+30000 paired observations (random chunks plus1/2/3/7/65536); all seven fields
+matched in the first actual run. Full inputs/results remain ignored private
+artifacts, not oversized committed fixtures. Python independently checks each
+field by whole-file slices. Exact ingress/lifecycle, malformed decoding and
+file-leading-only BOM are covered by goldens; 32 MiB generated streams and a
+single 8 MiB chunk enforce a 128 KiB traced-allocation ceiling without assembling
+stream contents. Seven designated private source mutants are caught, and the
+tracked source remains byte-identical after the probes.
+
+Own scratch Python 3.11.13 and 3.12.15 each passed the focused scanner, comparator
+and coverage tests under `-X dev -W error`, private TMPDIR and `--basetemp`.
+The 117-test scanner/corpus subset passed 20/20 repeats on 3.11.13; the existing
+session-generation and package-wide architecture inventories passed 348 tests.
+Ruff and mypy include the new standalone comparator. Initial 3.15 focused tests
+passed 218 but shared pytest garbage cleanup warned afterward; final proof uses
+private temporary roots. No test is skipped. Exact logs, source hashes, final
+compatibility counts, closure verification and limitations are in the ignored
+worker handoff. Root still owns full `just check`, docs/rendered links, two
+fresh integrated chains, Opus5.5 HIGH review, commit and push. DE32a and DE32
+remain IN_PROGRESS here; DE32b and all 43 P rows remain OPEN.
+
+Final Python 3.11.13 and 3.12.15 focused runs each passed 240 tests. Actual pinned Node comparisons on both interpreters each matched all 30000 observations and recorded imports from this worktree. Independent closure verification recomputed 110 local/parent hashes and passed all six actual configuration validators. These two minimal scanner snapshots are separate from Root's mandatory fresh full campaign chains.
+
+## DE03d2 delivery and DE32a main integration (2026-10-22)
+
+DE03d2 delivered on main and origin at `2dba600879a9f1f8ff4e9616360d9631dfc2f87e`.
+The exact reviewed tree `a87dc715` received Opus5.5 HIGH R3 CLEAN (70.958s).
+R1 ISSUES (two Warnings, two Suggestions) and R2 ISSUES (one wording Suggestion)
+were repaired. Full check recorded15916 passed, two skipped and the known
+`Preview[15]` ADDED_PUBLIC timeout (1754.81s; wrapper1785.51s); the owner accepted
+that documented flake exception. Standard isolated preview rerun16 passed in
+53.89s. Earlier EXTRA strict diagnostics (two failures,14passed and one resource
+warning ERROR in36.54s) were not a pass. No green-full or CI outcome is claimed.
+
+The D2 delivery proof retains focused268+metadata174,20x15 repeats, ten source
+controls,348 inventory tests, Python3.11/3.12 each176 and Linux176 (247.50s) plus
+20x15 repeats, all21 final hashes and process/artifact cleanup. Strict docs
+passed7.98s and1125 rendered links across six pages had zero broken links. Two
+fresh92HgTJ chains bind12IDs/six manifests/ten parent bindings, each D2 recursive
+485 hashes,24 loaded modules and21 mutants. Exact proof and delivery records
+remain `/private/tmp/pipy-de03d2-gates.fn0ewo7x/final-gate-proof.json` and
+`delivery.json`. D1/C2/codec history, D1 evidence and D2's126 semantic pointers,
+64-spelling dictionary and one-lifetime-reopen7/6 witness are unchanged.
+
+DE32a integration preserves every additive scanner production/driver/input
+byte from protected worker commit `311bce7303646b389da6fe167ae80a9d812c0567`
+(tree `52a7f7d2f2ccccb5811a1e893cfa8d45965fc5cb`). Shared changes merge into the
+D2-delivered tree, retaining its typed evidence registry and comparison repairs.
+The scanner manifest is refreshed after the delivered SQLite manifest. Prior
+branch30000-comparison Node proofs are historical-source-valid; Root will produce
+current integrated bindings. Root identified the existing output-entry defect: resolving a dangling output symlink could create its absent target. The comparator now preserves the requested absolute entry and explicitly refuses existing entries/symlinks. Permanent CLI refusal and relative-output regressions plus a designated source control cover the repair; the comparator/test hashes intentionally differ from the branch. Product scanner bytes are unchanged, so prior scanner corpus/repeat/mutant proofs remain source-valid. Integrated gates remain pending.
+
+### DE32a integrated local focus and output-entry repair
+
+Main integration keeps the pure scanner, native scanner tests, Node driver and
+closed input byte-identical to the protected worker. The comparator and its test
+file intentionally change for Root's output-entry finding; the topic document
+records the refusal contract. Actual CLI relative-output execution with pinned
+Node matched all30000 observations on main. Actual CLI dangling-symlink refusal
+leaves the target absent; the old-resolve source control fails by creating that
+target. Its private source variant never replaces the tracked file. The two
+changed output-entry regressions passed20/20 repeats under `-X dev -W error`.
+
+Integrated scanner/E1/reference/acceptance/coverage focus passed523 tests; all95
+D2 comparator regressions passed separately. Ruff lint/format and mypy include
+the repaired comparator. No product scanner or D2 comparator/driver/recipe/test
+bytes changed; original worker scanner corpus,117-test repeats and seven source
+controls remain source-valid history. Coverage now contains119 IDs (the existing
+117 plus DE32a/b), with actual registry-derived cardinality tests. DE03/d/d2 are
+LANDED, DE06a LANDED/b OPEN/parent IN_PROGRESS, DE32a/parent IN_PROGRESS and b
+OPEN; all43 P rows remain OPEN. Root's integrated full/docs/platform/fresh-chain
+and Opus5.5 HIGH review gates remain pending. Exact logs, byte comparisons and
+final closure/inventory proof are in the ignored main-integration handoff.
+
+### DE32a Opus R1 findings and repair
+
+Opus5.5 HIGH R1 took307.749s and returned ISSUES: one Warning and one Suggestion,
+both accepted as material. The Warning identified relative-source resolution
+against the child snapshot cwd and a missing checkout-root gate allowing a
+subdirectory source to bypass the real root's output containment. The repair
+resolves source once up front, requires `.git` at that root and passes the
+absolute source to every git show call. Private fake-checkout negative tests
+prove subdirectory/non-checkout/inside-root refusal before output creation; no
+negative proof uses or writes inside actual upstream. A relative-source plus
+relative-output valid CLI proof executes actual pinned Pi outside upstream.
+
+The Suggestion identified silent duplicate-key acceptance in plain Node-response
+json.loads. The repaired parser uses the existing duplicate-refusing pair hook
+(and finite-constant hook). Duplicate observed/loaded and observation-field
+keys now produce invalid2; existing shape/value mismatch semantics are unchanged.
+Both defects have designated private source controls and focused regressions.
+The previously completed Evidence literal backtick fix is included in the R2
+delta. Product scanner/driver/input/native scanner tests remain unchanged, so
+unchanged product repeats/mutants are not rerun. R1 platform/oracle results remain
+historical until fresh immutable final bindings; R2 review and Root's full/docs/
+platform/fresh-chain gates remain pending. No green-full or CI claim is made.
+
+R1 repair local proof: comparator21 passed, combined scanner/coverage/acceptance
+focus301 passed (9.52s), and the nine changed source/output/duplicate-key cases
+passed20/20 repeats under `-X dev -W error` with private temporary roots. Two
+private source controls failed exactly as intended, with tracked source bytes
+unchanged. Actual pinned Node CLI with relative source and relative output
+matched30000 observations. Final cascade and independent configuration/hash
+proof bind the repaired source; Root owns R2 delta review and all final gates.

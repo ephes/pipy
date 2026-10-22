@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1 landed and d2 in progress. DE06a landed; DE06b remains OPEN.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32/DE32a are IN_PROGRESS and DE32b OPEN. DE06a landed; DE06b remains OPEN.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -183,8 +183,7 @@ R4 CLEAN, remote confirmed; known docs-preview full-check exception recorded
 honestly in the evidence ledger); **d** split before code into **d1** native
 Session over real SQLite and a bounded current-base workload (landed `8ab38d20`), then
 **d2** the paired pinned Pi SQLite oracle, valid D2(a)–(f) probes, two fresh
-chains and final cumulative gate (in progress). DE03c is delivered, DE03d waits d1+d2, DE03 waits all
-four and DE04 waits DE03. Each DE03 slice also runs its new tests on the Ubuntu macmini
+chains and final cumulative gate (delivered at `2dba6008`). DE03c and cumulative DE03d/DE03 are delivered; DE04's DE03 prerequisite is satisfied. Each DE03 slice also runs its new tests on the Ubuntu macmini
 (Root decision D10).
 
 ### General durable execution and other current work
@@ -1026,3 +1025,7 @@ above is unchanged. The codec lane landed at
 two fresh reference chains and verified push. DE06 remains IN_PROGRESS;
 DE06b is OPEN. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
 records the completed gates and current D1 integration boundary.
+
+## Additive streaming line scanner (DE32a)
+
+[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. Integrated delivery gates are pending.
