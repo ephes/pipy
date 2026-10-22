@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 split, DE03a and DE03b landed, DE03c split into c1 and c2, DE03c1 landed, DE03c2 in progress**, 2026-10-22. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 split, DE03a and DE03b landed, DE03c split into c1 and c2, DE03c1 and DE03c2 landed; DE06a in progress**, 2026-10-22. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not
@@ -404,6 +404,8 @@ no public claim of full parity at this milestone.
 | DE04 / DE03 | Add minimal typed document singleton/family/scopes, initial/base/update/retire and one mutation authority. | Atomic entries/tasks/docs; copied inputs/reads, invalid JSON, init/checkpoint exceptions rollback, terminal task doc retirement; shared mutable readers/writers race barriers. Document contract. |
 | DE05 / DE04 | Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open. | Kill before reservation, after running intent, before/after checkpoint; repeated resume stable; invocation cannot write after completion; storage error seals all later work. Task/effect contract. |
 | DE06 / DE05 | Production checkpoint/request/outcome codecs using canonical `agent/messages.py`, `agent/request.py`, provider and tool outcome DTOs; extract audited finite encoding rather than importing scripts. | Field-level serialized equality including compare=False fields, raw whitespace, absent/null, thinking/redaction/signatures, images, IDs, structured/details/control/terminate and all usage/cache/cost units; reject malformed/newer data. Codec/provider privacy docs. |
+| DE06a / DE02a1 | Additive versioned finite canonical message/request/provider and tool result/outcome codec over existing native DTOs in `native/durable/canonical_codec.py`, with no runtime hookup. | Explicit field fidelity including compare=False, ordered rich blocks, raw arguments, sentinels, IDs, timestamps, usage/cache/cost and frozen request catalogs; exact safe ingress, detached output, malformed/newer/unknown-field refusal and live credential/callback refusal. Native field tests and codec privacy docs; no cumulative DE06 or P closure. |
+| DE06b / DE05 + DE06a | Integrate the canonical codec with actual versioned task checkpoints and prepare/request/outcome envelopes after the task runtime exists. | Retain every original DE06/P15/P16/P19 acceptance cell cumulatively; checkpoint phase/version validation, actual runtime recovery and provider privacy evidence. |
 | DE07 / DE06 | Add durable generation prepare/request/settlement phases using native request snapshot and `ProviderTurnExecutor` transport seams, fixed/pure adapters only; share loop policy rather than run entire product loop on resume. | Assistant+tool admissions atomic; response committed before publication, stable request cutoff/provider identity, no duplicate committed usage; crash during provider/after response/before & after commit. No claim of durable partials yet. Generation contract. |
 | DE08 / DE07 | Add sequential native tool intent/result state with stored prepared args and safety intersection; controlled blocked uncertainty for this milestone. | Pending runs once; safe explicit fixture retries; unsafe intent/effect cuts block even if effect absent; result-commit loss reuses receipt; no next provider call on block; current/stored policy drift fails closed. Tool safety docs. |
 | DE09 / DE08 | Add committed completed-message/outcome projection and reconnect/drain sequence to Python observers, replacing state-first mutation for this mode. | Independent reader proves commit-before-callback; kill after commit/before callback and ambiguous callback ack produce no repeated effect; listener failure isolated. Document coalescing/dedupe and completed-only limit. |
@@ -694,3 +696,17 @@ The DE03c2 work order reconciles its earlier acceptance wording: c2 pins D2
 (b) and (e) through native Memory/SQLite/reopen contract cases; actual paired
 Pi SQLite probes of all D2 (a)–(f) belong to DE03d. Nothing removes cumulative
 DE03 acceptance or closes a P row.
+
+### DE06 pre-runtime codec split (2026-10-22)
+
+DE06a depends only on delivered DE02a1 and the existing canonical DTOs; it is
+an additive codec without scheduler or Session integration. DE06b depends on
+DE05 and DE06a and owns the actual task checkpoint/envelope integration. DE06
+remains cumulatively incomplete until both children and every original
+acceptance cell pass; all 43 P rows stay OPEN. Current owner assignment: Codex implements and repairs;
+Claude Code `claude-opus-5-5` HIGH reviews through the installed harness. Earlier
+GPT and Claude implementation/review provenance above remains historical.
+
+DE03c2 subsequently landed at `a2c4c6d2595e7c782d139b0380f918ac24887efd`.
+DE03c is delivered, DE03d remains OPEN and DE03 remains IN_PROGRESS. DE06a is
+now integrated for its own local and independent gates; DE06b remains OPEN.

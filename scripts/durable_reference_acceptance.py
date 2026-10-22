@@ -72,6 +72,8 @@ CHILDREN = {
     "DE03c1",
     "DE03c2",
     "DE03d",
+    "DE06a",
+    "DE06b",
 }
 ALL_IDS = (
     {f"DE{i:02}" for i in range(46)} | {f"P{i:02}" for i in range(1, 44)} | CHILDREN
@@ -240,6 +242,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE02a", ["DE02a1", "DE02a2"]),
         ("DE02", ["DE02a", "DE02b"]),
         ("DE03c", ["DE03c1", "DE03c2"]),
+        ("DE06", ["DE06a", "DE06b"]),
         ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
@@ -294,6 +297,8 @@ DE_EVIDENCE = {
     "DE03c1": "de03b-delivery-and-de03c-split",
     "DE03c2": "de03b-delivery-and-de03c-split",
     "DE03d": "de02b3-delivery-and-de03-split",
+    "DE06a": "de06-pre-runtime-codec-split",
+    "DE06b": "de06-pre-runtime-codec-split",
 }
 
 

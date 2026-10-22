@@ -427,7 +427,8 @@ Session (line, sync and async commit, publication, close) have native tests only
 `session-commit-b3-v1` case, so DE02b and DE02 are delivered. DE03 is split
 a→b→c→d before code; DE03a's ownership and connection tests are native only
 (source-only index evidence). DE03c1 landed `1563bb68` with table contract
-cases, and DE03c2 extends these native-only tests to raw-base documents across
+cases, and DE03c2 (landed `a2c4c6d`) extends these native-only tests to raw-base
+documents across
 Memory/SQLite/reopen, lossless signed zero and numeric versions (D2 (b)/(e)),
 retention rows, real write refusals, acknowledgement loss and SIGKILL cuts.
 The actual paired Pi SQLite probes of D2 (a)–(f), Session over SQLite and P43
@@ -592,7 +593,9 @@ omission membership or copying. Both versioned decoders check envelope keys
 before shape/set membership. These boundaries reject subclass keys without
 hash, equality or representation hooks; Storage DTOs take ownership before shape
 validation. Model-message fields remain full finite JSON here; canonical rich
-message semantics/codecs are still DE06. Diagnostics/reprs do not print payloads.
+message codec fields now have the additive DE06a codec; actual task checkpoint
+integration remains DE06b and cumulative DE06 acceptance is still incomplete.
+Diagnostics/reprs do not print payloads.
 
 ```python
 from pipy_harness.native.durable.codec import OwnedJson, decode_value, encode_value
@@ -1094,3 +1097,13 @@ files and states the scope above. Hash direction is code/tests/coverage →
 baseline → a1 → a2b → b1b → b3. The [b3 admission](specs/2026-10-19-durable-execution-evidence.md#de02b2b-delivery-and-de02b3-admission)
 and [local evidence](specs/2026-10-19-durable-execution-evidence.md#de02b3-local-session-comparison-evidence)
 record the gates and the two fresh chains.
+
+## Additive canonical DTO codec (DE06a)
+
+The private [canonical DTO codec](durable-canonical-codec.md) encodes canonical
+messages, frozen requests and provider/tool outcomes without runtime hookup.
+DE06a depends on DE02a1 and the existing DTOs; DE06b depends on DE05 and DE06a
+and owns actual checkpoint/phase integration. The original DE06 acceptance
+remains cumulative. [The backlog](backlog.md#additive-canonical-dto-codec-de06a)
+and [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#next-delivery-gate)
+own current status and delivery gates.

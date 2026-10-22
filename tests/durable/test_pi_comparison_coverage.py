@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 113
+    assert len(value["rows"]) == 115
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE03", "DE03c"])
+@pytest.mark.parametrize("parent", ["DE03", "DE06"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -184,7 +184,9 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
         a.ledger_status(root, o.contract)
 
 
-@pytest.mark.parametrize("parent", ["DE02a2", "DE02a", "DE02b2", "DE02b", "DE02"])
+@pytest.mark.parametrize(
+    "parent", ["DE02a2", "DE02a", "DE02b2", "DE02b", "DE02", "DE03c"]
+)
 def test_delivered_parent_cannot_reopen_while_children_are_landed(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -364,7 +366,7 @@ def test_sqlite_split_children_keep_original_parent_contract():
     assert "delivered at 0d37f64a" in rows["DE03a"]["current"]["observables"]
     assert rows["DE03b"]["status"] == "LANDED"
     assert "delivered at f6024e56" in rows["DE03b"]["current"]["observables"]
-    assert rows["DE03c"]["status"] == "IN_PROGRESS"
+    assert rows["DE03c"]["status"] == "LANDED"
     assert rows["DE03d"]["status"] == "OPEN"
     for key in ("DE03", "DE03a", "DE03b", "DE03c", "DE03d"):
         current = rows[key]["current"]
@@ -439,14 +441,14 @@ def test_sqlite_storage_split_children_keep_original_parent_contract():
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
     parent = rows["DE03c"]
-    assert parent["status"] == "IN_PROGRESS"
+    assert parent["status"] == "LANDED"
     assert parent["contract"].startswith(
         "`SqliteStorage` in `native/durable/sqlite.py`"
     )
     assert parent["future"].startswith("Contract cases over Memory, SQLite and SQLite")
     assert "DE03c completes only after its c1+c2 children" in parent["future"]
     assert rows["DE03c1"]["status"] == "LANDED"
-    assert rows["DE03c2"]["status"] == "IN_PROGRESS"
+    assert rows["DE03c2"]["status"] == "LANDED"
     for key in ("DE03c", "DE03c1", "DE03c2"):
         current = rows[key]["current"]
         assert current["kind"] == "source-only"
@@ -478,3 +480,33 @@ def test_sqlite_storage_parent_cannot_land_with_an_open_child(tmp_path, child):
     path.write_text("\n".join(rows) + "\n")
     with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
         a.ledger_status(root, o.contract)
+
+
+def test_canonical_codec_split_retains_cumulative_acceptance():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    assert rows["DE06"]["status"] == "IN_PROGRESS"
+    assert rows["DE06a"]["plan_cells"][0] == "DE06a / DE02a1"
+    assert rows["DE06b"]["plan_cells"][0] == "DE06b / DE05 + DE06a"
+    assert "compare=False" in rows["DE06"]["future"]
+    assert all(rows[key]["status"] == "OPEN" for key in ("P15", "P16", "P19"))
+
+
+def test_current_sqlite_summaries_match_delivered_children():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    for key in ("DE03", "DE03c", "DE03c2"):
+        current = rows[key]["current"]["observables"]
+        assert "a2c4c6d" in current
+        assert "final gates pending" not in current
+        assert "review and delivery gates pending" not in current
+    assert rows["DE03"]["status"] == "IN_PROGRESS"
+    assert rows["DE03c"]["status"] == rows["DE03c2"]["status"] == "LANDED"
+
+
+def test_current_delivery_gate_names_current_reviewer_and_lanes():
+    text = (o.ROOT / a.LEDGER).read_text()
+    current = text.split("## Next delivery gate\n", 1)[1].split("\n## ", 1)[0]
+    assert "DE03c is LANDED" in current
+    assert "DE03d" in current and "DE06a" in current and "DE06b is OPEN" in current
+    assert "claude-opus-5-5" in current and "HIGH" in current
+    assert "Codex gpt-6.1-sol HIGH CLEAN" not in current
+    assert "All 43 P rows remain OPEN" in current

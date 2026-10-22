@@ -159,7 +159,8 @@ migration runner, the header identity gate and open-time integrity with the D6
 `quick_check` policy. DE03c is split c1→c2: DE03c1 (landed `1563bb68`) adds the private
 `native/durable/sqlite.py`, `SqliteStorage` with MemoryStorage's table semantics,
 proven by running Memory's own acceptance bodies over Memory, SQLite and SQLite
-reopened after every commit; DE03c2 extends the same authority to raw-base
+reopened after every commit; DE03c2 (landed `a2c4c6d`) extends the same authority
+to raw-base
 documents, revision retention, real write refusals and acknowledgement/process
 death cuts. The paired Pi SQLite oracle and final DE03 gate remain DE03d.
 All original acceptance remains cumulative. Product session formats/defaults stay
@@ -4758,3 +4759,13 @@ records; AgentEvent, canonical SDK subscriptions, extension hooks, archives and
 persistence do not. Ordinary RPC retry leases remain separate, so abort_retry is
 an auxiliary no-op. Generic abort/Escape retains existing cancellation. Full
 summary acceptance and append remain state first; append errors never retry.
+
+## Additive canonical DTO codec (DE06a)
+
+The private [canonical DTO codec](durable-canonical-codec.md) encodes canonical
+messages, frozen requests and provider/tool outcomes without runtime hookup.
+DE06a depends on DE02a1 and the existing DTOs; DE06b depends on DE05 and DE06a
+and owns actual checkpoint/phase integration. The original DE06 acceptance
+remains cumulative. [The backlog](backlog.md#additive-canonical-dto-codec-de06a)
+and [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#next-delivery-gate)
+own current status and delivery gates.
