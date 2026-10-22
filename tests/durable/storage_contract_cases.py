@@ -13,13 +13,10 @@ SQLite backend differs from Memory (D2) and for exact-type ingress. The runner
 ``test_sqlite_storage.py`` collects everything through ``cases()`` and checks
 ``ORIGINALS`` against the original file.
 
-DE03c2 owns SqliteStorage documents. The document bodies run here on every
-backend, marked ``xfail(strict=True, raises=UnsupportedStorageOperation)`` on
-the SQLite backends, so each must fail with exactly the interim refusal until
-DE03c2 removes the mark. The seven document bodies that observe Memory
-internals are listed in ``DE03C2_PORTS``: DE03c2 ports them together with the
-SQLite document views their hooks need; until then they run on Memory in the
-original file only.
+DE03c2 removes the 54 strict document xfails and ports the seven bodies
+that observe Memory internals through the backend views below. Every bounded
+raw-base contract case now runs over all three factories; one-instance thread
+contention cases exclude only the wrapper that deliberately replaces its store.
 
 The ``backend`` fixture makes stores and closes them after the case; for SQLite
 it then checks every closed file: ``integrity_check``, owner-only modes and no
@@ -46,10 +43,14 @@ from typing import Any
 import pytest
 import test_memory_storage as originals
 from test_memory_storage import (
+    SESSION,
     WitnessLock,
     _foreign_point,
+    address,
+    change_document,
     commit,
     create_document,
+    document_query,
     entry,
     ids,
     operations,
@@ -74,11 +75,6 @@ from pipy_harness.native.durable.storage import (
 )
 
 BACKENDS = ("memory", "sqlite", "reopen")
-_DE03C2 = pytest.mark.xfail(
-    strict=True,
-    raises=UnsupportedStorageOperation,
-    reason="DE03c2 owns SqliteStorage documents",
-)
 ALL = pytest.mark.parametrize("backend", BACKENDS, indirect=True)
 ONE_INSTANCE = pytest.mark.parametrize("backend", ["memory", "sqlite"], indirect=True)
 _TABLES = (
@@ -106,6 +102,27 @@ class _MemoryView:
     def entry(self, id: int) -> dict[str, Any]:
         return self._state.tables["entry"][id].to_tree()
 
+    def task(self, id: int) -> Any:
+        return self._state.tables["task"][id].to_tree()
+
+    def owners(self, task: int) -> tuple[int, ...]:
+        return self._state.owners.get(("taskId", task), ())
+
+    def task_status(self, status: str) -> tuple[int, ...]:
+        return self._state.statuses.get(("task", status), ())
+
+    def entries(self, conversation: int) -> tuple[int, ...]:
+        return self._state.entries.get(conversation, ())
+
+    def scope(self) -> tuple[int, ...]:
+        return self._state.scopes.get(("session",), ())
+
+    def document(self, id: int) -> Any:
+        return self._state.documents[id].to_tree()
+
+    def document_record(self, id: int) -> Any:
+        return self.document(id)["record"]
+
     def winner(self, conversation: int, request: str) -> int | None:
         return self._state.requests.get((conversation, memory._units(request)))
 
@@ -125,6 +142,49 @@ class _SqliteView:
     def entry(self, id: int) -> Any:
         sql = "SELECT record FROM entries WHERE id = ?"
         return sqlite._decode(self._connection.execute(sql, (id,)).fetchone()[0])
+
+    def task(self, id: int) -> Any:
+        row = self._connection.execute(
+            "SELECT record FROM tasks WHERE id = ?", (id,)
+        ).fetchone()
+        return sqlite._decode(row[0])
+
+    def owners(self, task: int) -> tuple[int, ...]:
+        return self._ids(
+            "SELECT id FROM conversations WHERE owner_task_id = ? ORDER BY id", task
+        )
+
+    def task_status(self, status: str) -> tuple[int, ...]:
+        return self._ids("SELECT id FROM tasks WHERE status = ? ORDER BY id", status)
+
+    def entries(self, conversation: int) -> tuple[int, ...]:
+        return self._ids(
+            "SELECT id FROM entries WHERE conversation_id = ? ORDER BY id", conversation
+        )
+
+    def scope(self) -> tuple[int, ...]:
+        return self._ids(
+            "SELECT id FROM documents WHERE scope_kind = 'session' AND owner_id = 0 ORDER BY id"
+        )
+
+    def document_record(self, id: int) -> Any:
+        row = self._connection.execute(
+            "SELECT record FROM documents WHERE id = ?", (id,)
+        ).fetchone()
+        return sqlite._decode(row[0])
+
+    def document(self, id: int) -> Any:
+        record = self.document_record(id)
+        row = self._connection.execute(
+            "SELECT version, content FROM document_revisions WHERE document_id = ? ORDER BY seq DESC LIMIT 1",
+            (id,),
+        ).fetchone()
+        return {
+            "record": record,
+            "version": sqlite._decode(row[0]),
+            "value": sqlite._decode(row[1]),
+            "deltasSinceBase": 0,
+        }
 
     def winner(self, conversation: int, request: str) -> int | None:
         row = self._connection.execute(
@@ -228,6 +288,9 @@ class MemoryBackend:
 
         self._monkeypatch.setattr(memory, "_validate_document_candidate", hook)
 
+    def view(self, store: Any) -> Any:
+        return _MemoryView(store._state)
+
     def state(self, store: Any) -> Any:
         return store._state
 
@@ -282,6 +345,9 @@ class SqliteBackend:
                 callback(_SqliteView(connection))
 
         self._monkeypatch.setattr(sqlite, "_before_commit", hook)
+
+    def view(self, store: Any) -> Any:
+        return _SqliteView(self._connection(store))
 
     def state(self, store: Any) -> Any:
         connection = self._connection(store)
@@ -395,7 +461,6 @@ _BODIES = [
         kind,
         (name, kwargs),
         id=f"{kind}-{label}",
-        marks=_DE03C2 if documents and kind != "memory" else (),
     )
     for documents, names in ((False, TABLE_BODIES), (True, DOCUMENT_BODIES))
     for name in names
@@ -589,7 +654,7 @@ def test_sequence_exhaustion_refuses_without_corrupting_state(backend):
 
 
 # Every original test function: run as a body above, by a variant here, or
-# ported by DE03c2 together with the SQLite document views its hooks need.
+# represented by the variants and views below.
 VARIANTS = {
     "test_supported_last_failure_does_not_leak_any_table_index_or_counter": (
         "test_supported_last_failure_does_not_leak_any_table_index_or_counter",
@@ -611,15 +676,22 @@ SPLIT = {
         "test_close_is_idempotent_and_seals_every_method",
     ),
 }
-DE03C2_PORTS = (
-    "test_document_per_id_grouping_and_final_address_cardinality",
-    "test_document_supported_failures_are_atomic_and_ordinary_errors",
-    "test_document_late_candidate_failure_rolls_back_tables_docs_indexes_and_counters",
-    "test_mixed_document_candidate_uses_same_contended_authority",
-    "test_unsupported_document_batch_does_not_publish_supported_mixed_prefix",
-    "test_document_point_ingress_rejects_foreign_without_any_hook",
-    "test_document_point_reentry_child_is_bounded_and_never_runs_hook",
+VARIANTS.update(
+    {
+        name: (name,)
+        for name in (
+            "test_document_per_id_grouping_and_final_address_cardinality",
+            "test_document_supported_failures_are_atomic_and_ordinary_errors",
+            "test_document_late_candidate_failure_rolls_back_tables_docs_indexes_and_counters",
+            "test_mixed_document_candidate_uses_same_contended_authority",
+            "test_unsupported_document_batch_does_not_publish_supported_mixed_prefix",
+            "test_document_point_ingress_rejects_foreign_without_any_hook",
+            "test_document_point_reentry_child_is_bounded_and_never_runs_hook",
+        )
+    }
 )
+DE03C2_PORTS: tuple[str, ...] = ()
+DE03C2_XFAILS: tuple[str, ...] = ()
 ORIGINALS = (*TABLE_BODIES, *DOCUMENT_BODIES, *VARIANTS, *DE03C2_PORTS)
 
 
@@ -799,3 +871,329 @@ def cases() -> dict[str, Any]:
         name: value for name, value in globals().items() if name.startswith("test_")
     }
     return {"backend": backend, **found}
+
+
+@ALL
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "operation", ["empty-new", "empty-occupied", "change-retire", "replace"]
+)
+def test_document_per_id_grouping_and_final_address_cardinality(
+    backend, reverse, operation
+):
+    store = root(backend)
+    if operation != "empty-new":
+        commit(store, create_document(2, value={"old": True}))
+    id = 3 if operation in {"empty-new", "empty-occupied", "replace"} else 2
+    content = (
+        change_document(2, {"new": True}, 2)
+        if operation == "change-retire"
+        else create_document(id)
+    )
+    retire = {"type": "document.retire", "id": 2 if operation == "replace" else id}
+    seq = commit(store, *([retire, content] if reverse else [content, retire]))
+    if operation == "replace":
+        assert store.document(2) is None
+        assert store.find_document(address()).id == 3
+        assert store.document(3).to_tree()["record"]["createdAt"] == seq
+    elif operation == "empty-occupied":
+        assert store.document(3) is None and store.find_document(address()).id == 2
+        assert ids(store.scan_documents(document_query(), 10)) == [2]
+    else:
+        assert store.document(id) is None and store.find_document(address()) is None
+    retained = backend.view(store).document_record(2 if operation == "replace" else id)
+    assert retained["retiredAt"] == seq
+    if operation.startswith("empty"):
+        assert retained["createdAt"] == seq
+    with pytest.raises(RuntimeError, match="already belongs to document"):
+        commit(store, create_document(id))
+    assert store.mint_id() == max(3, id + 1)
+    store.close()
+
+
+@ALL
+@pytest.mark.parametrize(
+    "writes,message",
+    [
+        (
+            [change_document(2, {}), change_document(2, {})],
+            "more than one content command",
+        ),
+        ([create_document(3), change_document(3, {})], "more than one content command"),
+        ([change_document(3, {}), create_document(3)], "more than one content command"),
+        ([{"type": "document.retire", "id": 2}] * 2, "retired more than once"),
+        ([change_document(999, {})], "Unknown document: 999"),
+        ([{"type": "document.retire", "id": 999}], "Unknown document: 999"),
+        ([create_document(3)], "address already has a current incarnation"),
+    ],
+)
+def test_document_supported_failures_are_atomic_and_ordinary_errors(
+    backend, writes, message
+):
+    store = root(backend)
+    commit(store, create_document(2), task(3), submission(4))
+    # Conflict recipe must use a fresh global ID, not fail at ID claims first.
+    writes = [
+        {**w, "record": {**w["record"], "id": 5}}
+        if w.get("type") == "document.create" and w["record"]["id"] == 3
+        else w
+        for w in writes
+    ]
+    if "content command" in message:
+        writes = [{**w, "id": 5} if w.get("id") == 3 else w for w in writes]
+    before = backend.state(store)
+    with pytest.raises(RuntimeError, match=message) as failed:
+        commit(store, entry(100), task(3, "running"), submission(4, "new"), *writes)
+    assert type(failed.value) is RuntimeError and backend.state(store) == before
+    assert (
+        store.entry(100) is None
+        and store.task(3).to_tree()["state"]["status"] == "pending"
+    )
+    assert store.submission_by_request(1, "new") is None
+    assert store.document(2) and store.find_document(address()).id == 2
+    assert store.mint_id() == 5 and store.commit(()) == 3
+    store.close()
+
+
+@ALL
+@pytest.mark.parametrize("unsupported", ["delta", "copy"])
+def test_unsupported_document_batch_does_not_publish_supported_mixed_prefix(
+    backend,
+    unsupported,
+):
+    store = root(backend)
+    commit(store, create_document(2))
+    before = backend.state(store)
+    final = (
+        {
+            "type": "document.copy",
+            "record": {"id": 101, "kind": "copy", "scope": SESSION},
+            "source": {"id": 2, "at": "current"},
+        }
+        if unsupported == "copy"
+        else {
+            "type": "document.change",
+            "id": 2,
+            "content": {"kind": "delta", "version": 1, "ops": []},
+        }
+    )
+    with pytest.raises(UnsupportedStorageOperation, match="DE04/DE27"):
+        commit(store, entry(100), create_document(102, key="supported"), final)
+    assert (
+        backend.state(store) == before
+        and store.entry(100) is None
+        and store.document(102) is None
+    )
+    assert store.mint_id() == 3
+    store.close()
+
+
+@ALL
+@pytest.mark.parametrize(
+    "kind", ["foreign", "eq-only", "repr-only", "str-subclass", "int-subclass"]
+)
+@pytest.mark.parametrize("method", ["document", "find", "query-point", "raw-query"])
+def test_document_point_ingress_rejects_foreign_without_any_hook(backend, kind, method):
+    store = root(backend)
+    commit(store, create_document(2))
+    calls = []
+    value = _foreign_point(kind, calls)
+    calls.clear()  # Construction is outside the public call's evidence boundary.
+    before = backend.state(store)
+    try:
+        with pytest.raises(ValueError) as failure:
+            originals._point_call(store, method, value)
+        assert not isinstance(failure.value, UnsupportedStorageOperation)
+        assert calls == []
+        assert backend.state(store) == before and not backend.locked(store)
+    finally:
+        store.close()
+
+
+@ALL
+@pytest.mark.parametrize("fault", ["address-conflict", "allocation"])
+def test_document_late_candidate_failure_rolls_back_tables_docs_indexes_and_counters(
+    backend, fault
+):
+    store = root(backend)
+    commit(store, entry(2, head=2), task(3), submission(4), create_document(5))
+    assert store.mint_id() == 6
+    before = backend.state(store)
+    witnessed = []
+
+    def inspect(candidate):
+        assert candidate.entry(100)["conversationId"] == 1
+        assert candidate.task(3)["state"]["status"] == "running"
+        assert candidate.owners(3) == (99,)
+        assert candidate.task_status("running") == (3,)
+        assert candidate.entries(1) == (2, 100)
+        assert candidate.winner(1, "new") == 4
+        assert candidate.document(101)["value"] == {"prepared": True}
+        assert 101 in candidate.scope()
+        witnessed.append(True)
+        if fault == "allocation":
+            raise MemoryError("candidate allocation after mixed preparation")
+
+    backend.at_commit(inspect)
+    writes = [
+        {
+            "type": "conversation",
+            "value": {"id": 99, "owner": {"conversationId": 1, "taskId": 3}},
+        },
+        entry(100),
+        task(3, "running"),
+        submission(4, "new"),
+        create_document(101, kind="new", value={"prepared": True}),
+    ]
+    if fault == "address-conflict":
+        writes.append(create_document(102))
+    with pytest.raises(
+        MemoryError if fault == "allocation" else RuntimeError,
+        match="allocation|current incarnation",
+    ):
+        commit(store, *writes)
+    assert witnessed == [True] and backend.state(store) == before
+    assert store.conversation(99) is None
+    assert (
+        store.scan_conversations(ConversationQuery({"ownerTaskId": 3}), 10).items == ()
+    )
+    assert store.entry(100) is None and store.document(101) is None
+    assert store.find_latest_head_marker(1).id == 2
+    assert store.entry(2).commit_seq == 2
+    assert ids(store.scan_tasks(TaskQuery({"status": "pending"}), 10)) == [3]
+    assert ids(store.scan_tasks(TaskQuery({"status": "running"}), 10)) == []
+    assert store.submission_by_request(1, "new") is None
+    assert ids(store.scan_documents(document_query(), 10)) == [5]
+    assert store.find_document(address()).id == 5
+    assert store.submission_by_request(1, "x").id == 4
+    backend.at_commit(None)
+    assert store.mint_id() == (6 if isinstance(store, Reopening) else 7)
+    assert store.commit(()) == 3
+
+
+@ONE_INSTANCE
+@pytest.mark.parametrize("contender", ["write", "read", "mint", "close", "failure"])
+def test_mixed_document_candidate_uses_same_contended_authority(backend, contender):
+    store = root(backend)
+
+    def check(candidate):
+        assert candidate.entry(100) and candidate.document(102)
+
+    def fail():
+        raise MemoryError("mixed preparation failure")
+
+    def read(_):
+        with store._lock:
+            view = backend.view(store)
+            captured = (100 in view.entry_ids(), view.document_record(102)["id"] == 102)
+        return captured, store.entry(100) is not None, store.document(102) is not None
+
+    choices = {
+        "write": lambda _: commit(
+            store, submission(103), create_document(104, key="next")
+        ),
+        "read": read,
+        "mint": lambda _: store.mint_id(),
+        "close": lambda _: store.close(),
+        "failure": lambda _: commit(store, create_document(103)),
+    }
+
+    def verify(writer, follower):
+        if contender == "failure":
+            with pytest.raises(MemoryError):
+                writer.result(5)
+            assert follower.result(5) == 2 and store.document(103)
+            assert store.entry(100) is None and store.document(102) is None
+            return
+        assert writer.result(5) == 2
+        result = follower.result(5)
+        if contender == "write":
+            assert (
+                result == 3
+                and store.document(102)
+                and store.document(104)
+                and store.submission(103)
+            )
+        elif contender == "read":
+            assert result == ((True, True), True, True)
+        elif contender == "mint":
+            assert result == 103
+        else:
+            for operation in operations(store):
+                with pytest.raises(StorageClosedError):
+                    operation()
+
+    _run_contended(
+        backend,
+        store,
+        (entry(100), task(101), create_document(102)),
+        check,
+        choices[contender],
+        verify,
+        after=fail if contender == "failure" else None,
+    )
+
+
+@ALL
+@pytest.mark.parametrize("method", ["document", "find"])
+def test_document_point_reentry_child_is_bounded_and_never_runs_hook(
+    backend, tmp_path, method
+):
+    from sqlite_child_support import Child
+
+    code = r"""
+from pipy_harness.native.durable.memory import MemoryStorage
+from pipy_harness.native.durable.sqlite import open_sqlite_storage
+from pipy_harness.native.durable.storage import DocumentAddress
+store = MemoryStorage() if sys.argv[1] == "memory" else open_sqlite_storage(sys.argv[2], mode="create")
+class Point:
+    def __eq__(self, other):
+        say("hook-entered")
+        store.mint_id()
+        return True
+say("ready")
+assert command() == "go"
+try:
+    if sys.argv[3] == "document":
+        store.document(2, Point())
+    else:
+        store.find_document(DocumentAddress({"kind":"cache","scope":{"kind":"session"}}), Point())
+except ValueError as error:
+    say("refused", error=type(error).__name__, next_id=store.mint_id())
+else:
+    say("accepted")
+store.close()
+"""
+    # The reopening factory has the same ingress, and this child independently opens its store.
+    with Child(
+        code, backend.name, str(tmp_path / "child.sqlite"), method, home=tmp_path
+    ) as child:
+        child.expect("ready")
+        child.send("go")
+        event = child.expect("refused", timeout=2)
+        assert event["error"] == "RecordError" and event["next_id"] == 2
+        assert child.wait() == 0
+        assert child.evidence()["stderr"] == ""
+        assert child.process.stderr.read() == b""
+    (tmp_path / "point-child-evidence.json").write_text(
+        __import__("json").dumps(child.evidence())
+    )
+
+
+@ALL
+@pytest.mark.parametrize("version", [0, -1, 1.5, -0.0, 2**100])
+def test_raw_document_signed_zero_and_version_follow_memory(backend, version):
+    from pipy_harness.native.durable.codec import OwnedJson
+
+    store = root(backend)
+    commit(store, create_document(2, value={"zero": -0.0}, version=version))
+    expected = OwnedJson({"version": version, "value": {"zero": -0.0}})
+    materialized = store.document(2).to_tree()
+    assert (
+        OwnedJson({key: materialized[key] for key in ("version", "value")}) == expected
+    )
+    commit(store, change_document(2, {"zero": -0.0}, version))
+    materialized = store.document(2).to_tree()
+    assert (
+        OwnedJson({key: materialized[key] for key in ("version", "value")}) == expected
+    )

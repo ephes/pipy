@@ -1,6 +1,6 @@
 # Native durable execution implementation plan
 
-Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 split, DE03a and DE03b landed, DE03c split into c1 and c2, DE03c1 in progress**, 2026-10-22. Authored
+Status: **execution authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 split, DE03a and DE03b landed, DE03c split into c1 and c2, DE03c1 landed, DE03c2 in progress**, 2026-10-22. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
 its two wording suggestions were applied before the frozen handoff. This is not
@@ -399,8 +399,8 @@ no public claim of full parity at this milestone.
 | DE03b / DE03a | Schema v1 (Pi v2 shape and names plus the Python deltas) in `native/durable/sqlite_schema.py`: append-only contiguous migration runner under the path lock, application_id, newer refusal, open-time integrity and the D6 quick_check policy. | Repeatable apply; contiguous and newer refusal; a failing synthetic migration rolls back version, probe table and data, then retries; a synthetic table rebuild keeps rows and indexes; SIGKILL mid-migration leaves the old version, then migrates; foreign, corrupt and missing-metadata refusals leave bytes unchanged. Migration discipline, integrity policy and the DE27 format-bump obligation documented. |
 | DE03c / DE03b | `SqliteStorage` in `native/durable/sqlite.py` with MemoryStorage's sixteen exact signatures, exact-type ingress, lossless BLOB payloads and ASCII-JSON identity columns, one authority lock and D4 COMMIT poisoning; backend-agnostic contract cases plus SQLite-only tests. | Contract cases over Memory, SQLite and SQLite across reopen; lossless values across reopen; retention rows; EXPLAIN index use; WAL truncate, page reuse and bounded size; real write refusals; acknowledgement loss (after-COMMIT cut, COMMIT raise per D4); SIGKILL before and after COMMIT; contended threads linearize; snapshot reads; integrity_check after every cut. Codec/identity, Memory-versus-Pi-SQLite and durability-class docs. Split 2026-10-22 into DE03c1 and DE03c2; DE03c completes only after its c1+c2 children. |
 | DE03c1 / DE03b | `SqliteStorage` and `open_sqlite_storage` in `native/durable/sqlite.py` for table operations: commit of table writes, `mint_id`, conversation, entry (both forms), latest head marker, task and submission reads and scans, and `submission_by_request` through the `submission_requests` last-writer table (D2 (a)); exact-type ingress through MemoryStorage's admission helpers, lossless BLOB payloads and ASCII-JSON identity columns, one authority lock and Pi's commit order with D4 COMMIT poisoning. Document methods and document writes refuse with `UnsupportedStorageOperation` as an explicit interim owned by DE03c2. New backend-agnostic `tests/durable/storage_contract_cases.py`. | Contract cases over Memory, SQLite and SQLite reopened after every commit, every document-related case marked as owned by DE03c2 on the SQLite backends; the table differences D2 (a), (c), (d) and (f) follow Memory, each pinned by a contract case (the paired Pi SQLite probe stays an open obligation); lossless values across reopen; keyset cursors; EXPLAIN index use for table scans; contended threads linearize under one authority; snapshot reads; every statement inside `damage_as_corruption`; `integrity_check` after each test's writes. Linux evidence on the macmini (D10). Codec/identity and table Memory-versus-Pi-SQLite docs. |
-| DE03c2 / DE03c1 | Documents in `SqliteStorage`: create, change and retire, current reads and scans and Pi's retention rows; the remaining failure and crash cuts. | Document contract cases over all three backends with DE03c1's DE03c2 markers removed; D2 (b)–(f) differences proven by actual paired probes; real write refusals (`query_only`, `max_page_count`, a foreign write lock); acknowledgement loss (an after-COMMIT seam; a raising COMMIT poisons per D4); SIGKILL before and after COMMIT; WAL truncate, page reuse and bounded size; integrity_check after every cut. Document codec, retention and durability-class docs. |
-| DE03d / DE03c | Paired pinned Pi SQLite oracle and Session over SQLite: Node driver, comparison script, inputs and closed manifests, P43 workload and acceptance/coverage registration. | Closed recipes against pinned `openNodeSqliteStorage` with and without Pi's reopen wrapper plus Pi Memory, a closed list of actually observed divergences, mutants and two fresh chains; Session over SQLite commit/reopen, acknowledgement cut, poisoning by real errors and close releasing the lock; a reviewed practical P43 budget; durable-reference SQLite section; DE03 completes only after a+b+c+d; all P OPEN. |
+| DE03c2 / DE03c1 | Documents in `SqliteStorage`: create, change and retire, current reads and scans and Pi's retention rows; the remaining failure and crash cuts. | Document contract cases over all three backends with DE03c1's DE03c2 markers removed; D2 (b) signed zero and (e) raw numeric versions pinned by native contract cases; actual paired Pi SQLite probes of D2 (a)–(f) remain DE03d acceptance; real write refusals (`query_only`, `max_page_count`, a foreign write lock); acknowledgement loss (an after-COMMIT seam; a raising COMMIT poisons per D4); SIGKILL before and after COMMIT; WAL truncate, page reuse and bounded size; integrity_check after every cut. Document codec, retention and durability-class docs. |
+| DE03d / DE03c | Paired pinned Pi SQLite oracle and Session over SQLite: Node driver, comparison script, inputs and closed manifests, P43 workload and acceptance/coverage registration. | Closed recipes against pinned `openNodeSqliteStorage` with and without Pi's reopen wrapper plus Pi Memory, a closed list of actually observed divergences including paired D2 (a)–(f) probes, mutants and two fresh chains; Session over SQLite commit/reopen, acknowledgement cut, poisoning by real errors and close releasing the lock; a reviewed practical P43 budget; durable-reference SQLite section; DE03 completes only after a+b+c+d; all P OPEN. |
 | DE04 / DE03 | Add minimal typed document singleton/family/scopes, initial/base/update/retire and one mutation authority. | Atomic entries/tasks/docs; copied inputs/reads, invalid JSON, init/checkpoint exceptions rollback, terminal task doc retirement; shared mutable readers/writers race barriers. Document contract. |
 | DE05 / DE04 | Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open. | Kill before reservation, after running intent, before/after checkpoint; repeated resume stable; invocation cannot write after completion; storage error seals all later work. Task/effect contract. |
 | DE06 / DE05 | Production checkpoint/request/outcome codecs using canonical `agent/messages.py`, `agent/request.py`, provider and tool outcome DTOs; extract audited finite encoding rather than importing scripts. | Field-level serialized equality including compare=False fields, raw whitespace, absent/null, thinking/redaction/signatures, images, IDs, structured/details/control/terminate and all usage/cache/cost units; reject malformed/newer data. Codec/provider privacy docs. |
@@ -667,3 +667,30 @@ declared unsupported historical boundary in a2b. Raw document content.version is
 a separate finite-number role:0/-1/1.5 are retained by raw Storage, independent of
 later positive-safe defineDoc definition validation. Original future rows and
 cumulative Session/document requirements are unchanged.
+
+
+### 2026-10-22 implementation ownership and DE03c1 delivery
+
+DE03c1 landed on `main` and origin at
+`1563bb6871f869abfb93d704b01c637b2b2ef7c1`. Claude Opus 5.5 implemented;
+Codex `gpt-6.1-sol` HIGH reviewed: round 1 three Warnings, round 2 one Warning
+caused by that repair, both repaired, then round 3 CLEAN. Local `just check`
+reported 15,184 passed, 2 skipped, 54 xfailed and the known docs-preview
+load flake; isolated `tests/test_docs_build.py` passed 16/16. No CI result is
+claimed. The 54 strict xfails and seven pending document ports belong to c2.
+
+From DE03c2 onward the owner's current instruction is Codex implementation and
+repairs, with independent Claude Code `claude-opus-5-5` HIGH review solely
+through `claude-review-loop`. Earlier roles remain historical: GPT implemented
+DE00–DE02a2b; Claude Opus 5.5 implemented DE02b1a–DE03c1 with Codex
+`gpt-6.1-sol` HIGH review. Work proceeds on `main`, with independent parallel
+slices allowed in their own temporary worktrees. Local `just check`, strict
+docs build and rendered link checks for changed documentation, independent
+CLEAN of the exact tree, push and `git ls-remote` confirmation are the delivery
+gates; GitHub CI is not a gate. The owner permits up to twelve review rounds
+per slice before asking again, with the value-driven stopping rule still binding.
+
+The DE03c2 work order reconciles its earlier acceptance wording: c2 pins D2
+(b) and (e) through native Memory/SQLite/reopen contract cases; actual paired
+Pi SQLite probes of all D2 (a)–(f) belong to DE03d. Nothing removes cumulative
+DE03 acceptance or closes a P row.

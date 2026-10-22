@@ -445,8 +445,8 @@ def test_sqlite_storage_split_children_keep_original_parent_contract():
     )
     assert parent["future"].startswith("Contract cases over Memory, SQLite and SQLite")
     assert "DE03c completes only after its c1+c2 children" in parent["future"]
-    assert rows["DE03c1"]["status"] == "IN_PROGRESS"
-    assert rows["DE03c2"]["status"] == "OPEN"
+    assert rows["DE03c1"]["status"] == "LANDED"
+    assert rows["DE03c2"]["status"] == "IN_PROGRESS"
     for key in ("DE03c", "DE03c1", "DE03c2"):
         current = rows[key]["current"]
         assert current["kind"] == "source-only"

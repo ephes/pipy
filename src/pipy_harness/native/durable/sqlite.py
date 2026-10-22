@@ -1,14 +1,10 @@
-"""Bounded Storage over an owned durable SQLite store (DE03c1); not exported.
+"""Bounded Storage over an owned durable SQLite store (DE03c); not exported.
 
-``open_sqlite_storage`` opens a store (``sqlite_connection``, DE03a and DE03b)
-and wraps it in ``SqliteStorage``, which implements the Storage port with
-MemoryStorage's sixteen signatures and its table semantics: commits of table
-writes, ``mint_id``, the exact reads, ``entry`` in both forms, the latest head
-marker, the keyset-paged scans and ``submission_by_request``. Documents belong
-to DE03c2: until then the three document methods, and every batch with a
-document write, refuse with ``UnsupportedStorageOperation``, the error
-MemoryStorage raises for a capability it lacks. There is no product factory
-(DE11).
+``open_sqlite_storage`` opens an owned schema-v1 store and wraps it in
+``SqliteStorage``. It implements MemoryStorage's sixteen signatures, atomic
+mixed table/raw-base document commits, current reads, indexed scans and
+immutable global IDs. Numeric history, deltas and copies remain unsupported
+(DE04/DE27). There is no product factory (DE11).
 
 Where Pi's SQLite backend differs from Pi's Memory, this backend follows
 MemoryStorage (Root decision D2): the last writer of a request ID wins without
@@ -26,12 +22,14 @@ under it. A forked child is refused before that lock, as DE03a's owners refuse
 it before theirs: every method raises ``StorageForkedError`` and ``close``
 returns, so the child never waits for a lock that a thread of its parent held
 at ``fork()``. Reads that need several statements (entry ancestry, the head marker,
-entry scans) run in one read transaction, so they see one committed state. A
+entry scans and document materialization) run in one read transaction, so they see one committed state. A
 commit takes Pi's order: ``BEGIN IMMEDIATE``, the metadata row (the next
 sequence and the persisted ID counter are authoritative in the database),
-sequence exhaustion, the global ID claims, the table writes, the metadata
-update and ``COMMIT``; the counter of minted IDs is adopted only after
-``COMMIT`` returned. An error before ``COMMIT`` rolls back, but only while a
+sequence exhaustion, global ID claims, grouped/materialized document actions,
+table writes, document/revision writes and the metadata update. The
+``_before_commit`` seam then runs before final address-cardinality validation,
+still inside the transaction. After ``COMMIT`` returned the minted-ID counter
+is adopted before the ``_after_commit`` acknowledgement-loss seam runs. An error before ``COMMIT`` rolls back, but only while a
 transaction is still open (SQLite rolls some failures back itself), and leaves
 the storage usable. An error raised by ``COMMIT`` leaves the outcome unknown,
 since WAL recovery can still find a complete commit, so it poisons the instance
@@ -48,7 +46,7 @@ spelling included. The text is what ``json.dumps(value, ensure_ascii=False,
 allow_nan=False, separators=(",", ":"))`` writes, but it is written and read
 without recursion: owned values have no nesting limit, and ``json`` stops at
 Python's recursion limit (about 1000 levels on Python 3.11). Indexed strings
-(task ``kind``, request IDs) are stored as ASCII JSON, which is equal exactly
+(task/document ``kind``, document keys and request IDs) are stored as ASCII JSON, which is equal exactly
 when the UTF-16 code units are. Every read of a row makes every check: each
 column's storage class must be exactly one its declared type allows (STRICT
 keeps them, but SQL alone can store another by rewriting a table's schema and
@@ -288,11 +286,23 @@ _TABLES = {
     "entry": TABLES["entries"],
     "task": TABLES["tasks"],
     "submission": TABLES["submissions"],
+    "document": TABLES["documents"],
 }
 # Every stored column, in row order, with the storage classes its declared
 # type allows; the index columns come first and are recomputed from the
 # record on every read to detect damage.
 _COLUMNS: dict[str, tuple[tuple[str, frozenset[str]], ...]] = {
+    "document": (
+        ("id", INTEGER),
+        ("kind", TEXT),
+        ("family", INTEGER),
+        ("key_value", TEXT),
+        ("scope_kind", TEXT),
+        ("owner_id", INTEGER),
+        ("created_at", INTEGER),
+        ("retired_at", NULLABLE_INTEGER),
+        ("record", BLOB),
+    ),
     "conversation": (
         ("id", INTEGER),
         ("owner_conversation_id", NULLABLE_INTEGER),
@@ -416,6 +426,31 @@ _WINNER = (
 )
 
 
+_REVISION_COLUMNS = (
+    ("document_id", INTEGER),
+    ("seq", INTEGER),
+    ("kind", TEXT),
+    ("version", BLOB),
+    ("content", BLOB),
+)
+_REVISION_SELECT = f"SELECT {typed_columns(*(name for name, _ in _REVISION_COLUMNS))} FROM {TABLES['document_revisions']}"
+
+
+def _scope_parts(scope: dict[str, object]) -> tuple[str, object]:
+    kind = cast(str, scope["kind"])
+    return kind, 0 if kind == "session" else scope[kind + "Id"]
+
+
+def _address_parts(value: dict[str, object]) -> tuple[object, ...]:
+    scope = cast(dict[str, object], value["scope"])
+    return (
+        _identity(cast(str, value["kind"])),
+        int("key" in value),
+        _identity(cast(str, value["key"])) if "key" in value else "",
+        *_scope_parts(scope),
+    )
+
+
 def _columns(kind: str, value: dict[str, object]) -> tuple[object, ...]:
     """A record's index columns, as the row stores them."""
 
@@ -436,6 +471,13 @@ def _columns(kind: str, value: dict[str, object]) -> tuple[object, ...]:
             cast(dict[str, object], value["state"])["status"],
             int(cast(bool, value["abortRequested"])),
             int(cast(bool, value["background"])),
+        )
+    if kind == "document":
+        return (
+            value["id"],
+            *_address_parts(value),
+            value["createdAt"],
+            value.get("retiredAt"),
         )
     request = cast(str | None, value.get("requestId"))
     return (
@@ -502,7 +544,7 @@ def _filter(key: str, value: object) -> object:
 
 
 def _admit(writes: object) -> list[dict[str, object]]:
-    """MemoryStorage's write ingress, then this backend's capability bound."""
+    """MemoryStorage's exact write ingress and raw-base capability bound."""
 
     if type(writes) is not tuple or any(type(w) is not StorageWrite for w in writes):
         raise StorageRequestError("Expected owned write tuple")
@@ -516,13 +558,7 @@ def _admit(writes: object) -> list[dict[str, object]]:
         for value in trees
     ):
         raise UnsupportedStorageOperation("Document delta/copy requires DE04/DE27")
-    if any(cast(str, value["type"]).startswith("document.") for value in trees):
-        raise _no_documents()
     return trees
-
-
-def _no_documents() -> UnsupportedStorageOperation:
-    return UnsupportedStorageOperation("SqliteStorage documents require DE03c2")
 
 
 def _claimed(row: Sequence[object], id: int, label: str) -> str:
@@ -548,11 +584,17 @@ def _claim(
     claims: dict[int, str] = {}
     for tree in trees:
         kind = cast(str, tree["type"])
-        id = cast(int, cast(dict[str, object], tree["value"])["id"])
+        if kind in {"document.change", "document.retire"}:
+            continue
+        document = kind == "document.create"
+        id = cast(
+            int, cast(dict[str, object], tree["record" if document else "value"])["id"]
+        )
+        kind = "document" if document else kind
         row = connection.execute(_CLAIMED, (id,)).fetchone()
         existing = None if row is None else _claimed(row, id, label)
         earlier = claims.get(id)
-        if kind in {"conversation", "entry"}:
+        if kind in {"conversation", "entry", "document"}:
             if existing is not None:
                 raise RuntimeError(f"ID {id} already belongs to {existing}")
             if earlier is not None:
@@ -622,8 +664,12 @@ def _before_commit(connection: sqlite3.Connection) -> None:
     """Test seam: runs in the commit transaction after every write, before COMMIT."""
 
 
+def _after_commit(connection: sqlite3.Connection) -> None:
+    """Test seam: durable COMMIT returned and counters have been adopted."""
+
+
 class SqliteStorage:
-    """MemoryStorage's bounded table semantics over one owned durable store."""
+    """MemoryStorage's bounded table and raw-base document semantics."""
 
     def __init__(self, database: OwnedDatabase) -> None:
         self._database = database
@@ -681,15 +727,13 @@ class SqliteStorage:
     def commit(self, writes: tuple[StorageWrite, ...]) -> Seq:
         with self._authority() as connection:
             trees = _admit(writes)
-            candidate = max(
-                [
-                    self._next_id,
-                    *(
-                        cast(int, cast(dict[str, object], t["value"])["id"]) + 1
-                        for t in trees
-                    ),
-                ]
-            )
+            candidate = self._next_id
+            for tree in trees:
+                if tree["type"] in {"document.change", "document.retire"}:
+                    continue
+                field = "record" if tree["type"] == "document.create" else "value"
+                value = cast(dict[str, object], tree[field])
+                candidate = max(candidate, cast(int, value["id"]) + 1)
             with damage_as_corruption(self._label):
                 return self._commit(connection, trees, candidate)
 
@@ -705,11 +749,17 @@ class SqliteStorage:
             if seq > SAFE_INTEGER:
                 raise RuntimeError(f"Commit sequence {seq} does not strictly increase")
             _claim(connection, trees, self._label)
+            actions = reference._document_actions(trees)
+            prepared, counts = self._document_candidate(connection, actions, seq)
             for tree in trees:
-                _write(connection, tree, seq)
+                if not cast(str, tree["type"]).startswith("document."):
+                    _write(connection, tree, seq)
+            self._write_documents(connection, prepared, actions, seq)
             next_id = max(next_id, candidate)
             connection.execute(_METADATA, (next_id, seq + 1))
             _before_commit(connection)
+            if any(count > 1 for count in counts.values()):
+                raise RuntimeError("Document address already has a current incarnation")
         except BaseException as error:
             self._roll_back(connection, error)
             raise
@@ -722,6 +772,7 @@ class SqliteStorage:
             raise
         # Durable from here: adopt the persisted counter before anything else.
         self._next_id = max(self._next_id, next_id)
+        _after_commit(connection)
         return Seq(seq)
 
     def mint_id(self) -> int:
@@ -963,23 +1014,205 @@ class SqliteStorage:
             self._scan("submission", query, SubmissionQuery, limit, cursor),
         )
 
+    def _document_record(
+        self, connection: sqlite3.Connection, id: int
+    ) -> DocumentRecord | None:
+        row = connection.execute(_SELECT_ID["document"], (id,)).fetchone()
+        return (
+            None
+            if row is None
+            else cast(DocumentRecord, _record("document", row, self._label))
+        )
+
+    def _materialized(
+        self, connection: sqlite3.Connection, record: DocumentRecord
+    ) -> StoredDocument:
+        row = connection.execute(
+            _REVISION_SELECT + " WHERE document_id = ? ORDER BY seq DESC LIMIT 1",
+            (record.id,),
+        ).fetchone()
+        if row is None:
+            raise StorageCorruption(
+                f"The {self._label} holds a document without a required base"
+            )
+        values = typed_values(
+            row,
+            [allowed for _, allowed in _REVISION_COLUMNS],
+            lambda column, problem: StorageCorruption(
+                f"The {self._label} holds a document revision whose {_REVISION_COLUMNS[column][0]} column {problem}"
+            ),
+        )
+        document_id, seq, kind, version, content = values
+        created = cast(int, record.to_tree()["createdAt"])
+        if (
+            document_id != record.id
+            or not created <= cast(int, seq) <= SAFE_INTEGER
+            or kind != "base"
+        ):
+            raise StorageCorruption(
+                f"The {self._label} holds an invalid document base revision"
+            )
+        try:
+            return StoredDocument(
+                {
+                    "record": record.to_tree(),
+                    "version": _decode(version),
+                    "value": _decode(content),
+                    "deltasSinceBase": 0,
+                }
+            )
+        except ValueError as error:
+            raise StorageCorruption(
+                f"The {self._label} holds an unreadable document base revision"
+            ) from error
+
+    def _find_document(
+        self, connection: sqlite3.Connection, address: dict[str, object]
+    ) -> DocumentRecord | None:
+        rows = connection.execute(
+            _SELECT["document"]
+            + " WHERE kind = ? AND family = ? AND key_value = ? AND scope_kind = ? AND owner_id = ? AND retired_at IS NULL ORDER BY created_at DESC",
+            _address_parts(address),
+        ).fetchall()
+        records = [
+            cast(DocumentRecord, _record("document", row, self._label)) for row in rows
+        ]
+        if len(records) > 1:
+            raise StorageCorruption(
+                f"The {self._label} holds multiple current document incarnations"
+            )
+        return records[0] if records else None
+
+    def _document_candidate(
+        self,
+        connection: sqlite3.Connection,
+        actions: dict[int, dict[str, object]],
+        seq: int,
+    ) -> tuple[dict[int, StoredDocument], dict[tuple[object, ...], int]]:
+        prepared: dict[int, StoredDocument] = {}
+        counts: dict[tuple[object, ...], int] = {}
+        for id, action in actions.items():
+            record = self._document_record(connection, id)
+            if record is not None and "retiredAt" in record.to_tree():
+                raise RuntimeError(f"Document {id} is retired")
+            previous = (
+                None if record is None else self._materialized(connection, record)
+            )
+            stored = reference._materialize_base(previous, id, action, seq)
+            tree = cast(dict[str, object], stored.to_tree()["record"])
+            key = reference._address_key(tree)
+            current = self._find_document(connection, tree)
+            count = counts.get(key, int(current is not None))
+            if action.get("retire") and current is not None and current.id == id:
+                count -= 1
+            if "create" in action and not action.get("retire"):
+                count += 1
+            counts[key] = count
+            prepared[id] = stored
+        return prepared, counts
+
+    def _write_documents(
+        self,
+        connection: sqlite3.Connection,
+        prepared: dict[int, StoredDocument],
+        actions: dict[int, dict[str, object]],
+        seq: int,
+    ) -> None:
+        for id, stored in prepared.items():
+            value = stored.to_tree()
+            record = cast(dict[str, object], value["record"])
+            action = actions[id]
+            if "create" in action:
+                connection.execute(_CLAIM, (id, "document"))
+                connection.execute(
+                    _INSERT["document"],
+                    (*_columns("document", record), _encode(record)),
+                )
+            elif action.get("retire"):
+                connection.execute(
+                    f"UPDATE {TABLES['documents']} SET retired_at = ?, record = ? WHERE id = ?",
+                    (seq, _encode(record), id),
+                )
+            current_only = record.get("history") != "rewindable"
+            if current_only and ("content" in action or action.get("retire")):
+                connection.execute(
+                    f"DELETE FROM {TABLES['document_revisions']} WHERE document_id = ?",
+                    (id,),
+                )
+            if "content" in action and not (current_only and action.get("retire")):
+                connection.execute(
+                    f"INSERT INTO {TABLES['document_revisions']} (document_id, seq, kind, version, content) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        id,
+                        seq,
+                        "base",
+                        _encode(value["version"]),
+                        _encode(value["value"]),
+                    ),
+                )
+
     def document(
         self, id: DocumentId, at: DocumentPoint = "current"
     ) -> StoredDocument | None:
-        with self._authority():
-            raise _no_documents()
+        with self._authority() as connection:
+            safe_integer(id)
+            reference._current(at)
+
+            def read() -> StoredDocument | None:
+                record = self._document_record(connection, id)
+                return (
+                    None
+                    if record is None or "retiredAt" in record.to_tree()
+                    else self._materialized(connection, record)
+                )
+
+            with damage_as_corruption(self._label):
+                return self._read(connection, read)
 
     def find_document(
         self, address: DocumentAddress, at: DocumentPoint = "current"
     ) -> DocumentRecord | None:
-        with self._authority():
-            raise _no_documents()
+        with self._authority() as connection:
+            reference._current(at)
+            if type(address) is not DocumentAddress:
+                raise StorageRequestError("Expected owned document address")
+            with damage_as_corruption(self._label):
+                return self._find_document(connection, address.to_tree())
 
     def scan_documents(
         self, query: DocumentQuery, limit: int, cursor: Cursor | None = None
     ) -> Page[DocumentRecord]:
-        with self._authority():
-            raise _no_documents()
+        with self._authority() as connection:
+            value = reference._query(query, DocumentQuery, limit)
+            reference._current(cast(DocumentPoint, value["at"]))
+            if cursor is not None and type(cursor) is not Cursor:
+                raise StorageRequestError("Invalid storage cursor")
+            scope, owner = _scope_parts(cast(dict[str, object], value["scope"]))
+            clauses = ["scope_kind = ?", "owner_id = ?", "retired_at IS NULL"]
+            params: list[object] = [scope, owner]
+            if cursor is not None:
+                clauses.append("id > ?")
+                params.append(cursor.after)
+            if "kind" in value:
+                clauses.append("kind = ?")
+                params.append(_identity(cast(str, value["kind"])))
+            params.append(min(max(limit + 1, 0), _MAX_ROWS))
+            sql = (
+                _SELECT["document"]
+                + " WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY id ASC LIMIT ?"
+            )
+            with damage_as_corruption(self._label):
+                rows = connection.execute(sql, params).fetchall()
+            return reference._page(
+                [
+                    cast(DocumentRecord, _record("document", row, self._label))
+                    for row in rows
+                ],
+                limit,
+                "ascending",
+            )
 
     def close(self) -> None:
         if self._database.owner.forked:

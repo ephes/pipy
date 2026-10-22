@@ -702,7 +702,7 @@ Because session data can contain sensitive project context, use a sync backend t
 ## Durable SQLite store (internal)
 
 > Internal groundwork of the [durable execution campaign](specs/2026-10-19-durable-execution-plan.md)
-> (slices DE03a, DE03b and DE03c1): not exported, not used by any product path,
+> (slices DE03a, DE03b and DE03c): not exported, not used by any product path,
 > and separate from the workflow archive above. A durable store never syncs through
 > the archive recipes.
 
@@ -810,8 +810,39 @@ so text that is not valid UTF-8 is damage too. Damage is reported as
 `StorageCorruption`, never as an invalid request, its message never quotes
 stored data, and nothing is repaired. A value of the wrong kind in an indexed
 column also hides its row from lookups by that column, which SQLite never finds
-equal; every read that reaches the row refuses it. Documents are not stored
-yet: until slice DE03c2 their operations are refused.
+equal; every read that reaches the row refuses it.
+
+**Raw-base documents (DE03c2).** Create, base change and retire participate in
+that same mixed commit and global ID namespace. Current reads and indexed
+address/scope scans have the in-memory store's exact semantics, including UTF-16
+address identity, singleton versus empty family key, ascending document cursors
+and raw page-limit behavior. Raw values and versions are separate lossless JSON
+`BLOB`s: `0`, `-1`, `1.5`, `-0.0` and integers beyond 64 bits round-trip as in
+memory (D2 (b)/(e)). Every document and revision column has the same storage-class,
+strict text and corruption checks as the table reads. Materializing a document
+reads its record and latest base inside one snapshot. Current-only base changes
+replace prior revision rows; retiring a current-only document reclaims its
+revisions. Rewindable documents retain base rows, including on retirement, but
+numeric history, deltas and copies remain unsupported until DE04/DE27 and a
+batch containing an unsupported command is refused whole. Document records and
+ID claims remain after retirement, so IDs cannot be reused. This does not
+implement historical reconstruction or a complete retention proof (DE27).
+
+A failure after `COMMIT` returned propagates while the durable rows and adopted
+ID counter remain; reopening sees the commit. A `COMMIT` that raises still
+poisons the instance (D4). Real read-only, page-count-limit (`SQLITE_FULL`) and foreign-lock refusals
+roll back only while SQLite still has a transaction, adopt no counter and leave
+the instance usable. Real-process SIGKILL cuts before, during and after a mixed
+document commit recover either all committed rows or none, with integrity and
+owner-only modes checked. These are process-death tests, not power-loss tests.
+
+The bounded churn regression writes and replaces a 128,000-character base and
+retires its document twenty times. With `secure_delete=ON`, its database stays
+within 512 KiB and grows at most four pages after the first cycle; retained
+retired records and ID claims still grow with the number of identities. This
+workload bound is not a general constant-space guarantee. Close's TRUNCATE
+checkpoint removes or empties the WAL. The actual paired Pi SQLite divergence
+probes and the cumulative P43 workload remain DE03d obligations.
 
 **Interrupted create.** A crash during `create` before its schema commits
 leaves an empty or zero-filled database, or a one-page database without

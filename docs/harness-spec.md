@@ -156,11 +156,12 @@ shared-filesystem refusal and fork safety) and `native/durable/sqlite_connection
 (landed `f6024e56`) adds the private `native/durable/sqlite_schema.py`: schema v1
 (Pi's version 2 shape and names plus the Python deltas), the append-only
 migration runner, the header identity gate and open-time integrity with the D6
-`quick_check` policy. DE03c is split c1→c2: DE03c1 (in progress) adds the private
+`quick_check` policy. DE03c is split c1→c2: DE03c1 (landed `1563bb68`) adds the private
 `native/durable/sqlite.py`, `SqliteStorage` with MemoryStorage's table semantics,
 proven by running Memory's own acceptance bodies over Memory, SQLite and SQLite
-reopened after every commit; documents and the crash cuts follow in DE03c2, the
-paired Pi oracle in DE03d.
+reopened after every commit; DE03c2 extends the same authority to raw-base
+documents, revision retention, real write refusals and acknowledgement/process
+death cuts. The paired Pi SQLite oracle and final DE03 gate remain DE03d.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 
@@ -398,7 +399,7 @@ native-only:
 - A change to what stored bytes mean needs a new schema version even without
   new DDL; DE27's first delta revision bumps it.
 
-Python spellings of the durable SQLite Storage (DE03c1, `native/durable/sqlite.py`):
+Python spellings of the durable SQLite Storage (DE03c, `native/durable/sqlite.py`):
 
 - `open_sqlite_storage(path, mode=..., durability=...)` wraps an owned store in
   `SqliteStorage`, which has MemoryStorage's sixteen signatures (a test compares
@@ -406,8 +407,11 @@ Python spellings of the durable SQLite Storage (DE03c1, `native/durable/sqlite.p
   runs Memory's own acceptance bodies over Memory, SQLite and SQLite reopened
   after every commit (Pi's `ReopeningStorage`); bodies that observe Memory
   internals have variants that observe the same through backend hooks. Document
-  operations refuse with `UnsupportedStorageOperation` until DE03c2, which also
-  ports the seven document bodies that need SQLite document views.
+  create/base-change/retire operations now participate in mixed commits (DE03c2),
+  with current materialization and indexed address/scope scans, lossless BLOB
+  versions, current-only revision reclamation and retained rewindable bases.
+  The 54 strict xfails and seven pending document ports are gone; numeric history,
+  delta and copy commands remain unsupported (DE04/DE27).
 - Where Pi's backends disagree, Memory wins (D2): the last writer of a request
   ID wins without fallback (`submission_requests`), descending scans include
   2^53−1, raw limits keep Memory's page shapes and errors (its own `_page`), and
@@ -420,7 +424,8 @@ Python spellings of the durable SQLite Storage (DE03c1, `native/durable/sqlite.p
   `close` returns), so it never waits for a lock a parent thread held at
   `fork()`. A commit follows Pi's order inside
   `BEGIN IMMEDIATE`, rolls back only while a transaction is open, and adopts the
-  in-memory ID counter only after `COMMIT` returned (as in Pi, IDs minted but
+  in-memory ID counter only after `COMMIT` returned (a private after-COMMIT
+  seam models acknowledgement loss after that adoption; as in Pi, IDs minted but
   never committed can be minted again after a reopen). An error from `COMMIT`
   (D4) or a failed rollback (`SqliteRollbackError`) poisons the instance: later
   calls raise `StorageClosedError` until it is closed and the store reopened.

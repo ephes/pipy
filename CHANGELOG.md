@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add raw-base documents to the internal durable SQLite store: create, replace
+  and retire commit atomically with table writes, current reads and indexed
+  scans match memory, and values and numeric versions retain signed zero and
+  large integers across reopening. Current-only revisions are reclaimed while
+  rewindable bases remain stored; historical reads, deltas and copies stay
+  deferred. Native tests now run every bounded Storage contract across memory,
+  SQLite and reopen, plus real write refusals, acknowledgement loss, process
+  death before/during/after commit and a concrete page-reuse bound. The paired
+  Pi SQLite comparison and every parity requirement remain open.
+
 - Add table storage to the future durable SQLite store (internal; no product,
   default or public API change). Conversations, entries, tasks and submissions
   commit atomically and read back exactly as written, also after the store is
@@ -22,8 +32,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   corruption. A process forked while the
   store is open cannot use it and never waits for it. A commit whose outcome
   SQLite cannot report, or a failed rollback, makes that instance refuse
-  further use until the store is reopened. Documents and the crash-cut tests
-  follow in the next slice; every parity requirement remains open.
+  further use until the store is reopened. Documents and crash cuts are now
+  covered by DE03c2 above; every parity requirement remains open.
 
 - Add schema version 1, migrations and open-time integrity checks to the
   future durable SQLite store (internal; no product, default or public API

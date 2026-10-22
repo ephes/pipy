@@ -26,10 +26,7 @@ pytest.register_assert_rewrite("storage_contract_cases")
 import storage_contract_cases as contract  # noqa: E402
 from sqlite_child_support import Child  # noqa: E402
 from test_memory_storage import (  # noqa: E402
-    address,
     commit,
-    create_document,
-    document_query,
     entry,
     ids,
     submission,
@@ -60,7 +57,6 @@ from pipy_harness.native.durable.storage import (  # noqa: E402
     StorageWrite,
     SubmissionQuery,
     TaskQuery,
-    UnsupportedStorageOperation,
 )
 
 globals().update(contract.cases())
@@ -106,9 +102,7 @@ def test_every_original_memory_test_is_a_contract_case():
     for names in (*contract.VARIANTS.values(), *contract.SPLIT.values()):
         assert all(callable(getattr(contract, name)) for name in names)
     assert set(contract.SPLIT) <= set(contract.DOCUMENT_BODIES)
-    # DE03c2 ports these with its SQLite document views; none runs here yet.
-    assert len(contract.DE03C2_PORTS) == 7
-    assert not any(hasattr(contract, name) for name in contract.DE03C2_PORTS)
+    assert contract.DE03C2_PORTS == contract.DE03C2_XFAILS == ()
 
 
 def test_signatures_are_memory_storage_signatures():
@@ -1241,6 +1235,9 @@ def test_read_classes_are_the_schema_declared_types(tmp_path):
             table = declared(connection, sqlite._TABLES[kind])
             assert [name for name, _ in columns] == list(table), kind
             assert dict(columns) == table, kind
+        assert dict(sqlite._REVISION_COLUMNS) == declared(
+            connection, "document_revisions"
+        )
         bindings = declared(connection, "submission_requests")
         assert dict(sqlite._BINDING) == bindings
         claims = declared(connection, "record_ids")
@@ -1388,34 +1385,6 @@ def test_a_raising_commit_poisons_the_instance(tmp_path):
 
 
 # The interim and the opener -------------------------------------------------------
-
-
-def test_documents_refuse_as_an_explicit_interim_owned_by_de03c2(tmp_path):
-    store, path = _store(tmp_path)
-    delta = {
-        "type": "document.change",
-        "id": 3,
-        "content": {"kind": "delta", "version": 1, "ops": []},
-    }
-    try:
-        for call in (
-            lambda: store.document(2),
-            lambda: store.find_document(address()),
-            lambda: store.scan_documents(document_query(), 1),
-            lambda: commit(store, entry(2), create_document(3)),
-            lambda: commit(store, {"type": "document.retire", "id": 3}),
-        ):
-            with pytest.raises(UnsupportedStorageOperation, match="DE03c2") as refused:
-                call()
-            assert type(refused.value) is UnsupportedStorageOperation
-        with pytest.raises(UnsupportedStorageOperation, match="DE04/DE27"):
-            commit(store, entry(2), delta)
-        assert store.entry(2) is None and store.mint_id() == 2
-    finally:
-        store.close()
-    with pytest.raises(StorageClosedError):
-        store.document(2)
-    _integrity(path)
 
 
 def test_a_failing_open_closes_the_database_and_frees_the_lock(tmp_path, monkeypatch):

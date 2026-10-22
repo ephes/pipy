@@ -426,7 +426,12 @@ Session (line, sync and async commit, publication, close) have native tests only
 (source-only index evidence), and the landed b3 alone owns the bounded-native
 `session-commit-b3-v1` case, so DE02b and DE02 are delivered. DE03 is split
 a→b→c→d before code; DE03a's ownership and connection tests are native only
-(source-only index evidence), and the paired SQLite oracle belongs to DE03d. No
+(source-only index evidence). DE03c1 landed `1563bb68` with table contract
+cases, and DE03c2 extends these native-only tests to raw-base documents across
+Memory/SQLite/reopen, lossless signed zero and numeric versions (D2 (b)/(e)),
+retention rows, real write refusals, acknowledgement loss and SIGKILL cuts.
+The actual paired Pi SQLite probes of D2 (a)–(f), Session over SQLite and P43
+workload remain DE03d; none is claimed here. No
 child alone can complete DE03 or any P row.
 
 

@@ -159,8 +159,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE03a | Path ownership, owner-only files and minimal connection lifecycle | LANDED | 0d37f64a; Codex gpt-6.1-sol HIGH r1 three Warnings, r2–r5 one or two Criticals each (r4 harness non-convergence, Root simplification with an explicit contract boundary), r6 CLEAN, repaired by Opus5.5 MAX; local just check 14392 passed; push verified; no CI claim |
 | DE03b | Schema v1, migration runner and open-time integrity | LANDED | f6024e56; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14459 passed; push verified; no CI claim |
 | DE03c | SqliteStorage, contract cases, real failures and crash cuts | IN_PROGRESS | Cumulative c1+c2 (split 2026-10-22); every original cell retained |
-| DE03c1 | SqliteStorage tables and backend-agnostic contract cases | IN_PROGRESS | Local and Linux (macmini) evidence below; independent gates pending |
-| DE03c2 | SqliteStorage documents, write refusals and crash cuts | OPEN | None; all gates OPEN |
+| DE03c1 | SqliteStorage tables and backend-agnostic contract cases | LANDED | `1563bb68`; Codex HIGH r3 CLEAN after two repairs; local known docs-preview flake, isolated rerun 16/16; remote verified |
+| DE03c2 | SqliteStorage documents, write refusals and crash cuts | IN_PROGRESS | Native implementation and focused evidence below; independent review/delivery gates pending |
 | DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -5935,3 +5935,209 @@ coverage update, cascade, closure, binding, docs build, rendered links and
 `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-linux/remote-logs/` (Linux, copied back, with
 `remote-logs-attempt1/` and the cross-version logs in
 `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-linux/`).
+
+### DE03c1 delivery and DE03c2 implementation ownership
+
+DE03c1 landed on `main` and origin as
+`1563bb6871f869abfb93d704b01c637b2b2ef7c1`; the previous coordinator verified
+its push with `git ls-remote`. Its implementer remains Claude Opus 5.5, with
+Codex `gpt-6.1-sol` HIGH independent review: round 1 ISSUES (three Warnings),
+round 2 ISSUES (one Warning caused by the repair), both repaired as recorded
+above; round 3 CLEAN. Local `just check` reported 15,184 passed, 2 skipped,
+54 xfailed and one failure in the known load-dependent docs-preview test.
+The isolated `tests/test_docs_build.py` rerun passed 16/16. This is not a
+claim of a clean full-suite result or a GitHub CI result.
+
+The owner changed implementation ownership from DE03c2 onward: Codex writes
+implementation and repairs; independent Claude Code `claude-opus-5-5`, effort
+HIGH, reviews exclusively through the installed `claude-review-loop` harness.
+Earlier implementer/reviewer identities are unchanged. The local work order
+also reconciles the c2 plan cell: native contract cases pin D2 (b)/(e) here;
+actual paired Pi SQLite probes of all D2 (a)–(f) belong to DE03d. DE03c waits
+c1+c2, DE03 waits a+b+c+d, and every P row remains OPEN.
+
+### DE03c2 native documents and failure cuts — implementation, gates pending
+
+**Behavior and authority.** `native/durable/sqlite.py` extends the same private
+Storage authority to document create, raw-base change and retire within mixed
+commits. Global ID claims include document creates and their IDs advance the
+commit candidate; retired IDs remain claimed. Grouped per-ID actions and final
+address cardinality follow Memory, including replacement-before-retirement and
+create-and-retire in one batch. SQL writes prepare together before the last
+private commit seam; an address conflict is rejected after that preparation,
+inside the same transaction. Delta/copy batches and numeric history retain
+Memory's whole-batch refusal and exact ingress order.
+
+Document record columns and revision columns are all read through
+`typed_columns`/`typed_values`, with storage-class validation, strict UTF-8 for
+TEXT, payload validation and index cross-checks. No stored text reaches
+`sqlite3`'s implicit decoder, and errors do not quote stored values. A current
+materialization reads the record and latest base in one read transaction;
+address/scope/kind scans use the schema indexes. Payloads and revision versions
+are lossless JSON BLOBs, including raw versions `0`, `-1`, `1.5`, `-0.0` and
+integers beyond 64 bits (D2 (b)/(e)). A current-only base replaces older
+revision rows and retirement reclaims them; rewindable documents retain their
+base rows. Historical reconstruction and the full retention proof remain DE27.
+
+**Contract cases.** The 54 strict document xfails are removed. All seven
+pending bodies now have backend variants through document views (grouping,
+ordinary failures, late mixed failure, common contended authority, unsupported
+mixed batches, exact point ingress and bounded real-child reentry refusal).
+`DE03C2_PORTS` and `DE03C2_XFAILS` are empty, with an inventory assertion.
+Additional Memory/SQLite/reopen cases retain signed-zero payloads and all the
+raw numeric version values. The reopening wrapper deliberately loses an
+uncommitted mint when it reopens after a failed commit, exactly as Pi's
+wrapper does; the shared case accounts for that instead of claiming minted
+IDs were durable.
+
+**Real failures and cuts.** `test_sqlite_documents.py` drives SQLite's own
+`query_only` (`SQLITE_READONLY`), `max_page_count` (`SQLITE_FULL`, including its
+automatic rollback) and a foreign child holding `BEGIN IMMEDIATE`
+(`SQLITE_BUSY` after an actual 20-ms busy timeout, restored to five seconds).
+Each checks the original SQLite error class/code, no adopted IDs/sequence,
+rollback only while in a transaction, usable storage and closed-file
+`integrity_check`. A denied COMMIT extends D4 poisoning to document methods.
+The private no-op `_after_commit` seam runs only after COMMIT returned and the
+ID counter was adopted: its exception propagates, the instance and reopened
+store see the durable mixed commit, and the counter includes document IDs.
+
+Three real children block at the before-COMMIT, after-COMMIT and mid-batch
+cuts. The parent observes readiness, sends actual SIGKILL to its own process
+group, reaps it within deadlines, reopens and checks all-or-none entry and
+document rows, sequence/IDs, integrity, `0600` modes and free ownership. No
+sleep establishes cut ordering. A real foreign writer committing between the
+document-record and revision statements proves one materialization snapshot.
+Wrong-class column tests cover every document/revision column besides the
+SQLite rowid, specific malformed rows and damaged b-tree pages cover both
+document reads and mixed writes. The schema-declared-classes inventory now
+includes documents and revisions.
+
+**WAL and bound.** With `secure_delete=ON`, twenty cycles create a document with
+a 128,000-character value, replace it with another value of the same size and
+retire it. The regression asserts a concrete database bound of 512 KiB and no
+more than four pages growth after the first cycle, then observes close's
+TRUNCATE checkpoint and an absent or empty WAL. Retired records and immutable
+ID claims still grow with identity count; this is a bounded workload, not a
+constant-space guarantee or a power-loss experiment.
+
+**Checks at the initial source freeze.** macOS native development Python
+3.15.0 / SQLite 3.53.1: `python -X dev -W error -m pytest
+ tests/durable/test_sqlite_documents.py tests/durable/test_sqlite_storage.py`
+exit 0, **974 passed, zero xfails**, in 79.73 seconds. The dedicated new file
+alone passed 75/75. Extension-generation and package architecture inventory:
+exit 0, **348 passed**. Changed-file ruff: exit 0. `mypy src tests`: exit 0,
+no issues in 904 source files (existing annotation notes only).
+
+Logs under `/private/tmp/pipy-de03c2-logs/`: `focused-final.log`,
+`documents-fourth.log`, `architecture.log`, `ruff.log`, `mypy.log`.
+Twenty warning-clean sequential repeats, an isolated scratch mutant matrix,
+Linux/3.11/3.12 checks, docs/coverage and the exact-tree full/review/delivery
+gates are still pending at this entry. The coordinator owns platform tests,
+`just check`, strict docs build/rendered links, independent review and delivery;
+this implementation entry claims none of those outcomes prematurely.
+
+### DE03c2 round-1 repair and completed validation — final gates pending
+
+This later entry supersedes the initial freeze's pending checks only where an
+outcome is explicitly stated below. It preserves the initial 974-test result
+and earlier implementation history. DE03c1 is LANDED at `1563bb68`; DE03c2
+remains IN_PROGRESS, every P row remains OPEN, and neither a final independent
+CLEAN nor delivery is claimed.
+
+**Independent review.** Claude Code `claude-opus-5-5`, effort HIGH, through the
+installed `claude-review-loop` harness, round 1: **ISSUES**, one Warning and
+four Suggestions, all accepted by the coordinator and repaired by Codex. The
+Warning found that the privacy sentinel had never actually been stored. The
+repaired cases persist distinct private payload, kind and key sentinels, retain
+private text in malformed record/content payloads and store a distinct invalid
+version sentinel; they assert that stored data is absent from the outer message
+and every cause/context message, with cycle protection. The new negative control
+actually leaks that stored invalid version into `StorageCorruption` and the
+repaired test detects it.
+
+The port-strength repair restores the owner-conversation 99 write, in-candidate
+task/status/owner/entry/scope observations and every original public read after
+rollback, all-method refusal after the contended close, and empty stderr from
+the bounded reentry child. The seven ported bodies contain **133 actual cases**;
+removing the one obsolete interim-refusal test gives a net increase of 132
+before the other new cases. A startup/readiness failure can no longer bypass
+cleanup: the foreign writer enters its lifetime context before readiness is
+observed, and the store closes on every exit. A real child holding
+`BEGIN IMMEDIATE` receives an injected readiness-observation failure; the new
+regression verifies SIGKILL, reaping, a gone process group, closed pipes, free
+ownership and unchanged committed state after reopen. The dead line and source
+string replacement in the SIGKILL child are removed. The product source change
+in this repair is its accurate authority/snapshot-order docstring; production
+behavior is unchanged. The storage document now describes a real
+`SQLITE_FULL` caused by a page-count limit, rather than claiming that a disk was
+filled.
+
+**Final worker checks on the repaired source/test freeze.** macOS development
+Python 3.15.0 / SQLite 3.53.1, with `-X dev -W error` for execution tests:
+
+| Check | Result |
+| --- | --- |
+| combined document and Storage suites | exit 0; **975 passed**, zero xfails, 80.56 s |
+| document-selected cases, twenty sequential runs | **20/20 exit 0**, each **353 passed, 622 deselected**; 479.25 s aggregate |
+| isolated negative-control matrix | exit 0; **77/77** mutants fail every designated test |
+| unmodified isolated three-module control | exit 0; **1058 passed**, 100.77 s |
+| extension-generation and package architecture inventory | exit 0; **348 passed**, 24.15 s |
+| coverage and acceptance | exit 0; **165 passed**, 7.92 s |
+| Ruff check, Ruff format check, mypy | exit 0 each; 971 formatted files, no mypy issues in 904 source files |
+| manifest closure and bound-chain check | exit 0 each; **STALE 0**, **PROBLEMS `[]`** |
+
+The final document selection includes every new document test and all shared
+document bodies/ports across Memory, SQLite and reopen. The old broad repeats
+1–14 each passed 974 cases; they belong to the earlier test revision and are
+not relabeled final repetitions. Round 15's footer reported 974 passed, but the
+runner was stopped before its exit status was collected, so no result is
+claimed for it. The earlier standalone durable suite passed 2565 cases in
+359.72 seconds, also on the earlier test revision; the coordinator's final full
+check covers the repaired tree.
+
+The first private matrix attempt reported an apparent scan-guard survivor:
+equal-size mutations written within one timestamp second could reuse the
+preceding mutant's Python bytecode. The repaired runner removes the affected
+module's cached bytecode before each mutation and after byte-exact restoration.
+All inherited controls are retained/reanchored, including replacing the removed
+interim-refusal control with a real silently-empty document read. The complete
+repaired matrix has 62 inherited controls, 14 document controls and the new
+stored-version privacy control, all caught. Source/test hashes after restoration
+match the live frozen files; no live repository source was mutated by the
+matrix.
+
+Worker logs: `/private/tmp/pipy-de03c2-logs/repair-r1-focused.log`,
+`final-document-repeats.log`, `final-documents-repeat-01.log` through
+`final-documents-repeat-20.log`, `final-document-repeats-summary.json`,
+`repair-r1-matrix.log`, `repair-r1-matrix-control.log`,
+`repair-r1-inventory.log`, `repair-r1-coverage.log`, `repair-r1-ruff-final.log`,
+`repair-r1-format.log`, `repair-r1-mypy-final.log`, `repair-r1-closure.log` and
+`repair-r1-binding.log`. Matrix details and restoration proof:
+`/private/tmp/pipy-de03c2-matrix/results.json` and
+`/private/tmp/pipy-de03c2-matrix/final-restored-sha256.json`; the initial cache
+attempt remains in `matrix-attempt1.log`.
+
+**Completed coordinator checks on the repaired freeze.** Local scratch Python
+3.11.13 / SQLite 3.49.1: **1363 passed**, exit 0, 117.27 seconds. Python
+3.12.15 / SQLite 3.53.1: **1363 passed**, exit 0, 129.28 seconds. Both run under
+`-X dev -W error`, without installing dependencies; logs are under
+`/private/tmp/pipy-de03c2-gates.UhFxpa/r2/`.
+
+The coordinator's full `just check` returned **exit 1**, **15,460 passed,
+2 skipped, 2 failed**, in 1590.96 seconds. The two failures are precisely the
+known load-dependent docs-preview cases
+`test_preview_mirrors_changes_reloads_config_and_cleans_up_child[2]` (SIGINT)
+and `[15]` (SIGTERM). An isolated `tests/test_docs_build.py` rerun passed
+**16/16**, exit 0, 17.10 seconds. This records the failure honestly; it does not
+claim a green full check. The skip audit passed **97 tests, 2 skipped**, in
+12.44 seconds: `PIPY_CODEMODE_REQUIRE_RUNTIME` was unset, and this filesystem is
+case-insensitive. The initial strict docs build passed and its rendered link
+check found **1065 links, zero broken**; final docs validation still runs after
+this closing documentation update.
+
+Linux macmini's repaired broad five-module suite passed **1363 tests**, exit 0,
+in **473.25 seconds**. Its final twenty document-selected repetitions are still
+running at this entry (at least nine have completed cleanly); **no completed
+20-run Linux result is claimed**. The coordinator will record the remaining
+Linux repetitions, quiet full recheck, final docs gates, independent review and
+verified delivery separately. No GitHub CI result is claimed.
