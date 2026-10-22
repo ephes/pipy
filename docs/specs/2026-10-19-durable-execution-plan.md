@@ -1,7 +1,7 @@
 # Native durable execution implementation plan
 
 Status: **execution authorized; DE01 and DE02 with all children landed;
-DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a and candidate DE04b1b2 LANDED; DE04/DE04b/DE04b1b/DE04b1b1 IN_PROGRESS, DE04b1b3 OPEN (policy266 unresolved); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a landed, DE06 IN_PROGRESS and DE06b OPEN**,
+DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and candidate DE04b1b1 LANDED; DE04/DE04b/DE04b1b IN_PROGRESS, DE04b1b3 OPEN (policy266 unresolved); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a landed, DE06 IN_PROGRESS and DE06b OPEN**,
 2026-10-22. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
@@ -737,7 +737,9 @@ children; DE05 still depends on complete DE04. All43 P rows remain OPEN.
 DE32a subsequently landed at `52ecc1fc`; DE32 remains IN_PROGRESS and DE32b
 OPEN. DE04a subsequently landed at `e6c1239d`, with its exact reviewed tree,
 green full check and push/remote confirmation. DE04b1a subsequently landed at `6e3b838f`; DE04/DE04b/DE04b1b remain
-IN_PROGRESS. S now implements supplied current deltas/schema2 as an integration
-candidate; final gates/delivery remain pending. T is not integrated here and J
-is OPEN pending owner policy266. See the [S contract](../durable-current-deltas.md).
+IN_PROGRESS. S delivered supplied current deltas/schema2 at `8c8f30d7` with
+verified final gates and push/remote confirmation. T adds an independent pure
+provenance/ops shipping candidate, with final Root integration gates/delivery pending.
+J is OPEN pending owner policy266. See the [S contract](../durable-current-deltas.md)
+and [T contract](../durable-draft-tracker.md).
 DE05 still waits complete DE04.

@@ -97,6 +97,7 @@ The pure prerequisite landed at `6e3b838f`. The remaining parent is now split
 before code into T (`DE04b1b1`, pure provenance/ops), independent S (`DE04b1b2`,
 current delta Storage/schema2), and J (`DE04b1b3`, real Draft/Tx/checkpoint/cache/
 publication join). S now uses this applier for [supplied current Storage deltas
-and semantic schema2](durable-current-deltas.md), with final gates/delivery
-pending; T is not integrated here. J requires the answer to owner policy266
-before authoritative candidate/operation selection.
+and semantic schema2](durable-current-deltas.md), delivered at `8c8f30d7`. Independent [T pure draft provenance](durable-draft-tracker.md) uses the
+applier to validate/replay immutable operations; it does not activate Session.
+J requires the answer to owner policy266 before authoritative candidate/operation
+selection.

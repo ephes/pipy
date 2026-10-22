@@ -1072,12 +1072,14 @@ current tree separately. No private scratch path or runtime git history is
 required to validate those historical identities.
 
 Independent S (DE04b1b2) now implements [supplied current deltas and semantic
-schema2](durable-current-deltas.md); final integration gates/delivery are pending.
+schema2](durable-current-deltas.md), delivered at `8c8f30d7` with [verified
+gates](specs/2026-10-19-durable-execution-evidence.md#de04b1b2-verified-delivery-and-t-integration-successor).
 Cold reads and delta preparation cost O(required current tail), and repeated
 reconstruction can accumulate quadratic work. No cap, forced base, cache or
 performance-parity bound is introduced. Structural validation does not detect
-arbitrary external rewriting/deletion of otherwise-valid rows. T is not
-integrated here. J (DE04b1b3) retains the actual Draft/Tx/checkpoint/cache/
+arbitrary external rewriting/deletion of otherwise-valid rows. Independent [T pure provenance/operations](durable-draft-tracker.md)
+is an additive prerequisite and does not change Storage or activate Session.
+J (DE04b1b3) retains the actual Draft/Tx/checkpoint/cache/
 publication join and owner policy266; Storage chooses no authoritative Session
 candidate. Historical raw-base oracle results retain their original measured
 scope, rather than becoming new delta evidence.

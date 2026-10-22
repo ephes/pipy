@@ -3,11 +3,11 @@
   "phase": "storage-sqlite-d2-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "baseline": "8ebb6860d1dbe1e4dd01784e2aa7467e2a1645877b3b687a4ec66785c953254d",
-    "a1": "4f2bb7d7e2a0953657fb98ddd99c124408ebb6280b96f5c219ab38ebb4ec3b09",
-    "a2b": "cba475fef0f01eb28df39c6066ac709492613260478e1cdfec60e5f7cde3322d",
-    "b1b": "3f73a5cfbd1b1b4c41f9579070fa21b1b474d6a7fa5844403da6f5d2cfab783f",
-    "b3": "468b422af5fb65e482a856118a219053b9119e2087e05f1ab624fdc993beeb78"
+    "baseline": "1f3365b57f37c7949d40e1513258e48f325c30ef1db6ed6e5d1a74e4bee72818",
+    "a1": "b2f648baae4ce82a4def4807eb88e62587abb65aeaef4cd400bf12a07ac246c0",
+    "a2b": "0d2b9061a033bfa79a60173ce54e3834eabb96bec332de20d0e2b8d90862f162",
+    "b1b": "76a85fe54d55a00688fcc603022ff1deaef49bcaf6466d9b4e3e4764f84879b0",
+    "b3": "d8192b1dd0e264df62addd7020f129fd829a7fe6cd5f4e9a5835b78cbb72c183"
   },
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",

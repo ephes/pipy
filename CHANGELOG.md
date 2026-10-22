@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private pure draft mutation provenance and immutable normalized decoded
+  operations, with owned replayed values, placement/detachment and revocable
+  mapping/list views. Numeric-looking JSON keys remain supported; comparison
+  projects only JavaScript array-index own-key order while retaining raw profiles.
+  Session/Draft/Tx/checkpoint activation remains DE04b1b3; no product default or
+  signed-zero candidate policy changes.
+
 - Internal durable Memory/SQLite storage now applies supplied current document
   deltas atomically, persists actual operations and preserves lossless values
   and committed tail counts. Semantic SQLite schema2 upgrades existing bases

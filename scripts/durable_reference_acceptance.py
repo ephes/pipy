@@ -284,6 +284,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE04b1b1",
     "DE04b1b2",
     "DE04b1a",
     "DE32a",
@@ -296,12 +297,12 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
-    "DE04": "de04b1b2-supplied-current-delta-integration-candidate",
-    "DE04b1b1": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
-    "DE04b1b2": "de04b1b2-supplied-current-delta-integration-candidate",
+    "DE04": "de04b1b1-pure-provenance-integration-preparation",
+    "DE04b1b1": "de04b1b1-pure-provenance-integration-preparation",
+    "DE04b1b2": "de04b1b2-verified-delivery-and-t-integration-successor",
     "DE04b1b3": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
     "DE04b1a": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
-    "DE04b1b": "de04b1b2-supplied-current-delta-integration-candidate",
+    "DE04b1b": "de04b1b1-pure-provenance-integration-preparation",
     "DE32a": "de32a-delivery-and-de04a-repaired-main-integration",
     "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
@@ -337,7 +338,7 @@ DE_EVIDENCE = {
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
     "DE04a": "de04a-verified-delivery-and-de04b1a-integration-successor",
-    "DE04b": "de04b1b2-supplied-current-delta-integration-candidate",
+    "DE04b": "de04b1b1-pure-provenance-integration-preparation",
 }
 
 
@@ -367,6 +368,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE02b3": ["session-commit-b3-v1"],
         "DE03d2": ["storage-sqlite-d2-v1"],
         "DE04a": ["session-documents-a-v1"],
+        "DE04b1b1": ["draft-tracker-v1"],
         "DE04b1b2": ["storage-current-deltas-v1"],
     }.get(key, cases)
     expected = {
@@ -403,6 +405,8 @@ def de_current(row: Any, c: Any) -> None:
         links.append(
             "docs/durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2"
         )
+    if key == "DE04b1b1":
+        links.append("docs/durable-draft-tracker.md")
     if key == "DE04b1b2":
         links.append("docs/durable-current-deltas.md")
     require(row["evidence"] == links, "DE bounded evidence link drift", c)
@@ -567,7 +571,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"session-commit-b3-v1"} if key == "DE02b3" else set())
                 | ({"storage-sqlite-d2-v1"} if key == "DE03d2" else set())
                 | ({"session-documents-a-v1"} if key == "DE04a" else set())
-                | ({"storage-current-deltas-v1"} if key == "DE04b1b2" else set()),
+                | ({"storage-current-deltas-v1"} if key == "DE04b1b2" else set())
+                | ({"draft-tracker-v1"} if key == "DE04b1b1" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),

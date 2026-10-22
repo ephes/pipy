@@ -557,12 +557,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE04a LANDED e6c1239d and DE04b1a LANDED6e3b838f. S supplied current deltas/schema2 is an implementation candidate; final Root gates/delivery pending. T is not integrated and J remains OPEN pending policy266, retaining all checkpoint rollback/publication acceptance. DE05 waits full DE04; all43 P rows OPEN. Pi session-documents.test.ts 190 structural no-op/checkpoint acceptance remains cumulative. Carried from DE02b3: the private append admission timing boundary still requires resolution before DE11 product exposure. See linked S candidate evidence."
+        "observables": "DE04a LANDED e6c1239d, DE04b1a LANDED6e3b838f and independent S LANDED8c8f30d7. T pure provenance/ops shipping candidate has final Root gates pending; J OPEN pending policy266. Pi session-documents.test.ts 190 structural no-op/checkpoint acceptance remains cumulative. Carried from DE02b3: private append admission timing requires resolution before DE11 product exposure. DE05 waits full DE04; all43 P rows OPEN. See linked T preparation evidence."
       },
       "future": "Atomic entries/tasks/docs; copied inputs/reads, invalid JSON, init/checkpoint exceptions rollback, terminal task doc retirement; shared mutable readers/writers race barriers. Document contract.  Split into DE04a and DE04b; parent completes only after both children and all original acceptance.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b2-supplied-current-delta-integration-candidate",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-pure-provenance-integration-preparation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4233,12 +4233,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "LANDED DE04b1a pure operations join S supplied current delta/schema2 implementation candidate; final Root S gates/delivery pending. T and J remain incomplete, with policy266 unanswered. Real Draft/Tx/checkpoint/cache/publication acceptance remains cumulative; see linked S candidate evidence."
+        "observables": "LANDED DE04b1a pure operations join T pure provenance/ops shipping candidate (final Root gates pending) and independent S verified LANDED8c8f30d7. J remains OPEN; policy266 unanswered and actual Draft/Tx/checkpoint/cache/publication acceptance cumulative. See linked T preparation evidence."
       },
       "future": "Real normalized operation provenance, current delta support on Memory/SQLite with semantic format bump, checkpoint policy after validation with actual ops/counts, and second-predicate exception rolling back all coupled candidates. Full histories/as-of/fork/migrations remain DE27; no always-base callback substitute. DE04b completes only after DE04b1a and DE04b1b join end to end.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b2-supplied-current-delta-integration-candidate",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-pure-provenance-integration-preparation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4299,12 +4299,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "S supplied current deltas/schema2 is an implementation candidate with final Root gates/delivery pending. T is IN_PROGRESS without source integration here; J remains OPEN and requires policy266 before authoritative candidate/ops choice. Every original acceptance remains cumulative; see linked S candidate evidence."
+        "observables": "T pure provenance/ops shipping candidate with final Root gates/delivery pending; independent S verified LANDED8c8f30d7. J remains OPEN and requires policy266 before authoritative candidate/ops choice; every original acceptance remains cumulative. See linked T preparation evidence and S delivery successor."
       },
       "future": "Empty versus structural no-op normalization, current tail replay/count/reset, callback and backend atomic rollback, immutable policy/publication batches, unload/reopen and paired proofs. Further subdivision only immediately before code; full history/as-of/fork/migration remains DE27. Cumulative pre-code split: completes only after DE04b1b1 + DE04b1b2 + DE04b1b3 and every original acceptance cell; no planning-only delivery.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b2-supplied-current-delta-integration-candidate",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-pure-provenance-integration-preparation",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4328,17 +4328,20 @@
         "Exact pinned operation order/normalization, placement/movement/detachment, reserved-key folding, UTF-16 strings, dense/operation limits, guarded owned preparation/revocation and bounded/deep behavior. Paired exact ops and replay profiles; record Chord prepared value separately and preserve signed-zero candidate/replay witnesses."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "draft-tracker-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "Admission only: T pure provenance/ops. No new source, fixture, oracle or result implementation. See linked pre-code admission; owner policy266 precedes authoritative candidate/ops choice in J."
+        "observables": "T pure provenance/normalized immutable ops shipping candidate with replayed_value; final Root integration gates/delivery pending. Numeric-looking JSON keys remain supported; comparison-only js-array-index-own-key-order-v1 retains raw strict profiles. No Session/Tx/backend/checkpoint activation or policy266 choice; see linked T preparation evidence."
       },
       "future": "Exact pinned operation order/normalization, placement/movement/detachment, reserved-key folding, UTF-16 strings, dense/operation limits, guarded owned preparation/revocation and bounded/deep behavior. Paired exact ops and replay profiles; record Chord prepared value separately and preserve signed-zero candidate/replay witnesses.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-pure-provenance-integration-preparation",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-draft-tracker.md"
       ],
       "inherited_reference": {
         "owners": [],
@@ -4367,12 +4370,12 @@
         ],
         "workloads": [],
         "oracles": [],
-        "observables": "S supplied current Memory/SQLite delta materialization and actual operation persistence, semantic schema2, exact tail counts and portable actual older-opener refusal; final Root gates/delivery pending. Nine valid pinned scenarios use24 sources/22 loaded modules/27 local closure entries in minimal snapshots, not a full bootstrap or parent-D2 binding. No T/Tx/checkpoint integration or policy266 choice; see linked S candidate evidence."
+        "observables": "S verified LANDED8c8f30d7 with supplied current deltas/schema2, exact tail counts and actual older-opener refusal; final Opus5.5 HIGH R2 CLEAN/full/docs/fresh chains/push/remote verified in linked delivery successor. Native Memory/SQLite/reopen remain lossless; no T/Tx/checkpoint integration or policy266 choice. Minimal source snapshots make no parent-D2/full-bootstrap/UUID claim."
       },
       "future": "Matching-version object-root application, base/tail/count/reset, v1 upgrade/older-opener refusal, corruption checks, atomic mixed rollback and current snapshot/reopen/ack cuts, signed-zero/UTF-16 fidelity and measured tail costs. No tracker/Tx/token/checkpoint imports; copy/numeric-history refusals remain.",
       "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b2-supplied-current-delta-integration-candidate",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b2-verified-delivery-and-t-integration-successor",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
         "docs/durable-current-deltas.md"
       ],

@@ -656,11 +656,17 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
     for key, dependency in dependencies.items():
         row = rows[key]
         assert row["plan_cells"][0] == dependency
-        if key == "DE04b1b2":
+        if key in {"DE04b1b1", "DE04b1b2"}:
             assert row["current"]["kind"] == "bounded-native"
-            assert row["current"]["cases"] == ["storage-current-deltas-v1"]
-            assert "docs/durable-current-deltas.md" in row["evidence"]
-            assert "final Root gates/delivery pending" in row["current"]["observables"]
+            case, topic = {
+                "DE04b1b1": ("draft-tracker-v1", "docs/durable-draft-tracker.md"),
+                "DE04b1b2": (
+                    "storage-current-deltas-v1",
+                    "docs/durable-current-deltas.md",
+                ),
+            }[key]
+            assert row["current"]["cases"] == [case]
+            assert topic in row["evidence"]
         else:
             assert row["current"]["kind"] == "source-only"
             assert all(
@@ -671,7 +677,7 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
         assert (
             row["status"]
             == {
-                "DE04b1b1": "IN_PROGRESS",
+                "DE04b1b1": "LANDED",
                 "DE04b1b2": "LANDED",
                 "DE04b1b3": "OPEN",
             }[key]

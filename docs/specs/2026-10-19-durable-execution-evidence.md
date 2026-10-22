@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a and candidate DE04b1b2 LANDED; DE04/DE04b/DE04b1b/DE04b1b1 IN_PROGRESS, DE04b1b3 OPEN (policy266 unresolved); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and candidate DE04b1b1 LANDED; DE04/DE04b/DE04b1b IN_PROGRESS, DE04b1b3 OPEN (policy266 unresolved); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -168,9 +168,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE04a | Typed current documents and coupled task lifetime | LANDED | e6c1239d; exact Opus5.5 HIGH R3 CLEAN, green full check, fresh chains, push/remote verified; no CI claim |
 | DE04b | Real operation/delta/checkpoint prerequisite | IN_PROGRESS | Retained checkpoint rollback acceptance; depends DE04a |
 | DE04b1a | Pure decoded operations; depends DE02a1 | LANDED | 6e3b838f; exact Opus5.5 HIGH R4 CLEAN, green full check/docs, fresh pairs and push/remote verified; no CI claim |
-| DE04b1b | Cumulative normalized tracking/current deltas/checkpoints | IN_PROGRESS | S supplied-delta implementation candidate; waits T+S+J and all original acceptance |
-| DE04b1b1 | T pure provenance/normalized ops; depends DE04a + DE04b1a | IN_PROGRESS | Admission only; no new source or oracle implementation |
-| DE04b1b2 | S independent current deltas/schema2; depends DE03d + DE04b1a | LANDED | Supplied current deltas/schema2 implementation candidate; final Root gates/delivery pending; no dependency on T |
+| DE04b1b | Cumulative normalized tracking/current deltas/checkpoints | IN_PROGRESS | T pure provenance candidate and independent S delivered; waits J and all original acceptance |
+| DE04b1b1 | T pure provenance/normalized ops; depends DE04a + DE04b1a | LANDED | Pure prerequisite shipping candidate; final Root integration gates/delivery pending; no Session activation |
+| DE04b1b2 | S independent current deltas/schema2; depends DE03d + DE04b1a | LANDED | 8c8f30d7; exact Opus5.5 HIGH R2 CLEAN, green full/docs/fresh chains, push/remote verified; no dependency on T |
 | DE04b1b3 | J Draft/Tx/checkpoint/cache/publication; depends T + S + DE04a + owner policy266 | OPEN | Owner policy266 required before authoritative candidate/ops choice; all joined acceptance retained |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
@@ -277,14 +277,13 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 DE04a is LANDED at `e6c1239d`; pure decoded-operation DE04b1a is LANDED at
 `6e3b838f`, with exact final review/full/docs/fresh-pair/push gates verified.
-DE04/DE04b/DE04b1b remain IN_PROGRESS. S (DE04b1b2) now implements supplied
-current deltas/schema2 and is LANDED in the shipping candidate, conditional on
-Root's pending final review/full/docs/fresh-chain/delivery gates. The linked
-[S candidate evidence](#de04b1b2-supplied-current-delta-integration-candidate)
-records actual preliminary source proofs without claiming those final gates.
-T (DE04b1b1) remains IN_PROGRESS without source integration here. J (DE04b1b3)
-is OPEN and requires owner policy266 before authoritative candidate/operation
-selection. The [delivery/admission successor](#de04b1a-verified-delivery-and-de04b1b-pre-code-admission)
+DE04/DE04b/DE04b1b remain IN_PROGRESS. S (DE04b1b2) is verified LANDED at
+`8c8f30d7`, with exact final review/full/docs/fresh-chain/push gates recorded in
+the [S delivery successor](#de04b1b2-verified-delivery-and-t-integration-successor).
+T (DE04b1b1) adds pure provenance/ops as a shipping candidate, with final
+Root integration gates/delivery pending in the [T preparation evidence](#de04b1b1-pure-provenance-integration-preparation).
+J (DE04b1b3) is OPEN and requires owner policy266 before authoritative candidate/
+operation selection. The [delivery/admission successor](#de04b1a-verified-delivery-and-de04b1b-pre-code-admission)
 retains verified B1a gates and the exact dependency map. DE05 waits full DE04;
 DE27 retains full history/as-of/fork/migrations. All 43 P rows remain OPEN.
 
@@ -7608,3 +7607,169 @@ worker files and the actual older-source fixture remain exact. The final ten
 manifest validators/hash audit and unchanged staged R1 tree proof are retained
 in the frozen repair handoff. These checks do not replace Root's pending exact
 R2/full/docs/fresh-chain/delivery gates.
+
+
+## DE04b1b1 pure provenance integration preparation
+
+2026-10-23: independent T preparation is stacked on protected S review baseline
+`86392ae58cb00257cc920c39ef1004a0d369ff95`, tree
+`623053e459491c4361bc1d74bc5b375dbc6c76a5`. S's final Opus5.5 HIGH R2 returned
+CLEAN101.149s; Root reports two actual fresh `yebDAG` chains, five attesters and
+supported-interpreter27 native profiles passed. S subsequently delivered at
+`8c8f30d7`, with final full/push/remote confirmation recorded in the
+[S delivery successor](#de04b1b2-verified-delivery-and-t-integration-successor). The detached review baseline has exactly
+the released S tree, so this overlay applies to the actual S release.
+
+The initial historical eight-file copy was replaced by Root's protected final
+numeric-profile snapshot below; no live T worker source is imported or copied. The tracker product identity remains
+`3efab910abc8873b7a6fe3398a316264cb40ff2858e957193aeeae55d1313354`.
+The [T contract](../durable-draft-tracker.md) and seven non-manifest files match
+the protected final worker source. Worker and preparation checks are separated
+below; no final T gate is claimed. The shipping-tree T row is LANDED conditional
+on final Root gates;
+S stays independent, cumulative DE04b1b/b/DE04 IN_PROGRESS and J OPEN.
+
+The final agreed comparison boundary keeps numeric-looking object keys as
+ordinary supported JSON. Native Python insertion order does not change.
+Comparison-only profile `js-array-index-own-key-order-v1` projects canonical
+ASCII array-index keys0..4294967294; nonindex member order, operation/path/list
+order, types, signed zero and UTF-16 remain strict. Raw ordered profiles and
+raw differences remain retained. The final protected corpus has1,612 recipes:
+original1,591 byte values preserved plus21 explicit-key cases. Its result uses
+`equivalent`, `comparison_profile`, `raw_ordered_profiles_equal` and a raw-diff
+list, with `projection-controls.json` containing18 controls including a
+5,000-digit nonindex key. The actual worker source pair and preparation tests
+are recorded below as preliminary evidence, with final Root T gates pending;
+no raw ordered equality claim is made for every numeric-key case. This is no
+JSON-domain exclusion, native ordering change or policy266 choice.
+
+T only exposes owned immutable operations and an explicitly named replayed
+value, with Chord's prepared value recorded separately. J still requires the
+unanswered policy266 decision before authoritative callback/cache candidate or
+operation choice. No Session/Draft/Tx hook, backend/schema change or checkpoint
+activation is included. The126 canonical cells/dependencies remain unchanged,
+all43 P rows OPEN and DE05 waits full DE04. The minimal T source helper has no
+parent acceptance/D2 binding, execution UUID or full-bootstrap claim. Source
+closure and actual validators bind the final protected source and current
+shared metadata. Root owns final compatibility/full/docs/independent review/fresh chains/
+commit/push; this preparer runs none of those gates.
+
+
+### Protected final T source replaces the historical initial copy
+
+Root supplied the actual final eight-file protected snapshot
+`c3c481bf969eb32b05f3b40e3889837a63abee09`; all eight were copied from that Git
+object, without reading/importing the live worker checkout. The tracker remains
+`3efab910abc8873b7a6fe3398a316264cb40ff2858e957193aeeae55d1313354` and Node
+driver bytes remain unchanged. The original1,591 ordered typed JSON case values
+are preserved and21 explicit-key recipes appended, for1,612 total. Seven topic/
+product/test/driver/input files remain exact; the eighth manifest is rebound to
+this preparation's shared metadata. S product and its R2 repairs are unchanged.
+
+Preliminary worker proof, historical to its own manifest:127 focused tests
+passed, including nine private production mutants and five comparator mutants;
+20 repetitions of18 projection controls passed. Its actual pinned Node26.12.0/
+npm11.20.0 minimal snapshot paired1,612 recipes with `equivalent:true` under
+`js-array-index-own-key-order-v1`. `raw_ordered_profiles_equal:false` and ten
+named raw differences remain visible (five operation-payload member differences,
+ten replay member differences). All18 controls, raw profiles/values and both
+signed-zero prepared/replay witnesses remain retained. This is actual closed
+source execution, not npm installation/package or fresh full-bootstrap evidence.
+Worker3.15 proof is not a new supported-interpreter or final integrated gate.
+The preparer ran focused/static/architecture checks after the final source
+copy/cascade. S is subsequently verified delivered; no T final review/full/docs/
+fresh-chain/delivery is claimed by this preparation.
+
+
+Preparation-local checks over the protected final source:264 focused cases
+passed (127 T tests including its designated mutants plus137 coverage checks),
+and348 package architecture/session-extension checks passed. Ruff check/format
+passed six Python files and mypy passed four. Actual imports resolve to this
+detached preparation's source. Seven T files still match the protected final
+snapshot exactly; only the manifest is rebound. All existing S product files
+and its R2 repairs are unchanged. All126 canonical cells/owners, whole43 P rows
+and DE05 remain unchanged from the protected S baseline. Eleven actual manifest
+validators and every local/reference/semantic-parent hash passed after the
+pre-delivery cascade. No actual integrated Node source pair or final review/
+full/docs/delivery gate is claimed. S delivery is now verified below and the
+final cascade/freeze binds those facts. Root alone transfers to actual main.
+
+
+## DE04b1b2 verified delivery and T integration successor
+
+2026-10-23: Root verified main and origin at
+`8c8f30d7e40157284a2a5ab65563965e508838d4`, exact reviewed tree
+`623053e459491c4361bc1d74bc5b375dbc6c76a5`. Guard and push exited0 and remote
+`refs/heads/main` matched exactly. Final-gate-proof SHA256 is
+`020955e058b6e0f38a6455d79d8d9eec90fa237ede9bd44fcb257a3271dc3520`.
+Final exact Opus5.5 HIGH R2 returned CLEAN101.149s on baseline
+`86392ae58cb00257cc920c39ef1004a0d369ff95`, with no omissions. R1's three
+Suggestions remain historical ISSUES and all accepted repairs are present.
+
+Full `just check` exited0:16,435 passed,20 explained skips, no warnings and no
+docs-preview flake;1510.27s pytest/1542.6956473329337s wrapper. The20 skips remain
+18 explicit async-only cases on the sync facade, optional codemode runtime and
+case-insensitive filesystem. Mypy annotation-unchecked notes are not warning
+failures. Strict docs passed8.149s,1298 links/eight pages/zero broken links.
+Each supported3.11/3.12 interpreter passed214 final affected cases and27 actual
+native source profiles. Fresh `yebDAG` supplies two independent complete chains,
+14 core/document IDs, ten core parent bindings, scanner30,000, pure delta66 and
+nine current-delta scenarios per backend per chain; five attesters and all ten
+actual validators passed. Minimal phases make no full-bootstrap or UUID claim.
+Source/freeze/manifests, reaped process group and both `pi` themes were verified.
+No GitHub CI result is claimed.
+
+The T preparation's detached baseline and this actual S release have identical
+trees. The final overlay preserves all S product/R2 bytes and the actual older
+source fixture, adds the protected pure T prerequisite and updates shared
+metadata/manifests. T remains a shipping candidate conditional on final Root
+gates, with policy266 unresolved in J. No T final CLEAN/full/docs/fresh-source/
+commit/push fact is inferred from S's delivery. All126 canonical criteria and
+dependencies, all43 OPEN P rows, DE05 and cumulative parent acceptance remain
+unchanged. Root owns actual-main transfer and final T gates after this freeze.
+
+
+After the actual S delivery facts and successor anchors were updated, all137
+coverage checks passed again. The final eleven-manifest cascade and actual
+validators/hash audit bind that predecessor truth. Seven non-manifest T files,
+all existing S product/R2 test and fixture bytes, and all126 canonical cells/
+owners plus whole P/DE05 rows remain preserved. The final frozen overlay is
+based on actual S release `8c8f30d7`'s tree; the preparation creates no commit or
+main write. Final T source pairing/review/full/docs/fresh-chain/delivery remain
+Root-owned and pending.
+
+
+## DE04b1b1 R1 observation-boundary and evidence-claim repair
+
+2026-10-23: mandatory unscoped Opus5.5 HIGH R1 returned ISSUES (one Warning,
+one Suggestion;320.25s) on protected baseline
+`d65911b86480cf2faec81284a4ded0ebc53ba0e5`, with no omissions. The Warning
+identified missing Node prepared observations reaching an uncaught lookup and
+exit1, which is reserved for valid semantic mismatch. The Suggestion identified
+that the21 `surface/*` recipes translate scenarios into primitives rather than
+pairing actual Python method dispatch with Node.
+
+The producer boundary now requires a valid Node prepared profile while preserving
+the general/native observation shape. Unexpected ordinary exceptions return2
+with a fixed diagnostic that reveals neither payload nor traceback; process
+interrupts still propagate. Eight added tests exercise actual `main` and `run`
+with explicitly simulated child responses: missing prepared before native
+execution, run/native KeyError/IndexError/AssertionError failures and an
+unhandled KeyboardInterrupt. These are boundary tests, not new actual Node
+oracle executions. The existing real subprocess comparison checks retain
+positive0, semantic mismatch1 and invalid2 behavior. Those nine boundary/CLI
+cases and three actual mapping/list/inherited-method tests passed locally.
+
+The topic now states the primitive-translation limit explicitly. Existing native
+mapping-method emitted-operation assertions remain; list-slice/extend/remove/
+pop and inherited helper tests additionally pin their normalized operations.
+No action grammar, corpus, result schema or acceptance criterion changes.
+Tracker runtime and Node driver bytes remain unchanged. The1,612 recipes,
+comparison-only numeric-key projection, raw ordered profiles and two separate
+signed-zero prepared/replay witnesses remain unchanged; policy266 is unresolved.
+
+The earlier protected source and R1 proof remain historical. This repair does
+not claim a final CLEAN, fresh integrated Node pair, full/docs gate or delivery.
+Root owns those gates and staging after the focused repair freeze. The staged
+R1 index is left untouched during repair; the final eleven-manifest cascade
+binds the repaired source/tests/topic. This note records those changes.
