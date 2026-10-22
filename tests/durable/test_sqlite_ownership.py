@@ -1,8 +1,10 @@
 """DE03a: path ownership, owner-only files and the minimal SQLite connection.
 
 Native tests only (no Pi oracle): real child processes with bounded deadlines
-and process-group reaping, real SIGKILL, real fork() and real exec. No schema
-and no Storage semantics (DE03b, DE03c).
+and process-group reaping, real SIGKILL, real fork() and real exec. Every store
+now carries schema v1 (DE03b, ``test_sqlite_schema.py``), so these tests keep
+their scratch rows in its ``conversations`` table (``put``/``stored``); nothing
+reads them as records. No Storage semantics (DE03c).
 """
 
 from __future__ import annotations
@@ -23,7 +25,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
-from sqlite_child_support import Child, group_exists, kill_group, wait_until_zombie
+from sqlite_child_support import (
+    Child,
+    group_exists,
+    kill_group,
+    put,
+    stored,
+    wait_until_zombie,
+)
 
 from pipy_harness.native.durable import ownership, sqlite_connection
 from pipy_harness.native.durable.ownership import (
@@ -43,6 +52,7 @@ from pipy_harness.native.durable.sqlite_connection import (
     StorageConfigurationError,
     open_owned_database,
 )
+from pipy_harness.native.durable.sqlite_schema import InterruptedCreateError
 from pipy_harness.native.durable.storage import StorageClosedError
 
 
@@ -121,9 +131,8 @@ def make_store(target: Path, *rows: str) -> None:
     db = open_owned_database(str(target), mode="create")
     try:
         connection = db.connection()
-        connection.execute("CREATE TABLE t(v TEXT)")
         for row in rows:
-            connection.execute("INSERT INTO t VALUES (?)", (row,))
+            put(connection, row)
     finally:
         db.close()
 
@@ -140,7 +149,7 @@ def mark_lock(target: Path) -> None:
 
 
 def rows(db: OwnedDatabase) -> list[str]:
-    return [v for (v,) in db.connection().execute("SELECT v FROM t ORDER BY rowid")]
+    return stored(db.connection())
 
 
 def case_insensitive(directory: Path) -> bool:
@@ -310,9 +319,7 @@ def test_create_then_open_keeps_every_file_owner_only(tmp_path: Path) -> None:
         assert db.path.database == os.path.join(
             os.path.realpath(tmp_path), "state", "nested", "store.sqlite"
         )
-        connection = db.connection()
-        connection.execute("CREATE TABLE t(v TEXT)")
-        connection.execute("INSERT INTO t VALUES ('one')")
+        put(db.connection(), "one")
         assert mode(tmp_path / "state") == mode(tmp_path / "state" / "nested") == 0o700
         for suffix in ("", "-wal", "-shm", ".lock"):
             assert mode(sidecar(target, suffix)) == 0o600, suffix
@@ -413,18 +420,21 @@ def test_a_deleted_row_leaves_no_residue_in_the_database_file(
     db = open_owned_database(str(target), mode="create")
     try:
         connection = db.connection()
-        connection.execute("CREATE TABLE t(v BLOB)")
-        connection.execute("INSERT INTO t VALUES (?)", (b"kept",))
-        connection.execute("INSERT INTO t VALUES (?)", (first,))
+        connection.execute("INSERT INTO conversations (record) VALUES (?)", (b"kept",))
+        connection.execute("INSERT INTO conversations (record) VALUES (?)", (first,))
     finally:
         db.close()
     assert first in target.read_bytes()  # the checkpoint wrote it into the file
     db = open_owned_database(str(target), mode="open")
     try:
         connection = db.connection()
-        connection.execute("INSERT INTO t VALUES (?)", (second,))
-        connection.execute("DELETE FROM t WHERE v IN (?, ?)", (first, second))
-        assert connection.execute("SELECT v FROM t").fetchall() == [(b"kept",)]
+        connection.execute("INSERT INTO conversations (record) VALUES (?)", (second,))
+        connection.execute(
+            "DELETE FROM conversations WHERE record IN (?, ?)", (first, second)
+        )
+        assert connection.execute("SELECT record FROM conversations").fetchall() == [
+            (b"kept",)
+        ]
         # Earlier frames keep the rows; another process reads the -wal.
         with Child(WAL_SCAN, str(sidecar(target, "-wal")), home=home) as child:
             assert child.expect("scanned")["markers"] == sorted(
@@ -509,18 +519,19 @@ def _write_not_wal(kind: str, target: Path, scratch: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("kind", "message"),
+    ("kind", "error", "message"),
     [
-        ("empty", "not an SQLite database"),
-        ("text", "not an SQLite database"),
-        ("truncated-header", "not an SQLite database"),
-        ("bad-page-size", "not an SQLite database"),
-        ("bad-magic", "not an SQLite database"),
-        ("rollback-mode", "not a WAL database"),
+        # An empty file is what a crashed create leaves (DE03b recovery rule).
+        ("empty", InterruptedCreateError, "interrupted create"),
+        ("text", StorageConfigurationError, "not an SQLite database"),
+        ("truncated-header", StorageConfigurationError, "not an SQLite database"),
+        ("bad-page-size", StorageConfigurationError, "not an SQLite database"),
+        ("bad-magic", StorageConfigurationError, "not an SQLite database"),
+        ("rollback-mode", StorageConfigurationError, "not a WAL database"),
     ],
 )
 def test_open_refuses_a_non_wal_file_by_its_header_before_sqlite_sees_it(
-    tmp_path: Path, kind: str, message: str
+    tmp_path: Path, kind: str, error: type[Exception], message: str
 ) -> None:
     scratch = tmp_path / "scratch"
     scratch.mkdir()
@@ -530,7 +541,7 @@ def test_open_refuses_a_non_wal_file_by_its_header_before_sqlite_sees_it(
     _write_not_wal(kind, target, scratch)
     before = tree(work)
     for _ in range(2):  # Nothing was locked or changed, so a retry is refused alike.
-        with pytest.raises(StorageConfigurationError, match=message):
+        with pytest.raises(error, match=message):
             open_owned_database(str(target), mode="open")
     assert tree(work) == before  # same bytes and mode, and no lock file
 
@@ -543,7 +554,9 @@ def test_configuration_still_refuses_a_non_wal_file_the_header_check_missed(
     target = tmp_path / "foreign.sqlite"
     _write_not_wal("rollback-mode", target, tmp_path)
     original = target.read_bytes()
-    monkeypatch.setattr(sqlite_connection, "check_wal_header", lambda fd, label: None)
+    monkeypatch.setattr(
+        sqlite_connection, "check_store_header", lambda fd, label, wal_size: None
+    )
     with pytest.raises(StorageConfigurationError, match="journal mode 'delete'"):
         open_owned_database(str(target), mode="open")
     assert target.read_bytes() == original
@@ -702,7 +715,7 @@ def test_close_frees_the_lock_and_repeats_its_outcome_when_the_checkpoint_fails(
 ) -> None:
     target = tmp_path / "store.sqlite"
     db = open_owned_database(str(target), mode="create")
-    db.connection().execute("CREATE TABLE t(v TEXT)")
+    put(db.connection(), "kept")
     injected = OSError("injected checkpoint failure")
 
     def failing(connection: sqlite3.Connection) -> None:
@@ -726,7 +739,7 @@ def test_close_discards_an_abandoned_transaction(tmp_path: Path) -> None:
     make_store(target, "kept")
     db = open_owned_database(str(target), mode="open")
     db.connection().execute("BEGIN IMMEDIATE")
-    db.connection().execute("INSERT INTO t VALUES ('abandoned')")
+    put(db.connection(), "abandoned")
     db.close()
     again = open_owned_database(str(target), mode="open")
     try:
@@ -777,7 +790,7 @@ def test_second_in_process_open_meets_the_same_owner_through_every_alias(
         assert listing(tmp_path) == before
         assert external_write(target, home) == "database is locked"
         assert db.owner._held.parked == []  # refused unread: nothing was opened
-        db.connection().execute("INSERT INTO t VALUES ('second')")
+        put(db.connection(), "second")
     finally:
         db.close()
     assert_rows_after_close(target, ["first", "second"])
@@ -962,10 +975,9 @@ def test_concurrent_in_process_opens_admit_exactly_one_owner(
     try:
         connection = owners[0].connection()
         if open_mode == "create":
-            connection.execute("CREATE TABLE t(v TEXT)")
-            connection.execute("INSERT INTO t VALUES ('first')")
+            put(connection, "first")
         assert external_write(target, home) == "database is locked"
-        connection.execute("INSERT INTO t VALUES ('second')")
+        put(connection, "second")
     finally:
         owners[0].close()
     assert key not in ownership._REGISTRY
@@ -1111,7 +1123,7 @@ connection = sqlite3.connect(sys.argv[1], timeout=0, isolation_level=None)
 try:
     connection.execute("PRAGMA locking_mode=EXCLUSIVE")
     connection.execute("BEGIN IMMEDIATE")
-    connection.execute("INSERT INTO t VALUES ('intruder')")
+    put(connection, "intruder")
     connection.execute("COMMIT")
     outcome = "wrote"
 except sqlite3.OperationalError as error:
@@ -1133,9 +1145,7 @@ def external_write(target: Path, home: Path) -> str:
 
 def owned_with_a_row(target: Path) -> OwnedDatabase:
     db = open_owned_database(str(target), mode="create")
-    connection = db.connection()
-    connection.execute("CREATE TABLE t(v TEXT)")
-    connection.execute("INSERT INTO t VALUES ('first')")
+    put(db.connection(), "first")
     return db
 
 
@@ -1170,7 +1180,6 @@ def test_the_lock_refuses_a_second_in_process_owner_before_flock(
 
 OWNER = """
 db = open_owned_database(sys.argv[1], mode=sys.argv[2])
-db.connection().execute("CREATE TABLE IF NOT EXISTS t(v TEXT)")
 say("owned")
 if command() == "close":
     db.close()
@@ -1203,10 +1212,9 @@ def test_a_second_process_is_refused_until_the_owner_closes(
 SIGKILL_OWNER = """
 db = open_owned_database(sys.argv[1], mode="create")
 connection = db.connection()
-connection.execute("CREATE TABLE t(v TEXT)")
 for index in range(5):
     connection.execute("BEGIN IMMEDIATE")
-    connection.execute("INSERT INTO t VALUES (?)", ("row%d" % index,))
+    put(connection, "row%d" % index)
     connection.execute("COMMIT")
 say("committed", wal=os.stat(sys.argv[1] + "-wal").st_size)
 command()
@@ -1245,12 +1253,11 @@ UMASK_OWNER = """
 os.umask(int(sys.argv[2], 8))
 db = open_owned_database(sys.argv[1], mode="create")
 connection = db.connection()
-connection.execute("CREATE TABLE t(x)")
-connection.execute("INSERT INTO t VALUES (1)")
+put(connection, "1")
 wal = modes(sys.argv[3])
 connection.execute("PRAGMA journal_mode=DELETE")
 connection.execute("BEGIN IMMEDIATE")
-connection.execute("INSERT INTO t VALUES (2)")
+put(connection, "2")
 journal = modes(sys.argv[3])
 connection.execute("ROLLBACK")
 connection.execute("PRAGMA journal_mode=WAL")
@@ -1289,9 +1296,7 @@ def test_umask_never_changes_owner_only_modes(
 EXEC_OWNER = """
 import subprocess
 db = open_owned_database(sys.argv[1], mode="create")
-connection = db.connection()
-connection.execute("CREATE TABLE t(x)")
-connection.execute("INSERT INTO t VALUES (1)")
+put(db.connection(), "1")
 lister = (
     "import json, os\\n"
     "found = []\\n"
@@ -1337,7 +1342,7 @@ def test_exec_children_inherit_no_store_descriptor(tmp_path: Path, home: Path) -
 FORK_OWNER = """
 import errno
 db = open_owned_database(sys.argv[1], mode="create")
-db.connection().execute("CREATE TABLE t(v TEXT)")
+put(db.connection(), "first")
 lock_fd = db.owner.lock_fd
 pid = os.fork()
 if pid == 0:
@@ -1398,9 +1403,7 @@ import signal
 if sys.argv[2] == "unpinned":
     ownership._pin_forever = lambda values: None  # negative control only
 db = open_owned_database(sys.argv[1], mode="create")
-connection = db.connection()
-connection.execute("CREATE TABLE t(v TEXT)")
-connection.execute("INSERT INTO t VALUES ('first')")
+put(db.connection(), "first")
 signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
 pid = os.fork()
 if pid == 0:
@@ -1417,7 +1420,7 @@ db = open_owned_database(sys.argv[1], mode="open")
 connection = db.connection()
 for value in ("second-a", "second-b"):
     connection.execute("BEGIN IMMEDIATE")
-    connection.execute("INSERT INTO t VALUES (?)", (value,))
+    put(connection, value)
     connection.execute("COMMIT")
 say("committed", wal=os.stat(sys.argv[1] + "-wal").st_size)
 command()
@@ -1563,7 +1566,7 @@ def test_an_owned_database_under_another_name_is_refused_unread(
         assert not sidecar(second, ".lock").exists()
         assert external_write(second, home) == "database is locked"
         assert db.owner._held.parked == []  # refused unread
-        db.connection().execute("INSERT INTO t VALUES ('second')")
+        put(db.connection(), "second")
     finally:
         db.close()
     os.rename(second, first)
@@ -1763,7 +1766,7 @@ def test_an_owned_database_moved_in_after_the_lock_is_refused_unread(
         monkeypatch.undo()
         assert external_write(other, home) == "database is locked"
         assert db.owner._held.parked == []  # refused unread
-        db.connection().execute("INSERT INTO t VALUES ('second')")
+        put(db.connection(), "second")
     finally:
         db.close()
     os.rename(other, owned)
@@ -1811,7 +1814,7 @@ def test_an_owned_database_renamed_under_a_name_being_opened_keeps_its_locks(
         assert external_write(racing, home) == "database is locked"
         parked = db.owner._held.parked
         assert len(parked) == 1
-        db.connection().execute("INSERT INTO t VALUES ('second')")
+        put(db.connection(), "second")
     finally:
         monkeypatch.undo()
         db.close()
@@ -1851,12 +1854,12 @@ def test_a_claim_never_moves_so_its_parked_descriptor_cannot_drop_later_locks(
     monkeypatch.undo()
     second = open_owned_database(str(other), mode="open")  # X's next owner
     try:
-        second.connection().execute("INSERT INTO t VALUES ('x2')")
+        put(second.connection(), "x2")
         assert external_write(other, home) == "database is locked"
         for db in opened:
             db.close()  # an owner kept open on Y would close the X descriptor now
         assert external_write(other, home) == "database is locked"
-        second.connection().execute("INSERT INTO t VALUES ('x3')")
+        put(second.connection(), "x3")
     finally:
         second.close()
     assert_rows_after_close(other, ["x1", "x2", "x3"])
@@ -1897,7 +1900,7 @@ def test_a_replacement_seen_at_connect_releases_the_claim_after_its_parked_descr
     assert a_path.read_bytes() == y_bytes  # Y was never written
     second = open_owned_database(str(other), mode="open")
     try:
-        second.connection().execute("INSERT INTO t VALUES ('x2')")
+        put(second.connection(), "x2")
         assert external_write(other, home) == "database is locked"
     finally:
         second.close()

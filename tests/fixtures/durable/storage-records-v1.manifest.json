@@ -2,7 +2,7 @@
   "schema_version": 1,
   "phase": "values-records-a1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "5511ec99b012d96efa161e356ef7946f968fee3cd42f619685c1ae70cddc1d57",
+  "baseline_manifest_sha256": "15aac65ce88bb2696aa2f1efcca73f6a795006a5728e36089d719c3b755d4141",
   "closure": {
     "src/pipy_harness/native/durable/__init__.py": "b1b28d5a6cb478a0afb60cb24fbbfdd1b7774275ca2a2a88525d358b488273a0",
     "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",

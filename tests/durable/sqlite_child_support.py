@@ -6,6 +6,10 @@ bounded child. Children report JSON lines on stdout (``say``) and read commands
 from stdin (``command``). The parent reads events against deadlines, never
 sleeps for ordering, and on exit kills the whole group, reaps the child, closes
 every pipe and checks that the group is gone (a forked grandchild included).
+
+Every store carries schema v1 (DE03b). Tests below the Storage layer keep
+scratch rows in its ``conversations`` table as raw bytes (``put`` and
+``stored``, also in the child prelude); nothing reads them as records.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import json
 import os
 import selectors
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -21,27 +26,47 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
-PRELUDE = """
+SCRATCH_INSERT = "INSERT INTO conversations (record) VALUES (?)"
+SCRATCH_SELECT = "SELECT record FROM conversations ORDER BY id"
+
+PRELUDE = f"""
 import json, os, sys
 from pipy_harness.native.durable import ownership
 from pipy_harness.native.durable import sqlite_connection
+from pipy_harness.native.durable import sqlite_schema
 from pipy_harness.native.durable.sqlite_connection import open_owned_database
 
+def put(connection, value):
+    connection.execute({SCRATCH_INSERT!r}, (value.encode(),))
+
+def stored(connection):
+    return [v.decode() for (v,) in connection.execute({SCRATCH_SELECT!r})]
+
 def say(event, **fields):
-    sys.stdout.write(json.dumps({"event": event, "pid": os.getpid(), **fields}) + "\\n")
+    sys.stdout.write(json.dumps({{"event": event, "pid": os.getpid(), **fields}}) + "\\n")
     sys.stdout.flush()
 
 def command():
     return sys.stdin.readline().strip()
 
 def modes(root):
-    found = {}
+    found = {{}}
     for top, dirs, files in os.walk(root):
         for name in dirs + files:
             full = os.path.join(top, name)
             found[os.path.relpath(full, root)] = oct(os.lstat(full).st_mode & 0o7777)
     return found
 """
+
+
+def put(connection: sqlite3.Connection, value: str) -> None:
+    """A scratch row: raw bytes in the v1 ``conversations`` table."""
+
+    connection.execute(SCRATCH_INSERT, (value.encode(),))
+
+
+def stored(connection: sqlite3.Connection) -> list[str]:
+    return [value.decode() for (value,) in connection.execute(SCRATCH_SELECT)]
 
 
 def group_exists(group: int) -> bool:

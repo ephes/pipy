@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d and DE03a is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a landed and DE03b is in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -165,9 +165,12 @@ availability or empty document shims.
 
 DE03 is split a→b→c→d before code, every original cell retained: **a** path
 ownership, owner-only files, shared-filesystem refusal and a minimal verified
-connection lifecycle (in progress; the on-disk contract is in
+connection lifecycle (landed at `0d37f64a`: Codex gpt-6.1-sol HIGH, six rounds
+to CLEAN, round 4 resolved by Root's explicit contract boundary; no CI claim;
+the on-disk contract is in
 [the storage document](session-storage.md#durable-sqlite-store-internal)); **b**
-schema v1, the migration runner and open-time integrity; **c** `SqliteStorage`
+schema v1, the migration runner, the header identity gate and open-time
+integrity (in progress); **c** `SqliteStorage`
 with contract cases, real failures and crash cuts; **d** the paired pinned Pi
 SQLite oracle, Session over SQLite and the P43 workload. DE03 waits all four and
 DE04 waits DE03. Each DE03 slice also runs its new tests on the Ubuntu macmini

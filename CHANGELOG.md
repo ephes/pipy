@@ -8,6 +8,26 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add schema version 1, migrations and open-time integrity checks to the
+  future durable SQLite store (internal; no product, default or public API
+  change). A new store gets Pi durable's SQLite schema with Pi's table and
+  column names, stores its payloads losslessly and names itself in the
+  database header (the application ID "PIPY" and its schema version), so
+  `open` refuses another application's database, a store written by a newer
+  pipy and the remains of an interrupted create without changing a byte of the
+  database or its log, usually before SQLite reads the file. Migrations run in
+  one transaction under the owner lock: a failing migration rolls back
+  completely and can be retried, a crash leaves the previous version, and the
+  next `open` migrates again. Every `open` checks the store's exact schema and
+  its metadata; after a crash it first validates the store on a read-only
+  connection and runs SQLite's `quick_check`, so a damaged store is refused
+  with its database and write-ahead log unchanged, and damage SQLite reports
+  at any step of opening or closing is raised as the same storage-corruption
+  error. An interrupted create is never adopted silently; the storage document
+  describes how to remove it and create the store again. Real-process tests
+  cut creates and migrations with SIGKILL on macOS and Ubuntu; storage
+  semantics and every parity requirement remain open.
+
 - Add private path ownership and a verified connection lifecycle for the
   future durable SQLite store (internal; no product, default or public API
   change). One process owns a store path at a time through an exclusive lock

@@ -97,8 +97,9 @@ from .storage import StorageClosedError
 
 OpenMode = Literal["create", "open"]
 # Checks an existing database through a read-only descriptor before any
-# connection exists, raising to refuse it; the descriptor is not kept.
-ExistingCheck = Callable[[int, str], None]
+# connection exists, given the size of its -wal by lstat (0 when there is none),
+# raising to refuse it; the descriptor is not kept.
+ExistingCheck = Callable[[int, str, int], None]
 
 LOCK_SUFFIX = ".lock"
 SIDECARS = ("-wal", "-shm", "-journal")
@@ -384,13 +385,14 @@ def _check_existing(
     info: os.stat_result,
     check: ExistingCheck,
     label: str,
+    wal: os.stat_result | None,
     held: _Held | None = None,
 ) -> None:
     """Run ``check`` on a read-only descriptor of the file ``info`` describes."""
 
     fd = _open_unowned(name, dir_fd, info, label, held)
     try:
-        check(fd, label)
+        check(fd, label, 0 if wal is None else wal.st_size)
     finally:
         os.close(fd)
 
@@ -673,7 +675,10 @@ def _gate_existing(dir_fd: int, path: StoragePath, check: ExistingCheck) -> None
             raise StorageOwnershipError(
                 f"The durable store {path.database!r} is already open in this process"
             )
-        _check_existing(path.name, dir_fd, database, check, label)
+        # By lstat only. Its size can only defer a decision to the checks under
+        # the lock, which refuse a linked or foreign -wal before anything uses it.
+        wal = _lstat(path.name + "-wal", dir_fd)
+        _check_existing(path.name, dir_fd, database, check, label, wal)
 
 
 def _claim_database(held: _Held, info: os.stat_result, path: StoragePath) -> None:
@@ -867,7 +872,8 @@ def _open_database(
         _claim_database(held, database, path)
         if check is not None:
             # Before any mode change, so a refused file keeps its bytes and mode.
-            _check_existing(path.name, dir_fd, database, check, label, held)
+            wal = sidecars["-wal"]
+            _check_existing(path.name, dir_fd, database, check, label, wal, held)
         info = _normalize(dir_fd, path.name, database, label, held)
         wal_size = 0
         for suffix, sidecar in sidecars.items():
@@ -1001,7 +1007,9 @@ def acquire(request: StoreRequest, *, check: ExistingCheck | None = None) -> Pat
 
     ``check`` validates an existing database's format (``open``) on a read-only
     descriptor twice: before the lock, so a refused file gets no lock file or
-    other effect, and again under the lock before any change. Neither read
+    other effect, and again under the lock before any change. Each time it also
+    gets the size of the ``-wal`` by ``lstat`` (no descriptor), which tells that
+    the previous owner did not close cleanly. Neither read
     happens until the in-process ownership check has excluded another owner of
     the lock or database inode (see the module docstring on POSIX locks).
     """

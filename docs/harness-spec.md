@@ -148,12 +148,16 @@ cumulative gate: the [Session commit comparison](durable-reference.md#session-co
 runs closed recipes against the pinned Pi `SessionImpl` and this Session in both
 modes, with a closed map of every original DE02/DE02b cell to paired scenarios or
 native tests, so DE02b and DE02 are delivered. DE03 is split a→b→c→d before code.
-DE03a (in progress) adds the private `native/durable/ownership.py` (one owner per
+DE03a (landed `0d37f64a`) adds the private `native/durable/ownership.py` (one owner per
 canonical store path through a never-deleted lock sidecar, owner-only files,
 shared-filesystem refusal and fork safety) and `native/durable/sqlite_connection.py`
 (a minimal verified connection lifecycle); the on-disk contract is in
-[Durable SQLite store](session-storage.md#durable-sqlite-store-internal). Schema
-(DE03b), Storage semantics (DE03c) and the paired Pi oracle (DE03d) follow.
+[Durable SQLite store](session-storage.md#durable-sqlite-store-internal). DE03b
+(in progress) adds the private `native/durable/sqlite_schema.py`: schema v1 (Pi's
+version 2 shape and names plus the Python deltas), the append-only migration
+runner, the header identity gate and open-time integrity with the D6
+`quick_check` policy. Storage semantics (DE03c) and the paired Pi oracle (DE03d)
+follow.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 
@@ -304,7 +308,9 @@ there is no cross-process locking"), so these rules are pipy's own:
   error again. Users of the raw connection (the DE03c Storage) serialize with
   `close()`.
 - POSIX record locks, an invariant for every DE03 slice (DE03b's identity gate
-  reads header bytes too): closing any descriptor of a file releases every
+  reads the header in the same gate; its read-only validation connection after
+  an unclean shutdown closes before the owner connects): closing any
+  descriptor of a file releases every
   POSIX record lock the process holds on it, SQLite's included, whichever
   descriptor took them. So pipy never opens a descriptor of a store file
   another owner in this process holds:
@@ -352,6 +358,42 @@ there is no cross-process locking"), so these rules are pipy's own:
   connections are pinned so the child never finalizes them: finalizing one
   after the owner's clean close deletes a later owner's WAL by name, losing its
   committed transactions (probed on macOS and Linux).
+
+Python spellings of the durable SQLite schema (DE03b, `native/durable/sqlite_schema.py`).
+Schema versions are pipy's own, so the migration and integrity tests are
+native-only:
+
+- Schema v1 is Pi durable 1.3.0's SQLite schema version 2 with Pi's names and no
+  prefix, plus the Python deltas: `BLOB` payload columns (`record`, revision
+  `content`) and revision `version` (lossless JSON, D1), an `INTEGER` `next_id`,
+  the `submission_requests` last-writer table (D2) and the header identity
+  (application ID `0x50495059`, `user_version` equal to the schema version). A
+  test derives the v1 statements from Pi's pinned DDL plus exactly these deltas.
+- `MIGRATIONS` is an immutable, append-only tuple of `Migration(version,
+  statements)` with contiguous versions from 1, checked before any SQL with Pi
+  chord's message. `apply_migrations` runs every pending version in one `BEGIN
+  IMMEDIATE` transaction with the version bumps (and, at version 1, the
+  application ID); an error rolls back and propagates unchanged, a failed
+  rollback raises `SqliteRollbackError` carrying both errors, and a newer store
+  raises `NewerStoreError` with Pi's message.
+- No silent adoption: `open` refuses what an interrupted `create` left
+  (`InterruptedCreateError`) and the storage document gives the manual
+  procedure, where Pi opens or creates and would adopt the file.
+- Open-time integrity is stricter than Pi's metadata-row check: the header gate
+  refuses foreign, newer and interrupted files before SQLite opens them;
+  `validate_store` requires the exact `sqlite_schema` objects (replayed in memory),
+  equal versions and counters in range; `quick_check` runs only after an
+  unclean shutdown (D6), on a read-only connection that never checkpoints, so a
+  refusal leaves the database and `-wal` bytes unchanged. Damage raises
+  `StorageCorruption`, a `RuntimeError` and never a request error; nothing is
+  repaired. `damage_as_corruption` turns SQLite's own corruption errors
+  (`SQLITE_CORRUPT` with its extended codes, `SQLITE_NOTADB`, read from
+  `sqlite_errorcode`; an error without a code is never converted) into
+  `StorageCorruption` around every step of opening, migrating, validating and
+  closing a store, after the usual cleanup; the DE03c Storage wraps its own
+  statements on the raw connection in it too.
+- A change to what stored bytes mean needs a new schema version even without
+  new DDL; DE27's first delta revision bumps it.
 
 The bounded Storage port admits document points by exact built-in type before
 comparison/coercion/hash/repr. Foreign objects and str/int subclasses cannot run

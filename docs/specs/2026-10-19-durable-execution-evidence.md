@@ -1,7 +1,7 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03 split, DE03a in progress; all parity rows OPEN**,
-2026-10-21. This ledger accompanies the
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03 split, DE03a landed, DE03b in progress; all parity rows OPEN**,
+2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
 index, not an upstream comparison result. The prototypes are experimental
@@ -156,8 +156,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE02b2b | First exposed internal Session: line, async driver, publication and close | LANDED | eb1e3ba7; Codex gpt-6.1-sol HIGH r1 ISSUES (one Critical, four Warnings), r2 (one Critical, one Warning), r3 (one Critical, three Warnings; Root removed the claimer-delivery mechanism), r4 (one Warning), r5 CLEAN; push verified; no CI claim |
 | DE02b3 | Cumulative paired Session acceptance and final b gate | LANDED | d2e62390; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14223 passed; push verified; no CI claim |
 | DE03 | SQLite authority and local ownership | IN_PROGRESS | Cumulative a+b+c+d (split 2026-10-21); every original cell retained |
-| DE03a | Path ownership, owner-only files and minimal connection lifecycle | IN_PROGRESS | Local and Linux (macmini) evidence below; independent gates pending |
-| DE03b | Schema v1, migration runner and open-time integrity | OPEN | None; all gates OPEN |
+| DE03a | Path ownership, owner-only files and minimal connection lifecycle | LANDED | 0d37f64a; Codex gpt-6.1-sol HIGH r1 three Warnings, r2–r5 one or two Criticals each (r4 harness non-convergence, Root simplification with an explicit contract boundary), r6 CLEAN, repaired by Opus5.5 MAX; local just check 14392 passed; push verified; no CI claim |
+| DE03b | Schema v1, migration runner and open-time integrity | IN_PROGRESS | Local and Linux (macmini) evidence below; independent gates pending |
 | DE03c | SqliteStorage, contract cases, real failures and crash cuts | OPEN | None; all gates OPEN |
 | DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
@@ -260,11 +260,12 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE02b3 have landed, so DE01 and DE02 with all their children are
-delivered. DE03 is split a→b→c→d before code (see
+DE00 through DE02b3 and DE03a have landed, so DE01 and DE02 with all their
+children are delivered. DE03 is split a→b→c→d before code (see
 [the split](#de02b3-delivery-and-de03-split)): DE03a path ownership, owner-only
-files and a minimal verified connection lifecycle (in progress); DE03b schema v1,
-the migration runner and open-time integrity; DE03c `SqliteStorage` with contract
+files and a minimal verified connection lifecycle (landed `0d37f64a`, see
+[its delivery](#de03a-delivery-and-de03b-admission)); DE03b schema v1, the
+migration runner and open-time integrity (in progress); DE03c `SqliteStorage` with contract
 cases, real failures and crash cuts; DE03d the paired pinned Pi SQLite oracle,
 Session over SQLite and the P43 workload. DE03 waits all four and DE04 waits
 DE03. Original parent acceptance remains unchanged. All P rows OPEN; no partial
@@ -4493,3 +4494,568 @@ Logs:
 (macOS) and
 `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03a/repair-r5-linux/remote-logs/`
 (Linux).
+
+## DE03a delivery and DE03b admission
+
+DE03a landed at `0d37f64a0a80b45b359ac1a1b48beb25e6db6354` on origin/main (tree
+`4b1a0bb5`, verified with `git ls-remote`). Root's local `just check` exited 0
+with 14392 passed and the same two known skips; no CI result is claimed. Review,
+Codex `gpt-6.1-sol` HIGH: round 1 **ISSUES**, three Warnings (a hot rollback
+journal was recovered before the refusal; the directory flush ran outside the
+create cleanup; `os.waitid` is missing on macOS before Python 3.13); round 2 one
+Critical (the header precheck closed a database descriptor and dropped an
+owner's POSIX locks); round 3 one Critical (a claim moved to another inode);
+round 4 two Criticals and harness non-convergence, after which Root simplified
+(the descriptor scan removed, an explicit contract boundary); round 5 one
+Critical in the documentation (the boundary widened to the whole ownership
+lifetime); round 6 **CLEAN**. The repairs are recorded in the DE03a sections
+above. DE03a is LANDED; DE03 stays IN_PROGRESS until b, c and d land, and all43
+P rows stay OPEN.
+
+The coordinator issued the DE03b work order on 2026-10-22. Its binding design is
+the DE03b row of the read-only DE03 SQLite prep with Root decisions D1–D13 (D6
+open-time `quick_check` only after an unclean shutdown, `integrity_check` in
+tests after every cut; D7 no table prefix; D11 schema v1 is Pi's version 2 shape
+and names plus the Python deltas, and DE27 bumps the version with its first
+delta), and these Root decisions for the slice:
+
+1. The identity gate lives in the header read DE03a performs before any
+   connection: `application_id` (bytes 68–71) and `user_version` (bytes 60–63),
+   so foreign and newer stores are refused with bytes unchanged. This closes
+   DE03a's open risk that a foreign WAL-mode file is opened and checkpointed at
+   close.
+2. DE03a's POSIX invariant is binding: new header reads go through the existing
+   gate, never a new raw descriptor.
+3. An interrupted create (0-byte or header-less database) gets a decided and
+   documented recovery rule; refusal plus an explicit procedure is preferred
+   over silent adoption, justified against Pi and the plan.
+4. Migrations are contiguous and transactional (`BEGIN IMMEDIATE`); a newer
+   version is refused before any write; a failing synthetic migration rolls back
+   version, probe table and data and can be retried; a synthetic table rebuild
+   keeps rows and indexes; SIGKILL mid-migration in a real child leaves the old
+   version and the next open migrates; foreign, corrupt and missing-metadata
+   refusals leave bytes unchanged.
+5. Integrity: open-time `quick_check` only after an unclean shutdown, with what
+   "unclean" means and what a failure does (refuse, bytes unchanged) defined.
+
+## DE03b local schema evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` MAX, sole writer on main from clean HEAD
+`0d37f64a`; no subagents. Upstream was read only through `git show` at the pin.
+Nothing is committed or pushed and no CI result is claimed.
+
+**Design.** One new private module, `native/durable/sqlite_schema.py`, runs
+inside DE03a's `open_owned_database`; there is no second entry point, so
+nothing opens a store without its identity and schema checks.
+
+- *Schema v1* is Pi durable 1.3.0's SQLite schema version 2 (pinned
+  `packages/durable/src/storage/sqlite/migrations.ts`, blob `a5ee244a…`, sha256
+  `dd0f6445…dea9`) with Pi's names and no prefix, plus the Python deltas in the
+  mapping below. `TABLES` and `INDEXES` keep Pi's identifier history, so a
+  prefix could still be added.
+- *Migrations*, a port of Pi chord's `applySqliteMigrations` (blob `d4dc7efe…`):
+  `MIGRATIONS` is an immutable, append-only tuple of `Migration(version,
+  statements)`; a list with non-contiguous versions or foreign types is refused
+  before any SQL ("SQLite migrations must have contiguous versions starting at
+  1"). One `BEGIN IMMEDIATE` transaction creates `durable_schema` when missing,
+  reads its version, refuses a newer one ("SQLite schema version N is newer than
+  supported version M"), and applies every pending migration with its version
+  bump in `durable_schema` and `PRAGMA user_version`; version 1 also sets
+  `PRAGMA application_id`. An error rolls everything back and propagates
+  unchanged; a failed rollback raises `SqliteRollbackError` carrying both errors
+  (chord's facade rule). The first transaction of `create` therefore commits
+  the identity, the schema and the metadata row together.
+- *Identity gate.* DE03a's pre-connect header read (`check_wal_header`, now
+  `check_store_header`; no shim under the no-deprecation policy) reads the
+  header once through ownership's descriptor rule and refuses, in this order, an
+  interrupted create (an empty file, or at most one page of zeros), anything
+  that is not an SQLite database in WAL mode (DE03a), a foreign application ID
+  (`ForeignStoreError`), a `user_version` above the supported version
+  (`NewerStoreError`, Pi's message) and the pipy application ID without a
+  version (`StorageCorruption`). Such a refusal happens before the lock: no
+  byte changes and no lock file appears. The gate also receives the `-wal` size
+  by `lstat` (`ownership.ExistingCheck` gained that argument; no descriptor),
+  because one shape cannot be decided from the database file alone: after the
+  WAL switch the header shows one page, application ID 0, user version 0 and
+  schema cookie 0, and a committed migration reaches the file only at a
+  checkpoint (probe below). An identity-less one-page database with no `-wal`
+  content is an interrupted create; with `-wal` content it is decided after WAL
+  recovery.
+- *Integrity* (`validate_store`, named so because a package-wide inventory test
+  watches attribute calls named `validate`). On the connection it requires the
+  identity again, the exact `sqlite_schema` rows `(type, name, tbl_name, sql)`
+  of the store's version, computed by replaying the migrations on an in-memory
+  database with the same SQLite (no extra table, index, view or trigger; every
+  definition as created), a `durable_schema` version equal to `user_version`
+  (a larger one is `NewerStoreError`, Pi's tamper) and the metadata singleton
+  with `2 <= next_id <= 2**53` and `1 <= next_seq <= 2**53`; Pi's messages
+  "SQLite schema metadata is missing" and "Durable SQLite metadata is missing"
+  are kept. Damage SQLite reports while reading (`SQLITE_CORRUPT`,
+  `SQLITE_NOTADB`) becomes `StorageCorruption`, a `RuntimeError`. (Round 1:
+  at every step of opening, migrating and closing a store; see
+  [the repair](#de03b-round-1-codex-review-repair).)
+- *D6 policy.* "Unclean" means a non-empty `-wal` found by `lstat` under the
+  lock before connecting (DE03a's `wal_size_at_open`). Then a read-only
+  connection (`mode=ro`, `trusted_schema=OFF`, `temp_store=MEMORY`, read back,
+  pinned for forks) lets SQLite recover the log into its `-shm` index, runs
+  `validate_store` and `PRAGMA quick_check`, and is closed before the owner
+  connects. A read-only connection never checkpoints, so every refusal there
+  leaves the database and `-wal` bytes unchanged. That connection opens and
+  closes descriptors of the owner's claimed inode while no other connection of
+  this process exists, which keeps DE03a's POSIX invariant. After a clean
+  shutdown no `quick_check` runs; the owner's connection validates, and a
+  refusal there writes nothing (no frame, so the close checkpoint copies
+  nothing).
+- *Open order.* Admission and runtime check, ownership with the header gate,
+  the read-only validation after an unclean shutdown, the owner's connection
+  and its PRAGMAs (DE03a), then `prepare`: `create` migrates the empty database
+  and validates; `open` validates, applies pending migrations only to a valid
+  older store, and validates again. `OwnedDatabase.schema_version` reports the
+  result.
+- *Recovery rule.* An interrupted create is refused (`InterruptedCreateError`)
+  and never adopted: nothing proves which process made the file, an empty
+  foreign database looks the same, and plan §6 and D9 forbid accidental
+  creation by `open`; Pi opens or creates and would adopt it. The documented
+  procedure (storage document): while no process owns the store, delete the
+  database and any `-wal`, `-shm` and `-journal` (the lock file may stay), then
+  create again. No committed data can be lost, because a create that committed
+  its schema is complete and `open` recovers it, also while its identity is
+  still only in the `-wal`.
+
+**Schema v1 mapping** (Pi schema version 2 to pipy schema version 1; the test
+`test_schema_v1_is_pi_version_2_with_exactly_the_python_deltas` derives the v1
+statements from Pi's pinned DDL plus exactly these deltas).
+
+| Pi version 2 | pipy version 1 | Reason |
+| --- | --- | --- |
+| `durable_schema` (runner bootstrap) | same DDL | none |
+| `durable_metadata.next_id TEXT`, seed `'2'` | `INTEGER`, seed `2` | Pi works around `node:sqlite` refusing unsafe integers |
+| `record_ids` and all 16 indexes | identical names and definitions | none |
+| `record TEXT NOT NULL CHECK (json_valid(record))` in `conversations`, `entries`, `tasks`, `submissions`, `documents` | `record BLOB NOT NULL` | D1: lossless UTF-8 JSON with lone surrogates; no JSON1 functions |
+| `tasks` rebuilt by version 2 for `sleeping` | created directly in that shape | no version 1 history (D11) |
+| `document_revisions.version INTEGER NOT NULL` | `version BLOB NOT NULL` | raw versions 0, −1, 1.5, −0.0 and integers beyond 64 bits survive, as in Memory (D2 (e)) |
+| `document_revisions.content TEXT NOT NULL CHECK (json_valid(content))` | `content BLOB NOT NULL` | D1 |
+| (none) | `submission_requests(conversation_id, request_id, submission_id, PRIMARY KEY (conversation_id, request_id))` | D2 (a): Memory's last writer of a request ID without fallback; DE03c fills it |
+| (no header identity) | `application_id` `0x50495059`, `user_version` 1 | the pre-connect identity gate |
+
+The identity columns (task `kind`, `request_id`, document `kind`,
+`key_value`) stay `TEXT`; DE03c fills them with ASCII JSON (D1).
+
+**Probes** (scratch, macOS 27.0.1, `.venv` Python 3.15.0 with SQLite 3.53.1 and
+uv Python 3.11.13 with SQLite 3.49.1; logs `probe_*.log`):
+
+- `PRAGMA journal_mode=WAL` on a new 0-byte file writes one 4096-byte page:
+  versions 2/2, page count 1, schema cookie 0, schema format 0, application ID
+  0, user version 0, and no `-wal` yet. In a directory that forbids new files
+  the switch fails ("attempt to write a readonly database"): it writes through
+  a transient rollback journal, so a crash there can leave a `-journal`, which
+  DE03a's journal refusal catches.
+- `PRAGMA application_id` and `user_version` inside a transaction roll back
+  with it. After a committed migration the database file's header still shows
+  application ID 0, user version 0 and schema cookie 0 until a checkpoint
+  copies page 1; the identity is then only in the `-wal`.
+- A transaction with nothing to write appends no frame; setting
+  `application_id` to its current value does (4152 bytes), so only version 1
+  sets it.
+- A read-only (`mode=ro`) connection to a database whose writer crashed sees
+  the committed `-wal` rows, ignores uncommitted spilled frames, sees an
+  identity that is only in the `-wal`, refuses writes, and on close leaves the
+  database and `-wal` byte-identical; only the `-shm` changes, or is created
+  when it was missing. A read-write connection then sees the same state.
+- An invalid b-tree page type on an index root makes `quick_check` report two
+  findings and `integrity_check` raise "database disk image is malformed",
+  while `sqlite_schema`, PRAGMAs and other tables still read; random bytes in a
+  cell's payload are found by neither.
+- With `cache_size=1` the create's own migration spills 119,512 bytes of
+  uncommitted frames into the `-wal` by its last statement; with the default
+  cache the `-wal` stays empty.
+- The vendored Pi DDL in the mapping test equals the pinned `migrations.ts`
+  (sha256 `dd0f6445…dea9`) rendered with Pi's default identifiers: 25 version
+  1 statements, the version 2 tasks table and its five indexes
+  (`vendored-ddl-check.log`, exit 0).
+
+**Tests.** `tests/durable/test_sqlite_schema.py` (new): 27 functions, 55
+cases, 8 of them with real children through the DE03a helper (own session and
+process group, JSON-line handshake, per-event deadlines, killing and reaping
+the group). Files are read or tampered with only while no store is open in the
+process.
+
+- Mapping and shape: the v1 statements equal Pi's pinned version 2 DDL with
+  exactly the listed deltas; a created store carries the header identity, Pi's
+  table and index names plus `submission_requests` and two autoindexes, no view
+  or trigger, `durable_schema` (1, 1), metadata (1, 2, 1) and
+  `integrity_check` ok; the `BLOB` columns keep `0`, `-1`, `1.5`, `-0.0` and
+  `2**64` versions and lone surrogates, and STRICT refuses text in them.
+- Runner (Pi chord's tests): non-contiguous lists (`[2]`, `[1, 3]`, `[1, 1]`,
+  `[2, 1]`) and ill-typed ones (a list, a foreign element, version 0, a `bool`
+  version, a list of statements, a `str` subclass statement) are refused before
+  any SQL; the runner applies repeatably and writes no frame when nothing is
+  pending; a bootstrap plus a failing second migration roll back together
+  (no object, application ID 0, user version 0, no open transaction) and the
+  fixed list then applies; a newer store raises Pi's message; a failed
+  rollback raises `SqliteRollbackError` with both errors.
+- Migrations through `open` (Pi's durable tests): a failing synthetic version 2
+  (probe table, probe row, a metadata update, a deletion, then invalid SQL)
+  leaves every store file but the lock's diagnostics byte-identical, twice, and
+  the fixed version 2
+  then migrates with the rows and metadata kept; a failing first migration
+  leaves only the lock file and `create` works again; a synthetic `tasks`
+  rebuild (Pi's version 1 to 2 pattern with a new status) keeps all 40 rows and
+  the five indexes, leaves no `tasks_v2`, accepts the new status, still refuses
+  an unknown one and plans `tasks_by_status`; opening a current store twice
+  writes nothing.
+- Identity gate: a plain WAL database, a GeoPackage application ID, user
+  version 5, a dropped-table database and the pipy application ID without a
+  version are refused with no `sqlite3.connect` call, the same bytes and modes
+  and no lock file, twice; a crashed foreign writer's database, `-wal` and
+  `-shm` stay byte-identical; a newer store by header, by `user_version` alone
+  (both before any connection) and by `durable_schema` alone (Pi's tamper,
+  after connecting, writing nothing) is refused with Pi's message, and the
+  newer code then opens it.
+- Integrity: an extra table, index, view or trigger, a dropped or changed
+  index, a missing `durable_schema` or metadata row (Pi's messages), a version
+  mismatch and counters just outside the range are refused with the bytes
+  unchanged and the lock free, twice; `2**53` counters are accepted; damage
+  SQLite reports while validating becomes `StorageCorruption`.
+- D6, both sides: a corrupted index root after an unclean shutdown (a real
+  child killed while owning the store) is refused by `quick_check` on the
+  read-only connection with the database and `-wal` unchanged; after a clean
+  shutdown the same store opens and `integrity_check` finds the damage; an
+  unclean shutdown with valid content connects read-only, then read-write, and
+  opens with every row, `integrity_check` ok and `0600` sidecars.
+- Interrupted create and recovery: an empty, a 512-byte and a 4096-byte
+  zero-filled file are refused before the lock and `create` refuses them;
+  after the documented procedure `create` works. A real child killed before
+  its schema commit, with and without spilled frames, leaves a store that
+  `open` refuses (with spilled frames only after a read-only connection) with
+  the database and `-wal` unchanged and that the procedure recovers; one killed
+  right after the commit leaves a store whose identity is only in the `-wal`,
+  which opens as a complete version 1 store and carries the identity in the
+  file after its close.
+- Migration cuts: SIGKILL in a real child inside a version 2 table rebuild of
+  1500 rows with spilled frames leaves version 1 with every row and
+  `integrity_check` ok, then version 2 migrates them; a child killed right
+  after a version 2 commit leaves version 2 only in the `-wal`, which version 1
+  code refuses with the database and `-wal` unchanged and version 2 code opens.
+
+**DE03a tests adapted** (`tests/durable/test_sqlite_ownership.py`, 142 cases,
+and `sqlite_child_support.py`). Every store now has schema v1, so DE03a's
+scratch table `t` would fail the exact-schema check: the tests keep their
+scratch rows as raw bytes in the v1 `conversations` table through `put` and
+`stored` (also in the child prelude), which nothing reads as records; the
+residue probe deletes from `conversations`. An empty file is now refused as
+an interrupted create (`InterruptedCreateError`) instead of "not an SQLite
+database"; the "header check missed" control patches `check_store_header`. No
+assertion was weakened, and DE03a's 46-mutant matrix, re-anchored, still fails
+every designated test (below).
+
+**Private negative controls** (scratch matrix `mutants.py`, not in the
+permanent suite). Each of 30 source mutants was applied in place, both SQLite
+test files ran against it, and the original bytes were restored and checked by
+sha256 after every mutant. Every mutant made its designated tests fail
+(failing cases in brackets): the identity gate disabled (9), application ID 0
+accepted (11), the header newer check (2), the `durable_schema` newer check
+(1), the newer check after WAL recovery (1), the runner's newer check (1), the
+rollback skipped (3), a commit per migration (1), no `user_version` bump (110),
+no application ID (109), the contiguity check (4), exact migration types (1),
+no `quick_check` (1), `quick_check` on every open (18), the validation
+connection read-write (5), unclean shutdowns not detected (5), the unwritten
+file check (4), always deferring the identity-less page (1), adopting an
+interrupted create after recovery (1), never deferring (6), the `-wal` size not
+passed by ownership (6), extra objects tolerated (4), names compared without
+SQL (1), the missing metadata check (1), each counter bound (1, 1, 2, 1), the
+version mismatch check (1) and the damage mapping (1).
+
+**Results.**
+
+| Check | macOS 27.0.1 arm64, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| `test_sqlite_schema.py` and `test_sqlite_ownership.py` under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 197 passed each | 20 of 20 exit 0; 197 passed each |
+| the same plus the coverage tests under `-X dev -W error` | 0; 298 passed | 0; 298 passed |
+| coverage and acceptance tests, after the cascade | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1551 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (900 files) | not run |
+| strict docs build and rendered links on the five changed pages, after the final ledger edit | 0 ("No issues found"); 908 local links, none broken | not run |
+| DE03b mutant matrix | 0; 30 mutants, no designated failure missing | not run |
+| DE03a mutant matrix, re-anchored, on the adapted DE03a tests | 0; 46 mutants, every designated test fails (one under its renamed test ID, confirmed by a rerun), the directory-flush mutant survives by design | not run |
+| a store made by the other host's SQLite | the 3.45.1 store opens and validates | the 3.53.1 store opens and validates |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new and adapted tests also ran on the locally installed uv Python 3.11.13
+(SQLite 3.49.1) and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 197 passed
+each, in throwaway venvs in scratch built from a snapshot of the working tree
+and installed offline from the existing scratch uv cache; the project `.venv`
+and `uv.lock` were untouched. Stores made by SQLite 3.49.1 and 3.53.1 open on
+the other one. The first full inventory run failed one package-wide test on the
+attribute call `sqlite_schema.validate` (the rename above); the run above is
+after the rename.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03b-20261022T000549Z/` (mode `0700`, on ext4), with
+DE03a's procedure: a copy of the working tree (`git ls-files -co
+--exclude-standard`, 3931 files, sent with `rsync` over SSH using the launchd
+agent socket for those commands only; eight key files compared by sha256), a
+project-local venv on the system Python (`UV_PYTHON_DOWNLOADS=never uv venv
+--python /usr/bin/python3.12`, then `uv sync --frozen`), and the uv cache,
+`TMPDIR` and pytest temporary directories inside it. Each Linux repeat took
+about 82 seconds against about 21 on macOS. After the run the previous
+directory `~/pipy-de03-linux/de03a-20261021T221825Z/` was deleted; nothing else
+was removed, exactly one DE03 directory remains, and no process of the user
+names it outside the checking session.
+
+**Reruns on the final tree.** Two documentation-only edits followed the runs
+above (the `sqlite_schema` docstring on the header lagging the `-wal`, and a
+comment in `ownership._gate_existing`; no code change), so everything ran again
+on the final tree, with the same results: the macOS battery (`final2-*`), whose
+docs-dependent run failed twice in `test_docs_build.py`'s preview-server timing
+test, which builds its own temporary project and waits at most 20 seconds,
+while the load average was about 6 (DE03a saw the same under load), and passed
+677 of 677 when rerun at once. The closing run after the last ledger edit hit
+it once more and passed on rerun, and a clean `git archive` of HEAD, without any
+DE03b change, fails the same test under the same load (two of two whole-file
+runs; `docs-build-test-compare.log`), so it is environmental. Python 3.11 and
+3.12 passed 197 each; and on
+Linux the same directory, re-synced with ten key files compared by sha256,
+which ran the coverage and acceptance tests (153), the new and coverage tests
+under `-X dev -W error` (298), the 20 repeats (197 each) and the cross-version
+check again, with no leftover process. The ledger's own last prose edits came
+after these runs; they change no line a test reads, and the document-reading
+checks ran again after them.
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/logs/` (macOS: `final-*.log`, `mutant-matrix.log`,
+`mutant-matrix-de03a*.log`, `cascade.log`, `closure-verify.log`,
+`binding-check.log` and the superseded `binding-check-head-relative.log`,
+`docs-build.log`, `rendered-links.log`, `vendored-ddl-check.log`,
+`xver-local.log`, and the final-tree reruns `final2-*.log`), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/probes/` (probes), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/pycompat/` (Python
+3.11 and 3.12; the first run in `run1/`) and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/linux/remote-logs/` and `remote-logs-final/` (Linux, copied back, with the
+cross-version logs in `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/linux/`).
+
+**Manifest cascade and chain binding.** Only two files the baseline manifest
+hashes changed: the coverage index (DE03a LANDED with its delivery, DE03b
+IN_PROGRESS with its observables, the DE03 parent text) and the coverage test
+(DE03a LANDED, DE03b IN_PROGRESS, and the parent-cannot-land test also flips a
+LANDED child). The acceptance script did not change, because the DE03 rows
+keep their split anchor. No file of the a1, a2b, b1b or b3 closures changed.
+The cascade (baseline → a1 → a2b → b1b → b3) ran last over closure and parent
+hashes only: baseline `5ae95450…0733`, a1 `bfb819f3…619e`, a2b
+`84153685…f874`, b1b `48a17af0…89b9e5` and b3 `54e7ec1c…9ab9`. Closure
+verification exits 0: b3's `configuration()`, which validates b1b, a2b, a1 and
+the baseline, passes; no closure entry is stale; and the key-level diff against
+HEAD is exactly those two baseline entries plus the parent hashes derived from
+them. The DE03a-era binding check compared HEAD's manifests with DE02b3's
+binding, which stopped holding when DE03a landed its own bookkeeping cascade
+(its log is kept, exit 1). The binding is therefore now checked against the
+commit it was made for, `d2e62390`: `final-pairs.json` (sha256 `715c3246…4613`)
+names exactly that commit's five manifests, both chains' acceptance and child
+results are intact and PASS, of the 63 files any of those manifests hashes
+only the three bookkeeping files differ in the working tree (the acceptance
+script changed in DE03a), and the manifest diff against `d2e62390` is those
+entries plus derived parent hashes (exit 0). No chain-bound file changed, so no
+chain reran.
+
+**Deviations from the prep and the work order, with reasons.**
+
+1. `ownership.ExistingCheck` gained the `-wal` size (by `lstat`, no
+   descriptor) so the gate can tell an interrupted create from a create that
+   crashed after its commit; the probe shows the file header lags the `-wal`.
+2. One shape is decided after WAL recovery instead of by the header alone: an
+   identity-less one-page database with a non-empty `-wal`. An empty foreign
+   database in that state is opened read-only (only its `-shm` index is
+   rebuilt) and then refused.
+3. `quick_check` and the validation after an unclean shutdown run on a separate
+   read-only connection, because only that keeps the database and `-wal` bytes
+   unchanged on every supported Python: 3.11 has no `Connection.setconfig` for
+   `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`, and a read-write connection checkpoints
+   when it closes.
+4. `document_revisions.version` is a `BLOB` of the version's JSON number. The
+   prep named a "lossless version" delta without a type; `ANY` cannot bind
+   integers beyond 64 bits, which the finite-JSON codec allows.
+5. `submission_requests` is created in v1, as the prep's "request-winner table
+   if D2" (D2 accepted), although DE03b does not use it; DE03c fills it, or
+   adds a version if its paired probe needs another shape.
+6. The DE03a test file was adapted (scratch rows in `conversations`, the empty
+   file reclassified, the renamed gate patched); `check_wal_header` became the
+   format part of `check_store_header` without a shim.
+7. The new errors (`ForeignStoreError`, `NewerStoreError`,
+   `InterruptedCreateError` under `StoreIdentityError`; `StorageCorruption`;
+   `SqliteRollbackError`) are `RuntimeError`s defined in `sqlite_schema`, not
+   `StorageConfigurationError`s, so `sqlite_schema` imports nothing from the
+   connection module; DE03c reuses `StorageCorruption` and
+   `SqliteRollbackError`.
+8. `validate_store`, not `validate`: a package-wide inventory test watches
+   attribute calls named `validate` (the first full inventory run failed on
+   it; the rename has no behaviour change).
+9. `OwnedDatabase` reports `schema_version`.
+
+**Prep versus reality, flagged.** (a) The database file's header lags the
+`-wal`: identity and `user_version` reach the file only at a checkpoint, so a
+header-only gate would refuse a create that crashed after committing and would
+miss a newer version committed only in the `-wal`; handled by the deferral and
+the post-recovery validation above. (b) Keeping bytes unchanged after
+recovery needs a read-only connection on Python 3.11. (c) The WAL switch of a
+new file goes through a transient rollback journal. Every other prep
+assumption held.
+
+**Open risks for DE03c and later.** (1) `submission_requests` is designed
+ahead of its user; DE03c must keep it consistent in every submission write, or
+add a version. (2) The exact-schema check compares SQLite's stored SQL text,
+which held across SQLite 3.45.1, 3.49.1 and 3.53.1 (cross-version checks above); a
+future SQLite that stored it differently would refuse older stores, closed but
+needing a migration of the check. (3) After a clean shutdown corruption is
+found only when records are read: DE03c must turn decode and shape failures
+into `StorageCorruption` and run its statements on the raw connection inside
+`damage_as_corruption` (round 1), and a damaged index can still answer queries
+wrongly until an operator runs `integrity_check`. (4) `quick_check` after an
+unclean shutdown costs time proportional to the store; DE03d's P43 budget
+should measure it. (5) `MIGRATIONS` is a module global that tests replace;
+DE03c and DE27 must keep it append-only, and the mapping test pins version 1.
+(6) DE10's read-only inspection must call `validate_store` without
+`apply_migrations` and handle an unclean store without writing. (7) DE03c's
+commit inherits the runner's transaction pattern; the D4 COMMIT poisoning and
+`SqliteRollbackError` semantics are its decisions.
+
+### DE03b round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH on tree `df197827`: **ISSUES**, no
+Critical and one Warning, accepted by the coordinator and repaired by Claude Code
+`claude-opus-5-5` MAX; no CI result is claimed.
+
+- **Warning: damage SQLite reported while configuring escaped as a raw
+  `sqlite3.DatabaseError`.** Only `validate_store` and `quick_check` converted
+  SQLite's corruption errors, but the owner's PRAGMA configuration loads the
+  schema first. Reproduced before the repair: a closed store with byte 100 (the
+  b-tree type of page 1, the root of `sqlite_schema`) set to `0x01` made `open`
+  raise `sqlite3.DatabaseError: database disk image is malformed`
+  (`SQLITE_CORRUPT`) from `_configure`; the bytes stayed unchanged. On the
+  unclean path the same damage already surfaced as `StorageCorruption`, but only
+  because the read-only validation connection first loaded the schema inside
+  `validate_store`.
+
+**Repair.** One context manager, `sqlite_schema.damage_as_corruption(label)`,
+converts exactly SQLite's corruption errors, `SQLITE_CORRUPT` with its extended
+codes and `SQLITE_NOTADB` (the primary code of `sqlite_errorcode`, which Python
+3.11 and later set on errors that come from SQLite), into `StorageCorruption`
+with the SQLite error as its cause. Any other error passes unchanged, and so
+does an error the `sqlite3` module raises itself without a code; nothing else is
+reclassified as damage. It now wraps every step of opening a store after
+ownership (the read-only validation after an unclean shutdown, the owner's
+connection, its configuration and read-back, the identity checks and
+`prepare`), so the cleanup (closing the connection, removing what `create`
+made, releasing the lock) sees the converted error; `apply_migrations`, outside
+its rollback; `validate_store` and `quick_check`, replacing their own handlers;
+and `OwnedDatabase.close()`, whose stored error, raised again by a repeated
+close, is the converted one. `apply_migrations` takes the store's `label` for
+the message.
+
+**Audit of the entry points.**
+
+| Entry point | SQLite work | Before | Now |
+| --- | --- | --- | --- |
+| `open_owned_database`, clean shutdown | owner's connection, PRAGMA configuration and read-back, `prepare` (`validate_store`, `apply_migrations`) | only `validate_store` converted; configuration and a migration's reads raised raw errors | all of it in one guard; the cleanup sees `StorageCorruption` |
+| `open_owned_database`, unclean shutdown | read-only connection, its settings and read-back, `validate_store`, `quick_check` | the settings and read-back were outside every guard | inside the same guard |
+| `apply_migrations` (tests now, DE10 later) | `BEGIN IMMEDIATE`, bootstrap, statements, `COMMIT` | raw after the rollback | guarded, after the rollback |
+| `validate_store`, `quick_check` | reads | their own handlers | the shared guard |
+| `OwnedDatabase.close()` | rollback of an abandoned transaction, TRUNCATE checkpoint, connection close | raw, stored and raised again | guarded; the stored error is the converted one |
+| `OwnedDatabase.connection()` | none (returns the raw connection) | statements on it raise SQLite's errors | unchanged: DE03c wraps its statements in `damage_as_corruption` |
+| `check_store_header` and the identity checks | header bytes through `os.pread`, no SQLite call | no SQLite error possible; a malformed header is `StorageConfigurationError` or an identity error by design | unchanged |
+| in-memory schema replay | `:memory:` only | an error there is a broken migration, not damage | unchanged |
+| `ownership`, `check_sqlite_runtime` | no SQLite I/O | none | unchanged |
+| cleanup closes after a failure | connection close | a close failure becomes a note on the first error | unchanged |
+
+**Regressions** (12 new cases; `tests/durable/test_sqlite_schema.py` now has 32
+functions and 67 cases, 11 of them with real children):
+
+- A damaged schema page on both open paths: page 1 (byte 100) or the last leaf
+  of `sqlite_schema` (page 1's right-most pointer; the v1 schema spans pages,
+  so page 1 is an interior page). `open` raises `StorageCorruption` twice,
+  whose cause is a `sqlite3.DatabaseError` with `SQLITE_CORRUPT` or
+  `SQLITE_NOTADB`. After a clean shutdown only the owner's read-write connection
+  opened, no byte changed and no `-wal` or `-shm` remained. After an unclean
+  shutdown (a real child killed while owning the store, its `-wal` holding a
+  `record_ids` frame) only the read-only validation connected, the database and
+  `-wal` stayed byte-identical and only the `-shm` index was rebuilt. The lock
+  is free afterwards.
+- Damage a migration reads (the `tasks` root corrupted, which validation never
+  reads; a version 2 rebuild copies the table): `StorageCorruption` after the
+  rollback, no byte changed, the header still at version 1, the lock free. The
+  same through `apply_migrations` on a plain connection, which is not left in
+  a transaction.
+- A real non-corruption error: a foreign process holding the store in
+  `locking_mode=EXCLUSIVE` (busy timeout 0.2 seconds) makes `open` raise
+  `sqlite3.OperationalError` with `SQLITE_BUSY`, unchanged, with no byte changed
+  and the lock free; the store opens once the holder is gone.
+- Close: a checkpoint failure injected at its seam with `SQLITE_CORRUPT`, the
+  extended code 267 or `SQLITE_NOTADB` is raised as `StorageCorruption` with
+  that cause, and a repeated close raises the same object; `SQLITE_IOERR` and
+  `SQLITE_BUSY` pass unchanged; the lock is released either way.
+- Against the reviewed sources (`df197827`, swapped in and restored by sha256)
+  7 of the 12 fail: both clean-path schema cases, the migration and runner
+  cases and the three close damage codes. The 5 that pass are the three
+  non-corruption controls and the unclean path, where the read-only
+  connection happened to reach `validate_store`'s own conversion first.
+
+**Negative controls.** The DE03b matrix has 34 mutants now (three re-anchored
+to the new indentation). Removing the open-level guard fails the two clean-path
+schema cases (`validate_store` and `apply_migrations` keep their own guards);
+removing the runner's guard fails the direct runner case; removing the close
+guard fails the three close damage codes; a guard that converts every
+`sqlite3.DatabaseError` fails six cases (the real `SQLITE_BUSY`, the close
+`SQLITE_IOERR` and `SQLITE_BUSY`, and the three existing cases that expect a
+failing migration's raw syntax error). The damage-mapping mutant now fails 10
+cases. Every mutant fails its designated tests and the unmodified sources pass
+all 209 cases of both files. DE03a's matrix, with its two identity-check anchors
+moved into the guard, fails every designated test again (45 of 45; the
+directory-flush mutant survives by design).
+
+**Results after the repair.** These supersede the earlier DE03b tables.
+
+| Check | macOS 27.0.1, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| `test_sqlite_schema.py` and `test_sqlite_ownership.py` under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 209 passed each | 20 of 20 exit 0; 209 passed each |
+| the same plus the coverage tests under `-X dev -W error` | 0; 310 passed | 0; 310 passed |
+| coverage and acceptance tests, after the cascade | 0; 153 passed | 0; 153 passed |
+| `pytest tests/durable` | 0; 1563 passed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (900 files) | not run |
+| strict docs build and rendered links on the five changed pages, after the final ledger edit | 0 ("No issues found"); 911 local links, none broken | not run |
+| DE03b mutant matrix | 0; 34 mutants, no designated failure missing | not run |
+| DE03a mutant matrix, re-anchored | 0; 46 mutants, every designated test fails, the directory-flush mutant survives by design | not run |
+| the new regressions on the reviewed sources (`df197827`) | exit 1; 7 of 12 fail | not run |
+| a store made by the other host's SQLite | the 3.45.1 store opens and validates | the 3.53.1 store opens and validates |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new and adapted tests also ran on the locally installed uv Python 3.11.13
+(SQLite 3.49.1, so `sqlite_errorcode` is checked on the oldest supported Python)
+and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 209 passed each, in
+throwaway venvs in scratch built from a snapshot of the working tree and
+installed offline from the existing scratch uv cache.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03b-20261022T015019Z/` (mode `0700`, on ext4), with the
+same procedure as before: a fresh copy of the working tree (3931 files; ten key
+files compared by sha256), a project-local venv on the system Python with
+`uv sync --frozen`, and the uv cache, `TMPDIR` and pytest temporary
+directories inside it. After the run the previous directory
+`~/pipy-de03-linux/de03b-20261022T000549Z/` was deleted; nothing else was
+removed, exactly one DE03 directory remains, and no process of the user names
+it outside the checking session.
+
+**Cascade.** `coverage.json` changed again (the DE03b observables name the
+repair and its regressions; nothing else), so the cascade ran last: baseline
+`15aac65c…4141`, a1 `2a40f652…9f5f`, a2b `57a27cc2…097d`, b1b
+`b8b1bcc1…68ea` and b3 `e11b9c7c…8068`. Closure verification exits 0 with no
+stale entry, the key-level diff against HEAD is still the two bookkeeping
+entries plus the derived parent hashes, and the binding check against
+`d2e62390` exits 0 (only the three bookkeeping files of the 63 chain-hashed
+files differ).
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-logs/` (the reproduction before and after the fix, the
+`SQLITE_BUSY` probe, `macos-*.log`, both matrices, the regressions on the
+reviewed sources, coverage update, cascade, closure, binding and the closing
+checks), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-probes/`, `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-pycompat/` (Python 3.11 and
+3.12) and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-linux/remote-logs/` (Linux, copied back, with the
+cross-version logs in `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-linux/`).

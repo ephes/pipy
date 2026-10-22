@@ -360,8 +360,10 @@ def test_sqlite_split_children_keep_original_parent_contract():
     assert parent["contract"].startswith("Implement local SQLite backend/schema")
     assert parent["future"].startswith("Two processes/aliases cannot own one DB;")
     assert "DE03 completes only after its a+b+c+d children" in parent["future"]
-    assert rows["DE03a"]["status"] == "IN_PROGRESS"
-    for child in ("DE03b", "DE03c", "DE03d"):
+    assert rows["DE03a"]["status"] == "LANDED"
+    assert "delivered at 0d37f64a" in rows["DE03a"]["current"]["observables"]
+    assert rows["DE03b"]["status"] == "IN_PROGRESS"
+    for child in ("DE03c", "DE03d"):
         assert rows[child]["status"] == "OPEN"
     for key in ("DE03", "DE03a", "DE03b", "DE03c", "DE03d"):
         current = rows[key]["current"]
@@ -391,6 +393,7 @@ def test_sqlite_parent_cannot_land_with_any_open_child(tmp_path, child):
             rows[index]
             .replace("| IN_PROGRESS |", f"| {state} |")
             .replace("| OPEN |", f"| {state} |")
+            .replace("| LANDED |", f"| {state} |")
         )
     path.write_text("\n".join(rows) + "\n")
     with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):

@@ -1,6 +1,6 @@
-"""Minimal verified SQLite connection lifecycle for an owned store (DE03a).
+"""Verified SQLite connection lifecycle for an owned store (DE03a, DE03b).
 
-Private and not exported; no schema (DE03b) and no Storage semantics (DE03c).
+Private and not exported; no Storage semantics (DE03c).
 ``open_owned_database`` admits its input, checks the SQLite runtime, takes path
 ownership (``ownership.py``) and only then connects with ``mode=rw``, so SQLite
 never creates the database itself and its sidecars inherit the owner-only mode.
@@ -17,6 +17,25 @@ checked against the claimed inode with ``os.stat`` under the lock, right after
 connecting and after configuration, as best-effort detection under the
 contract boundary below. Once connected, no descriptor of the database is
 opened.
+
+Schema and integrity (DE03b, ``sqlite_schema``). The header gate,
+``check_store_header``, reads the header once through that descriptor rule and
+refuses, before any connection, an interrupted create, a file that is not an
+SQLite database in WAL mode, a foreign application ID and a newer schema
+version, so SQLite never reads, recovers or checkpoints such a file. After an
+unclean shutdown (a non-empty ``-wal`` found under the lock, Root decision D6)
+a read-only connection validates the recovered store and runs ``quick_check``
+before the owner connects: a read-only connection never checkpoints, so its
+refusal leaves the database and ``-wal`` bytes unchanged (SQLite rebuilds only
+its ``-shm`` index). It is closed before the owner's connection opens, so its
+descriptors close while no other connection of this process holds locks on the
+file. The owner's connection then runs ``sqlite_schema.prepare``: ``create``
+migrates the new database, ``open`` validates first and applies pending
+migrations only to a valid older store. Every corruption error SQLite reports
+while a store is opened or closed (``SQLITE_CORRUPT`` with its extended codes,
+``SQLITE_NOTADB``) is raised as ``sqlite_schema.StorageCorruption`` with the
+SQLite error as its cause, after the same cleanup as any other failure; other
+errors pass unchanged.
 
 Contract boundary. The store directory is private to the owning user (owned by
 that user, mode ``0700``; missing directories are created that way, and keeping
@@ -62,7 +81,7 @@ import threading
 import urllib.parse
 from typing import Literal
 
-from . import ownership
+from . import ownership, sqlite_schema
 from .ownership import (
     PathOwner,
     StoragePath,
@@ -79,6 +98,8 @@ _HEADER_SIZE = 100
 BUSY_TIMEOUT_SECONDS = 5.0
 WAL_AUTOCHECKPOINT_PAGES = 1000
 _PLATFORM = sys.platform
+# The read-only connection that validates a store after an unclean shutdown.
+_VALIDATION_SETTINGS = (("trusted_schema", "OFF", 0), ("temp_store", "MEMORY", 2))
 
 
 class StorageConfigurationError(RuntimeError):
@@ -98,16 +119,30 @@ def check_sqlite_runtime() -> None:
         )
 
 
-def check_wal_header(fd: int, label: str) -> None:
-    """Refuse a file that is not an SQLite database in WAL mode, by its header.
+def check_store_header(fd: int, label: str, wal_size: int) -> None:
+    """The pre-connect gate: refuse a file the store cannot own, by its header.
 
-    Runs on a read-only descriptor before any connection exists, so SQLite never
-    reads, recovers or rewrites a file the store refuses (the database file
-    format, sections 1.3.2 and 1.3.3: the magic string, a power-of-two page size
-    of 512 to 65536, and write/read versions 2 for WAL).
+    Runs on ownership's read-only descriptor before any connection exists, so
+    SQLite never reads, recovers or rewrites a refused file. ``wal_size`` is the
+    ``-wal`` size by ``lstat``; ``sqlite_schema.check_identity`` explains the
+    one shape it lets through to be decided after WAL recovery.
     """
 
-    header = os.pread(fd, _HEADER_SIZE, 0)
+    size = os.fstat(fd).st_size
+    data = os.pread(fd, min(size, sqlite_schema.MAX_PAGE_SIZE), 0)
+    sqlite_schema.check_unwritten(data, size, label)
+    header = data[:_HEADER_SIZE]
+    _check_format(header, label)
+    sqlite_schema.check_identity(header, size, label, wal_size)
+
+
+def _check_format(header: bytes, label: str) -> None:
+    """Refuse a file that is not an SQLite database in WAL mode.
+
+    The database file format, sections 1.3.2 and 1.3.3: the magic string, a
+    power-of-two page size of 512 to 65536, and write/read versions 2 for WAL.
+    """
+
     size = int.from_bytes(header[16:18], "big")
     size = 65536 if size == 1 else size
     if (
@@ -130,10 +165,62 @@ def _admit_durability(value: object) -> Durability:
     return "full" if value == "full" else "normal"
 
 
-def _uri(database: str) -> str:
+def _uri(database: str, mode: Literal["rw", "ro"] = "rw") -> str:
     # An empty authority keeps a path that starts with "//" a path.
     quoted = urllib.parse.quote_from_bytes(os.fsencode(database), safe="/")
-    return f"file://{quoted}?mode=rw"
+    return f"file://{quoted}?mode={mode}"
+
+
+def _connect(database: str, mode: Literal["rw", "ro"]) -> sqlite3.Connection:
+    return sqlite3.connect(
+        _uri(database, mode),
+        uri=True,
+        timeout=BUSY_TIMEOUT_SECONDS,
+        isolation_level=None,
+        check_same_thread=False,
+    )
+
+
+def _read_back(
+    connection: sqlite3.Connection, settings: tuple[tuple[str, str, int], ...]
+) -> None:
+    for name, _, wanted in settings:
+        actual = connection.execute(f"PRAGMA {name}").fetchone()[0]
+        if type(actual) is not int or actual != wanted:
+            raise StorageConfigurationError(
+                f"SQLite PRAGMA {name} reads back {actual!r}, expected {wanted!r}"
+            )
+
+
+def _validate_after_crash(owner: PathOwner) -> None:
+    """D6: validate a store whose last owner did not close it cleanly.
+
+    The previous owner left a non-empty ``-wal``. A read-only connection lets
+    SQLite recover it into the ``-shm`` index only and never checkpoints, so a
+    refusal here leaves the database and ``-wal`` bytes unchanged. It is closed
+    before the owner connects; no other connection of this process can hold
+    locks on the file then (see ``ownership`` on POSIX record locks).
+    """
+
+    label = f"database {owner.path.database!r}"
+    validation = _connect(owner.path.database, "ro")
+    try:
+        owner.pin_in_forked_children(validation)
+        _verify_identity(owner)
+        for name, value, _ in _VALIDATION_SETTINGS:
+            validation.execute(f"PRAGMA {name}={value}").fetchall()
+        _read_back(validation, _VALIDATION_SETTINGS)
+        sqlite_schema.validate_store(validation, label=label)
+        sqlite_schema.quick_check(validation, label=label)
+    except BaseException as error:
+        try:
+            validation.close()
+        except sqlite3.Error as cleanup:
+            error.add_note(
+                f"Closing the validation connection also failed: {cleanup!r}"
+            )
+        raise
+    validation.close()
 
 
 def _settings(durability: Durability) -> tuple[tuple[str, str, int], ...]:
@@ -174,16 +261,8 @@ def _configure(
         raise StorageConfigurationError(
             f"{owner.path.database!r} is not a WAL database (journal mode {journal!r})"
         )
-    expected = (
-        *((name, wanted) for name, _, wanted in settings),
-        ("busy_timeout", int(BUSY_TIMEOUT_SECONDS * 1000)),
-    )
-    for name, wanted in expected:
-        actual = connection.execute(f"PRAGMA {name}").fetchone()[0]
-        if type(actual) is not int or actual != wanted:
-            raise StorageConfigurationError(
-                f"SQLite PRAGMA {name} reads back {actual!r}, expected {wanted!r}"
-            )
+    timeout = ("busy_timeout", "", int(BUSY_TIMEOUT_SECONDS * 1000))
+    _read_back(connection, (*settings, timeout))
     if connection.in_transaction:
         raise StorageConfigurationError("SQLite left a transaction open while opening")
 
@@ -248,23 +327,32 @@ class OwnedDatabase:
     forked child ``connection()`` raises ``StorageForkedError`` and ``close()``
     does nothing, so the inherited connection is never touched there.
     ``close()`` is idempotent: a failed close raises the same error again.
+    ``schema_version`` is the validated schema version after opening.
+    Statements on the raw connection report damage as plain SQLite errors; its
+    users wrap them in ``sqlite_schema.damage_as_corruption``.
     """
 
     __slots__ = (
         "_owner",
         "_connection",
         "durability",
+        "schema_version",
         "_lock",
         "_closed",
         "_close_error",
     )
 
     def __init__(
-        self, owner: PathOwner, connection: sqlite3.Connection, durability: Durability
+        self,
+        owner: PathOwner,
+        connection: sqlite3.Connection,
+        durability: Durability,
+        schema_version: int,
     ) -> None:
         self._owner = owner
         self._connection = connection
         self.durability = durability
+        self.schema_version = schema_version
         self._lock = threading.Lock()
         self._closed = False
         self._close_error: Exception | None = None
@@ -301,14 +389,16 @@ class OwnedDatabase:
                     raise self._close_error
                 return
             self._closed = True
+            label = f"database {self._owner.path.database!r}"
             try:
-                try:
-                    if self._connection.in_transaction:
-                        # Closing discards it anyway; the checkpoint needs none.
-                        self._connection.execute("ROLLBACK")
-                    _truncate_checkpoint(self._connection)
-                finally:
-                    self._connection.close()
+                with sqlite_schema.damage_as_corruption(label):
+                    try:
+                        if self._connection.in_transaction:
+                            # Closing discards it anyway; the checkpoint needs none.
+                            self._connection.execute("ROLLBACK")
+                        _truncate_checkpoint(self._connection)
+                    finally:
+                        self._connection.close()
             except Exception as error:
                 self._close_error = error
                 raise
@@ -319,40 +409,46 @@ class OwnedDatabase:
 def open_owned_database(
     path: object, *, mode: object, durability: object = "full"
 ) -> OwnedDatabase:
-    """Own, connect and configure a durable SQLite file.
+    """Own, connect, configure and migrate a durable SQLite store.
 
-    ``mode="create"`` makes a new database (and missing parent directories)
-    and refuses an existing one; ``mode="open"`` requires an existing WAL
-    database without a rollback journal, checked by its header before SQLite
-    sees it. Input is admitted and the runtime checked before any filesystem
-    effect. A failure after ``create`` made the database removes it again; the
-    lock is released on every failure path.
+    ``mode="create"`` makes a new database (and missing parent directories),
+    refuses an existing one and commits schema v1 with the store's identity;
+    ``mode="open"`` requires an existing pipy durable store in WAL mode without
+    a rollback journal, identified by its header before SQLite sees it,
+    validates it (after an unclean shutdown first on a read-only connection,
+    with ``quick_check``) and applies pending migrations. Input is admitted and
+    the runtime checked before any filesystem effect. A failure after
+    ``create`` made the database removes it again; the lock is released on
+    every failure path.
     """
 
     admitted = _admit_durability(durability)
     request = ownership.admit_request(path, mode)
     check_sqlite_runtime()
-    owner = ownership.acquire(request, check=check_wal_header)
+    owner = ownership.acquire(request, check=check_store_header)
+    label = f"database {owner.path.database!r}"
     connection: sqlite3.Connection | None = None
     try:
-        connection = sqlite3.connect(
-            _uri(owner.path.database),
-            uri=True,
-            timeout=BUSY_TIMEOUT_SECONDS,
-            isolation_level=None,
-            check_same_thread=False,
-        )
-        # Pinned before any other reference escapes, so a forked child can
-        # never finalize this connection.
-        owner.pin_in_forked_children(connection)
-        # SQLite opened the file by name: before any PRAGMA can lock or write
-        # it, the name must still name the inode claimed under the lock. Like
-        # the check after configuration, this is best-effort detection (see the
-        # contract boundary in ``ownership``).
-        _verify_identity(owner)
-        _configure(connection, owner, admitted)
-        _verify_identity(owner)
+        # Every SQLite step from here on reports damage as StorageCorruption;
+        # the cleanup below sees the converted error.
+        with sqlite_schema.damage_as_corruption(label):
+            if owner.wal_size_at_open > 0:
+                _validate_after_crash(owner)
+            connection = _connect(owner.path.database, "rw")
+            # Pinned before any other reference escapes, so a forked child can
+            # never finalize this connection.
+            owner.pin_in_forked_children(connection)
+            # SQLite opened the file by name: before any PRAGMA can lock or
+            # write it, the name must still name the inode claimed under the
+            # lock. Like the check after configuration, this is best-effort
+            # detection (see the contract boundary in ``ownership``).
+            _verify_identity(owner)
+            _configure(connection, owner, admitted)
+            _verify_identity(owner)
+            version = sqlite_schema.prepare(
+                connection, created=owner.created, label=label
+            )
     except BaseException as error:
         _undo_failed_open(owner, connection, error)
         raise
-    return OwnedDatabase(owner, connection, admitted)
+    return OwnedDatabase(owner, connection, admitted, version)

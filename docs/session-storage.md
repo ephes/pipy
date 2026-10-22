@@ -702,16 +702,16 @@ Because session data can contain sensitive project context, use a sync backend t
 ## Durable SQLite store (internal)
 
 > Internal groundwork of the [durable execution campaign](specs/2026-10-19-durable-execution-plan.md)
-> (slice DE03a): not exported, not used by any product path, and separate from
-> the workflow archive above. A durable store never syncs through the archive
-> recipes.
+> (slices DE03a and DE03b): not exported, not used by any product path, and
+> separate from the workflow archive above. A durable store never syncs through
+> the archive recipes.
 
 A durable store is one SQLite database file that a single process owns from
 opening until it closes. These rules describe the files on disk.
 
 | File | Purpose | Lifetime |
 | --- | --- | --- |
-| `<name>` | SQLite database in WAL mode | until the user deletes it |
+| `<name>` | SQLite database in WAL mode, named a pipy durable store in its header | until the user deletes it |
 | `<name>-wal`, `<name>-shm` | SQLite write-ahead log and its index | while open; a clean close removes them, a crashed owner leaves them for the next open to recover |
 | `<name>-journal` | SQLite rollback journal | transient |
 | `<name>.lock` | owner lock | never deleted |
@@ -720,7 +720,8 @@ opening until it closes. These rules describe the files on disk.
 directories, and refuses an existing database or a leftover `-wal`, `-shm` or
 `-journal` (SQLite would silently delete stale sidecars next to a new empty
 database). `open` reads the 100-byte database header itself before SQLite sees
-the file: anything but an SQLite database in WAL mode is refused, and so is an
+the file: anything but a pipy durable store (see **Identity**) in WAL mode is
+refused, and so is an
 existing `-journal`, the trace of a crashed rollback-journal writer or of an
 interrupted switch to WAL that SQLite would otherwise roll back into the
 database on its first read. A refused file keeps its bytes and mode and gets no
@@ -733,6 +734,70 @@ as long as its name still names it; the lock file and created directories stay,
 and `create` can simply be retried. A database name cannot end in `.lock`,
 `-wal`, `-shm` or `-journal`, so another store's sidecar is never opened as a
 database.
+
+**Identity.** The database header names the store: application ID
+`0x50495059` ("PIPY", header bytes 68–71) and the schema version as
+`user_version` (bytes 60–63). `open` reads both in the same header read as the
+WAL check and refuses, before SQLite sees the file, another application's
+database (`ForeignStoreError`), a schema version newer than this pipy supports
+(`NewerStoreError`, with Pi's message "SQLite schema version N is newer than
+supported version M") and the remains of an interrupted create
+(`InterruptedCreateError`, below). Such a refusal changes no byte and creates
+no lock file. One shape is decided later: an empty one-page database without
+identity or schema next to a non-empty `-wal` is what a create that crashed
+right after committing its schema leaves, because the identity reaches the
+database file only at a checkpoint. It is validated after WAL recovery on a
+read-only connection (see **Integrity**), which rebuilds only SQLite's `-shm`
+index.
+
+**Schema and migrations.** Schema version 1 has the shape of Pi durable 1.3.0's
+SQLite schema version 2, with Pi's table, index and column names and no table
+prefix, plus Python deltas: the payload columns (`record` and revision
+`content`) and the revision `version` are `BLOB`s holding JSON, so every value,
+lone surrogates, `-0.0` and integers beyond 64 bits included, round-trips
+exactly; `next_id` is an `INTEGER`; a `submission_requests` table records the
+last writer of each request ID, as the in-memory store does; and the header
+carries the identity. Migrations form an append-only list with contiguous
+versions. `create` and `open` apply every pending migration in one `BEGIN
+IMMEDIATE` transaction under the owner lock, together with the version in
+`durable_schema` and in the header. A failing migration rolls back completely
+and its error is raised; a crash leaves the previous version, and the next
+`open` migrates again. A newer store is refused before anything is written. A
+change to what stored bytes mean needs a new schema version even without new
+tables or columns: the first delta revision (slice DE27) bumps the version, so
+an older pipy refuses the store instead of misreading it. A later read-only
+inspection (DE10) validates without migrating.
+
+**Integrity.** Every `open` requires the exact schema objects of the store's
+version (no extra table, index, view or trigger, and each definition as the
+migrations create it), a `durable_schema` version equal to the header's, and
+the metadata row with its ID and sequence counters in range; otherwise it
+raises `StorageCorruption`. After an unclean shutdown, recognized by a
+non-empty `-wal` found under the lock before connecting, a read-only connection
+first validates the recovered store the same way and runs `PRAGMA
+quick_check`. A read-only connection never checkpoints, so its refusal leaves
+the database and `-wal` bytes unchanged; only SQLite's `-shm` index is rebuilt.
+After a clean shutdown `quick_check` is skipped (Root decision D6): its cost
+grows with the store, and the Storage layer (slice DE03c) checks records as it
+reads them. `PRAGMA integrity_check` stays an operator and test tool. Nothing
+is repaired automatically. Damage SQLite itself reports at any step of opening,
+migrating or closing a store (`SQLITE_CORRUPT` with its extended codes,
+`SQLITE_NOTADB`) is also raised as `StorageCorruption`, with SQLite's error as
+its cause and the same cleanup as any other failure; every other error is
+raised unchanged.
+
+**Interrupted create.** A crash during `create` before its schema commits
+leaves an empty or zero-filled database, or a one-page database without
+identity or schema. `open` refuses it (`InterruptedCreateError`) and `create`
+refuses any existing database. Neither adopts it: nothing proves which process
+made the file, and an empty foreign database looks the same (Pi, which opens or
+creates, would adopt it). Recovery: while no process owns the store, delete the
+database and any `-wal`, `-shm` and `-journal` next to it (the lock file may
+stay), then run `create` again. No committed data can be lost, because a create
+that committed its schema leaves a complete store that `open` recovers and
+opens normally, even while its identity is still only in the `-wal`. A crash
+while SQLite switches the new file to WAL can also leave a `-journal`; `open`
+refuses it as a rollback journal, and the same procedure applies.
 
 **Permissions.** Directories created for a store are `0700`. The database, its
 SQLite sidecars and the lock file are `0600` whatever the umask; SQLite gives
