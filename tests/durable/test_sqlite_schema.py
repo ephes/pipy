@@ -14,6 +14,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 from collections.abc import Iterator
@@ -470,13 +471,13 @@ def test_a_failed_rollback_raises_a_distinct_error_with_both_errors() -> None:
     failing = _RollbackFails()
     error = sqlite3.OperationalError("migration failed")
     with pytest.raises(SqliteRollbackError) as raised:
-        sqlite_schema._roll_back(failing, error)  # type: ignore[arg-type]
+        sqlite_schema.roll_back(failing, error)  # type: ignore[arg-type]
     assert failing.statements == ["ROLLBACK"]
     assert raised.value.error is error
     assert raised.value.__cause__ is raised.value.rollback_error
     assert str(raised.value.rollback_error) == "injected rollback failure"
     failing.in_transaction = False
-    sqlite_schema._roll_back(failing, error)  # type: ignore[arg-type]
+    sqlite_schema.roll_back(failing, error)  # type: ignore[arg-type]
     assert failing.statements == ["ROLLBACK"]  # nothing to roll back
 
 
@@ -769,6 +770,56 @@ TAMPERS: dict[str, tuple[tuple[str, ...], str]] = {
         (f"UPDATE durable_metadata SET next_seq = {2**53 + 1}",),
         "out of range",
     ),
+    "schema-text-not-utf8": (
+        (
+            "PRAGMA writable_schema = ON",
+            "UPDATE sqlite_schema SET sql = sql || ' /*' || CAST(x'ff' AS TEXT)"
+            " || '*/' WHERE name = 'tasks_by_kind'",
+        ),
+        "schema column sql is not UTF-8",
+    ),
+    # SQLite's own schema table has no STRICT: any class goes in, and SQLite
+    # itself still opens the store.
+    "schema-sql-blob": (
+        (
+            "PRAGMA writable_schema = ON",
+            "UPDATE sqlite_schema SET sql = CAST(sql AS BLOB)"
+            " WHERE name = 'tasks_by_kind'",
+        ),
+        "schema column sql holds blob where the schema allows null or text",
+    ),
+    "schema-name-blob": (
+        (
+            "PRAGMA writable_schema = ON",
+            "UPDATE sqlite_schema SET name = CAST(name AS BLOB)"
+            " WHERE name = 'tasks_by_kind'",
+        ),
+        "schema column name holds blob where the schema allows text",
+    ),
+    "schema-type-blob": (
+        (
+            "PRAGMA writable_schema = ON",
+            "UPDATE sqlite_schema SET type = CAST(type AS BLOB)"
+            " WHERE name = 'tasks_by_kind'",
+        ),
+        "schema column type holds blob where the schema allows text",
+    ),
+    "schema-table-blob": (
+        (
+            "PRAGMA writable_schema = ON",
+            "UPDATE sqlite_schema SET tbl_name = CAST(tbl_name AS BLOB)"
+            " WHERE name = 'tasks_by_kind'",
+        ),
+        "schema column tbl_name holds blob where the schema allows text",
+    ),
+    # A number there is SQLite's own refusal: it reports a malformed schema.
+    "schema-sql-real": (
+        (
+            "PRAGMA writable_schema = ON",
+            "UPDATE sqlite_schema SET sql = 1.5 WHERE name = 'tasks_by_kind'",
+        ),
+        "SQLite reports the database .* as damaged",
+    ),
 }
 
 
@@ -786,6 +837,134 @@ def test_a_store_that_contradicts_its_schema_is_refused_unchanged(
     for _ in range(2):
         with pytest.raises(StorageCorruption, match=message):
             open_owned_database(str(target), mode="open")
+    assert without_lock(tree(tmp_path)) == without_lock(before)
+    assert lock_is_free(target)
+
+
+def store_in_strict_column(
+    target: Path | str, table: str, column: str, value: str, where: str = "1"
+) -> list[str]:
+    """Store ``value`` (SQL) in ``column`` of a STRICT table, whatever its class.
+
+    SQL alone can: rewrite the table's schema without STRICT, with the column
+    untyped and nullable (BLOB affinity, so SQLite converts nothing), write,
+    and restore the schema text, which open-time validation then finds
+    unchanged. Returns the storage classes the written rows now hold.
+    """
+
+    with raw(Path(target)) as connection:
+        (sql,) = connection.execute(
+            "SELECT sql FROM sqlite_schema WHERE name = ?", (table,)
+        ).fetchone()
+        assert sql.endswith(") STRICT"), sql
+        loose, found = re.subn(
+            rf"\b{column} (INTEGER|TEXT|BLOB)( NOT NULL)?",
+            f"{column} BLOB",
+            sql.removesuffix(" STRICT"),
+        )
+        assert found == 1, (column, sql)
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute(
+            "UPDATE sqlite_schema SET sql = ? WHERE name = ?", (loose, table)
+        )
+    with raw(Path(target)) as connection:  # reads the rewritten schema
+        connection.execute("PRAGMA ignore_check_constraints = ON")
+        connection.execute(f"UPDATE {table} SET {column} = {value} WHERE {where}")
+        classes = [
+            stored
+            for (stored,) in connection.execute(
+                f"SELECT typeof({column}) FROM {table} WHERE {where}"
+            )
+        ]
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute(
+            "UPDATE sqlite_schema SET sql = ? WHERE name = ?", (sql, table)
+        )
+    assert classes, (table, column, where)
+    return classes
+
+
+_METADATA_TEXT = "Durable SQLite metadata column"
+_VERSION_TEXT = "SQLite schema metadata column version"
+
+
+@pytest.mark.parametrize(
+    "table,column,value,stored,message",
+    [
+        pytest.param(
+            "durable_schema",
+            "version",
+            "CAST(x'ff' AS TEXT)",
+            "text",
+            _VERSION_TEXT,
+            id="version-not-utf8",
+        ),
+        pytest.param(
+            "durable_schema", "version", "'1'", "text", _VERSION_TEXT, id="version-text"
+        ),
+        pytest.param(
+            "durable_schema", "version", "1.0", "real", _VERSION_TEXT, id="version-real"
+        ),
+        pytest.param(
+            "durable_schema",
+            "version",
+            "x'01'",
+            "blob",
+            _VERSION_TEXT,
+            id="version-blob",
+        ),
+        pytest.param(
+            "durable_schema",
+            "version",
+            "NULL",
+            "null",
+            _VERSION_TEXT,
+            id="version-null",
+        ),
+        pytest.param(
+            "durable_metadata",
+            "next_id",
+            "CAST(x'ff' AS TEXT)",
+            "text",
+            None,
+            id="next-id-not-utf8",
+        ),
+        pytest.param(
+            "durable_metadata", "next_id", "5.0", "real", None, id="next-id-real"
+        ),
+        pytest.param(
+            "durable_metadata", "next_id", "x'05'", "blob", None, id="next-id-blob"
+        ),
+        pytest.param(
+            "durable_metadata", "next_seq", "'1'", "text", None, id="next-seq-text"
+        ),
+        pytest.param(
+            "durable_metadata", "next_seq", "1.0", "real", None, id="next-seq-real"
+        ),
+    ],
+)
+def test_a_counter_of_another_storage_class_is_refused_unchanged(
+    tmp_path: Path,
+    table: str,
+    column: str,
+    value: str,
+    stored: str,
+    message: str | None,
+) -> None:
+    """Exactly ``integer``: a numerically equal REAL or text is refused too, and
+    never through sqlite3's own UTF-8 decoding error, which is not SQLite's."""
+
+    target = tmp_path / "store.sqlite"
+    make_store(target, "kept")
+    assert store_in_strict_column(target, table, column, value) == [stored]
+    before = tree(tmp_path)
+    prefix = message or f"{_METADATA_TEXT} {column}"
+    for _ in range(2):
+        with pytest.raises(StorageCorruption) as refused:
+            open_owned_database(str(target), mode="open")
+        assert str(refused.value) == (
+            f"{prefix} holds {stored} where the schema allows integer"
+        )
     assert without_lock(tree(tmp_path)) == without_lock(before)
     assert lock_is_free(target)
 

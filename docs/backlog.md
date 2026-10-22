@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a landed and DE03b is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c1 in progress.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -170,10 +170,15 @@ to CLEAN, round 4 resolved by Root's explicit contract boundary; no CI claim;
 the on-disk contract is in
 [the storage document](session-storage.md#durable-sqlite-store-internal)); **b**
 schema v1, the migration runner, the header identity gate and open-time
-integrity (in progress); **c** `SqliteStorage`
-with contract cases, real failures and crash cuts; **d** the paired pinned Pi
-SQLite oracle, Session over SQLite and the P43 workload. DE03 waits all four and
-DE04 waits DE03. Each DE03 slice also runs its new tests on the Ubuntu macmini
+integrity (landed at `f6024e56`: Codex gpt-6.1-sol HIGH, round 1 one Warning
+repaired with the shared `damage_as_corruption` guard, round 2 CLEAN; no CI
+claim); **c** `SqliteStorage` with contract cases, real failures and crash cuts,
+split again before code into **c1** the table operations with the
+backend-agnostic contract cases over Memory, SQLite and SQLite reopened after
+every commit (in progress) and **c2** documents, write refusals,
+acknowledgement loss and crash cuts; **d** the paired pinned Pi SQLite oracle,
+Session over SQLite and the P43 workload. DE03c waits c1 and c2, DE03 waits all
+four and DE04 waits DE03. Each DE03 slice also runs its new tests on the Ubuntu macmini
 (Root decision D10).
 
 ### General durable execution and other current work

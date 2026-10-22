@@ -702,8 +702,8 @@ Because session data can contain sensitive project context, use a sync backend t
 ## Durable SQLite store (internal)
 
 > Internal groundwork of the [durable execution campaign](specs/2026-10-19-durable-execution-plan.md)
-> (slices DE03a and DE03b): not exported, not used by any product path, and
-> separate from the workflow archive above. A durable store never syncs through
+> (slices DE03a, DE03b and DE03c1): not exported, not used by any product path,
+> and separate from the workflow archive above. A durable store never syncs through
 > the archive recipes.
 
 A durable store is one SQLite database file that a single process owns from
@@ -786,6 +786,33 @@ migrating or closing a store (`SQLITE_CORRUPT` with its extended codes,
 its cause and the same cleanup as any other failure; every other error is
 raised unchanged.
 
+**Records.** The store keeps the four record tables of the in-memory store
+(conversations, entries, tasks and submissions) with the same behaviour (slice
+DE03c1). Each record is compact JSON text in a `BLOB`, encoded as UTF-8 that
+keeps lone surrogates, so it reads back exactly as written: signed zero, large
+integers, key order and string spelling included, at any nesting depth. Task
+kinds and request IDs are also stored as ASCII JSON in their index columns,
+which compares them by UTF-16 code units as the in-memory store does. A commit
+is one `BEGIN IMMEDIATE` transaction. A failure before `COMMIT` leaves nothing
+behind and the store usable. An error from `COMMIT` itself, or a rollback that
+fails, makes that instance refuse every later call until it is closed and the
+store opened again, because only a reopen can tell what was committed. IDs
+that were minted but not yet used by a commit are not stored; after a reopen
+they can be minted again, as in Pi. A read that needs several statements sees
+one committed state. Every read of a row makes every check: it decodes the
+record, compares it with the row's index columns and, for an entry, checks its
+commit sequence. Before anything is decoded, each column must hold exactly the
+kind of value its declared type allows (integer, text or binary, and no value
+only where the column may be empty); the strict tables keep that, but a schema
+rewritten and restored through SQL can store anything. Stored text is never
+decoded by Python's `sqlite3` module: it is read as bytes and decoded strictly,
+so text that is not valid UTF-8 is damage too. Damage is reported as
+`StorageCorruption`, never as an invalid request, its message never quotes
+stored data, and nothing is repaired. A value of the wrong kind in an indexed
+column also hides its row from lookups by that column, which SQLite never finds
+equal; every read that reaches the row refuses it. Documents are not stored
+yet: until slice DE03c2 their operations are refused.
+
 **Interrupted create.** A crash during `create` before its schema commits
 leaves an empty or zero-filled database, or a one-page database without
 identity or schema. `open` refuses it (`InterruptedCreateError`) and `create`
@@ -852,7 +879,10 @@ closes the inherited SQLite connection, not even at interpreter exit: closing it
 after the owner's clean close would delete a later owner's write-ahead log by
 name and lose committed transactions. A child forked by native code that skips
 Python's fork hooks keeps a lock copy until it exits or executes another
-program; the owner's close still releases the lock.
+program; the owner's close still releases the lock. The record storage refuses
+a forked child the same way before it waits for anything: every call raises
+`StorageForkedError` and close returns at once, even when another thread of
+the parent was in the middle of a call at the moment of the fork.
 
 **Unsupported filesystems.** Shared and network filesystems are refused before
 any effect. On macOS the directory must be on a local APFS or HFS+ volume. On

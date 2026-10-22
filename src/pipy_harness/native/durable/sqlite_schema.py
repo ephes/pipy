@@ -65,6 +65,16 @@ are read (DE03c), not here. ``damage_as_corruption`` raises SQLite's corruption
 errors (``SQLITE_CORRUPT`` with its extended codes, ``SQLITE_NOTADB``) as
 ``StorageCorruption`` wherever a store is opened, validated, migrated or closed;
 other errors pass unchanged, and DE03c wraps its own statements the same way.
+Stored values are read through ``typed_columns`` and ``typed_values``: each
+column's storage class is read with it and must be exactly the class its
+declared type allows (``integer``, ``text`` or ``blob``, and ``null`` only
+where the column is nullable) before anything is decoded, and no value goes
+through ``sqlite3``'s own text decoding, whose error is not SQLite's: text is
+read as bytes and decoded strictly. STRICT tables keep the classes, but SQL
+alone can store another one by rewriting a table's schema and restoring it, and
+SQLite's own ``sqlite_schema`` has no STRICT at all; any other class, or text
+that is not UTF-8, in the schema, the version or the counters is
+``StorageCorruption``.
 
 Recovery rule for an interrupted create. ``create`` makes an empty file, SQLite
 writes a one-page WAL header into it, and one transaction then commits the
@@ -99,9 +109,10 @@ from __future__ import annotations
 import contextlib
 import functools
 import sqlite3
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import cast
 
 # "PIPY" in ASCII; positive as a signed 32-bit integer, as PRAGMA reads it.
 APPLICATION_ID = 0x50495059
@@ -409,9 +420,85 @@ def check_identity(header: bytes, size: int, label: str, wal_size: int) -> None:
 Objects = frozenset[tuple[str, str, str, str | None]]
 
 
+# The storage classes a column may hold, as ``typeof`` names them.
+INTEGER = frozenset({"integer"})
+NULLABLE_INTEGER = frozenset({"integer", "null"})
+TEXT = frozenset({"text"})
+NULLABLE_TEXT = frozenset({"text", "null"})
+BLOB = frozenset({"blob"})
+
+
+def typed_columns(*names: str) -> str:
+    """Result columns for ``names``: each column's storage class, then its value.
+
+    ``sqlite3`` never decodes a value (its error is not SQLite's, so
+    ``damage_as_corruption`` would pass it on, and it quotes the stored text):
+    text is read as bytes, for ``typed_values`` to decode once the class holds.
+    """
+
+    return ", ".join(
+        f"typeof({name}), CASE typeof({name}) WHEN 'text'"
+        f" THEN CAST({name} AS BLOB) ELSE {name} END"
+        for name in names
+    )
+
+
+def typed_values(
+    row: Sequence[object],
+    classes: Sequence[frozenset[str]],
+    refuse: Callable[[int, str], StorageCorruption],
+) -> tuple[object, ...]:
+    """The values of a ``typed_columns`` row, each of exactly its allowed classes.
+
+    Every storage class is checked before anything is decoded; then text is
+    decoded strictly. ``refuse(column, problem)`` makes the error, whose problem
+    names storage classes only, never stored data.
+    """
+
+    stored, values = row[0::2], row[1::2]
+    for index, (found, allowed) in enumerate(zip(stored, classes, strict=True)):
+        if found not in allowed:
+            permitted = " or ".join(sorted(allowed))
+            raise refuse(index, f"holds {found} where the schema allows {permitted}")
+    decoded: list[object] = []
+    for index, (found, value) in enumerate(zip(stored, values, strict=True)):
+        if found == "text":
+            try:
+                value = cast(bytes, value).decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise refuse(index, "is not UTF-8") from error
+        decoded.append(value)
+    return tuple(decoded)
+
+
+# SQLite's own schema table: text, and no SQL for automatic indexes.
+SCHEMA_COLUMNS = (
+    ("type", TEXT),
+    ("name", TEXT),
+    ("tbl_name", TEXT),
+    ("sql", NULLABLE_TEXT),
+)
+_SCHEMA_ROWS = (
+    f"SELECT {typed_columns(*(name for name, _ in SCHEMA_COLUMNS))} FROM sqlite_schema"
+)
+
+
+def _schema_refusal(column: int, problem: str) -> StorageCorruption:
+    return StorageCorruption(
+        f"The durable store's schema column {SCHEMA_COLUMNS[column][0]} {problem}"
+    )
+
+
 def _objects(connection: sqlite3.Connection) -> Objects:
-    rows = connection.execute("SELECT type, name, tbl_name, sql FROM sqlite_schema")
-    return frozenset(tuple(row) for row in rows.fetchall())
+    rows = connection.execute(_SCHEMA_ROWS).fetchall()
+    classes = [allowed for _, allowed in SCHEMA_COLUMNS]
+    return frozenset(
+        cast(
+            tuple[str, str, str, str | None],
+            typed_values(row, classes, _schema_refusal),
+        )
+        for row in rows
+    )
 
 
 @functools.cache
@@ -476,31 +563,57 @@ def _difference(found: Objects, expected: Objects, version: int) -> str:
     )
 
 
-def _stored_version(connection: sqlite3.Connection) -> int:
-    row = connection.execute(
-        f"SELECT version FROM {TABLES['durable_schema']} WHERE singleton = 1"
-    ).fetchone()
+# The columns read from the two singletons, with their storage classes.
+VERSION_COLUMNS = (("version", INTEGER),)
+METADATA_COLUMNS = (("next_id", INTEGER), ("next_seq", INTEGER))
+_VERSION = (
+    f"SELECT {typed_columns(*(name for name, _ in VERSION_COLUMNS))}"
+    f" FROM {TABLES['durable_schema']} WHERE singleton = 1"
+)
+_METADATA = (
+    f"SELECT {typed_columns(*(name for name, _ in METADATA_COLUMNS))}"
+    f" FROM {TABLES['durable_metadata']} WHERE singleton = 1"
+)
+
+
+def _version(row: tuple[object, ...] | None) -> int:
     if row is None:
         raise StorageCorruption("SQLite schema metadata is missing")
-    return int(row[0])
+    (version,) = typed_values(
+        row,
+        [allowed for _, allowed in VERSION_COLUMNS],
+        lambda _, problem: StorageCorruption(
+            f"SQLite schema metadata column version {problem}"
+        ),
+    )
+    return cast(int, version)
 
 
-def _check_metadata(connection: sqlite3.Connection) -> None:
-    row = connection.execute(
-        f"SELECT next_id, next_seq FROM {TABLES['durable_metadata']}"
-        " WHERE singleton = 1"
-    ).fetchone()
+def _stored_version(connection: sqlite3.Connection) -> int:
+    return _version(connection.execute(_VERSION).fetchone())
+
+
+def read_metadata(connection: sqlite3.Connection) -> tuple[int, int]:
+    """The metadata singleton's ``(next_id, next_seq)``, refused unless in range."""
+
+    row = connection.execute(_METADATA).fetchone()
     if row is None:
         # Pi durable storage.ts open(), word for word.
         raise StorageCorruption("Durable SQLite metadata is missing")
-    next_id, next_seq = row
-    if not (
-        type(next_id) is int
-        and type(next_seq) is int
-        and 2 <= next_id <= _COUNTER_LIMIT
-        and 1 <= next_seq <= _COUNTER_LIMIT
-    ):
+    next_id, next_seq = cast(
+        tuple[int, int],
+        typed_values(
+            row,
+            [allowed for _, allowed in METADATA_COLUMNS],
+            lambda column, problem: StorageCorruption(
+                f"Durable SQLite metadata column {METADATA_COLUMNS[column][0]}"
+                f" {problem}"
+            ),
+        ),
+    )
+    if not (2 <= next_id <= _COUNTER_LIMIT and 1 <= next_seq <= _COUNTER_LIMIT):
         raise StorageCorruption("Durable SQLite metadata is out of range")
+    return next_id, next_seq
 
 
 def _validate(
@@ -531,7 +644,7 @@ def _validate(
             f"The durable store's schema version {stored} does not match its"
             f" header's user version {version}"
         )
-    _check_metadata(connection)
+    read_metadata(connection)
     return version
 
 
@@ -568,8 +681,13 @@ def _before_statement(version: int, index: int) -> None:
     """Test seam: runs before each migration statement, inside the transaction."""
 
 
-def _roll_back(connection: sqlite3.Connection, error: BaseException) -> None:
-    """Pi chord's rule: a failed rollback raises a different error."""
+def roll_back(connection: sqlite3.Connection, error: BaseException) -> None:
+    """Roll back after ``error``, only while a transaction is open.
+
+    SQLite may already have rolled the whole transaction back (``SQLITE_FULL``,
+    for example). Pi chord's rule: a failed rollback raises a different error,
+    ``SqliteRollbackError`` carrying both.
+    """
 
     if not connection.in_transaction:
         return
@@ -585,12 +703,7 @@ def _bootstrap(connection: sqlite3.Connection, target: int) -> int:
     connection.execute(
         f"INSERT OR IGNORE INTO {schema} (singleton, version) VALUES (1, 0)"
     )
-    row = connection.execute(
-        f"SELECT version FROM {schema} WHERE singleton = 1"
-    ).fetchone()
-    if row is None:
-        raise StorageCorruption("SQLite schema metadata is missing")
-    version = int(row[0])
+    version = _version(connection.execute(_VERSION).fetchone())
     if version > target:
         raise NewerStoreError(_newer(version, target))
     return version
@@ -633,7 +746,7 @@ def apply_migrations(
                 _apply(connection, migration)
             connection.execute("COMMIT")
         except BaseException as error:
-            _roll_back(connection, error)
+            roll_back(connection, error)
             raise
     return target
 

@@ -157,8 +157,10 @@ that coverage here. A local validation result is not a landed slice.
 | DE02b3 | Cumulative paired Session acceptance and final b gate | LANDED | d2e62390; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14223 passed; push verified; no CI claim |
 | DE03 | SQLite authority and local ownership | IN_PROGRESS | Cumulative a+b+c+d (split 2026-10-21); every original cell retained |
 | DE03a | Path ownership, owner-only files and minimal connection lifecycle | LANDED | 0d37f64a; Codex gpt-6.1-sol HIGH r1 three Warnings, r2–r5 one or two Criticals each (r4 harness non-convergence, Root simplification with an explicit contract boundary), r6 CLEAN, repaired by Opus5.5 MAX; local just check 14392 passed; push verified; no CI claim |
-| DE03b | Schema v1, migration runner and open-time integrity | IN_PROGRESS | Local and Linux (macmini) evidence below; independent gates pending |
-| DE03c | SqliteStorage, contract cases, real failures and crash cuts | OPEN | None; all gates OPEN |
+| DE03b | Schema v1, migration runner and open-time integrity | LANDED | f6024e56; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14459 passed; push verified; no CI claim |
+| DE03c | SqliteStorage, contract cases, real failures and crash cuts | IN_PROGRESS | Cumulative c1+c2 (split 2026-10-22); every original cell retained |
+| DE03c1 | SqliteStorage tables and backend-agnostic contract cases | IN_PROGRESS | Local and Linux (macmini) evidence below; independent gates pending |
+| DE03c2 | SqliteStorage documents, write refusals and crash cuts | OPEN | None; all gates OPEN |
 | DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | OPEN | None; all gates OPEN |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
@@ -260,15 +262,18 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE00 through DE02b3 and DE03a have landed, so DE01 and DE02 with all their
-children are delivered. DE03 is split a→b→c→d before code (see
+DE00 through DE02b3, DE03a and DE03b have landed, so DE01 and DE02 with all
+their children are delivered. DE03 is split a→b→c→d before code (see
 [the split](#de02b3-delivery-and-de03-split)): DE03a path ownership, owner-only
 files and a minimal verified connection lifecycle (landed `0d37f64a`, see
 [its delivery](#de03a-delivery-and-de03b-admission)); DE03b schema v1, the
-migration runner and open-time integrity (in progress); DE03c `SqliteStorage` with contract
-cases, real failures and crash cuts; DE03d the paired pinned Pi SQLite oracle,
-Session over SQLite and the P43 workload. DE03 waits all four and DE04 waits
-DE03. Original parent acceptance remains unchanged. All P rows OPEN; no partial
+migration runner and open-time integrity (landed `f6024e56`, see
+[its delivery](#de03b-delivery-and-de03c-split)); DE03c `SqliteStorage` with
+contract cases, real failures and crash cuts, split again into c1 (tables and
+the backend-agnostic contract cases, in progress) and c2 (documents, write
+refusals and crash cuts); DE03d the paired pinned Pi SQLite oracle, Session over
+SQLite and the P43 workload. DE03c waits c1 and c2, DE03 waits all four and DE04
+waits DE03. Original parent acceptance remains unchanged. All P rows OPEN; no partial
 backend/product factory/default release. Delivery from 2026-10-21: local
 `just check`, Codex gpt-6.1-sol HIGH CLEAN and a pushed SHA verified with
 `git ls-remote`; GitHub CI is not a delivery gate. Each DE03 slice also records
@@ -5059,3 +5064,874 @@ reviewed sources, coverage update, cascade, closure, binding and the closing
 checks), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-probes/`, `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-pycompat/` (Python 3.11 and
 3.12) and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-linux/remote-logs/` (Linux, copied back, with the
 cross-version logs in `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03b/repair-r1-linux/`).
+
+## DE03b delivery and DE03c split
+
+DE03b landed at `f6024e562d083ec456a8fca05901faa56d39b485` on origin/main (tree
+`d42e4b1b`, verified by Root with `git ls-remote`). Root's local `just check`
+exited 0 with 14459 passed and the same two known skips; no CI result is claimed.
+Review, Codex `gpt-6.1-sol` HIGH: round 1 **ISSUES**, no Critical and one Warning
+(SQLite corruption raised while the owner's connection was configured escaped as
+a raw `sqlite3.DatabaseError`), repaired by Claude Code `claude-opus-5-5` MAX
+with the shared `damage_as_corruption` guard over opening, migrating, validating,
+`quick_check` and closing (see [the repair](#de03b-round-1-codex-review-repair));
+round 2 **CLEAN**. DE03b is LANDED; DE03 stays IN_PROGRESS until c and d land,
+and all43 P rows stay OPEN.
+
+The coordinator issued the DE03c1 work order on 2026-10-22. Its binding design is
+the DE03 SQLite prep (§3.3 commit protocol: Pi's order, `BEGIN IMMEDIATE`,
+`ROLLBACK` only while a transaction is open, `SqliteRollbackError` chaining and
+D4; the codec and identity rules of D1; the §4 contract-case plan), the landed
+DE03a contract boundary and POSIX invariant, and DE03b's schema v1 with its rule
+that every statement on the raw connection runs inside `damage_as_corruption`.
+Where Pi's Memory and SQLite backends disagree, Python SQLite follows Memory
+(D2).
+
+Root split the prep's DE03c row (1.5–2.2k lines, "may split c1 tables / c2
+documents and cuts before code") before code, keeping every DE03c cell
+cumulative. This record, the plan §5 rows and the coverage index were updated
+before any DE03c1 code:
+
+- **DE03c1 / DE03b** (in progress): `SqliteStorage` for the table operations
+  (commit of table writes, `mint_id`, conversation, entry in both forms, the
+  latest head marker, task and submission reads and scans, and
+  `submission_by_request` through the `submission_requests` last-writer table of
+  D2 (a)); the document methods and document writes refuse with the same
+  `UnsupportedStorageOperation` class Memory uses for unsupported operations, as
+  an explicit interim owned by DE03c2; the backend-agnostic contract-case module
+  run over Memory, SQLite and SQLite reopened after every commit; lossless values
+  across reopen; keyset cursors; EXPLAIN index use for table scans; contended
+  threads linearizing under one authority lock; snapshot reads;
+  `damage_as_corruption` around every statement; `integrity_check` after each
+  test's writes. The table differences D2 (a) duplicate request-ID winner, (c)
+  descending scans at 2^53−1, (d) negative limits and (f) dangling-parent errors
+  follow Memory and are each pinned by a contract case; their paired probe
+  against real Pi SQLite stays an open obligation (the work order assigns it to
+  DE03d, and lists D2 (b)–(f) paired probes under DE03c2).
+- **DE03c2 / DE03c1** (OPEN): documents (create, change and retire, current
+  reads and scans, Pi's retention rows), D2 (b)–(f) proven by actual paired
+  probes, real write refusals (`query_only`, `max_page_count`, a foreign write
+  lock), acknowledgement loss (an after-COMMIT seam; a raising COMMIT poisons per
+  D4), SIGKILL before and after COMMIT, and WAL truncate, page reuse and bounded
+  size.
+- **DE03d / DE03c**: unchanged (the paired oracle against Pi SQLite, Session over
+  SQLite, the P43 workload and the final DE03 gate); it waits the cumulative
+  DE03c, which lands only with c1 and c2.
+
+The original DE03c cells map to the children as follows: contract cases over
+Memory, SQLite and SQLite across reopen, c1 (tables) and c2 (documents);
+lossless values across reopen, c1 (table records) and c2 (document content);
+retention rows, c2; EXPLAIN index use, c1 (table scans) and c2 (document
+queries); WAL truncate, page reuse and bounded size, c2; real write refusals, c2;
+acknowledgement loss, c2 (c1 implements the commit protocol with D4); SIGKILL
+before and after COMMIT, c2; contended threads, c1; snapshot reads, c1 (tables)
+and c2 (documents); `integrity_check` after every cut, c1 and c2;
+codec/identity, Memory-versus-Pi-SQLite and durability-class docs, c1 for
+tables and c2 for documents and durability. DE03c waits c1 and c2. All43 P rows
+stay OPEN.
+
+## DE03c1 local table evidence
+
+Local implementation evidence, not a landed verdict or P closure. Implementer:
+Claude Code `claude-opus-5-5` MAX, sole writer on main from clean HEAD
+`f6024e56`; no subagents. Upstream was read only through `git show` at the pin.
+Nothing is committed or pushed and no CI result is claimed.
+
+**Design.** One new private module, `native/durable/sqlite.py`:
+`open_sqlite_storage(path, mode=..., durability=...)` opens a store through
+`open_owned_database` and wraps it in `SqliteStorage`; a failure in the wrapper
+closes the database again (a close failure becomes a note on the first error).
+`SqliteStorage` has MemoryStorage's sixteen signatures (a test compares them)
+and MemoryStorage's semantics for the four tables.
+
+- *Ingress* is MemoryStorage's and comes first: the closed check, then its own
+  helpers `_query` (exact query class, exact `int` page size) and `_start`
+  (exact `Cursor`, order conflict), `safe_integer` for IDs, and its two inline
+  checks repeated word for word (an exact tuple of exact `StorageWrite`s, an
+  exact `str` request ID). Pages are built by Memory's `_page`, so raw limits
+  keep Memory's page shapes and errors. Memory's capability refusal for delta and
+  copy writes comes next with its message; any other document write, and the
+  three document methods (after the closed check), refuse with
+  `UnsupportedStorageOperation("SqliteStorage documents require DE03c2")`: the
+  explicit interim of the split.
+- *Authority.* One non-reentrant `threading.Lock` per instance around every
+  method including `close`; nothing caller-supplied runs under it. Reads that
+  need several statements (entry ancestry, the head marker, entry scans) run in
+  one deferred read transaction, so they see one committed state even when a
+  foreign process commits in between.
+- *Commit*, Pi's order: closed check, ingress, capability bound, `BEGIN
+  IMMEDIATE`, the metadata row (`sqlite_schema.read_metadata`, so the next
+  sequence and the persisted ID counter are authoritative in the database),
+  sequence exhaustion with Memory's message, the global ID claims against
+  `record_ids` with Memory's messages, the table writes in batch order, the
+  metadata update, a private test seam `_before_commit`, `COMMIT`; the in-memory
+  ID counter is adopted only after `COMMIT` returned. An error before `COMMIT`
+  rolls back only while a transaction is still open (`sqlite_schema.roll_back`,
+  shared with the migration runner) and leaves the storage usable. An error
+  raised by `COMMIT` poisons the instance (D4): every later call raises
+  `StorageClosedError` with that error as its cause until close and reopen. A
+  failed rollback raises `SqliteRollbackError` and poisons the instance too
+  (see deviations).
+- *Request winner* (D2 (a)): a submission write drops the `submission_requests`
+  binding of its previous request ID only when it holds it, then binds its new
+  one, last writer wins; `submission_by_request` reads the binding, with no
+  fallback.
+- *Fork chains*: `_segments` is Memory's walk over the conversations table,
+  reading each parent's record only when the walk is resumed, so a dangling
+  parent raises `KeyError(parent)` exactly where Memory's walk reads it (D2
+  (f)). Entry scans collect what Memory collects: Memory appends before it
+  checks the limit, so even a negative limit reads one entry (and walks past an
+  empty segment); table scans check before they append, so a negative limit
+  reads nothing. Descending scans start at the top without an ID bound and
+  include 2^53−1 (D2 (c)). Page sizes beyond SQLite's integers are clamped to
+  2^53 rows.
+- *Values* (D1): each record is compact JSON text in a surrogatepass UTF-8
+  `BLOB`, the exact text `json.dumps(value, ensure_ascii=False, allow_nan=False,
+  separators=(",", ":"))` writes, but written and read by an iterative encoder
+  and a token-at-a-time reader (see prep versus reality). The reader refuses
+  malformed text, NaN and infinities, and repeated keys; the record constructor
+  then validates the tree. Task kinds and request IDs are ASCII JSON in their
+  index columns (UTF-16 identity).
+- *Read-time integrity*: every row is decoded and validated, and its index
+  columns are recomputed from the record and compared; a request binding must
+  name an existing submission with that request; an entry needs a commit
+  sequence in range. Every failure is `StorageCorruption`, never a request
+  error, and every statement runs inside `damage_as_corruption`.
+- `sqlite_schema` refactor: `_check_metadata` became `read_metadata`
+  (returns the counters) and `_roll_back` became `roll_back`, both reused; the
+  two DE03b test references were renamed. No behaviour change.
+
+**Contract cases** (`tests/durable/storage_contract_cases.py`, collected by
+`tests/durable/test_sqlite_storage.py`). The cases are MemoryStorage's own acceptance tests, `test_memory_storage.py`,
+which stays unchanged (it is hashed in the a2b, b1b and b3 closures) and still
+runs on its own. Every one of its 33 test functions is accounted for, and a
+test parses the file to keep that account closed:
+
+- *23 original bodies run unchanged over every backend* through
+  `test_memory_storage_body`: the backend's store factory replaces the module's
+  `MemoryStorage` name, through which each body builds its stores (a check
+  after each body proves the backend made them). 12 are table bodies, one is
+  the closed-document-ingress body (a closed store refuses first), and 9 are
+  document bodies, marked
+  `xfail(strict=True, raises=UnsupportedStorageOperation)` on the two SQLite
+  backends, so each must fail with exactly the interim refusal (and an
+  unexpected pass fails the run) until DE03c2 removes the mark.
+- *4 table variants* make the observations the originals make on Memory
+  internals (`_state` identity, a monkeypatched `_indexes`, a replaced `_lock`)
+  through backend hooks that mean the same on every backend: `state` (the
+  complete stored state: Memory's `_State`, or every row of the nine tables),
+  `at_commit` (a callback at the last point of a commit: Memory's final
+  candidate validation, or `_before_commit` inside the SQLite transaction),
+  `set_next_seq`, `locked` and `replace_authority`. The contention variant runs
+  on Memory and SQLite only: the reopening wrapper replaces its instance between
+  calls, so threads would race the wrapper instead of one store's authority.
+- *1 mixed body* also has its table and close halves split out as two cases on
+  every backend, because its document half stops the SQLite runs early.
+- *7 document bodies that observe Memory internals* (`DE03C2_PORTS`) need SQLite
+  document views that only DE03c2 can define; they are listed explicitly, a
+  test checks the list, and DE03c2 ports them. Until then they run on Memory in
+  the original file only.
+- *Added cases* (not ports; the Memory runs show Memory's behaviour): keyset
+  scans reach 2^53−1 in both orders and continue from real cursors (D2 (c));
+  page sizes of 2^64 read every row; an entry scan with a negative limit walks
+  past an empty segment into a dangling parent and raises `KeyError`, while a
+  dangling parent's own entries are still read before its record is needed (D2
+  (d), (f)); IDs and every other table argument are admitted as exact built-ins
+  before any hook runs, without holding the authority afterwards, and a closed
+  store refuses before any admission.
+
+The backends: `memory` (`MemoryStorage`), `sqlite` (`open_sqlite_storage(...,
+mode="create")`, durability `full`) and `reopen` (Pi's `ReopeningStorage`: a
+created and closed store, opened again after every commit, failed commits
+included, each method reaching the instance current at call time). After
+every case the fixture closes the case's stores and, with no store open in the
+process, checks each file: `integrity_check` ok, database and lock `0600`, no
+`-wal`, `-shm` or `-journal` left.
+
+**SQLite-only tests** (`tests/durable/test_sqlite_storage.py`; real SQLite
+failures come from SQLite itself, and files are read or tampered with only
+while no store is open in the process):
+
+- The account of the original file; the sixteen signatures equal
+  MemoryStorage's; a structural `Storage` check for mypy.
+- *Values*: the payload text equals `json.dumps`'s for 23 edge samples and 400
+  seeded random trees (lone and split surrogates, signed zero, subnormals,
+  integers beyond 64 bits, control characters, key order), and decoding equals
+  `json.loads`; 23 malformed texts are refused as `json.loads` refuses them,
+  plus NaN, infinities and repeated keys; a 100,000-deep value round-trips
+  through a real store across reopen (`json` stops at depth ~1000 on Python
+  3.11, ~3000 to 10,000 on 3.12, 10,000 to 100,000 on 3.15); task kinds and
+  request IDs are stored as ASCII JSON while the record bytes keep each
+  spelling; records, sequence and ID allocation persist across reopen (Pi's
+  first SQLite test).
+- *Statements*: `EXPLAIN QUERY PLAN` of exactly the statements the
+  implementation builds (`_scan_sql`, `_segment`, the head, winner and exact
+  reads) uses the named index for every filter of every table scan in both
+  orders with and without a cursor, the integer primary key for cursor scans
+  and exact reads, `entries_by_conversation`, `entry_heads_by_conversation` and
+  the `submission_requests` key, and never sorts in a temporary b-tree.
+- *Snapshot reads*: a real child process with its own plain SQLite connection
+  commits between two statements of one read (a trace callback blocks the second
+  statement until the child reports its commit): an entry scan in both orders
+  and the head marker miss the foreign entry, and an entry lookup through a fork
+  chain still sees the parent the foreign write removed; a fresh read after
+  each sees the change.
+- *Damage*: eight damaged rows (not JSON, not UTF-8, not a record, a damaged
+  parent conversation, an index column that contradicts its record, a zero
+  commit sequence, a binding to a missing submission, a binding to another
+  request's submission) are `StorageCorruption` with a specific message and no
+  payload, never a request error, while other rows still read; an invalid
+  b-tree page type in the root page of `entries`, `tasks`, `submission_requests`
+  or `record_ids` makes each kind of read, and the commit's claim read, raise
+  `StorageCorruption` with SQLite's `SQLITE_CORRUPT` as its cause.
+- *Commit failures*: a commit that runs into `max_page_count` raises SQLite's
+  own `SQLITE_FULL` error unchanged after SQLite already rolled the whole
+  transaction back (no rollback is attempted), leaves nothing behind and the
+  store usable; a late failure whose `ROLLBACK` an authorizer denies raises
+  `SqliteRollbackError` with both errors, the connection is still inside the
+  transaction, and the instance is poisoned; a `COMMIT` an authorizer denies
+  (D4) poisons the instance with that error as the cause, close releases the
+  lock, and the reopened store shows the batch absent and commits again.
+- *Interim and opener*: the document methods and every document write refuse
+  with `UnsupportedStorageOperation` naming DE03c2 (delta keeps Memory's
+  message) and change nothing; a failing wrapper closes the database and frees
+  the lock.
+
+**Probes** (scratch; logs in `probes/`). `json.dumps` and `json.loads` raise
+`RecursionError` at nesting depth 1000 on Python 3.11.13, between 3000 and
+10,000 on 3.12.15 and between 10,000 and 100,000 on 3.15.0, while owned values
+have no depth limit. A configured store under `max_page_count` raises
+`SQLITE_FULL` with the whole transaction already rolled back
+(`in_transaction` false) on 3.11/SQLite 3.49.1, 3.12/3.53.1 and 3.15/3.53.1;
+an authorizer that denies `COMMIT` raises `SQLITE_AUTH` with the transaction
+still open. `EXPLAIN QUERY PLAN` of the built statements: every filter column
+reaches its index (for two filters the planner takes one of the two indexes),
+cursor scans and exact reads use the integer primary key, the request winner the
+`submission_requests` key, and no plan sorts.
+
+**Private negative controls** (scratch matrix `tools/mutants.py`, not in the
+permanent suite). Each of 46 source mutants was applied in place to
+`sqlite.py` (one to the shared `roll_back` in `sqlite_schema.py`), the new test
+module ran against it, and the original bytes were restored and checked by
+sha256 after every mutant. Every mutant made its designated tests fail: the
+authority dropped from a read, a mint or close, or the transaction run outside
+it; the read transaction removed (for all reads, and for each multi-statement
+read alone); inclusive keyset bounds in either order, Pi's descending bound
+below 2^53−1, an inclusive entry cursor, an unclamped page size and an entry
+scan that reads nothing for negative limits; the request winner kept by the
+first writer, never dropped or dropped unconditionally; lenient write,
+request-ID and ID ingress and the closed check moved after admission; the
+corruption guard removed from an exact read, a scan, the winner read and the
+commit; decode errors escaping, index columns, the winner key, a dangling
+winner and the commit sequence unchecked; an unconditional rollback, a missing
+rollback, a failed rollback or a raising COMMIT that does not poison; the
+counter not adopted, sequence exhaustion unchecked, cross-kind and duplicate
+claims accepted; ASCII payload JSON, a recursive encoder, a reader that accepts
+repeated keys or trailing text, non-ASCII identity columns; a parent read
+eagerly or a dangling parent that ends the walk; and documents that silently
+read as empty. The first run left one survivor, a parent read eagerly; it
+revealed that no case pinned Memory reading a dangling parent's own entries
+before its record, so that case was added and the mutant now fails it.
+
+**Results.**
+
+| Check | macOS 27.0.1 arm64, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04.5, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| coverage and acceptance tests, after the cascade | 0; 165 passed | 0; 165 passed |
+| the new module with the DE03a, DE03b, Memory and coverage tests under `-X dev -W error` | 0; 891 passed, 54 xfailed | 0; 891 passed, 54 xfailed |
+| `test_sqlite_storage.py` under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 406 passed and 54 xfailed each | 20 of 20 exit 0; 406 passed and 54 xfailed each |
+| `pytest tests/durable` | 0; 1981 passed, 54 xfailed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 (903 files) | not run |
+| strict docs build and rendered links on the five changed pages, after the ledger edit | 0 ("No issues found"); 917 local links, none broken | not run |
+| DE03c1 mutant matrix on the final tree | 0; 46 mutants, every designated test fails | not run |
+| records written through the other host's SQLite read back exactly | the 3.45.1 store reads back | the 3.53.1 store reads back |
+| leftover processes naming the directory | not applicable | 0 |
+
+The 54 xfails are the 27 document-body instances on each SQLite backend, each
+failing with exactly the interim refusal; nothing is skipped. The new and DE03
+tests also ran on the locally installed uv Python 3.11.13 (SQLite 3.49.1) and
+3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 778 passed and 54 xfailed
+each. Nothing was installed: each version got a bare `python -m venv
+--without-pip` in scratch whose only addition is a `.pth` naming a snapshot of
+the working tree and the site-packages of DE03b's existing scratch venv, so the
+`-I` children import the snapshot too.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03c1-20261022T041230Z/` (mode `0700`, on ext4), with
+DE03b's procedure: a copy of the working tree (`git ls-files -co
+--exclude-standard`, 3934 files, sent with `rsync` over SSH using the launchd
+agent socket for those commands only; eleven key files compared by sha256), a
+project-local venv on the system Python (`UV_PYTHON_DOWNLOADS=never uv venv
+--python /usr/bin/python3.12`, then `uv sync --frozen`), and the uv cache,
+`TMPDIR` and pytest temporary directories inside it. Each Linux repeat took
+about two minutes against about 21 seconds on macOS. After the run the previous
+directory `~/pipy-de03-linux/de03b-20261022T015019Z/` was deleted; nothing else
+was removed, exactly one DE03 directory remains, and no process of the user
+names it outside the checking session.
+
+**Closing runs after the final ledger edit.** The strict docs build, the
+rendered links, the coverage and acceptance tests (165), the new, DE03 and
+coverage tests under `-X dev -W error` (891 passed, 54 xfailed), the inventory
+and architecture tests (348), ruff, format and mypy all exited 0 again. The 13
+document-reading files failed one or two cases of `test_docs_build.py`'s
+preview test in each of three closing attempts (676 or 675 of 677 passed; the
+test waits on file-change events from a preview server it starts for its own
+temporary project) while the host's load average was between 19 and 34 with
+`fseventsd` at full CPU; a clean `git archive` of HEAD, without any DE03c1
+change, fails the same two cases under the same load
+(`docs-build-test-head.log`), so the failure is environmental, as DE03b
+recorded. The full battery above, at lower load, passed all 677. Linux received
+the final tree (only this ledger changed in content) and passed the coverage
+and acceptance tests again (165).
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/logs/` (macOS: `final-*.log`, `mutant-matrix.log` and
+the first run `mutant-matrix-run1.log`, `mutant-parent-read-eagerly.log`,
+`coverage-update-*.log`, `cascade.log`, `closure-verify.log`,
+`binding-check.log`, `closing-*.log`), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/probes/` (probes),
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/pycompat/` (Python 3.11 and 3.12) and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/linux/remote-logs/`
+(Linux, copied back, with the cross-version logs in `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/linux/`).
+
+**Manifest cascade and chain binding.** Only the three bookkeeping files the
+baseline manifest hashes changed: the coverage index (DE03b LANDED with its
+delivery, DE03c a cumulative parent, new DE03c1 and DE03c2 rows, the DE03
+parent text, every DE source anchor recomputed for the two new plan lines), the
+coverage test (113 rows; DE03b LANDED; the DE03c parent cannot land with an open
+child; exact child IDs; the c rows cannot claim case evidence) and the
+acceptance script (the DE03c1 and DE03c2 IDs, the plan and ledger row pattern,
+the DE03c cumulative rule and the split evidence anchor). No file of the a1,
+a2b, b1b or b3 closures changed (`test_memory_storage.py`, `memory.py` and the
+Storage port are untouched). The cascade (baseline → a1 → a2b → b1b → b3) ran
+last over closure and parent hashes only, and again after `ruff format` changed
+the layout of the coverage test and the acceptance script: baseline
+`41ee1f51…f8e2`, a1 `91d95fdf…4303`, a2b `e410a9a6…bb19`, b1b `1a98a0fb…a49e`
+and b3 `c2684f4d…19c6`. Closure verification exits 0 with no stale entry, and
+the binding check against `d2e62390` (DE02b3's `final-pairs.json`) exits 0: of
+the 63 chain-hashed files only the three bookkeeping files differ, and the
+manifest diff is those entries plus derived parent hashes. No chain-bound file
+changed, so no chain reran.
+
+**Size.** The new code is `sqlite.py` (905 lines including its design
+docstring), `storage_contract_cases.py` (794) and `test_sqlite_storage.py`
+(656), 2,355 lines, over the work order's ~2k guidance. A first contract
+module that copied every original body came to 1,680 lines; running the
+original bodies themselves cut it to under half, and the seven document bodies
+that need SQLite document views were handed to DE03c2 as the coherent stopping
+point (they would have added about 370 lines that cannot run on SQLite before
+DE03c2).
+
+**Deviations from the prep and the work order, with reasons.**
+
+1. The contract cases run the original Memory bodies over every backend by
+   replacing the module's `MemoryStorage` name, instead of copied ports; only
+   bodies that observe Memory internals have variants. The Memory run is
+   therefore literally the unchanged body, and nothing is duplicated.
+2. Seven document bodies that observe Memory internals are listed for DE03c2
+   (`DE03C2_PORTS`, checked by a test) instead of being ported and marked here:
+   their hooks need SQLite document views that DE03c2 designs, and the size
+   guidance. The nine public-API document bodies are marked.
+3. The marker is `xfail(strict=True, raises=UnsupportedStorageOperation)`. The
+   repository has no precedent for marking deferred capability cases (its skips
+   are all environmental: POSIX, Node, symlinks); a strict, `raises`-limited
+   xfail still runs every case, proves that the interim refusal is its only
+   failure, fails the run as soon as DE03c2 makes one pass, and leaves the two
+   known skips of `just check` unchanged.
+4. The payload codec writes and reads the `json.dumps` text without recursion
+   instead of calling `json.dumps`/`json.loads` (prep §3.4): those stop at
+   Python's recursion limit and would make SQLite refuse values Memory keeps.
+5. A failed rollback poisons the instance, in addition to D4: the connection
+   may still be inside the failed transaction, where later reads on the same
+   connection would see its uncommitted rows.
+6. D4 is implemented and tested here (an authorizer denies COMMIT), and the
+   rollback rule with a real `SQLITE_FULL` from `max_page_count`; both overlap
+   DE03c2's list, which keeps the write-refusal suite, the after-COMMIT seam
+   and the SIGKILL cuts.
+7. The ID counter is adopted immediately after `COMMIT` returns, inside the
+   commit, without the prep's after-COMMIT seam and `finally`; DE03c2 adds the
+   seam with its acknowledgement-loss cut.
+8. Read-time integrity goes beyond the prep's decode check: index columns,
+   request bindings and the commit sequence are cross-checked.
+9. Page sizes are clamped to 2^53 rows for SQLite's integer binding; Memory
+   accepts any integer, and the result is the same.
+10. The interim document methods refuse right after the closed check, without
+    admitting their arguments; DE03c2 adds Memory's document ingress.
+11. `sqlite_schema` gained `read_metadata` and `roll_back` (renamed from
+    private helpers, reused); `test_sqlite_schema.py` follows the rename.
+
+**Prep versus reality, flagged.** (a) `json` recursion limits (probe above):
+D1's text is kept, its implementation is iterative. (b) Memory's entry scan
+appends before it checks the limit and its table scan checks before it
+appends, so the prep's single clamp `LIMIT max(limit+1−n, 0)` holds for table
+scans but would end an entry scan before Memory's walk reaches a dangling
+parent; the entry scan reads at least one row per page. (c) Memory's
+`entry(id, conversation_id=...)` walks the ancestry even when the entry does not
+exist, and a dangling parent's own entries are read before its record; Pi's
+SQLite returns early in the first case and fails on `undefined` in the second.
+The port follows Memory in both. (d) Pi's `ReopeningStorage` delegates at call
+time; a wrapper that hands out bound methods of the current instance would
+keep calling a closed one. Every other prep assumption held.
+
+**Open obligations and risks for DE03c2 and DE03d.** (1) DE03c2 implements
+documents, removes the nine strict-xfail marks (each will then pass and fail
+the run until removed), ports `DE03C2_PORTS` with SQLite document views in the
+harness, and adds `document.create` IDs to the commit's ID candidate (only table
+writes reach the commit today). (2) DE03c2 owns the after-COMMIT seam with the
+counter adopted in a `finally`, SIGKILL before and after COMMIT, `query_only`
+and foreign-lock refusals, WAL truncation, page reuse and the size bound. (3)
+The paired Pi SQLite probes of D2 (a), (c), (d) and (f), and of (b) and (e),
+stay open (DE03d, or DE03c2 where it runs one). (4) The codec is pure Python:
+reads and writes cost more than C `json`; DE03d's P43 budget should measure it.
+(5) One `SqliteStorage` per `OwnedDatabase`: a second wrapper over the same
+database would split the authority; only `open_sqlite_storage` constructs it
+today, and DE11's product factory must keep that. (6) The snapshot tests use a
+foreign writer only to prove read isolation; a foreign writer remains outside
+the ownership contract. (7) Each page item is decoded once and copied once by
+Memory's `_page`.
+
+### DE03c1 round-1 Codex review repair
+
+Round 1 review, Codex `gpt-6.1-sol` HIGH on tree `4704db79`: **ISSUES**, no
+Critical and three Warnings, accepted by the coordinator and repaired by Claude
+Code `claude-opus-5-5` MAX; no CI result is claimed. Each finding was
+reproduced before the repair (`repair-r1-probes/probe_findings_before.log`).
+
+- **Warning 1: a forked child could wait forever for the instance lock.** Every
+  public method took `_lock` first; the fork check came only later, inside
+  `OwnedDatabase.connection()`. Reproduced: a child process whose writer thread
+  was paused at `_before_commit`, holding the lock, forked, and the
+  grandchild's `close()` had not returned after 5 seconds when it was killed.
+- **Warning 2: entry scans and the head marker skipped the commit-sequence
+  check.** Only `_lookup` (both `entry` forms) checked `commit_seq`; `_entries`
+  and `_head` called `_record` directly. Reproduced: with `commit_seq = 0`,
+  `entry(2)` raised `StorageCorruption` while `scan_entries` returned the entry
+  and `find_latest_head_marker` returned it as the head.
+- **Warning 3: `sqlite3` decoded stored text before any check.** Reproduced:
+  invalid UTF-8 in `tasks.kind` or `status`, in `submissions.request_id` or
+  `status` (written past their CHECKs with `ignore_check_constraints`), or in
+  `record_ids.record_type` made `task`, `scan_tasks`, `submission`,
+  `submission_by_request` and the commit's claim read raise
+  `sqlite3.OperationalError: Could not decode to UTF-8 column ...`, which has no
+  `sqlite_errorcode` (so `damage_as_corruption` passed it on) and quotes the
+  stored text.
+
+**Audit beyond the findings.**
+
+- *Fork.* DE03a's owners check `forked` (a pid comparison without a lock)
+  before their locks: `PathOwner.check_usable`, `OwnedDatabase.connection()` and
+  `close()`. `SqliteStorage` was the only layer that locked first. DE03a resets
+  no instance lock at fork (its fork hooks hold only the module registry lock
+  across `fork()`), and once every path checks first, no path of a child takes
+  the inherited lock at all, so no at-fork reset was added.
+- *Row checks, table by table.* Conversations: the exact read, the scan and the
+  fork walk's parent reads. Entries: both `entry` forms, the head marker and
+  both scan orders. Tasks and submissions: the exact read and the scan;
+  submissions also the request winner. All of them now reach one function that
+  makes every check of a stored row. The checks only the winner read can make
+  (a binding to a missing submission or to another request's) stay there, since
+  only it reads `submission_requests`. `record_ids` is read only by the commit's
+  claims, which now decode and check the record type.
+- *Text beyond the TEXT columns.* The tables are STRICT, but SQL alone can
+  defeat that: rewrite a table's schema without `STRICT` through
+  `writable_schema`, write, and restore the schema text, which open-time
+  validation then finds unchanged. Reproduced
+  (`probe_strict_defeat_before.log`): invalid-UTF-8 TEXT in `entries.head`,
+  `commit_seq` or `record` and in `tasks.background` or `record` made every read
+  of the row raise the same raw `OperationalError` (`PRAGMA integrity_check`
+  reports "non-INTEGER value in entries.head"). DE03b's open-time reads had the
+  same exposure: schema text with invalid UTF-8 in an SQL comment made `open`
+  raise it (`probe_schema_text_before.log`), and the schema version and the
+  metadata counters can hold such TEXT through the same round trip. The repair
+  covers both, as the finding extends to `sqlite_schema` read paths if
+  affected. `quick_check` findings are SQLite's own text about objects
+  `validate_store` has already checked, and `_pragma` reads header integers.
+
+**Repair.**
+
+1. *Fork first.* Every method except `close` enters through one context
+   manager, `SqliteStorage._authority()`: the fork check without a lock, raising
+   DE03a's `StorageForkedError("A durable store owner cannot be used after
+   fork()")`, then the lock, then the closed and poisoned checks, yielding the
+   connection. `close()` returns at once in a forked child, before the lock.
+2. *Every row check on every read.* `_record` makes every check of a stored
+   row: strict decoding of its TEXT columns, decoding and validating the
+   record, comparing the index columns and, for an entry, the commit sequence.
+   `_lookup` only wraps its result, so the head marker, both scan orders and
+   both `entry` forms check alike.
+3. *No implicit decoding.* One function builds every SELECT list. The TEXT
+   columns (`kind`, `status`, `request_id`) are read as `CAST(col AS BLOB)` and
+   decoded strictly by `_record`; a decoding error is a `ValueError`, so it is
+   "unreadable record" `StorageCorruption`. Every other column goes through the
+   new `sqlite_schema.read_column`, `CASE typeof(col) WHEN 'text' THEN x'' ELSE
+   col END`, so TEXT where a STRICT column keeps none reads as an empty `BLOB`
+   that no check accepts. The claim read selects `CAST(record_type AS BLOB)`,
+   decodes strictly and accepts only the five record types. The last-writer
+   drop no longer reads the previous request key into Python: one statement
+   deletes the binding `WHERE submission_id = ? AND (conversation_id,
+   request_id) = (SELECT conversation_id, request_id FROM submissions WHERE id =
+   ?)`, with the submission ID bound twice, the same rule; its plan searches
+   the binding's primary key and the submission's rowid, without a scan.
+   `submission_by_request` compares the decoded record's key, which `_record`
+   has proven equal to the row's columns.
+4. *`sqlite_schema`.* `_objects` reads the four schema columns as bytes and
+   decodes them strictly ("The durable store's schema text is not UTF-8"); the
+   schema version and both counters are selected through `read_column`, and the
+   version must be an `int` ("SQLite schema metadata is not an integer", where
+   `int(row[0])` accepted text before). No message quotes stored text.
+
+**Regressions.** `test_sqlite_storage.py` has 580 cases now (526 pass, plus
+the same 54 strict xfails; 460 before), `test_sqlite_schema.py` 71 (67 before):
+
+- *Fork under contention* (one case, real processes): a child opens the store;
+  a writer thread commits and pauses at `_before_commit` holding the lock (a
+  deterministic barrier); the child forks. The grandchild calls all sixteen
+  methods (`entry` in both forms, `close` twice) and reports that every call
+  raised `StorageForkedError` with DE03a's message, both closes returned
+  `None`, the inherited lock was still locked (the fork really happened under
+  contention), and all of it took milliseconds. The child reaps it with
+  `WNOHANG` against a 20-second deadline (a hang would be killed and fail the
+  case) and releases the writer, whose commit lands (sequence 3) and reads
+  back; the test process reopens the store, finds the entry and passes
+  `integrity_check`, and the process group is reaped.
+- *Damage on every read* (67 cases, replacing the 8 single-read damage cases):
+  19 damaged rows (records that are not JSON, not UTF-8 or not a record;
+  contradicting index columns; commit sequence 0 or 2^53; invalid UTF-8 in each
+  TEXT column of `tasks` and `submissions`; a binding to a missing submission or
+  to another request's; an unreadable or unknown claim), each against every
+  read method that reaches the row (exact, both `entry` forms, the head marker,
+  both scan orders, filtered and unfiltered scans, the request winner, the
+  commit's claims). Each raises `StorageCorruption` with its specific message,
+  never a request error and never quoting stored text, while another table
+  still reads.
+- *TEXT in STRICT non-TEXT columns* (52 cases): 13 INTEGER and BLOB columns of
+  the four tables, through the schema round trip, against every read that
+  reaches the row, each with its message. In `test_sqlite_schema.py`, schema
+  text that is not UTF-8 and TEXT in the schema version or either counter are
+  refused at open, twice, with no byte changed and the lock free.
+- *Valid text unchanged* (7 cases, across reopen): empty, ASCII, non-ASCII, an
+  astral character, a lone high and a lone low surrogate and JSON
+  metacharacters as task kind and request ID read back exactly through strict
+  decoding, find their task by kind (and nothing for another kind) and win
+  their request (D1: identity columns are ASCII JSON).
+- *Plans*: the new winner drop and the claim read search their keys; neither
+  scans.
+- *Placeholders*: no string literal of `sqlite.py` or `sqlite_schema.py` holds
+  a numbered placeholder (below).
+
+**Linux found one more defect.** The first Linux run of the repair (Python
+3.12.3, `logs-attempt1`, copied back to `repair-r1-linux/remote-logs-attempt1/`)
+failed 186 cases under `-X dev -W error`, the same 186 in each of the 20
+repeats: the winner drop first used the numbered placeholder `?1` for both
+uses of the submission ID, and Python 3.12.3's `sqlite3` takes `?1` for a
+named placeholder when the parameters are a sequence, warning
+(`DeprecationWarning`, an error under `-W error`) on every submission write.
+The uv builds of Python 3.11.13, 3.12.15 and 3.15.0 accept it, so macOS could
+not see it. The drop now binds the submission ID twice through plain `?`
+placeholders, the static placeholder check above keeps every statement literal
+plain, and the final Linux run, after the fix, is the one reported below.
+
+**Side by side** (`repair-r1-sbs/`). The final tests ran against the reviewed
+sources (`4704db79`'s `sqlite.py` and `sqlite_schema.py`) and against the
+repaired ones, each in a snapshot tree with its own bare venv of the same
+Python 3.15, so the `-I` children import that side too. Reviewed: exit 1, 78
+failed, 519 passed, 54 xfailed. Repaired: exit 0, 597 passed, 54 xfailed. The
+78: the fork case (the grandchild never reported and was killed at the
+deadline, while the writer's commit still landed); 6 commit-sequence cases
+that did not raise (head marker and both scan orders); 69 raw
+`OperationalError` "Could not decode to UTF-8" (12 TEXT-column cases, the
+unreadable claim, the 52 STRICT cases, the three counters and the schema
+text); the unknown claim, which raised `RuntimeError("ID 3 already belongs to
+nothing")`; and the plan case, which is only a statement-shape artifact (the
+reviewed drop statement takes three bindings).
+
+**Negative controls.** The scratch matrix has 61 mutants now (46 before): 15
+new ones (the fork check moved after the lock, a forked close that waits for
+it, the authority without its lock, the commit-sequence check removed from
+`_record` and put back in `_lookup` only, TEXT columns, other columns, claims
+and schema text decoded by `sqlite3` again, a decoding error escaping
+`_record`'s guard or the claim's, an unknown claim type accepted, a schema
+version of any type, the winner drop as a table scan, and the drop with
+numbered placeholders as first written), 12 re-anchored to the new code and 6
+with updated designations. The first run left one survivor,
+`dangling-winner-unchecked`: the rewritten damage cases checked only the
+exception class, and a binding to a missing submission is refused anyway as an
+unreadable record. Every damage case now also matches its message, which the
+replaced cases had done, and the mutant fails. The final run, on the tree with
+plain placeholders, fails every designated test of all 61 mutants, and the
+unmodified sources pass all 651 cases of both files
+(`repair-r1-matrix/matrix-run1.log`, `matrix-run2.log` before the placeholder
+fix, `matrix.log`).
+
+**Results after the repair.** These supersede the DE03c1 table above.
+
+| Check | macOS 27.0.1 arm64, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04.5, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| coverage and acceptance tests, after the cascade | 0; 165 passed | 0; 165 passed |
+| the new module with the DE03a, DE03b, Memory and coverage tests under `-X dev -W error` | 0; 1015 passed, 54 xfailed | 0; 1015 passed, 54 xfailed |
+| `test_sqlite_storage.py` under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 526 passed and 54 xfailed each | 20 of 20 exit 0; 526 passed and 54 xfailed each |
+| `pytest tests/durable` | 0; 2105 passed, 54 xfailed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 | not run |
+| strict docs build and rendered links on the five changed pages, after the ledger edit | 0 ("No issues found"); 919 local links, none broken | not run |
+| DE03c1 mutant matrix on the final tree | 0; 61 mutants, every designated test fails | not run |
+| the final tests on the reviewed sources (`4704db79`) | exit 1; 78 failed, 519 passed, 54 xfailed | not run |
+| records written through the other host's SQLite read back exactly | the 3.45.1 store reads back | the 3.53.1 store reads back |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new and DE03 tests also ran on the locally installed uv Python 3.11.13
+(SQLite 3.49.1) and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 902
+passed and 54 xfailed each, with the same bare-venv snapshot procedure as
+before (`repair-r1-pycompat/`). The table's macOS column is the battery on the
+final tree (`repair-r1-final-*.log`); the first battery, before the placeholder
+fix (`repair-r1-*.log`), also passed except for one case of
+`test_docs_build.py`'s preview test under load, the environmental failure
+recorded above.
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03c1-20261022T064246Z/` (mode `0700`, on ext4), with the
+same procedure as before: a copy of the working tree (3934 files, sent with
+`rsync` over SSH using the launchd agent socket for those commands only; key
+files compared by sha256), a project-local venv on the system Python with `uv
+sync --frozen`, and the uv cache, `TMPDIR` and pytest temporary directories
+inside it. After the first attempt the three changed files were sent again
+(eleven key files compared by sha256 again) and the tests reran in the same
+venv; the first attempt's logs are kept as `logs-attempt1`. After the run the
+previous directory `~/pipy-de03-linux/de03c1-20261022T041230Z/` was deleted;
+nothing else was removed, exactly one DE03 directory remains, and no process of
+the user names it outside the checking session.
+
+**Cascade.** `coverage.json` changed again (the DE03c1 observables name the
+repair and its regressions; nothing else), so the cascade ran last: baseline
+`0845440b…2f0f`, a1 `7b9b0d4a…ff05`, a2b `db981ebc…1371`, b1b `615a6efa…fd8c`
+and b3 `ec7690a8…9699`. No file of any closure changed otherwise: the
+repair's sources and tests are not hashed. Closure verification exits 0 with
+no stale entry, the key-level diff against HEAD is still the three bookkeeping
+entries plus the derived parent hashes, and the binding check against
+`d2e62390` exits 0 (only the three bookkeeping files of the 63 chain-hashed
+files differ).
+
+**Size.** Against `4704db79`: `sqlite.py` 905 → 955 lines (+140, −90),
+`sqlite_schema.py` 666 → 705 (+54, −15), `test_sqlite_storage.py` 656 → 1135
+(+511, −32) and `test_sqlite_schema.py` 1330 → 1395 (+65);
+`storage_contract_cases.py` is unchanged. Most of the test growth is the
+damage tables, one row per damage with its reads and message.
+
+**Deviations, with reasons.** (1) The text repair covers every selected
+column, not only the TEXT columns the finding named, and DE03b's open-time
+reads: the same raw error was reproducible there with SQL alone. (2) The
+schema version must now be an `int`; text was accepted. (3) The winner drop
+became one SQL statement instead of a Python read of the previous request ID.
+(4) No at-fork lock reset (audit above). (5) A static test bans numbered
+placeholders, a Python 3.12.3 portability rule that only the Linux run could
+show.
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-logs/` (macOS: `repair-r1-final-*.log` and
+`repair-r1-*.log`, coverage update, cascade, closure, binding, docs build,
+rendered links and `closing-*.log`), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-probes/`
+(reproductions before and after), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-matrix/`, `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-sbs/`,
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-pycompat/` and `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-linux/remote-logs/` (Linux,
+copied back, with the cross-version logs in `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r1-linux/`).
+
+### DE03c1 round-2 Codex review repair
+
+Round 2 delta review, Codex `gpt-6.1-sol` HIGH on tree `1043a5cd`: **ISSUES**,
+no Critical and one Warning, caused by the round-1 repair, accepted by the
+coordinator and repaired by Claude Code `claude-opus-5-5` MAX; no CI result is
+claimed.
+
+- **Warning: `CAST(... AS BLOB)` erased the storage class.** Round 1 read the
+  TEXT columns as `CAST(col AS BLOB)`, so a BLOB stored in a TEXT column read
+  back as the same bytes and passed. Reproduced
+  (`repair-r2-probes/probe_storage_classes_before.log`, values stored through
+  the schema round trip): with `tasks.kind` a BLOB, `task(3)` and an unfiltered
+  `scan_tasks` returned the task while `scan_tasks` filtered by its kind found
+  nothing. The same probe found more of the class: BLOBs in `tasks.status`,
+  `submissions.request_id` and `status`, and `record_ids.record_type` (the
+  commit's claim accepted it), and numerically equal REALs (`1.0`, `0.0`) in
+  `tasks.conversation_id` and `background`, `entries.conversation_id` and
+  `head` and a binding's `submission_id` and `conversation_id`, were all
+  accepted; SQLite's own schema rows with a BLOB `sql` or `name` opened. An
+  INTEGER `kind` and a TEXT payload were refused, but only by the index
+  cross-check and the payload decoder.
+
+**Repair.** Two helpers in `sqlite_schema`: `typed_columns(*names)` selects
+each column's `typeof` and its value (text as `CAST(... AS BLOB)`, so
+`sqlite3` never decodes it), and `typed_values(row, classes, refuse)` checks
+every column's storage class against the classes its declared type allows
+(`integer`, `text` or `blob`, plus `null` only where the column is nullable)
+before anything is decoded, then decodes text strictly. Every read uses them:
+the four record tables (`_COLUMNS` lists each column with its classes; the
+index columns derive from it), `submission_by_request` (the binding's three
+columns, then a missing submission, then the submission row), the commit's ID
+claims, SQLite's schema rows, the schema version and the metadata counters. A
+refusal names the row (by ID where it has one), the column, the class found and
+the classes allowed, never stored data. Round 1's `read_column` is gone.
+
+**Audit: every column and the read that checks it.** One test
+(`test_read_classes_are_the_schema_declared_types`) derives these classes from
+`PRAGMA table_xinfo` (declared type, NOT NULL, primary key) and compares them
+with the read tables.
+
+| Table | Column | Allowed storage classes | Read sites |
+| --- | --- | --- | --- |
+| `conversations` | `id` (rowid) | integer | `conversation`, `scan_conversations`, the fork walk's parent reads (`entry` with a conversation, the head marker, entry scans) |
+| `conversations` | `owner_conversation_id`, `owner_task_id` | integer or null | the same, then cross-checked with the record |
+| `conversations` | `record` | blob | the same |
+| `entries` | `id` (rowid) | integer | both `entry` forms, the head marker, both scan orders |
+| `entries` | `conversation_id`, `commit_seq` | integer | the same (`commit_seq` then 1..2^53−1) |
+| `entries` | `head` | integer or null | the same |
+| `entries` | `record` | blob | the same |
+| `tasks` | `id`, `conversation_id`, `abort_requested`, `background` | integer | `task`, `scan_tasks` with any filter |
+| `tasks` | `kind`, `status` | text | the same |
+| `tasks` | `record` | blob | the same |
+| `submissions` | `id`, `conversation_id` | integer | `submission`, `scan_submissions` with any filter, `submission_by_request` |
+| `submissions` | `request_id` | text or null | the same |
+| `submissions` | `status` | text | the same |
+| `submissions` | `record` | blob | the same |
+| `submission_requests` | `conversation_id`, `submission_id` | integer | `submission_by_request` |
+| `submission_requests` | `request_id` | text | `submission_by_request` |
+| `record_ids` | `record_type` | text, one of five types | the commit's claims (`id` is the rowid key) |
+| `durable_metadata` | `next_id`, `next_seq` | integer, then in range | `read_metadata`: open-time validation, `SqliteStorage`, every commit |
+| `durable_schema` | `version` | integer | `validate_store`, the migration bootstrap |
+| `sqlite_schema` (SQLite's, not STRICT) | `type`, `name`, `tbl_name` | text | `validate_store` |
+| `sqlite_schema` | `sql` | text or null | `validate_store` |
+
+Nothing else is read into Python: `documents` and `document_revisions` are
+not read before DE03c2; `_pragma` reads header integers and `quick_check`
+SQLite's own report; the last-writer drop and the upserts compare stored values
+inside SQL only, and a binding they leave stale is refused by the winner read.
+
+*Filtered reads.* SQLite never finds TEXT or a BLOB equal to an integer filter,
+nor a BLOB or a number equal to a text filter, so such a value hides its row
+from an equality filter on that very column; the read returns without the row,
+never the row with the wrong value. Every read that reaches the row refuses
+it, and a numerically equal REAL in an INTEGER column is found by its filter
+and refused. `PRAGMA quick_check` reports every such value (the probe shows
+"non-TEXT value in tasks.kind"), but it runs only after an unclean shutdown
+(D6); any tampered index column hides rows from filters the same way.
+
+**Regressions.** `test_sqlite_storage.py` has 752 cases now (698 pass, plus the
+same 54 strict xfails; 580 before), `test_sqlite_schema.py` 83 (71 before):
+
+- *Values of another storage class* (223 cases): 45 values stored through the
+  schema round trip, each asserted to hold its class, against every read that
+  reaches the row (each refuses with the class message) and every filtered
+  read that cannot (each returns without the row): BLOB, INTEGER, REAL and NULL
+  in the TEXT columns (`kind` and `status`, `request_id` and `status`, the
+  binding's `request_id`, `record_type`); TEXT (invalid and valid UTF-8), REAL
+  and BLOB in the INTEGER columns of the four tables and of the binding; TEXT
+  and numbers in each payload.
+- The invalid-UTF-8 TEXT cases now name the column ("whose kind column is not
+  UTF-8"); round 1's 52 TEXT-in-STRICT cases are part of the 223.
+- `test_sqlite_schema.py`: a BLOB `sql`, `name`, `type` or `tbl_name` in
+  SQLite's schema rows is refused at open (a REAL `sql` is SQLite's own
+  malformed-schema refusal), and the schema version (invalid and valid text,
+  REAL, BLOB, NULL) and the counters (invalid text, REAL, BLOB; text, REAL) are
+  refused with no byte changed and the lock free.
+- The declared-classes test above.
+
+The round-1 helper became `store_in_strict_column(target, table, column, value,
+where)`: it rewrites the table's schema without STRICT and with the column
+untyped and nullable (BLOB affinity, so SQLite converts nothing: a REAL `1.0`
+stays REAL), writes, restores the schema text and returns the classes now
+stored.
+
+**Side by side** (`repair-r2-sbs/`, the final tests on `1043a5cd`'s sources
+and on the repaired ones, as in round 1). Reviewed: exit 1, 234 failed, 547
+passed, 54 xfailed. Repaired: exit 0, 781 passed, 54 xfailed. Of the 234, 65
+accepted a value of the wrong class (61 storage-class cases across 14 values:
+the BLOB `kind`, `status`, `request_id` and claim; REAL conversation IDs,
+heads, flags and binding columns; and the binding's TEXT `submission_id`,
+which SQLite's rowid lookup converts to an integer; plus the 4 BLOB schema
+rows); 168 were refused with an older, less specific message (contradicting
+index columns, an unreadable record, a missing commit sequence, "not an
+integer", "out of range"); 1 is the declared-classes test, which needs this
+repair's column tables.
+
+**Negative controls.** The matrix has 62 mutants: 47 unchanged, 6 re-anchored
+to the new row checks, and 9 new for round 2, replacing 8 whose code is gone:
+the row, binding, claim, schema, version and counter classes each accepting
+every class, values decoded by `sqlite3`, a decoding error escaping its guard
+and the schema read untyped (DE03b's original read). The first round-2
+run missed one designated test: with the commit run outside the instance lock
+(`commit-outside-authority`), the `close` contention case passed, and targeted
+reruns showed the `read` case could too. The contention harness only asserted
+that someone held the authority after the contender's attempt, and a contender
+running without the writer's lock can hold it at that moment and still win the
+race. `storage_contract_cases._run_contended` now also checks, at the writer's
+late commit point and before any contender starts, that the authority cannot
+be taken (a non-blocking acquire fails); with that, the mutant failed all four
+contention cases in 5 of 5 targeted runs. The final full run, on the final
+tree, fails every designated test of all 62 mutants, and the unmodified sources
+pass all 835 cases of both files (`repair-r2-matrix/matrix.log`;
+`matrix-run1-full.log` and `commit-outside-authority-*.log` before the
+harness check).
+
+**Results after the round-2 repair.** These supersede the round-1 table.
+
+| Check | macOS 27.0.1 arm64, Python 3.15.0, SQLite 3.53.1 | Linux macmini, Ubuntu 24.04.5, Python 3.12.3, SQLite 3.45.1 |
+| --- | --- | --- |
+| coverage and acceptance tests, after the cascade | 0; 165 passed | 0; 165 passed |
+| the new module with the DE03a, DE03b, Memory and coverage tests under `-X dev -W error` | 0; 1199 passed, 54 xfailed | 0; 1199 passed, 54 xfailed |
+| `test_sqlite_storage.py` under `-X dev -W error`, 20 sequential runs | 20 of 20 exit 0; 698 passed and 54 xfailed each | 20 of 20 exit 0; 698 passed and 54 xfailed each |
+| `pytest tests/durable` | 0; 2289 passed, 54 xfailed | not run |
+| extension-generation inventory and `test_architecture_*` | 0; 348 passed | not run |
+| the 13 test files that read the changed documents | 0; 677 passed | not run |
+| `ruff check .`, `ruff format --check .`, `mypy src tests` | 0, 0, 0 | not run |
+| strict docs build and rendered links on the five changed pages, after the ledger edit | 0 ("No issues found"); 921 local links, none broken | not run |
+| DE03c1 mutant matrix on the final tree | 0; 62 mutants, every designated test fails | not run |
+| the final tests on the round-1 sources (`1043a5cd`) | exit 1; 234 failed, 547 passed, 54 xfailed | not run |
+| records written through the other host's SQLite read back exactly | the 3.45.1 store reads back | the 3.53.1 store reads back |
+| leftover processes naming the directory | not applicable | 0 |
+
+The new and DE03 tests also ran on the locally installed uv Python 3.11.13
+(SQLite 3.49.1) and 3.12.15 (SQLite 3.53.1) under `-X dev -W error`: 1086
+passed and 54 xfailed each (`repair-r2-pycompat/`).
+
+Linux ran in a new isolated directory,
+`~/pipy-de03-linux/de03c1-20261022T091203Z/` (mode `0700`, on ext4), with the
+same procedure: a copy of the working tree (3934 files, sent with `rsync` over
+SSH using the launchd agent socket for those commands only; eleven key files
+compared by sha256), a project-local venv on the system Python with `uv sync
+--frozen`, and the uv cache, `TMPDIR` and pytest temporary directories inside
+it. The first attempt ran the final sources with the harness before its
+ownership check: coverage 165, the `-X dev -W error` set 1199 passed and 54
+xfailed, and 12 repeats at 698 passed and 54 xfailed each, when the harness
+changed; it was stopped by terminating its process group, no process remained,
+and its logs are kept as `logs-attempt1`. The changed files were sent again
+(seven key files compared by sha256) and the tests reran in the same venv;
+the table shows that run. After it the round-1 directory
+`~/pipy-de03-linux/de03c1-20261022T064246Z/` was deleted; nothing else was
+removed, exactly one DE03 directory remains, and no process of the user names
+it outside the checking session.
+
+**Cascade.** `coverage.json` changed again (the DE03c1 observables name the
+storage-class checks, their regressions and the round-2 repair; nothing else),
+so the cascade ran last: baseline `2c5b4d89…34c2`, a1 `49b36901…82f5`, a2b
+`f75b0258…45df`, b1b `f1810004…3015` and b3 `3c9c2b32…6023`. No file of any
+closure changed otherwise. Closure verification exits 0 with no stale entry,
+and the binding check against `d2e62390` exits 0 (only the three bookkeeping
+files of the 63 chain-hashed files differ).
+
+**Size.** Against `1043a5cd`: `sqlite.py` 955 → 1011 lines (+125, −69),
+`sqlite_schema.py` 705 → 771 (+119, −53), `test_sqlite_storage.py` 1135 → 1437
+(+385, −83), `test_sqlite_schema.py` 1395 → 1509 (+138, −24) and
+`storage_contract_cases.py` 794 → 801 (+7, the harness check).
+
+**Deviations, with reasons.** (1) The check covers every column read, not
+only the TEXT columns of the finding: the probe found REALs in INTEGER columns
+and BLOB schema rows accepted as well. (2) The binding's three columns are
+checked although only `conversation_id` and `submission_id` can reach a read
+with another class: one rule for every read. (3) The contention harness gained
+the ownership check (test-only) so that its negative control is deterministic.
+(4) SQLite's own schema rows: a BLOB there is refused by the class check, a
+number by SQLite itself.
+
+Logs: `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-logs/` (macOS battery `repair-r2-*.log`,
+coverage update, cascade, closure, binding, docs build, rendered links and
+`closing-*.log`), `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-probes/`, `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-matrix/`,
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-sbs/`, `/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-pycompat/` and
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-linux/remote-logs/` (Linux, copied back, with
+`remote-logs-attempt1/` and the cross-version logs in
+`/private/tmp/claude-501/-Users-jochen-projects-pipy/3a0db0a1-872c-41aa-9bfe-94a686df1f96/scratchpad/de03c1/repair-r2-linux/`).

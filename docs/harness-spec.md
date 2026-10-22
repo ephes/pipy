@@ -153,11 +153,14 @@ canonical store path through a never-deleted lock sidecar, owner-only files,
 shared-filesystem refusal and fork safety) and `native/durable/sqlite_connection.py`
 (a minimal verified connection lifecycle); the on-disk contract is in
 [Durable SQLite store](session-storage.md#durable-sqlite-store-internal). DE03b
-(in progress) adds the private `native/durable/sqlite_schema.py`: schema v1 (Pi's
-version 2 shape and names plus the Python deltas), the append-only migration
-runner, the header identity gate and open-time integrity with the D6
-`quick_check` policy. Storage semantics (DE03c) and the paired Pi oracle (DE03d)
-follow.
+(landed `f6024e56`) adds the private `native/durable/sqlite_schema.py`: schema v1
+(Pi's version 2 shape and names plus the Python deltas), the append-only
+migration runner, the header identity gate and open-time integrity with the D6
+`quick_check` policy. DE03c is split c1→c2: DE03c1 (in progress) adds the private
+`native/durable/sqlite.py`, `SqliteStorage` with MemoryStorage's table semantics,
+proven by running Memory's own acceptance bodies over Memory, SQLite and SQLite
+reopened after every commit; documents and the crash cuts follow in DE03c2, the
+paired Pi oracle in DE03d.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 
@@ -394,6 +397,46 @@ native-only:
   statements on the raw connection in it too.
 - A change to what stored bytes mean needs a new schema version even without
   new DDL; DE27's first delta revision bumps it.
+
+Python spellings of the durable SQLite Storage (DE03c1, `native/durable/sqlite.py`):
+
+- `open_sqlite_storage(path, mode=..., durability=...)` wraps an owned store in
+  `SqliteStorage`, which has MemoryStorage's sixteen signatures (a test compares
+  them) and its semantics for the four tables. `tests/durable/storage_contract_cases.py`
+  runs Memory's own acceptance bodies over Memory, SQLite and SQLite reopened
+  after every commit (Pi's `ReopeningStorage`); bodies that observe Memory
+  internals have variants that observe the same through backend hooks. Document
+  operations refuse with `UnsupportedStorageOperation` until DE03c2, which also
+  ports the seven document bodies that need SQLite document views.
+- Where Pi's backends disagree, Memory wins (D2): the last writer of a request
+  ID wins without fallback (`submission_requests`), descending scans include
+  2^53−1, raw limits keep Memory's page shapes and errors (its own `_page`), and
+  a dangling parent raises `KeyError` where Memory's walk reads it. Ingress
+  reuses Memory's admission helpers. The paired probe against Pi SQLite stays
+  open (DE03d).
+- One non-reentrant lock per instance around every method; reads of several
+  statements run in one read transaction. A forked child is refused before that
+  lock, as DE03a's owners refuse it before theirs (`StorageForkedError`;
+  `close` returns), so it never waits for a lock a parent thread held at
+  `fork()`. A commit follows Pi's order inside
+  `BEGIN IMMEDIATE`, rolls back only while a transaction is open, and adopts the
+  in-memory ID counter only after `COMMIT` returned (as in Pi, IDs minted but
+  never committed can be minted again after a reopen). An error from `COMMIT`
+  (D4) or a failed rollback (`SqliteRollbackError`) poisons the instance: later
+  calls raise `StorageClosedError` until it is closed and the store reopened.
+- Payloads are compact JSON text in surrogatepass UTF-8 `BLOB`s, the text
+  `json.dumps` writes but written and read without recursion; indexed strings
+  are ASCII JSON (UTF-16 identity). Every read of a row re-validates the
+  record, cross-checks its index columns and, for an entry, its commit
+  sequence. Every column is read with its storage class
+  (`sqlite_schema.typed_columns` and `typed_values`), which must be exactly
+  one its declared type allows (`integer`, `text` or `blob`, `null` only where
+  nullable) before anything is decoded; the request bindings, ID claims,
+  SQLite's schema rows, the schema version and the counters are read the same
+  way. No stored value goes through `sqlite3`'s own text decoding (whose error
+  is not SQLite's and quotes the text): text is read as bytes and decoded
+  strictly. Every statement runs inside `damage_as_corruption`: damage is
+  `StorageCorruption`, never a request error.
 
 The bounded Storage port admits document points by exact built-in type before
 comparison/coercion/hash/repr. Foreign objects and str/int subclasses cannot run

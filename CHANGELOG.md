@@ -8,6 +8,23 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add table storage to the future durable SQLite store (internal; no product,
+  default or public API change). Conversations, entries, tasks and submissions
+  commit atomically and read back exactly as written, also after the store is
+  closed and opened again, with the in-memory store's behaviour where Pi's two
+  storage backends differ: the last writer of a request ID wins, descending
+  scans include the largest ID, and raw page limits and broken ancestry fail
+  exactly as in memory. The in-memory store's own acceptance tests run over
+  memory, SQLite and SQLite reopened after every commit. A read that spans
+  several statements sees one committed state, every read checks the stored
+  record and its indexes, and damage, including a value of the wrong kind for
+  its column or stored text that is not valid UTF-8, is reported as storage
+  corruption. A process forked while the
+  store is open cannot use it and never waits for it. A commit whose outcome
+  SQLite cannot report, or a failed rollback, makes that instance refuse
+  further use until the store is reopened. Documents and the crash-cut tests
+  follow in the next slice; every parity requirement remains open.
+
 - Add schema version 1, migrations and open-time integrity checks to the
   future durable SQLite store (internal; no product, default or public API
   change). A new store gets Pi durable's SQLite schema with Pi's table and
