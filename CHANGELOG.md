@@ -8,9 +8,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Internal durable Memory/SQLite storage now applies supplied current document
+  deltas atomically, persists actual operations and preserves lossless values
+  and committed tail counts. Semantic SQLite schema2 upgrades existing bases
+  without rewriting them and makes older openers refuse the new format.
+  Draft/Tx/checkpoint/publication integration remains DE04b1b3; product defaults
+  are unchanged.
+
 - Add private owned decoded JSON operation validation and atomic application for
   future durable deltas, with exact UTF-16/path/array behavior and pinned Node
-  comparison. Tracker, storage and checkpoint integration remain DE04b1b.
+  comparison. Supplied Storage deltas are described above; actual Draft/Tx and
+  checkpoint integration remain DE04b1b3.
 
 - Add a private bounded streaming line scanner for future durable readers, with
   immutable byte offsets and exact replacement-decoded UTF-8 sizes across arbitrary

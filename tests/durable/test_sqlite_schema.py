@@ -38,8 +38,26 @@ from pipy_harness.native.durable.sqlite_schema import (
     StorageCorruption,
 )
 
-V1 = sqlite_schema.MIGRATIONS
+V1 = sqlite_schema.MIGRATIONS[:1]
 NEWER = "SQLite schema version 2 is newer than supported version 1"
+
+
+@pytest.fixture(autouse=True)
+def historical_v1_runner(monkeypatch):
+    """Keep DE03b's synthetic-v2 migration/crash tests on immutable schema v1.
+
+    Production schema2 and actual pre-schema2 opener refusal are covered in
+    test_current_deltas; these tests exercise the original runner independently.
+    """
+    import sqlite_child_support
+
+    monkeypatch.setattr(sqlite_schema, "MIGRATIONS", V1)
+    monkeypatch.setattr(
+        sqlite_child_support,
+        "PRELUDE",
+        sqlite_child_support.PRELUDE
+        + "\nsqlite_schema.MIGRATIONS = sqlite_schema.MIGRATIONS[:1]\n",
+    )
 
 
 @pytest.fixture
@@ -692,7 +710,7 @@ def test_a_newer_store_is_refused_before_any_write(
     if tamper == "header":
         with_version_2(monkeypatch)
         open_owned_database(str(target), mode="open").close()
-        monkeypatch.undo()
+        monkeypatch.setattr(sqlite_schema, "MIGRATIONS", V1)
     else:
         with raw(target) as connection:
             if tamper == "user-version":

@@ -703,9 +703,13 @@ internal Python tables/current raw-base documents, with no product/factory/SDK
 integration or full Storage/Session parity claim. Create, base change/version
 transition, retire, current materialization, exact-address find and exact-scope
 scan all use the **same private candidate/authority and one adoption** as tables.
-Delta/copy/numeric historical/fork materialization reject whole requests/batches
-and remain DE04/DE27. A2b landed at `72253352`, so a2/a are delivered; Session
-DE02b (split b1a→b1b→b2→b3) and DE03 stay gated. All43 P remain OPEN. Original six DE01 fixtures, eight-adapter closure,
+At the A2b delivery, delta/copy/numeric historical/fork materialization rejected
+whole requests/batches; A2b landed at `72253352`, completing a2/a while Session
+DE02b and DE03 were then gated. This comparison retains that raw-base measured
+lane. Current backends additionally accept [supplied current deltas and semantic
+schema2](durable-current-deltas.md) through independent S (DE04b1b2); copy/numeric
+history/fork remain DE27 and the actual Draft/Tx/checkpoint join remains J.
+All43 P remain OPEN. Original six DE01 fixtures, eight-adapter closure,
 hosted CI/collector and permanent Node codec remain unchanged; this local
 comparison is separate from that hosted job.
 
@@ -730,8 +734,10 @@ or replaying an old bundle is not a fresh execution. Exact archive, original
 lock/dependency/source/module hashes and Node26.12.0/npm11.20.0 are verified using
 the existing fail-closed bootstrap; no upstream writes/providers/user data occur.
 `storage-memory-v1.manifest.json` closes the native implementation, two test
-files, caller, input and all a1 helper artifacts (16 paths), plus exact five
-pinned source hashes. Hash direction is code/tests/coverage → baseline manifest
+files, caller, input and all a1 helper artifacts, plus exact five pinned source
+hashes. The original delivery closed16 paths; the current17-path closure also
+binds the decoded applier now imported by Memory. Hash direction is
+code/tests/coverage → baseline manifest
 → a1 manifest → table manifest; no manifest hashes itself. Start/end manifest
 and original parent byte identities are checked. The child deadline is60s and
 process-group cleanup is inherited from the bootstrap; no missing prerequisite
@@ -1287,6 +1293,6 @@ the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-ve
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is an additive private pure decoded-operation prerequisite (depends DE02a1), currently IN_PROGRESS. DE04a retains typed current-base documents; DE04b1b depends on DE04a + DE04b1a and retains operation normalization/tracking, current Memory/SQLite deltas with semantic schema2, real checkpoints and atomic publication. DE04/DE04b remain cumulative; DE05 waits full DE04 and DE27 retains history/as-of/fork/migrations. All43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`; its [delivery/admission successor](specs/2026-10-19-durable-execution-evidence.md#de04b1a-verified-delivery-and-de04b1b-pre-code-admission) records verified delivery. Independent S (`DE04b1b2`, DE03d + DE04b1a) now implements [supplied current deltas and semantic schema2](durable-current-deltas.md), with final integration gates/delivery pending in the [S candidate evidence](specs/2026-10-19-durable-execution-evidence.md#de04b1b2-supplied-current-delta-integration-candidate). T (`DE04b1b1`, DE04a + DE04b1a) remains IN_PROGRESS without source integration here. J (`DE04b1b3`, T + S + DE04a + owner policy266) is OPEN; the owner answer is required before authoritative candidate/ops selection. The shipping-tree S row is LANDED conditional on final Root gates; cumulative DE04b1b/b/DE04 remain IN_PROGRESS until retained acceptance completes. DE05 waits full DE04, DE27 retains history/as-of/fork/migrations, and all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.

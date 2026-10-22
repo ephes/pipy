@@ -750,7 +750,7 @@ database file only at a checkpoint. It is validated after WAL recovery on a
 read-only connection (see **Integrity**), which rebuilds only SQLite's `-shm`
 index.
 
-**Schema and migrations.** Schema version 1 has the shape of Pi durable 1.3.0's
+**Schema and migrations.** Immutable schema version 1 has the shape of Pi durable 1.3.0's
 SQLite schema version 2, with Pi's table, index and column names and no table
 prefix, plus Python deltas: the payload columns (`record` and revision
 `content`) and the revision `version` are `BLOB`s holding JSON, so every value,
@@ -764,9 +764,11 @@ IMMEDIATE` transaction under the owner lock, together with the version in
 and its error is raised; a crash leaves the previous version, and the next
 `open` migrates again. A newer store is refused before anything is written. A
 change to what stored bytes mean needs a new schema version even without new
-tables or columns: cumulative DE04b must bump the version through DE04b1b before its first
-current delta revision (full history remains DE27), so
-an older pipy refuses the store instead of misreading it. A later read-only
+tables or columns. S (DE04b1b2) appends semantic `Migration(2, ())`: current
+deltas change stored meaning while v1 DDL and existing base bytes stay unchanged.
+The actual delivered pre-schema2 opener refuses both a checkpointed version2
+header and a WAL-only upgrade before modifying database/WAL bytes. Full history
+remains DE27. A later read-only
 inspection (DE10) validates without migrating.
 
 **Integrity.** Every `open` requires the exact schema objects of the store's
@@ -813,7 +815,8 @@ stored data, and nothing is repaired. A value of the wrong kind in an indexed
 column also hides its row from lookups by that column, which SQLite never finds
 equal; every read that reaches the row refuses it.
 
-**Raw-base documents (DE03c2).** Create, base change and retire participate in
+**Current base/delta documents (DE03c2 + DE04b1b2).** Create, base change, supplied
+delta and retire participate in
 that same mixed commit and global ID namespace. Current reads and indexed
 address/scope scans have the in-memory store's exact semantics, including UTF-16
 address identity, singleton versus empty family key, ascending document cursors
@@ -821,11 +824,19 @@ and raw page-limit behavior. Raw values and versions are separate lossless JSON
 `BLOB`s: `0`, `-1`, `1.5`, `-0.0` and integers beyond 64 bits round-trip as in
 memory (D2 (b)/(e)). Every document and revision column has the same storage-class,
 strict text and corruption checks as the table reads. Materializing a document
-reads its record and latest base inside one snapshot. Current-only base changes
-replace prior revision rows; retiring a current-only document reclaims its
-revisions. Rewindable documents retain base rows, including on retirement, but
-numeric history, deltas and copies remain unsupported until DE04/DE27 and a
-batch containing an unsupported command is refused whole. Document records and
+reads its record, authoritative sequence bound and required newest base/tail
+inside one snapshot, then replays actual stored operations in ascending order.
+A delta requires an unretired matching-version object base, applies sequentially
+to a detached candidate and requires a final object root. Even empty or
+value-equivalent supplied delta commands increment `deltasSinceBase`; bases
+reset it to zero. Numerically equal versions preserve the base version bits.
+Every reached revision is checked for storage class, identity, sequence/order,
+kind, version and valid content; malformed required rows raise content-free
+`StorageCorruption` rather than falling back. Current-only documents retain the
+required base/tail, reject stray rows before that base, and reclaim prior rows
+on base reset or retirement. Rewindable older history is retained without
+decoding irrelevant rows. Copy and numeric history remain unsupported (DE27),
+and a batch containing an unsupported command is refused whole. Document records and
 ID claims remain after retirement, so IDs cannot be reused. This does not
 implement historical reconstruction or a complete retention proof (DE27).
 
@@ -1059,3 +1070,14 @@ Historical delivered D1 workload/source hashes stay immutable identities of
 that delivery; current closure hashes and migrated Session tests attest the
 current tree separately. No private scratch path or runtime git history is
 required to validate those historical identities.
+
+Independent S (DE04b1b2) now implements [supplied current deltas and semantic
+schema2](durable-current-deltas.md); final integration gates/delivery are pending.
+Cold reads and delta preparation cost O(required current tail), and repeated
+reconstruction can accumulate quadratic work. No cap, forced base, cache or
+performance-parity bound is introduced. Structural validation does not detect
+arbitrary external rewriting/deletion of otherwise-valid rows. T is not
+integrated here. J (DE04b1b3) retains the actual Draft/Tx/checkpoint/cache/
+publication join and owner policy266; Storage chooses no authoritative Session
+candidate. Historical raw-base oracle results retain their original measured
+scope, rather than becoming new delta evidence.

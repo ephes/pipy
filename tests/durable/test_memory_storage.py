@@ -334,9 +334,9 @@ def test_unsupported_document_commands_refuse_whole_batch_and_all_method_close()
             store,
             entry(2),
             {
-                "type": "document.change",
-                "id": 3,
-                "content": {"kind": "delta", "version": 1, "ops": []},
+                "type": "document.copy",
+                "record": {"id": 3, "kind": "copy", "scope": SESSION},
+                "source": {"id": 4, "at": "current"},
             },
         )
     assert store.entry(2) is None and store.mint_id() == 2
@@ -1057,27 +1057,16 @@ def test_mixed_document_candidate_uses_same_contended_authority(monkeypatch, con
     ]
 
 
-@pytest.mark.parametrize("unsupported", ["delta", "copy"])
-def test_unsupported_document_batch_does_not_publish_supported_mixed_prefix(
-    unsupported,
-):
+def test_unsupported_document_batch_does_not_publish_supported_mixed_prefix():
     store = root()
     commit(store, create_document(2))
     before = store._state
-    final = (
-        {
-            "type": "document.copy",
-            "record": {"id": 101, "kind": "copy", "scope": SESSION},
-            "source": {"id": 2, "at": "current"},
-        }
-        if unsupported == "copy"
-        else {
-            "type": "document.change",
-            "id": 2,
-            "content": {"kind": "delta", "version": 1, "ops": []},
-        }
-    )
-    with pytest.raises(UnsupportedStorageOperation, match="DE04/DE27"):
+    final = {
+        "type": "document.copy",
+        "record": {"id": 101, "kind": "copy", "scope": SESSION},
+        "source": {"id": 2, "at": "current"},
+    }
+    with pytest.raises(UnsupportedStorageOperation, match="DE27"):
         commit(store, entry(100), create_document(102, key="supported"), final)
     assert (
         store._state is before

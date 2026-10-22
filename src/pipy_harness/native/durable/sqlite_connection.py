@@ -412,7 +412,8 @@ def open_owned_database(
     """Own, connect, configure and migrate a durable SQLite store.
 
     ``mode="create"`` makes a new database (and missing parent directories),
-    refuses an existing one and commits schema v1 with the store's identity;
+    refuses an existing one and commits the current schema (immutable v1 DDL,
+    semantic version 2) with the store's identity;
     ``mode="open"`` requires an existing pipy durable store in WAL mode without
     a rollback journal, identified by its header before SQLite sees it,
     validates it (after an unclean shutdown first on a read-only connection,

@@ -191,20 +191,20 @@ def _assert_private_errors(error):
             "CAST(x'ff' AS TEXT)",
             "kind column is not UTF-8",
         ),
-        ("document_revisions", "kind", "'delta'", "invalid document base"),
-        ("document_revisions", "seq", "0", "invalid document base"),
-        ("document_revisions", "version", "x'ff'", "unreadable document base"),
+        ("document_revisions", "kind", "'delta'", "required base"),
+        ("document_revisions", "seq", "0", "invalid document revision"),
+        ("document_revisions", "version", "x'ff'", "unreadable document revision"),
         (
             "document_revisions",
             "content",
             _blob_sql(b'{"private":"' + _PRIVATE_PAYLOAD.encode()),
-            "unreadable document base",
+            "unreadable document revision",
         ),
         (
             "document_revisions",
             "version",
             _blob_sql(sqlite._encode(_PRIVATE_VERSION)),
-            "unreadable document base",
+            "unreadable document revision",
         ),
         (
             "documents",
@@ -523,6 +523,7 @@ def test_document_reads_use_address_scope_and_revision_indexes(tmp_path):
         "documents_by_scope",
         "documents_by_scope_kind",
         "INTEGER PRIMARY KEY",
+        "INTEGER PRIMARY KEY",  # authoritative current sequence bound
         "sqlite_autoindex_document_revisions_1",
     ]
     assert len(selected) == len(expected)

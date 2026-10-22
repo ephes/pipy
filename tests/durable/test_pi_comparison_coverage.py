@@ -622,7 +622,7 @@ def test_operation_prerequisite_split_preserves_full_document_join():
     assert all(rows[f"P{i:02}"]["status"] == "OPEN" for i in range(1, 44))
 
 
-@pytest.mark.parametrize("parent", ["DE04", "DE04b"])
+@pytest.mark.parametrize("parent", ["DE04", "DE04b", "DE04b1b"])
 def test_document_join_cannot_land_before_prerequisites(tmp_path, parent):
     import re
 
@@ -639,3 +639,58 @@ def test_document_join_cannot_land_before_prerequisites(tmp_path, parent):
     path.write_text("\n".join(lines) + "\n")
     with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
         a.ledger_status(root, o.contract)
+
+
+def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert len(rows) == len(a.ALL_IDS)
+    assert rows["DE04b1a"]["status"] == "LANDED"
+    assert rows["DE04b1b"]["status"] == "IN_PROGRESS"
+    dependencies = {
+        "DE04b1b1": "DE04b1b1 / DE04a + DE04b1a",
+        "DE04b1b2": "DE04b1b2 / DE03d + DE04b1a",
+        "DE04b1b3": "DE04b1b3 / DE04b1b1 + DE04b1b2 + DE04a + owner policy266",
+    }
+    for key, dependency in dependencies.items():
+        row = rows[key]
+        assert row["plan_cells"][0] == dependency
+        if key == "DE04b1b2":
+            assert row["current"]["kind"] == "bounded-native"
+            assert row["current"]["cases"] == ["storage-current-deltas-v1"]
+            assert "docs/durable-current-deltas.md" in row["evidence"]
+            assert "final Root gates/delivery pending" in row["current"]["observables"]
+        else:
+            assert row["current"]["kind"] == "source-only"
+            assert all(
+                row["current"][field] == []
+                for field in ("cases", "workloads", "oracles")
+            )
+            assert "No new source" in row["current"]["observables"]
+        assert (
+            row["status"]
+            == {
+                "DE04b1b1": "IN_PROGRESS",
+                "DE04b1b2": "LANDED",
+                "DE04b1b3": "OPEN",
+            }[key]
+        )
+    assert "no dependency on T" in rows["DE04b1b2"]["contract"]
+    assert (
+        "BEFORE authoritative candidate/operation selection"
+        in rows["DE04b1b3"]["future"]
+    )
+    assert "every original acceptance cell" in rows["DE04b1b"]["future"]
+    assert rows["DE05"]["plan_cells"][0] == "DE05 / DE04"
+    assert all(rows[f"P{i:02}"]["status"] == "OPEN" for i in range(1, 44))
+
+
+@pytest.mark.parametrize(
+    "bad", ["DE04b1b0", "DE04b1b4", "DE04b1ba", "DE04b1b1a", "DE04b1b11"]
+)
+def test_only_registered_immediate_join_children_are_accepted(bad):
+    value = o.load(o.FIXTURES / "coverage.json")
+    next(row for row in value["rows"] if row["id"] == "DE04b1b1")["id"] = bad
+    with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
+        a.coverage(value, o.ROOT, o.contract)

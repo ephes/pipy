@@ -1,7 +1,7 @@
-"""Internal detached tables and current raw-base documents; no product factory.
+"""Internal detached tables and current base/delta documents; no product factory.
 
 Source-derived Pi durable 1.3.0 memory.ts/scan.ts, MIT (c)2025 Mario Zechner;
-notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. Delta/copy/historical/fork
+notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. Copy/historical/fork
 materialization remain later capabilities; Session authority is not implemented.
 """
 
@@ -12,6 +12,8 @@ from dataclasses import dataclass, field, replace
 from threading import Lock
 from typing import TypeVar, cast
 
+from .codec import OwnedJson
+from .delta_ops import apply_operations
 from .records import (
     RECORD_TYPES,
     SAFE_INTEGER,
@@ -127,15 +129,8 @@ def _prepare(state: _State, writes: tuple[StorageWrite, ...]) -> _State:
     if type(writes) is not tuple or any(type(w) is not StorageWrite for w in writes):
         raise StorageRequestError("Expected owned write tuple")
     trees = [write.to_tree() for write in writes]
-    if any(
-        value["type"] == "document.copy"
-        or (
-            "content" in value
-            and cast(dict[str, object], value["content"])["kind"] != "base"
-        )
-        for value in trees
-    ):
-        raise UnsupportedStorageOperation("Document delta/copy requires DE04/DE27")
+    if any(value["type"] == "document.copy" for value in trees):
+        raise UnsupportedStorageOperation("Document copy requires DE27")
     if state.next_seq > SAFE_INTEGER:
         raise RuntimeError(
             f"Commit sequence {state.next_seq} does not strictly increase"
@@ -227,7 +222,7 @@ def _document_actions(trees: list[dict[str, object]]) -> dict[int, dict[str, obj
     return actions
 
 
-def _materialize_base(
+def _materialize_current(
     stored: StoredDocument | None, id: int, action: dict[str, object], seq: int
 ) -> StoredDocument:
     existing = None if stored is None else stored.to_tree()
@@ -242,11 +237,26 @@ def _materialize_base(
         record = {**cast(dict[str, object], action["create"]), "createdAt": seq}
     content = cast(dict[str, object], action.get("content", {}))
     if content:
+        if content["kind"] == "delta":
+            if existing is None or existing["version"] != content["version"]:
+                raise StorageRequestError(
+                    "Document delta requires a matching base version"
+                )
+            # StorageWrite owns only the batch shape. Validate operations during
+            # application, so an early path failure precedes later bad grammar.
+            value = apply_operations(
+                OwnedJson(existing["value"]), OwnedJson(content["ops"])
+            ).thaw()
+            count = cast(int, existing["deltasSinceBase"]) + 1
+            version = existing["version"]
+        else:
+            value, count = content["value"], 0
+            version = content["version"]
         materialized = {
             "record": record,
-            "version": content["version"],
-            "value": content["value"],
-            "deltasSinceBase": 0,
+            "version": version,
+            "value": value,
+            "deltasSinceBase": count,
         }
     else:
         assert existing is not None
@@ -261,7 +271,7 @@ def _prepare_documents(
 ) -> tuple[_State, dict[tuple[object, ...], int]]:
     live_counts: dict[tuple[object, ...], int] = {}
     for id, action in actions.items():
-        document = _materialize_base(previous.documents.get(id), id, action, seq)
+        document = _materialize_current(previous.documents.get(id), id, action, seq)
         record = cast(dict[str, object], document.to_tree()["record"])
         key = _address_key(record)
         current = previous.addresses.get(key)
@@ -347,7 +357,7 @@ def _query(value: Query, cls: type[Query], limit: int) -> dict[str, object]:
 
 
 class MemoryStorage:
-    """Internal bounded Storage: tables/current raw-base, one candidate authority."""
+    """Internal bounded Storage: tables/current base/delta, one candidate authority."""
 
     def __init__(self) -> None:
         self._lock = Lock()

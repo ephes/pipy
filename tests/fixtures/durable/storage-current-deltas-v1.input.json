@@ -1,0 +1,813 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "all-operations",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 1,
+              "value": {
+                "text": "\ud83d\ude00tail",
+                "list": [
+                  0,
+                  1,
+                  2
+                ]
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "t",
+                  [
+                    "text"
+                  ],
+                  1
+                ],
+                [
+                  "a",
+                  [
+                    "text"
+                  ],
+                  "\ud800"
+                ],
+                [
+                  "p",
+                  [
+                    "list"
+                  ],
+                  1,
+                  1,
+                  [
+                    {
+                      "__proto__": -0.0
+                    }
+                  ]
+                ],
+                [
+                  "m",
+                  [
+                    "list"
+                  ],
+                  [
+                    2,
+                    1,
+                    0
+                  ]
+                ],
+                [
+                  "d",
+                  [
+                    "list",
+                    2
+                  ]
+                ],
+                [
+                  "s",
+                  [
+                    "new"
+                  ],
+                  {
+                    "constructor": {
+                      "prototype": 1267650600228229401496703205376
+                    }
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "r",
+                  {
+                    "done": true
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "empty-noop",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 1,
+              "value": {
+                "n": -0.0
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": []
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  -0.0
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "d",
+                  [
+                    "missing"
+                  ]
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "ordered-tail",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 1,
+              "value": {
+                "text": "a"
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "a",
+                  [
+                    "text"
+                  ],
+                  "b"
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "t",
+                  [
+                    "text"
+                  ],
+                  1
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "a",
+                  [
+                    "text"
+                  ],
+                  "c"
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "finite-values",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 1,
+              "value": {
+                "n": 0
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  1.7976931348623157e+308
+                ],
+                [
+                  "s",
+                  [
+                    "tiny"
+                  ],
+                  5e-324
+                ],
+                [
+                  "s",
+                  [
+                    "negative-zero"
+                  ],
+                  -0.0
+                ],
+                [
+                  "s",
+                  [
+                    "lone"
+                  ],
+                  "\ud800"
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "version-zero",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 0,
+              "value": {}
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 0,
+              "ops": []
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 0,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  1
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "version-negative-zero",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": -0.0,
+              "value": {}
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": -0.0,
+              "ops": []
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": -0.0,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  1
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "version-negative",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": -1,
+              "value": {}
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": -1,
+              "ops": []
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": -1,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  1
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "version-fraction",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 1.5,
+              "value": {}
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1.5,
+              "ops": []
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1.5,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  1
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "id": "version-huge",
+      "writes": [
+        [
+          {
+            "type": "document.create",
+            "record": {
+              "id": 2,
+              "kind": "cache",
+              "scope": {
+                "kind": "session"
+              }
+            },
+            "content": {
+              "kind": "base",
+              "version": 1267650600228229401496703205376,
+              "value": {}
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1267650600228229401496703205376,
+              "ops": []
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 1267650600228229401496703205376,
+              "ops": [
+                [
+                  "s",
+                  [
+                    "n"
+                  ],
+                  1
+                ]
+              ]
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "base",
+              "version": 2,
+              "value": {
+                "reset": true
+              }
+            }
+          }
+        ],
+        [
+          {
+            "type": "document.change",
+            "id": 2,
+            "content": {
+              "kind": "delta",
+              "version": 2,
+              "ops": []
+            }
+          }
+        ]
+      ]
+    }
+  ]
+}

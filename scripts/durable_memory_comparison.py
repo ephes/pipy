@@ -61,6 +61,7 @@ SOURCES = set(MODULES) | {
     "packages/durable/src/testing/types.ts",
 }
 CLOSURE = v.CLOSURE | {
+    "src/pipy_harness/native/durable/delta_ops.py",
     "src/pipy_harness/native/durable/memory.py",
     "scripts/durable_memory_comparison.py",
     "scripts/durable_reference/cases/storage-memory.mts",

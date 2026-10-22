@@ -48,6 +48,9 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE04b1b1",
+    "DE04b1b2",
+    "DE04b1b3",
     "DE04b1a",
     "DE04b1b",
     "DE32a",
@@ -190,7 +193,7 @@ def plan_rows(root: Path, c: Any) -> tuple[dict[str, list[str]], dict[str, int]]
     locations: dict[str, int] = {}
     for number, line in enumerate((root / PLAN).read_text().splitlines(), 1):
         if not re.match(
-            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) ",
+            r"\| (?:DE04b1b[123]|DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) ",
             line,
         ):
             continue
@@ -221,7 +224,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for line in text.splitlines():
         if not re.match(
-            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) \|",
+            r"\| (?:DE04b1b[123]|DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) \|",
             line,
         ):
             continue
@@ -254,6 +257,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE32", ["DE32a", "DE32b"]),
         ("DE03d", ["DE03d1", "DE03d2"]),
         ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
+        ("DE04b1b", ["DE04b1b1", "DE04b1b2", "DE04b1b3"]),
         ("DE04b", ["DE04b1a", "DE04b1b"]),
         ("DE04", ["DE04a", "DE04b"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
@@ -280,6 +284,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE04b1b2",
     "DE04b1a",
     "DE32a",
     "DE02a1",
@@ -291,8 +296,12 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
-    "DE04b1a": "de04-pre-code-operation-prerequisite-split",
-    "DE04b1b": "de04-pre-code-operation-prerequisite-split",
+    "DE04": "de04b1b2-supplied-current-delta-integration-candidate",
+    "DE04b1b1": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
+    "DE04b1b2": "de04b1b2-supplied-current-delta-integration-candidate",
+    "DE04b1b3": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
+    "DE04b1a": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
+    "DE04b1b": "de04b1b2-supplied-current-delta-integration-candidate",
     "DE32a": "de32a-delivery-and-de04a-repaired-main-integration",
     "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
@@ -328,7 +337,7 @@ DE_EVIDENCE = {
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
     "DE04a": "de04a-verified-delivery-and-de04b1a-integration-successor",
-    "DE04b": "de04a-implementation-admission-and-de03-delivery",
+    "DE04b": "de04b1b2-supplied-current-delta-integration-candidate",
 }
 
 
@@ -351,18 +360,15 @@ def de_current(row: Any, c: Any) -> None:
             )
         )
     )
-    if key == "DE02a2a":
-        cases = ["memory-tables-a2a-v1"]
-    if key == "DE02a2b":
-        cases = ["memory-current-base-a2b-v1"]
-    if key == "DE02b1b":
-        cases = ["session-guard-b1b-v1"]
-    if key == "DE02b3":
-        cases = ["session-commit-b3-v1"]
-    if key == "DE03d2":
-        cases = ["storage-sqlite-d2-v1"]
-    if key == "DE04a":
-        cases = ["session-documents-a-v1"]
+    cases = {
+        "DE02a2a": ["memory-tables-a2a-v1"],
+        "DE02a2b": ["memory-current-base-a2b-v1"],
+        "DE02b1b": ["session-guard-b1b-v1"],
+        "DE02b3": ["session-commit-b3-v1"],
+        "DE03d2": ["storage-sqlite-d2-v1"],
+        "DE04a": ["session-documents-a-v1"],
+        "DE04b1b2": ["storage-current-deltas-v1"],
+    }.get(key, cases)
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -397,6 +403,8 @@ def de_current(row: Any, c: Any) -> None:
         links.append(
             "docs/durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2"
         )
+    if key == "DE04b1b2":
+        links.append("docs/durable-current-deltas.md")
     require(row["evidence"] == links, "DE bounded evidence link drift", c)
 
 
@@ -558,7 +566,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"session-guard-b1b-v1"} if key == "DE02b1b" else set())
                 | ({"session-commit-b3-v1"} if key == "DE02b3" else set())
                 | ({"storage-sqlite-d2-v1"} if key == "DE03d2" else set())
-                | ({"session-documents-a-v1"} if key == "DE04a" else set()),
+                | ({"session-documents-a-v1"} if key == "DE04a" else set())
+                | ({"storage-current-deltas-v1"} if key == "DE04b1b2" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),

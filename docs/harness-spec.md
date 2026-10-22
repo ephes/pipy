@@ -109,8 +109,8 @@ not integrated into the product. DE02a2b landed (`72253352`) current raw-base
 create/change/retire, materialization and exact address/scope scans inside that
 same candidate/authority, with cumulative bounded Storage acceptance (Opus5.5 HIGH
 ISSUES one Suggestion, repaired; Codex gpt-6.1-sol HIGH delta CLEAN; no CI claim),
-so DE02a2 and DE02a are delivered. Delta/copy/numeric history/fork materialization
-remain later. DE02b is split b1a→b1b→b2→b3. DE02b1a (landed `992c2102`) adds the private
+so DE02a2 and DE02a are delivered. S (DE04b1b2) now adds supplied current
+deltas; copy/numeric history/fork materialization remain DE27. DE02b is split b1a→b1b→b2→b3. DE02b1a (landed `992c2102`) adds the private
 `native/durable/session.py` owner: one lifecycle object governs the first failure,
 report-once, guarded-call registration, the final-stage guard admission seal,
 drain and backend-close-once, and a Storage-shaped guard delegates all sixteen
@@ -374,7 +374,7 @@ Python spellings of the durable SQLite schema (DE03b, `native/durable/sqlite_sch
 Schema versions are pipy's own, so the migration and integrity tests are
 native-only:
 
-- Schema v1 is Pi durable 1.3.0's SQLite schema version 2 with Pi's names and no
+- The immutable schema-v1 layout is Pi durable 1.3.0's SQLite schema version 2 with Pi's names and no
   prefix, plus the Python deltas: `BLOB` payload columns (`record`, revision
   `content`) and revision `version` (lossless JSON, D1), an `INTEGER` `next_id`,
   the `submission_requests` last-writer table (D2) and the header identity
@@ -403,8 +403,12 @@ native-only:
   `StorageCorruption` around every step of opening, migrating, validating and
   closing a store, after the usual cleanup; the DE03c Storage wraps its own
   statements on the raw connection in it too.
-- A change to what stored bytes mean needs a new schema version even without
-  new DDL; cumulative DE04b must bump it through DE04b1b before admitting current deltas; full history remains DE27.
+- Semantic schema2 appends `Migration(2, ())`: stored delta meaning changes
+  without changing v1 DDL or existing base bytes. The actual delivered older
+  opener refuses both checkpointed and WAL-only version2 before writing.
+  [Supplied current deltas](durable-current-deltas.md) are S (DE04b1b2);
+  actual Draft/Tx/checkpoint/cache/publication integration remains J, and full
+  history/as-of/fork/migrations remain DE27.
 
 Python spellings of the durable SQLite Storage (DE03c, `native/durable/sqlite.py`):
 
@@ -414,11 +418,15 @@ Python spellings of the durable SQLite Storage (DE03c, `native/durable/sqlite.py
   runs Memory's own acceptance bodies over Memory, SQLite and SQLite reopened
   after every commit (Pi's `ReopeningStorage`); bodies that observe Memory
   internals have variants that observe the same through backend hooks. Document
-  create/base-change/retire operations now participate in mixed commits (DE03c2),
-  with current materialization and indexed address/scope scans, lossless BLOB
-  versions, current-only revision reclamation and retained rewindable bases.
-  The 54 strict xfails and seven pending document ports are gone; numeric history,
-  delta and copy commands remain unsupported (DE04/DE27).
+  create/base-change/retire operations participate in mixed commits (DE03c2).
+  S (DE04b1b2) adds supplied current delta batches with sequential detached
+  object-root application, actual operation persistence and exact committed tail
+  counts. A matching-version base is required; even empty supplied delta
+  commands count, and a base resets the count. Required base/tail replay uses
+  one read snapshot and checks every reached row. Current-only reset/retirement
+  reclaim revisions; rewindable older rows remain retained. Cold reconstruction
+  costs O(required tail), with possible quadratic cumulative repeated replay;
+  there is no forced base or hidden cache. Copy/numeric history remain DE27.
 - Where Pi's backends disagree, Memory wins (D2): the last writer of a request
   ID wins without fallback (`submission_requests`), descending scans include
   2^53−1, raw limits keep Memory's page shapes and errors (its own `_page`), and
@@ -4819,6 +4827,6 @@ the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-ve
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is an additive private pure decoded-operation prerequisite (depends DE02a1), currently IN_PROGRESS. DE04a retains typed current-base documents; DE04b1b depends on DE04a + DE04b1a and retains operation normalization/tracking, current Memory/SQLite deltas with semantic schema2, real checkpoints and atomic publication. DE04/DE04b remain cumulative; DE05 waits full DE04 and DE27 retains history/as-of/fork/migrations. All43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`; its [delivery/admission successor](specs/2026-10-19-durable-execution-evidence.md#de04b1a-verified-delivery-and-de04b1b-pre-code-admission) records verified delivery. Independent S (`DE04b1b2`, DE03d + DE04b1a) now implements [supplied current deltas and semantic schema2](durable-current-deltas.md), with final integration gates/delivery pending in the [S candidate evidence](specs/2026-10-19-durable-execution-evidence.md#de04b1b2-supplied-current-delta-integration-candidate). T (`DE04b1b1`, DE04a + DE04b1a) remains IN_PROGRESS without source integration here. J (`DE04b1b3`, T + S + DE04a + owner policy266) is OPEN; the owner answer is required before authoritative candidate/ops selection. The shipping-tree S row is LANDED conditional on final Root gates; cumulative DE04b1b/b/DE04 remain IN_PROGRESS until retained acceptance completes. DE05 waits full DE04, DE27 retains history/as-of/fork/migrations, and all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.

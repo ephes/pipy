@@ -1,4 +1,4 @@
-"""Schema v1, migrations and open-time integrity of the durable store (DE03b).
+"""Schema v2, immutable v1 migrations and durable store open-time integrity.
 
 Private and not exported. ``sqlite_connection.open_owned_database`` runs this
 module on every ``create`` and ``open``; Storage semantics follow in DE03c.
@@ -41,9 +41,9 @@ unchanged; a failed rollback raises ``SqliteRollbackError`` with both errors.
 A crash leaves the old version, because SQLite discards an uncommitted
 transaction, and the next ``open`` migrates again. Migrations run only under
 the path lock; a read-only inspection (DE10) validates without migrating. A
-change to what stored bytes mean, such as DE04b1b's first current delta
-revision, needs a new version even without new DDL, so that older pipy refuses
-the store instead of misreading it. Full histories/as-of/fork/migrations remain
+change to what stored bytes mean needs a new version even without new DDL.
+DE04b1b2 appends semantic version 2 with no statements: v1 already admits delta
+rows, and the version prevents older pipy from opening a store requiring replay. Full histories/as-of/fork/migrations remain
 DE27.
 
 Open-time integrity. Before any connection the gate in ``sqlite_connection``
@@ -325,7 +325,12 @@ def _version_1(t: Mapping[str, str], i: Mapping[str, str]) -> tuple[str, ...]:
 
 
 # Append-only. Tests and children replace it to exercise later versions.
-MIGRATIONS: tuple[Migration, ...] = (Migration(1, _version_1(TABLES, INDEXES)),)
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(1, _version_1(TABLES, INDEXES)),
+    # Semantic format change: current documents may now require delta replay.
+    # V1 already admits the rows; the version prevents older readers opening them.
+    Migration(2, ()),
+)
 
 
 def _active(migrations: object = None) -> tuple[Migration, ...]:

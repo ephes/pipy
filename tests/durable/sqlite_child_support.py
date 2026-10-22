@@ -7,9 +7,10 @@ from stdin (``command``). The parent reads events against deadlines, never
 sleeps for ordering, and on exit kills the whole group, reaps the child, closes
 every pipe and checks that the group is gone (a forked grandchild included).
 
-Every store carries schema v1 (DE03b). Tests below the Storage layer keep
-scratch rows in its ``conversations`` table as raw bytes (``put`` and
-``stored``, also in the child prelude); nothing reads them as records.
+Stores normally use the current semantic schema version. Historical migration
+tests explicitly select v1 in their child prelude. Tests below the Storage layer
+keep scratch rows in the immutable v1 ``conversations`` table as raw bytes
+(``put`` and ``stored``, also in the child prelude); nothing reads them as records.
 """
 
 from __future__ import annotations

@@ -92,3 +92,11 @@ and retains normalized operation provenance/tracking, Memory/SQLite current
 deltas and semantic schema2, real checkpoint callbacks, rollback and linked
 publication. DE04b and DE04 wait for their cumulative children; DE05 waits full
 DE04. Full history/as-of/fork/migrations remain DE27. All43 P rows remain OPEN.
+
+The pure prerequisite landed at `6e3b838f`. The remaining parent is now split
+before code into T (`DE04b1b1`, pure provenance/ops), independent S (`DE04b1b2`,
+current delta Storage/schema2), and J (`DE04b1b3`, real Draft/Tx/checkpoint/cache/
+publication join). S now uses this applier for [supplied current Storage deltas
+and semantic schema2](durable-current-deltas.md), with final gates/delivery
+pending; T is not integrated here. J requires the answer to owner policy266
+before authoritative candidate/operation selection.

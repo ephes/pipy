@@ -1,6 +1,7 @@
-"""Synchronous Storage port and owned DTOs; no backend implementation yet.
+"""Synchronous Storage port and owned DTOs for detached backend ingress.
 
-The port retains document delta/copy/history roles for later implementations.
+Memory and SQLite implement supplied current base/delta batches. The port
+retains copy/history roles for later implementations.
 Accepting a DTO is not a capability claim: bounded backends must refuse entire
 unsupported batches. Session admission/cancellation belongs to DE02b.
 Source: Pi types.ts:753–910,1179–1306 (MIT, copyright2025 Mario Zechner).
@@ -287,7 +288,7 @@ class StoredDocument:
 
 
 class Storage(Protocol):
-    """Port only. A1 neither supplies MemoryStorage nor claims its semantics."""
+    """Shared synchronous port; each backend documents its supported operations."""
 
     def commit(self, writes: tuple[StorageWrite, ...]) -> Seq: ...
     def mint_id(self) -> int: ...

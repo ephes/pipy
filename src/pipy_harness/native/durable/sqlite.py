@@ -1,9 +1,9 @@
 """Bounded Storage over an owned durable SQLite store (DE03c); not exported.
 
-``open_sqlite_storage`` opens an owned schema-v1 store and wraps it in
+``open_sqlite_storage`` opens an owned schema-v2 store and wraps it in
 ``SqliteStorage``. It implements MemoryStorage's sixteen signatures, atomic
-mixed table/raw-base document commits, current reads, indexed scans and
-immutable global IDs. Numeric history, deltas and copies remain unsupported
+mixed table/base/delta document commits, current reads, indexed scans and
+immutable global IDs. Numeric history and copies remain unsupported
 (DE04/DE27). There is no product factory (DE11).
 
 Where Pi's SQLite backend differs from Pi's Memory, this backend follows
@@ -436,6 +436,16 @@ _REVISION_COLUMNS = (
 _REVISION_SELECT = f"SELECT {typed_columns(*(name for name, _ in _REVISION_COLUMNS))} FROM {TABLES['document_revisions']}"
 
 
+def _revision_values(row: Sequence[object], label: str) -> tuple[object, ...]:
+    return typed_values(
+        row,
+        [allowed for _, allowed in _REVISION_COLUMNS],
+        lambda column, problem: StorageCorruption(
+            f"The {label} holds a document revision whose {_REVISION_COLUMNS[column][0]} column {problem}"
+        ),
+    )
+
+
 def _scope_parts(scope: dict[str, object]) -> tuple[str, object]:
     kind = cast(str, scope["kind"])
     return kind, 0 if kind == "session" else scope[kind + "Id"]
@@ -544,20 +554,13 @@ def _filter(key: str, value: object) -> object:
 
 
 def _admit(writes: object) -> list[dict[str, object]]:
-    """MemoryStorage's exact write ingress and raw-base capability bound."""
+    """Memory's exact ingress for current bases/supplied deltas; refuse copies."""
 
     if type(writes) is not tuple or any(type(w) is not StorageWrite for w in writes):
         raise StorageRequestError("Expected owned write tuple")
     trees = [cast(StorageWrite, write).to_tree() for write in writes]
-    if any(
-        value["type"] == "document.copy"
-        or (
-            "content" in value
-            and cast(dict[str, object], value["content"])["kind"] != "base"
-        )
-        for value in trees
-    ):
-        raise UnsupportedStorageOperation("Document delta/copy requires DE04/DE27")
+    if any(value["type"] == "document.copy" for value in trees):
+        raise UnsupportedStorageOperation("Document copy requires DE27")
     return trees
 
 
@@ -669,7 +672,7 @@ def _after_commit(connection: sqlite3.Connection) -> None:
 
 
 class SqliteStorage:
-    """MemoryStorage's bounded table and raw-base document semantics."""
+    """MemoryStorage's bounded table and current base/delta document semantics."""
 
     def __init__(self, database: OwnedDatabase) -> None:
         self._database = database
@@ -1027,44 +1030,76 @@ class SqliteStorage:
     def _materialized(
         self, connection: sqlite3.Connection, record: DocumentRecord
     ) -> StoredDocument:
-        row = connection.execute(
-            _REVISION_SELECT + " WHERE document_id = ? ORDER BY seq DESC LIMIT 1",
-            (record.id,),
-        ).fetchone()
-        if row is None:
-            raise StorageCorruption(
-                f"The {self._label} holds a document without a required base"
-            )
-        values = typed_values(
-            row,
-            [allowed for _, allowed in _REVISION_COLUMNS],
-            lambda column, problem: StorageCorruption(
-                f"The {self._label} holds a document revision whose {_REVISION_COLUMNS[column][0]} column {problem}"
-            ),
-        )
-        document_id, seq, kind, version, content = values
+        # DESC stops at the newest base. Do not fetchall: rewindable documents
+        # may retain arbitrarily many older revisions unrelated to current state.
         created = cast(int, record.to_tree()["createdAt"])
-        if (
-            document_id != record.id
-            or not created <= cast(int, seq) <= SAFE_INTEGER
-            or kind != "base"
-        ):
-            raise StorageCorruption(
-                f"The {self._label} holds an invalid document base revision"
-            )
+        upper = read_metadata(connection)[1]
+        tail: list[tuple[object, ...]] = []
+        cursor = connection.execute(
+            _REVISION_SELECT + " WHERE document_id = ? ORDER BY seq DESC",
+            (record.id,),
+        )
         try:
-            return StoredDocument(
-                {
-                    "record": record.to_tree(),
+            for row in cursor:
+                values = _revision_values(row, self._label)
+                document_id, seq, kind, _, _ = values
+                if (
+                    document_id != record.id
+                    or not created <= cast(int, seq) < upper
+                    or kind not in {"base", "delta"}
+                ):
+                    raise StorageCorruption(
+                        f"The {self._label} holds an invalid document revision"
+                    )
+                upper = cast(int, seq)
+                tail.append(values)
+                if kind == "base":
+                    if record.to_tree().get("history") != "rewindable":
+                        older = cursor.fetchone()
+                        if older is not None:
+                            _revision_values(older, self._label)
+                            raise StorageCorruption(
+                                f"The {self._label} holds revisions before a current-only base"
+                            )
+                    break
+            else:
+                raise StorageCorruption(
+                    f"The {self._label} holds a document without a required base"
+                )
+        finally:
+            cursor.close()
+        stored: StoredDocument | None = None
+        try:
+            for _, seq, kind, version, content in reversed(tail):
+                payload = {
+                    "kind": kind,
                     "version": _decode(version),
-                    "value": _decode(content),
-                    "deltasSinceBase": 0,
+                    "value" if kind == "base" else "ops": _decode(content),
                 }
-            )
-        except ValueError as error:
+                if stored is None:
+                    stored = StoredDocument(
+                        {
+                            "record": record.to_tree(),
+                            "version": payload["version"],
+                            "value": payload["value"],
+                            "deltasSinceBase": 0,
+                        }
+                    )
+                else:
+                    # Reuse caller ingress as well as the current materializer:
+                    # stored ops need shape/domain checks before sequential replay.
+                    write = StorageWrite(
+                        {"type": "document.change", "id": record.id, "content": payload}
+                    ).to_tree()
+                    stored = reference._materialize_current(
+                        stored, record.id, {"content": write["content"]}, cast(int, seq)
+                    )
+        except (ValueError, TypeError, IndexError) as error:
             raise StorageCorruption(
-                f"The {self._label} holds an unreadable document base revision"
+                f"The {self._label} holds an unreadable document revision"
             ) from error
+        assert stored is not None
+        return stored
 
     def _find_document(
         self, connection: sqlite3.Connection, address: dict[str, object]
@@ -1098,7 +1133,7 @@ class SqliteStorage:
             previous = (
                 None if record is None else self._materialized(connection, record)
             )
-            stored = reference._materialize_base(previous, id, action, seq)
+            stored = reference._materialize_current(previous, id, action, seq)
             tree = cast(dict[str, object], stored.to_tree()["record"])
             key = reference._address_key(tree)
             current = self._find_document(connection, tree)
@@ -1134,7 +1169,8 @@ class SqliteStorage:
                     (seq, _encode(record), id),
                 )
             current_only = record.get("history") != "rewindable"
-            if current_only and ("content" in action or action.get("retire")):
+            content = cast(dict[str, object], action.get("content", {}))
+            if current_only and (content.get("kind") == "base" or action.get("retire")):
                 connection.execute(
                     f"DELETE FROM {TABLES['document_revisions']} WHERE document_id = ?",
                     (id,),
@@ -1145,9 +1181,13 @@ class SqliteStorage:
                     (
                         id,
                         seq,
-                        "base",
-                        _encode(value["version"]),
-                        _encode(value["value"]),
+                        content["kind"],
+                        _encode(content["version"]),
+                        _encode(
+                            content["value"]
+                            if content["kind"] == "base"
+                            else content["ops"]
+                        ),
                     ),
                 )
 

@@ -1,9 +1,9 @@
 """DE03a: path ownership, owner-only files and the minimal SQLite connection.
 
 Native tests only (no Pi oracle): real child processes with bounded deadlines
-and process-group reaping, real SIGKILL, real fork() and real exec. Every store
-now carries schema v1 (DE03b, ``test_sqlite_schema.py``), so these tests keep
-their scratch rows in its ``conversations`` table (``put``/``stored``); nothing
+and process-group reaping, real SIGKILL, real fork() and real exec. Stores use
+the current semantic schema version and the immutable v1 table layout, so these
+tests keep scratch rows in ``conversations`` (``put``/``stored``); nothing
 reads them as records. No Storage semantics (DE03c).
 """
 
