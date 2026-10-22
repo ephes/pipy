@@ -1159,3 +1159,60 @@ reference/native speed ratio. Linux measurements and independent review remain
 delivery gates. Delta tails, as-of, copies, historical reconstruction and deep
 fork seeding are explicitly excluded; DE27 retains the relevant capabilities.
 All P rows, including campaign-wide P43, remain OPEN.
+
+
+## Closed SQLite oracle and lifetime witness (DE03d2)
+
+`scripts/durable_sqlite_comparison.py run --acceptance BASELINE --output NEW`
+runs a copied, pinned Node driver against Pi Memory and SQLite. Its SQLite-reopen
+leg is a driver-local reconstruction of pinned Pi test `ReopeningStorage`, with
+call-time delegation and reopen in `finally` after every commit, including failed
+and nested helper commits; it does not import or execute that test helper. It executes the
+existing11 scripted scenarios/128 operations and23 valid D2(a)–(f) scenarios/
+130 operations on each backend, plus21 exported conformance cases per Pi
+backend. Native SQLite and reopen execute the same34/258 scripted inventory;
+the exported TypeScript conformance is reported separately, not claimed as
+native TypeScript execution. Each scenario owns a separate private store.
+
+The comparison retains raw tagged binary64/UTF16 values and exact error name,
+message, code and diagnostic stack.64 closed backend/recipe/step declarations
+map only known language/backend error spellings. Pi declarations must match the
+exact current raw Pi error; canonical drift or projected Pi EXPECTED is invalid
+evidence.
+Native entries are a conditional spelling dictionary and may go unused; an
+unexpected native error remains a mismatch.126 exact divergence pointers bind current Pi Memory and SQLite
+observations, with no missing, stale or unused declaration admitted. Native
+values must retain Memory semantics at these points, including signed zero,
+raw numeric base versions and atomic rollback differences. Negative integral
+page sizes receive an integer conversion only at that API role, just like signed
+cursor positions; payload numbers and raw document versions remain untouched.
+Valid document scans supply both scope and `at:'current'`.
+
+One separately closed lifetime witness retains the existing unused-ID contract:
+`document-atomic/highwater-retained` returns7 in Memory/live SQLite and6 after
+SQLite reopen, in both Pi and native. The preceding unused mint was not stored
+by the failed commit. This agrees with the documented internal SQLite contract;
+it is neither a production fix nor a broad semantic ignore. Forcing native
+reopen to7 must fail comparison even though it would match live Memory.
+
+`compare EXPECTED ACTUAL` requires raw Pi reference EXPECTED. Native ACTUAL may
+contain raw or already-projected spelling: the conditional native dictionary is
+idempotent, so both forms produce the same verdict. Projected files remain
+hash-bound derived reports; Pi projected EXPECTED is rejected. Compare returns0 for valid paired equality,1 for a valid native
+behavior mismatch and2 for invalid evidence. `run` preserves mismatch1 and its
+raw/projected hash-bound report before attempting any positive controls.21 valid
+behavior controls include all14 a2b controls plus reopen loss, next-ID/sequence,
+signed-zero/raw-version loss, wrong error semantics and the reopen-lifetime
+case. If an actual native page omits its continuation, the dependent operation
+records a closed `blocked` outcome with its original cursor reference. No cursor
+or Storage call is invented; the raw trace compares as mismatch1 and retains the
+hash-bound mismatch report. Invalid metadata/declarations remain refusal2.
+
+The SQLite manifest is last after the existing five-manifest cascade and binds
+all native SQLite/D1/D2 source/tests and exact parent hashes. Portable hashes of
+D1's delivered native workload evidence remain explicitly native evidence,
+including its honest known-preview-flake exception. Fresh gate runs attest a
+current baseline parent before and after execution, source/resolver/dependency
+bytes, runtime versions and copied-driver identity. Two fresh complete chains
+are still required for delivery. Delta/copy/history/as-of capabilities remain
+DE27, product defaults do not change, and all43 P rows remain OPEN.

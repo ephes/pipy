@@ -553,10 +553,14 @@ def test_sqlite_d_split_retains_original_acceptance_and_exact_ids():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
-    assert rows["DE03d1"]["status"] == "IN_PROGRESS"
-    assert rows["DE03d2"]["status"] == "OPEN"
+    assert rows["DE03d1"]["status"] == "LANDED"
+    assert rows["DE03d2"]["status"] == "IN_PROGRESS"
     assert "DE03d completes only after its d1+d2 children" in rows["DE03d"]["future"]
     assert rows["DE04"]["plan_cells"][0] == "DE04 / DE03"
     for child in ("DE03d1", "DE03d2"):
-        assert rows[child]["current"]["kind"] == "source-only"
-        assert rows[child]["current"]["cases"] == []
+        assert rows[child]["current"]["kind"] == (
+            "source-only" if child == "DE03d1" else "bounded-native"
+        )
+        assert rows[child]["current"]["cases"] == (
+            [] if child == "DE03d1" else ["storage-sqlite-d2-v1"]
+        )

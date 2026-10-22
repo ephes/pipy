@@ -4772,3 +4772,10 @@ and owns actual checkpoint/phase integration. The original DE06 acceptance
 remains cumulative. [The backlog](backlog.md#additive-canonical-dto-codec-de06a)
 and [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#next-delivery-gate)
 own current status and delivery gates.
+
+
+DE03d2's [closed SQLite oracle](durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2)
+attests Pi Memory/SQLite/reopen separately from native SQLite/reopen, with exact
+observed divergence witnesses and a single already-approved unused-mint reopen
+boundary. It supplies internal backend evidence; runtime integration and all
+campaign parity closures remain separately gated.

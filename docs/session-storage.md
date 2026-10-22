@@ -1036,3 +1036,11 @@ provider turn `propose_file_repl`, applied no edits itself, and kept raw patch
 text out of provider lifecycle payloads. The model-driven mutation tools
 (`write` / `edit`) do apply edits, but share that archive boundary: their raw
 diffs and payloads never enter provider lifecycle payloads.
+
+
+The internal DE03d2 comparison separately binds the unused-mint reopen lifetime:
+Memory/live SQLite retains an unused local mint across a rejected commit;
+closing/reopening discards that unstored reservation. The exact paired witness
+and raw error/data boundaries are described in the
+[closed SQLite oracle](durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2).
+It does not add delta/history capability or change the store contract.

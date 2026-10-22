@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c landed, DE03d/d1 IN_PROGRESS, DE03d2 OPEN, DE03 IN_PROGRESS; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c landed, DE03d IN_PROGRESS, DE03d1 LANDED, DE03d2 IN_PROGRESS, DE03 IN_PROGRESS; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -162,8 +162,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE03c1 | SqliteStorage tables and backend-agnostic contract cases | LANDED | `1563bb68`; Codex HIGH r3 CLEAN after two repairs; local known docs-preview flake, isolated rerun 16/16; remote verified |
 | DE03c2 | SqliteStorage documents, write refusals and crash cuts | LANDED | a2c4c6d2; final Opus5.5 HIGH R4 CLEAN unscoped, reviewed tree matched commit, push remote verified; known docs-preview exception recorded below |
 | DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | IN_PROGRESS | Cumulative d1+d2; all original acceptance retained |
-| DE03d1 | Session over SQLite and bounded native current-base workload | IN_PROGRESS | Implementation admitted; native evidence and independent gates pending |
-| DE03d2 | Closed paired SQLite oracle and final DE03 gate | OPEN | All gates OPEN; depends on d1 |
+| DE03d1 | Session over SQLite and bounded native current-base workload | LANDED | 8ab38d20; final Opus5.5 HIGH R4 CLEAN, owner known-preview-flake exception, isolated16 PASS, push/remote verified |
+| DE03d2 | Closed paired SQLite oracle and final DE03 gate | IN_PROGRESS | Actual paired driver/comparator implementation; final gates pending |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
@@ -267,8 +267,8 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 ## Next delivery gate
 
 DE00 through DE02b3 and DE03a/b/c1/c2 have landed. DE03c is LANDED at
-`a2c4c6d`; DE03 stays IN_PROGRESS until DE03d completes d1 (native Session/SQLite/workload, IN_PROGRESS)
-and d2 (paired Pi SQLite/D2(a)–(f)/final gate, OPEN). DE04 waits for
+`a2c4c6d`; DE03 stays IN_PROGRESS until DE03d completes d1 (native Session/SQLite/workload, LANDED at `8ab38d20`)
+and d2 (paired Pi SQLite/D2(a)–(f)/final gate, IN_PROGRESS). DE04 waits for
 that cumulative DE03 acceptance. In parallel, additive DE06a is integrated on
 main and LANDED at `caf4d34e`; its checkpoint/runtime integration child DE06b is OPEN
 and waits for DE05 and DE06a. All 43 P rows remain OPEN.
@@ -279,7 +279,7 @@ Each slice requires local `just check`, strict docs build and rendered links
 when docs change, exact-tree CLEAN, a targeted commit, normal push and remote
 SHA confirmation with `git ls-remote`. GitHub CI is not a gate. The c2 delivery
 used the owner's documented known-preview-flake exception, not a green full
-check. DE03d1's next gates include two fresh reference chains after the final
+check. DE03d2's next gates include two fresh reference chains after the final
 integrated manifest cascade and accepted review repairs. Every DE03 slice also records Ubuntu
 macmini evidence under the D10 isolation rules. Historical dated results and
 reviewer assignments below retain their original provenance.
@@ -6633,3 +6633,182 @@ both symlink refusal and ordinary relative run/verify controls
 (`/private/tmp/pipy-de03d1-symlink-control.log`). Ruff check/format and mypy909
 passed; existing manifest closure remains current without a cascade. These
 local checks do not replace R4 or the coordinator's final platform/full gates.
+
+
+### DE03d1 delivery and DE03d2 implementation admission (2026-10-22)
+
+D1 delivered on main and origin at `8ab38d2010ea8e7f8660124085b04b6f0e821d94`,
+exact reviewed tree `5113e7c423cb0b35a89b99e12bef783dba954ec3`. Codex implemented
+and repaired; independent Claude Code `claude-opus-5-5` HIGH final R4 CLEAN.
+Normal push guard and remote SHA verification passed. Final full `just check`
+exited1 with15821 passed, two skips and one known unchanged `docs-preview[15]`
+failure (1667.82s); isolated16 passed22.06s. The owner's explicit known-flake
+exception applies; this is not a green full check or a CI result. Final local,
+Python3.11/3.12 and Linux81 focused cases,20x2 CLI regressions, docs1109 rendered
+links and final fresh chains passed. Full proof:
+`/private/tmp/pipy-de03d1-gates.ng4jsu9e/final-gate-proof.json`.
+
+D2 now implements the closed paired SQLite/SQLite-reopen/Memory comparison,
+using the existing11/128 scripted recipes and21 exported conformance cases plus
+23 new valid D2(a)–(f) recipes/130 operations. Preliminary reused-parent Pi
+observations are preparation only, not the final gate. Recipe-local integral
+limit ingress mirrors the existing cursor role adapter without changing payload
+or raw-version signed zero. Exact raw witnesses remain beside closed scoped
+projections and divergence declarations. Native SQLite and reopen must match
+Memory semantics where Pi SQLite differs. D2/d/DE03 remain IN_PROGRESS and all43
+P rows OPEN; DE04 still waits for cumulative DE03 completion.
+
+
+### DE03d2 paired implementation and approved lifetime boundary
+
+Initial executable integration passed the new three-backend Pi driver and all
+21 exported cases per backend, separately from34/258 native SQLite/reopen
+scripted operations. The development parent was reused, so this is not a fresh
+bootstrap or delivery gate. Initial real native comparison65 cases passed36.92s
+before later refusal controls were added; final focused/platform/fresh-chain
+and independent gates are still pending.
+
+The complete existing document-atomic recipe exposed exactly one lifetime
+boundary: after an unused mint and a rejected mixed commit, live Memory and
+SQLite return7 while Pi/native SQLite-reopen return6. The existing store
+contract already says unused minted IDs are not stored and may be minted again
+after reopen. The coordinator confirmed that authority; no product storage
+change is made. A separate exact witness binds all five backend values at this
+one operation, and forcing native-reopen7 is a valid mismatch1. All other126
+closed Pi SQLite divergence pointers require native Memory semantics.64 exact
+error-spelling projections retain raw error/code/data witnesses; broad numeric
+or exception normalization is refused. Closed fixture observations are unit
+fixtures, not renamed fresh executions. Delivery still requires two actual
+fresh complete six-stage chains on the final closure. All P rows remain OPEN.
+
+### DE03d2 final worker checks — coordinator gates pending
+
+The final private native reopen wrapper delegates every actual commit through
+close/open in finally, including the nested ownership/document-ownership
+helpers. A pre-freeze adapter audit found that an earlier outer-step wrapper
+missed those helper commits; that earlier adapter's focused/repetition logs are
+historical only. An actual open-count regression and a source mutant bypassing
+only helper reopens now discriminate this mechanism even when record outputs
+are unchanged. No production source changed.
+
+Final focused comparator/coverage/acceptance256 passed58.40s:83 comparator cases
+plus173 coverage/acceptance cases. Ruff check and format978 passed; mypy910
+passed. Package architecture/inventory348 passed20.32s. Final warnings-error/
+development repetitions ran20/20 rounds of11 cases (72 deselected),231.45s
+aggregate, on byte-identical comparator/test/input sources; each round includes
+real native SQLite/reopen scenarios and adapter/helper open counts. Seven source
+controls were caught, including missing integral-role conversion, omitted exact
+divergence gate, broad error projection, post-reap signaling, missing mismatch
+exit, unexpected exception escape and skipped helper reopen. Byte-exact restored
+control83 passed47.32s. All21 schema-valid behavior mutants were freshly run
+through actual CLI compare, positive0/negative1; invalid2 was not counted as
+behavior detection.
+
+Logs: `/private/tmp/pipy-de03d2-wrapper-final-focus.log`,
+`/private/tmp/pipy-de03d2-wrapper-final-repeats.log`,
+`/private/tmp/pipy-de03d2-wrapper-source-controls.log` and designated controls
+under `/private/tmp/pipy-de03d2-wrapper-source-controls/`. Final actual CLI
+artifacts are `/private/tmp/pipy-de03d2-final-cli-controls-0epmame_/`.
+The paired development driver executed all34/258 scripted operations and21
+exported cases on each of three Pi backends, with native SQLite/reopen compared
+separately. The captured expected fixture is unit evidence from that reused
+parent, not a fresh bootstrap. Final execution requires the coordinator's two
+new complete six-stage chains, Linux/compatibility, full/docs/link gates and
+independent Claude Code Opus5.5 HIGH review. D2/d/DE03 remain IN_PROGRESS and
+all43 P rows OPEN; no delivery or CLEAN is claimed here.
+
+
+### DE03d2 review-input representation repair — review still pending
+
+The coordinator's initial frozen tree completed two fresh full six-stage chains
+(`F763ts`, including raw and projected comparison0) and compatibility runs of164
+cases on Python3.11/3.12 (80.01s/76.89s). These are pre-representation-repair
+results. Strict docs build found the unescaped preview-case marker above.
+The first Opus5.5 HIGH invocation performed no review: its actual provider result
+was "Prompt is too long" from the inline3.2MB captured unit fixture, rather than
+quota or model unavailability. No CLEAN or review findings resulted.
+
+Only that test fixture is now represented as standard zlib+base64 in a closed
+JSON wrapper, with a bounded test-only decoder. Its complete original3,204,104
+bytes remain bound to SHA256
+`fcd4caa2b7f8fd4ee032103994c6f0b1d1771167fea8774d41ea8d3e258f3642`.
+Roundtrip and malformed/oversize/trailing-data/hash controls pin losslessness and
+bounds. Production comparator, driver and actual fresh execution artifacts retain
+their raw JSON protocol unchanged. The coordinator will rerun final closure,
+fresh-chain and independent review gates on the repaired representation; all
+current implementation and P statuses remain unchanged.
+
+
+After this representation repair, focused comparator/coverage/acceptance264
+passed51.25s (91 comparator,173 coverage/acceptance), including eight new
+losslessness/decoder refusal cases. The same11 native lifecycle/role/error cases
+passed20/20 fresh rounds (80 deselected),198.75s aggregate with source identity
+checked before and after each round. Ruff check/format and mypy910 passed.
+The comparator and Pi driver are byte-identical to the preceding worker freeze;
+previous seven source-control detections and21 actual CLI behavior controls
+remain applicable. The first local post-edit focused attempt reported84 passes
+and the expected stale-closure failure before manifest regeneration; it is not
+counted as a passing gate. Old five closures were verified unchanged, and the
+new SQLite manifest is regenerated last after these evidence edits.
+
+Logs: `/private/tmp/pipy-de03d2-compressed-focus-final.log`,
+`/private/tmp/pipy-de03d2-compressed-repeats.log`,
+`/private/tmp/pipy-de03d2-compressed-{ruff,format,mypy,closure}.log`.
+Independent Opus5.5 HIGH review and coordinator final gates remain pending.
+
+
+### DE03d2 first actual Opus review and accepted repairs
+
+The first actual Claude Code Opus5.5 HIGH review (R1b, after the earlier prompt
+size failure performed no review) returned ISSUES with two warnings and two
+suggestions. All four were accepted. Comparison now requires raw Pi reference
+profiles with exact observed error-spelling usage; projected Pi EXPECTED is
+not CLI ingress. Native ACTUAL may use raw or already-projected spelling with
+the same verdict through its conditional idempotent dictionary. Conditional native spelling entries may go unused, so a genuine
+unexpected native error still yields mismatch1. A missing actual native cursor
+now records a causal blocked continuation instead of inventing a call or
+escaping as invalid2; the same run comparison boundary writes hash-bound raw
+and projected mismatch reports. Real SQLite cursor-drop and raw-to-canonical
+source controls discriminate these repairs. Documentation identifies the Pi
+reopen leg as a driver-local reconstruction of the pinned test wrapper, using
+call-time delegation and finally after every commit; dated D1/D2 evidence links
+are synchronized. Final repair validation and independent delta review remain
+pending. Existing root platform/chains results precede these repairs, and all
+statuses remain117 rows with all43 P rows OPEN.
+
+
+Accepted-repair validation:268 focused cases passed65.26s (95 comparator and173
+coverage/acceptance). All20 rounds of the changed15-case selection passed
+(80 deselected),368.19s aggregate; comparator/test/input identities were checked
+before and after each round. Ten source mutants were caught at their designated
+regressions, including canonical Pi drift, escaping missing-cursor observations
+and losing the mismatch-report result; byte-exact restored95 passed56.35s.
+Package architecture/inventory348 passed21.12s; Ruff check/format970 and mypy910
+passed. Two initial focused attempts stopped after95 passes on the evidence-link
+registry/order and then the D1 dated-heading suffix; both bookkeeping failures
+were repaired before final268 success. They are not passing gates. The final
+plan summary now records D1 and DE06a delivered while D2/d/DE03 remain in
+progress, without changing historical delivery records or closing any P row.
+
+Logs: `/private/tmp/pipy-de03d2-r2-focus-closed.log`,
+`/private/tmp/pipy-de03d2-r2-repeats.log`,
+`/private/tmp/pipy-de03d2-r2-source-controls.log` and its designated control
+folder, `/private/tmp/pipy-de03d2-r2-inventory.log`, and
+`/private/tmp/pipy-de03d2-r2-{ruff,format,mypy}-final.log`.
+The six-manifest cascade is regenerated last after these edits; final coordinator
+platform, fresh-chain, docs/full and Opus5.5 HIGH delta-review gates remain pending.
+
+
+### DE03d2 second actual review — bounded wording correction
+
+Claude Code Opus5.5 HIGH R2 returned ISSUES with one suggestion and no warnings.
+The accepted correction narrows the raw-input wording to the Pi reference
+EXPECTED side. Native ACTUAL accepts raw or already-projected spellings through
+the conditional idempotent dictionary, with the same comparison verdict. No
+code, test, type or runtime semantics changed; preceding implementation proofs
+remain applicable. This prose/closure delta awaits independent review and final
+coordinator gates; no CLEAN or delivery is claimed.
+
+Focused metadata/config174 passed6.86s after this prose correction. All six
+manifest bytes and bound source/test hashes remain unchanged; full closure
+verification reports zero stale entries. Final review remains pending.

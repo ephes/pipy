@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a closed internal Pi SQLite/Memory oracle with native reopen checks,
+  exact observed divergence witnesses and explicit unused-ID lifetime evidence.
+  Compare requires raw Pi reference EXPECTED; native ACTUAL accepts raw or
+  already-projected spelling with the same verdict. Missing actual continuations
+  remain causal mismatch reports without inventing a Storage call.
+  This adds backend validation without changing product defaults or parity status.
+
 - Add a private versioned canonical DTO codec for future durable checkpoints.
   It preserves rich messages, request snapshots, provider/tool outcomes and
   fields excluded from equality, rejects malformed trees and live callbacks,

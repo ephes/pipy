@@ -270,7 +270,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
     )
 
 
-BOUNDED_NATIVE = {"DE02a1", "DE02a2a", "DE02a2b", "DE02b1b", "DE02b3"}
+BOUNDED_NATIVE = {"DE02a1", "DE02a2a", "DE02a2b", "DE02b1b", "DE02b3", "DE03d2"}
 DE_EVIDENCE = {
     "DE00": "de00-acceptance-evidence",
     "DE01": "de01-split-acceptance",
@@ -302,8 +302,8 @@ DE_EVIDENCE = {
     "DE03d": "de02b3-delivery-and-de03-split",
     "DE06a": "de06-pre-runtime-codec-split",
     "DE06b": "de06-pre-runtime-codec-split",
-    "DE03d1": "de03c2-delivery-and-de03d-pre-code-split",
-    "DE03d2": "de03c2-delivery-and-de03d-pre-code-split",
+    "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
+    "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
 }
 
 
@@ -334,6 +334,8 @@ def de_current(row: Any, c: Any) -> None:
         cases = ["session-guard-b1b-v1"]
     if key == "DE02b3":
         cases = ["session-commit-b3-v1"]
+    if key == "DE03d2":
+        cases = ["storage-sqlite-d2-v1"]
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -363,6 +365,10 @@ def de_current(row: Any, c: Any) -> None:
     if key == "DE01b3b":
         links.append(
             "docs/durable-reference.md#exhaustive-current-and-future-evidence-index"
+        )
+    if key == "DE03d2":
+        links.append(
+            "docs/durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2"
         )
     require(row["evidence"] == links, "DE bounded evidence link drift", c)
 
@@ -523,7 +529,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"memory-tables-a2a-v1"} if key == "DE02a2a" else set())
                 | ({"memory-current-base-a2b-v1"} if key == "DE02a2b" else set())
                 | ({"session-guard-b1b-v1"} if key == "DE02b1b" else set())
-                | ({"session-commit-b3-v1"} if key == "DE02b3" else set()),
+                | ({"session-commit-b3-v1"} if key == "DE02b3" else set())
+                | ({"storage-sqlite-d2-v1"} if key == "DE03d2" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),

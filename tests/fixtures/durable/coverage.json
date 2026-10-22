@@ -524,7 +524,7 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative source contract: DE03a path ownership (0d37f64a), DE03b schema/integrity (f6024e56), DE03c1 table storage (1563bb68) and DE03c2 document storage/failure cuts (a2c4c6d) are LANDED. DE03c is complete; DE03d paired pinned Pi SQLite probes, Session over SQLite and P43 workload remain IN_PROGRESS, split d1 then d2, so DE03 remains IN_PROGRESS. Every original acceptance cell is retained; child evidence stays with its owner and no own paired or P proof is inherited."
+        "observables": "Cumulative source contract: DE03a0d37f64a, DE03bf6024e56, DE03c1/c2 at1563bb68/a2c4c6d and DE03d1 at8ab38d20 are LANDED. DE03d2 paired pinned SQLite oracle/final gate is IN_PROGRESS, so DE03/d remain IN_PROGRESS. Every original acceptance retained; child proof is owned separately and no P closure is inherited."
       },
       "future": "Two processes/aliases cannot own one DB; SIGKILL owner then reopen; transactional schema failure/newer refusal, acknowledgement loss and integrity checks; no world-readable DB/journal/lock. Storage/private lifecycle docs. Split 2026-10-21 into DE03a\u2013DE03d; DE03 completes only after its a+b+c+d children.",
       "status": "IN_PROGRESS",
@@ -4022,16 +4022,16 @@
       "plan_cells": [
         "DE03d / DE03c",
         "Paired pinned Pi SQLite oracle and Session over SQLite: Node driver, comparison script, inputs and closed manifests, P43 workload and acceptance/coverage registration.",
-        "Closed recipes against pinned `openNodeSqliteStorage` with and without Pi's reopen wrapper plus Pi Memory, a closed list of actually observed divergences including paired D2 (a)\u2013(f) probes, mutants and two fresh chains; Session over SQLite commit/reopen, acknowledgement cut, poisoning by real errors and close releasing the lock; a reviewed practical P43 budget; durable-reference SQLite section; DE03 completes only after a+b+c+d; all P OPEN. Split into DE03d1 and DE03d2; DE03d completes only after its d1+d2 children. Every original DE03d acceptance cell remains cumulative."
+        "Closed recipes against pinned `openNodeSqliteStorage` with and without a driver-local reconstruction of Pi's pinned test reopen wrapper (call-time delegation; finally after every commit) plus Pi Memory, a closed list of actually observed divergences including paired D2 (a)\u2013(f) probes, mutants and two fresh chains; Session over SQLite commit/reopen, acknowledgement cut, poisoning by real errors and close releasing the lock; a reviewed practical P43 budget; durable-reference SQLite section; DE03 completes only after a+b+c+d; all P OPEN. Split into DE03d1 and DE03d2; DE03d completes only after its d1+d2 children. Every original DE03d acceptance cell remains cumulative."
       ],
       "current": {
         "kind": "source-only",
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE03d: no own executed implementation/test/crash evidence; the exact child contract at source_anchor is the required future behavior."
+        "observables": "Cumulative d1+d2 contract: native Session/SQLite/workload child d1 LANDED8ab38d20. Closed paired Pi SQLite/Memory oracle, explicit D2(a-f) witnesses and final two-chain gate belong to d2 IN_PROGRESS. No independent parent scenario or P closure is claimed."
       },
-      "future": "Closed recipes against pinned `openNodeSqliteStorage` with and without Pi's reopen wrapper plus Pi Memory, a closed list of actually observed divergences including paired D2 (a)\u2013(f) probes, mutants and two fresh chains; Session over SQLite commit/reopen, acknowledgement cut, poisoning by real errors and close releasing the lock; a reviewed practical P43 budget; durable-reference SQLite section; DE03 completes only after a+b+c+d; all P OPEN. Split into DE03d1 and DE03d2; DE03d completes only after its d1+d2 children. Every original DE03d acceptance cell remains cumulative.",
+      "future": "Closed recipes against pinned `openNodeSqliteStorage` with and without a driver-local reconstruction of Pi's pinned test reopen wrapper (call-time delegation; finally after every commit) plus Pi Memory, a closed list of actually observed divergences including paired D2 (a)\u2013(f) probes, mutants and two fresh chains; Session over SQLite commit/reopen, acknowledgement cut, poisoning by real errors and close releasing the lock; a reviewed practical P43 budget; durable-reference SQLite section; DE03 completes only after a+b+c+d; all P OPEN. Split into DE03d1 and DE03d2; DE03d completes only after its d1+d2 children. Every original DE03d acceptance cell remains cumulative.",
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de02b3-delivery-and-de03-split",
@@ -4062,12 +4062,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Native-only Session tests over actual SQLite in both facades: mixed commit/adoption/publication, detached values, fresh Session reopen and counters, real COMMIT acknowledgement loss, actual READONLY/FULL page-limit/BUSY poisoning, normal/failing close releasing ownership to bounded child, held commit/close interleavings. Closed current-base workload at 1000entries/300tasks/300documents, batches100,3readrounds,3samples of3upstream write shapes, full persisted readbacks, clean reopen and real SIGKILL-WAL recovery, bounded child reaping and explicit delta/asof/copy/history/deepfork exclusions. Initial native measurements and focused validator controls only; final platform/full/docs/independent gates pending; no paired oracle or P closure."
+        "observables": "Delivered8ab38d2010ea8e7f8660124085b04b6f0e821d94: native Session/SQLite and closed current-base workload, final81 focused/platform cases and20x2 CLI controls. Final independent Opus5.5 HIGH R4 CLEAN, exact reviewed tree and verified push. Local fullcheck15821P2S1knownpreviewfailure; isolated16PASS and explicitownerflakeexception, not green-full or CI. D2 paired oracle/final cumulative gate remains separate; no P closure."
       },
       "future": "Commit/adopt/publish and fresh Session reopen; acknowledgement loss after real COMMIT; real SQLite errors poison Session; close and failing close release ownership to a bounded fresh process; inline close bounded and deadlock-free. Deterministic native workload with clean/unclean reopen, exact/page/current-base reads and all three upstream write shapes with persisted readbacks, measured practical budgets and explicit DE27 exclusions. All P OPEN; no paired oracle claim.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de03c2-delivery-and-de03d-pre-code-split",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4091,17 +4091,20 @@
         "Existing bounded Memory recipes/exported conformance on both Pi SQLite variants plus valid paired D2(a)\u2013(f) probes, exact observed divergence inventory, native==Memory where SQLite differs, stale/missing divergence rejection and designated mutants; native d1 Session/workload artifacts bound into the closure; two fresh cumulative reference chains. DE03d and DE03 complete only with all original cumulative acceptance; every P remains OPEN."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "storage-sqlite-d2-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "Paired SQLite oracle, valid D2(a)-(f), two fresh chains and final cumulative DE03 gate remain OPEN."
+        "observables": "Closed paired actual Pi Memory/SQLite/SQLite-reopen driver: inherited11/128 plus23valid D2(a-f)recipes/130 operations,21exported conformance cases per Pi backend. Native SQLite/reopen legs preserve Memory semantics for126exact observed SQLite divergence pointers; one separately bound unused-mint reopen-lifetime witness preserves the existing approved persistence contract. Raw errors/UTF16/binary64 and all supplied/observed data retained;64closed spelling projections,21schema-valid behaviorcontrols and invalid evidence refusal. Implemented native/reference local evidence; final fresh chains/platform/full/docs/independent gates pending. No product/default, complete Storage parity or P closure."
       },
       "future": "Existing bounded Memory recipes/exported conformance on both Pi SQLite variants plus valid paired D2(a)\u2013(f) probes, exact observed divergence inventory, native==Memory where SQLite differs, stale/missing divergence rejection and designated mutants; native d1 Session/workload artifacts bound into the closure; two fresh cumulative reference chains. DE03d and DE03 complete only with all original cumulative acceptance; every P remains OPEN.",
-      "status": "OPEN",
+      "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de03c2-delivery-and-de03d-pre-code-split",
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de03d2-paired-implementation-and-approved-lifetime-boundary",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2"
       ],
       "inherited_reference": {
         "owners": [],
