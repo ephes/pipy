@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c landed, DE03d OPEN, DE03 IN_PROGRESS; DE06a/DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c landed, DE03d/d1 IN_PROGRESS, DE03d2 OPEN, DE03 IN_PROGRESS; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -158,14 +158,16 @@ that coverage here. A local validation result is not a landed slice.
 | DE03 | SQLite authority and local ownership | IN_PROGRESS | Cumulative a+b+c+d (split 2026-10-21); every original cell retained |
 | DE03a | Path ownership, owner-only files and minimal connection lifecycle | LANDED | 0d37f64a; Codex gpt-6.1-sol HIGH r1 three Warnings, r2–r5 one or two Criticals each (r4 harness non-convergence, Root simplification with an explicit contract boundary), r6 CLEAN, repaired by Opus5.5 MAX; local just check 14392 passed; push verified; no CI claim |
 | DE03b | Schema v1, migration runner and open-time integrity | LANDED | f6024e56; Codex gpt-6.1-sol HIGH r1 ISSUES (one Warning) repaired by Opus5.5 MAX, r2 CLEAN; local just check 14459 passed; push verified; no CI claim |
-| DE03c | SqliteStorage, contract cases, real failures and crash cuts | LANDED | Cumulative c1+c2 (split 2026-10-22); every original cell retained |
+| DE03c | SqliteStorage, contract cases, real failures and crash cuts | LANDED | Cumulative c1+c2 delivered at 1563bb68 and a2c4c6d2; every original cell retained |
 | DE03c1 | SqliteStorage tables and backend-agnostic contract cases | LANDED | `1563bb68`; Codex HIGH r3 CLEAN after two repairs; local known docs-preview flake, isolated rerun 16/16; remote verified |
-| DE03c2 | SqliteStorage documents, write refusals and crash cuts | LANDED | a2c4c6d; Opus5.5 HIGH final unscoped r4 CLEAN; owner known-preview-flake exception; push verified; no green-full-check or CI claim |
-| DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | OPEN | None; all gates OPEN |
+| DE03c2 | SqliteStorage documents, write refusals and crash cuts | LANDED | a2c4c6d2; final Opus5.5 HIGH R4 CLEAN unscoped, reviewed tree matched commit, push remote verified; known docs-preview exception recorded below |
+| DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | IN_PROGRESS | Cumulative d1+d2; all original acceptance retained |
+| DE03d1 | Session over SQLite and bounded native current-base workload | IN_PROGRESS | Implementation admitted; native evidence and independent gates pending |
+| DE03d2 | Closed paired SQLite oracle and final DE03 gate | OPEN | All gates OPEN; depends on d1 |
 | DE04 | Minimal typed documents | OPEN | None; all gates OPEN |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
-| DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a gate in progress, DE06b OPEN |
-| DE06a | Additive canonical DTO codec; depends DE02a1 | IN_PROGRESS | Integrated main source/tests; local and independent gates pending |
+| DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
+| DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
 | DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | OPEN | None; all gates OPEN |
 | DE07 | Durable generation phases | OPEN | None; all gates OPEN |
 | DE08 | Sequential tool intents and blocked uncertainty | OPEN | None; all gates OPEN |
@@ -265,10 +267,10 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 ## Next delivery gate
 
 DE00 through DE02b3 and DE03a/b/c1/c2 have landed. DE03c is LANDED at
-`a2c4c6d`; DE03 stays IN_PROGRESS until DE03d supplies the paired pinned Pi
-SQLite D2(a)–(f) probes, Session over SQLite and P43 workload. DE04 waits for
+`a2c4c6d`; DE03 stays IN_PROGRESS until DE03d completes d1 (native Session/SQLite/workload, IN_PROGRESS)
+and d2 (paired Pi SQLite/D2(a)–(f)/final gate, OPEN). DE04 waits for
 that cumulative DE03 acceptance. In parallel, additive DE06a is integrated on
-main and IN_PROGRESS; its checkpoint/runtime integration child DE06b is OPEN
+main and LANDED at `caf4d34e`; its checkpoint/runtime integration child DE06b is OPEN
 and waits for DE05 and DE06a. All 43 P rows remain OPEN.
 
 Current implementation and repairs belong to Codex. Independent delivery review
@@ -277,8 +279,8 @@ Each slice requires local `just check`, strict docs build and rendered links
 when docs change, exact-tree CLEAN, a targeted commit, normal push and remote
 SHA confirmation with `git ls-remote`. GitHub CI is not a gate. The c2 delivery
 used the owner's documented known-preview-flake exception, not a green full
-check. DE06a's next gates include two fresh reference chains after the final
-manifest cascade and review repairs. Every DE03 slice also records Ubuntu
+check. DE03d1's next gates include two fresh reference chains after the final
+integrated manifest cascade and accepted review repairs. Every DE03 slice also records Ubuntu
 macmini evidence under the D10 isolation rules. Historical dated results and
 reviewer assignments below retain their original provenance.
 
@@ -6350,3 +6352,284 @@ passed before the final focused run. Logs in the repair directory are
 `cascade.log`, `closure.log` and `final-inventory.json`. This completes worker
 repair validation; the independent review/full/documentation/reference gates
 still belong to the coordinator.
+
+
+### DE03c2 delivery and DE03d pre-code split
+
+DE03c2 delivered as `a2c4c6d2595e7c782d139b0380f918ac24887efd`, tree
+`39cad2419d8d4e5d1abffd4187eec9ad6ccffef9`, exactly the final independent
+Claude Code `claude-opus-5-5` HIGH R4 CLEAN, unscoped. Codex implemented and
+repaired; guard, normal push and `git ls-remote` confirmed the commit. R1
+ISSUES (one Warning/four Suggestions) were repaired; R2/R3 CLEAN were scoped
+by an innocent synthetic constant classified as secret; R4's final equal-length
+`_PRIVATE_TAG` rename produced no redactions and passed format and privacy tests.
+Earlier identities and outcomes remain historical.
+
+The final quiet `just check` was exit 1, 15,461 passed, 2 skipped, one failure
+in the known unchanged docs-preview `[2]` case, 1491.35 seconds. The final
+standard isolated docs file had 15 passed/one same preview failure, 63.52 seconds;
+an earlier standard isolated run passed 16/16, 17.10 seconds. The stronger
+`-X dev -W error` isolated attempt had 14 passed/two failures/one teardown error,
+36.96 seconds, including Python 3.15 HTTPError temporary-file ResourceWarnings.
+Load was above the owner's known flake threshold; Root applied the explicit
+known-flake exception, recorded honestly rather than claiming a green full
+check or modifying unrelated docs-build code. Linux final broad1363 passed,
+20/20 document repeats353 passed/622 deselected (2471.83 seconds aggregate),
+final naming-only file76 passed and final TAG privacy9 passed. All other local,
+platform, docs, link, closure and independent gates passed; no CI claim.
+
+DE03d is split before implementation into sequential d1 and d2. d1 owns native
+Session/SQLite commit, acknowledgement/error/close evidence and a bounded
+current-base workload at upstream timing scale. d2 owns the actual paired Pi
+SQLite/SQLite-reopen/Memory oracle, all valid D2(a)–(f) probes, mutants, two fresh
+chains and final cumulative DE03 gate. DE03d derives d1+d2 before DE03 derives
+a+b+c+d. DE04 still depends on DE03, and all 43 P rows remain OPEN. Neither a
+native workload nor a source-only child can claim paired Pi execution or close
+P43. Production delta/as-of/copy/history capabilities remain DE27's boundary.
+
+
+### DE03d1 native implementation — independent gates pending
+
+Codex implements in its isolated `codex/durable-de03d1` checkout, based on
+`a2c4c6d2`; main's independent DE06 lane is not touched. A worktree-local venv
+uses existing dependency files without installing anything; isolated `-I`
+imports resolve this checkout's `src/pipy_harness/native/durable/sqlite.py`.
+No production capability or Session/Storage implementation change was needed.
+
+`tests/durable/test_session_sqlite.py` covers both existing commit facades over
+real SQLite: mixed conversation/entry/task/submission/raw-base commits,
+backend-return-before-publication and adopted document identity, detached data,
+fresh Session reopen and counter continuation; thrown acknowledgement after
+actual COMMIT, no false publication/adoption or retry, failed Session and
+recovered durable batch; actual query_only/FULL page-limit/foreign writer lock
+failures, Session poisoning and no partial reopened state; normal/failing
+checkpoint close releasing ownership to a bounded fresh child; held real commit
+and close/drain interleavings. The held-thread scenarios run in separately
+bounded/reaped processes, so even a deadlocked non-daemon thread cannot escape
+the test's watchdog. Events and locked owner-state observations establish order.
+
+`scripts/durable_sqlite_workload.py` and its closed input/validator tests add
+only the current-base timing subset documented in the reference guide. Seed
+scale 1000/300/300, batches 100, three read rounds and three samples of each
+of the three upstream write shapes; complete persisted readbacks, commit
+sequences, ID continuation, page/filter/address/request indexes, clean reopen
+and actual SIGKILL followed by recovery in a third bounded child. Configuration
+inspection and integrity checking use the existing owned raw connection;
+all workload record reads/writes use public Storage. Runtime/script/input/
+artifact identities and process-group cleanup are validated. Native results
+never claim Pi execution or close a P row.
+
+Initial macOS end-to-end execution exited 0: clean seed 0.155 s, selected reads
+0.020 s, reopen 0.0009 s, database 716800 bytes; unclean seed 0.168 s, selected
+reads 0.028 s, recovery/open 0.0069 s, database 634880 bytes, committed WAL
+1260752 bytes. These are initial observations, not final cross-platform gates.
+The initial combined native/validator suite passed 52 cases in 8.87 seconds;
+final repetitions, negative controls, platform/full/docs checks and independent
+Opus5.5 HIGH review are recorded separately when completed. Missing startup
+readiness exposed a test-runner cleanup issue: macOS can refuse killpg on an
+already-zombie child; cleanup now tolerates that result and still reaps/closes
+all pipes, matching the existing bounded Child helper. No production defect
+was inferred from that harness issue.
+
+The exact d1/d2 IDs, plan/ledger regexes, parent derivation order, status rows,
+source anchors and native-only evidence ownership are synchronized before d1
+implementation. This branch has 115 coverage rows; the parallel codec lane's
+children must be reconciled at integration rather than copied blindly. The
+changed acceptance executable requires fresh integrated reference chains before
+delivery; Root owns that gate. DE03d/DE03 and all 43 P rows remain OPEN or
+IN_PROGRESS as appropriate, with no native/P43 or paired-oracle closure claim.
+
+
+### DE03d1 worker validation — native scope, coordinator gates pending
+
+The final combined Session/SQLite and workload-validator suite passed 60 cases
+under `-X dev -W error` (13.18 seconds); the unchanged 16 Session cases passed
+20/20 sequential runs. Five independent source controls were caught: missing
+adoption, false publication after lost acknowledgement, omitted failure latch,
+retained ownership after close failure, and close before the active line drains.
+The initial close control targeted a redundant guard and survived; it was
+replaced with the actual line-drain guard and caught, not silently counted as a
+pass. Scratch mutations were restored byte-exactly, with modified-module caches
+removed. Logs: `/private/tmp/pipy-de03d1-session-final-repeats.log` and
+`/private/tmp/pipy-de03d1-native-controls-final.log`; per-control artifacts are
+under `/private/tmp/pipy-de03d1-controls/`.
+
+A final validator audit reproduced an acceptance bug: Python equality treated a
+persisted JSON `false` as expected integer `0`, a float `0.0` as integer `0`,
+and a boolean return count as integer `1`. This was a new evidence-validator
+bug, not a Storage defect. Persisted trees, read shapes and return values now
+compare through OwnedJson, retaining object order and exact JSON scalar types.
+Each of the three actual regression tests fails the old validator and passes
+the repair; unmodified real clean and SIGKILL/recovered evidence passes too.
+Actual CLI controls rehash the changed evidence before verifying, proving exit
+1 for these well-formed behavioral mismatches rather than merely tripping an
+artifact hash. Closed-input identity/configuration failures remain exit 2.
+The old/new proof is `/private/tmp/pipy-de03d1-owned-regression.log`.
+
+The final native CLI run and independent verify exited 0 at
+`/private/tmp/pipy-de03d1-owned-final/`; clean seed/read/reopen were
+0.166/0.021/0.0009 seconds. The manifest binds the closed input, script, runtime
+closure, persisted databases and reports, including original SIGKILL evidence
+and separately reaped recovery. All observations are native macOS evidence;
+Linux, compatibility, final full/docs/link gates, fresh integrated reference
+chains and the independent Opus5.5 HIGH gate belong to the coordinator and are
+not claimed here. Package architecture/inventory passed 348 cases (19.69 s),
+Ruff and format passed (974 files), and mypy passed 907 source files.
+The changed acceptance executable still requires fresh integrated chains;
+manifest closure verification alone does not replace those executions.
+DE03d1 remains IN_PROGRESS, DE03d2 OPEN, and every P row remains OPEN.
+
+### DE03d1 R1 repair — native observations and fail-closed evidence
+
+Independent Claude Code `claude-opus-5-5`, effort HIGH, returned ISSUES with one
+Warning and five Suggestions at baseline
+`db3c1bbd3a52d7aa0d4df4972b1bb30328c4ece1`. All six were accepted as coupled
+validator, process lifetime, configuration and observation repairs. No final
+CLEAN or delivery is claimed here; the coordinator owns the integration gate.
+
+Malformed manifests now pass exact object/map admission before use; an
+unexpected Exception becomes invalid evidence (exit 2), while Mismatch is
+handled first as exit 1 and BaseException interruption still propagates.
+Actual CLI regressions cover the same-names artifact-list exploit and deeply
+nested JSON, rehashed boolean/float metadata, counters, sample sequences,
+PRAGMAs and all three process records. Product JSON value mismatches retain
+exit 1. Exact integer admission applies uniformly to metadata counts, IDs,
+commit sequences and process codes; recovery receives the same full event,
+signal, stdout/stderr and reaping checks as the other children.
+
+The native Storage contract returns a Seq; actual returned sequences are now
+captured in sample observations, checked with exact integer type and compared
+with commit/readback sequence evidence. `submitted_count` explicitly names the
+length of the supplied batch. Before/after counts come from bounded public
+Storage scans, not the workload's expected dataset. Clean WAL bytes are measured
+before closing, and a separate after-close measurement is retained. The final
+native CLI run and verify both exited 0 at
+`/private/tmp/pipy-de03d1-r1-native-final/`: clean seed/read/reopen
+0.188/0.021/0.0012 seconds, database 716800 bytes and pre-close WAL 1796352
+bytes; unclean 0.183/0.023/0.0063 seconds, database 634880 bytes and WAL 1260752
+bytes. Both after-close WAL measurements were zero. These supersede earlier
+hard-coded clean-WAL reports as measurement evidence.
+
+Owned child targets have an explicit no-descendant contract. Exceptional paths
+signal the group while its leader is unreaped, then communicate/reap and close
+pipes. Normal completion never signals or probes the reusable PGID after
+communicate. Actual normal, startup-failure and readiness/exit-timeout cases
+assert this order; 20/20 repetitions passed, three cases each (60.33 seconds
+aggregate). This bounded lifetime does not claim general descendant supervision.
+Loaded configuration drives seeding counts/batches, read rounds/pages, samples,
+validation expectations and deadlines; a smaller private configuration proves
+that changing those values changes actual work without opening arbitrary CLI
+inputs. The closed public fixture remains 1000/300/300, batch100,3/3.
+
+Final focused tests: 79 passed in 24.18 seconds under `-X dev -W error`;
+`/private/tmp/pipy-de03d1-r1-final-focus.log`. The unchanged 16 Session cases
+retain their completed 20/20 proof; all five original source controls were
+rerun and caught. Seven additional source controls exercise malformed-manifest
+refusal, numeric admission, process-code admission, post-reap signaling,
+tautological counts, unconsumed input and coerced actual commit sequences.
+All seven were caught; the byte-exact restored real workload-validator suite
+passed 63 cases in 19.29 seconds. Logs:
+`/private/tmp/pipy-de03d1-r1-controls.log`, designated mutant logs and restored
+baseline under `/private/tmp/pipy-de03d1-r1-validator-controls/`, and original
+controls `/private/tmp/pipy-de03d1-r1-native-controls.log`. Ruff/format passed
+974 files and mypy passed 907 source files. No production source was changed.
+The stale current DE03c2 pending-review clause was removed; chronological
+historical entries remain intact. Platform/full/docs/fresh-integrated-chain
+and final independent gates remain coordinator work; all P rows remain OPEN.
+
+
+### DE06a delivery and DE03d1 repaired integration (2026-10-22)
+
+DE06a was delivered on main and origin at
+`caf4d34e3c8fbbdc8f97b4b5e15435640897fb29`; reviewed tree
+`9086b2bae12178aca85ccc01a11743c1c5ec8e0a` matched the final commit tree.
+Codex implemented and repaired; independent Claude Code `claude-opus-5-5`,
+effort HIGH, R1 had two Warnings and three Suggestions, all repaired, and
+R2 was CLEAN unscoped. Local `just check` exited 0: 15737 passed, two skipped,
+1544.97 seconds, including all16 docs-preview tests. Focused440 and inventory348
+passed; 20x271 repeats and 10/10 source mutants passed; Python3.11 and3.12
+coordinator runs each passed271. Strict docs build took7.89 seconds and977
+rendered links had zero broken. Two final fresh reference chains under
+`/private/tmp/pipy-de06a-gates.5b_mxbq1/` (WItfNX campaign) passed all ten
+unique/current-manifest and parent bindings. Normal push and `git ls-remote`
+confirmed the delivered SHA. No GitHub CI result is claimed. DE06 remains
+IN_PROGRESS, DE06b OPEN, and all43 P rows OPEN.
+
+The coordinator protected D1's repaired isolated tree at
+`5f77d97fcb9668b5eec6eca3f8e1c467e0f88161` before integration. Its four new
+mechanism/test/input files are copied byte-exactly; shared metadata merges retain
+the delivered codec, fixed c2 summaries and stable backlog/evidence links.
+The combined inventory has117 rows: both DE06a/b and DE03d1/d2. D1 R1
+ISSUES (one Warning/five Suggestions) repairs are implemented, with final79
+native focused cases; final independent integrated R2/full/docs/platform/fresh
+chain gates remain pending. Prior platform60-case runs are historical evidence
+of the earlier script revision, not final79-case claims. Session16 source is
+unchanged, so its original20x proof remains applicable. No native production
+source or delivered C2 tests are changed by this integration.
+
+Integrated D1 pre-gate validation on main over delivered `caf4d34e`: 79 native
+Session/workload cases passed (22.74 seconds), package architecture/inventory348
+passed (19.57 seconds), combined coverage/acceptance173 passed (6.61 seconds),
+Ruff and format976 passed, and mypy909 source files passed. All four new files
+match the protected repaired-tree hashes byte-exactly; all native production
+sources, canonical codec implementation/tests/docs and delivered C2 document
+tests remain unchanged from the delivered main baseline. The 117-row plan/index
+joins and every plan anchor were reconciled before cascading the five existing
+manifests; closure configuration and every pinned hash verified with zero stale
+entries. These are local integration checks, not the final independent review,
+Linux/compatibility refresh, full/docs gates or required fresh reference chains.
+Logs use `/private/tmp/pipy-de03d1-integrated-` prefixes; no delivery is claimed.
+
+
+### DE03d1 relative CLI path repair during coordinator gates
+
+The coordinator's Linux run of the frozen integrated revision passed79 focused
+cases (64.96 seconds), then an actual `run --output workload-evidence-r2`
+invocation exposed a supported relative-path defect: launch changed cwd to the
+child folder while also passing the relative folder as the child's root. The
+child resolved it a second time and the parent found no database at the intended
+output location. This is a coordinator-discovered CLI defect, not an independent
+review result, and the earlier79 tests do not prove the repaired script.
+
+The output root is now resolved once before mkdir or any child launch. The
+existing absent-output rule remains unchanged. An actual subprocess regression
+runs with a relative output from a private cwd, verifies using that relative
+path, checks both intended database locations and rejects a second run into the
+same output without losing its evidence. Source/test identity and final platform,
+full, docs and independent exact-tree gates must be refreshed after this repair;
+the interrupted full check (exit130) is not a passing result. No production or
+codec source changed, and no delivery or P closure is claimed.
+
+The repaired local suite passed80 cases under `-X dev -W error` (27.95 s),
+including the relative run/verify/repeated-output refusal regression. That exact
+new regression fails the scratch old code and passes its byte-exact restored
+repair; `/private/tmp/pipy-de03d1-relative-control.log`. Ruff check/format and
+mypy909 passed. Independent Opus5.5 HIGH R2 subsequently returned CLEAN with
+zero items at baseline `20256d91aeb8ab6e2756d43ce06243fe72af595f`, covering the
+accepted R1 repairs and main integration before this relative-path correction.
+The actual newly discovered CLI defect justifies a small R3 delta review of
+this repair; R2 is not being relabeled as covering the later tree. Coordinator
+platform/full/docs refresh and final exact-tree delivery remain pending.
+
+
+### DE03d1 R3 symlink refusal repair
+
+Independent Opus5.5 HIGH R3 returned ISSUES with one Warning at baseline
+`bf0e67bfed06185d1f282b400cd70f116b0eb477`: the relative-path repair's
+`resolve()` followed an existing dangling output symlink and created its target,
+regressing the absent-output refusal contract. This first self-inflicted
+correctness regression is accepted. Anchoring with `absolute()` preserves the
+caller cwd without following the output symlink. An actual CLI regression checks
+exit2, retained symlink and absent target; the ordinary relative-output run and
+verify remain covered. The interrupted R3 full check is not a passing result;
+prior platform observations remain historical until the final refresh. R4 is a
+small delta review of this correction, not a reopened audit. No production or
+codec source changes and no delivery claim.
+
+Local final focused81 passed in28.24 seconds under `-X dev -W error`;
+`/private/tmp/pipy-de03d1-symlink-focus.log`. The new symlink regression fails
+the prior `resolve()` code in scratch; the byte-exact restored repair passes
+both symlink refusal and ordinary relative run/verify controls
+(`/private/tmp/pipy-de03d1-symlink-control.log`). Ruff check/format and mypy909
+passed; existing manifest closure remains current without a cascade. These
+local checks do not replace R4 or the coordinator's final platform/full gates.

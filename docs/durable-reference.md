@@ -431,8 +431,10 @@ cases, and DE03c2 (landed `a2c4c6d`) extends these native-only tests to raw-base
 documents across
 Memory/SQLite/reopen, lossless signed zero and numeric versions (D2 (b)/(e)),
 retention rows, real write refusals, acknowledgement loss and SIGKILL cuts.
-The actual paired Pi SQLite probes of D2 (a)–(f), Session over SQLite and P43
-workload remain DE03d; none is claimed here. No
+DE03c2 landed `a2c4c6d2`. DE03d is split: d1 adds native Session/SQLite and
+bounded workload evidence; d2 retains the actual paired Pi SQLite probes of
+D2(a)–(f), two fresh reference chains and the final DE03 gate. No paired SQLite
+execution is claimed by d1. No
 child alone can complete DE03 or any P row.
 
 
@@ -1107,3 +1109,53 @@ and owns actual checkpoint/phase integration. The original DE06 acceptance
 remains cumulative. [The backlog](backlog.md#additive-canonical-dto-codec-de06a)
 and [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#next-delivery-gate)
 own current status and delivery gates.
+
+
+## Native current-base SQLite workload (DE03d1)
+
+`scripts/durable_sqlite_workload.py run --output NEW_ROOT` creates a new private
+artifact root and refuses any existing path. `verify ROOT` validates the closed
+input, script/runtime-source identities, artifact hashes, correctness and
+budgets. Exit 0 means complete verified native execution, 1 means a well-formed
+behavior/budget mismatch, and 2 means invalid/incomplete/drifted evidence. This
+is native evidence only; DE03d2 owns comparison against Pi.
+
+The closed input `tests/fixtures/durable/storage-sqlite-workload-v1.input.json`
+selects upstream timing scale: 1,000 entries, 300 tasks and 300 current-base
+family documents, batched by 100. Three read rounds cover exact entry, first
+100 entries and cursor continuation, the five matching filtered tasks, exact
+family address and current document contents. All seeded records are read back
+exactly, including entry commit sequences and request/document indexes. Three
+samples of each upstream write shape (one 128-byte-text entry, 100 entries,
+and a mixed entry/task/submission/base-document commit) run cumulatively on
+that timing-scale dataset; this deliberately does not reproduce the upstream
+write benchmark's separate 100-entry baseline. Each sample records before/after
+public-scan counts, IDs, submitted count, actual returned commit sequence and
+timing; every resulting record is read back after clean close/reopen. Native
+Storage returns a sequence, not a record count. All workload sizes and rounds
+come from the loaded closed configuration; a smaller private test configuration
+checks that the algorithms consume those values.
+
+One bounded child performs the clean workload; another seeds and announces a
+committed WAL before the parent sends real SIGKILL; a third bounded child
+recovers and checks the unclean store, including all persisted records and
+`integrity_check`. These private child targets never spawn descendants. On
+startup/readiness failures and deadlines the parent kills the group while its
+leader remains unreaped, then reaps the leader and closes all pipes. Normal
+completion performs no later signal or existence probe on a reusable PGID. Recovery/open timing includes unclean-open
+validation/quick_check and is reported separately from read timing. Hardware,
+Python/SQLite versions, backend/durability, runtime import path, PRAGMAs and
+DB/WAL byte sizes remain in the artifacts; WAL is measured before clean close
+and after final close, rather than assumed absent. Database access never opens a second
+same-process descriptor while a pipy owner holds the inode.
+
+Initial macOS observations were approximately 0.15–0.17 seconds for seeding,
+0.02–0.03 seconds for the selected reads and 0.001/0.007 seconds for clean/
+unclean reopen, with databases below 1 MiB. The practical absolute ceilings
+are deliberately generous: 30 seconds each for seed/reads, 15 seconds for each
+open/write sample, 16 MiB database and 32 MiB WAL, with a 120-second watchdog
+per native child. They are behavior/performance guards, not timing goldens or a
+reference/native speed ratio. Linux measurements and independent review remain
+delivery gates. Delta tails, as-of, copies, historical reconstruction and deep
+fork seeding are explicitly excluded; DE27 retains the relevant capabilities.
+All P rows, including campaign-wide P43, remain OPEN.

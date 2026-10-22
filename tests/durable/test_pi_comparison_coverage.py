@@ -18,7 +18,7 @@ a = o.acceptance
 def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
-    assert len(value["rows"]) == 115
+    assert len(value["rows"]) == len(a.ALL_IDS)
     assert all(
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE03", "DE06"])
+@pytest.mark.parametrize("parent", ["DE03", "DE03d", "DE06"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -367,7 +367,7 @@ def test_sqlite_split_children_keep_original_parent_contract():
     assert rows["DE03b"]["status"] == "LANDED"
     assert "delivered at f6024e56" in rows["DE03b"]["current"]["observables"]
     assert rows["DE03c"]["status"] == "LANDED"
-    assert rows["DE03d"]["status"] == "OPEN"
+    assert rows["DE03d"]["status"] == "IN_PROGRESS"
     for key in ("DE03", "DE03a", "DE03b", "DE03c", "DE03d"):
         current = rows[key]["current"]
         assert current["kind"] == "source-only"
@@ -391,8 +391,22 @@ def test_sqlite_parent_cannot_land_with_any_open_child(tmp_path, child):
     path.parent.mkdir(parents=True)
     rows = (o.ROOT / a.LEDGER).read_text().splitlines()
     # An open DE03c keeps its own children open, so only DE03's rule can fail.
-    opened = {child, "DE03c1", "DE03c2"} if child == "DE03c" else {child}
-    for key in ("DE03a", "DE03b", "DE03c", "DE03c1", "DE03c2", "DE03d", "DE03"):
+    opened = (
+        {child, "DE03c1", "DE03c2"}
+        if child == "DE03c"
+        else ({child, "DE03d1", "DE03d2"} if child == "DE03d" else {child})
+    )
+    for key in (
+        "DE03a",
+        "DE03b",
+        "DE03c",
+        "DE03c1",
+        "DE03c2",
+        "DE03d",
+        "DE03d1",
+        "DE03d2",
+        "DE03",
+    ):
         index = next(
             i for i, line in enumerate(rows) if line.startswith("| " + key + " |")
         )
@@ -410,7 +424,7 @@ def test_sqlite_parent_cannot_land_with_any_open_child(tmp_path, child):
 
 @pytest.mark.parametrize(
     "bad",
-    ["DE03e", "DE03a1", "DE03aa", "DE03b1", "DE04a", "DE03", "DE03c3", "DE03d1"],
+    ["DE03e", "DE03a1", "DE03aa", "DE03b1", "DE04a", "DE03", "DE03c3", "DE03d3"],
 )
 def test_only_exact_sqlite_child_ids_are_accepted(bad):
     value = o.load(o.FIXTURES / "coverage.json")
@@ -485,6 +499,8 @@ def test_sqlite_storage_parent_cannot_land_with_an_open_child(tmp_path, child):
 def test_canonical_codec_split_retains_cumulative_acceptance():
     rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
     assert rows["DE06"]["status"] == "IN_PROGRESS"
+    assert rows["DE06a"]["status"] == "LANDED"
+    assert "delivery still pending" not in rows["DE06a"]["current"]["observables"]
     assert rows["DE06a"]["plan_cells"][0] == "DE06a / DE02a1"
     assert rows["DE06b"]["plan_cells"][0] == "DE06b / DE05 + DE06a"
     assert "compare=False" in rows["DE06"]["future"]
@@ -510,3 +526,37 @@ def test_current_delivery_gate_names_current_reviewer_and_lanes():
     assert "claude-opus-5-5" in current and "HIGH" in current
     assert "Codex gpt-6.1-sol HIGH CLEAN" not in current
     assert "All 43 P rows remain OPEN" in current
+
+
+@pytest.mark.parametrize("child", ["DE03d1", "DE03d2"])
+def test_sqlite_final_parent_requires_both_children(tmp_path, child):
+    root = tmp_path / "root"
+    path = root / a.LEDGER
+    path.parent.mkdir(parents=True)
+    lines = (o.ROOT / a.LEDGER).read_text().splitlines()
+    for key in ("DE03d1", "DE03d2", "DE03d"):
+        i = next(
+            i for i, line in enumerate(lines) if line.startswith("| " + key + " |")
+        )
+        state = "OPEN" if key == child else "LANDED"
+        import re
+
+        lines[i] = re.sub(
+            r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", f"| {state} |", lines[i]
+        )
+    path.write_text("\n".join(lines) + "\n")
+    with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
+        a.ledger_status(root, o.contract)
+
+
+def test_sqlite_d_split_retains_original_acceptance_and_exact_ids():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE03d1"]["status"] == "IN_PROGRESS"
+    assert rows["DE03d2"]["status"] == "OPEN"
+    assert "DE03d completes only after its d1+d2 children" in rows["DE03d"]["future"]
+    assert rows["DE04"]["plan_cells"][0] == "DE04 / DE03"
+    for child in ("DE03d1", "DE03d2"):
+        assert rows[child]["current"]["kind"] == "source-only"
+        assert rows[child]["current"]["cases"] == []

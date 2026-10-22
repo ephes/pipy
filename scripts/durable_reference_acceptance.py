@@ -74,6 +74,8 @@ CHILDREN = {
     "DE03d",
     "DE06a",
     "DE06b",
+    "DE03d1",
+    "DE03d2",
 }
 ALL_IDS = (
     {f"DE{i:02}" for i in range(46)} | {f"P{i:02}" for i in range(1, 44)} | CHILDREN
@@ -182,7 +184,7 @@ def plan_rows(root: Path, c: Any) -> tuple[dict[str, list[str]], dict[str, int]]
     locations: dict[str, int] = {}
     for number, line in enumerate((root / PLAN).read_text().splitlines(), 1):
         if not re.match(
-            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d)?|P\d\d) ",
+            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) ",
             line,
         ):
             continue
@@ -213,7 +215,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for line in text.splitlines():
         if not re.match(
-            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d)?|P\d\d) \|",
+            r"\| (?:DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) \|",
             line,
         ):
             continue
@@ -243,6 +245,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE02", ["DE02a", "DE02b"]),
         ("DE03c", ["DE03c1", "DE03c2"]),
         ("DE06", ["DE06a", "DE06b"]),
+        ("DE03d", ["DE03d1", "DE03d2"]),
         ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
@@ -299,6 +302,8 @@ DE_EVIDENCE = {
     "DE03d": "de02b3-delivery-and-de03-split",
     "DE06a": "de06-pre-runtime-codec-split",
     "DE06b": "de06-pre-runtime-codec-split",
+    "DE03d1": "de03c2-delivery-and-de03d-pre-code-split",
+    "DE03d2": "de03c2-delivery-and-de03d-pre-code-split",
 }
 
 

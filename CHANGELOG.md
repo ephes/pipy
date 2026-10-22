@@ -14,6 +14,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   and owns all mutable payloads. Actual checkpoint/runtime integration remains
   DE06b; no product defaults or parity requirements close in this slice.
 
+- Validate the internal sync/async Session over real SQLite, including mixed
+  table/document commit and reopen, durable acknowledgement loss, real write
+  refusals, and ownership release after close failures. Add a bounded native
+  current-base SQLite workload with complete persisted readbacks, three write
+  shapes and real SIGKILL-WAL recovery. The paired Pi SQLite oracle remains the
+  next DE03d2 slice; no product/default behavior or parity completion changes.
+
 - Add raw-base documents to the internal durable SQLite store: create, replace
   and retire commit atomically with table writes, current reads and indexed
   scans match memory, and values and numeric versions retain signed zero and

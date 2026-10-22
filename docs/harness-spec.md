@@ -162,7 +162,10 @@ proven by running Memory's own acceptance bodies over Memory, SQLite and SQLite
 reopened after every commit; DE03c2 (landed `a2c4c6d`) extends the same authority
 to raw-base
 documents, revision retention, real write refusals and acknowledgement/process
-death cuts. The paired Pi SQLite oracle and final DE03 gate remain DE03d.
+death cuts (landed `a2c4c6d2`). DE03d is split d1→d2: d1 validates the existing
+sync/async Session against real SQLite and a native current-base workload;
+d2 owns the paired Pi SQLite oracle, all valid D2(a)–(f) probes and the final
+cumulative DE03 gate. No product capability is added by d1.
 All original acceptance remains cumulative. Product session formats/defaults stay
 unchanged; all P rows remain OPEN.
 

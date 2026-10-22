@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c1 and DE03c2 landed; DE06a is in progress.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1 in progress. DE06a landed; DE06b remains OPEN.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -178,11 +178,12 @@ backend-agnostic contract cases over Memory, SQLite and SQLite reopened after
 every commit (landed `1563bb68`: Codex HIGH review, two repair rounds then CLEAN;
 local `just check` 15,184 passed, 2 skipped, 54 xfailed and the known docs-preview
 flake, isolated rerun 16/16; no CI claim) and **c2** documents, write refusals,
-acknowledgement loss and crash cuts (landed `a2c4c6d`: Codex implementation,
-Claude Code `claude-opus-5-5` HIGH final unscoped round-4 CLEAN; the owner
-applied the known docs-preview flake exception, with no green full-check or CI
-claim); **d** the paired pinned Pi SQLite oracle,
-Session over SQLite and the P43 workload. DE03c is delivered; DE03 waits all
+acknowledgement loss and crash cuts (landed `a2c4c6d2`, exact-tree Opus5.5 HIGH
+R4 CLEAN, remote confirmed; known docs-preview full-check exception recorded
+honestly in the evidence ledger); **d** split before code into **d1** native
+Session over real SQLite and a bounded current-base workload (in progress), then
+**d2** the paired pinned Pi SQLite oracle, valid D2(a)–(f) probes, two fresh
+chains and final cumulative gate. DE03c is delivered, DE03d waits d1+d2, DE03 waits all
 four and DE04 waits DE03. Each DE03 slice also runs its new tests on the Ubuntu macmini
 (Root decision D10).
 
@@ -1020,7 +1021,8 @@ DE06b waits for DE05 and DE06a and owns actual checkpoint/phase integration.
 The original DE06 acceptance remains cumulative and every P row remains OPEN.
 Current owner assignment is Codex implementation/repair and Claude Code
 `claude-opus-5-5` HIGH review via the installed harness; historical provenance
-above is unchanged. The codec lane is integrated on main for its own gates;
-full checks, two fresh
-reference chains, exact-tree CLEAN and a verified push remain required before
-DE06a delivery. DE06a and parent DE06 are IN_PROGRESS; DE06b is OPEN.
+above is unchanged. The codec lane landed at
+`caf4d34e`, with Opus5.5 HIGH R2 unscoped CLEAN, a green local full check,
+two fresh reference chains and verified push. DE06 remains IN_PROGRESS;
+DE06b is OPEN. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
+records the completed gates and current D1 integration boundary.

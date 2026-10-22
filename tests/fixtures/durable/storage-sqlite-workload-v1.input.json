@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "identity": "storage-sqlite-workload-v1",
+  "backend": "sqlite",
+  "durability": "full",
+  "entry_count": 1000,
+  "task_count": 300,
+  "document_count": 300,
+  "batch_size": 100,
+  "read_rounds": 3,
+  "write_samples": 3,
+  "excluded": [
+    "delta",
+    "as-of",
+    "copy",
+    "historical-reconstruction",
+    "deep-fork"
+  ],
+  "limits": {
+    "child_seconds": 120,
+    "seed_seconds": 30,
+    "reopen_seconds": 15,
+    "read_seconds": 30,
+    "sample_seconds": 15,
+    "database_bytes": 16777216,
+    "wal_bytes": 33554432
+  }
+}

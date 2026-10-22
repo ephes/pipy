@@ -844,6 +844,17 @@ workload bound is not a general constant-space guarantee. Close's TRUNCATE
 checkpoint removes or empties the WAL. The actual paired Pi SQLite divergence
 probes and the cumulative P43 workload remain DE03d obligations.
 
+**Session integration evidence (DE03d1).** The existing internal sync/async
+Session is tested over this real backend without adding a product factory.
+Mixed tables/raw-base documents publish only after backend commit/adoption,
+and a fresh Session reads them after reopen. A thrown acknowledgement after a
+real COMMIT fails Session without publishing an unacknowledged change, while
+reopen sees the durable rows; real read-only/page-limit/foreign-lock errors fail
+Session and leave no partial commit. Close drains a held real commit, and a
+fresh bounded process can own the store after normal or checkpoint-failing
+close. The native current-base workload and its retention/history exclusions
+are described in [the reference guide](durable-reference.md#native-current-base-sqlite-workload-de03d1).
+
 **Interrupted create.** A crash during `create` before its schema commits
 leaves an empty or zero-filled database, or a one-page database without
 identity or schema. `open` refuses it (`InterruptedCreateError`) and `create`
