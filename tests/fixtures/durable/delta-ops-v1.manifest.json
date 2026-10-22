@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
+  "sources": {
+    "package.json": "251d6944a533e034e5a28570cb460966916e6b10c29c398dc61cea11dcd21790",
+    "packages/chord/src/delta/apply-immutable-trusted.ts": "b3c1849d8792d1d8848bcd2df564ea131c54722a0ad16b5f76ecc398ab22efed",
+    "packages/chord/src/delta/diff.ts": "928696add33868b9655f856c2d52f596a220249db3ee907c8b8c5b497bf7ccde",
+    "packages/chord/src/delta/index.ts": "b6c606044d3e3005034308cd000c9dae7f1dcdd9edef4db795856417daf42c81",
+    "packages/chord/src/delta/revision-validator.ts": "03a9d180c6347da8816af6d11c3107af7810469ecac70309706a41014ebc18cf",
+    "packages/chord/src/delta/tracker.ts": "68bd2d7b9c0538366b079004ddd5dc9180cedd67d129f5c8de6c9ef6380e2c54",
+    "packages/chord/src/json.ts": "d3a115dde2afa8e79c987b0fb188ec0bdba03939192859a20198a23b2892bb60",
+    "packages/chord/test/delta-apply-immutable.test.ts": "81480b4eae8adbeebe473837be66cf50fc31db6f371887b966f1e8c6ae000344",
+    "packages/chord/test/delta.test.ts": "de120d2970e8ddf4628321917b48018d523963506bc31df6b06cc78a9fa343c1"
+  },
+  "closure": {
+    "scripts/durable_delta_ops_comparison.py": "0bf32213f69353530c4e11d2668e90e6fc715dc39fbffa08156f013f2e457d4f",
+    "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
+    "scripts/durable_reference/cases/delta-ops.mts": "38c6b490748adcc1621de0c5daeea2dbc256ebd68895be54fe414cf5887b8b1e",
+    "scripts/durable_reference_acceptance.py": "3fa68a3f4e1be6babfae8b285e608755c747c55570f687412872bc058e0737d1",
+    "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
+    "src/pipy_harness/native/durable/__init__.py": "b1b28d5a6cb478a0afb60cb24fbbfdd1b7774275ca2a2a88525d358b488273a0",
+    "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
+    "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
+    "tests/durable/test_delta_ops.py": "810d00adc49d7b079f790e08567accfb0c10915b74ec85974d1fbb8cebce0923",
+    "tests/durable/test_delta_ops_comparison.py": "9b694dd697def4ab067f530dc52cd7219a97274140607cfdb41cc0e98c4e960d",
+    "tests/fixtures/durable/delta-ops-v1.input.json": "84d503dda1b66584960b3f0821b41f274a09a02c83dbafbb80963d23aa2a8b8c"
+  }
+}

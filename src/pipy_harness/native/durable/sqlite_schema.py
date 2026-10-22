@@ -41,7 +41,7 @@ unchanged; a failed rollback raises ``SqliteRollbackError`` with both errors.
 A crash leaves the old version, because SQLite discards an uncommitted
 transaction, and the next ``open`` migrates again. Migrations run only under
 the path lock; a read-only inspection (DE10) validates without migrating. A
-change to what stored bytes mean, such as DE04b's first current delta
+change to what stored bytes mean, such as DE04b1b's first current delta
 revision, needs a new version even without new DDL, so that older pipy refuses
 the store instead of misreading it. Full histories/as-of/fork/migrations remain
 DE27.

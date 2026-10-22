@@ -594,9 +594,10 @@ def test_typed_document_split_preserves_checkpoint_rollback_and_parent_dependenc
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
-    assert len(rows) == len(a.ALL_IDS) == 121
-    assert rows["DE04"]["status"] == rows["DE04a"]["status"] == "IN_PROGRESS"
-    assert rows["DE04b"]["status"] == "OPEN"
+    assert len(rows) == len(a.ALL_IDS)
+    assert rows["DE04"]["status"] == "IN_PROGRESS"
+    assert rows["DE04a"]["status"] == "LANDED"
+    assert rows["DE04b"]["status"] == "IN_PROGRESS"
     assert rows["DE04a"]["plan_cells"][0] == "DE04a / DE03"
     assert rows["DE04b"]["plan_cells"][0] == "DE04b / DE04a"
     assert rows["DE05"]["plan_cells"][0] == "DE05 / DE04"
@@ -607,3 +608,34 @@ def test_typed_document_split_preserves_checkpoint_rollback_and_parent_dependenc
     )
     assert "no always-base callback substitute" in rows["DE04b"]["future"]
     assert len([row for row in value["rows"] if row["id"].startswith("P")]) == 43
+
+
+def test_operation_prerequisite_split_preserves_full_document_join():
+    rows = {r["id"]: r for r in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    assert rows["DE04a"]["plan_cells"][0] == "DE04a / DE03"
+    assert rows["DE04b"]["plan_cells"][0] == "DE04b / DE04a"
+    assert rows["DE04b1a"]["plan_cells"][0] == "DE04b1a / DE02a1"
+    assert rows["DE04b1b"]["plan_cells"][0] == "DE04b1b / DE04a + DE04b1a"
+    assert "second-predicate exception rolling back" in rows["DE04b"]["future"]
+    assert "semantic schema2" in rows["DE04b1b"]["contract"]
+    assert rows["DE05"]["plan_cells"][0] == "DE05 / DE04"
+    assert all(rows[f"P{i:02}"]["status"] == "OPEN" for i in range(1, 44))
+
+
+@pytest.mark.parametrize("parent", ["DE04", "DE04b"])
+def test_document_join_cannot_land_before_prerequisites(tmp_path, parent):
+    import re
+
+    root = tmp_path / "root"
+    path = root / a.LEDGER
+    path.parent.mkdir(parents=True)
+    lines = (o.ROOT / a.LEDGER).read_text().splitlines()
+    index = next(
+        i for i, line in enumerate(lines) if line.startswith("| " + parent + " |")
+    )
+    lines[index] = re.sub(
+        r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| LANDED |", lines[index]
+    )
+    path.write_text("\n".join(lines) + "\n")
+    with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
+        a.ledger_status(root, o.contract)

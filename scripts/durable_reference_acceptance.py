@@ -48,6 +48,8 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE04b1a",
+    "DE04b1b",
     "DE32a",
     "DE32b",
     "DE01a",
@@ -252,6 +254,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE32", ["DE32a", "DE32b"]),
         ("DE03d", ["DE03d1", "DE03d2"]),
         ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
+        ("DE04b", ["DE04b1a", "DE04b1b"]),
         ("DE04", ["DE04a", "DE04b"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
@@ -277,6 +280,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE04b1a",
     "DE32a",
     "DE02a1",
     "DE02a2a",
@@ -287,6 +291,8 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE04b1a": "de04-pre-code-operation-prerequisite-split",
+    "DE04b1b": "de04-pre-code-operation-prerequisite-split",
     "DE32a": "de32a-delivery-and-de04a-repaired-main-integration",
     "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
@@ -321,7 +327,7 @@ DE_EVIDENCE = {
     "DE06b": "de06-pre-runtime-codec-split",
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
-    "DE04a": "de04a-implementation-admission-and-de03-delivery",
+    "DE04a": "de04a-verified-delivery-and-de04b1a-integration-successor",
     "DE04b": "de04a-implementation-admission-and-de03-delivery",
 }
 

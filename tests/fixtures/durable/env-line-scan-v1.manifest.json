@@ -1,1 +1,25 @@
-{"schema_version":1,"reference_commit":"2ec55d808d455b1a64a2bf7888198207a096120a","sources":{"package.json":"251d6944a533e034e5a28570cb460966916e6b10c29c398dc61cea11dcd21790","packages/coding-agent/src/experimental/source-resolver.ts":"c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6","packages/durable/src/env/decode.ts":"3db30eae71f612b015b95e83b28d64b5330498a517119b5a01e210666cb5b032","packages/durable/src/env/index.ts":"6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff","packages/durable/src/env/line-scan.ts":"eb60f69745262ffd55b1054fc3d63247a5aed95ff502332d093945345b244603","packages/durable/test/env-line-scan.test.ts":"177b8fd52d5392bb4de4a81fe54e49c583a34d3e25a4b7d57b2a31a063fdb5e8","tsconfig.json":"7d22f017c2cddbcaf50d8ea4408ec9062425609508bb644a6cf89e3f51cc9193"},"closure":{"scripts/durable_env_line_scan_comparison.py":"6304f5fb6d8feeef812ca77e0694b0169c7fc7811f4052bb2a61214b21150bba","scripts/durable_pi_comparison.py":"121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa","scripts/durable_reference/cases/env-line-scan.mts":"0b7e75c90d368eb5df97113fdf458148eb9053cac38b93c036416fd52f585f12","scripts/durable_reference_acceptance.py":"06113c7525b76cb50337b7d0f9095ba6e7c5428f342d82cd2d5bf20e65b29595","scripts/durable_reference_contract.py":"05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12","src/pipy_harness/native/durable/env/__init__.py":"e1f995c35d77f403c514bcf602689ba93ff3fb25209fdfafbfb50a4edb7fdb98","src/pipy_harness/native/durable/env/line_scan.py":"94c3422c5982b36d5480cfb69ff76b5de2ada1fdf00d8574af459c9155e29012","tests/durable/test_env_line_scan.py":"6369635b52df2989f7ee23dc0ff76610600d9c01d18ee5a72e21a66d45d9c646","tests/durable/test_env_line_scan_comparison.py":"45c46ff121dc8ad59705928718dff8c6487741c9e00e125c74481ff90eec8af9","tests/fixtures/durable/env-line-scan-v1.input.json":"413019b954dd7df38c19713d59f1d86e221f994c7ce69964b220b9a62a468247"}}
+{
+  "schema_version": 1,
+  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
+  "sources": {
+    "package.json": "251d6944a533e034e5a28570cb460966916e6b10c29c398dc61cea11dcd21790",
+    "packages/coding-agent/src/experimental/source-resolver.ts": "c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6",
+    "packages/durable/src/env/decode.ts": "3db30eae71f612b015b95e83b28d64b5330498a517119b5a01e210666cb5b032",
+    "packages/durable/src/env/index.ts": "6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff",
+    "packages/durable/src/env/line-scan.ts": "eb60f69745262ffd55b1054fc3d63247a5aed95ff502332d093945345b244603",
+    "packages/durable/test/env-line-scan.test.ts": "177b8fd52d5392bb4de4a81fe54e49c583a34d3e25a4b7d57b2a31a063fdb5e8",
+    "tsconfig.json": "7d22f017c2cddbcaf50d8ea4408ec9062425609508bb644a6cf89e3f51cc9193"
+  },
+  "closure": {
+    "scripts/durable_env_line_scan_comparison.py": "6304f5fb6d8feeef812ca77e0694b0169c7fc7811f4052bb2a61214b21150bba",
+    "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
+    "scripts/durable_reference/cases/env-line-scan.mts": "0b7e75c90d368eb5df97113fdf458148eb9053cac38b93c036416fd52f585f12",
+    "scripts/durable_reference_acceptance.py": "3fa68a3f4e1be6babfae8b285e608755c747c55570f687412872bc058e0737d1",
+    "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
+    "src/pipy_harness/native/durable/env/__init__.py": "e1f995c35d77f403c514bcf602689ba93ff3fb25209fdfafbfb50a4edb7fdb98",
+    "src/pipy_harness/native/durable/env/line_scan.py": "94c3422c5982b36d5480cfb69ff76b5de2ada1fdf00d8574af459c9155e29012",
+    "tests/durable/test_env_line_scan.py": "6369635b52df2989f7ee23dc0ff76610600d9c01d18ee5a72e21a66d45d9c646",
+    "tests/durable/test_env_line_scan_comparison.py": "45c46ff121dc8ad59705928718dff8c6487741c9e00e125c74481ff90eec8af9",
+    "tests/fixtures/durable/env-line-scan-v1.input.json": "413019b954dd7df38c19713d59f1d86e221f994c7ce69964b220b9a62a468247"
+  }
+}

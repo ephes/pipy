@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a is IN_PROGRESS, DE04b OPEN. DE06a landed; DE06b remains OPEN.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b/DE04b1a are IN_PROGRESS; DE04b1b is OPEN. DE06a landed; DE06b remains OPEN.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -1042,6 +1042,12 @@ empty key; first seeds are copied before awaiting, after the same-Tx memo cutoff
 The existing Session line couples entries/tasks/docs and terminal retirement of
 all task members, including unknown kinds and more than one scan page. The
 current-base cache contains only committed revisions. Session remains private.
-DE04a is IN_PROGRESS; DE04b is OPEN for real normalized operations, deltas and
+DE04a landed at `e6c1239d`; DE04b is IN_PROGRESS for real normalized operations, deltas and
 checkpoint-policy rollback. DE04 waits both children; DE05 still waits DE04.
 All43 P rows remain OPEN. See the [document contract](durable-reference.md#typed-current-documents-de04a).
+
+## Pure decoded durable operations (DE04b1a)
+
+DE04b1a is an additive private pure decoded-operation prerequisite (depends DE02a1), currently IN_PROGRESS. DE04a retains typed current-base documents; DE04b1b depends on DE04a + DE04b1a and retains operation normalization/tracking, current Memory/SQLite deltas with semantic schema2, real checkpoints and atomic publication. DE04/DE04b remain cumulative; DE05 waits full DE04 and DE27 retains history/as-of/fork/migrations. All43 P rows remain OPEN.
+
+See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.

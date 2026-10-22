@@ -8,6 +8,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private owned decoded JSON operation validation and atomic application for
+  future durable deltas, with exact UTF-16/path/array behavior and pinned Node
+  comparison. Tracker, storage and checkpoint integration remain DE04b1b.
+
 - Add a private bounded streaming line scanner for future durable readers, with
   immutable byte offsets and exact replacement-decoded UTF-8 sizes across arbitrary
   chunks. Filesystem and runtime integration remain in DE32b.

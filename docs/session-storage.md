@@ -764,8 +764,8 @@ IMMEDIATE` transaction under the owner lock, together with the version in
 and its error is raised; a crash leaves the previous version, and the next
 `open` migrates again. A newer store is refused before anything is written. A
 change to what stored bytes mean needs a new schema version even without new
-tables or columns: the early DE04b current-delta prerequisite must bump the version before its first
-delta revision (full history remains DE27), so
+tables or columns: cumulative DE04b must bump the version through DE04b1b before its first
+current delta revision (full history remains DE27), so
 an older pipy refuses the store instead of misreading it. A later read-only
 inspection (DE10) validates without migrating.
 

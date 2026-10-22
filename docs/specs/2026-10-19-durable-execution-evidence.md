@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04/DE04a IN_PROGRESS, DE04b OPEN; DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a LANDED; DE04/DE04b/DE04b1a IN_PROGRESS, DE04b1b OPEN; DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -165,8 +165,10 @@ that coverage here. A local validation result is not a landed slice.
 | DE03d1 | Session over SQLite and bounded native current-base workload | LANDED | 8ab38d20; final Opus5.5 HIGH R4 CLEAN, owner known-preview-flake exception, isolated16 PASS, push/remote verified |
 | DE03d2 | Closed paired SQLite oracle and final DE03 gate | LANDED | 2dba6008; final Opus5.5 HIGH R3 CLEAN, known-preview exception, two fresh chains, push/remote verified |
 | DE04 | Minimal typed documents | IN_PROGRESS | Cumulative a+b; all original checkpoint rollback acceptance retained |
-| DE04a | Typed current documents and coupled task lifetime | IN_PROGRESS | Implementation admitted after delivered DE03; independent gates pending |
-| DE04b | Real operation/delta/checkpoint prerequisite | OPEN | Retained checkpoint rollback acceptance; depends DE04a |
+| DE04a | Typed current documents and coupled task lifetime | LANDED | e6c1239d; exact Opus5.5 HIGH R3 CLEAN, green full check, fresh chains, push/remote verified; no CI claim |
+| DE04b | Real operation/delta/checkpoint prerequisite | IN_PROGRESS | Retained checkpoint rollback acceptance; depends DE04a |
+| DE04b1a | Pure decoded operations; depends DE02a1 | IN_PROGRESS | Independent primitive integration preparation; delivery gates pending |
+| DE04b1b | Normalized tracking, current delta persistence and checkpoints; depends DE04a + DE04b1a | OPEN | Every remaining DE04b obligation retained |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
@@ -272,8 +274,8 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 DE00 through cumulative DE03 are delivered at `2dba6008`; DE03c is LANDED
 and DE03d is LANDED. DE06a is LANDED at `caf4d34e`; DE06b is OPEN. DE32a is LANDED at `52ecc1fc`, parent DE32 remains
-IN_PROGRESS and DE32b OPEN; DE33 waits full DE32. DE04a integrates typed current
-documents and coupled task lifetime; DE04/DE04a remain IN_PROGRESS, DE04b OPEN,
+IN_PROGRESS and DE32b OPEN; DE33 waits full DE32. DE04a delivered typed current
+documents and coupled task lifetime at `e6c1239d`; DE04/DE04b/DE04b1a remain IN_PROGRESS, DE04b1b OPEN,
 and DE05 waits full DE04. All 43 P rows remain OPEN.
 
 Codex owns implementation/repairs; Claude Code `claude-opus-5-5` HIGH through
@@ -283,8 +285,8 @@ snapshots, exact integrated review, commit/push and remote confirmation.
 DE04a R1 returned two Warnings, both repaired; R2 independently reviewed the
 integrated old tree CLEAN. Subsequent Python3.11 and actual fresh-chain gates
 found a pre-existing same-holder test Task change and a D2 control artifact-path
-mistake. Their narrow test/oracle repairs now await R3 and renewed final gates. The final cascade includes
-baseline→records→memory→guard→commit→SQLite→scanner→typed documents. Historical
+mistake. Their narrow test/oracle repairs received the coordinator-reported exact A-only Opus5.5 HIGH R3 CLEAN (81.975s). The exact A tree passed its full check and was committed/pushed with remote confirmation at `e6c1239d`; this does not review or deliver the new B integration. The final cascade includes
+baseline→records→memory→guard→commit→SQLite→scanner→typed documents→pure delta. Historical
 worker exploration and synthetic validator-wiring retain those labels. GitHub
 CI is not a gate. D2 used the owner's known-preview-flake exception; delivered
 DE32a's full check was green. D10 Linux evidence applies to DE03. Historical
@@ -7239,3 +7241,173 @@ byte change is that module docstring: the complete AST after removing only the
 module docstring equals delivered `52ecc1fc` exactly. Proof:
 `/private/tmp/pipy-de04a-r3-schema-docstring-proof.json`. Runtime/schema logic and
 previous lifecycle proof sources remain unchanged.
+
+## DE04 pre-code operation prerequisite split
+
+Recorded before DE04b1a code on 2026-10-22. DE04a / DE03 retains typed current-base documents and terminal-task lifetime. DE04b / DE04a retains normalized operations, current deltas and real checkpoint rollback; it completes only after DE04b1a + DE04b1b join end to end. DE04b1a / DE02a1 is the independent pure decoded operation validator/owner/applier; operation grammar requires no typed runtime. DE04b1b / DE04a + DE04b1a retains all normalization/tracker, Memory+SQLite semantic schema2/current delta persistence, actual checkpoint callbacks, atomic rollback and linked publication. Any later subdivision is recorded immediately before its code. DE05 waits full DE04. DE27 retains full history/as-of/fork/migrations; acceptance owners and all43 OPEN P rows are unchanged. DE03 is LANDED; current DE06a/b and DE32a/b statuses remain intact. No independent review or runtime hookup is claimed here.
+
+### DE04b1a local decoded-operation evidence
+
+The private pure primitive now exists with owned decoded r/s/d/a/t/p/m
+validation and detached atomic application. It reuses `codec.OwnedJson`;
+`ownership.py` remains the separate SQLite path authority. General JSON roots
+are supported; future document Storage retains the object-final-root gate.
+No draft, tracker, transaction, Memory/SQLite, schema, checkpoint or runtime
+hookup is introduced. DE04b1a remains IN_PROGRESS pending coordinator delivery.
+The [contract](../durable-delta-ops.md) records exact bounds and CLI syntax.
+
+The actual pinned Node source oracle passes60 closed recipes, including all
+seven tags, reserved payload keys versus unsafe paths, own-path resolution,
+array gap/append/delete/permutation boundaries, UTF-16 prefix removal and
+identity, huge integral finite coordinate clamping, signed-zero payload and
+mixed first-error precedence. Six actual loaded upstream modules are closed
+and hash-pinned, with two targeted upstream test-source identities. These tests
+are source-derived evidence; the oracle does not execute the upstream Vitest
+suite. No npm installation occurs and no npm-package attestation is claimed.
+Errors compare only the three precise classes; object profiles sort member key
+identities and retain exact binary64 bits/UTF-16 units. The private source
+snapshot/import inventory and child-local HOME/TMP/npm config/cache are retained
+in the output. A first local attempt failed due an inherited unused resolver
+argument; removing that argument restored the direct dependency-free closure.
+
+Local focused tests cover native ownership, late failures, exact built-in ingress,
+strict JSON duplicate/nonfinite refusal, closed provenance, fake-checkout output
+boundaries, CLI0/1/2, nineteen schema-valid semantic mutants and seven actual
+private native source mutants defeated by designated permanent tests. The initial
+471 inventory tests passed, including coverage, all architecture inventories and
+native session extension generation. Twenty sequential dev/warnings-as-errors
+runs and Python3.11.13/3.12.15 compatibility also passed before the final
+first-error-order case was added; final reruns and hash closures are recorded in
+the frozen handoff. No full check, docs build, independent review, commit or push
+was performed by this implementer. All43 P rows remain OPEN.
+
+Final local reruns after the first-error-order change: 108 focused tests pass on
+Python3.15, 3.11.13 and3.12.15, with the latter two logging imports from this
+checkout's `src`; focused+coverage is234 passed. Twenty sequential runs of all58
+pure primitive cases pass with `-X dev -W error`, unique TMP/basetemp directories
+and bounded reaped children. Ruff and scoped mypy pass. The ordered manifest
+cascade validates every baseline/records/Memory/guard/commit/SQLite/scanner
+configuration, followed by the new primitive manifest. The frozen handoff owns
+final artifact paths/hashes, and coordinator integration still owns full checks,
+docs build and the exact Opus5.5 HIGH gate. This is local implementation evidence,
+not delivery or acceptance-row closure.
+
+### DE04b1a Opus R1 repairs
+
+The exact Opus5.5 HIGH first review returned ISSUES (two Warnings and four
+Suggestions), not CLEAN. Both Warnings and all four concrete Suggestions were
+accepted. Append and prefix-removal results now share a UTF-16 surrogatepass
+round trip, joining valid pairs while preserving lone surrogates. This touched
+string spelling rule leaves untouched/replacement values and the OwnedJson
+domain unchanged. Six permanent Python canonical-spelling/ownership cases catch
+split-pair append, empty append and zero-prefix removal behavior that UTF-16
+unit profiles alone cannot detect. An eighth private source mutant restores the
+old append behavior and is defeated by those tests. The pinned source oracle
+now compares66 recipes, including the review's string examples.
+
+The current harness and session-storage contracts both assign the semantic
+schema bump for first current deltas to DE04b1b; full history remains DE27.
+Backlog/reference/harness now have dedicated DE04b1a headings. Exact owned
+object keys use a direct lookup before the UTF-16-equivalent-key fallback.
+The copied seven-field comment is corrected. Private fake-checkout refusal
+cases distinguish a non-checkout from a checkout subdirectory, assert the exact
+refusal reason, and require absent output directories for containment failures.
+
+Local R1 repair checks:115 focused tests pass on Python3.15,3.11.13 and3.12.15;
+twenty sequential64-case primitive runs pass `-X dev -W error` with private
+TMP/basetemp. Ruff, scoped mypy and diff whitespace checks pass. The final
+ordered eight-manifest cascade and fresh actual Node output identities are
+recorded in the frozen R1 handoff. Root retains the next independent review,
+full checks, docs build, integration and delivery; every P row remains OPEN.
+
+### DE04b1a Opus R2 metadata repair
+
+Opus5.5 HIGH R2 returned ISSUES with one Suggestion, not CLEAN. Its remaining
+current acceptance-owner contradiction was accepted: the DE03b plan acceptance
+cell and both exact coverage copies now assign the semantic format bump for
+first current deltas to DE04b1b, retaining history/as-of/fork/migrations in DE27.
+(The review called this the DE03c row; the exact canonical ID is DE03b.) A wider
+current-contract search also found and repaired the same obsolete ownership
+example in `sqlite_schema.py`'s module documentation. No schema, product or test
+logic changed. Genuinely historical evidence wording remains unchanged.
+
+The previous repair stopped short of this current-cell/source-doc audit; that
+incomplete-repair churn is recorded rather than relabeled CLEAN. Focused metadata
+checks, exact canonical cells/line anchors and all eight manifest validators are
+recorded in the next frozen handoff. Root plans the next review on the actual
+integrated tree after DE04a delivery, with no redundant branch-only docs review.
+R2 remains ISSUES until that final independent CLEAN gate. All P rows remain OPEN.
+
+### DE04b1a detached integration preparation
+
+This detached candidate starts from protected DE04a review baseline145dc1cb and
+merges the protected pure primitive9ca2bf77 without runtime hookup. DE04a remains
+IN_PROGRESS until actual commit/push/remote facts arrive. DE32a stays LANDED,
+DE03 stays LANDED, codec states and all43 OPEN P rows are preserved. The current
+schema-bump contract is cumulative DE04b, implemented by DE04b1b; the pure b1a
+child changes no schema. Typed-document source, controls and actual predecessor
+admission remain preserved. This is preparation only; no full-check, delivery,
+review or fresh integrated-reference claim is made here.
+
+## DE04a verified delivery and DE04b1a integration successor
+
+The coordinator verified actual main and origin at
+`e6c1239d543a1415bb0ee9cf9f3770d36f7d7ac8`, tree
+`72f330f65a25efef9c74c1cdbdd993f97a77cf5b`, exactly matching protected baseline
+`145dc1cbfe3b5bdede43946a73cb5e8e9d0dbc70`'s tree and the final unscoped
+Opus5.5 HIGH R3 CLEAN (81.975s), with no omissions. DE04a is LANDED;
+DE04/DE04b/DE04b1a remain IN_PROGRESS, DE04b1b OPEN, DE05 waits full DE04,
+and all43 P rows remain OPEN. No signed-zero policy decision is introduced.
+
+A's actual full `just check` exited0:16,241 passed,20 skipped,one warning,
+1695.49s pytest/1727.024s wrapper. Eighteen skips are explicitly async-only
+interleavings unavailable to the sync facade; the other two are the existing
+optional-runtime and case-insensitive-filesystem cases. The warning is assertion
+rewriting of an already-imported shared fixture, not a failure. Strict docs
+completed7.77s,1206 links,7 pages,zero broken links. Each supported interpreter
+(3.11.13 and3.12.15) passed387 cases with18 explicit sync-facade skips and
+compared72 actual native profiles to fresh Pi with exit0. These are A's verified
+local gates; no GitHub CI claim is made.
+
+Fresh `CFgtY4` chains supply12 core execution IDs with six manifests/ten bindings
+plus two typed-document executions,14 IDs total. Each typed execution compared
+24 actual Pi cases/72 native cases with38 actual source modules,664 dependency
+file hashes and six controls. Two minimal scanner snapshots matched30,000
+observations across all seven fields each. Root gate artifacts are under
+`/private/tmp/pipy-de04a-gates.gki5xivj`; final-proof SHA256 is
+`24e8fab1ee448e354177fb6d0c3153b6a2939356f1efc7f934a047e8999467fd`.
+`delivery.json` confirms guard0, push0 and exact `ls-remote` identity.
+
+The detached B successor preserves all A runtime/test/oracle bytes except the
+schema module docstring's parent/child ownership clarification. Its runtime AST
+matches A with only that module docstring removed. Seven pure B source/fixture
+files remain exact protected `9ca2bf77` bytes, with no runtime hookup. The final
+registry derives123 rows, retaining A's121 plus b1a/b1b. The typed phase retains
+its six semantic parents, real flat D2 control admission/fixture,38-source guard,
+per-file dependency guard and output-local environment. Historical D1 evidence
+remains portable and unchanged; the current migrated closure is independently
+rebound. The final nine-manifest cascade and local integration proof are recorded
+in the frozen preparation handoff; Root owns transfer to actual main and the
+next exact B review against R2 baseline `a0d00a9b`. B R1/R2 remain ISSUES until
+that integrated independent CLEAN. No preparatory review or new full/docs gate
+was run by the B integration writer.
+
+### DE04b1a actual-main R3 current-evidence repair
+
+Actual-main Opus5.5 HIGH R3 returned ISSUES with two Warnings, not CLEAN, on
+baseline `f17ef67bada6a409578e8a1addfb8a5ae2b58fc4`. Both are accepted current
+metadata defects: the evidence Status header and DE04/DE04a registry observables
+still carried pre-delivery A state despite the delivered ledger table. They now
+match A LANDED at `e6c1239d`, DE04/DE04b/DE04b1a IN_PROGRESS and DE04b1b OPEN.
+DE04a's current evidence link points to the verified-delivery successor section;
+the registry's enforcing evidence-anchor declaration is updated with it. The
+cumulative b observable now distinguishes executed pure b1a evidence from the
+still-open tracker/current-delta/checkpoint b1b join. No current observable
+claims A delivery is pending. Dated historical review/admission sections remain
+unchanged. The canonical123 rows/cells and all43 OPEN P statuses are preserved.
+No product, pure primitive, schema, test logic or signed-zero policy changed.
+
+Root owns the next exact R4 delta review and renewed final docs/closure gates;
+R1/R2/R3 remain ISSUES until that independent CLEAN. The repair writer runs only
+focused metadata checks, the final nine-manifest cascade/validators/hash audit,
+and diff checks. No full/docs/review/commit/push/ledger command is run here.

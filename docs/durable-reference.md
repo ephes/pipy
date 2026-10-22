@@ -1281,3 +1281,12 @@ bytes are invalid2. Child HOME, temporary files, npm cache and empty npm config
 files belong to the new output via the established `child_env` helper; native
 and compare children also receive the output-local HOME. The only intentional
 new predecessor entry is the phase's copied driver in its private snapshot.
+
+DE04a landed at `e6c1239d`; exact reviewed-tree/full-check/push evidence is in
+the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-verified-delivery-and-de04b1a-integration-successor).
+
+## Pure decoded durable operations (DE04b1a)
+
+DE04b1a is an additive private pure decoded-operation prerequisite (depends DE02a1), currently IN_PROGRESS. DE04a retains typed current-base documents; DE04b1b depends on DE04a + DE04b1a and retains operation normalization/tracking, current Memory/SQLite deltas with semantic schema2, real checkpoints and atomic publication. DE04/DE04b remain cumulative; DE05 waits full DE04 and DE27 retains history/as-of/fork/migrations. All43 P rows remain OPEN.
+
+See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.
