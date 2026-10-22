@@ -1219,4 +1219,65 @@ DE27, product defaults do not change, and all43 P rows remain OPEN.
 
 ## Additive streaming line scanner (DE32a)
 
-[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. Integrated delivery gates are pending.
+[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. DE32a landed at `52ecc1fc`; see the [delivery evidence](specs/2026-10-19-durable-execution-evidence.md#de32a-delivery-and-de04a-repaired-main-integration) for completed gates.
+
+
+
+## Typed current documents (DE04a)
+
+The private `documents.py` defines generic immutable `Doc` and `DocFamily` tokens
+through `define_doc`/`define_doc_family`. `doc`, `retire_doc`, `snapshot` and
+`asnapshot` resolve the same UTF-16 kind/key identity with explicit owner/key
+keywords. Singleton keys/seeds and non-exact owners/keys/policies are refused by
+the Python contract; those stricter ingress checks are not invented TypeScript
+runtime overload errors. Empty family keys differ from singleton absence.
+Only acquisition receives a creation seed. A same-Tx address memo reuses the
+first handle/seed before duplicate seed/version admission; fresh stored access
+still copies/validates its first seed without rerunning initialization.
+
+Pinned call order matters: staged terminal candidates reject before memo lookup;
+loaded existing documents bypass committed missing/terminal task guards, while
+absent acquisitions reread the latest candidate after load. Retirement does not
+acquire or initialize and does not require an open task or matching content
+version. Final terminal task candidates retire staged members and all persisted
+unknown kinds/family keys via256-item pages, deduplicated by ID. Newly created
+terminal tasks skip the committed scan. Task publication ownership is resolved
+from the latest task before backend admission, never from an unrelated newly
+created conversation. Cache entries remain committed-only; old snapshots stay
+immutable, retirement evicts each key and new retired incarnations never enter
+cache. The original `RawDoc` precursor is removed outright.
+
+`durable_documents_comparison.py run --acceptance BASELINE --sqlite D2_OUTPUT
+--output NEW` consumes the actual attested D2 result plus baseline. The copied
+pinned Node driver executes24 recipes A1–A9/T1–T10/P1–P3/C1–C2 on real Pi Session
+and Memory. The native paired legs execute all24 with real Memory, SQLite and
+SQLite-reopen in async mode. The separate native Session matrix exercises sync
+and async; eighteen cases explicitly skip only same-Tx pending/held async
+interleavings or unawaited operations that the blocking sync facade cannot
+express. It does not invent cross-thread SyncTx authority. Full raw calls,
+errors/code/stacks and Pi publications remain external hash-bound artifacts;
+the lossless bounded compressed fixture is captured unit data, not a fresh gate.
+Eleven exact recipe/error spelling pairs preserve unexpected native errors as
+mismatch1 and stale Pi declarations as invalid2. The Pi EXPECTED side must be
+raw; native conditional spelling projection is idempotent. Snapshot absence and
+omitted scan cursors use explicit role-local null observations, with raw Node
+undefined retained in the raw trace. No payload/version numeric normalization
+is introduced.
+
+Pi loaded changes select full bases using the existing reference-only
+`checkpointWhen:()=>true` adaptation. Native remains full-base/value-based in a;
+operation batches, structural no-ops, actual delta materialization and real
+checkpoint-policy exceptions remain retained DE04b acceptance. Raw Pi ops are
+retained but operation parity is not claimed. Full history/as-of/fork/migrations
+remain DE27; no Storage or product-default capability changes. D1 historical
+proof/source hashes identify their immutable delivered snapshot, independently
+from the current source closure and migrated D1 Session tests. All43 P rows
+remain OPEN.
+
+The typed-document CLI binds all38 actually loaded upstream source modules to
+its closed pinned manifest, and every loaded npm dependency file to the parent
+`dependency-sha256.json` inventory. Unbound source imports or changed dependency
+bytes are invalid2. Child HOME, temporary files, npm cache and empty npm config
+files belong to the new output via the established `child_env` helper; native
+and compare children also receive the output-local HOME. The only intentional
+new predecessor entry is the phase's copied driver in its private snapshot.

@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "phase": "session-documents-a-v1",
+  "clock": 1000,
+  "retirement_count": 257,
+  "cases": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7",
+    "T8",
+    "T9",
+    "T10",
+    "P1",
+    "P2",
+    "P3",
+    "C1",
+    "C2"
+  ],
+  "error_spellings": [
+    {
+      "case": "A6",
+      "fact": "invalid",
+      "pi": {
+        "message": "Value must contain strict JSON plain objects or arrays",
+        "name": "TypeError",
+        "code": null
+      },
+      "native": {
+        "message": "JSON requires plain containers and scalar values",
+        "name": "JsonValueError",
+        "code": null
+      }
+    },
+    {
+      "case": "A7",
+      "fact": "invalid",
+      "pi": {
+        "message": "Value must contain strict JSON plain objects or arrays",
+        "name": "TypeError",
+        "code": null
+      },
+      "native": {
+        "message": "JSON requires plain containers and scalar values",
+        "name": "JsonValueError",
+        "code": null
+      }
+    },
+    {
+      "case": "A8",
+      "fact": "version",
+      "pi": {
+        "message": "Document 21 (probe.single) requires migration from version 1",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Document 21 (probe.single) requires migration from version 1",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "P3",
+      "fact": "replacement",
+      "pi": {
+        "message": "Task 20 is already terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is already terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T1",
+      "fact": "missing",
+      "pi": {
+        "message": "Task 4242 does not exist",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 4242 does not exist",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T1",
+      "fact": "terminal",
+      "pi": {
+        "message": "Task 20 is terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T4",
+      "fact": "family",
+      "pi": {
+        "message": "Task 20 is terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T4",
+      "fact": "single",
+      "pi": {
+        "message": "Task 20 is terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T5",
+      "fact": "family",
+      "pi": {
+        "message": "Task 20 is terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T5",
+      "fact": "single",
+      "pi": {
+        "message": "Task 20 is terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    },
+    {
+      "case": "T8",
+      "fact": "acquire",
+      "pi": {
+        "message": "Task 20 is terminal",
+        "name": "Error",
+        "code": null
+      },
+      "native": {
+        "message": "Task 20 is terminal",
+        "name": "RuntimeError",
+        "code": null
+      }
+    }
+  ]
+}

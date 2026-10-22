@@ -16,6 +16,7 @@ from sqlite_child_support import Child
 from test_session_commit import ASYNC, SYNC
 
 from pipy_harness.native.durable import sqlite, sqlite_connection
+from pipy_harness.native.durable.documents import Doc
 from pipy_harness.native.durable.session import SessionFailed
 from pipy_harness.native.durable.session_core import Session
 from pipy_harness.native.durable.sqlite import open_sqlite_storage
@@ -24,7 +25,7 @@ from pipy_harness.native.durable.storage import (
     EntryQuery,
     StorageWrite,
 )
-from pipy_harness.native.durable.tx import RawDoc, RawDocumentChange
+from pipy_harness.native.durable.tx import RawDocumentChange
 
 WAIT = 10
 MODES = pytest.mark.parametrize("mode", [SYNC, ASYNC], ids=["sync", "async"])
@@ -88,7 +89,7 @@ def rig(tmp_path):
 
 
 def raw():
-    return RawDoc("sqlite.session", 1, "session", lambda: {"items": []})
+    return Doc("sqlite.session", 1, "session", lambda: {"items": []})
 
 
 async def mixed(tx, spec, value):

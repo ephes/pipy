@@ -62,6 +62,7 @@ UPSTREAM_TESTS = {
     "packages/durable/test/session-support.ts",
 }
 CLOSURE = m.CLOSURE | {
+    "src/pipy_harness/native/durable/documents.py",
     "src/pipy_harness/native/durable/session.py",
     "tests/durable/test_session_storage_guard.py",
     "scripts/durable_session_guard_comparison.py",

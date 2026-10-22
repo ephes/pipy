@@ -127,8 +127,9 @@ no commit entrypoint and no `Session` name. Each Tx operation is a synchronous
 prologue followed by an `async` body that suspends only on `_Io`, one guarded
 backend call; an inline sync driver runs the bodies on the thread that created
 it. The core enforces Pi's table read phase, final-owner checks and submission
-resolution, and stages definition-free `RawDoc` documents (session or
-conversation scope; task scope is refused). Mutable `Draft`/`DraftList` views copy
+resolution, and originally staged definition-free raw documents. DE04a replaces that
+precursor with immutable singleton/family tokens and all three scopes on the
+same authority; see [typed current documents](durable-reference.md#typed-current-documents-de04a). Mutable `Draft`/`DraftList` views copy
 every placed value and are all revoked at prepare. Value-identical changes write
 and publish nothing, and adoption swaps committed values in a cache that never
 holds a candidate. DE02b2b (landed `eb1e3ba7`) adds the first exposed internal
@@ -185,11 +186,13 @@ Python spellings of the Tx core, with no Pi analogue or deliberately narrower:
   `remove`, the `values()`/`items()` views) compare detached copies, so even a
   nested operand sees only copies. Object keys, list indices and slice bounds
   must be exact built-ins, and a value is treated as a draft view only when its
-  type is exactly `Draft` or `DraftList`. `RawDoc` stores only canonical
-  built-in scope, history and fork values, and cache keys are rebuilt from them.
+  type is exactly `Draft` or `DraftList`. Typed `Doc`/`DocFamily` tokens store
+  canonical built-in policies; the resolver owns every UTF-16 kind/key and ID
+  before cache lookup. User initializers execute outside cache/backend locks.
 - Raw-base no-op suppression compares values. Pi's op-based rule, under which a
   structural shift/unshift no-op still writes a delta (Pi
-  `session-documents.test.ts` 190), is a DE04/DE27 obligation.
+  `session-documents.test.ts` 190), remains the retained DE04b operation/delta
+  prerequisite; full histories/migrations remain DE27.
 - Asyncio cancellation of an `acommit` caller (DE02b2b) reaches the running
   callback. Before backend admission it is the callback's failure and rolls
   back; after the callback settles, owned settlement cannot be cut. Only an
@@ -401,7 +404,7 @@ native-only:
   closing a store, after the usual cleanup; the DE03c Storage wraps its own
   statements on the raw connection in it too.
 - A change to what stored bytes mean needs a new schema version even without
-  new DDL; DE27's first delta revision bumps it.
+  new DDL; The early DE04b delta prerequisite must bump it before admitting deltas; full history remains DE27.
 
 Python spellings of the durable SQLite Storage (DE03c, `native/durable/sqlite.py`):
 
@@ -4782,6 +4785,31 @@ campaign parity closures remain separately gated.
 
 ## Additive streaming line scanner (DE32a)
 
-[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. Integrated delivery gates are pending.
+[DE32a](durable-line-scan.md) is the pure bounded scanner prerequisite, dependent only on DE00. It owns exact raw offsets and replacement-decoded sizes without retaining file contents. DE32b depends on DE31 + DE32a and retains all filesystem/reader/list/watch/shell/cancellation/spill/cleanup acceptance, including scanner wiring. DE32 remains IN_PROGRESS until both children land; DE33 still waits for full DE32 and every P row remains OPEN. DE32a landed at `52ecc1fc`; completed gates are recorded in the [delivery evidence](specs/2026-10-19-durable-execution-evidence.md#de32a-delivery-and-de04a-repaired-main-integration).
 
 The standalone DE32a reference boundary requires a checkout root with `.git`, resolves the source once before child execution and rejects output inside that root before creating artifacts. Duplicate Node response keys are invalid evidence; neither source-path normalization nor parsing changes product scanner semantics.
+
+
+
+## Typed current-document lifetime (DE04a)
+
+`define_doc` and `define_doc_family` create immutable typed tokens. Tx and Session
+snapshot/retirement use explicit `conversation_id`, `task_id` and family `key`;
+only family acquisition also receives `seed`. Same-address pending/completed
+acquisition reuses its first handle/seed before validating a duplicate seed or
+stored version. A fresh acquisition validates/copies its seed even for an
+existing member. A staged terminal task rejects before this memo cutoff;
+committed missing/terminal task checks apply only when no document was loaded.
+The absent branch rereads the latest task after held load. Retirement has no
+acquisition task-open/version/initializer requirement.
+
+Final task candidates retire all staged members and, for existing tasks, every
+current persisted member using pages of256 with ID deduplication; newly created
+terminal tasks skip committed scans. Task publication ownership resolves from
+the latest candidate/committed task before Storage admission. Adoption remains
+synchronous; families use complete address keys and never install a newly
+created-and-retired incarnation. The [reference contract](durable-reference.md#typed-current-documents-de04a)
+records the actual pinned call-order boundary and Python-only ingress. Current
+full bases/value equality are explicit interim behavior; no fake checkpoint
+callback is introduced. Product appends remain private with the existing
+copied-at-admission timing caveat, unchanged by this slice.

@@ -639,6 +639,15 @@ def parents() -> Any:
     return {key: o.sha(o.FIXTURES / filename) for key, filename in PARENTS.items()}
 
 
+# Immutable delivered D1 snapshot identities; current sources are bound by CLOSURE.
+D1_SOURCES = {
+    "scripts/durable_sqlite_workload.py": "2407f5f41ef73886417951a82b5d26930b5edf9fefe5103e594dc26bd75c009b",
+    "tests/durable/test_session_sqlite.py": "b4baaf2577580d1c5edc3bd24ef67512956ada44d18cb51e2e6ffaf7b8eab5b6",
+    "tests/durable/test_sqlite_workload.py": "a085fc69ec73952ab63adc9bbd34170d90eb08b7571e7e1a61dfc21b84adb1f7",
+    "tests/fixtures/durable/storage-sqlite-workload-v1.input.json": "79d43012e682e94f15ad6ff6adef292a5bf63835d6522db7391c19842ace6111",
+}
+
+
 def configuration() -> Any:
     config = load(MANIFEST)
     shape(
@@ -703,7 +712,7 @@ def configuration() -> Any:
     shape(d1["sources"], files, "D1 source evidence")
     for name, digest in d1["sources"].items():
         o.contract.digest(digest)
-        require(o.sha(ROOT / name) == digest, "D1 source evidence drift")
+        require(D1_SOURCES.get(name) == digest, "Historical D1 source evidence drift")
     shape(d1["workloads"], {"macos", "linux"}, "D1 workload evidence")
     for workload in d1["workloads"].values():
         shape(

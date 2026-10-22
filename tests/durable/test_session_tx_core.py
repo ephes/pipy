@@ -38,7 +38,6 @@ from pipy_harness.native.durable.storage import (
     EntryQuery,
     StorageWrite,
     TaskQuery,
-    UnsupportedStorageOperation,
 )
 
 WAIT = 5.0
@@ -283,7 +282,7 @@ class Rig:
             self.inits[kind] = self.inits.get(kind, 0) + 1
             return copy.deepcopy(value)
 
-        return self.T.RawDoc(kind, extra.pop("version", 1), scope, initial, **semantics)
+        return self.T.Doc(kind, extra.pop("version", 1), scope, initial, **semantics)
 
     def live(self, conversation: int) -> Any:
         """Pi ``setupLive``: a live document with items ["a", "b"]."""
@@ -1427,11 +1426,11 @@ def _docs363(T: types.ModuleType) -> None:
 def _docs380(T: types.ModuleType) -> None:
     with Rig(T) as rig:
         conversation = rig.conversation()
-        dated = T.RawDoc("test.date", 1, "session", lambda: {"at": object()})
+        dated = T.Doc("test.date", 1, "session", lambda: {"at": object()})
         mints, commits = rig.store.count("mint_id"), len(rig.store.commits)
         with pytest.raises(JsonValueError):
             rig.commit(lambda tx: tx.doc(dated))
-        listed = T.RawDoc("test.list", 1, "session", lambda: [1])
+        listed = T.Doc("test.list", 1, "session", lambda: [1])
         with pytest.raises(JsonValueError):
             rig.commit(lambda tx: tx.doc(listed))
         assert rig.store.count("mint_id") == mints
@@ -1918,22 +1917,22 @@ def _raw_doc_exact(T: types.ModuleType) -> None:
     # is built, so the hook never runs under the cache lock (first, so that a
     # regression shows the reported deadlock shape).
     for field, value in (("scope", Evil("session")), ("kind", Evil("k"))):
-        tampered = T.RawDoc("k", 1, "session", init)
+        tampered = T.Doc("k", 1, "session", init)
         object.__setattr__(tampered, field, value)
         worker = Worker("cache-peek", partial(cache.peek, tampered))
         worker.thread.start()
         worker.join()
         assert type(worker.error) is TypeError, worker.error
     for build in (
-        lambda: T.RawDoc(Evil("k"), 1, "session", init),
-        lambda: T.RawDoc("k", Version(1), "session", init),
-        lambda: T.RawDoc("k", 1, Evil("session"), init),
-        lambda: T.RawDoc("k", 1, "conversation", init, Evil("latest"), "initial"),
-        lambda: T.RawDoc("k", 1, "conversation", init, "latest", Evil("initial")),
+        lambda: T.Doc(Evil("k"), 1, "session", init),
+        lambda: T.Doc("k", Version(1), "session", init),
+        lambda: T.Doc("k", 1, Evil("session"), init),
+        lambda: T.Doc("k", 1, "conversation", init, Evil("latest"), "initial"),
+        lambda: T.Doc("k", 1, "conversation", init, "latest", Evil("initial")),
     ):
         with pytest.raises(TypeError):
             build()
-    spec = T.RawDoc("k", 1, "conversation", init, "rewindable", "asOf")
+    spec = T.Doc("k", 1, "conversation", init, "rewindable", "asOf")
     assert all(type(v) is str for v in (spec.scope, spec.history, spec.fork))
     assert calls == []
 
@@ -1941,14 +1940,13 @@ def _raw_doc_exact(T: types.ModuleType) -> None:
 @scenario("raw-doc-spec-validation")
 def _raw_doc(T: types.ModuleType) -> None:
     init = dict
-    with pytest.raises(UnsupportedStorageOperation):
-        T.RawDoc("t", 1, "task", init)
+    assert T.Doc("t", 1, "task", init).scope == "task"
     for bad in (0, -1, 1.0, True, 2**53):
         with pytest.raises(TypeError, match="positive integer"):
-            T.RawDoc("t", bad, "session", init)
+            T.Doc("t", bad, "session", init)
     for extra in ({"history": "latest"}, {"fork": "initial"}):
         with pytest.raises(TypeError):
-            T.RawDoc("t", 1, "session", init, **extra)
+            T.Doc("t", 1, "session", init, **extra)
     for semantics in (
         {},
         {"history": "latest", "fork": "asOf"},
@@ -1956,17 +1954,17 @@ def _raw_doc(T: types.ModuleType) -> None:
         {"history": "other", "fork": "initial"},
     ):
         with pytest.raises(TypeError):
-            T.RawDoc("t", 1, "conversation", init, **semantics)
+            T.Doc("t", 1, "conversation", init, **semantics)
     with pytest.raises(TypeError):
-        T.RawDoc("t", 1, "session", None)
+        T.Doc("t", 1, "session", None)
     with pytest.raises(TypeError):
-        T.RawDoc(b"t", 1, "session", init)
-    spec = T.RawDoc("t", 1, "conversation", init, history="rewindable", fork="asOf")
+        T.Doc(b"t", 1, "session", init)
+    spec = T.Doc("t", 1, "conversation", init, history="rewindable", fork="asOf")
     cache = T._DocumentCache()
     with pytest.raises(TypeError, match="requires a conversation ID"):
         cache.peek(spec)
     with pytest.raises(TypeError, match="session-scoped"):
-        cache.peek(T.RawDoc("t", 1, "session", init), 1)
+        cache.peek(T.Doc("t", 1, "session", init), 1)
 
 
 # -- pytest entry points ------------------------------------------------------------------
@@ -1990,7 +1988,7 @@ def test_scenario(name: str) -> None:
 
 def test_core_is_private_and_not_exported() -> None:
     package = sys.modules["pipy_harness.native.durable"]
-    for name in ("_TxCore", "RawDoc", "Draft", "DraftList", "CommittedDocument"):
+    for name in ("_TxCore", "Doc", "Draft", "DraftList", "CommittedDocument"):
         assert name not in vars(package)
     assert not any(hasattr(real_tx, name) for name in ("commit", "acommit", "Session"))
     assert not any(hasattr(real_tx._TxCore, name) for name in ("commit", "acommit"))
@@ -2076,10 +2074,10 @@ MUTANTS: dict[str, list[tuple[str, str]]] = {
     "raw-doc-exact-builtins": [
         (
             "    if type(value) is not str:\n"
-            '        raise TypeError(f"Document {what} must be an exact string")\n',
+            '        raise TypeError(f"Document {name} must be an exact string")\n',
             "",
         ),
-        ("            return choice\n", "            return cast(str, value)\n"),
+        ("            return choice\n", "            return value\n"),
     ],
     "copy-on-placement": [
         (
@@ -2136,6 +2134,10 @@ EXPECTED_FAILURES: dict[str, list[str]] = {
 
 def mutant(name: str) -> types.ModuleType:
     source = SOURCE
+    if name == "raw-doc-exact-builtins":
+        from pipy_harness.native.durable import documents
+
+        source = Path(documents.__file__).read_text()
     for old, new in MUTANTS[name]:
         assert source.count(old) == 1, (name, old)
         source = source.replace(old, new)
@@ -2150,6 +2152,19 @@ def mutant(name: str) -> types.ModuleType:
         exec(compile(source, f"<mutant {name}>", "exec"), module.__dict__)
     finally:
         del sys.modules[module_name]
+    if name == "raw-doc-exact-builtins":
+        document_module = module
+        module_name += "_tx"
+        module = types.ModuleType(module_name)
+        module.__package__ = "pipy_harness.native.durable"
+        sys.modules[module_name] = module
+        try:
+            exec(compile(SOURCE, "<document-mutant tx>", "exec"), module.__dict__)
+        finally:
+            del sys.modules[module_name]
+        setattr(module, "Doc", document_module.Doc)
+        setattr(module, "DocFamily", document_module.DocFamily)
+        setattr(module, "_resolve", document_module.resolve)
     return module
 
 

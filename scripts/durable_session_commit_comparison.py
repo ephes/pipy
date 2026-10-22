@@ -754,7 +754,7 @@ def _docs(value: Any) -> None:
         keys = {"kind", "version", "scope", "initial"}
         shape(doc, keys | ({"history", "fork"} if owned else set()), "document spec")
         history, fork = doc.get("history"), doc.get("fork")
-        REAL.tx.RawDoc(doc["kind"], doc["version"], doc["scope"], dict, history, fork)
+        REAL.tx.Doc(doc["kind"], doc["version"], doc["scope"], dict, history, fork)
         require(type(doc["initial"]) is dict, "Document initial must be an object")
         _literal(doc["initial"])
 
@@ -1391,7 +1391,7 @@ class _Run:
 
         semantics = {k: item[k] for k in ("history", "fork") if k in item}
         kind, version, scope = item["kind"], item["version"], item["scope"]
-        return self.M.tx.RawDoc(kind, version, scope, factory, **semantics)
+        return self.M.tx.Doc(kind, version, scope, factory, **semantics)
 
     def event(self, table: str, name: str) -> Any:
         if (table, name) not in self.events:

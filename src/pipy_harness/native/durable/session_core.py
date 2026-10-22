@@ -86,7 +86,11 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any, Generic, TypeVar, cast, final
 
+from .documents import Token
+from .documents import check_scope as _check_scope
+from .documents import resolve as _resolve
 from .records import (
+    OMITTED,
     ConversationRecord,
     EntryRecord,
     Seq,
@@ -116,10 +120,8 @@ from .tx import (
     CommittedDocument,
     Draft,
     PendingTxOperations,
-    RawDoc,
     RawDocumentChange,
     TxAffinityError,
-    _check_scope,
     _check_version,
     _clock,
     _DocumentCache,
@@ -128,7 +130,6 @@ from .tx import (
     _Handle,
     _Io,
     _load_document,
-    _resolve,
     _SyncDriver,
     _TxCore,
 )
@@ -417,11 +418,38 @@ class SyncTx(_Tx):
     def create_submission(self, create: object) -> SubmissionRecord:
         return _value(self._core.create_submission(create))
 
-    def doc(self, raw: RawDoc, *, conversation_id: int | None = None) -> Draft:
-        return _value(self._core.doc(raw, conversation_id=conversation_id))
+    def doc(
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
+        seed: object = OMITTED,
+    ) -> Draft:
+        return _value(
+            self._core.doc(
+                raw,
+                conversation_id=conversation_id,
+                task_id=task_id,
+                key=key,
+                seed=seed,
+            )
+        )
 
-    def retire_doc(self, raw: RawDoc, *, conversation_id: int | None = None) -> None:
-        _value(self._core.retire_doc(raw, conversation_id=conversation_id))
+    def retire_doc(
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
+    ) -> None:
+        _value(
+            self._core.retire_doc(
+                raw, conversation_id=conversation_id, task_id=task_id, key=key
+            )
+        )
 
 
 def _op(handle: _Handle[T]) -> TxOp[T]:
@@ -493,13 +521,38 @@ class AsyncTx(_Tx):
     def create_submission(self, create: object) -> TxOp[SubmissionRecord]:
         return _op(self._core.create_submission(create))
 
-    def doc(self, raw: RawDoc, *, conversation_id: int | None = None) -> TxOp[Draft]:
-        return _op(self._core.doc(raw, conversation_id=conversation_id))
+    def doc(
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
+        seed: object = OMITTED,
+    ) -> TxOp[Draft]:
+        return _op(
+            self._core.doc(
+                raw,
+                conversation_id=conversation_id,
+                task_id=task_id,
+                key=key,
+                seed=seed,
+            )
+        )
 
     def retire_doc(
-        self, raw: RawDoc, *, conversation_id: int | None = None
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
     ) -> TxOp[None]:
-        return _op(self._core.retire_doc(raw, conversation_id=conversation_id))
+        return _op(
+            self._core.retire_doc(
+                raw, conversation_id=conversation_id, task_id=task_id, key=key
+            )
+        )
 
 
 # -- listeners ------------------------------------------------------------------------
@@ -846,11 +899,16 @@ class Session:
         return await self._on_line_async("aread_on_line", job)
 
     def snapshot(
-        self, raw: RawDoc, *, conversation_id: int | None = None
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
     ) -> CommittedDocument | None:
         """The committed incarnation at ``raw``'s address (Pi raw ``snapshot``)."""
         self._owner._assert_usable()
-        key, address = _resolve(raw, conversation_id)
+        key, address = _resolve(raw, conversation_id, task_id, key)
         loaded = self._hit(raw, key)
         if loaded is None:
             storage, cache = self._owner.storage, self._cache
@@ -861,11 +919,16 @@ class Session:
         return _checked(raw, loaded)
 
     async def asnapshot(
-        self, raw: RawDoc, *, conversation_id: int | None = None
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
     ) -> CommittedDocument | None:
         """``snapshot()`` from this task; a miss loads on the line."""
         self._owner._assert_usable()
-        key, address = _resolve(raw, conversation_id)
+        key, address = _resolve(raw, conversation_id, task_id, key)
         loaded = self._hit(raw, key)
         if loaded is None:
             storage, cache = self._owner.storage, self._cache
@@ -876,7 +939,7 @@ class Session:
             )
         return _checked(raw, loaded)
 
-    def _hit(self, raw: RawDoc, key: Any) -> CommittedDocument | None:
+    def _hit(self, raw: Token, key: Any) -> CommittedDocument | None:
         cached = self._cache.get(key)
         return cached if cached is not None and cached.version == raw.version else None
 
@@ -1086,7 +1149,7 @@ class Session:
             await done
 
 
-def _checked(raw: RawDoc, loaded: CommittedDocument | None) -> CommittedDocument | None:
+def _checked(raw: Token, loaded: CommittedDocument | None) -> CommittedDocument | None:
     if loaded is None:
         return None
     _check_scope(raw, loaded.record)

@@ -628,3 +628,36 @@ def test_blocked_continuation_requires_actual_missing_cursor(paired):
     step["outcome"] = {"status": "blocked", "cursor_ref": "invented"}
     with pytest.raises(d.o.EvidenceError):
         d.comparison(reference, actual, recipes)
+
+
+def test_historical_d1_sources_are_distinct_from_current_native_closure(monkeypatch):
+    config = d.configuration()
+    path = "tests/durable/test_session_sqlite.py"
+    historical = config["d1_evidence"]["sources"][path]
+    assert historical == d.D1_SOURCES[path]
+    assert config["closure"][path] == d.o.sha(d.ROOT / path)
+    assert historical != config["closure"][path]
+    assert "src/pipy_harness/native/durable/documents.py" in config["closure"]
+    # No runtime repository history or private predecessor evidence path is needed.
+    monkeypatch.setattr(
+        d.subprocess, "check_output", lambda *a, **kw: pytest.fail("git history access")
+    )
+    assert d.configuration() == config
+
+
+@pytest.mark.parametrize("boundary", ["historical", "current"])
+def test_historical_identity_and_current_closure_cannot_replace_each_other(
+    monkeypatch, boundary
+):
+    config = copy.deepcopy(d.load(d.MANIFEST))
+    path = "tests/durable/test_session_sqlite.py"
+    if boundary == "historical":
+        config["d1_evidence"]["sources"][path] = d.o.sha(d.ROOT / path)
+    else:
+        config["closure"][path] = config["d1_evidence"]["sources"][path]
+    original = d.load
+    monkeypatch.setattr(
+        d, "load", lambda p: config if Path(p) == d.MANIFEST else original(p)
+    )
+    with pytest.raises(d.o.EvidenceError, match="Historical D1|closure drift"):
+        d.configuration()

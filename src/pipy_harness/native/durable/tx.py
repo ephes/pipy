@@ -1,9 +1,10 @@
-"""Private Session transaction core and raw-base drafts (DE02b2a); no commit entrypoint.
+"""Private typed current-base Session transaction core (DE04a); no commit entrypoint.
 
 One sans-IO core stages one commit callback's work over the DE02b1a guard: table
 reads before the first table write, eager conversation/entry staging, task and
 submission candidates resolved at assembly, final-owner validation, and
-definition-free raw-base documents behind mutable, nested-revocable drafts. It
+typed current-base documents behind mutable, nested-revocable drafts, including
+family identity and coupled terminal-task retirement. It
 prepares, assembles, discards or adopts; it never commits. The first exposed
 Session (line, ``commit``/``acommit``, async driver, publication, close) is
 DE02b2b, which drives this same core.
@@ -38,12 +39,15 @@ Python spelling, documented decisions:
   a read applies ``ReadAfterWrite`` before its arguments. Ingress admits exact
   primitives only and raises ``TypeError`` for an ill-typed ID before any
   guarded backend call (a raw Memory ``RecordError`` would fail the owner).
-* Raw-base documents are addressed by ``RawDoc`` (session or conversation
-  scope, no families, migrations, deltas or task scope). A stored version that
-  differs from the spec version raises like Pi without ``migrate``. No-op
-  suppression compares the prepared ``OwnedJson`` with the loaded baseline,
-  a value-based approximation of Pi's op-based rule (structural shift/unshift
-  no-ops are DE04/DE27).
+* Immutable ``Doc``/``DocFamily`` tokens resolve session/conversation/task
+  addresses, including absent versus empty family keys. First seeds are copied
+  before suspension, after same-Tx memo cutoff. A staged terminal task rejects
+  before memo lookup; committed owner checks apply only to absent documents.
+  Terminal task candidates retire staged and unknown persisted members in pages
+  of 256 before one coupled Storage admission. Loaded versions still reject
+  migrations; current full bases/value-based suppression are the bounded a
+  interim. Real normalized operations/deltas/checkpoint predicates belong to
+  DE04b; full histories/fork/migrations remain DE27.
 * ``Draft``/``DraftList`` are live views of one working tree owned by one
   ``_DraftChange``. Every method checks first that the change is open
   (``DraftRevoked`` otherwise), then the driver's thread affinity
@@ -83,6 +87,10 @@ from typing import (
 )
 
 from .codec import JsonValueError, OwnedJson
+from .documents import Doc, DocFamily, Token, address_key
+from .documents import Key as _Key
+from .documents import check_scope as _check_scope
+from .documents import resolve as _resolve
 from .records import (
     OMITTED,
     SAFE_INTEGER,
@@ -106,18 +114,17 @@ from .storage import (
     ConversationQuery,
     Cursor,
     DocumentAddress,
+    DocumentQuery,
     EntryQuery,
     Page,
     StorageWrite,
     TaskQuery,
-    UnsupportedStorageOperation,
 )
 
 T = TypeVar("T")
 T_co = TypeVar("T_co", covariant=True)
 
 Tree: TypeAlias = dict[str, Any]
-_Key: TypeAlias = tuple[bytes, str, int | None]
 
 
 # -- errors -----------------------------------------------------------------
@@ -316,59 +323,6 @@ def _number(value: object) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class RawDoc:
-    """Definition-free raw-base document spec: session or conversation scope."""
-
-    kind: str
-    version: int
-    scope: Literal["session", "conversation"]
-    initial: Callable[[], object]
-    history: Literal["latest", "rewindable"] | None = None
-    fork: Literal["current", "initial", "asOf"] | None = None
-
-    def __post_init__(self) -> None:
-        # Exact built-ins only: these values reach cache keys and comparisons
-        # under the cache lock, so no caller hook (str/int subclass) may run.
-        if type(self.kind) is not str:
-            raise TypeError("Document kind must be a string")
-        if type(self.version) is not int or not 1 <= self.version <= SAFE_INTEGER:
-            raise TypeError(f"Document {self.kind} version must be a positive integer")
-        scope = _exact_choice(self.scope, ("session", "conversation", "task"), "scope")
-        if scope == "task":
-            raise UnsupportedStorageOperation("Task-scope documents require DE04")
-        if not callable(self.initial):
-            raise TypeError(f"Document {self.kind} requires an initial factory")
-        history, fork = _semantics(self.kind, scope, self.history, self.fork)
-        # Keep only canonical literals, never the caller's objects.
-        object.__setattr__(self, "scope", scope)
-        object.__setattr__(self, "history", history)
-        object.__setattr__(self, "fork", fork)
-
-
-def _exact_choice(value: object, allowed: tuple[str, ...], what: str) -> str:
-    """The canonical literal equal to an exact built-in ``str`` ``value``."""
-    if type(value) is not str:
-        raise TypeError(f"Document {what} must be an exact string")
-    for choice in allowed:
-        if value == choice:
-            return choice
-    raise TypeError(f"Document {what} is not supported")
-
-
-def _semantics(kind: str, scope: str, history: object, fork: object) -> tuple[Any, Any]:
-    if scope == "session":
-        if history is not None or fork is not None:
-            raise TypeError("Only conversation documents have history/fork policies")
-        return None, None
-    try:
-        latest = _exact_choice(history, ("latest", "rewindable"), "history")
-        forks = ("current", "initial") + (("asOf",) if latest == "rewindable" else ())
-        return latest, _exact_choice(fork, forks, "fork")
-    except TypeError:
-        raise TypeError(f"Document {kind} has invalid history/fork semantics") from None
-
-
-@dataclass(frozen=True, slots=True)
 class CommittedDocument:
     """One committed incarnation in the Session cache; shared and identity-stable."""
 
@@ -387,38 +341,7 @@ class RawDocumentChange:
     value: OwnedJson | None
 
 
-def _resolve(raw: RawDoc, conversation_id: object) -> tuple[_Key, DocumentAddress]:
-    """Key and address built only from canonical built-ins (re-checked here)."""
-    if type(raw) is not RawDoc or type(raw.kind) is not str:
-        raise TypeError("Expected a RawDoc spec")
-    scope_kind = _exact_choice(raw.scope, ("session", "conversation"), "scope")
-    if scope_kind == "session":
-        if conversation_id is not None:
-            raise TypeError(f"Document {raw.kind} is session-scoped")
-        scope: Tree = {"kind": "session"}
-        owner = None
-    else:
-        if type(conversation_id) is not int or not 1 <= conversation_id <= SAFE_INTEGER:
-            raise TypeError(f"Document {raw.kind} requires a conversation ID")
-        scope = {"kind": "conversation", "conversationId": conversation_id}
-        owner = conversation_id
-    key = (_units(raw.kind), scope_kind, owner)
-    return key, DocumentAddress({"kind": raw.kind, "scope": scope})
-
-
-def _check_scope(raw: RawDoc, record: DocumentCreate | DocumentRecord) -> None:
-    tree = _tree(record)
-    if tree["scope"]["kind"] != raw.scope or (
-        raw.scope == "conversation"
-        and (tree.get("history") != raw.history or tree.get("fork") != raw.fork)
-    ):
-        raise TypeError(
-            f"Document {tree['id']} ({tree['kind']}) does not match the supplied "
-            "definition semantics"
-        )
-
-
-def _check_version(raw: RawDoc, record: DocumentRecord, version: int | float) -> None:
+def _check_version(raw: Token, record: DocumentRecord, version: int | float) -> None:
     tree = _tree(record)
     name = f"Document {tree['id']} ({tree['kind']})"
     if version > raw.version:
@@ -444,10 +367,15 @@ class _DocumentCache:
             return self._documents.get(key)
 
     def peek(
-        self, raw: RawDoc, conversation_id: int | None = None
+        self,
+        raw: Token,
+        conversation_id: int | None = None,
+        *,
+        task_id: int | None = None,
+        key: object = OMITTED,
     ) -> CommittedDocument | None:
         """The cached incarnation at ``raw``'s address, without loading."""
-        return self.get(_resolve(raw, conversation_id)[0])
+        return self.get(_resolve(raw, conversation_id, task_id, key)[0])
 
     def install(self, key: _Key, document: CommittedDocument) -> None:
         with self._lock:
@@ -477,7 +405,7 @@ class _DocumentCache:
 async def _load_document(
     storage: GuardedStorage,
     cache: _DocumentCache,
-    raw: RawDoc,
+    raw: Token,
     key: _Key,
     address: DocumentAddress,
 ) -> CommittedDocument | None:
@@ -864,8 +792,9 @@ class _Created:
 class _DocEntry:
     key: _Key
     address: DocumentAddress
-    raw: RawDoc
+    raw: Token
     retiring: bool
+    seed: object = OMITTED
     handle: _Handle[Draft] | None = None
     target: CommittedDocument | _Created | DocumentRecord | None = None
     change: _DraftChange | None = None
@@ -1346,37 +1275,65 @@ class _TxCore:
 
     # -- documents (Pi X536–684) -------------------------------------------
 
-    def doc(self, raw: RawDoc, *, conversation_id: int | None = None) -> _Handle[Draft]:
+    def doc(
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
+        seed: object = OMITTED,
+    ) -> _Handle[Draft]:
         """Acquire the draft at ``raw``'s address, memoized per address."""
         self._enter()
-        key, address = _resolve(raw, conversation_id)
-        latest = self._latest.get(key)
+        identity, address = _resolve(raw, conversation_id, task_id, key)
+        if raw.scope == "task":
+            candidate = self._tasks.get(cast(int, task_id))
+            if (
+                candidate is not None
+                and candidate.write is not None
+                and _status(candidate.write[1]) == "terminal"
+            ):
+                raise RuntimeError(f"Task {task_id} is terminal")
+        if type(raw) is Doc and seed is not OMITTED:
+            raise TypeError("Singleton document does not accept a family seed")
+        latest = self._latest.get(identity)
         if latest is not None and not latest.retiring and latest.handle is not None:
             return latest.handle
-        entry = _DocEntry(key, address, raw, retiring=False)
+        copied_seed: object = OMITTED
+        if type(raw) is DocFamily:
+            if seed is OMITTED:
+                raise TypeError("Document family acquisition requires a seed")
+            copied_seed = OwnedJson(seed).thaw()
+        entry = _DocEntry(identity, address, raw, retiring=False, seed=copied_seed)
         self._documents.append(entry)
-        self._latest[key] = entry
+        self._latest[identity] = entry
         # Capture retirement first, so an old acquisition and its replacement stay distinct.
         skip_load = latest is not None and latest.retiring
         entry.handle = self._track(self._driver.spawn(self._acquire(entry, skip_load)))
         return entry.handle
 
     def retire_doc(
-        self, raw: RawDoc, *, conversation_id: int | None = None
+        self,
+        raw: Token,
+        *,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+        key: object = OMITTED,
     ) -> _Handle[None]:
         """Retire the current incarnation at ``raw``'s address at commit."""
         self._enter()
-        key, address = _resolve(raw, conversation_id)
-        latest = self._latest.get(key)
+        identity, address = _resolve(raw, conversation_id, task_id, key)
+        latest = self._latest.get(identity)
         if latest is not None and latest.retiring:
             return self._driver.ready(None)
         if latest is not None and latest.handle is not None:
             # Retiring an acquired draft persists its final content first.
             latest.retiring = True
             return self._track(self._driver.follow(latest.handle))
-        entry = _DocEntry(key, address, raw, retiring=True)
+        entry = _DocEntry(identity, address, raw, retiring=True)
         self._documents.append(entry)
-        self._latest[key] = entry
+        self._latest[identity] = entry
         return self._track(self._driver.spawn(self._find_retirement(entry)))
 
     async def _acquire(self, entry: _DocEntry, skip_load: bool) -> Draft:
@@ -1390,11 +1347,22 @@ class _TxCore:
             tree = cast(Tree, loaded.value.thaw())
             entry.change = _DraftChange(tree, loaded.value, self._driver.check)
             return entry.change.root
-        conversation = entry.key[2]
-        if conversation is not None:
-            await self._require_conversation(conversation)
+        scope = cast(Tree, entry.address.to_tree())["scope"]
+        if scope["kind"] == "conversation":
+            await self._require_conversation(scope["conversationId"])
+        if scope["kind"] == "task":
+            task = await self._current_task(scope["taskId"])
+            if task is None:
+                raise RuntimeError(f"Task {scope['taskId']} does not exist")
+            if _status(task) == "terminal":
+                raise RuntimeError(f"Task {scope['taskId']} is terminal")
         self._recheck()
-        initial = cast(Tree, OwnedJson(raw.initial()).thaw())
+        value = (
+            raw.initial(entry.seed)
+            if type(raw) is DocFamily
+            else cast(Doc[Any], raw).initial()
+        )
+        initial = cast(Tree, OwnedJson(value).thaw())
         if type(initial) is not dict:
             raise JsonValueError("Document initial value must be a JSON object")
         id = await _Io(self._storage.mint_id)
@@ -1404,6 +1372,8 @@ class _TxCore:
             "kind": raw.kind,
             "scope": entry.address.to_tree()["scope"],
         }
+        if "key" in entry.address.to_tree():
+            create["key"] = entry.address.to_tree()["key"]
         if raw.scope == "conversation":
             create |= {"history": raw.history, "fork": raw.fork}
         entry.target = _Created(DocumentCreate(create), raw.version)
@@ -1411,7 +1381,7 @@ class _TxCore:
         return entry.change.root
 
     async def _load(
-        self, raw: RawDoc, key: _Key, address: DocumentAddress
+        self, raw: Token, key: _Key, address: DocumentAddress
     ) -> CommittedDocument | None:
         return await _load_document(self._storage, self._cache, raw, key, address)
 
@@ -1517,13 +1487,56 @@ class _TxCore:
         self._plans = plans
         await self._validate_owners()
         await self._validate_replacements()
-        # Terminal-task document retirement needs task-scope documents (DE04).
+        await self._retire_terminal_documents(plans)
+        # Resolve task publication ownership before Storage admission/adoption.
         for plan in plans:
+            if not _publishes(plan):
+                continue
             scope = _tree(plan.record)["scope"]
-            if _publishes(plan) and scope["kind"] == "conversation":
+            if scope["kind"] == "conversation":
                 plan.conversation_id = scope["conversationId"]
+            elif scope["kind"] == "task":
+                task = await self._current_task(scope["taskId"])
+                if task is not None:
+                    plan.conversation_id = _tree(task)["conversationId"]
         await self._resolve_submissions()
         return self._batch(plans)
+
+    async def _retire_terminal_documents(self, plans: list[_Plan]) -> None:
+        terminals = [
+            id
+            for id, task in self._tasks.items()
+            if task.write is not None and _status(task.write[1]) == "terminal"
+        ]
+        retiring: set[int] = set()
+        for plan in plans:
+            scope = _tree(plan.record)["scope"]
+            if scope["kind"] == "task" and scope["taskId"] in terminals:
+                plan.retiring = True
+                retiring.add(plan.record.id)
+        for task_id in terminals:
+            task = self._tasks[task_id]
+            if task.write is not None and task.write[0] == "create":
+                continue
+            query = DocumentQuery(
+                {"scope": {"kind": "task", "taskId": task_id}, "at": "current"}
+            )
+            cursor = None
+            while True:
+                page = await _Io(
+                    partial(self._storage.scan_documents, query, 256, cursor)
+                )
+                for record in page.items:
+                    if record.id not in retiring:
+                        plans.append(
+                            _Plan(
+                                address_key(cast(Tree, record.to_tree())), record, True
+                            )
+                        )
+                        retiring.add(record.id)
+                cursor = page.next
+                if cursor is None:
+                    break
 
     async def _validate_replacements(self) -> None:
         for id, task in list(self._tasks.items()):

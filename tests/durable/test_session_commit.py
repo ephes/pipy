@@ -418,7 +418,7 @@ class Rig:
             self.inits[kind] = self.inits.get(kind, 0) + 1
             return copy.deepcopy(value)
 
-        return self.M.tx.RawDoc(kind, 1, scope, initial, **semantics)
+        return self.M.tx.Doc(kind, 1, scope, initial, **semantics)
 
     def __enter__(self) -> Rig:
         return self
@@ -2354,7 +2354,9 @@ def _wait_closed_reentry(M: Mods, mode: Mode) -> None:
                         rig.session.wait_closed(timeout=WAIT)
                 else:
                     with pytest.raises(reentrant):
-                        await asyncio.wait_for(rig.session.await_closed(), WAIT)
+                        # Preserve the holder Task on every supported Python.
+                        async with asyncio.timeout(WAIT):
+                            await rig.session.await_closed()
                 await note(tx, conv)
 
             await mode.commit(rig, cb)  # admitted before the seal: it settles

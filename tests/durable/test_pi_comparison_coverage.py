@@ -167,7 +167,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE06", "DE32"])
+@pytest.mark.parametrize("parent", ["DE03", "DE03d", "DE04", "DE06", "DE32"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -177,8 +177,24 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     index = next(
         i for i, line in enumerate(rows) if line.startswith("| " + parent + " |")
     )
-    assert "| IN_PROGRESS |" in rows[index]
-    rows[index] = rows[index].replace("| IN_PROGRESS |", "| LANDED |")
+    import re
+
+    rows[index] = re.sub(
+        r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| LANDED |", rows[index]
+    )
+    child = {
+        "DE03": "DE03d",
+        "DE03d": "DE03d2",
+        "DE04": "DE04b",
+        "DE06": "DE06b",
+        "DE32": "DE32b",
+    }[parent]
+    child_index = next(
+        i for i, line in enumerate(rows) if line.startswith("| " + child + " |")
+    )
+    rows[child_index] = re.sub(
+        r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| OPEN |", rows[child_index]
+    )
     path.write_text("\n".join(rows) + "\n")
     with pytest.raises(o.EvidenceError, match="Cumulative parent status drift"):
         a.ledger_status(root, o.contract)
@@ -380,7 +396,7 @@ def test_sqlite_split_children_keep_original_parent_contract():
     assert "sqlite_schema.py" in rows["DE03b"]["contract"]
     assert "SqliteStorage" in rows["DE03c"]["contract"]
     assert "openNodeSqliteStorage" in rows["DE03d"]["future"]
-    assert rows["DE04"]["status"] == "OPEN"
+    assert rows["DE04"]["status"] == "IN_PROGRESS"
     assert "Carried from DE02b3" in rows["DE04"]["current"]["observables"]
 
 
@@ -424,7 +440,7 @@ def test_sqlite_parent_cannot_land_with_any_open_child(tmp_path, child):
 
 @pytest.mark.parametrize(
     "bad",
-    ["DE03e", "DE03a1", "DE03aa", "DE03b1", "DE04a", "DE03", "DE03c3", "DE03d3"],
+    ["DE03e", "DE03a1", "DE03aa", "DE03b1", "DE04c", "DE03", "DE03c3", "DE03d3"],
 )
 def test_only_exact_sqlite_child_ids_are_accepted(bad):
     value = o.load(o.FIXTURES / "coverage.json")
@@ -572,3 +588,22 @@ def test_scanner_split_retains_full_environment_join():
     assert rows["DE32b"]["plan_cells"][0] == "DE32b / DE31 + DE32a"
     assert "every original DE32 acceptance" in rows["DE32b"]["future"]
     assert rows["DE33"]["plan_cells"][0] == "DE33 / DE32"
+
+
+def test_typed_document_split_preserves_checkpoint_rollback_and_parent_dependency():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert len(rows) == len(a.ALL_IDS) == 121
+    assert rows["DE04"]["status"] == rows["DE04a"]["status"] == "IN_PROGRESS"
+    assert rows["DE04b"]["status"] == "OPEN"
+    assert rows["DE04a"]["plan_cells"][0] == "DE04a / DE03"
+    assert rows["DE04b"]["plan_cells"][0] == "DE04b / DE04a"
+    assert rows["DE05"]["plan_cells"][0] == "DE05 / DE04"
+    assert "checkpoint exceptions rollback" in rows["DE04"]["future"]
+    assert (
+        "second-predicate exception rolling back all coupled candidates"
+        in rows["DE04b"]["future"]
+    )
+    assert "no always-base callback substitute" in rows["DE04b"]["future"]
+    assert len([row for row in value["rows"] if row["id"].startswith("P")]) == 43

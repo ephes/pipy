@@ -764,7 +764,8 @@ IMMEDIATE` transaction under the owner lock, together with the version in
 and its error is raised; a crash leaves the previous version, and the next
 `open` migrates again. A newer store is refused before anything is written. A
 change to what stored bytes mean needs a new schema version even without new
-tables or columns: the first delta revision (slice DE27) bumps the version, so
+tables or columns: the early DE04b current-delta prerequisite must bump the version before its first
+delta revision (full history remains DE27), so
 an older pipy refuses the store instead of misreading it. A later read-only
 inspection (DE10) validates without migrating.
 
@@ -1044,3 +1045,17 @@ closing/reopening discards that unstored reservation. The exact paired witness
 and raw error/data boundaries are described in the
 [closed SQLite oracle](durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2).
 It does not add delta/history capability or change the store contract.
+
+
+### Typed current documents above SQLite (DE04a)
+
+The private Session now resolves singleton/family addresses across session,
+conversation and task scope. Existing schema-v1 fields already hold family keys
+and task scope; DE04a changes no Storage signature or SQLite capability. Task
+terminal settlement retires every current member in the same table/document
+commit; cache adoption and publication follow Storage success. Delta and
+checkpoint semantics remain a real operation/delta prerequisite in DE04b.
+Historical delivered D1 workload/source hashes stay immutable identities of
+that delivery; current closure hashes and migrated Session tests attest the
+current tree separately. No private scratch path or runtime git history is
+required to validate those historical identities.

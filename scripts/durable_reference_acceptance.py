@@ -78,6 +78,8 @@ CHILDREN = {
     "DE06b",
     "DE03d1",
     "DE03d2",
+    "DE04a",
+    "DE04b",
 }
 ALL_IDS = (
     {f"DE{i:02}" for i in range(46)} | {f"P{i:02}" for i in range(1, 44)} | CHILDREN
@@ -250,6 +252,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE32", ["DE32a", "DE32b"]),
         ("DE03d", ["DE03d1", "DE03d2"]),
         ("DE03", ["DE03a", "DE03b", "DE03c", "DE03d"]),
+        ("DE04", ["DE04a", "DE04b"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
         states = {statuses[key] for key in children}
@@ -281,9 +284,10 @@ BOUNDED_NATIVE = {
     "DE02b1b",
     "DE02b3",
     "DE03d2",
+    "DE04a",
 }
 DE_EVIDENCE = {
-    "DE32a": "de32-pre-code-scanner-split",
+    "DE32a": "de32a-delivery-and-de04a-repaired-main-integration",
     "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
     "DE01": "de01-split-acceptance",
@@ -317,6 +321,8 @@ DE_EVIDENCE = {
     "DE06b": "de06-pre-runtime-codec-split",
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
+    "DE04a": "de04a-implementation-admission-and-de03-delivery",
+    "DE04b": "de04a-implementation-admission-and-de03-delivery",
 }
 
 
@@ -349,6 +355,8 @@ def de_current(row: Any, c: Any) -> None:
         cases = ["session-commit-b3-v1"]
     if key == "DE03d2":
         cases = ["storage-sqlite-d2-v1"]
+    if key == "DE04a":
+        cases = ["session-documents-a-v1"]
     expected = {
         "cases": cases,
         "workloads": [WORKLOAD] if key in {"DE01", "DE01b3", "DE01b3a"} else [],
@@ -543,7 +551,8 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"memory-current-base-a2b-v1"} if key == "DE02a2b" else set())
                 | ({"session-guard-b1b-v1"} if key == "DE02b1b" else set())
                 | ({"session-commit-b3-v1"} if key == "DE02b3" else set())
-                | ({"storage-sqlite-d2-v1"} if key == "DE03d2" else set()),
+                | ({"storage-sqlite-d2-v1"} if key == "DE03d2" else set())
+                | ({"session-documents-a-v1"} if key == "DE04a" else set()),
             ),
             ("workloads", {WORKLOAD}),
             ("oracles", set(ORACLES)),
