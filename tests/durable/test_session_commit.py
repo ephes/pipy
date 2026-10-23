@@ -2833,8 +2833,15 @@ MUTANTS: dict[str, dict[str, list[tuple[str, str]]]] = {
     "line-drain-close-predicate": {
         "session": [
             (
-                "            claim = claim and self._holder is None and not self._queue\n",
-                "",
+                "            claim = (\n"
+                "                claim\n"
+                "                and self._holder is None\n"
+                "                and not self._queue\n"
+                "                and self._close_hook_done\n"
+                "                and self._join_done\n"
+                "                and self._line_finalized\n"
+                "            )\n",
+                "            claim = claim and self._close_hook_done and self._join_done\n",
             )
         ]
     },
@@ -2876,7 +2883,12 @@ MUTANTS: dict[str, dict[str, list[tuple[str, str]]]] = {
         ]
     },
     "close-hook-done-gate": {
-        "session": [("                and self._close_hook_done\n", "")]
+        "session": [
+            (
+                "                self._line_sealed\n                and self._close_hook_done\n",
+                "                self._line_sealed\n",
+            )
+        ]
     },
     "close-off-loop": {
         "core": [

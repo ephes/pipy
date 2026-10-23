@@ -578,11 +578,11 @@
       "owners": [
         "DE05"
       ],
-      "contract": "Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open.",
+      "contract": "Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open. Delivered cumulatively by DE05a + DE05b.",
       "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:418 (DE05 contract)",
       "plan_cells": [
         "DE05 / DE04",
-        "Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open.",
+        "Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open. Delivered cumulatively by DE05a + DE05b.",
         "Kill before reservation, after running intent, before/after checkpoint; repeated resume stable; invocation cannot write after completion; storage error seals all later work. Task/effect contract."
       ],
       "current": {
@@ -590,12 +590,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE05: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add minimal versioned task definition/runtime and sequential reservation/checkpoint/recovery scheduler, no dispatch on open."
+        "observables": "Cumulative acceptance through DE05a typed task creation and DE05b sequential runtime/reservation/recovery. Child evidence covers explicit resume with no dispatch on open, acknowledged running intent, invocation-fenced scoped commits/memos/documents, healthy close joins and latest-state rewrite, actual SQLite process cuts and effect uncertainty, repeated reopen/resume, terminal atomicity and failed-owner sealing. Exact acceptance anchors and paired oracle receipts are owned by the children; all43 P rows remain OPEN."
       },
       "future": "Kill before reservation, after running intent, before/after checkpoint; repeated resume stable; invocation cannot write after completion; storage error seals all later work. Task/effect contract.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de05a-typed-creation-acceptance",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de05b-runtime-reservation-recovery-acceptance",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4543,17 +4543,20 @@
         "Every original DE05 acceptance remains cumulative: real SQLite SIGKILL before/during reservation, after running-intent/before handler, before checkpoint and after checkpoint/before ack; no dispatch on open, repeated resume/reopen stability, keyed intent/effect/receipt uncertainty, pre/post-end write gates and atomic terminal cleanup; close seal/join/latest-checkpoint healthy running-to-pending rewrite before backend release, and fatal errors/ack loss seal the same owner. No mocked fence, close join or pre-ack dispatch."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "task-runtime-b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "No executable scheduler claim. All original DE05 runtime/reservation/recovery/process-cut/close acceptance remains owned here."
+        "observables": "Actual sequential scoped runtime/reservation/recovery/lifecycle join, real SQLite process cuts and independent effect receipts; six pinned task-runtime cases and seven semantic mutants. Full delivery gates remain mandatory; all P rows stay OPEN."
       },
       "future": "Every original DE05 acceptance remains cumulative: real SQLite SIGKILL before/during reservation, after running-intent/before handler, before checkpoint and after checkpoint/before ack; no dispatch on open, repeated resume/reopen stability, keyed intent/effect/receipt uncertainty, pre/post-end write gates and atomic terminal cleanup; close seal/join/latest-checkpoint healthy running-to-pending rewrite before backend release, and fatal errors/ack loss seal the same owner. No mocked fence, close join or pre-ack dispatch.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de05a-pre-code-admission",
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de05b-runtime-reservation-recovery-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-task-runtime.md"
       ],
       "inherited_reference": {
         "owners": [],

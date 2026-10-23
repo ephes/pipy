@@ -733,11 +733,20 @@ def test_de05_children_preserve_full_execution_acceptance():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
-    assert rows["DE05"]["status"] == "IN_PROGRESS"
+    assert rows["DE05"]["status"] == "LANDED"
+    assert "DE05a" in rows["DE05"]["current"]["observables"]
+    assert "DE05b" in rows["DE05"]["current"]["observables"]
+    assert "no own executed" not in rows["DE05"]["current"]["observables"]
     assert rows["DE05a"]["current"]["cases"] == ["task-creation-a-v1"]
     assert rows["DE05a"]["status"] == "LANDED"
     assert rows["DE05a"]["evidence"][0] == a.LEDGER + "#de05a-typed-creation-acceptance"
-    assert rows["DE05b"]["status"] == "OPEN"
+    assert rows["DE05b"]["status"] == "LANDED"
+    assert rows["DE05b"]["current"]["cases"] == ["task-runtime-b-v1"]
+    assert (
+        rows["DE05b"]["evidence"][0]
+        == a.LEDGER + "#de05b-runtime-reservation-recovery-acceptance"
+    )
+    assert rows["DE05"]["evidence"][0] == rows["DE05b"]["evidence"][0]
     future = rows["DE05b"]["future"]
     for acceptance in (
         "SIGKILL",

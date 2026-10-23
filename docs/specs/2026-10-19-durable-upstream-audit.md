@@ -129,3 +129,14 @@ state before persistence; the queue/lifetime controller owns volatile claims;
 provider retries run within a call; codemode stores successful custom entries
 but not a restart journal. These are deliberate integration changes, not a
 reason to wrap TypeScript or to declare the experiment production-ready.
+
+
+## DE05 bounded native execution
+
+DE05a definitions/creation and DE05b runtime/reservation/recovery now implement
+the bounded sequential task kernel. Real SQLite death and failure tests supplement
+an actual pinned Harness/TaskScheduler pair; see the
+[runtime contract](../durable-task-runtime.md). Full definitions/migrations/park,
+ownership/wait/completing and abort/reload remain DE14/15/16/23. Unknown or
+unsupported records stay durable; the interim refuses unsupported ownership
+execution rather than fabricating terminal owners. P06/P07/P09/P10 remain OPEN.

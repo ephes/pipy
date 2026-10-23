@@ -98,3 +98,17 @@ def test_producer_schema_refuses_invalid(change, tmp_path):
         value["cases"][0]["stored"] = ["number", "7ff0000000000000"]
     with pytest.raises((m.o.EvidenceError, ValueError)):
         m.trace(value)
+
+
+def test_artifact_closure_is_relative_to_run_root_even_below_stores(tmp_path):
+    run = tmp_path / "stores/run"
+    (run / "stores").mkdir(parents=True)
+    (run / "mutants").mkdir()
+    (run / "input.json").write_text("producer input")
+    (run / "result.json").write_text("root receipt")
+    (run / "mutants/result.json").write_text("nested artifact")
+    (run / "stores/database.sqlite").write_text("native scratch")
+    assert m.artifact_hashes(run) == {
+        "input.json": m.o.sha(run / "input.json"),
+        "mutants/result.json": m.o.sha(run / "mutants/result.json"),
+    }

@@ -4833,7 +4833,7 @@ the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-ve
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is complete: DE04b1b3a delivered [default deltas, count adoption and linked ops publication](durable-session-deltas.md) at `33d39457` with [verified gates and successor admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission); DE04b1b3b completes [checkpoint callbacks, actual unload and cumulative acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance). DE04b1b/b/DE04 are complete; DE05 is the next slice; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is complete: DE04b1b3a delivered [default deltas, count adoption and linked ops publication](durable-session-deltas.md) at `33d39457` with [verified gates and successor admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission); DE04b1b3b completes [checkpoint callbacks, actual unload and cumulative acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance). DE04b1b/b/DE04 and DE05 are complete; DE06b is next; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.
 
@@ -4841,7 +4841,9 @@ See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a gram
 ## Typed task creation (DE05a)
 
 [Typed task definitions and actual Session creation](durable-task-creation.md)
-replace the interim raw caller surface without aliases. DE05 is IN_PROGRESS;
-DE05b retains every runtime/reservation/scoped-write/memo/recovery/process-cut
-and lifecycle-join acceptance cell. Open must never dispatch; acknowledged
-reservation must precede handlers. All43 P rows remain OPEN.
+compose with the [private DE05b runtime](durable-task-runtime.md). Cumulative
+DE05 is complete: scoped commits/memos, sequential acknowledged reservations,
+explicit resume, recovery and lifecycle-owned invocation joins. All original
+process-cut/atomicity/failure cells remain mapped in the acceptance ledger.
+DE06b is next; full definition/ownership/cancellation/reload semantics retain
+DE14/15/16/23 ownership. All43 P rows remain OPEN.

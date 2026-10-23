@@ -12,16 +12,19 @@ import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from types import CoroutineType, MappingProxyType
-from typing import Any, Generic, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
 
 from .codec import OwnedJson
+
+if TYPE_CHECKING:
+    from .scheduler import TaskContext, TaskRuntime
 
 TInput = TypeVar("TInput")
 TCheckpoint = TypeVar("TCheckpoint")
 TResult = TypeVar("TResult")
-# The runtime/context parameter types will be supplied by the execution owner.
-# Definitions may be created before that owner exists; no fake runtime is used.
-PhaseHandler: TypeAlias = Callable[..., Awaitable[None]]
+PhaseHandler: TypeAlias = Callable[
+    [dict[str, Any], "TaskRuntime", "TaskContext"], Awaitable[None]
+]
 
 
 @dataclass(frozen=True, slots=True, eq=False)

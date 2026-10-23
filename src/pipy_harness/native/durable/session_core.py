@@ -702,6 +702,7 @@ class Session:
     __slots__ = (
         "_cache",
         "_close_listeners",
+        "_close_change",
         "_commit_listeners",
         "_internal_listeners",
         "_now",
@@ -725,6 +726,7 @@ class Session:
         self._commit_listeners = _Listeners()
         self._internal_listeners = _Listeners()
         self._close_listeners = _Listeners()
+        self._close_change: Callable[[SyncTx], None] | None = None
         self._owner._bind_line(self._close_began, self._line_drained, _close_off_loop)
 
     # -- lifecycle views -------------------------------------------------------
@@ -761,7 +763,13 @@ class Session:
         self._leave(ticket, raising=False)
         return result
 
-    def _run_sync(self, change: Callable[[SyncTx], T], view: CancelView | None) -> T:
+    def _run_sync(
+        self,
+        change: Callable[[SyncTx], T],
+        view: CancelView | None,
+        *,
+        publish: bool = True,
+    ) -> T:
         self._grant_checks(view)
         driver = _SyncDriver()
         core = self._core(driver, view)
@@ -788,7 +796,7 @@ class Session:
             self._unknown_outcome(error)
             raise
         try:
-            self._settle_admitted(core, writes, seq)
+            self._settle_admitted(core, writes, seq, publish=publish)
         except BaseException as error:
             self._unknown_outcome(error)
             raise
@@ -801,6 +809,17 @@ class Session:
         cancel: CancelView | None = None,
     ) -> T:
         """Run one atomic transaction on the line from this task (Pi ``commit``)."""
+        return await self._acommit(change, cancel=cancel)
+
+    async def _acommit(
+        self,
+        change: Callable[[AsyncTx], T | Awaitable[T]],
+        *,
+        cancel: CancelView | None = None,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+    ) -> T:
+        """Internal scoped entry; the same line, driver and settlement owner."""
         view = _view(cancel)
         loop = asyncio.get_running_loop()
         caller = asyncio.current_task()
@@ -820,7 +839,7 @@ class Session:
         try:
             self._grant_checks(view)
             driver = _AsyncDriver(loop, partial(_driving, ticket))
-            core = self._core(driver, view)
+            core = self._core(driver, view, conversation_id, task_id)
             value: object = change(AsyncTx(core))
             while inspect.isawaitable(value):
                 value = await value
@@ -948,7 +967,12 @@ class Session:
         return result
 
     def _settle_admitted(
-        self, core: _TxCore, writes: tuple[StorageWrite, ...], seq: Seq
+        self,
+        core: _TxCore,
+        writes: tuple[StorageWrite, ...],
+        seq: Seq,
+        *,
+        publish: bool = True,
     ) -> None:
         """Adopt the durable commit, then publish it (Pi #runCommit 757–766)."""
         try:
@@ -957,7 +981,8 @@ class Session:
             # Storage already committed; memory would stay behind it.
             self._owner.fail(error)
             raise
-        self._publish(seq, core.table_changes(writes), documents)
+        if publish:
+            self._publish(seq, core.table_changes(writes), documents)
 
     def _unknown_outcome(self, error: BaseException) -> None:
         # A process-control exception during settlement leaves the durable
@@ -965,7 +990,13 @@ class Session:
         if not issubclass(type(error), Exception):
             self._owner.fail(error)
 
-    def _core(self, driver: Any, view: CancelView | None) -> _TxCore:
+    def _core(
+        self,
+        driver: Any,
+        view: CancelView | None,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+    ) -> _TxCore:
         storage = self._owner.storage
         return _TxCore(
             storage if view is None else storage.reading(view),
@@ -973,6 +1004,8 @@ class Session:
             driver,
             now=self._now,
             healthy=self._assert_healthy,
+            conversation_id=conversation_id,
+            task_id=task_id,
         )
 
     def _grant_checks(self, view: CancelView | None) -> None:
@@ -1177,6 +1210,16 @@ class Session:
 
     def _line_drained(self) -> None:
         """Owner line-drained hook: Pi's close job clears listeners and documents."""
+        with self._owner._cond:
+            change, healthy = self._close_change, self._owner._failure is None
+        try:
+            if change is not None and healthy:
+                self._run_sync(change, None, publish=False)
+        finally:
+            self._clear_line_state()
+
+    def _clear_line_state(self) -> None:
+        """Release listener/cache state even when the final rewrite fails."""
         with self._owner._cond:
             dropped = (
                 self._commit_listeners.take(),

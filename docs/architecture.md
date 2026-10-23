@@ -1051,3 +1051,16 @@ coherent publication/stale-chrome refusal are recorded in the changelog. R4b and
 R7 have no separate changelog entry because R4b adopts already-published
 coherence and R7 adds characterization/reconciliation only. That is not a
 verdict that the broader program failed.
+
+
+## Private durable task execution
+
+The internal `native.durable.scheduler` owns one sequential phase invocation on
+an asyncio host. `SessionLifecycle` remains the single seal/drain/backend-close
+owner and its condition also guards scheduler metadata. Scoped runtime commits
+reuse `session_core`'s driver and settlement; an exclusive close stage performs
+the healthy running-to-pending rewrite. `task_values` contains task-specific
+structural comparison and UTF-16 lookup, without changing document equality.
+See [the runtime contract](durable-task-runtime.md). This package remains outside
+the shipped AgentLoop/CLI/TUI execution path; later durable adoption owns that
+transition and there is no second product storage authority.

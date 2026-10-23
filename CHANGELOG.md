@@ -8,11 +8,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a private sequential durable task runtime with explicit resume, acknowledged
+  reservations, scoped entries/documents and first-writer memos. Interrupted
+  running tasks recover once; close joins phase finalizers, preserves the latest
+  admitted state and releases SQLite ownership last. Storage failures seal the
+  owner. This remains internal; product defaults are unchanged.
+
 - Add private immutable task definitions and real typed durable task creation.
   Creation owns input, preserves initializer mutations on its detached copy,
   validates final JSON before minting and retains atomic Session rollback.
-  Task scheduling and recovery remain in the next runtime slice; product
-  defaults are unchanged.
+  The private runtime below supplies scheduling and recovery; product defaults
+  are unchanged.
 
 - Add private durable document checkpoint policies with exact synchronous bool
   results, immutable persisted candidates, atomic base/count reset, scoped

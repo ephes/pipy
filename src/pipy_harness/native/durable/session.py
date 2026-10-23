@@ -297,6 +297,10 @@ class SessionLifecycle:
         "_failure",
         "_holder",
         "_line_done",
+        "_line_finalized",
+        "_join_close",
+        "_join_done",
+        "_join_started",
         "_line_sealed",
         "_on_close_begin",
         "_on_line_drained",
@@ -321,6 +325,10 @@ class SessionLifecycle:
         # DE02b2b Session line: FIFO tickets, one holder, line seal before guard seal.
         self._line_sealed = False
         self._line_done = False
+        self._line_finalized = False
+        self._join_close: Callable[[], None] | None = None
+        self._join_done = True
+        self._join_started = False
         self._close_begun = False
         self._close_hook_done = False
         self._close_hook_thread: int | None = None
@@ -558,7 +566,14 @@ class SessionLifecycle:
         with self._cond:
             claim = self._close_state is _REQUESTED and self._underway == 0
             # The backend closes behind the line (Pi's close job on the line).
-            claim = claim and self._holder is None and not self._queue
+            claim = (
+                claim
+                and self._holder is None
+                and not self._queue
+                and self._close_hook_done
+                and self._join_done
+                and self._line_finalized
+            )
             if claim:
                 self._close_state = _RUNNING
             runner = self._close_runner
@@ -630,6 +645,46 @@ class SessionLifecycle:
             pass
 
     # -- the Session line (DE02b2b) ---------------------------------------------
+
+    def _run_join(self) -> None:
+        """Owned foreign thread: the phase host remains available during join."""
+        join = self._join_close
+        assert join is not None
+        try:
+            join()
+        except BaseException as error:  # noqa: BLE001 - retain failed join ownership
+            # A failed join cannot authorize releasing a still-live invocation.
+            self.fail(error)
+            return
+        with self._cond:
+            self._join_done = True
+        self._drain_line()
+        self._close_if_drained()
+
+    def _start_join(self) -> None:
+        """Claim a join worker; a failed launch remains retryable by close()."""
+        with self._cond:
+            start = (
+                self._close_hook_done and not self._join_done and not self._join_started
+            )
+            if start:
+                self._join_started = True
+        if not start:
+            return
+        worker = threading.Thread(
+            target=self._run_join, name="pipy-durable-join", daemon=True
+        )
+        try:
+            worker.start()
+        except BaseException as error:
+            alive = worker.is_alive()
+            with self._cond:
+                self._join_started = alive
+                first = self._latch(error)
+            self._wake_rejected()
+            if first:
+                self._report(error)
+            raise
 
     def _bind_line(
         self,
@@ -780,6 +835,7 @@ class SessionLifecycle:
             if first and hook is not None:
                 self._close_hook_thread = threading.get_ident()
         if not first:
+            self._start_join()
             return
         try:
             if hook is not None:
@@ -789,6 +845,7 @@ class SessionLifecycle:
             with self._cond:
                 self._close_hook_done = True
                 self._close_hook_thread = None
+            self._start_join()
 
     def _in_close_hook(self) -> bool:
         """Whether this thread is running the close-begin hook right now."""
@@ -807,6 +864,7 @@ class SessionLifecycle:
             run = (
                 self._line_sealed
                 and self._close_hook_done
+                and self._join_done
                 and not self._line_done
                 and self._holder is None
                 and not self._queue
@@ -815,12 +873,29 @@ class SessionLifecycle:
                 self._line_done = True
         if not run:
             return
+        runner = self._close_runner
+        if self._join_close is not None and runner is not None:
+            if runner(self._finish_line_and_close):
+                return
+        self._finish_line()
+
+    def _finish_line_and_close(self) -> None:
+        self._finish_line()
+        pending = self._close_if_drained()
+        if pending is not None:
+            raise pending
+
+    def _finish_line(self) -> None:
+        """Exclusive terminal line stage, before guard seal and backend close."""
         hook = self._on_line_drained
         try:
             if hook is not None:
                 hook()
+        except BaseException as error:  # noqa: BLE001 - final stage shares first failure
+            self.fail(error)
         finally:
             with self._cond:
+                self._line_finalized = True
                 self._sealed = True
                 if self._close_state is _IDLE:
                     self._close_state = _REQUESTED

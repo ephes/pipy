@@ -1,13 +1,13 @@
 # Typed durable task creation (DE05a)
 
 The private durable Session creates tasks from immutable executable definitions.
-This supplies definitions and actual creation; scheduling remains DE05b.
+Definitions and creation compose with the [private DE05b runtime](durable-task-runtime.md).
 
 ```python
 from pipy_harness.native.durable.tasks import define_task
 
 async def start(task, runtime, context):
-    # A future execution owner supplies runtime/context and dispatches phases.
+    # Explicit scheduler resume dispatches this phase.
     await runtime.commit(lambda tx, current: {
         "status": "terminal", "outcome": {"status": "completed", "result": None},
     }, context)
@@ -57,9 +57,8 @@ owner refuses further task minting.
 Creation does not dispatch handlers, require a registry, resolve definition
 compatibility or check phase-map membership. Those checks belong at the actual
 reservation boundary. A stored checkpoint may be any finite JSON value at this
-creation layer; an execution owner must resolve whether it can run it. The
-phase handler type remains an awaitable callback until DE05b supplies the actual
-runtime/context types. No runtime stub or invocation fence is exposed here.
+creation layer; an execution owner must resolve whether it can run it. The phase handler type names the actual DE05b runtime/context. Creation itself
+performs no dispatch or compatibility resolution.
 
 ## Verification and retained execution boundary
 
@@ -83,7 +82,7 @@ mismatch1 and invalid2. The driver runs only from a freshly attested parent
 reference snapshot and records loaded-module provenance; it makes no independent
 bootstrap claim.
 
-DE05 remains cumulative and IN_PROGRESS. DE05b retains scoped runtime
+DE05 is complete through cumulative DE05a and DE05b. DE05b supplies scoped runtime
 commits/memos, sequential reservation, invocation end, no dispatch on open,
 recovery and real SQLite process-death cuts, keyed intent/effect/receipt
 uncertainty, terminal cleanup and the lifecycle-owned close/join/latest-checkpoint

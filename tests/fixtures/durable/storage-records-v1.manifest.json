@@ -2,11 +2,11 @@
   "schema_version": 1,
   "phase": "values-records-a1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "7f1c870a8be4881d47e1b07a0fa379b1d93164f3f0f9f1cff929fcf5c028eae6",
+  "baseline_manifest_sha256": "c675fadd14c885851b9eb8904105862de0ea01fe5e8a93461e529239d3f39949",
   "closure": {
     "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
     "scripts/durable_storage_comparison.py": "b4f1e47b6767b2983d5fe3248492e5aedc4f7cb3a2aba802f2acfc0cd71aa577",
-    "src/pipy_harness/native/durable/__init__.py": "b1b28d5a6cb478a0afb60cb24fbbfdd1b7774275ca2a2a88525d358b488273a0",
+    "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
     "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
     "src/pipy_harness/native/durable/storage.py": "29fd5e5f5b2f784a67e623080f42ccfd5d4a3475c842a65f88170ed56abadeff",

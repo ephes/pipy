@@ -1,1 +1,1 @@
-"""Native durable value and port boundary; no runtime/session integration yet."""
+"""Private native durable kernel and scheduler; no default product activation."""

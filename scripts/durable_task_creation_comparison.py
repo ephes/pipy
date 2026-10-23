@@ -487,11 +487,7 @@ def execute(acceptance, output):
             "manifest_sha256": manifest_sha,
             "module_sha256": modules,
             "native_module_sha256": imports,
-            "artifacts_sha256": {
-                str(p.relative_to(output)): o.sha(p)
-                for p in output.rglob("*")
-                if p.is_file() and "stores" not in p.parts
-            },
+            "artifacts_sha256": artifact_hashes(output),
             "native_backends": ["memory", "sqlite", "reopen"],
             "cases": len(CASES),
             "mutants": controls,
@@ -562,6 +558,17 @@ def process_identity(record, label, folder, snapshot):
         d.require(not stdout and not stderr, "Typed creation child diagnostics")
 
 
+def artifact_hashes(folder):
+    """Keep producer artifacts even when an output ancestor is named stores."""
+    return {
+        str(path.relative_to(folder)): o.sha(path)
+        for path in folder.rglob("*")
+        if path.is_file()
+        and path != folder / "result.json"
+        and not path.is_relative_to(folder / "stores")
+    }
+
+
 def attest(folder, acceptance):
     """Recheck actual producers, full artifacts, loaded modules and CLI receipts."""
     config = configuration()
@@ -598,11 +605,7 @@ def attest(folder, acceptance):
         str(uuid.UUID(value["execution_id"])) == value["execution_id"],
         "Typed creation execution ID",
     )
-    files = {
-        str(p.relative_to(folder)): o.sha(p)
-        for p in folder.rglob("*")
-        if p.is_file() and p.name != "result.json" and "stores" not in p.parts
-    }
+    files = artifact_hashes(folder)
     d.require(d.same(value["artifacts_sha256"], files), "Typed creation artifact drift")
     reference, actual = d.load(folder / "observed.json"), d.load(folder / "native.json")
     d.require(

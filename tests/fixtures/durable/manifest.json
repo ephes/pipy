@@ -82,7 +82,7 @@
   },
   "comparison": {
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
-    "scripts/durable_reference_acceptance.py": "d841692f35b6e96a7b002def09d05743b2c6ed8078a3b64389020502e8ebf80a",
+    "scripts/durable_reference_acceptance.py": "26066d1b324b252de82e5c61ef88db42a7611c4f7c8a30b0c4afc75ce5378adb",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12"
   },
   "cases": [
@@ -272,7 +272,7 @@
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
     "tests/durable/test_pi_comparison_acceptance.py": "8d5f023679ee9901eba929971f57798be84524369beb60840bf71264d0ee97be",
     "tests/durable/test_pi_comparison_cases.py": "0a0d536846424e613ee1f7d98d5ce7169a6d360a2c93f4bb65939099e9cff83b",
-    "tests/durable/test_pi_comparison_coverage.py": "b0f0a45d45fc1e2515a2d1445aa6a4bcdda8c66f8aed2de9c6e6178da788de1c",
+    "tests/durable/test_pi_comparison_coverage.py": "d4b6a5737b1f8f503970baa976f294bd39f1168d0f285b47c79ac6e33fdc0bab",
     "tests/durable/test_reference_artifacts.py": "d2920eed7a3c2135bb58e4eb4b295f7a51798b84396f659bda0cd29f5ebe6dac",
     "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
   },
@@ -331,6 +331,6 @@
   ],
   "coverage": {
     "path": "coverage.json",
-    "sha256": "82848a89a758c0fdb8fe2ffde4eddf4e78bd140c73d0f3b28d262a23c057bbc7"
+    "sha256": "6fe398abd36b5e10c5298baee81b1bb2c2c329fe58608f10cd77e11b1e8bcb08"
   }
 }

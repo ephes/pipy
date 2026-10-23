@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05 IN_PROGRESS, DE05a LANDED, DE05b OPEN (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-23. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -174,9 +174,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE04b1b3 | J Draft/Tx/checkpoint/cache/publication; depends T + S + DE04a + owner policy266 | LANDED | Cumulative acceptance below; local checks, retained prerequisites and actual paired proofs complete; normal commit/push remains the delivery gate |
 | DE04b1b3a | Tracker-backed default delta/count/publication join | LANDED | 33d39457; exact Opus5.5 HIGH R3 CLEAN/full/docs/fresh chains/push/remote verified; no checkpoint/unload claim |
 | DE04b1b3b | Checkpoint callbacks, actual unload and final cumulative join | LANDED | Real policy/authority/unload with cumulative acceptance below; local checks and actual paired proofs complete; normal commit/push remains the delivery gate |
-| DE05 | Minimal task runtime and recovery scheduler | IN_PROGRESS | Cumulative DE05a + DE05b, every original acceptance cell retained |
+| DE05 | Minimal task runtime and recovery scheduler | LANDED | Cumulative DE05a + DE05b; original cells mapped below |
 | DE05a | Typed definitions and actual typed creation; depends DE04 | LANDED | Typed creation acceptance below; full/review/fresh-chain delivery gates must pass before commit/push; no scheduling or P closure |
-| DE05b | Coupled runtime/reservation/recovery/lifecycle join; depends DE05a | OPEN | Every original DE05 acceptance retained; real process cuts and no dispatch on open |
+| DE05b | Coupled runtime/reservation/recovery/lifecycle join; depends DE05a | LANDED | Runtime/reservation/recovery acceptance below; no product activation or P closure |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
 | DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | OPEN | None; all gates OPEN |
@@ -284,18 +284,14 @@ selects the persisted/replayed value for loaded callbacks, cache and publication
 creation uses its actual final value and empty operations keep committed
 incarnation/count. The cumulative DE04 evidence below remains historical.
 
-DE05a now owns typed definitions and actual typed creation. DE05b retains the
-coupled scoped runtime/memos, sequential reservation, recovery, real process cuts
-and lifecycle-owned close join. DE05 remains IN_PROGRESS and every original
-acceptance remains cumulative. All43 P rows remain OPEN. DE06b waits for full
-DE05 + delivered DE06a; DE14/15/16/23 and all other later owners retain scope.
-
-Codex gpt-6.1-sol HIGH is the exclusive DE05a repository writer; the coordinator
-owns dispatch and work-app records. Installed Claude Code `claude-opus-5-5` HIGH
-owns the mandatory independent gate. Focused/full checks, supported Python,
-actual fresh reference chains, docs/links and exact-tree review precede normal
-commit/push and remote verification. No GitHub CI or new Linux result is claimed.
-Historical roles and dated outcomes below remain unchanged.
+DE05a delivered at `47a81103`; DE05b completes the bounded runtime and recovery
+join described in its acceptance section below. Every original DE05 cell remains
+cumulative. DE06b waits for full DE05 delivery and delivered DE06a; it is the next
+implementation owner after exact DE05b delivery verification; DE14/15/16/23 retain their broader policies. All43 P rows remain OPEN.
+The registry describes this implementation; actual commit, remote and review-tree
+identities belong to the retained delivery receipt. GPT6 Astra HIGH implements
+DE05b, with independent Claude Code `claude-opus-5-5` (Opus5.5) HIGH review through the installed
+harness. No GitHub CI result is claimed. Historical roles below are unchanged.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -8219,3 +8215,66 @@ passed,703 loaded-module hashes and146 artifact hashes were attested, and the
 original recipe remained intact. Focused validation passed256. Final cumulative
 chains, full/supported-Python/docs gates and independent review still precede
 commit; this single probe is not substituted for those final gates.
+
+
+## DE05b runtime reservation recovery acceptance
+
+DE05b adds a private sequential phase host and actual scoped runtime, using
+SessionLifecycle's condition as the one metadata guard and Session's existing
+line/settlement as the transaction authority. Tentative invocation ownership
+precedes reservation acknowledgement; dispatch follows full acknowledgement and
+line release. End eligibility is decided on-line and finalizers remain join-owned.
+The universal backend-close predicate includes listeners, invocation join and
+exclusive final line completion, including already-failed owners. Healthy close
+rereads admitted checkpoint/abort winners and rewrites only running to pending;
+failed owners skip rewriting. No second writer or coroutine close listener exists.
+
+| Original DE05 cell | Actual executable evidence |
+| --- | --- |
+| No dispatch on open; sequential/repeated resume | `test_runs_only_after_resume_and_cannot_write_after_terminal`; paired counter/recovery cases |
+| Kill before/during reservation; intent COMMIT before phase | `test_real_sigkill_recovery_requires_explicit_resume_and_counts_once`: before-reservation/reservation-before/reservation-after |
+| Kill before/after checkpoint COMMIT/ack | Same real child: before-checkpoint/checkpoint-before/checkpoint-after |
+| Stable repeated recovery and preserved values/counts | Two fresh owner opens per cut, exact input/checkpoint/memos/abort/restarts, final independent reopen/integrity/lock checks |
+| Effect intent/receipt uncertainty | `test_actual_effect_after_intent_before_receipt_has_no_generic_exactly_once_claim`: real independent calls/applications tables and committed key reuse |
+| Pre/post-end write gates | `test_runtime_queued_before_end_refuses_when_executed_after_end`; terminal-late paired case |
+| Scoped document acquisition/retirement | `test_runtime_documents_use_invocation_scope_for_acquire_and_retire`: session/conversation/task singleton and keyed documents, exact persisted scope, empty-key retirement and another key preserved, Memory/SQLite |
+| Atomic terminal result/entry/task documents | `test_atomic_terminal_entry_and_all_task_document_retirements`,132 unknown-kind documents across scan pages |
+| Real close joins and latest admitted state | Held reservation acknowledgement/close listener, phase-finalizer, latest checkpoint/abort mark and cancelled-close-waiter tests |
+| Healthy close versus crash | Real close-before/close-after SIGKILL cuts; healthy final write has no restart increment or publication |
+| Fatal storage/ack/adoption/fault/final-write errors | `test_real_storage_fault_seals_owner_and_reopen_uses_actual_state`: six actual SQLite/adoption fault paths, no later phase and actual reopened state |
+| Shared mutable state and startup lifetime | Initial scan/index installation versus queued ordinary commit; host startup/zero-invocation/join-launch barriers, exact token and common guard |
+| Structural progress and identity | Task equality vectors, restart reset, UTF-16 kind/phase aliases, null memo winner; document OwnedJson equality unchanged |
+| Safe retained boundaries | Unsupported live states, definitions/versions/abort marks and live-child terminal refusal; no initializer on recovery |
+
+The actual pinned Pi driver pairs six cases across native Memory/SQLite/reopen,
+with seven schema-valid mutants and real CLI0/1/2. Early execute succeeded but
+attestation rejected a nested `mutants/result.json` omitted by basename filtering;
+the attester now excludes only the root receipt and a regression pins that scope.
+Only a fresh execute-to-attest receipt can close that repaired evidence gate.
+Raw process events, SIGKILL outcomes, recovered states and effect counts live in
+private gate artifacts, not the metadata-only workflow archive. The gate root is
+`~/.local/state/pipy/durable-checkpoints/de05b-20261023/`.
+
+Delivery requires focused/predecessor/architecture and full checks, docs/rendered
+links, supported Python and actual Linux lifecycle/process runs, fresh cumulative
+reference chains and exact unscoped independent review. No preliminary diagnostic
+or implementation alone substitutes for those receipts. All43 P rows remain OPEN;
+DE06b rich codecs, DE14 definition/restart/migration/park, DE15 ownership/waits,
+DE16 full cancellation, DE22 hooks and DE23 reload retain their original scope.
+
+
+DE05b also narrows the typed-creation predecessor's artifact exclusion to the
+run-relative native `stores/` subtree and the root receipt. Its former absolute
+path-component filter omitted all artifacts when an accepted output ancestor
+was named `stores`. Existing retained DE05a receipts use other ancestors and are
+unaffected. The focused regression and fresh cumulative typed-creation producer/
+attester pair cover this bounded verification correction in the same DE05b delta.
+
+The first independent Opus5.5 HIGH review found two Warnings: runtime document
+operations omitted invocation IDs, and the DE05 parent coverage observables still
+described future-only work. The repair supplies only the owner ID selected by the
+token's scope, pins all three scopes through actual phase commits, and describes
+the cumulative DE05a/DE05b evidence. The unused alternate join-binding helper and
+copied oracle help text/redundant close were also removed. Re-review is valuable
+because these corrections repair a promised runtime capability and its acceptance
+accounting; earlier interrupted full/reference runs remain diagnostic only.
