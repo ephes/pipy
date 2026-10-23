@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from task_support import task_definition
 
 from pipy_harness.native.durable import tx as real_tx
 from pipy_harness.native.durable.codec import JsonValueError, OwnedJson
@@ -260,10 +261,8 @@ class Rig:
     def task(self, conversation: int, **options: Any) -> int:
         return self.commit(
             lambda tx: tx.create_task(
-                "test.work",
-                1,
+                task_definition("test.work", 1, {"phase": "start"}),
                 {"path": "a"},
-                {"phase": "start"},
                 ownership={"kind": "conversation"},
                 conversation_id=conversation,
                 **options,
@@ -591,7 +590,10 @@ INVALID_WRITES: dict[str, Callable[[Tx, int], Any]] = {
     "append_entry-id": lambda tx, c: tx.append_entry("not an id", {"kind": "note"}),
     "create_conversation": lambda tx, c: tx.create_conversation({"kind": "task"}),
     "create_task": lambda tx, c: tx.create_task(
-        "k", 1, None, None, ownership={"kind": "bogus"}, conversation_id=c
+        task_definition("k", 1, None),
+        None,
+        ownership={"kind": "bogus"},
+        conversation_id=c,
     ),
     "create_submission": lambda tx, c: tx.create_submission("not a create"),
     # Validation inside the body, after minting, as Pi's copyJson.
@@ -655,10 +657,8 @@ def _tables132(T: types.ModuleType) -> None:
                 conversation.id, {"kind": "summary", "head": "self"}
             )
             task = tx.create_task(
-                "test.work",
-                1,
+                task_definition("test.work", 1, {"phase": "start"}),
                 {"path": "x"},
-                {"phase": "start"},
                 ownership={"kind": "conversation"},
                 conversation_id=conversation.id,
                 background=True,
@@ -707,7 +707,9 @@ def _tables132(T: types.ModuleType) -> None:
         with pytest.raises(TypeError, match="requires conversation_id"):
             rig.commit(
                 lambda tx: tx.create_task(
-                    "test.work", 1, None, None, ownership={"kind": "conversation"}
+                    task_definition("test.work", 1, None),
+                    None,
+                    ownership={"kind": "conversation"},
                 )
             )
         with pytest.raises(RuntimeError, match="^Conversation 12345 does not exist$"):
@@ -722,10 +724,8 @@ def _tables188(T: types.ModuleType) -> None:
 
         def change(tx: Tx) -> tuple[int, Any]:
             supervisor = tx.create_task(
-                "test.work",
-                1,
+                task_definition("test.work", 1, {"phase": "start"}),
                 {"path": "background"},
-                {"phase": "start"},
                 ownership={"kind": "conversation"},
                 conversation_id=parent,
                 background=True,
@@ -750,10 +750,8 @@ def _tables188(T: types.ModuleType) -> None:
 
 def _staged_task(tx: Tx, parent: int, path: str) -> int:
     return tx.create_task(
-        "test.work",
-        1,
+        task_definition("test.work", 1, {"phase": "start"}),
         {"path": path},
-        {"phase": "start"},
         ownership={"kind": "conversation"},
         conversation_id=parent,
     )
@@ -850,7 +848,9 @@ def _tables213_task_owner(T: types.ModuleType) -> None:
         def child(tx: Tx) -> None:
             value = tree(tx.task(owner))
             child_id = tx.create_task(
-                "test.child", 1, None, None, ownership={"kind": "task", "taskId": owner}
+                task_definition("test.child", 1, None),
+                None,
+                ownership={"kind": "task", "taskId": owner},
             )
             assert tree(tx.staged_tasks()[0])["owner"] == owner and child_id
             tx.set_task(value | {"abortRequested": True})
@@ -861,9 +861,7 @@ def _tables213_task_owner(T: types.ModuleType) -> None:
         with pytest.raises(RuntimeError, match="^Task owner 4242 does not exist$"):
             rig.commit(
                 lambda tx: tx.create_task(
-                    "test.child",
-                    1,
-                    None,
+                    task_definition("test.child", 1, None),
                     None,
                     ownership={"kind": "task", "taskId": 4242},
                 )
@@ -871,9 +869,7 @@ def _tables213_task_owner(T: types.ModuleType) -> None:
         with pytest.raises(TypeError, match="cannot be background"):
             rig.commit(
                 lambda tx: tx.create_task(
-                    "test.child",
-                    1,
-                    None,
+                    task_definition("test.child", 1, None),
                     None,
                     ownership={"kind": "task", "taskId": owner},
                     background=True,
@@ -1785,9 +1781,7 @@ def _late_write(T: types.ModuleType) -> None:
         core = rig.core(driver)
         entry = core.append_entry(conversation, {"kind": "late"})
         task = core.create_task(
-            "late",
-            1,
-            None,
+            task_definition("late", 1, None),
             None,
             ownership={"kind": "conversation"},
             conversation_id=conversation,

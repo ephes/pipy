@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlite_child_support import Child
+from task_support import task_definition
 from test_session_commit import ASYNC, SYNC
 
 from pipy_harness.native.durable import sqlite, sqlite_connection
@@ -97,10 +98,8 @@ async def mixed(tx, spec, value):
     conversation = (await tx.create_conversation({"kind": "ownerless"})).id
     entry = await tx.append_entry(conversation, {"kind": "sqlite.entry", "data": value})
     task = await tx.create_task(
-        "sqlite.task",
-        1,
+        task_definition("sqlite.task", 1, {"phase": "new"}),
         value,
-        {"phase": "new"},
         ownership={"kind": "conversation"},
         conversation_id=conversation,
         background=True,

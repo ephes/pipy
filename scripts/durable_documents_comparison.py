@@ -40,7 +40,13 @@ from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
 from pipy_harness.native.durable.session_core import Session  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
 from pipy_harness.native.durable.storage import StorageWrite  # noqa: E402
+from pipy_harness.native.durable.tasks import define_task  # noqa: E402
 from pipy_harness.native.durable.tx import RawDocumentChange  # noqa: E402
+
+
+async def unexecuted_task(*args: Any) -> None:
+    raise AssertionError("Creation-only oracle cannot dispatch tasks")
+
 
 PHASE = "session-documents-a-v1"
 CASES = tuple(
@@ -526,9 +532,9 @@ async def native_case(id: str, inner: Any, config: Any) -> Any:  # noqa: C901 - 
 
             async def new(tx: Any) -> None:
                 n = await tx.create_task(
-                    "probe.task",
-                    1,
-                    None,
+                    define_task(
+                        "probe.task", 1, lambda _input: None, {}, unexecuted_task
+                    ),
                     None,
                     ownership={"kind": "conversation"},
                     conversation_id=7,

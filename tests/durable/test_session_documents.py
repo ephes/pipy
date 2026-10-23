@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from storage_contract_cases import backend as backend
+from task_support import task_definition
 from test_session_commit import ASYNC, SYNC
 from test_session_tx_core import Store, Worker
 
@@ -371,9 +372,7 @@ def test_new_task_document_terminal_skips_scan_and_never_caches(rig):
     async def run():
         async def finish(tx):
             id = await tx.create_task(
-                "probe.task",
-                1,
-                None,
+                task_definition("probe.task", 1, None),
                 None,
                 ownership={"kind": "conversation"},
                 conversation_id=7,
@@ -511,9 +510,7 @@ def test_late_failure_rolls_back_coupled_tables_docs_and_revokes_nested(rig, fai
             (await tx.doc(two))["lines"].append("candidate")
             await tx.append_entry(7, {"kind": "probe", "data": None})
             await tx.create_task(
-                "probe.task",
-                1,
-                None,
+                task_definition("probe.task", 1, None),
                 None,
                 ownership={"kind": "conversation"},
                 conversation_id=7,
@@ -521,9 +518,7 @@ def test_late_failure_rolls_back_coupled_tables_docs_and_revokes_nested(rig, fai
             if failure == "assembly":
                 tx.set_task(task(terminal=True))
                 await tx.create_task(
-                    "owned",
-                    1,
-                    None,
+                    task_definition("owned", 1, None),
                     None,
                     ownership={"kind": "task", "taskId": 20},
                     conversation_id=7,

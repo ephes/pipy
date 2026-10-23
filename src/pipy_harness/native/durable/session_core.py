@@ -117,6 +117,7 @@ from .storage import (
     StorageWrite,
     TaskQuery,
 )
+from .tasks import Task
 from .tx import (
     CommittedDocument,
     Draft,
@@ -468,14 +469,25 @@ class SyncTx(_Tx):
 
     def create_task(
         self,
-        kind: str,
-        version: int | float,
+        task: Task[Any, Any, Any],
         input: object,
-        checkpoint: object,
-        **options: Any,
+        *,
+        ownership: object,
+        conversation_id: int | None = None,
+        background: bool = False,
+        abandon_on_restart: bool = False,
+        trace: object = None,
     ) -> int:
         return _value(
-            self._core.create_task(kind, version, input, checkpoint, **options)
+            self._core.create_task(
+                task,
+                input,
+                ownership=ownership,
+                conversation_id=conversation_id,
+                background=background,
+                abandon_on_restart=abandon_on_restart,
+                trace=trace,
+            )
         )
 
     def create_submission(self, create: object) -> SubmissionRecord:
@@ -573,13 +585,26 @@ class AsyncTx(_Tx):
 
     def create_task(
         self,
-        kind: str,
-        version: int | float,
+        task: Task[Any, Any, Any],
         input: object,
-        checkpoint: object,
-        **options: Any,
+        *,
+        ownership: object,
+        conversation_id: int | None = None,
+        background: bool = False,
+        abandon_on_restart: bool = False,
+        trace: object = None,
     ) -> TxOp[int]:
-        return _op(self._core.create_task(kind, version, input, checkpoint, **options))
+        return _op(
+            self._core.create_task(
+                task,
+                input,
+                ownership=ownership,
+                conversation_id=conversation_id,
+                background=background,
+                abandon_on_restart=abandon_on_restart,
+                trace=trace,
+            )
+        )
 
     def create_submission(self, create: object) -> TxOp[SubmissionRecord]:
         return _op(self._core.create_submission(create))

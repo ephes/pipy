@@ -537,11 +537,12 @@ def test_current_sqlite_summaries_match_delivered_children():
 def test_current_delivery_gate_names_current_reviewer_and_lanes():
     text = (o.ROOT / a.LEDGER).read_text()
     current = text.split("## Next delivery gate\n", 1)[1].split("\n## ", 1)[0]
-    assert "DE03c is LANDED" in current
-    assert "DE03d" in current and "DE06a" in current and "DE06b is OPEN" in current
+    assert "DE04 and all its children are delivered" in current
+    assert "DE05a" in current and "DE05b" in current
+    assert "DE06b waits for full" in current and "delivered DE06a" in current
     assert "claude-opus-5-5" in current and "HIGH" in current
     assert "Codex gpt-6.1-sol HIGH CLEAN" not in current
-    assert "All 43 P rows remain OPEN" in current
+    assert "All43 P rows remain OPEN" in current
 
 
 @pytest.mark.parametrize("child", ["DE03d1", "DE03d2"])
@@ -726,3 +727,31 @@ def test_only_registered_immediate_join_children_are_accepted(bad):
     next(row for row in value["rows"] if row["id"] == "DE04b1b1")["id"] = bad
     with pytest.raises(o.EvidenceError, match="Unknown/duplicate coverage ID"):
         a.coverage(value, o.ROOT, o.contract)
+
+
+def test_de05_children_preserve_full_execution_acceptance():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE05"]["status"] == "IN_PROGRESS"
+    assert rows["DE05a"]["current"]["cases"] == ["task-creation-a-v1"]
+    assert rows["DE05a"]["status"] == "LANDED"
+    assert rows["DE05a"]["evidence"][0] == a.LEDGER + "#de05a-typed-creation-acceptance"
+    assert rows["DE05b"]["status"] == "OPEN"
+    future = rows["DE05b"]["future"]
+    for acceptance in (
+        "SIGKILL",
+        "no dispatch on open",
+        "repeated resume",
+        "intent/effect/receipt",
+        "pre/post-end",
+        "terminal cleanup",
+        "close seal/join",
+        "before backend release",
+        "ack loss",
+        "same owner",
+    ):
+        assert acceptance in future
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )

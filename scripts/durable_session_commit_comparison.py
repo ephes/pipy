@@ -56,6 +56,12 @@ from pipy_harness.native.durable.storage import (  # noqa: E402
     StorageWrite,
     TaskQuery,
 )
+from pipy_harness.native.durable.tasks import define_task  # noqa: E402
+
+
+async def unexecuted_task(*args: Any) -> None:
+    raise AssertionError("Creation-only oracle cannot dispatch tasks")
+
 
 PHASE = "session-commit-b3-v1"
 INPUT = ROOT / "tests/fixtures/durable/session-commit-v1.input.json"
@@ -84,6 +90,8 @@ UPSTREAM_TESTS = {
     session-tables.test.ts session-support.ts""".split()
 }
 CLOSURE = g.CLOSURE | {
+    "src/pipy_harness/native/durable/tasks.py",
+    "tests/durable/task_support.py",
     "src/pipy_harness/native/durable/tx.py",
     "src/pipy_harness/native/durable/draft_tracker.py",
     "src/pipy_harness/native/durable/delta_ops.py",
@@ -1242,7 +1250,11 @@ def _create_task(r: Any, tx: Any, op: Any) -> Any:
     options["ownership"] = r.value(op["ownership"])
     checkpoint = copy.deepcopy(op["checkpoint"])
     return tx.create_task(
-        op["kind"], op["version"], r.value(op["input"]), checkpoint, **options
+        define_task(
+            op["kind"], op["version"], lambda _input: checkpoint, {}, unexecuted_task
+        ),
+        r.value(op["input"]),
+        **options,
     )
 
 

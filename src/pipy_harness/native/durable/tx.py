@@ -136,6 +136,9 @@ from .storage import (
     StorageWrite,
     TaskQuery,
 )
+from .tasks import Task
+from .tasks import capture as capture_task
+from .tasks import initialize as initialize_task
 
 T = TypeVar("T")
 T_co = TypeVar("T_co", covariant=True)
@@ -1092,10 +1095,8 @@ class _TxCore:
 
     def create_task(
         self,
-        kind: str,
-        version: int | float,
+        task: Task[Any, Any, Any],
         input: object,
-        checkpoint: object,
         *,
         ownership: object,
         conversation_id: int | None = None,
@@ -1110,18 +1111,28 @@ class _TxCore:
         )
         if type(background) is not bool or type(abandon_on_restart) is not bool:
             raise TypeError("Task flags must be booleans")
-        fields: Tree = {"kind": kind, "version": version, "input": input}
+        definition = capture_task(task)
+        fields: Tree = {"kind": definition.name, "version": definition.version}
         if trace is not None:
             fields["trace"] = trace
+        fields = _plain_tree(fields)
+        owned_input = OwnedJson(input)
         body = self._create_task(
-            fields, checkpoint, owner, conversation, background, abandon_on_restart
+            definition,
+            owned_input,
+            fields,
+            owner,
+            conversation,
+            background,
+            abandon_on_restart,
         )
         return self._run(body)
 
     async def _create_task(
         self,
+        definition: Task[Any, Any, Any],
+        owned_input: OwnedJson,
         fields: Tree,
-        checkpoint: object,
         owner_id: int | None,
         conversation_id: int | None,
         background: bool,
@@ -1146,15 +1157,26 @@ class _TxCore:
             raise TypeError("Tx.create_task() requires conversation_id")
         await self._require_conversation(resolved)
         self._recheck()
+        # The initializer may mutate its detached input, as in Pi. Validate both
+        # final values before minting; no caller container survives suspension.
+        initial = cast(Tree, initialize_task(definition, owned_input).thaw())
+        self._recheck()
+        if self._healthy is not None:
+            self._healthy()
         id = await _Io(self._storage.mint_id)
         self._recheck()
-        tree: Tree = {"id": id, "conversationId": resolved, **fields}
+        tree: Tree = {
+            "id": id,
+            "conversationId": resolved,
+            **fields,
+            "input": initial["input"],
+        }
         if owner_id is not None:
             tree["owner"] = owner_id
         tree |= {"background": background, "abortRequested": False}
         if abandon:
             tree["abandonOnRestart"] = True
-        tree["state"] = {"status": "pending", "checkpoint": checkpoint}
+        tree["state"] = {"status": "pending", "checkpoint": initial["checkpoint"]}
         self._tasks[id] = _TaskEntry(write=("create", TaskRecord(tree)))
         return id
 

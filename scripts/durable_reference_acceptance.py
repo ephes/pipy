@@ -48,6 +48,8 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE05a",
+    "DE05b",
     "DE04b1b1",
     "DE04b1b2",
     "DE04b1b3",
@@ -263,6 +265,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         ("DE04b1b", ["DE04b1b1", "DE04b1b2", "DE04b1b3"]),
         ("DE04b", ["DE04b1a", "DE04b1b"]),
         ("DE04", ["DE04a", "DE04b"]),
+        ("DE05", ["DE05a", "DE05b"]),
         ("DE01", ["DE01a", "DE01b1", "DE01b2", "DE01b3"]),
     ]:
         states = {statuses[key] for key in children}
@@ -287,6 +290,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE05a",
     "DE04b1b3b",
     "DE04b1b3a",
     "DE04b1b1",
@@ -302,6 +306,9 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE05": "de05a-typed-creation-acceptance",
+    "DE05a": "de05a-typed-creation-acceptance",
+    "DE05b": "de05a-pre-code-admission",
     "DE04": "de04b1b3b-cumulative-acceptance",
     "DE04b1b1": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
     "DE04b1b2": "de04b1b2-verified-delivery-and-t-integration-successor",
@@ -379,6 +386,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE04b1b2": ["storage-current-deltas-v1"],
         "DE04b1b3a": ["session-commit-b3-v1", "session-documents-a-v1"],
         "DE04b1b3b": ["session-checkpoints-j-v1"],
+        "DE05a": ["task-creation-a-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -422,6 +430,8 @@ def de_current(row: Any, c: Any) -> None:
         links.append("docs/durable-session-deltas.md")
     if key == "DE04b1b3b":
         links.append("docs/durable-session-checkpoints.md")
+    if key == "DE05a":
+        links.append("docs/durable-task-creation.md")
     require(row["evidence"] == links, "DE bounded evidence link drift", c)
 
 
@@ -587,6 +597,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"storage-current-deltas-v1"} if key == "DE04b1b2" else set())
                 | ({"draft-tracker-v1"} if key == "DE04b1b1" else set())
                 | ({"session-checkpoints-j-v1"} if key == "DE04b1b3b" else set())
+                | ({"task-creation-a-v1"} if key == "DE05a" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

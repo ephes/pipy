@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from task_support import task_definition
 
 from pipy_harness.native.durable import session as real_session
 from pipy_harness.native.durable import session_core as real_core
@@ -963,10 +964,8 @@ def _inflight(M: Mods, mode: Mode) -> None:
             async def make(tx: Any) -> int:
                 return int(
                     await tx.create_task(
-                        "test.work",
-                        1,
+                        task_definition("test.work", 1, {"phase": "start"}),
                         None,
-                        {"phase": "start"},
                         ownership={"kind": "conversation"},
                         conversation_id=conv,
                     )
@@ -981,10 +980,8 @@ def _inflight(M: Mods, mode: Mode) -> None:
                 await entered(gate)
                 # Owner resolution awaits the same memoized read at its first step.
                 child = tx.create_task(
-                    "test.child",
-                    1,
+                    task_definition("test.child", 1, {"phase": "start"}),
                     None,
-                    {"phase": "start"},
                     ownership={"kind": "task", "taskId": owner},
                 )
                 await loop.run_in_executor(None, lambda: None)  # FIFO sentinel

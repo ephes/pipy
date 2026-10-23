@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private immutable task definitions and real typed durable task creation.
+  Creation owns input, preserves initializer mutations on its detached copy,
+  validates final JSON before minting and retains atomic Session rollback.
+  Task scheduling and recovery remain in the next runtime slice; product
+  defaults are unchanged.
+
 - Add private durable document checkpoint policies with exact synchronous bool
   results, immutable persisted candidates, atomic base/count reset, scoped
   callback authority and rollback on policy failure. Explicit document unloading

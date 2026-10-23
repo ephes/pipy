@@ -1,7 +1,7 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 IN_PROGRESS, DE04b1b3a LANDED and DE04b1b3b IN_PROGRESS (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
-2026-10-22. This ledger accompanies the
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05 IN_PROGRESS, DE05a LANDED, DE05b OPEN (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+2026-10-23. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
 index, not an upstream comparison result. The prototypes are experimental
@@ -174,7 +174,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE04b1b3 | J Draft/Tx/checkpoint/cache/publication; depends T + S + DE04a + owner policy266 | LANDED | Cumulative acceptance below; local checks, retained prerequisites and actual paired proofs complete; normal commit/push remains the delivery gate |
 | DE04b1b3a | Tracker-backed default delta/count/publication join | LANDED | 33d39457; exact Opus5.5 HIGH R3 CLEAN/full/docs/fresh chains/push/remote verified; no checkpoint/unload claim |
 | DE04b1b3b | Checkpoint callbacks, actual unload and final cumulative join | LANDED | Real policy/authority/unload with cumulative acceptance below; local checks and actual paired proofs complete; normal commit/push remains the delivery gate |
-| DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
+| DE05 | Minimal task runtime and recovery scheduler | IN_PROGRESS | Cumulative DE05a + DE05b, every original acceptance cell retained |
+| DE05a | Typed definitions and actual typed creation; depends DE04 | LANDED | Typed creation acceptance below; full/review/fresh-chain delivery gates must pass before commit/push; no scheduling or P closure |
+| DE05b | Coupled runtime/reservation/recovery/lifecycle join; depends DE05a | OPEN | Every original DE05 acceptance retained; real process cuts and no dispatch on open |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
 | DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | OPEN | None; all gates OPEN |
@@ -277,27 +279,23 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 
 ## Next delivery gate
 
-DE04a is LANDED at `e6c1239d`; pure decoded-operation DE04b1a is LANDED at
-`6e3b838f`, with exact final review/full/docs/fresh-pair/push gates verified.
-DE04/DE04b/DE04b1b remain IN_PROGRESS. S (DE04b1b2) is verified LANDED at
-`8c8f30d7`, with exact final review/full/docs/fresh-chain/push gates recorded in
-the [S delivery successor](#de04b1b2-verified-delivery-and-t-integration-successor).
-T (DE04b1b1) is verified LANDED at `71cb8c91`; the [delivery and J admission](#de04b1b1-verified-delivery-and-owner-selected-j-admission) records its final gates and the owner decision.
-J (DE04b1b3) is IN_PROGRESS: owner policy266 selects the persisted/replayed value
-for callbacks, cache and publications. DE04b1b3a is verified LANDED at `33d39457`; [delivery and successor admission](#de04b1b3a-verified-delivery-and-de04b1b3b-admission) records its final gates.
-DE04b1b3b is IN_PROGRESS with real checkpoints, scoped callback authority, actual
-unload and the final cumulative DE04 gate. No further split is needed before code. The [delivery/admission successor](#de04b1a-verified-delivery-and-de04b1b-pre-code-admission)
-retains verified B1a gates and the exact dependency map. DE05 waits full DE04;
-DE27 retains full history/as-of/fork/migrations. All 43 P rows remain OPEN.
+DE04 and all its children are delivered through `9ce014d1`. Owner policy266
+selects the persisted/replayed value for loaded callbacks, cache and publication;
+creation uses its actual final value and empty operations keep committed
+incarnation/count. The cumulative DE04 evidence below remains historical.
 
-DE00 through DE03 remain delivered; DE03c is LANDED and DE03d is LANDED.
-DE06a is LANDED; DE06b is OPEN, parent DE06
-IN_PROGRESS. DE32a is LANDED, DE32b OPEN and parent DE32 IN_PROGRESS; DE33 waits
-full DE32. Codex owns implementation/repairs and the installed Claude Code
-`claude-opus-5-5` HIGH harness owns independent delivery review. Root alone owns dispatch,
-shared metadata, final gates and landing. This pre-code metadata folds into the
-first actual child landing; it is not a planning-only delivery. GitHub CI is not
-claimed. Historical roles and dated outcomes below remain unchanged.
+DE05a now owns typed definitions and actual typed creation. DE05b retains the
+coupled scoped runtime/memos, sequential reservation, recovery, real process cuts
+and lifecycle-owned close join. DE05 remains IN_PROGRESS and every original
+acceptance remains cumulative. All43 P rows remain OPEN. DE06b waits for full
+DE05 + delivered DE06a; DE14/15/16/23 and all other later owners retain scope.
+
+Codex gpt-6.1-sol HIGH is the exclusive DE05a repository writer; the coordinator
+owns dispatch and work-app records. Installed Claude Code `claude-opus-5-5` HIGH
+owns the mandatory independent gate. Focused/full checks, supported Python,
+actual fresh reference chains, docs/links and exact-tree review precede normal
+commit/push and remote verification. No GitHub CI or new Linux result is claimed.
+Historical roles and dated outcomes below remain unchanged.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -8118,3 +8116,106 @@ Workflow lesson: consolidate a restored staged snapshot before assembling its
 review bundle, and validate changelog edits within Unreleased. The oversized
 review attempts and initial metadata failures are retained diagnostics, not
 passing gates. Promotion: incident; local repair and explicit receipts suffice.
+
+## DE05a pre-code admission
+
+2026-10-23, delivered baseline `9ce014d1`: admit typed task definitions and actual
+typed creation as DE05a. DE05b retains all scoped runtime/memo, sequential
+reservation/checkpoint/recovery, real SIGKILL/effect-sandwich and close/join/error
+acceptance from DE05. Both are cumulative children; DE05 is IN_PROGRESS, DE05a
+IN_PROGRESS and DE05b OPEN. All43 P rows stay OPEN. No implementation, tests,
+independent review or delivery is claimed by this admission. The owner-selected
+persisted document value/count/publication contract remains unchanged.
+
+## DE05a typed-creation acceptance
+
+The implementation uses immutable `Task`/`define_task` definitions and replaces
+the raw caller signature with actual typed creation through the same Session
+line. Input/trace and definition callbacks are captured before suspension.
+Owner/conversation checks precede the initializer; its detached-input mutations
+and returned checkpoint are validated before mint. Exact coroutine handling
+avoids foreign attribute/await/cleanup hooks. Initializer failure, invalid JSON
+and owner failure abort without task minting, commit or publication. Existing
+final-candidate ownership, atomic document rollback and persisted-value policy
+remain intact. No scheduler, runtime fence or close join is introduced.
+
+Focused typed/oracle/coverage validation passed255; the migrated predecessor
+transaction/core/document/SQLite selection passed354 with18 declared skips.
+Those skips are the sync facade's3 pending-acquisition interleavings,6 same-Tx
+held-acquisition mutations and9 unawaited pending-acquisition cases, all requiring
+the async facade. They are not eager-task-factory skips. Repository lint/format
+and type checking passed, including933 typed source files at this stage.
+
+A diagnostic real pinned comparison passed12 recipes against all3 native
+backends, with8 schema-valid semantic mutants and actual CLI0/1/2. It is not
+promoted as a final immutable-source receipt: subsequent native cleanup and
+metadata/attester repairs require fresh cumulative chains. Final closure,
+supported Python, full check, docs/rendered links and independent Opus5.5 HIGH
+CLEAN remain mandatory before normal commit/push and remote verification.
+The child's LANDED registry state is the intended coherent delivery state of
+this uncommitted slice, not evidence of a commit or push.
+
+DE05b retains every original DE05 acceptance cell: scoped commits/memos,
+sequential durable reservation and on-line invocation end; no dispatch on open;
+real SQLite death cuts before/during reservation, after running intent and
+before/after checkpoint acknowledgement; repeat resume/reopen stability; keyed
+intent/effect/receipt uncertainty; atomic terminal cleanup; lifecycle-owned
+seal/join/latest-checkpoint close rewrite before backend release; and fatal
+errors/ack loss sealing the same owner. DE05 stays IN_PROGRESS and all43 P OPEN.
+
+### DE05a first independent review
+
+Opus5.5 HIGH reviewed the whole candidate against delivered `9ce014d1` in its
+isolated copy and returned ISSUES with2 Suggestions, no Warning or Critical.
+There were no skipped/truncated/redacted/excluded/denied inputs, and its copy
+was removed. Both Suggestions are accepted: the delivered child and cumulative
+parent now link to this acceptance evidence rather than the historical pre-code
+admission; Task definitions now use identity equality/hash rather than generated
+structural comparison of callback-bearing fields. A regression pins hash/set/map
+use without invoking foreign callback equality/hash.
+
+The initial full check was interrupted and reaped before these repairs; it is
+not a passing full gate. The evidence link and token semantics materially changed,
+so focused validation and an exact-baseline independent repair review add value.
+The final full, supported-Python, docs/link and immutable fresh-chain gates still
+apply. No review verdict is relabelled CLEAN.
+
+### DE05a receipt-retention correction
+
+The accepted review repairs received an unscoped Opus5.5 HIGH CLEAN with no
+omissions. A subsequent implementer audit found an original oracle defect: the
+invalid CLI recorder used the same `invalid.json` path as its malformed input,
+overwriting that input after the actual exit2. The earlier CLI execution was
+real, but its input was not retained for attestation; no final chain is claimed
+from it. The corrected producer separates `invalid-input.json` from
+`invalid-cli.json`, retains and revalidates the malformed tree, and binds every
+process receipt to its exact CLI/driver arguments, cwd and diagnostics. Actual
+CLI0/1/2 regression tests prove input retention and reject unrelated receipt
+arguments. Product task creation is unchanged. This material evidence repair
+requires focused checks and exact-baseline independent review before delivery;
+the interrupted full/chain attempts remain diagnostic.
+
+### DE05a artifact namespace contract revision
+
+Before further code: R3 reports the additional original recipe/`input`-mutant
+collision as Critical. Its ISSUES/exit4 remains in the same DE05a ledger; no
+CLEAN or delivery is inferred. The independent bounded filename audit confirms
+those two collisions and no other current label overlap. Existing owner
+authorization permits this material repair without a new approval request.
+
+The revised contract gives immutable root recipe/producer traces exclusive
+writers; every mutant and malformed input goes under `mutants/`; every process
+record/stdout/stderr goes under `processes/`. The recorder never receives a
+producer/control directory. Exact retained content, argv paths and hashes are
+checked together. Regression includes the `input` mutant, and actual pinned
+execute-to-attest success precedes final full/cumulative-pair gates. This is a
+bounded evidence-design correction; product behavior and successor acceptance
+are unchanged. Another namespace hole after this structural separation requires
+stopping to revisit the design rather than continuing local patches.
+
+The repaired namespace passed an actual fresh pinned execute-to-attest probe:
+12 Pi recipes matched all3 native backends,8 schema-valid mutants and CLI0/1/2
+passed,703 loaded-module hashes and146 artifact hashes were attested, and the
+original recipe remained intact. Focused validation passed256. Final cumulative
+chains, full/supported-Python/docs gates and independent review still precede
+commit; this single probe is not substituted for those final gates.
