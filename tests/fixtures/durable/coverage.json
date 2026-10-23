@@ -623,11 +623,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Cumulative DE06 source contract: additive canonical DTO codec DE06a LANDED at caf4d34e; actual task checkpoint/envelope/runtime integration DE06b remains OPEN. Every original acceptance cell is retained, with child evidence owned separately and no inherited runtime or P closure."
+        "observables": "Cumulative DE06 through delivered additive DE06a and integrated DE06b. Actual versioned TaskRuntime phases preserve field-complete canonical request/provider/tool outcomes and semantic envelopes; native Memory/SQLite/reopen, process/ack cuts, private reconstruction and real family fake-wire/auth rotation evidence remain distinct from the pinned common rich-value task comparison. Original acceptance stays cumulative; every P row remains OPEN."
       },
       "future": "Field-level serialized equality including compare=False fields, raw whitespace, absent/null, thinking/redaction/signatures, images, IDs, structured/details/control/terminate and all usage/cache/cost units; reject malformed/newer data. Codec/provider privacy docs.",
-      "status": "IN_PROGRESS",
+      "status": "LANDED",
       "evidence": [
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de06b-canonical-checkpoint-acceptance",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -684,17 +685,20 @@
         "Retain every original DE06/P15/P16/P19 acceptance cell cumulatively; checkpoint phase/version validation, actual runtime recovery and provider privacy evidence."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "canonical-checkpoint-b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE06b: pre-code split recorded; no executed implementation or gate evidence claimed."
+        "observables": "Actual opt-in canonical task phases and committed request/provider/tool outcome envelopes on Memory/SQLite/reopen; original rich DTO fields and equality-excluded timing/metadata, raw args, ordered blocks/signatures, missing/null, IDs, pricing and usage retained. Native process/ack, private material/auth rotation, all catalog-family reconstruction, IAM target/mode and Codex fake SSE/header proofs. Five actual pinned Harness/SQLite/reopen common-value cases and32 CLI semantic mutants plus invalid exit2; finite-binary64-live-v1/persisted-json-zero-v1 projects only persisted common zero, with exact raw observations/type/sign controls retained. Not raw Pi arena/credential equality, generation execution or P closure."
       },
       "future": "Retain every original DE06/P15/P16/P19 acceptance cell cumulatively; checkpoint phase/version validation, actual runtime recovery and provider privacy evidence.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de06-pre-runtime-codec-split",
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de06b-canonical-checkpoint-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-canonical-codec.md"
       ],
       "inherited_reference": {
         "owners": [],

@@ -168,6 +168,7 @@ def _build_bedrock_request_body(
     model_id: str,
     region: str | None,
     reasoning_effort: str | None,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the InvokeModel body, including target-specific thinking shapes.
 
@@ -179,10 +180,10 @@ def _build_bedrock_request_body(
     tools never carry a cache point.
     """
 
-    retention = resolve_cache_retention(request.cache_retention)
+    retention = resolve_cache_retention(request.cache_retention, environment)
     cache_control = (
         anthropic_cache_control(retention, long_ttl=True)
-        if bedrock_supports_prompt_caching(model_id)
+        if bedrock_supports_prompt_caching(model_id, environment)
         else None
     )
     messages = messages_payload(
@@ -229,6 +230,16 @@ def bedrock_http_client() -> UrllibJsonHTTPClient:
     )
 
 
+def bedrock_environment(env: Mapping[str, str]) -> dict[str, Any]:
+    """Existing adapter defaults, also usable with a detached request env."""
+    return {
+        "region": env.get("AWS_REGION") or env.get("AWS_DEFAULT_REGION") or "us-east-1",
+        "access_key": env.get("AWS_ACCESS_KEY_ID"),
+        "secret_key": env.get("AWS_SECRET_ACCESS_KEY"),
+        "session_token": env.get("AWS_SESSION_TOKEN"),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class AmazonBedrockProvider:
     """Amazon Bedrock InvokeModel provider behind ProviderPort.
@@ -240,23 +251,25 @@ class AmazonBedrockProvider:
     """
 
     model_id: str
+    environment: Mapping[str, str] | None = field(
+        default=None, kw_only=True, repr=False
+    )
     region: str = field(
-        default_factory=lambda: (
-            os.environ.get("AWS_REGION")
-            or os.environ.get("AWS_DEFAULT_REGION")
-            or "us-east-1"
-        )
+        default_factory=lambda: bedrock_environment(os.environ)["region"]
     )
     # ``repr=False`` on credential-bearing fields so a stray repr never leaks
     # the AWS signing keys.
     access_key: str | None = field(
-        default_factory=lambda: os.environ.get("AWS_ACCESS_KEY_ID"), repr=False
+        default_factory=lambda: bedrock_environment(os.environ)["access_key"],
+        repr=False,
     )
     secret_key: str | None = field(
-        default_factory=lambda: os.environ.get("AWS_SECRET_ACCESS_KEY"), repr=False
+        default_factory=lambda: bedrock_environment(os.environ)["secret_key"],
+        repr=False,
     )
     session_token: str | None = field(
-        default_factory=lambda: os.environ.get("AWS_SESSION_TOKEN"), repr=False
+        default_factory=lambda: bedrock_environment(os.environ)["session_token"],
+        repr=False,
     )
     http_client: JsonHTTPClient = field(default_factory=bedrock_http_client)
     endpoint_template: str = BEDROCK_ENDPOINT_TEMPLATE
@@ -339,6 +352,7 @@ class AmazonBedrockProvider:
             model_id=self.model_id,
             region=self.region,
             reasoning_effort=self.reasoning_effort,
+            environment=self.environment,
         )
 
         encoded_body = json.dumps(body).encode("utf-8")

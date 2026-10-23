@@ -381,6 +381,9 @@ class AnthropicProvider:
     """
 
     model_id: str
+    environment: Mapping[str, str] | None = field(
+        default=None, kw_only=True, repr=False
+    )
     # ``repr=False`` on credential-bearing fields so a stray repr/log never
     # leaks the api key or auth headers.
     api_key: str | None = field(
@@ -479,7 +482,7 @@ class AnthropicProvider:
         # split. ``display`` is forced to "summarized" on both paths, matching Pi
         # (anthropic.ts:954, :969-973), so the adaptive models (API default
         # "omitted") still return a thinking summary.
-        retention = resolve_cache_retention(request.cache_retention)
+        retention = resolve_cache_retention(request.cache_retention, self.environment)
         adaptive = (
             self.force_adaptive_thinking
             if self.force_adaptive_thinking is not None

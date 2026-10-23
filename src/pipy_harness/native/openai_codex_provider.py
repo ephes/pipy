@@ -864,6 +864,9 @@ class OpenAICodexResponsesProvider:
     """
 
     model_id: str
+    extra_headers: Mapping[str, str] = field(
+        default_factory=dict, repr=False, kw_only=True
+    )
     auth_manager: OpenAICodexAuthManager = field(default_factory=OpenAICodexAuthManager)
     http_client: SseHTTPClient = field(default_factory=UrllibSseHTTPClient)
     websocket_client: WebSocketClient = field(default_factory=WebsocketsSyncClient)
@@ -1150,31 +1153,45 @@ def _codex_completion_configuration(
     codex_session_id = _codex_session_id(request)
     body = _codex_request_body(provider, request, codex_session_id)
     extension_headers = apply_provider_headers(request, {})
+    static = {key.lower(): value for key, value in provider.extra_headers.items()}
+    # HTTP field names are case-insensitive on both SSE and WebSocket transports.
     base_headers = {
-        **extension_headers,
+        key.lower(): (key, value)
+        for key, value in {**provider.extra_headers, **extension_headers}.items()
+    }
+    live = {
         "Authorization": f"Bearer {credentials.access_token}",
         "chatgpt-account-id": credentials.account_id,
-        "originator": "pipy",
-        "User-Agent": "pipy",
+        "originator": static.get("originator", "pipy"),
+        "User-Agent": static.get("user-agent", "pipy"),
     }
-    sse_headers = {
-        **base_headers,
+    base_headers.update({key.lower(): (key, value) for key, value in live.items()})
+
+    def headers_with(fields: Mapping[str, str]) -> dict[str, str]:
+        merged = {
+            **base_headers,
+            **{key.lower(): (key, value) for key, value in fields.items()},
+        }
+        return dict(merged.values())
+
+    sse_fields = {
         "Accept": "text/event-stream",
         "Content-Type": "application/json",
         "OpenAI-Beta": "responses=experimental",
     }
     if codex_session_id:
-        sse_headers["session-id"] = codex_session_id
-        sse_headers["x-client-request-id"] = codex_session_id
-    # Pi derives the WebSocket request id once per call: the cache session id
-    # when there is one, else a fresh opaque id (``openai-codex-responses.ts:282``).
+        sse_fields["session-id"] = codex_session_id
+        sse_fields["x-client-request-id"] = codex_session_id
+    sse_headers = headers_with(sse_fields)
+    # Pi derives the request id once per call, using cache session id when present.
     websocket_request_id = codex_session_id or provider.request_id_factory()
-    websocket_headers = {
-        **base_headers,
-        "OpenAI-Beta": "responses_websockets=2026-02-06",
-        "session-id": websocket_request_id,
-        "x-client-request-id": websocket_request_id,
-    }
+    websocket_headers = headers_with(
+        {
+            "OpenAI-Beta": "responses_websockets=2026-02-06",
+            "session-id": websocket_request_id,
+            "x-client-request-id": websocket_request_id,
+        }
+    )
     http_client: SseHTTPClient = provider.http_client
     if type(http_client) is UrllibSseHTTPClient:
         http_client = UrllibSseHTTPClient(retry_clock=provider.retry_clock)

@@ -290,6 +290,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE06b",
     "DE05b",
     "DE05a",
     "DE04b1b3b",
@@ -307,6 +308,7 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE06": "de06b-canonical-checkpoint-acceptance",
     "DE05": "de05b-runtime-reservation-recovery-acceptance",
     "DE05a": "de05a-typed-creation-acceptance",
     "DE05b": "de05b-runtime-reservation-recovery-acceptance",
@@ -349,7 +351,7 @@ DE_EVIDENCE = {
     "DE03c2": "de03b-delivery-and-de03c-split",
     "DE03d": "de02b3-delivery-and-de03-split",
     "DE06a": "de06-pre-runtime-codec-split",
-    "DE06b": "de06-pre-runtime-codec-split",
+    "DE06b": "de06b-canonical-checkpoint-acceptance",
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
     "DE04a": "de04a-verified-delivery-and-de04b1a-integration-successor",
@@ -389,6 +391,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE04b1b3b": ["session-checkpoints-j-v1"],
         "DE05a": ["task-creation-a-v1"],
         "DE05b": ["task-runtime-b-v1"],
+        "DE06b": ["canonical-checkpoint-b-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -420,22 +423,18 @@ def de_current(row: Any, c: Any) -> None:
         links.append(
             "docs/durable-reference.md#exhaustive-current-and-future-evidence-index"
         )
-    if key == "DE03d2":
-        links.append(
-            "docs/durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2"
-        )
-    if key == "DE04b1b1":
-        links.append("docs/durable-draft-tracker.md")
-    if key == "DE04b1b2":
-        links.append("docs/durable-current-deltas.md")
-    if key == "DE04b1b3a":
-        links.append("docs/durable-session-deltas.md")
-    if key == "DE04b1b3b":
-        links.append("docs/durable-session-checkpoints.md")
-    if key == "DE05a":
-        links.append("docs/durable-task-creation.md")
-    if key == "DE05b":
-        links.append("docs/durable-task-runtime.md")
+    topics = {
+        "DE03d2": "docs/durable-reference.md#closed-sqlite-oracle-and-lifetime-witness-de03d2",
+        "DE04b1b1": "docs/durable-draft-tracker.md",
+        "DE04b1b2": "docs/durable-current-deltas.md",
+        "DE04b1b3a": "docs/durable-session-deltas.md",
+        "DE04b1b3b": "docs/durable-session-checkpoints.md",
+        "DE05a": "docs/durable-task-creation.md",
+        "DE05b": "docs/durable-task-runtime.md",
+        "DE06b": "docs/durable-canonical-codec.md",
+    }
+    if key in topics:
+        links.append(topics[key])
     require(row["evidence"] == links, "DE bounded evidence link drift", c)
 
 
@@ -603,6 +602,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"session-checkpoints-j-v1"} if key == "DE04b1b3b" else set())
                 | ({"task-creation-a-v1"} if key == "DE05a" else set())
                 | ({"task-runtime-b-v1"} if key == "DE05b" else set())
+                | ({"canonical-checkpoint-b-v1"} if key == "DE06b" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

@@ -1064,3 +1064,17 @@ structural comparison and UTF-16 lookup, without changing document equality.
 See [the runtime contract](durable-task-runtime.md). This package remains outside
 the shipped AgentLoop/CLI/TUI execution path; later durable adoption owns that
 transition and there is no second product storage authority.
+
+
+## Private canonical task envelopes
+
+`native.durable.checkpoint_codec` wraps existing typed phase handlers and commits;
+it does not replace the scheduler or restrict generic finite-JSON tasks.
+`provider_settings` closes options/pricing schemas, `provider_inputs` owns the
+existing construction inputs, and `provider_checkpoint` binds saved semantics to
+existing provider construction and live auth. `native.auth_material` owns an
+immutable companion under the existing auth-file lock; worker credential
+snapshots are read-only. Provider adapters share IAM environment-default helpers
+with target binding and accept a detached environment without global mutation.
+No authentication or provider policy engine is duplicated. See the
+[codec/reconstruction contract](durable-canonical-codec.md).

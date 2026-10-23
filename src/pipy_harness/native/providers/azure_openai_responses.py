@@ -70,6 +70,44 @@ AZURE_OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
+def azure_base_url(
+    endpoint_url: str | None,
+    resource_name: str | None,
+    env: Mapping[str, str] | None = None,
+) -> str | None:
+    """Resolve Pi's Azure target using the selected environment authority."""
+    source = os.environ if env is None else env
+    env_base = source.get("AZURE_OPENAI_BASE_URL")
+    if env_base and env_base.strip():
+        return env_base.strip()
+    resource_name = resource_name or source.get("AZURE_OPENAI_RESOURCE_NAME")
+    if resource_name:
+        return f"https://{resource_name}.openai.azure.com/openai/v1"
+    return endpoint_url
+
+
+def azure_deployment(
+    model_id: str,
+    deployment: str | None,
+    env: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve Pi's explicit deployment, environment map, then model fallback."""
+    source = os.environ if env is None else env
+    if deployment:
+        return deployment
+    return (
+        _parse_deployment_name_map(source.get("AZURE_OPENAI_DEPLOYMENT_NAME_MAP")).get(
+            model_id
+        )
+        or model_id
+    )
+
+
+def azure_api_version(env: Mapping[str, str] | None = None) -> str:
+    source = os.environ if env is None else env
+    return source.get("AZURE_OPENAI_API_VERSION") or DEFAULT_AZURE_OPENAI_API_VERSION
+
+
 @dataclass(frozen=True, slots=True)
 class _AzureOpenAIRequestConfiguration:
     """Validated, single-read configuration for one Responses request."""
@@ -179,17 +217,15 @@ class AzureOpenAIResponsesProvider:
     """
 
     model_id: str
+    environment: Mapping[str, str] | None = field(
+        default=None, kw_only=True, repr=False
+    )
     endpoint_url: str | None = None
     resource_name: str | None = None
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("AZURE_OPENAI_API_KEY"), repr=False
     )
-    api_version: str = field(
-        default_factory=lambda: (
-            os.environ.get("AZURE_OPENAI_API_VERSION")
-            or DEFAULT_AZURE_OPENAI_API_VERSION
-        )
-    )
+    api_version: str = field(default_factory=lambda: azure_api_version(os.environ))
     deployment: str | None = None
     # Ordinary construction streams; explicit JSON injection preserves the
     # original buffered request bytes and response/error contract.
@@ -233,25 +269,11 @@ class AzureOpenAIResponsesProvider:
     def _resolve_base_url(self) -> str | None:
         """Resolve the effective Azure base URL (Pi ``resolveAzureConfig``)."""
 
-        env_base = os.environ.get("AZURE_OPENAI_BASE_URL")
-        if env_base and env_base.strip():
-            return env_base.strip()
-        resource_name = self.resource_name or os.environ.get(
-            "AZURE_OPENAI_RESOURCE_NAME"
-        )
-        if resource_name:
-            return f"https://{resource_name}.openai.azure.com/openai/v1"
-        return self.endpoint_url
+        return azure_base_url(self.endpoint_url, self.resource_name, self.environment)
 
     def _resolve_deployment(self) -> str:
         """Resolve the deployment name (Pi ``resolveDeploymentName``)."""
-
-        if self.deployment:
-            return self.deployment
-        mapped = _parse_deployment_name_map(
-            os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME_MAP")
-        ).get(self.model_id)
-        return mapped or self.model_id
+        return azure_deployment(self.model_id, self.deployment, self.environment)
 
     def _configuration_preflight(
         self,

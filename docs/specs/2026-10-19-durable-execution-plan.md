@@ -1,7 +1,7 @@
 # Native durable execution implementation plan
 
 Status: **execution authorized; DE01 and DE02 with all children landed;
-DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a landed, DE06 IN_PROGRESS and DE06b OPEN**,
+DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED**,
 2026-10-22. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
@@ -766,3 +766,17 @@ use one owner event loop/thread, consistently guarded scheduling state, and the
 existing Session lifecycle as the sole sealing/backend-close authority. This
 choice admits no fake invocation fence or callback-only join. DE14/15/16/23 and
 other later requirements retain their original ownership.
+
+
+### DE06b canonical checkpoint integration
+
+DE06b joins the delivered DE05b runtime and DE06a arena through opt-in canonical
+phase wrappers, prepared request semantics and provider/tool outcome envelopes.
+All original DE06 acceptance is mapped in the
+[evidence ledger](2026-10-19-durable-execution-evidence.md#de06b-canonical-checkpoint-acceptance).
+Provider reconstruction uses shared native construction/auth policy, private
+immutable material references and live credential rotation. Current catalog
+families include explicit IAM target binding and Codex static headers. Actual
+pinned task/SQLite serialization comparison has a declared persisted-number
+projection; native field/type/privacy/wire evidence remains separate. No DE07
+execution or P closure follows. DE07 is next; all43 P rows stay OPEN.

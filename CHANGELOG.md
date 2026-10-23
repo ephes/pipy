@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Activate private canonical durable checkpoints on real versioned task phases,
+  preserving rich requests/outcomes, saved provider semantics and pricing.
+  Reconstruction uses live credentials and immutable auth-owned private header/
+  target references; malformed data, source drift and callbacks refuse before
+  provider effects. Product defaults remain unchanged.
+- Forward configured static headers through the native Codex construction path;
+  live Codex authentication overwrites Authorization/account headers regardless
+  of casing. Internal reconstruction uses the selected colocated Codex auth store
+  and binds detached Azure target/API and transport cache defaults.
+
 - Add a private sequential durable task runtime with explicit resume, acknowledged
   reservations, scoped entries/documents and first-writer memos. Interrupted
   running tasks recover once; close joins phase finalizers, preserves the latest

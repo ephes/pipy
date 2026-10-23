@@ -514,7 +514,7 @@ def test_sqlite_storage_parent_cannot_land_with_an_open_child(tmp_path, child):
 
 def test_canonical_codec_split_retains_cumulative_acceptance():
     rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
-    assert rows["DE06"]["status"] == "IN_PROGRESS"
+    assert rows["DE06"]["status"] == "LANDED"
     assert rows["DE06a"]["status"] == "LANDED"
     assert "delivery still pending" not in rows["DE06a"]["current"]["observables"]
     assert rows["DE06a"]["plan_cells"][0] == "DE06a / DE02a1"
@@ -539,7 +539,7 @@ def test_current_delivery_gate_names_current_reviewer_and_lanes():
     current = text.split("## Next delivery gate\n", 1)[1].split("\n## ", 1)[0]
     assert "DE04 and all its children are delivered" in current
     assert "DE05a" in current and "DE05b" in current
-    assert "DE06b waits for full" in current and "delivered DE06a" in current
+    assert "Delivered DE06a" in current and "DE07 generation" in current
     assert "claude-opus-5-5" in current and "HIGH" in current
     assert "Codex gpt-6.1-sol HIGH CLEAN" not in current
     assert "All43 P rows remain OPEN" in current
@@ -761,6 +761,28 @@ def test_de05_children_preserve_full_execution_acceptance():
         "same owner",
     ):
         assert acceptance in future
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+
+
+def test_canonical_runtime_completion_owns_exact_acceptance_without_p_closure():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    assert rows["DE06b"]["status"] == rows["DE06"]["status"] == "LANDED"
+    assert rows["DE06b"]["current"]["cases"] == ["canonical-checkpoint-b-v1"]
+    assert (
+        rows["DE06b"]["evidence"][0]
+        == a.LEDGER + "#de06b-canonical-checkpoint-acceptance"
+    )
+    assert rows["DE06"]["evidence"][0] == rows["DE06b"]["evidence"][0]
+    for text in (
+        "compare=False",
+        "raw whitespace",
+        "absent/null",
+        "thinking/redaction/signatures",
+        "usage/cache/cost",
+    ):
+        assert text in rows["DE06"]["future"]
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )

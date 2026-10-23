@@ -1332,3 +1332,24 @@ Only the root result receipt is excluded from its own artifact hash map;
 `mutants/result.json` remains covered. Producer, `mutants/` and `processes/`
 namespaces are disjoint. Native real process-death, external-effect and thread
 barrier tests are additional requirements, not replaced by this paired trace.
+
+
+## Canonical checkpoints (DE06b)
+
+`scripts/durable_checkpoint_comparison.py run --acceptance <fresh-parent>
+--output <new-output>` runs actual pinned Harness typed tasks and SQLite reopen,
+then native canonical phases on Memory/SQLite/reopen. It compares the declared
+common rich-value projection, including all registered DTO fields and
+compare=False metadata. The exact source input is
+`tests/fixtures/durable/canonical-input-v1.json`; the closed15th manifest is
+`canonical-checkpoint-v1.manifest.json`. `attest(folder, acceptance)` separately
+rechecks actual source/module/input/argv/process/artifact receipts.
+
+`finite-binary64-live-v1/persisted-json-zero-v1` preserves live phase bits and
+projects negative zero only in terminal/reopened common views. Raw exact native
+and Pi observations retain that difference; native committed-arena scalar types,
+missing/null/unset and sign have independent checks. Native auth-owned header/
+target reconstruction, rotations and family fake wires are separate evidence.
+This does not claim raw Pi arena/credential equality or DE07 execution. See
+[the complete codec contract](durable-canonical-codec.md) and
+[acceptance mapping](specs/2026-10-19-durable-execution-evidence.md#de06b-canonical-checkpoint-acceptance).

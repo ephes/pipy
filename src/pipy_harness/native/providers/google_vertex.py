@@ -219,6 +219,29 @@ class _VertexPreflightFailure:
     error_message: str
 
 
+def vertex_environment(env: Mapping[str, str]) -> dict[str, Any]:
+    """Existing adapter target/auth defaults for a detached request env."""
+    return {
+        "project_id": env.get("GOOGLE_CLOUD_PROJECT") or env.get("GOOGLE_PROJECT_ID"),
+        "location": env.get("GOOGLE_CLOUD_LOCATION") or "us-central1",
+        "access_token": env.get("GOOGLE_ACCESS_TOKEN"),
+    }
+
+
+def resolve_vertex_express_api_key(value: str | None) -> str | None:
+    """Pi's existing trim/marker rule shared with target-mode pinning."""
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if (
+        not trimmed
+        or trimmed == GCP_VERTEX_CREDENTIALS_MARKER
+        or _PLACEHOLDER_API_KEY_RE.match(trimmed)
+    ):
+        return None
+    return trimmed
+
+
 @dataclass(frozen=True, slots=True)
 class GoogleVertexProvider:
     """Google Vertex AI ``generateContent`` provider behind ProviderPort.
@@ -253,16 +276,14 @@ class GoogleVertexProvider:
 
     model_id: str
     project_id: str | None = field(
-        default_factory=lambda: (
-            os.environ.get("GOOGLE_CLOUD_PROJECT")
-            or os.environ.get("GOOGLE_PROJECT_ID")
-        )
+        default_factory=lambda: vertex_environment(os.environ)["project_id"]
     )
     location: str = field(
-        default_factory=lambda: os.environ.get("GOOGLE_CLOUD_LOCATION") or "us-central1"
+        default_factory=lambda: vertex_environment(os.environ)["location"]
     )
     access_token: str | None = field(
-        default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN"), repr=False
+        default_factory=lambda: vertex_environment(os.environ)["access_token"],
+        repr=False,
     )
     # Vertex Express API key. Defaults to ``GOOGLE_CLOUD_API_KEY`` for direct
     # construction; catalog construction forwards the resolved key (which may be
@@ -299,16 +320,7 @@ class GoogleVertexProvider:
         ``<placeholder>`` value (e.g. the ``<authenticated>`` ambient sentinel).
         """
 
-        if self.api_key is None:
-            return None
-        trimmed = self.api_key.strip()
-        if (
-            not trimmed
-            or trimmed == GCP_VERTEX_CREDENTIALS_MARKER
-            or _PLACEHOLDER_API_KEY_RE.match(trimmed)
-        ):
-            return None
-        return trimmed
+        return resolve_vertex_express_api_key(self.api_key)
 
     def _preflight_configuration(
         self,

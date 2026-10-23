@@ -140,3 +140,17 @@ an actual pinned Harness/TaskScheduler pair; see the
 ownership/wait/completing and abort/reload remain DE14/15/16/23. Unknown or
 unsupported records stay durable; the interim refuses unsupported ownership
 execution rather than fabricating terminal owners. P06/P07/P09/P10 remain OPEN.
+
+
+### Native canonical checkpoint integration (DE06b)
+
+The private package now joins canonical arenas to actual versioned task phases,
+request semantics and provider/tool outcome receipts. Its opt-in phase wrappers
+reuse the delivered runtime. Shared construction policy and an auth-owned private
+material companion reconstruct headers/targets without serializing credentials
+or callbacks. The comparison observes rich finite values through actual pinned
+Harness task/SQLite transitions and native decoded DTOs; it is not Pi's raw arena
+format, full generation, or raw credential equality. Explicit terminal/reopen
+negative-zero representation accounting and native-only type/privacy/wire proofs
+are documented in [the codec contract](../durable-canonical-codec.md). Every
+published requirement retains its original owning slices; all P rows remain OPEN.

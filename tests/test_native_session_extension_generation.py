@@ -1955,6 +1955,7 @@ def test_provider_construction_inventory_excludes_catalog_and_auth_owners() -> N
         "thinking_level",
         "options",
         "http_client",
+        "environment",
     ]
     assert list(inspect.signature(try_build_extension_provider_port).parameters) == [
         "registered",
@@ -1965,6 +1966,12 @@ def test_provider_construction_inventory_excludes_catalog_and_auth_owners() -> N
         "default_model",
         "model_id",
     ]
+
+    # Detached IAM values are optional; the constructor still accepts no mutable
+    # catalog/AuthStore owner and legacy ambient defaults remain unchanged.
+    environment = inspect.signature(build_provider).parameters["environment"]
+    assert environment.kind is inspect.Parameter.KEYWORD_ONLY
+    assert environment.default is None
 
 
 def test_builtin_models_json_disappearance_is_shadow_only_and_publishable(

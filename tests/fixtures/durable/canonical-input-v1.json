@@ -1,0 +1,667 @@
+{
+  "schema_version": 1,
+  "phase": "canonical-checkpoint-b-v1",
+  "cases": [
+    {
+      "id": "request",
+      "payload": {
+        "$type": "AgentProviderRequestSnapshot",
+        "fields": {
+          "request": {
+            "$type": "ProviderRequest",
+            "fields": {
+              "system_prompt": "system",
+              "user_prompt": "input",
+              "provider_name": "fixture",
+              "model_id": "model",
+              "cwd": {
+                "$path": "/workspace/\u00e4"
+              },
+              "provider_turn_index": 7,
+              "provider_turn_label": "tools",
+              "tool_observation": null,
+              "messages": {
+                "$tuple": [
+                  {
+                    "$type": "AgentUserMessage",
+                    "fields": {
+                      "content": {
+                        "$type": "ProductContent",
+                        "fields": {
+                          "value": "input"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "$type": "AgentAssistantMessage",
+                    "fields": {
+                      "content": {
+                        "$type": "ProductContent",
+                        "fields": {
+                          "value": "firstsecond"
+                        }
+                      },
+                      "tool_calls": {
+                        "$tuple": [
+                          {
+                            "$type": "AgentToolCall",
+                            "fields": {
+                              "provider_correlation_id": "correlation:1",
+                              "tool_name": "read",
+                              "arguments_json": {
+                                "$type": "ProductContent",
+                                "fields": {
+                                  "value": " { \"value\": [1,  2], \"text\": \"\u00e4\" } \n"
+                                }
+                              },
+                              "thought_signature": "tool-signature"
+                            }
+                          }
+                        ]
+                      },
+                      "stop_reason": {
+                        "$enum": "AgentStopReason",
+                        "value": "error"
+                      },
+                      "error_message": "failed",
+                      "usage": {
+                        "$type": "AgentMessageUsage",
+                        "fields": {
+                          "input": 11,
+                          "output": 22,
+                          "cache_read": 33,
+                          "cache_write": 44,
+                          "total_tokens": 110,
+                          "cost": {
+                            "$type": "AgentUsageCost",
+                            "fields": {
+                              "input": 0.1,
+                              "output": 0.2,
+                              "cache_read": 0.3,
+                              "cache_write": 0.4,
+                              "total": 1.0
+                            }
+                          },
+                          "reasoning": 5,
+                          "cache_write_1h": 6
+                        }
+                      },
+                      "provider": "fixture",
+                      "model": "model",
+                      "provider_thinking_level": "high",
+                      "blocks": {
+                        "$tuple": [
+                          {
+                            "$type": "ThinkingContent",
+                            "fields": {
+                              "thinking": "thought",
+                              "signature": "thinking-signature",
+                              "redacted": true
+                            }
+                          },
+                          {
+                            "$type": "TextContent",
+                            "fields": {
+                              "text": "first",
+                              "signature": "text-signature"
+                            }
+                          },
+                          {
+                            "$type": "AgentToolCall",
+                            "fields": {
+                              "provider_correlation_id": "correlation:1",
+                              "tool_name": "read",
+                              "arguments_json": {
+                                "$type": "ProductContent",
+                                "fields": {
+                                  "value": " { \"value\": [1,  2], \"text\": \"\u00e4\" } \n"
+                                }
+                              },
+                              "thought_signature": "tool-signature"
+                            }
+                          },
+                          {
+                            "$type": "TextContent",
+                            "fields": {
+                              "text": "second",
+                              "signature": null
+                            }
+                          }
+                        ]
+                      },
+                      "api": "openai-completions"
+                    }
+                  },
+                  {
+                    "$type": "AgentToolResultMessage",
+                    "fields": {
+                      "tool_request_id": "pipy-tool-oracle",
+                      "tool_name": "read",
+                      "content": {
+                        "$type": "ProductContent",
+                        "fields": {
+                          "value": "text"
+                        }
+                      },
+                      "provider_correlation_id": "correlation:1",
+                      "is_error": true,
+                      "details": {
+                        "deep": [
+                          {
+                            "diagnostic": "kept",
+                            "zero": -0.0
+                          }
+                        ]
+                      },
+                      "structured_content": {
+                        "$enum": "NoStructuredContent",
+                        "value": "NO_STRUCTURED_CONTENT"
+                      },
+                      "blocks": {
+                        "$tuple": [
+                          {
+                            "$type": "TextContent",
+                            "fields": {
+                              "text": "text",
+                              "signature": null
+                            }
+                          },
+                          {
+                            "$type": "ImageContent",
+                            "fields": {
+                              "data": "aGVsbG8=",
+                              "mime_type": "image/png"
+                            }
+                          }
+                        ]
+                      },
+                      "terminate": true
+                    }
+                  }
+                ]
+              },
+              "available_tools": {
+                "$tuple": [
+                  {
+                    "$type": "ToolDefinition",
+                    "fields": {
+                      "name": "read",
+                      "description": "Read",
+                      "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "exposure": "direct",
+                      "namespace": null,
+                      "annotations": null,
+                      "output_schema": null,
+                      "reaches_tools": null,
+                      "default_active": true,
+                      "prepare_loadout": null,
+                      "schema_mode": "strict",
+                      "prompt_snippet": null,
+                      "prompt_guidelines": {
+                        "$tuple": []
+                      },
+                      "execution_mode": null
+                    }
+                  }
+                ]
+              },
+              "attachments": {
+                "$tuple": [
+                  {
+                    "$type": "ProviderImageAttachment",
+                    "fields": {
+                      "media_type": "image/png",
+                      "data_base64": "aGVsbG8=",
+                      "byte_count": 5,
+                      "sha256": "fixture-digest",
+                      "source_label": "image.png"
+                    }
+                  }
+                ]
+              },
+              "provider_header_callback": null,
+              "session_id": "cache-session",
+              "cache_retention": "long",
+              "system_messages": {
+                "$tuple": [
+                  {
+                    "$type": "ProviderSystemMessage",
+                    "fields": {
+                      "position": 0,
+                      "message": {
+                        "$type": "AgentSystemMessage",
+                        "fields": {
+                          "content": {
+                            "$type": "ProductContent",
+                            "fields": {
+                              "value": "system"
+                            }
+                          },
+                          "sections": {
+                            "$tuple": [
+                              {
+                                "$tuple": [
+                                  "section",
+                                  "value"
+                                ]
+                              },
+                              {
+                                "$tuple": [
+                                  "gone",
+                                  null
+                                ]
+                              }
+                            ]
+                          },
+                          "tools_added": {
+                            "$tuple": [
+                              {
+                                "$type": "AgentToolDeclaration",
+                                "fields": {
+                                  "name": "read",
+                                  "description": "Read",
+                                  "parameters_json": "{\"type\":\"object\"}"
+                                }
+                              }
+                            ]
+                          },
+                          "tools_removed": {
+                            "$tuple": [
+                              "hidden"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "hidden_tool_names": {
+                "$tuple": [
+                  "hidden"
+                ]
+              },
+              "undeclared_tool_names": {
+                "$tuple": [
+                  "callable-only"
+                ]
+              }
+            }
+          },
+          "advertised_tool_names": {
+            "$tuple": [
+              "read"
+            ]
+          }
+        }
+      },
+      "identity": {
+        "attempt": "attempt:1",
+        "request": "request:1",
+        "cutoff": 17
+      },
+      "settings": {
+        "provider": "fixture",
+        "model": "model",
+        "api": "openai-completions",
+        "thinking": "high",
+        "options": {
+          "retry": null,
+          "timeout_seconds": 300.0,
+          "transport": "auto",
+          "connect_timeout_seconds": 15.0
+        },
+        "pricing": {
+          "input_per_million": 1.0,
+          "output_per_million": 2.0,
+          "cache_read_per_million": 3.0,
+          "cache_write_per_million": 4.0,
+          "tiers": []
+        },
+        "headers": {
+          "X-Fixture": "fake-private-header"
+        }
+      }
+    },
+    {
+      "id": "provider",
+      "payload": {
+        "$type": "ProviderTurnOutcome",
+        "fields": {
+          "result": {
+            "$type": "ProviderResult",
+            "fields": {
+              "status": {
+                "$enum": "HarnessStatus",
+                "value": "succeeded"
+              },
+              "provider_name": "fixture",
+              "model_id": "model",
+              "started_at": {
+                "$datetime": "2026-10-22T12:34:56.000789+02:00",
+                "fold": 1,
+                "zone": "named offset"
+              },
+              "ended_at": {
+                "$datetime": "2026-10-22T12:34:58.000789+02:00",
+                "fold": 0,
+                "zone": "named offset"
+              },
+              "final_text": "firstsecond",
+              "usage": {
+                "input_tokens": 11,
+                "output_tokens": 22,
+                "reasoning_tokens": 5,
+                "cache_read_tokens": 33,
+                "cache_write_tokens": 44,
+                "cache_write_1h_tokens": 6,
+                "total_tokens": 110,
+                "cost": {
+                  "input": 0.1,
+                  "output": 0.2,
+                  "cache_read": 0.3,
+                  "cache_write": 0.4,
+                  "total": 1
+                }
+              },
+              "metadata": {
+                "control": {
+                  "continue": false
+                },
+                "diagnostic": [
+                  1,
+                  null
+                ]
+              },
+              "error_type": "provider_error",
+              "error_message": "failure",
+              "tool_calls": {
+                "$tuple": [
+                  {
+                    "$type": "ProviderToolCall",
+                    "fields": {
+                      "provider_correlation_id": "correlation:1",
+                      "tool_name": "read",
+                      "arguments_json": " { \"value\": [1,  2], \"text\": \"\u00e4\" } \n",
+                      "thought_signature": "tool-signature"
+                    }
+                  }
+                ]
+              },
+              "provider_thinking_level": "high",
+              "content_blocks": {
+                "$tuple": [
+                  {
+                    "$type": "ThinkingContent",
+                    "fields": {
+                      "thinking": "thought",
+                      "signature": "thinking-signature",
+                      "redacted": true
+                    }
+                  },
+                  {
+                    "$type": "TextContent",
+                    "fields": {
+                      "text": "first",
+                      "signature": "text-signature"
+                    }
+                  },
+                  {
+                    "$type": "ProviderToolCall",
+                    "fields": {
+                      "provider_correlation_id": "correlation:1",
+                      "tool_name": "read",
+                      "arguments_json": " { \"value\": [1,  2], \"text\": \"\u00e4\" } \n",
+                      "thought_signature": "tool-signature"
+                    }
+                  },
+                  {
+                    "$type": "TextContent",
+                    "fields": {
+                      "text": "second",
+                      "signature": null
+                    }
+                  }
+                ]
+              },
+              "api": "openai-completions"
+            }
+          },
+          "cancellation_reason": null,
+          "partial": null,
+          "retry_wait_cancelled": false
+        }
+      },
+      "identity": {
+        "attempt": "attempt:1",
+        "request": "request:1",
+        "cutoff": 17
+      },
+      "settings": {
+        "provider": "fixture",
+        "model": "model",
+        "api": "openai-completions",
+        "thinking": "high",
+        "options": {
+          "retry": null,
+          "timeout_seconds": 300.0,
+          "transport": "auto",
+          "connect_timeout_seconds": 15.0
+        },
+        "pricing": {
+          "input_per_million": 1.0,
+          "output_per_million": 2.0,
+          "cache_read_per_million": 3.0,
+          "cache_write_per_million": 4.0,
+          "tiers": []
+        },
+        "headers": {
+          "X-Fixture": "fake-private-header"
+        }
+      }
+    },
+    {
+      "id": "tool-missing",
+      "payload": {
+        "$type": "ToolExecutionOutcome",
+        "fields": {
+          "result": {
+            "$type": "AgentToolResultMessage",
+            "fields": {
+              "tool_request_id": "pipy-tool-oracle",
+              "tool_name": "read",
+              "content": {
+                "$type": "ProductContent",
+                "fields": {
+                  "value": "text"
+                }
+              },
+              "provider_correlation_id": "correlation:1",
+              "is_error": true,
+              "details": {
+                "deep": [
+                  {
+                    "diagnostic": "kept",
+                    "zero": -0.0
+                  }
+                ]
+              },
+              "structured_content": {
+                "$enum": "NoStructuredContent",
+                "value": "NO_STRUCTURED_CONTENT"
+              },
+              "blocks": {
+                "$tuple": [
+                  {
+                    "$type": "TextContent",
+                    "fields": {
+                      "text": "text",
+                      "signature": null
+                    }
+                  },
+                  {
+                    "$type": "ImageContent",
+                    "fields": {
+                      "data": "aGVsbG8=",
+                      "mime_type": "image/png"
+                    }
+                  }
+                ]
+              },
+              "terminate": true
+            }
+          },
+          "malformed_arguments": true,
+          "interruption": {
+            "$enum": "ToolExecutionInterruption",
+            "value": "operator_abort"
+          },
+          "cancelled": true,
+          "execution_seconds": 0.125
+        }
+      },
+      "identity": {
+        "attempt": "attempt:1",
+        "request": "request:1",
+        "cutoff": 17
+      },
+      "settings": null
+    },
+    {
+      "id": "tool-null",
+      "payload": {
+        "$type": "ToolExecutionOutcome",
+        "fields": {
+          "result": {
+            "$type": "AgentToolResultMessage",
+            "fields": {
+              "tool_request_id": "pipy-tool-oracle",
+              "tool_name": "read",
+              "content": {
+                "$type": "ProductContent",
+                "fields": {
+                  "value": "text"
+                }
+              },
+              "provider_correlation_id": "correlation:1",
+              "is_error": true,
+              "details": {
+                "deep": [
+                  {
+                    "diagnostic": "kept",
+                    "zero": -0.0
+                  }
+                ]
+              },
+              "structured_content": null,
+              "blocks": {
+                "$tuple": [
+                  {
+                    "$type": "TextContent",
+                    "fields": {
+                      "text": "text",
+                      "signature": null
+                    }
+                  },
+                  {
+                    "$type": "ImageContent",
+                    "fields": {
+                      "data": "aGVsbG8=",
+                      "mime_type": "image/png"
+                    }
+                  }
+                ]
+              },
+              "terminate": true
+            }
+          },
+          "malformed_arguments": true,
+          "interruption": {
+            "$enum": "ToolExecutionInterruption",
+            "value": "operator_abort"
+          },
+          "cancelled": true,
+          "execution_seconds": 0.125
+        }
+      },
+      "identity": {
+        "attempt": "attempt:1",
+        "request": "request:1",
+        "cutoff": 17
+      },
+      "settings": null
+    },
+    {
+      "id": "cancelled",
+      "payload": {
+        "$type": "ProviderTurnOutcome",
+        "fields": {
+          "result": null,
+          "cancellation_reason": {
+            "$enum": "AgentCancellationReason",
+            "value": "operator_abort"
+          },
+          "partial": {
+            "$type": "ProviderPartial",
+            "fields": {
+              "content_blocks": {
+                "$tuple": [
+                  {
+                    "$type": "ThinkingContent",
+                    "fields": {
+                      "thinking": "partial",
+                      "signature": "sig",
+                      "redacted": true
+                    }
+                  },
+                  {
+                    "$type": "ProviderToolCall",
+                    "fields": {
+                      "provider_correlation_id": "correlation:1",
+                      "tool_name": "read",
+                      "arguments_json": " { \"value\": [1,  2], \"text\": \"\u00e4\" } \n",
+                      "thought_signature": "tool-signature"
+                    }
+                  }
+                ]
+              },
+              "provider_thinking_level": "medium"
+            }
+          },
+          "retry_wait_cancelled": true
+        }
+      },
+      "identity": {
+        "attempt": "attempt:1",
+        "request": "request:1",
+        "cutoff": 17
+      },
+      "settings": {
+        "provider": "fixture",
+        "model": "model",
+        "api": "openai-completions",
+        "thinking": "high",
+        "options": {
+          "retry": null,
+          "timeout_seconds": 300.0,
+          "transport": "auto",
+          "connect_timeout_seconds": 15.0
+        },
+        "pricing": {
+          "input_per_million": 1.0,
+          "output_per_million": 2.0,
+          "cache_read_per_million": 3.0,
+          "cache_write_per_million": 4.0,
+          "tiers": []
+        },
+        "headers": {
+          "X-Fixture": "fake-private-header"
+        }
+      }
+    }
+  ]
+}

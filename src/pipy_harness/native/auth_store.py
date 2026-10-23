@@ -35,11 +35,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
+from typing import Protocol
 
 from pipy_harness.native.fuzzy import js_trim
 
 CommandRunner = Callable[[str], str | None]
 OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
+
+
+class CredentialLookup(Protocol):
+    """Read-only credential input to the existing resolution policy."""
+
+    def get(self, provider: str) -> dict[str, object] | None: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -514,6 +521,25 @@ class AuthStore:
         return True
 
 
+@dataclass(frozen=True, repr=False)
+class CredentialSnapshot:
+    """Detached lookup for workers; no mutable AuthStore or refresh authority."""
+
+    _entries: Mapping[str, object]
+
+    def get(self, provider: str) -> dict[str, object] | None:
+        entry = self._entries.get(provider)
+        if not isinstance(entry, Mapping):
+            return None
+        return {str(key): _thaw_auth_value(value) for key, value in entry.items()}
+
+
+def read_credential_snapshot(path: Path) -> CredentialSnapshot:
+    """Read under the existing auth lock; resolution/refresh stays off the lock."""
+    with auth_file_lock(path):
+        return CredentialSnapshot(_freeze_auth_data(_read_auth_file(path)))
+
+
 _AUTH_FILE_THREAD_LOCK = threading.Lock()
 
 
@@ -597,7 +623,7 @@ def modify_stored_credential(
 def provider_available(
     provider: str,
     *,
-    store: AuthStore,
+    store: CredentialLookup,
     env: Mapping[str, str],
     models_json_config: ProviderAuthRequestConfig | None = None,
 ) -> bool:
@@ -625,7 +651,7 @@ class AuthStatus:
 def provider_auth_status(
     provider: str,
     *,
-    store: AuthStore,
+    store: CredentialLookup,
     env: Mapping[str, str],
     models_json_config: ProviderAuthRequestConfig | None = None,
     runtime_api_key: str | None = None,
@@ -671,10 +697,11 @@ class ResolvedRequestAuth:
     api_key: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
     error: str | None = None
+    configured_headers: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 def _stored_api_key(
-    store: AuthStore,
+    store: CredentialLookup,
     provider: str,
     env: Mapping[str, str],
     run_command: CommandRunner | None,
@@ -700,7 +727,7 @@ def _stored_api_key(
 def _resolve_request_api_key(
     provider: str,
     *,
-    store: AuthStore,
+    store: CredentialLookup,
     env: Mapping[str, str],
     runtime_api_key: str | None,
     models_json_config: ProviderAuthRequestConfig | None,
@@ -755,6 +782,7 @@ def _finalize_request_auth(
 ) -> ResolvedRequestAuth:
     """Apply authHeader's failure/overwrite contract to resolved values."""
 
+    configured_headers = dict(headers)
     if auth_header:
         if not api_key:
             # Pi returns ok:false when authHeader is set but no key resolves.
@@ -762,13 +790,15 @@ def _finalize_request_auth(
                 ok=False, error=f'No API key found for "{provider}"'
             )
         headers["Authorization"] = f"Bearer {api_key}"
-    return ResolvedRequestAuth(ok=True, api_key=api_key, headers=headers)
+    return ResolvedRequestAuth(
+        ok=True, api_key=api_key, headers=headers, configured_headers=configured_headers
+    )
 
 
 def resolve_request_auth(
     provider: str,
     *,
-    store: AuthStore,
+    store: CredentialLookup,
     env: Mapping[str, str],
     runtime_api_key: str | None = None,
     models_json_config: ProviderAuthRequestConfig | None = None,

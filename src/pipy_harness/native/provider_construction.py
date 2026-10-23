@@ -49,10 +49,11 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from pipy_harness.native.auth_store import (
-    AuthStore,
+    CredentialLookup,
     ProviderAuthRequestConfig,
     resolve_request_auth,
 )
@@ -107,6 +108,7 @@ class ResolvedConstruction:
     ok: bool
     api_key: str | None = field(default=None, repr=False)
     headers: Mapping[str, str] = field(default_factory=dict, repr=False)
+    configured_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     body_extra: Mapping[str, object] = field(default_factory=dict)
     reasoning_effort: str | None = None
     # openai-responses only (Pi ``buildParams``, ``openai-responses.ts:343-358``):
@@ -182,7 +184,7 @@ class ConstructionOptions:
 def resolve_construction(
     spec: NativeModelSpec,
     *,
-    store: AuthStore,
+    store: CredentialLookup,
     env: Mapping[str, str],
     runtime_api_key: str | None,
     models_json_auth: ProviderAuthRequestConfig | None,
@@ -294,6 +296,7 @@ def resolve_construction(
         ok=True,
         api_key=auth.api_key,
         headers=headers,
+        configured_headers=auth.configured_headers,
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
         reasoning_summary=reasoning_summary,
@@ -1078,6 +1081,7 @@ def build_provider(
     thinking_level: str | None = None,
     options: ConstructionOptions | None = None,
     http_client: JsonHTTPClient | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> ProviderPort:
     """Construct a ``ProviderPort`` from a resolved catalog model.
 
@@ -1097,7 +1101,10 @@ def build_provider(
     if resolved.api == "openai-codex-responses":
         assert spec is not None
         return build_openai_codex_provider(
-            spec, thinking_level, options or ConstructionOptions()
+            spec,
+            thinking_level,
+            options or ConstructionOptions(),
+            extra_headers=resolved.headers,
         )
     if resolved.api == "fake":
         return build_fake_provider(resolved.model_id)
@@ -1110,7 +1117,9 @@ def build_provider(
             error=resolved.error or "auth resolution failed",
         )
 
-    return _build_catalog_provider(resolved, http_client=http_client)
+    return _build_catalog_provider(
+        resolved, http_client=http_client, environment=environment
+    )
 
 
 class _HttpClientKwargs(TypedDict):
@@ -1119,10 +1128,70 @@ class _HttpClientKwargs(TypedDict):
     http_client: NotRequired[JsonHTTPClient]
 
 
+def _adapter_environment(
+    environment: Mapping[str, str] | None,
+    *,
+    azure: bool = False,
+    bedrock: bool = False,
+) -> Mapping[str, str] | None:
+    if environment is None:
+        return None
+    keys = {"PIPY_CACHE_RETENTION"}
+    if azure:
+        keys.update(
+            {
+                "AZURE_OPENAI_BASE_URL",
+                "AZURE_OPENAI_RESOURCE_NAME",
+                "AZURE_OPENAI_DEPLOYMENT_NAME_MAP",
+                "AZURE_OPENAI_API_VERSION",
+            }
+        )
+    if bedrock:
+        keys.add("AWS_BEDROCK_FORCE_CACHE")
+    return MappingProxyType(
+        {key: environment[key] for key in keys if key in environment}
+    )
+
+
+def checkpoint_adapter_defaults(
+    resolved: ResolvedConstruction, environment: Mapping[str, str]
+) -> dict[str, object]:
+    """Project effective adapter defaults through the same pure wire resolvers."""
+    values: dict[str, object] = {}
+    if resolved.api == "azure-openai-responses":
+        from pipy_harness.native.providers.azure_openai_responses import (
+            azure_api_version,
+            azure_base_url,
+            azure_deployment,
+        )
+
+        values.update(
+            base_url=azure_base_url(resolved.base_url, None, environment),
+            deployment=azure_deployment(resolved.model_id, None, environment),
+            api_version=azure_api_version(environment),
+        )
+    if resolved.api in {"openai-responses", "anthropic-messages", "amazon-bedrock"}:
+        from pipy_harness.native.providers.openai_prompt_cache import (
+            resolve_cache_retention,
+        )
+
+        values["cache_retention"] = resolve_cache_retention(None, environment)
+    if resolved.api == "amazon-bedrock":
+        from pipy_harness.native.providers.bedrock import (
+            bedrock_supports_prompt_caching,
+        )
+
+        values["prompt_caching"] = bedrock_supports_prompt_caching(
+            resolved.model_id, environment
+        )
+    return values
+
+
 def _build_catalog_provider(
     resolved: ResolvedConstruction,
     *,
     http_client: JsonHTTPClient | None,
+    environment: Mapping[str, str] | None,
 ) -> ProviderPort:
     """Select and construct one authenticated catalog-wired API family."""
 
@@ -1157,10 +1226,13 @@ def _build_catalog_provider(
     if resolved.api == "azure-openai-responses":
         from pipy_harness.native.providers.azure_openai_responses import (
             AzureOpenAIResponsesProvider,
+            azure_api_version,
         )
 
         return AzureOpenAIResponsesProvider(
             model_id=resolved.model_id,
+            environment=_adapter_environment(environment, azure=True),
+            api_version=azure_api_version(environment),
             endpoint_url=resolved.base_url,
             api_key=resolved.api_key,
             provider_name=resolved.provider_name,
@@ -1203,7 +1275,7 @@ def _build_catalog_provider(
         )
 
     if resolved.api in _IAM_FAMILIES:
-        return _build_iam_provider(resolved, http_kwargs)
+        return _build_iam_provider(resolved, http_kwargs, environment)
 
     endpoint = _endpoint_for(resolved.api, resolved.base_url)
     if resolved.api == "openai-completions":
@@ -1240,6 +1312,7 @@ def _build_catalog_provider(
 
         return AnthropicProvider(
             model_id=resolved.model_id,
+            environment=_adapter_environment(environment),
             api_key=resolved.api_key,
             endpoint=endpoint,
             provider_name=resolved.provider_name,
@@ -1265,6 +1338,7 @@ def _build_catalog_provider(
 
         return OpenAIResponsesProvider(
             model_id=resolved.model_id,
+            environment=_adapter_environment(environment),
             api_key=resolved.api_key,
             endpoint=endpoint,
             base_url=resolved.base_url,
@@ -1328,6 +1402,7 @@ def _anthropic_prompt_cache_kwargs(
 def _build_iam_provider(
     resolved: ResolvedConstruction,
     http_kwargs: _HttpClientKwargs,
+    environment: Mapping[str, str] | None = None,
 ) -> ProviderPort:
     """Construct a Tier 3 IAM/OAuth adapter from a resolved catalog model.
 
@@ -1349,17 +1424,25 @@ def _build_iam_provider(
     """
 
     if resolved.api == "amazon-bedrock":
-        from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
+        from pipy_harness.native.providers.bedrock import (
+            AmazonBedrockProvider,
+            bedrock_environment,
+        )
 
         return AmazonBedrockProvider(
             model_id=resolved.model_id,
+            environment=_adapter_environment(environment, bedrock=True),
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            **({} if environment is None else bedrock_environment(environment)),
             **http_kwargs,
         )
 
-    from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
+    from pipy_harness.native.providers.google_vertex import (
+        GoogleVertexProvider,
+        vertex_environment,
+    )
 
     return GoogleVertexProvider(
         model_id=resolved.model_id,
@@ -1368,6 +1451,7 @@ def _build_iam_provider(
         extra_headers=dict(resolved.headers),
         reasoning_effort=resolved.reasoning_effort,
         thinking_disabled=resolved.thinking_disabled,
+        **({} if environment is None else vertex_environment(environment)),
         **http_kwargs,
     )
 
@@ -1376,6 +1460,8 @@ def build_openai_codex_provider(
     spec: NativeModelSpec,
     thinking_level: str | None,
     options: ConstructionOptions,
+    *,
+    extra_headers: Mapping[str, str] | None = None,
 ) -> ProviderPort:
     """Construct the ``openai-codex-responses`` adapter (catalog spec + options).
 
@@ -1395,6 +1481,7 @@ def build_openai_codex_provider(
 
     codex_options: dict[str, Any] = {
         "model_id": spec.model_id,
+        "extra_headers": dict(extra_headers or {}),
         "timeout_seconds": options.openai_codex_timeout_seconds,
         "transport": options.openai_codex_transport,
         "websocket_connect_timeout_seconds": (
@@ -1486,6 +1573,9 @@ class PerRequestOAuthProvider:
     options: ConstructionOptions | None = None
     auth_header: bool = False
     http_client: JsonHTTPClient | None = field(default=None, repr=False)
+    environment: Mapping[str, str] | None = field(
+        default=None, kw_only=True, repr=False
+    )
     supports_tool_calls: bool = True
 
     @property
@@ -1544,6 +1634,7 @@ class PerRequestOAuthProvider:
                 thinking_level=self.thinking_level,
                 options=self.options,
                 http_client=self.http_client,
+                environment=self.environment,
             )
         return provider.complete(
             request,
@@ -1638,3 +1729,86 @@ def try_build_extension_provider_port(
     except BaseException as exc:  # noqa: BLE001 - bound a bad provider factory
         return ExtensionProviderBuildResult(port=None, diagnostic=_safe_diagnostic(exc))
     return ExtensionProviderBuildResult(port=port)
+
+
+def checkpoint_construction_semantics(
+    resolved: ResolvedConstruction,
+    spec: NativeModelSpec,
+    thinking_level: str | None,
+) -> dict[str, object]:
+    """Nonsecret projection of this owner's actual adapter policy.
+
+    Headers, endpoints and arbitrary body routing deliberately stay private.
+    Codex reads its effort directly from spec, so use that same resolver here.
+    """
+    transcript = resolved.transcript
+    effort, off = resolved.reasoning_effort, False
+    if resolved.api == "openai-codex-responses":
+        from pipy_harness.native.thinking import resolve_responses_reasoning
+
+        effort, off = resolve_responses_reasoning(spec, thinking_level)
+    responses = resolved.responses_prompt_cache
+    anthropic = resolved.anthropic_prompt_cache
+    return {
+        "reasoning_effort": effort,
+        "reasoning_off": off,
+        "reasoning_summary": resolved.reasoning_summary,
+        "include_encrypted_reasoning": resolved.include_encrypted_reasoning,
+        "thinking_disabled": resolved.thinking_disabled,
+        "force_adaptive_thinking": resolved.force_adaptive_thinking,
+        "supports_tool_search": (
+            resolve_openai_tool_search(spec)
+            if resolved.api == "openai-codex-responses"
+            else resolved.supports_tool_search
+        ),
+        "transcript": {
+            "supports_mid_convo_system_messages": transcript.supports_mid_convo_system_messages,
+            "supports_additional_tools": transcript.supports_additional_tools,
+            "supports_mid_convo_tool_additions": transcript.supports_mid_convo_tool_additions,
+            "supports_mid_convo_tool_changes": transcript.supports_mid_convo_tool_changes,
+            "supports_mid_convo_effort": transcript.supports_mid_convo_effort,
+            "instruction_role": transcript.instruction_role,
+            "requires_thinking_as_text": transcript.requires_thinking_as_text,
+            "requires_reasoning_content": transcript.requires_reasoning_content,
+        },
+        "responses_cache": None
+        if responses is None
+        else {
+            "session_affinity_format": responses.session_affinity_format,
+            "supports_long_cache_retention": responses.supports_long_cache_retention,
+            "supports_explicit_prompt_cache_mode": responses.supports_explicit_prompt_cache_mode,
+        },
+        "anthropic_cache": None
+        if anthropic is None
+        else {
+            "supports_long_cache_retention": anthropic.supports_long_cache_retention,
+            "supports_cache_control_on_tools": anthropic.supports_cache_control_on_tools,
+            "send_session_affinity_headers": anthropic.send_session_affinity_headers,
+            "session_affinity_format": anthropic.session_affinity_format,
+        },
+    }
+
+
+def checkpoint_iam_target(
+    resolved: ResolvedConstruction, env: Mapping[str, str]
+) -> object:
+    """Private exact target/mode, using adapter-owned defaults and key filtering."""
+    if resolved.api == "amazon-bedrock":
+        from pipy_harness.native.providers.bedrock import bedrock_environment
+
+        return {"region": bedrock_environment(env)["region"]}
+    if resolved.api == "google-vertex":
+        from pipy_harness.native.providers.google_vertex import (
+            resolve_vertex_express_api_key,
+            vertex_environment,
+        )
+
+        if resolve_vertex_express_api_key(resolved.api_key) is not None:
+            return {"mode": "express"}
+        target = vertex_environment(env)
+        return {
+            "mode": "adc",
+            "project_id": target["project_id"],
+            "location": target["location"],
+        }
+    return None

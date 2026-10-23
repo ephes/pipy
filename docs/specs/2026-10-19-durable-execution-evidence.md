@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; all parity rows OPEN**,
 2026-10-23. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -177,9 +177,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE05 | Minimal task runtime and recovery scheduler | LANDED | Cumulative DE05a + DE05b; original cells mapped below |
 | DE05a | Typed definitions and actual typed creation; depends DE04 | LANDED | Typed creation acceptance below; full/review/fresh-chain delivery gates must pass before commit/push; no scheduling or P closure |
 | DE05b | Coupled runtime/reservation/recovery/lifecycle join; depends DE05a | LANDED | Runtime/reservation/recovery acceptance below; no product activation or P closure |
-| DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
+| DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | LANDED | Cumulative DE06a + DE06b; original cells mapped below |
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
-| DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | OPEN | None; all gates OPEN |
+| DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | LANDED | Canonical checkpoint acceptance below; normal review/check/delivery gates must pass before commit/push |
 | DE07 | Durable generation phases | OPEN | None; all gates OPEN |
 | DE08 | Sequential tool intents and blocked uncertainty | OPEN | None; all gates OPEN |
 | DE09 | Completed-message projection | OPEN | None; all gates OPEN |
@@ -284,14 +284,17 @@ selects the persisted/replayed value for loaded callbacks, cache and publication
 creation uses its actual final value and empty operations keep committed
 incarnation/count. The cumulative DE04 evidence below remains historical.
 
-DE05a delivered at `47a81103`; DE05b completes the bounded runtime and recovery
-join described in its acceptance section below. Every original DE05 cell remains
-cumulative. DE06b waits for full DE05 delivery and delivered DE06a; it is the next
-implementation owner after exact DE05b delivery verification; DE14/15/16/23 retain their broader policies. All43 P rows remain OPEN.
-The registry describes this implementation; actual commit, remote and review-tree
-identities belong to the retained delivery receipt. GPT6 Astra HIGH implements
-DE05b, with independent Claude Code `claude-opus-5-5` (Opus5.5) HIGH review through the installed
-harness. No GitHub CI result is claimed. Historical roles below are unchanged.
+DE05a delivered at `47a81103`; DE05b delivered at
+`753802aa93e5cc1be147574447b966459074adef`, tree
+`29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
+canonical integration retain every original DE06 acceptance cell. DE07 generation
+is next; DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+The registry describes implementation scope; exact commit/remote/review-tree and
+final validation identities belong to the retained delivery receipt. Codex
+`gpt-6.1-sol` HIGH implements DE06b; Claude Code `claude-opus-5-5` (Opus5.5)
+HIGH reviews the whole slice first and accepted repairs against the actual prior
+baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
+pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
 
 ## DE00 delivery reconciliation (2026-10-19)
 
@@ -8278,3 +8281,56 @@ the cumulative DE05a/DE05b evidence. The unused alternate join-binding helper an
 copied oracle help text/redundant close were also removed. Re-review is valuable
 because these corrections repair a promised runtime capability and its acceptance
 accounting; earlier interrupted full/reference runs remain diagnostic only.
+
+
+## DE06b canonical checkpoint acceptance
+
+DE06b activates the pure DE06a arena on actual delivered B task phases. The
+private adapter encodes/owns input before suspension, validates closed envelope
+version/definition/phase/role/root and commits on the existing scoped runtime.
+Generic tasks and the sole Session lifecycle remain authoritative. Provider
+settings preserve API/model/provider, requested/resolved thinking, transport,
+cache/transcript compatibility, request anchors/session and saved pricing. The
+existing auth owner protects arbitrary header selectors/values and unclassified
+target/routing material in an immutable companion under its existing lock.
+No credential values, callback code or secret hashes enter task records/errors.
+Missing/corrupt/binding/drift failures refuse before provider transport.
+
+| Original acceptance | Executable mapping |
+| --- | --- |
+| Rich fields including compare=False, raw whitespace, ordered blocks/signatures/redaction/images/IDs/timestamps | `test_canonical_codec.py`, real phase `test_checkpoint_codec.py`, all registered-field mapping/loss controls in `test_checkpoint_comparison.py` |
+| Absent/null/unset, structured/details/control/terminate and scalar fidelity | Missing/null tool cases; actual committed-arena type/sign/sentinel/timezone/fold checks; current DTO fields retained, general diagnostics/controls stay with DE24/25 |
+| All usage/cache1h/reasoning/cost and saved request pricing | Field-complete provider/tool receipts; saved rates/tiers; current catalog price change cannot reprice the recovered request; full spend accumulation remains DE07/26/29–31 |
+| Actual versioned checkpoints and recovery | Memory/SQLite/reopen registered phases; malformed/newer/wrong-role pre-effect refusal; original B runtime/memo/end/close gates retained |
+| Real process/ack cuts | Eight SIGKILL barriers: private capture before adoption, request/outcome/terminal before/after commit and response before receipt; before/after acknowledgement-loss seals original owner and recovers persisted old/new state |
+| Private semantic reconstruction and rotation | Actual recovered request runs fake HTTP with live rotated key/static headers and saved pricing; missing material/header drift faults without transport; terminal reads need no auth |
+| Existing provider profiles | Seven ordinary catalog fake wires; actual signed Bedrock, Vertex ADC/Express target/mode drift and auth rotation; existing OAuth refresh/cache writes; Codex fake SSE static headers with live auth overwrite; deterministic fake remains its native constructor |
+| Shared private authority and refusal | Concurrent24 credential merges/material captures; immutable ID divergence, permissions, strict malformed/newer/missing reads, cycle/foreign header refusal and callback count0 |
+| Genuine pinned producer and controls | Five actual Harness typed-task/SQLite/reopen common rich-value cases; native three backends;32 actual CLI0/1 mutants and CLI2 malformed; source/module/parent/input/argv/artifact attestation |
+
+The paired common numeric profile is
+`finite-binary64-live-v1/persisted-json-zero-v1`. The actual diagnostic found
+only terminal/reopened negative-zero loss in pinned plain-JSON task results;
+live phase observations retain its sign. Native canonical arenas retain original
+numeric types and sign under the existing DE06a contract. The comparison projects
+only those persisted common views; exact `native-exact.json`, unmodified Pi
+observations and actual committed-arena type/sign/presence checks retain the
+difference. Bool, None, missing/unset, substantive numbers and all fields remain
+distinct. This is not raw byte equality or a product-policy change.
+
+Diagnostic execute and separate attestation succeeded at
+`~/.local/state/pipy/durable-checkpoints/de06b-20261023-e6b7pvtn/diagnostic-canonical3/`:
+5 cases,32 mutants,767 pinned modules,356 native modules,315 bound artifacts.
+This predates final metadata/source freeze and is not a final delivery gate.
+The failed first driver attempt assumed a nonexistent root conversation; the
+corrected producer uses actual createConversation. The second attempt exposed
+the recorded raw signed-zero difference. Their failed receipts are retained.
+Final review, supported-Python/Linux, strict docs, full local check and two fresh
+complete cumulative source-frozen chains are required before normal commit/push;
+raw receipts and exact final identities belong to the external delivery record.
+
+DE06 and DE06b complete only their original codec/integration acceptance.
+DE07 generation/usage admission, DE08 tool effects, DE09 publication, DE10
+operational compatibility, DE11/12 product/CLI composition, DE17 retries, DE21–25
+extensions/nested tools and DE26+ partials/full ledger/history remain assigned.
+All43 P rows remain OPEN, with every original P15/P16/P19 cell retained.

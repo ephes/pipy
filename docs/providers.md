@@ -655,3 +655,16 @@ still tracked:
 adaptive-thinking request shape; Azure URL/api-version parity; the `xai` and
 `github-copilot` providers with `/login github-copilot`; Sign in with ChatGPT
 for `openai` with `/login openai`.)
+
+## Durable request reconstruction
+
+The internal [canonical checkpoint adapter](durable-canonical-codec.md) captures
+request semantics and privately references configured headers and endpoints.
+Known authentication may rotate; changed ambiguous custom header sources or
+targets refuse before transport. Header callbacks are explicitly unsupported in
+these checkpoints. This does not enable a new CLI mode or change defaults.
+Native Codex catalog construction now forwards configured static headers to SSE
+and WebSocket requests; live Authorization/account headers overwrite them
+regardless of casing. Internal reconstruction selects `openai-codex.json` beside
+the chosen `auth.json`. Azure routing/API-version and request cache defaults are
+bound from detached inputs; ordinary adapters still use their ambient defaults.

@@ -89,6 +89,9 @@ class OpenAIResponsesProvider:
     """
 
     model_id: str
+    environment: Mapping[str, str] | None = field(
+        default=None, kw_only=True, repr=False
+    )
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("OPENAI_API_KEY"), repr=False
     )
@@ -203,7 +206,7 @@ class OpenAIResponsesProvider:
             ),
             "store": False,
         }
-        retention = resolve_cache_retention(request.cache_retention)
+        retention = resolve_cache_retention(request.cache_retention, self.environment)
         self._apply_prompt_cache_fields(body, request, retention)
         if transcript.tools:
             body["tools"] = [
