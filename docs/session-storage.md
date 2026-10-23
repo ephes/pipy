@@ -1064,8 +1064,13 @@ The private Session now resolves singleton/family addresses across session,
 conversation and task scope. Existing schema-v1 fields already hold family keys
 and task scope; DE04a changes no Storage signature or SQLite capability. Task
 terminal settlement retires every current member in the same table/document
-commit; cache adoption and publication follow Storage success. Delta and
-checkpoint semantics remain a real operation/delta prerequisite in DE04b.
+commit; cache adoption and publication follow Storage success. Real
+checkpoint callbacks remain DE04b1b3b. DE04b1b3a activates actual normalized
+default deltas through the existing Session authority, adopting persisted value
+and committed count atomically and publishing the same immutable operation batch.
+Empty normalized batches retain the prior snapshot; structural nonempty batches
+still commit. Creation stores its actual final object as a base. See
+[the Session delta contract](durable-session-deltas.md).
 Historical delivered D1 workload/source hashes stay immutable identities of
 that delivery; current closure hashes and migrated Session tests attest the
 current tree separately. No private scratch path or runtime git history is
@@ -1080,6 +1085,8 @@ performance-parity bound is introduced. Structural validation does not detect
 arbitrary external rewriting/deletion of otherwise-valid rows. Independent [T pure provenance/operations](durable-draft-tracker.md)
 is an additive prerequisite and does not change Storage or activate Session.
 J (DE04b1b3) retains the actual Draft/Tx/checkpoint/cache/
-publication join and owner policy266; Storage chooses no authoritative Session
+publication join. Owner policy266 selects the persisted/replayed value for
+callbacks, cache and publications; default deltas are DE04b1b3a, real checkpoints
+and actual unload DE04b1b3b. Storage itself chooses no authoritative Session
 candidate. Historical raw-base oracle results retain their original measured
 scope, rather than becoming new delta evidence.

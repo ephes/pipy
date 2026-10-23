@@ -622,7 +622,7 @@ def test_operation_prerequisite_split_preserves_full_document_join():
     assert all(rows[f"P{i:02}"]["status"] == "OPEN" for i in range(1, 44))
 
 
-@pytest.mark.parametrize("parent", ["DE04", "DE04b", "DE04b1b"])
+@pytest.mark.parametrize("parent", ["DE04", "DE04b", "DE04b1b", "DE04b1b3"])
 def test_document_join_cannot_land_before_prerequisites(tmp_path, parent):
     import re
 
@@ -679,7 +679,7 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
             == {
                 "DE04b1b1": "LANDED",
                 "DE04b1b2": "LANDED",
-                "DE04b1b3": "OPEN",
+                "DE04b1b3": "IN_PROGRESS",
             }[key]
         )
     assert "no dependency on T" in rows["DE04b1b2"]["contract"]
@@ -688,6 +688,18 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
         in rows["DE04b1b3"]["future"]
     )
     assert "every original acceptance cell" in rows["DE04b1b"]["future"]
+    assert "use the persisted/replayed value" in rows["DE04b1b3"]["future"]
+    assert rows["DE04b1b3a"]["status"] == "LANDED"
+    assert rows["DE04b1b3a"]["current"]["kind"] == "bounded-native"
+    assert rows["DE04b1b3a"]["current"]["cases"] == [
+        "session-commit-b3-v1",
+        "session-documents-a-v1",
+    ]
+    assert "docs/durable-session-deltas.md" in rows["DE04b1b3a"]["evidence"]
+    assert rows["DE04b1b3b"]["status"] == "OPEN"
+    assert rows["DE04b1b3b"]["plan_cells"][0] == "DE04b1b3b / DE04b1b3a"
+    assert "actual unload" in rows["DE04b1b3b"]["future"].lower()
+    assert "second-predicate exception" in rows["DE04b1b3b"]["future"]
     assert rows["DE05"]["plan_cells"][0] == "DE05 / DE04"
     assert all(rows[f"P{i:02}"]["status"] == "OPEN" for i in range(1, 44))
 

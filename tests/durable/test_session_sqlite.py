@@ -437,3 +437,152 @@ say("drained")
         child.expect("drained", timeout=3 * WAIT)
         assert child.wait(timeout=WAIT) == 0
         assert child.process.stderr.read() == b""
+
+
+@MODES
+def test_loaded_delta_counts_survive_fresh_sessions_and_independent_documents(
+    tmp_path, mode
+):
+    specs = (raw(), Doc("other", 1, "session", lambda: {"items": []}))
+    old_values = []
+    with rig(tmp_path) as r:
+
+        async def run():
+            async def initial(tx):
+                await tx.doc(specs[0])
+                await tx.doc(specs[1])
+
+            await mode.commit(r, initial)
+            for n in range(3):
+
+                async def edit(tx):
+                    (await tx.doc(specs[0]))["items"].append(n)
+                    if n == 0:
+                        (await tx.doc(specs[1]))["items"].append(n)
+
+                await mode.commit(r, edit)
+            for spec, count in zip(specs, (3, 1), strict=True):
+                current = await mode.snapshot(r, spec)
+                assert current.deltas_since_base == count
+                assert (
+                    r.storage.document(current.record.id).to_tree()["deltasSinceBase"]
+                    == count
+                )
+                old_values.append(current.value)
+
+        mode.run(run)
+    storage = open_sqlite_storage(r.path, mode="open")
+    fresh = SimpleNamespace(session=Session(storage), storage=storage)
+    try:
+
+        async def run():
+            for spec, count, old in zip(specs, (3, 1), old_values, strict=True):
+                current = await mode.snapshot(fresh, spec)
+                assert current.value == old and current.deltas_since_base == count
+
+            async def edit(tx):
+                (await tx.doc(specs[0]))["items"].append(3)
+
+            await mode.commit(fresh, edit)
+            assert (await mode.snapshot(fresh, specs[0])).deltas_since_base == 4
+            assert (await mode.snapshot(fresh, specs[1])).deltas_since_base == 1
+
+        mode.run(run)
+    finally:
+        fresh.session.close(timeout=WAIT)
+
+
+@MODES
+@pytest.mark.parametrize("failure", ["ack-loss", "readonly"])
+def test_loaded_delta_real_failure_keeps_old_cache_and_publication_until_reopen(
+    tmp_path, mode, monkeypatch, failure
+):
+    with rig(tmp_path) as r:
+        spec = raw()
+        publications = []
+        r.session.subscribe_commits(publications.append)
+
+        async def initial():
+            async def edit(tx):
+                (await tx.doc(spec))["items"].append("base")
+
+            await mode.commit(r, edit)
+
+        mode.run(initial)
+        previous = r.session.snapshot(spec)
+        error = RuntimeError("delta after durable COMMIT")
+        if failure == "ack-loss":
+
+            def lose_ack(connection):
+                assert not connection.in_transaction
+                raise error
+
+            monkeypatch.setattr(sqlite, "_after_commit", lose_ack)
+        else:
+            r.storage._database.connection().execute("PRAGMA query_only = ON")
+        escaped = []
+        adopted = []
+        from pipy_harness.native.durable.tx import _DocumentCache
+
+        original_swap, original_install = _DocumentCache.swap, _DocumentCache.install
+
+        def swap(cache, *args):
+            adopted.append("swap")
+            original_swap(cache, *args)
+
+        def install(cache, *args):
+            adopted.append("install")
+            original_install(cache, *args)
+
+        monkeypatch.setattr(_DocumentCache, "swap", swap)
+        monkeypatch.setattr(_DocumentCache, "install", install)
+
+        async def run():
+            async def edit(tx):
+                d = await tx.doc(spec)
+                escaped.append(d["items"])
+                d["items"].append("delta")
+                await tx.append_entry(1, {"kind": "delta-coupled"})
+
+            with pytest.raises(
+                RuntimeError if failure == "ack-loss" else sqlite3.OperationalError
+            ) as caught:
+                await mode.commit(r, edit)
+            assert failure != "ack-loss" or caught.value is error
+            assert r.session.failure is caught.value
+            assert adopted == []
+            assert r.session._cache.peek(spec) in (previous, None)
+            assert previous.deltas_since_base == 0 and previous.value.thaw() == {
+                "items": ["base"]
+            }
+            assert (
+                len(publications) == 1
+                and r.recording.calls == 2
+                and len(r.recording.returned) == 1
+            )
+            from pipy_harness.native.durable.tx import DraftRevoked
+
+            with pytest.raises(DraftRevoked):
+                len(escaped[0])
+            assert (await mode.closed(r)).error is caught.value
+
+        mode.run(run)
+        monkeypatch.undo()
+        storage = open_sqlite_storage(r.path, mode="open")
+        fresh = SimpleNamespace(session=Session(storage))
+        try:
+
+            async def verify():
+                current = await mode.snapshot(fresh, spec)
+                assert current.deltas_since_base == (1 if failure == "ack-loss" else 0)
+                assert current.value.thaw() == {
+                    "items": ["base", "delta"] if failure == "ack-loss" else ["base"]
+                }
+                entries = storage.scan_entries(
+                    EntryQuery({"conversationId": 1}), 10
+                ).items
+                assert len(entries) == (1 if failure == "ack-loss" else 0)
+
+            mode.run(verify)
+        finally:
+            fresh.session.close(timeout=WAIT)

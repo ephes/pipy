@@ -189,10 +189,12 @@ Python spellings of the Tx core, with no Pi analogue or deliberately narrower:
   type is exactly `Draft` or `DraftList`. Typed `Doc`/`DocFamily` tokens store
   canonical built-in policies; the resolver owns every UTF-16 kind/key and ID
   before cache lookup. User initializers execute outside cache/backend locks.
-- Raw-base no-op suppression compares values. Pi's op-based rule, under which a
-  structural shift/unshift no-op still writes a delta (Pi
-  `session-documents.test.ts` 190), remains the retained DE04b operation/delta
-  prerequisite; full histories/migrations remain DE27.
+- Actual drafts route mapping/list mutations through one Tracker. Empty
+  normalized operations retain the committed snapshot/count; structural
+  shift/unshift with nonempty operations writes a delta even if values compare
+  equal (Pi `session-documents.test.ts` 190). Loaded updates use the replayed
+  owned value for Storage/cache/publication. Creation stores its final object
+  as a base. Real checkpoint policy remains DE04b1b3b; history remains DE27.
 - Asyncio cancellation of an `acommit` caller (DE02b2b) reaches the running
   callback. Before backend admission it is the callback's failure and rolls
   back; after the callback settles, owned settlement cannot be cut. Only an
@@ -4817,9 +4819,11 @@ terminal tasks skip committed scans. Task publication ownership resolves from
 the latest candidate/committed task before Storage admission. Adoption remains
 synchronous; families use complete address keys and never install a newly
 created-and-retired incarnation. The [reference contract](durable-reference.md#typed-current-documents-de04a)
-records the actual pinned call-order boundary and Python-only ingress. Current
-full bases/value equality are explicit interim behavior; no fake checkpoint
-callback is introduced. Product appends remain private with the existing
+records the actual pinned call-order boundary and Python-only ingress.
+DE04b1b3a replaces the former full-base/value-equality interim with actual
+normalized default deltas, committed count adoption and immutable linked ops
+publication. See [the Session delta contract](durable-session-deltas.md).
+Real checkpoint callbacks and actual queued unload remain DE04b1b3b. Product appends remain private with the existing
 copied-at-admission timing caveat, unchanged by this slice.
 
 DE04a landed at `e6c1239d`; exact reviewed-tree/full-check/push evidence is in
@@ -4827,6 +4831,6 @@ the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-ve
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is LANDED at `6e3b838f`; its [delivery/admission successor](specs/2026-10-19-durable-execution-evidence.md#de04b1a-verified-delivery-and-de04b1b-pre-code-admission) records verified delivery. Independent S (`DE04b1b2`, DE03d + DE04b1a) now implements [supplied current deltas and semantic schema2](durable-current-deltas.md), delivered at `8c8f30d7` with [verified gates](specs/2026-10-19-durable-execution-evidence.md#de04b1b2-verified-delivery-and-t-integration-successor). T (`DE04b1b1`, DE04a + DE04b1a) adds [pure draft provenance and immutable normalized operations](durable-draft-tracker.md) as a shipping candidate, with final Root integration gates/delivery pending in the [T preparation evidence](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-pure-provenance-integration-preparation). J (`DE04b1b3`, T + S + DE04a + owner policy266) is OPEN; the owner answer is required before authoritative candidate/ops selection. T is LANDED in the shipping candidate conditional on its final Root gates; S is verified LANDED; cumulative DE04b1b/b/DE04 remain IN_PROGRESS until retained acceptance completes. DE05 waits full DE04, DE27 retains history/as-of/fork/migrations, and all43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is IN_PROGRESS: DE04b1b3a implements [default deltas, count adoption and linked ops publication](durable-session-deltas.md) as a shipping candidate conditional on final Root gates; DE04b1b3b retains real checkpoint callbacks, actual unload and final cumulative proofs. DE04b1b/b/DE04 remain IN_PROGRESS until every original acceptance cell completes. DE05 waits full DE04; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.

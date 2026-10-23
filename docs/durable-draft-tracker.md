@@ -4,7 +4,8 @@
 Draft/Tx join. It does not change the active Session drafts, definitions,
 checkpoint policy, Storage, or SQLite schema. It imports only the delivered
 owned JSON codec and decoded-operation validator/applier, plus the standard
-library. Current runtime integration remains DE04b1b3; current delta persistence
+library. [Default runtime integration](durable-session-deltas.md) is DE04b1b3a;
+real checkpoint callbacks and unload remain DE04b1b3b. Current delta persistence
 is the independent DE04b1b2 slice.
 
 `Tracker(owned_base, check=None)` creates one callback-local working change over
@@ -66,11 +67,13 @@ snapshots; foreign equality never receives live state. Iterable admission may
 execute caller code, so liveness and coordinates are checked again afterwards.
 There is no foreign callback or lock inside normalization/replay.
 
-## Candidate value remains an explicit join decision
+## Persisted value is authoritative in the runtime join
 
 `replayed_value` names application of the exact operations to the baseline. It
-is **not** an authoritative callback/cache candidate. Owner policy266 remains
-open for the final join. In two measured signed-zero recipes, pinned Chord's
+is selected by the owner for the final join: **“Use the persisted value”**.
+DE04b1b3a uses it for loaded committed cache/publications; DE04b1b3b must use
+the same candidate for real checkpoint callbacks. Creation retains its actual
+final object; empty loaded ops retain the prior committed object. In two measured signed-zero recipes, pinned Chord's
 simple-object preparation returns the opposite signed zero from replay while
 emitting only an unrelated field update. The comparison records Chord's prepared
 profile independently and asserts that both discrepancies remain visible.

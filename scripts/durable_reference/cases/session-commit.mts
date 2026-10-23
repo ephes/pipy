@@ -1,7 +1,7 @@
 /** Internal DE02b3 Session oracle: actual pinned SessionImpl commit/snapshot/close paths through a bounded driver subclass
  * (protected guarded Storage getter and a recording report; nothing else is overridden). Oracle adaptations, recorded in the
- * manifest scope: raw-base documents set checkpointWhen: () => true, so every loaded delta is written as a base like the native
- * raw-base writes, and createTask receives a structural task-definition stub. Close routes only through SessionImpl.close.
+ * manifest scope: document definitions omit checkpointWhen and loaded nonempty changes persist actual deltas;
+ * createTask receives a structural task-definition stub. Close routes only through SessionImpl.close.
  * Pi-derived MIT (c)2025 Mario Zechner; see tests/fixtures/durable/UPSTREAM-LICENSE.txt. */
 import assert from "node:assert/strict";
 import {readFileSync,writeFileSync,realpathSync} from "node:fs";
@@ -88,7 +88,7 @@ class ControlledBackend {
 }
 function invoke(s:any,op:string,a:any,ctx:any):Promise<any>{switch(op){case "mint":return s.mintId();case "conversation":return s.conversation(a.id,ctx);case "task":return s.task(a.id,ctx);case "submission":return s.submission(a.id,ctx);case "entry":return s.entry(a.id,ctx);case "scan_entries":return s.scanEntries(a.query,a.limit,a.cursor,ctx);case "find_document":return s.findDocument(a.address,a.at??"current",ctx);case "document":return s.document(a.id,a.at??"current",ctx);default:throw Error("Unknown storage operation");}}
 function change(c:any):any{
- if(c.type==="document"){const base={type:"document",record:encode(c.record),conversation:encode(c.conversationId)};if(c.value===null){assert.equal(c.version,undefined);return {...base,retired:true};}return {...base,version:encode(c.version),value:encode(c.value)};}
+ if(c.type==="document"){const base={type:"document",record:encode(c.record),conversation:encode(c.conversationId),ops:encode(c.ops)};if(c.value===null){assert.equal(c.version,undefined);return {...base,retired:true};}return {...base,version:encode(c.version),value:encode(c.value)};}
  assert.ok(["conversation","entry","task","submission"].includes(c.type));return {type:c.type,value:encode(c.value)};
 }
 function walk(value:any,path:any[],draft=true):any{let node=value;for(const key of path)node=node[key];if(draft&&node!==null&&typeof node==="object")drafts.add(node);return node;}
@@ -101,7 +101,7 @@ for(const scenario of input.scenarios){
  const effects=backend.effects,steps:any[]=[];let current:string|undefined,end:any,observed:any[]|undefined;
  const once=(table:Map<string,any>,name:string)=>{let d=table.get(name);if(d===undefined){d=deferred();table.set(name,d);}return d;};
  const tokens=new Map<string,any>();
- for(const [name,spec] of Object.entries<any>(input.docs))tokens.set(name,defineDoc({kind:spec.kind,version:spec.version,scope:spec.scope,...(spec.scope==="conversation"?{history:spec.history,fork:spec.fork}:{}),initial:()=>{effects.push({e:"init",doc:name});return structuredClone(spec.initial);},checkpointWhen:()=>true} as any));
+ for(const [name,spec] of Object.entries<any>(input.docs))tokens.set(name,defineDoc({kind:spec.kind,version:spec.version,scope:spec.scope,...(spec.scope==="conversation"?{history:spec.history,fork:spec.fork}:{}),initial:()=>{effects.push({e:"init",doc:name});return structuredClone(spec.initial);}} as any));
  const owner=(doc:string,conversation:any)=>[tokens.get(doc),...(conversation===undefined?[]:[conversation])];
  const value=(v:any):any=>{if(Array.isArray(v))return v.map(value);if(v!==null&&typeof v==="object"){if(Object.hasOwn(v,"$local")||Object.hasOwn(v,"$bind"))return binds.get(v.$local??v.$bind);return Object.fromEntries(Object.entries(v).map(([k,x])=>[k,value(x)]));}return v;};
  const track=(h:string,p:Promise<any>,extra:any={})=>{const item:any={promise:p,settled:false,...extra};p.then(v=>{item.settled=true;item.ok=true;item.value=v;},e=>{item.settled=true;item.ok=false;item.error=e;});handles.set(h,item);return item;};
@@ -191,11 +191,11 @@ for(const scenario of input.scenarios){
  }
  assert.ok(observed!==undefined);assert.equal(driverErrors.length,0);
  const changes=backend.admitted.filter(w=>w.type==="document.change");
- facts.push({sweeps:driver.documentCacheSizes.sweeps,changes:changes.length,base:changes.every(w=>w.content.kind==="base")});
+ facts.push({sweeps:driver.documentCacheSizes.sweeps,changes:changes.length,delta:changes.every(w=>w.content.kind==="delta")});
  scenarios.push({id:scenario.id,steps,effects:observed,end});
 }
 const save=(name:string,value:any)=>writeFileSync(resolve(outputPath,name),JSON.stringify(value,null,2)+"\n");
-assert.ok(facts.every(x=>x.sweeps===0&&x.base));
+assert.ok(facts.every(x=>x.sweeps===0&&x.delta));
 save("observed.json",{schema_version:1,phase:input.phase,backend:"node",scenarios});
-save("reference-context.json",{schema_version:1,phase:input.phase,scenarios:scenarios.length,driver:{base:Object.getPrototypeOf(SessionDriver).name,own_members:Object.getOwnPropertyNames(SessionDriver.prototype).sort(),close_route:"SessionImpl.close",checkpoint_when:"always",task_definition:"structural-stub",sweeps:facts.reduce((n,x)=>n+x.sweeps,0),base_document_changes:facts.reduce((n,x)=>n+x.changes,0)}});
+save("reference-context.json",{schema_version:1,phase:input.phase,scenarios:scenarios.length,driver:{base:Object.getPrototypeOf(SessionDriver).name,own_members:Object.getOwnPropertyNames(SessionDriver.prototype).sort(),close_route:"SessionImpl.close",checkpoint_when:"absent",task_definition:"structural-stub",sweeps:facts.reduce((n,x)=>n+x.sweeps,0),delta_document_changes:facts.reduce((n,x)=>n+x.changes,0)}});
 save("session-raw.json",{schema_version:1,errors:raw});save("resolutions.json",resolutions);

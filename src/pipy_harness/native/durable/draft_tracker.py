@@ -318,8 +318,8 @@ class PreparedOperations:
 class Tracker:
     """One pure working change; J supplies its existing driver guard at integration.
 
-    ``replayed_value`` deliberately makes no authoritative prepared-candidate
-    promise: the signed-zero policy266 decision belongs to the later runtime join.
+    ``replayed_value`` is the exact normalized replay. Owner policy266 selects
+    it as the loaded runtime candidate in ``tx``; this helper remains pure.
     """
 
     __slots__ = ("_base", "_check", "_dirty", "_open", "_root", "_thread", "_views")

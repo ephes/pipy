@@ -29,6 +29,7 @@ assert spec and spec.loader
 d = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(d)
 o, v, b = d.o, d.v, d.b
+from pipy_harness.native.durable.delta_ops import own_operations  # noqa: E402
 from pipy_harness.native.durable.documents import (  # noqa: E402
     DocFamily,
     Scope,
@@ -113,6 +114,9 @@ CLOSURE = (
         "src/pipy_harness/native/durable/documents.py",
         "tests/durable/test_document_definitions.py",
         "tests/durable/test_session_documents.py",
+        "docs/durable-session-deltas.md",
+        "tests/durable/test_session_deltas.py",
+        "tests/fixtures/durable/session-documents-deltas-v1.expected.json",
         "tests/durable/test_documents_comparison.py",
     }
 )
@@ -630,6 +634,7 @@ async def native_case(id: str, inner: Any, config: Any) -> Any:  # noqa: C901 - 
                 "conversationId": c.conversation_id,
                 "version": c.version,
                 "value": None if c.value is None else c.value.thaw(),
+                "ops": c.ops.thaw(),
             }
             for p in publications
             for c in p.changes
@@ -729,6 +734,22 @@ def errors(config: Any) -> Any:
     return values
 
 
+def publication_shape(value: Any) -> None:
+    d.shape(
+        value,
+        {"record", "conversationId", "version", "value", "ops"},
+        "document publication",
+    )
+    try:
+        own_operations(value["ops"])
+    except (TypeError, ValueError):
+        d.require(False, "Malformed document operations")
+    retired = value["value"] is None
+    d.require((value["version"] is None) == retired, "Document publication version")
+    d.require(not retired or value["ops"] == [], "Retirement has operations")
+    d.require(retired or type(value["value"]) is dict, "Document publication value")
+
+
 def trace(value: Any, *, reference: bool) -> Any:
     d.shape(
         value,
@@ -777,6 +798,8 @@ def trace(value: Any, *, reference: bool) -> Any:
                 ),
                 "document profile containers",
             )
+            for publication in profile["publications"]:
+                publication_shape(publication)
             d.require(type(profile["counts"]) is dict, "document counters")
             for op, count in profile["counts"].items():
                 d.require(
@@ -1001,6 +1024,8 @@ MUTANTS = (
     "retirement-page",
     "task-owner",
     "retired-cache",
+    "publication-ops",
+    "default-base",
 )
 
 
@@ -1013,6 +1038,8 @@ def mutate(actual: Any, name: str) -> Any:
         "retirement-page": "P1",
         "task-owner": "C1",
         "retired-cache": "T7",
+        "publication-ops": "T2",
+        "default-base": "T2",
     }[name]
     row = next(r for r in result["backends"][0]["cases"] if r["id"] == case)
     profile = v.decode(row["profile"])
@@ -1028,6 +1055,15 @@ def mutate(actual: Any, name: str) -> Any:
         profile["publications"].pop()
     elif name == "task-owner":
         profile["publications"][0]["conversationId"] = 1
+    elif name == "publication-ops":
+        profile["publications"][0]["ops"] = []
+    elif name == "default-base":
+        write = next(w for w in profile["writes"] if w["type"] == "document.change")
+        write["content"] = {
+            "kind": "base",
+            "version": 1,
+            "value": {"lines": ["raw", "loaded"]},
+        }
     else:
         profile["facts"]["values"][0] = {"lines": ["new"]}
     row["profile"] = v.encode(profile)

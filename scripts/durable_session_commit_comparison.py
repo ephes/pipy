@@ -3,7 +3,7 @@
 Closed recipes drive the actual pinned Pi ``SessionImpl`` (through a bounded
 driver subclass) and the private native ``session_core.Session`` over their
 real Memory backends, in both native modes: ``commit()`` on owned threads and
-``acommit()`` on one event loop. Commit/Tx/raw-base document, publication,
+``acommit()`` on one event loop. Commit/Tx/default-delta document, publication,
 failure and close paths only; no product, typed-document, fork or full Session
 parity claim. ``SCOPE`` lists everything not compared; the recipe's closed cell
 map ties every original DE02/DE02b cell to paired scenarios or native tests.
@@ -45,6 +45,7 @@ from pipy_harness.native.durable import session as real_session  # noqa: E402
 from pipy_harness.native.durable import session_core as real_core  # noqa: E402
 from pipy_harness.native.durable import tx as real_tx  # noqa: E402
 from pipy_harness.native.durable.codec import OwnedJson  # noqa: E402
+from pipy_harness.native.durable.delta_ops import own_operations  # noqa: E402
 from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
 from pipy_harness.native.durable.records import Record, safe_integer  # noqa: E402
 from pipy_harness.native.durable.storage import (  # noqa: E402
@@ -84,6 +85,8 @@ UPSTREAM_TESTS = {
 }
 CLOSURE = g.CLOSURE | {
     "src/pipy_harness/native/durable/tx.py",
+    "src/pipy_harness/native/durable/draft_tracker.py",
+    "src/pipy_harness/native/durable/delta_ops.py",
     "src/pipy_harness/native/durable/session_core.py",
     "tests/durable/test_session_tx_core.py",
     "tests/durable/test_session_commit.py",
@@ -893,10 +896,16 @@ def _change(value: Any) -> None:
         require(ok, "Malformed table change")
         return
     rest = {"retired"} if "retired" in value else {"version", "value"}
-    shape(value, {"type", "record", "conversation"} | rest, "document change")
+    shape(value, {"type", "record", "conversation", "ops"} | rest, "document change")
     _value(value["record"])
     _value(value["conversation"])
+    _value(value["ops"])
+    try:
+        own_operations(v.decode(value["ops"]))
+    except (TypeError, ValueError):
+        require(False, "Malformed document operations")
     if "retired" in value:
+        require(v.decode(value["ops"]) == [], "Retirement has operations")
         require(value["retired"] is True, "Malformed retirement")
         return
     safe_integer(v.decode(value["version"]))
@@ -1471,6 +1480,7 @@ class _Run:
         record = v.encode(item.record.to_tree())
         base = {"type": "document", "record": record}
         base["conversation"] = _wire(item.conversation_id)
+        base["ops"] = v.encode(item.ops.thaw())
         if item.value is None:
             require(item.version is None, "Retired change with a version")
             return base | {"retired": True}
@@ -1984,11 +1994,46 @@ def _reported_only(row: Any) -> None:
     row["end"] = {"reason": "closed"}
 
 
+def _publication_ops(row: Any) -> None:
+    changes = [
+        c
+        for e in row["effects"]
+        if e["e"] == "publish"
+        for c in e["changes"]
+        if c["type"] == "document" and "retired" not in c
+    ]
+    changed = next(c for c in changes if v.decode(c["ops"]))
+    changed["ops"] = v.encode([])
+
+
+def _base_instead_of_delta(row: Any) -> None:
+    effect = next(
+        e
+        for e in row["effects"]
+        if e["e"] == "call"
+        and e["op"] == "commit"
+        and any(w["type"] == "document.change" for w in v.decode(e["args"])["writes"])
+    )
+    args = v.decode(effect["args"])
+    write = next(w for w in args["writes"] if w["type"] == "document.change")
+    write["content"] = {
+        "kind": "base",
+        "version": write["content"]["version"],
+        "value": {},
+    }
+    effect["args"] = v.encode(args)
+
+
 PUBLISH = {"e": "publish", "listener": "L1", "seq": v.encode(2), "changes": []}
 PUBLISH |= {"handle_settled": False}
 CANCELLED = _rejected("commit-cancelled")
 B_IN = {"e": "mark", "mark": "b-in"}
 MUTATIONS: dict[str, tuple[str, Callable[[Any], None]]] = {
+    "publication-ops-lost": ("d78-120-137-create-change-identity", _publication_ops),
+    "loaded-delta-replaced-by-base": (
+        "d78-120-137-create-change-identity",
+        _base_instead_of_delta,
+    ),
     "queued-cancel-runs-callback": (
         "queued-view-cancel",
         _both(
@@ -2130,8 +2175,8 @@ SCOPE = (
     "Bounded paired Session comparison only: pinned SessionImpl through a driver subclass "
     "(guarded getter, recorded report) versus the private native session_core.Session in "
     "sync commit() and async acommit() modes, each over its real Memory backend; 41 closed "
-    "scenarios and a closed DE02/DE02b cell map. Oracle adaptations: raw-base documents set "
-    "checkpointWhen always true (every loaded change is written as a base) and createTask "
+    "scenarios and a closed DE02/DE02b cell map. Definitions omit checkpointWhen, so loaded "
+    "nonempty changes persist actual deltas. Oracle adaptation: createTask "
     "receives a structural task-definition stub. Native-only, never paired: adoption failure, "
     "reentry, every Task.cancel row, Tx/draft affinity, coroutine listeners, bulk queued-"
     "rejection timing, background-close reporter routing, a sync commit settling while its "
@@ -2139,7 +2184,7 @@ SCOPE = (
     "returning awaitables. Not exercised: a caller mutating an entry draft's top-level keys "
     "while the append is pending (Pi reads them after its awaits, native at the call). Not "
     "compared at all: typed documents, migrations, families, task-scope documents and "
-    "terminal-task document retirement, delta content and op-based no-ops, forks/copies, "
+    "terminal-task document retirement, checkpoint callbacks, forks/copies, "
     "documentState/watchDoc, retention/eviction, unloadDocuments, telemetry and listener "
     "context, Harness hooks, SQLite. No product, factory, full Session parity or P-row closure."
 )
@@ -2147,7 +2192,7 @@ CONTEXT_DRIVER = {
     "base": "SessionImpl",
     "own_members": ["constructor", "guarded", "report"],
     "close_route": "SessionImpl.close",
-    "checkpoint_when": "always",
+    "checkpoint_when": "absent",
     "task_definition": "structural-stub",
     "sweeps": 0,
 }
@@ -2189,7 +2234,7 @@ def configuration() -> Any:
 
 
 def document_changes(raw: Any) -> int:
-    """Admitted document.change writes in the reference trace; each must be a base."""
+    """Admitted document.change writes in the reference trace; each must be a default delta."""
     commits = [
         e for row in raw["scenarios"] for e in row["effects"] if e["e"] == "call"
     ]
@@ -2200,8 +2245,8 @@ def document_changes(raw: Any) -> int:
         for write in v.decode(effect["args"])["writes"]
         if write["type"] == "document.change"
     ]
-    based = all(write["content"]["kind"] == "base" for write in writes)
-    require(based, "Reference delta write")
+    deltas = all(write["content"]["kind"] == "delta" for write in writes)
+    require(deltas, "Reference non-delta change write")
     return len(writes)
 
 
@@ -2209,7 +2254,7 @@ def _context_file(output: Path, raw: Any) -> None:
     keys = {"schema_version", "phase", "scenarios", "driver"}
     context = shape(load(output / "reference-context.json"), keys, "session context")
     facts = dict(context["driver"]) if type(context["driver"]) is dict else {}
-    changes = facts.pop("base_document_changes", None)
+    changes = facts.pop("delta_document_changes", None)
     head = [context["schema_version"], context["phase"], context["scenarios"]]
     same = head == [1, PHASE, len(SCENARIOS)] and facts == CONTEXT_DRIVER
     require(
@@ -2375,7 +2420,7 @@ def execute(parent: Path, output: Path) -> int:
         },
         "session_line": True,
         "tx": True,
-        "raw_base_documents": True,
+        "default_delta_documents": True,
     }
     flags = (
         "typed_documents",

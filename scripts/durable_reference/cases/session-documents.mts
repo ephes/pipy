@@ -1,6 +1,6 @@
 /** DE04a typed current documents: actual pinned SessionImpl, MemoryStorage and definitions.
- * Loaded changes use checkpointWhen:()=>true solely as the existing full-base adaptation;
- * normalized operations/checkpoint policy remain DE04b. MIT (c)2025 Mario Zechner. */
+ * Definitions omit checkpointWhen: ordinary loaded changes persist exact default deltas.
+ * The prior full-base capture remains historical DE04a evidence. MIT (c)2025 Mario Zechner. */
 import assert from "node:assert/strict";
 import {readFileSync,writeFileSync,realpathSync} from "node:fs";
 import {registerHooks} from "node:module";
@@ -31,7 +31,7 @@ for(const id of input.cases){
  class Driver extends SessionImpl{report(e:any,info:any){errors.push({name:e.name,message:e.message,info});}}
  const session=new Driver(storage as any,()=>input.clock,()=>600000,()=>undefined);
  session.observeCommits((p:any)=>publications.push(p));
- const make=(scope="session",family=false,kind="probe.single",version=1)=>{const def:any={kind,version,scope,...(scope==="conversation"?{history:"latest",fork:"initial"}:{}),initial:(seed:any)=>{initial.push({scope,family,kind,...(family?{seed:structuredClone(seed)}:{})});return family?{seed:structuredClone(seed),hits:0}:{lines:[]};},checkpointWhen:()=>true};return family?defineDocFamily({...def,family:true}):defineDoc(def);};
+ const make=(scope="session",family=false,kind="probe.single",version=1)=>{const def:any={kind,version,scope,...(scope==="conversation"?{history:"latest",fork:"initial"}:{}),initial:(seed:any)=>{initial.push({scope,family,kind,...(family?{seed:structuredClone(seed)}:{})});return family?{seed:structuredClone(seed),hits:0}:{lines:[]};}};return family?defineDocFamily({...def,family:true}):defineDoc(def);};
  const S=make(),C=make("conversation"),T=make("task"),FS=make("session",true),FC=make("conversation",true),FT=make("task",true);
  const capture=async(label:string,fn:()=>any)=>{try{const value=await fn();facts[label]={status:"fulfilled",...(value===undefined?{}:{value})};}catch(e:any){facts[label]={status:"rejected",error:{name:e.name,message:e.message,code:e.code??null}};raw.push({id,label,name:e.name,message:e.message,code:e.code??null,stack:e.stack??null});}};
  const seed=async(...values:any[])=>memory.commit(values,ctx);
@@ -61,7 +61,7 @@ for(const id of input.cases){
  }
  await bounded(Promise.all(pendingSnapshots));
  const counts:any={};for(const c of calls)counts[c.op]=(counts[c.op]??0)+1;
- const published=publications.flatMap((p:any)=>p.changes.filter((c:any)=>c.type==="document").map((c:any)=>{if(c.value===null)assert.deepEqual(c.ops,[]);return {record:c.record,conversationId:c.conversationId??null,version:c.version??null,value:c.value};}));
+ const published=publications.flatMap((p:any)=>p.changes.filter((c:any)=>c.type==="document").map((c:any)=>{if(c.value===null)assert.deepEqual(c.ops,[]);return {record:c.record,conversationId:c.conversationId??null,version:c.version??null,value:c.value,ops:c.ops};}));
  profiles.push({id,profile:encode({facts,initial,writes,counts,scans:calls.filter(c=>c.op==="scan_documents").map(c=>{const args=structuredClone(c.args);if(args[1][2]?.[0]==="undefined")args[1][2]=["null"];return args;}),publications:published})});
  raw.push({id,calls,publications:encode(publications),reports:errors});
  }finally{if(hold)hold.release.resolve();await bounded(session.close(ctx));}

@@ -1186,6 +1186,10 @@ def _docs158(T: types.ModuleType) -> None:
             draft["copy"] = value
             draft["items"].append(value)
             draft["from_view"] = draft["other"]
+            nested = {"inner": {"n": 0}}
+            draft["alias"] = nested
+            nested["inner"]["n"] = 99
+            assert draft["alias"]["inner"]["n"] == 0
             value["label"] = "mutated"
             assert draft["other"] is not draft["copy"]
             draft["other"]["label"] = "view-write"
@@ -1218,6 +1222,37 @@ def _docs174(T: types.ModuleType) -> None:
         assert len(rig.store.commits) == commits
         assert len(rig.publications) == published
         assert rig.cache.peek(live, conversation) is before
+
+
+@scenario("default-delta-structural-equality-persists-and-increments")
+def _structural_delta(T: types.ModuleType) -> None:
+    with Rig(T) as rig:
+        spec = rig.spec("delta", scope="session", value={"items": [0, 1]})
+        rig.commit(lambda tx: tx.doc(spec))
+        before = rig.cache.peek(spec)
+        commits = len(rig.store.commits)
+
+        def edit(tx):
+            items = tx.doc(spec)["items"]
+            items.pop(0)
+            items.insert(0, 0)
+
+        rig.commit(edit)
+        after = rig.cache.peek(spec)
+        assert len(rig.store.commits) == commits + 1 and after is not before
+        assert after.value == before.value
+        assert after.deltas_since_base == before.deltas_since_base + 1
+        ops = [["p", ["items"], 0, 1, []], ["p", ["items"], 0, 0, [0]]]
+        assert trees(rig.store.commits[-1])[0]["content"] == {
+            "kind": "delta",
+            "version": 1,
+            "ops": ops,
+        }
+        assert rig.publications[-1].changes[0].ops.thaw() == ops
+        rig.cache.clear()
+        rig.commit(lambda tx: tx.doc(spec))
+        cold = rig.cache.peek(spec)
+        assert cold.deltas_since_base == 1 and cold.value == after.value
 
 
 @scenario("docs207-escaped-nested-returned-drafts-revoked")
@@ -1593,7 +1628,11 @@ def _docs549(T: types.ModuleType) -> None:
         rig.commit(change)
         writes = trees(rig.store.commits[-1])
         assert [w["type"] for w in writes] == ["document.change", "document.retire"]
-        assert writes[0]["id"] == old and writes[0]["content"]["kind"] == "base"
+        assert writes[0]["id"] == old and writes[0]["content"] == {
+            "kind": "delta",
+            "version": 1,
+            "ops": [["s", ["message"], "final"]],
+        }
         assert rig.cache.peek(live, conversation) is None
 
         rig.commit(
@@ -1743,7 +1782,7 @@ def _cache(T: types.ModuleType) -> None:
         live = rig.live(conversation)
         key = T._resolve(live, conversation)[0]
         current = rig.cache.get(key)
-        stale = T.CommittedDocument(current.record, 1, OwnedJson({}))
+        stale = T.CommittedDocument(current.record, 1, OwnedJson({}), 0)
         rig.cache.swap(key, stale, stale)  # not the occupant: no swap
         assert rig.cache.get(key) is current
         rig.cache.evict(key, current.record.id + 1000)  # another incarnation: kept
@@ -1999,6 +2038,16 @@ def test_core_is_private_and_not_exported() -> None:
 SOURCE = Path(real_tx.__file__).read_text()
 
 MUTANTS: dict[str, list[tuple[str, str]]] = {
+    "structural-value-suppression": [
+        ("        if ops\n", "        if prepared.value != loaded.value\n")
+    ],
+    "delta-count-adoption": [
+        ("loaded.deltas_since_base + 1", "loaded.deltas_since_base")
+    ],
+    "cold-count-lost": [('        value["deltasSinceBase"],\n', "        0,\n")],
+    "publication-ops-lost": [
+        ("                prepared.ops,\n", "                _EMPTY_OPS,\n")
+    ],
     "phase-check": [
         (
             "        if self._has_table_write:\n            raise ReadAfterWrite(method)\n",
@@ -2062,11 +2111,16 @@ MUTANTS: dict[str, list[tuple[str, str]]] = {
     ],
     # Round-1 review: live containers to foreign code; non-exact keys/values.
     "detached-comparison": [
-        ("    return OwnedJson(node).thaw()\n", "    return node\n"),
+        (
+            "        mine = self.snapshot().thaw()\n",
+            "        mine = self._view._node.members\n",
+        ),
     ],
     "draft-exact-keys": [
         (
             "    if type(key) is not str:\n"
+            "        if write:\n"
+            '            raise TypeError("Draft object keys must be exact strings")\n'
             '        raise KeyError("Draft object keys are exact strings")\n',
             "",
         )
@@ -2081,19 +2135,29 @@ MUTANTS: dict[str, list[tuple[str, str]]] = {
     ],
     "copy-on-placement": [
         (
-            "        return OwnedJson(value).thaw()\n",
-            "        OwnedJson(value)\n        return value\n",
+            "        result = OwnedJson(value).thaw()\n",
+            "        OwnedJson(value)\n        result = value\n",
         )
     ],
     "no-op-suppression": [
         (
-            "self.baseline is None or value != self.baseline",
-            "True",
+            "        if ops\n",
+            "        if True\n",
         )
     ],
 }
 
 EXPECTED_FAILURES: dict[str, list[str]] = {
+    "structural-value-suppression": [
+        "default-delta-structural-equality-persists-and-increments"
+    ],
+    "delta-count-adoption": [
+        "default-delta-structural-equality-persists-and-increments"
+    ],
+    "cold-count-lost": ["default-delta-structural-equality-persists-and-increments"],
+    "publication-ops-lost": [
+        "default-delta-structural-equality-persists-and-increments"
+    ],
     "phase-check": [
         "tables82-reads-only-before-first-table-write",
         "tables121-sync-write-sets-phase[set_task]",
@@ -2132,15 +2196,7 @@ EXPECTED_FAILURES: dict[str, list[str]] = {
 }
 
 
-def mutant(name: str) -> types.ModuleType:
-    source = SOURCE
-    if name == "raw-doc-exact-builtins":
-        from pipy_harness.native.durable import documents
-
-        source = Path(documents.__file__).read_text()
-    for old, new in MUTANTS[name]:
-        assert source.count(old) == 1, (name, old)
-        source = source.replace(old, new)
+def _mutant_module(name: str, source: str) -> types.ModuleType:
     module_name = "pipy_harness.native.durable._de02b2a_mutant_" + name.replace(
         "-", "_"
     )
@@ -2152,19 +2208,53 @@ def mutant(name: str) -> types.ModuleType:
         exec(compile(source, f"<mutant {name}>", "exec"), module.__dict__)
     finally:
         del sys.modules[module_name]
-    if name == "raw-doc-exact-builtins":
-        document_module = module
-        module_name += "_tx"
-        module = types.ModuleType(module_name)
-        module.__package__ = "pipy_harness.native.durable"
-        sys.modules[module_name] = module
-        try:
-            exec(compile(SOURCE, "<document-mutant tx>", "exec"), module.__dict__)
-        finally:
-            del sys.modules[module_name]
-        setattr(module, "Doc", document_module.Doc)
-        setattr(module, "DocFamily", document_module.DocFamily)
-        setattr(module, "_resolve", document_module.resolve)
+    return module
+
+
+def _tracker_dependency(module: types.ModuleType, changed: types.ModuleType) -> None:
+    for target, source in (
+        ("Tracker", "Tracker"),
+        ("_TrackedMap", "_Map"),
+        ("_TrackedList", "_List"),
+        ("TrackerRevoked", "TrackerRevoked"),
+    ):
+        setattr(module, target, getattr(changed, source))
+
+
+def mutant(name: str) -> types.ModuleType:
+    from pipy_harness.native.durable import documents, draft_tracker
+
+    dependency = (
+        documents
+        if name == "raw-doc-exact-builtins"
+        else draft_tracker
+        if name in {"copy-on-placement", "draft-exact-keys"}
+        else None
+    )
+    source = SOURCE
+    if dependency is not None:
+        assert dependency.__file__ is not None
+        source = Path(dependency.__file__).read_text()
+    for old, new in MUTANTS[name]:
+        assert source.count(old) == 1, (name, old)
+        source = source.replace(old, new)
+    module = _mutant_module(name, source)
+    if dependency is not None:
+        changed, module = module, _mutant_module(name + "_tx", SOURCE)
+        if dependency is documents:
+            setattr(module, "Doc", changed.Doc)
+            setattr(module, "DocFamily", changed.DocFamily)
+            setattr(module, "_resolve", changed.resolve)
+        else:
+            _tracker_dependency(module, changed)
+    if name == "revocation-check":
+        # Both independently enforced revocation checks must be removed. This
+        # restores actual usable escaped views, not an injected test exception.
+        source = Path(draft_tracker.__file__).read_text()
+        old = '        if not self._open:\n            raise TrackerRevoked("Draft is revoked")\n'
+        assert source.count(old) == 2
+        changed = _mutant_module(name + "_tracker", source.replace(old, ""))
+        _tracker_dependency(module, changed)
     return module
 
 

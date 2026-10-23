@@ -139,8 +139,22 @@ def _corruptions(m):
     def at(row, op, **match):
         return lambda r: step(m, r[row], op, **match)
 
+    def publication(rows):
+        return next(
+            c
+            for e in rows["d78-120-137-create-change-identity"]["effects"]
+            if e["e"] == "publish"
+            for c in e["changes"]
+            if c["type"] == "document"
+        )
+
     late = at("late-read-discard", "settle", job="j1")
     return {
+        "missing-publication-ops": lambda r: publication(r).pop("ops"),
+        "invalid-publication-ops": lambda r: publication(r).update(
+            ops=m.v.encode([["unknown"]])
+        ),
+        "unknown-publication-field": lambda r: publication(r).update(extra=None),
         "outcome-null": lambda r: late(r).update(outcome=None),
         "unknown-ref-kind": lambda r: late(r).update(
             outcome={"status": "rejected", "error": {"kind": "error-name-map"}}
@@ -440,7 +454,7 @@ def _unit_child(m, observed, products, calls, mutation):
         m.dump(folder / "resolutions.json", [])
         m.dump(folder / "pi-session-commit.json", {"exit_code": 0})
         changes = m.document_changes(observed)
-        driver = dict(m.CONTEXT_DRIVER, base_document_changes=changes)
+        driver = dict(m.CONTEXT_DRIVER, delta_document_changes=changes)
         if mutation == "context-drift":
             driver["sweeps"] = 1
         context = {"schema_version": 1, "phase": m.PHASE, "scenarios": len(m.SCENARIOS)}

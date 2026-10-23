@@ -14,16 +14,16 @@
     "packages/chord/test/delta.test.ts": "de120d2970e8ddf4628321917b48018d523963506bc31df6b06cc78a9fa343c1"
   },
   "closure": {
-    "docs/durable-draft-tracker.md": "101be88458a331ea9e0877eabc30a1e0762817d2f78d1324f28e31554884a765",
+    "docs/durable-draft-tracker.md": "13f2674931fdf8936daf44c24800cb6d45867646e47e8598c0acf9c60297d583",
     "scripts/durable_draft_tracker_comparison.py": "1a2d0ebba4454501d6400088eaed23b0cd383867f86e81a86eb4ea3a4323e4bc",
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
     "scripts/durable_reference/cases/draft-tracker.mts": "7da47ef95cf5fd143a512f6ca1c0042a1cdee79978b2b15fb9f1195feff618bc",
-    "scripts/durable_reference_acceptance.py": "4622a3142ef58695fb054c030435db62a6af6eeb3d30b238fdfe8299ce8c6cf5",
+    "scripts/durable_reference_acceptance.py": "c81724c6e18a0a91348c02195d0674478b046e50fffde7f67e46084eb81d0ee7",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "src/pipy_harness/native/durable/__init__.py": "b1b28d5a6cb478a0afb60cb24fbbfdd1b7774275ca2a2a88525d358b488273a0",
     "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
-    "src/pipy_harness/native/durable/draft_tracker.py": "3efab910abc8873b7a6fe3398a316264cb40ff2858e957193aeeae55d1313354",
+    "src/pipy_harness/native/durable/draft_tracker.py": "8b19f015b6e01b7942ad699a3d64d69c897c623671eec491e5c296fcc3799288",
     "tests/durable/test_draft_tracker.py": "1105e5fd1e87d7d04389308936423c0cfa73334d8ba3942e210c1c4276753abd",
     "tests/durable/test_draft_tracker_comparison.py": "2ab1f70d954e00ca36ce66d1d8efd83ef69793ff2f7ebcc46c12de458e993cae",
     "tests/fixtures/durable/draft-tracker-v1.input.json": "307a7a63401b5c46b0a381e2c0a4e94e5932ec7ab4415b35e36ee17bafc543a2"

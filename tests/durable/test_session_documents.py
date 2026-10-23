@@ -205,6 +205,7 @@ def test_all_scopes_families_atomic_and_publication_snapshot_identity(rig):
         for (spec, options, _), change in zip(specs, changes, strict=True):
             current = await snapshot(r, spec, **options)
             assert current.value is change.value
+            assert current.deltas_since_base == 0 and change.ops.thaw() == []
             assert change.conversation_id == (None if spec.scope == "session" else 7)
             record = current.record.to_tree()
             assert ("key" in record) is (type(spec) is DocFamily)
@@ -435,8 +436,22 @@ def test_terminal_retires_257_unknown_kinds_all_pages_and_dedupes(rig, dedupe):
         assert sorted(ids) == list(range(1000, 1257))
         changes = docs(r.publications[-1])
         assert len(changes) == 257 and all(
-            c.value is None and c.conversation_id == 7 for c in changes
+            c.value is None
+            and c.version is None
+            and c.ops.thaw() == []
+            and c.conversation_id == 7
+            for c in changes
         )
+        if dedupe:
+            content = next(w for w in writes if w["type"] == "document.change")
+            assert content["content"] == {
+                "kind": "delta",
+                "version": 1,
+                "ops": [["p", ["lines"], 1, 0, ["final"]]],
+            }
+            assert writes.index(content) < writes.index(
+                {"type": "document.retire", "id": content["id"]}
+            )
         assert not r.inner.scan_documents(
             DocumentQuery({"scope": {"kind": "task", "taskId": 20}, "at": "current"}),
             300,
@@ -522,6 +537,11 @@ def test_late_failure_rolls_back_coupled_tables_docs_and_revokes_nested(rig, fai
             await commit(r, abort)
         assert len(r.store.commits) == commits and len(r.publications) == publications
         assert await snapshot(r, one) is old and await snapshot(r, two) is old_two
+        assert old.deltas_since_base == old_two.deltas_since_base == 0
+        assert all(
+            r.inner.document(d.record.id).to_tree()["deltasSinceBase"] == 0
+            for d in (old, old_two)
+        )
         with pytest.raises(DraftRevoked):
             list(escaped[0])
 
@@ -627,12 +647,15 @@ def test_held_commit_exposes_only_committed_family_revision_and_listener_identit
     try:
         assert gate.entered.wait(WAIT)
         assert r.session.snapshot(spec, key="k") is previous
-        assert previous.value.thaw()["hits"] == 0
+        assert previous.value.thaw()["hits"] == 0 and previous.deltas_since_base == 0
+        assert len(r.publications) == 1
     finally:
         gate.release.set()
         worker.value()
     current = r.session.snapshot(spec, key="k")
     assert current.value.thaw()["hits"] == 9 and observed == [True]
+    assert current.deltas_since_base == 1 and previous.deltas_since_base == 0
+    assert docs(r.publications[-1])[0].ops.thaw() == [["s", ["hits"], 9]]
     assert previous.value.thaw()["hits"] == 0
 
 
@@ -708,6 +731,14 @@ def test_mixed_entry_task_and_two_existing_document_updates_share_one_commit(rig
             (await tx.doc(one))["lines"].append("new")
             (await tx.doc(two, task_id=20, key="k", seed=None))["hits"] = 2
             await tx.append_entry(7, {"kind": "probe", "data": {"coupled": True}})
+            await tx.create_submission(
+                {
+                    "conversationId": 7,
+                    "type": "input",
+                    "status": "queued",
+                    "requestId": "delta-coupled",
+                }
+            )
             candidate = task()
             candidate["input"] = {"coupled": True}
             tx.set_task(candidate)
@@ -716,6 +747,7 @@ def test_mixed_entry_task_and_two_existing_document_updates_share_one_commit(rig
         assert len(r.store.commits) == count + 1
         assert [w.to_tree()["type"] for w in r.store.commits[-1]] == [
             "entry",
+            "submission",
             "task",
             "document.change",
             "document.change",
@@ -725,6 +757,15 @@ def test_mixed_entry_task_and_two_existing_document_updates_share_one_commit(rig
         )
         assert (await snapshot(r, one)).value.thaw() == {"lines": ["new"]}
         assert (await snapshot(r, two, task_id=20, key="k")).value.thaw()["hits"] == 2
+        changes = docs(r.publications[-1])
+        assert [c.ops.thaw() for c in changes] == [
+            [["p", ["lines"], 0, 0, ["new"]]],
+            [["s", ["hits"], 2]],
+        ]
+        for spec, options in ((one, {}), (two, {"task_id": 20, "key": "k"})):
+            current = await snapshot(r, spec, **options)
+            assert current.deltas_since_base == 1
+            assert r.inner.document(current.record.id).to_tree()["deltasSinceBase"] == 1
 
     r.mode.run(run)
 

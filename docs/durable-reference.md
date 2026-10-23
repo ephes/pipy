@@ -1022,19 +1022,19 @@ uv run python scripts/durable_session_commit_comparison.py compare \
 **Node oracle.** `scripts/durable_reference/cases/session-commit.mts` uses the
 same bounded `SessionImpl` subclass as b1b (a `guarded` getter for off-line
 guard reads and a recording `report`; nothing else is overridden) and closes only
-through `SessionImpl.close`. Two oracle adaptations are recorded in the manifest
-scope: raw-base documents are `defineDoc` tokens with `checkpointWhen: () =>
-true`, so every loaded change is written as a base like the native raw-base
-writes, and `createTask` receives a structural task-definition stub. The clock
-is a constant and the document timer is declined, so nothing is swept or
-evicted. `reference-context.json` records the own members, zero sweeps and the
-number of admitted `document.change` writes, all of them bases.
+through `SessionImpl.close`. `createTask` receives a structural task-definition
+stub. The clock is constant and the document timer is declined, so nothing is
+swept or evicted. At DE02b3 delivery the document definitions forced checkpoint
+bases. DE04b1b3a removes that adaptation: the current driver uses absent policy
+and actual delta changes, retaining complete writes, counts and publication ops.
+`reference-context.json` records actual absent policy, zero sweeps and admitted
+delta-write counts. Historical full-base delivery evidence keeps its dated scope.
 
 **Recipes and trace.** `tests/fixtures/durable/session-commit-v1.input.json`
 holds 41 closed scenarios (405 steps; 35 also run in sync mode): commit and
 tables (minted IDs, before/after-acknowledgement cuts, a request error from
 commit, IDs never reused, ingress with no alias, read-after-write, final owners),
-raw-base documents (create/change/adopt identities, copy per placement, the
+default-delta documents (create/change/adopt identities, copy per placement, the
 empty batch, escaped/returned drafts, callback failure, pending acquisitions, no
 late initializer, a captured Tx, memoized duplicates, the old revision during a
 held commit, assembly rollback, retire and recreate, a cold load), line and
@@ -1071,7 +1071,7 @@ close is released). Not exercised: a caller mutating an entry draft's top-level
 keys while the append is pending (Pi reads them after its awaits, native at the
 call; a nested mutation is captured on both sides and is paired). Not compared
 at all: typed documents, migrations, families, task-scope documents and
-terminal-task retirement, deltas and op-based no-ops, forks, `documentState`,
+terminal-task retirement, checkpoint callbacks, forks, `documentState`,
 `watchDoc`, retention, `unloadDocuments`, telemetry and listener context, Harness
 hooks and SQLite.
 
@@ -1270,12 +1270,16 @@ omitted scan cursors use explicit role-local null observations, with raw Node
 undefined retained in the raw trace. No payload/version numeric normalization
 is introduced.
 
-Pi loaded changes select full bases using the existing reference-only
-`checkpointWhen:()=>true` adaptation. Native remains full-base/value-based in a;
-operation batches, structural no-ops, actual delta materialization and real
-checkpoint-policy exceptions remain retained DE04b acceptance. Raw Pi ops are
-retained but operation parity is not claimed. Full history/as-of/fork/migrations
-remain DE27; no Storage or product-default capability changes. D1 historical
+At DE04a delivery, Pi loaded changes forced full bases with the reference-only
+`checkpointWhen:()=>true` adaptation and native used value-based suppression.
+That historical capture remains byte-identical. DE04b1b3a migrates the current
+driver to absent-policy deltas and captures a new expected fixture from actual
+pinned execution; complete writes, stored counts and publication operations are
+compared. Native loaded candidates use the exact persisted/replayed value chosen
+by the owner. The actual method, structural-no-op and failure matrix is described
+in [the Session delta contract](durable-session-deltas.md). Real checkpoint-policy
+exceptions and actual unload remain DE04b1b3b. History/as-of/fork/migrations remain
+DE27; product defaults are unchanged. D1 historical
 proof/source hashes identify their immutable delivered snapshot, independently
 from the current source closure and migrated D1 Session tests. All43 P rows
 remain OPEN.
@@ -1293,6 +1297,6 @@ the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-ve
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is LANDED at `6e3b838f`; its [delivery/admission successor](specs/2026-10-19-durable-execution-evidence.md#de04b1a-verified-delivery-and-de04b1b-pre-code-admission) records verified delivery. Independent S (`DE04b1b2`, DE03d + DE04b1a) now implements [supplied current deltas and semantic schema2](durable-current-deltas.md), delivered at `8c8f30d7` with [verified gates](specs/2026-10-19-durable-execution-evidence.md#de04b1b2-verified-delivery-and-t-integration-successor). T (`DE04b1b1`, DE04a + DE04b1a) adds [pure draft provenance and immutable normalized operations](durable-draft-tracker.md) as a shipping candidate, with final Root integration gates/delivery pending in the [T preparation evidence](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-pure-provenance-integration-preparation). J (`DE04b1b3`, T + S + DE04a + owner policy266) is OPEN; the owner answer is required before authoritative candidate/ops selection. T is LANDED in the shipping candidate conditional on its final Root gates; S is verified LANDED; cumulative DE04b1b/b/DE04 remain IN_PROGRESS until retained acceptance completes. DE05 waits full DE04, DE27 retains history/as-of/fork/migrations, and all43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is IN_PROGRESS: DE04b1b3a implements [default deltas, count adoption and linked ops publication](durable-session-deltas.md) as a shipping candidate conditional on final Root gates; DE04b1b3b retains real checkpoint callbacks, actual unload and final cumulative proofs. DE04b1b/b/DE04 remain IN_PROGRESS until every original acceptance cell completes. DE05 waits full DE04; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.

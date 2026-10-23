@@ -1,9 +1,9 @@
-"""Private typed current-base Session transaction core (DE04a); no commit entrypoint.
+"""Private typed current-document Session transaction core; no commit entrypoint.
 
 One sans-IO core stages one commit callback's work over the DE02b1a guard: table
 reads before the first table write, eager conversation/entry staging, task and
 submission candidates resolved at assembly, final-owner validation, and
-typed current-base documents behind mutable, nested-revocable drafts, including
+typed current documents behind mutable, nested-revocable drafts, including
 family identity and coupled terminal-task retirement. It
 prepares, assembles, discards or adopts; it never commits. The first exposed
 Session (line, ``commit``/``acommit``, async driver, publication, close) is
@@ -45,18 +45,21 @@ Python spelling, documented decisions:
   before memo lookup; committed owner checks apply only to absent documents.
   Terminal task candidates retire staged and unknown persisted members in pages
   of 256 before one coupled Storage admission. Loaded versions still reject
-  migrations; current full bases/value-based suppression are the bounded a
-  interim. Real normalized operations/deltas/checkpoint predicates belong to
-  DE04b; full histories/fork/migrations remain DE27.
-* ``Draft``/``DraftList`` are live views of one working tree owned by one
-  ``_DraftChange``. Every method checks first that the change is open
+  migrations. Creation writes its actual final base. Loaded nonempty normalized
+  operations write deltas and adopt their exact persisted replay; empty operations
+  retain the prior committed incarnation. Checkpoint predicates remain a later
+  join; full histories/fork/migrations remain DE27.
+* ``Draft``/``DraftList`` are guarded adapters over one delivered ``Tracker``
+  owned by one ``_DraftChange``. Every method checks first that the change is open
   (``DraftRevoked`` otherwise), then the driver's thread affinity
   (``TxAffinityError``). Every placement validates and deep-copies its value.
   Prepare revokes every view, nested or escaped, before assembly; abort and
   adoption keep them revoked.
-* The document cache holds only committed ``CommittedDocument`` values.
-  Adoption swaps entries under the cache lock, so a reader outside the line sees
-  the old or the new revision and never a candidate.
+* The document cache holds immutable committed value/count pairs. Adoption
+  swaps entries under the cache lock only after acknowledgement, so a reader
+  outside the line sees the old or the new revision and never a candidate.
+  Publications share the same owned value and prepared operations; retirement
+  overrides them with no value/version and empty operations.
 """
 
 from __future__ import annotations
@@ -91,6 +94,9 @@ from .documents import Doc, DocFamily, Token, address_key
 from .documents import Key as _Key
 from .documents import check_scope as _check_scope
 from .documents import resolve as _resolve
+from .draft_tracker import Tracker, TrackerRevoked
+from .draft_tracker import _List as _TrackedList
+from .draft_tracker import _Map as _TrackedMap
 from .records import (
     OMITTED,
     SAFE_INTEGER,
@@ -312,10 +318,6 @@ def _id(value: object, what: str) -> int:
     return value
 
 
-def _units(value: str) -> bytes:
-    return value.encode("utf-16-be", "surrogatepass")
-
-
 def _number(value: object) -> str:
     return (
         str(int(value)) if type(value) is float and value.is_integer() else str(value)
@@ -329,6 +331,7 @@ class CommittedDocument:
     record: DocumentRecord
     version: int | float
     value: OwnedJson
+    deltas_since_base: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,6 +342,7 @@ class RawDocumentChange:
     conversation_id: int | None
     version: int | float | None
     value: OwnedJson | None
+    ops: OwnedJson
 
 
 def _check_version(raw: Token, record: DocumentRecord, version: int | float) -> None:
@@ -430,7 +434,10 @@ async def _load_document(
         )
     value = cast(Tree, stored.to_tree())
     loaded = CommittedDocument(
-        DocumentRecord(value["record"]), value["version"], OwnedJson(value["value"])
+        DocumentRecord(value["record"]),
+        value["version"],
+        OwnedJson(value["value"]),
+        value["deltasSinceBase"],
     )
     _check_scope(raw, loaded.record)
     _check_version(raw, loaded.record, loaded.version)
@@ -449,75 +456,77 @@ _ADOPTED: Final = "adopted"
 @dataclass(frozen=True, slots=True)
 class _Prepared:
     value: OwnedJson
-    changed: bool
+    ops: OwnedJson
 
 
-def _distinct_key(node: Tree, key: str) -> None:
-    # Python strings can spell one UTF-16 identity twice (surrogate pairs).
-    if key in node or all(ord(c) < 0xD800 or 0xDFFF < ord(c) < 0x10000 for c in key):
-        return
-    units = _units(key)
-    if any(_units(other) == units for other in node):
-        raise JsonValueError("JSON object keys need distinct UTF-16 identities")
+_EMPTY_OPS: Final = OwnedJson([])
+_TrackedView: TypeAlias = _TrackedMap | _TrackedList
 
 
 @final
 class _DraftChange:
-    """One working tree and every view of it; one state flip revokes them all."""
+    """Guarded adapters over one Tracker; no second mutable document tree."""
 
-    __slots__ = ("baseline", "check", "root", "state", "tree", "views")
+    __slots__ = ("created", "check", "root", "state", "tracker", "views")
 
     def __init__(
-        self, tree: Tree, baseline: OwnedJson | None, check: Callable[[], None]
+        self, value: OwnedJson, created: bool, check: Callable[[], None]
     ) -> None:
         self.state: str = _OPEN
-        self.tree: Tree | None = tree
-        self.baseline = baseline
+        self.created = created
         self.check = check
         self.views: dict[int, Draft | DraftList] = {}
-        self.root = Draft(self, tree)
-        self.views[id(tree)] = self.root
+        self.tracker = Tracker(value, self.guard)
+        self.root = cast(Draft, self.view(self.tracker.root))
 
     def guard(self) -> None:
         if self.state is not _OPEN:
             raise DraftRevoked()
         self.check()
 
-    def view(self, node: object) -> Any:
-        if type(node) is not dict and type(node) is not list:
-            return node
-        cached = self.views.get(id(node))
+    def view(self, view: Any) -> Any:
+        if type(view) not in (_TrackedMap, _TrackedList):
+            return view
+        cached = self.views.get(id(view))
         if cached is None:
             cached = (
-                Draft(self, cast(Tree, node))
-                if type(node) is dict
-                else DraftList(self, cast(list[Any], node))
+                Draft(self, view)
+                if type(view) is _TrackedMap
+                else DraftList(self, view)
             )
-            self.views[id(node)] = cached
+            self.views[id(view)] = cached
         return cached
 
-    def place(self, value: object) -> Any:
-        """Validate and deep-copy one placed value; a view copies its subtree."""
+    def place(self, value: object) -> object:
+        """Unwrap only our guarded views; Tracker owns every placed subtree."""
+        self.guard()
         if _is_view(value):
-            view = cast(Draft | DraftList, value)
-            view._change.guard()
-            value = view._node
-        return OwnedJson(value).thaw()
+            return cast(Draft | DraftList, value).snapshot().thaw()
+        return value
+
+    def placements(self, values: Iterable[object]) -> Iterator[object]:
+        for value in values:
+            yield self.place(value)
 
     def prepare(self) -> _Prepared:
-        if self.state is not _OPEN or self.tree is None:
-            raise RuntimeError("Draft change is not open")
-        tree = self.tree
-        self.state = _PREPARED
-        self.tree = None
-        self.views.clear()
-        value = OwnedJson(tree)
-        return _Prepared(value, self.baseline is None or value != self.baseline)
+        self.guard()
+        try:
+            # Creation keeps its actual final object, including scalar signs and
+            # member order. Loaded changes use the exact persisted replay.
+            created = self.root.snapshot() if self.created else None
+            prepared = self.tracker.prepare()
+            return _Prepared(
+                created if created is not None else prepared.replayed_value,
+                _EMPTY_OPS if created is not None else prepared.ops,
+            )
+        finally:
+            self.state = _PREPARED
+            self.views.clear()
 
     def discard(self) -> None:
         if self.state is _OPEN or self.state is _PREPARED:
             self.state = _ABORTED
-            self.tree = None
+            self.tracker.discard()
             self.views.clear()
 
     def settle(self, adopted: bool) -> None:
@@ -529,44 +538,50 @@ def _is_view(value: object) -> bool:
     return type(value) is Draft or type(value) is DraftList
 
 
-def _node_of(change: _DraftChange, other: object) -> object:
-    if _is_view(other):
-        view = cast(Draft | DraftList, other)
-        view._change.guard()
-        return view._node
-    return other
-
-
-def _detached(node: object) -> Any:
-    """An owned copy: foreign code never receives a live working-tree container."""
-    return OwnedJson(node).thaw()
-
-
-def _equal(node: object, other: object) -> bool:
-    """Compare detached values; nested operands see only detached containers."""
-    mine = _detached(node)
-    theirs = _detached(_node_of_any(other)) if _is_view(other) else other
-    return bool(mine == theirs)
-
-
-def _node_of_any(other: object) -> object:
-    view = cast(Draft | DraftList, other)
-    view._change.guard()
-    return view._node
-
-
-def _key(key: object) -> str:
-    """Exact ``str`` keys only, so no caller ``__hash__``/``__eq__`` runs."""
+def _key(key: object, *, write: bool = False) -> str:
+    """Validate before unwrapping a placed view; no caller coercion runs."""
     if type(key) is not str:
+        if write:
+            raise TypeError("Draft object keys must be exact strings")
         raise KeyError("Draft object keys are exact strings")
     return key
 
 
+def _index(index: object) -> int | slice:
+    if type(index) is slice and all(
+        part is None or type(part) is int
+        for part in (index.start, index.stop, index.step)
+    ):
+        return index
+    if type(index) is not int:
+        raise TypeError("Draft list indices must be exact integers or slices")
+    return index
+
+
 class _View:
-    __slots__ = ()
+    __slots__ = ("_change", "_view")
     _change: _DraftChange
+    _view: _TrackedView  # Delivered facade, never its mutable node.
+
+    def __init__(self, change: _DraftChange, view: _TrackedView) -> None:
+        if hasattr(self, "_change"):
+            raise TypeError("Draft view is already initialized")
+        object.__setattr__(self, "_change", change)
+        object.__setattr__(self, "_view", view)
+
+    def _use(self, fn: Callable[..., T], *args: Any) -> T:
+        # The outer check keeps DraftRevoked before TxAffinityError and never
+        # leaks Tracker's generic wrong-thread exception from normal access.
+        self._change.guard()
+        try:
+            return fn(*args)
+        except TrackerRevoked:
+            raise DraftRevoked() from None
 
     def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("Drafts expose items, not attributes")
+
+    def __delattr__(self, name: str) -> None:
         raise AttributeError("Drafts expose items, not attributes")
 
     def __copy__(self) -> object:
@@ -588,189 +603,130 @@ class _View:
         state = "open" if self._change.state is _OPEN else "revoked"
         return f"{type(self).__name__}(<{state}>)"
 
+    def snapshot(self) -> OwnedJson:
+        """A detached owned copy of the current value."""
+        return self._use(self._view.snapshot)
+
+    def __eq__(self, other: object) -> bool:
+        mine = self.snapshot().thaw()
+        theirs = cast(_View, other).snapshot().thaw() if _is_view(other) else other
+        return bool(mine == theirs)
+
+
+def _guarded(view: _View, items: Iterator[Any]) -> Iterator[Any]:
+    while True:
+        try:
+            item = view._use(next, items)
+        except StopIteration:
+            return
+        yield view._change.view(item)
+
 
 class Draft(_View, MutableMapping[str, Any]):
-    """Mutable view of one JSON object inside an open document change."""
+    """Mutable object adapter over the same Tracker as every nested view."""
 
-    __slots__ = ("_change", "_node")
+    __slots__ = ()
     __hash__ = None  # type: ignore[assignment]
-    _node: Tree
-
-    def __init__(self, change: _DraftChange, node: Tree) -> None:
-        object.__setattr__(self, "_change", change)
-        object.__setattr__(self, "_node", node)
+    _view: _TrackedMap
 
     def __getitem__(self, key: str) -> Any:
-        self._change.guard()
-        return self._change.view(self._node[_key(key)])
+        return self._change.view(self._use(self._view.__getitem__, key))
 
     def __setitem__(self, key: str, value: object) -> None:
         self._change.guard()
-        if type(key) is not str:
-            raise TypeError("Draft object keys must be exact strings")
-        _distinct_key(self._node, key)
-        self._node[key] = self._change.place(value)
+        key = _key(key, write=True)
+        self._use(self._view.__setitem__, key, self._change.place(value))
 
     def __delitem__(self, key: str) -> None:
-        self._change.guard()
-        del self._node[_key(key)]
+        self._use(self._view.__delitem__, key)
 
     def __iter__(self) -> Iterator[str]:
-        self._change.guard()
-        return _guarded(self._change, list(self._node))
+        return _guarded(self, self._use(iter, self._view))
 
     def __len__(self) -> int:
-        self._change.guard()
-        return len(self._node)
+        return self._use(len, self._view)
 
     def __contains__(self, key: object) -> bool:
-        self._change.guard()
-        return type(key) is str and key in self._node
-
-    def __eq__(self, other: object) -> bool:
-        self._change.guard()
-        return _equal(self._node, other)
+        return self._use(self._view.__contains__, key)
 
     def pop(self, key: str, *default: object) -> Any:
-        """Remove ``key`` and return its detached plain value."""
-        self._change.guard()
-        if type(key) is not str and default:
-            return default[0]
-        return self._node.pop(_key(key), *default)
+        return self._use(self._view.pop, key, *default)
 
     def popitem(self) -> tuple[str, Any]:
-        self._change.guard()
-        return self._node.popitem()
+        return self._use(self._view.popitem)
 
     def clear(self) -> None:
+        self._use(self._view.clear)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
         self._change.guard()
-        self._node.clear()
+        super().update(*args, **kwargs)
+        self._change.guard()
 
     def setdefault(self, key: str, default: object = None) -> Any:
         self._change.guard()
-        if _key(key) not in self._node:
+        if _key(key) not in self:
             self[key] = default
         return self[key]
 
-    def snapshot(self) -> OwnedJson:
-        """A detached owned copy of the current value."""
-        self._change.guard()
-        return OwnedJson(self._node)
-
-
-def _guarded(change: _DraftChange, items: list[str]) -> Iterator[str]:
-    for item in items:
-        change.guard()
-        yield item
-
-
-def _index(index: object) -> int | slice:
-    # Exact ints only, also inside slices: no caller ``__index__`` runs.
-    if type(index) is slice and all(
-        part is None or type(part) is int
-        for part in (index.start, index.stop, index.step)
-    ):
-        return index
-    if type(index) is not int:
-        raise TypeError("Draft list indices must be exact integers or slices")
-    return index
-
-
-def _items(view: DraftList) -> Iterator[Any]:
-    position = 0
-    while True:
-        view._change.guard()
-        if position >= len(view._node):
-            return
-        yield view._change.view(view._node[position])
-        position += 1
-
 
 class DraftList(_View, MutableSequence[Any]):
-    """Mutable view of one JSON array inside an open document change."""
+    """Mutable array adapter; ABC methods dispatch through these same routes."""
 
-    __slots__ = ("_change", "_node")
+    __slots__ = ()
     __hash__ = None  # type: ignore[assignment]
-    _node: list[Any]
-
-    def __init__(self, change: _DraftChange, node: list[Any]) -> None:
-        object.__setattr__(self, "_change", change)
-        object.__setattr__(self, "_node", node)
+    _view: _TrackedList
 
     def __getitem__(self, index: Any) -> Any:
-        self._change.guard()
-        position = _index(index)
-        if type(position) is slice:
-            return OwnedJson(self._node[position]).thaw()  # a detached copy
-        return self._change.view(self._node[position])
+        return self._change.view(self._use(self._view.__getitem__, index))
 
     def __setitem__(self, index: Any, value: Any) -> None:
         self._change.guard()
         position = _index(index)
-        if type(position) is slice:
-            values = _node_of(self._change, value)
-            if not isinstance(values, Iterable):
-                raise TypeError("Slice assignment requires an iterable")
-            self._node[position] = [self._change.place(item) for item in values]
-        else:
-            self._node[position] = self._change.place(value)
+        placed = (
+            self._change.placements(value)
+            if type(position) is slice
+            else self._change.place(value)
+        )
+        self._use(self._view.__setitem__, position, placed)
 
     def __delitem__(self, index: Any) -> None:
-        self._change.guard()
-        del self._node[_index(index)]
+        self._use(self._view.__delitem__, index)
 
     def __len__(self) -> int:
-        self._change.guard()
-        return len(self._node)
-
-    def __eq__(self, other: object) -> bool:
-        self._change.guard()
-        return _equal(self._node, other)
+        return self._use(len, self._view)
 
     def __contains__(self, value: object) -> bool:
-        self._change.guard()
-        return value in _detached(self._node)
+        return self._use(self._view.__contains__, value)
 
     def __iter__(self) -> Iterator[Any]:
-        self._change.guard()
-        return _items(self)
+        return _guarded(self, self._use(iter, self._view))
 
     def index(self, value: object, start: int = 0, stop: int | None = None) -> int:
-        self._change.guard()
-        if type(start) is not int or (stop is not None and type(stop) is not int):
-            raise TypeError("Draft list indices must be exact integers")
-        items = _detached(self._node)
-        return int(items.index(value, start, len(items) if stop is None else stop))
+        return self._use(self._view.index, value, start, stop)
 
     def count(self, value: object) -> int:
-        self._change.guard()
-        return int(_detached(self._node).count(value))
+        return self._use(self._view.count, value)
 
     def insert(self, index: int, value: object) -> None:
         self._change.guard()
         if type(index) is not int:
             raise TypeError("Draft list indices must be exact integers")
-        self._node.insert(index, self._change.place(value))
+        self._use(self._view.insert, index, self._change.place(value))
+
+    def extend(self, values: Iterable[Any]) -> None:
+        self._change.guard()
+        super().extend(values)
+        self._change.guard()
 
     def pop(self, index: int = -1) -> Any:
-        """Remove one item and return its detached plain value."""
-        self._change.guard()
-        if type(index) is not int:
-            raise TypeError("Draft list indices must be exact integers")
-        return self._node.pop(index)
+        return self._use(self._view.pop, index)
 
     def reverse(self) -> None:
-        self._change.guard()
-        self._node.reverse()
+        self._use(self._view.reverse)
 
     def clear(self) -> None:
-        self._change.guard()
-        self._node.clear()
-
-    def snapshot(self) -> OwnedJson:
-        """A detached owned copy of the current value."""
-        self._change.guard()
-        return OwnedJson(self._node)
+        self._use(self._view.clear)
 
 
 # -- the transaction core -------------------------------------------------------
@@ -815,7 +771,7 @@ class _Plan:
 
 
 def _plan(document: _DocEntry) -> _Plan | None:
-    """Pi ``planDocument`` for raw-base targets; retirement is decided later."""
+    """Creation bases and ordinary default-policy deltas; retirement follows."""
     target = document.target
     if target is None:
         return None
@@ -824,8 +780,8 @@ def _plan(document: _DocEntry) -> _Plan | None:
     prepared, change = document.prepared, document.change
     assert prepared is not None and change is not None
     version = document.raw.version
-    content = {"version": version, "kind": "base", "value": prepared.value.thaw()}
     if type(target) is _Created:
+        content = {"version": version, "kind": "base", "value": prepared.value.thaw()}
         write = {"type": "document.create", "record": target.record.to_tree()}
         return _Plan(
             document.key,
@@ -837,12 +793,17 @@ def _plan(document: _DocEntry) -> _Plan | None:
             version,
         )
     loaded = cast(CommittedDocument, target)
-    # Value-identical content writes and publishes nothing (Pi: no ops).
+    # Structural operations may restore equal values and must still persist.
+    ops = prepared.ops.thaw()
     changed = (
         StorageWrite(
-            {"type": "document.change", "id": loaded.record.id, "content": content}
+            {
+                "type": "document.change",
+                "id": loaded.record.id,
+                "content": {"version": version, "kind": "delta", "ops": ops},
+            }
         )
-        if prepared.changed
+        if ops
         else None
     )
     return _Plan(
@@ -1344,8 +1305,7 @@ class _TxCore:
             _check_scope(raw, loaded.record)
             _check_version(raw, loaded.record, loaded.version)
             entry.target = loaded
-            tree = cast(Tree, loaded.value.thaw())
-            entry.change = _DraftChange(tree, loaded.value, self._driver.check)
+            entry.change = _DraftChange(loaded.value, False, self._driver.check)
             return entry.change.root
         scope = cast(Tree, entry.address.to_tree())["scope"]
         if scope["kind"] == "conversation":
@@ -1377,7 +1337,7 @@ class _TxCore:
         if raw.scope == "conversation":
             create |= {"history": raw.history, "fork": raw.fork}
         entry.target = _Created(DocumentCreate(create), raw.version)
-        entry.change = _DraftChange(initial, None, self._driver.check)
+        entry.change = _DraftChange(OwnedJson(initial), True, self._driver.check)
         return entry.change.root
 
     async def _load(
@@ -1464,21 +1424,32 @@ class _TxCore:
             loaded = plan.loaded
             # A new incarnation is adopted unless it retires in this commit; a
             # loaded one only when it changed.
-            adopted = not plan.retiring if loaded is None else prepared.changed
+            adopted = not plan.retiring and plan.content is not None
             plan.change.settle(adopted)
             if loaded is not None and adopted:
-                new = CommittedDocument(loaded.record, plan.version, prepared.value)
+                new = CommittedDocument(
+                    loaded.record,
+                    plan.version,
+                    prepared.value,
+                    loaded.deltas_since_base + 1,
+                )
                 self._cache.swap(plan.key, loaded, new)
             elif loaded is None and adopted:
-                new = CommittedDocument(document, plan.version, prepared.value)
+                new = CommittedDocument(document, plan.version, prepared.value, 0)
                 self._cache.install(plan.key, new)
         if plan.retiring:
             if committed:
                 self._cache.evict(plan.key, document.id)
-            return RawDocumentChange(document, plan.conversation_id, None, None)
+            return RawDocumentChange(
+                document, plan.conversation_id, None, None, _EMPTY_OPS
+            )
         if prepared is not None and _publishes(plan):
             return RawDocumentChange(
-                document, plan.conversation_id, plan.version, prepared.value
+                document,
+                plan.conversation_id,
+                plan.version,
+                prepared.value,
+                prepared.ops,
             )
         return None
 

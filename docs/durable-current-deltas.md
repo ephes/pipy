@@ -4,7 +4,11 @@ The private Memory and SQLite Storage backends accept owned
 `StorageWrite` batches containing current document deltas. This is the independent
 storage slice S: it does not integrate tracking, Draft/Tx preparation, checkpoint
 callbacks, Session adoption or linked publication. Those remain in DE04b1b3,
-including the owner's still-open policy266 decision about candidate selection.
+with the owner's policy266 decision to use the persisted/replayed value for
+callbacks, cache and publications. The default delta join is DE04b1b3a; real
+checkpoint callbacks and actual unload remain DE04b1b3b. The
+[default Session join](durable-session-deltas.md) activates tracking, count adoption
+and linked operations publication through the existing authority.
 Copy, numeric historical reads, fork reconstruction and full history policy
 remain DE27. No product factory or default persistence path changes.
 

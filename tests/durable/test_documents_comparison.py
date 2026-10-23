@@ -1,6 +1,7 @@
 """Closed typed-document oracle: actual native legs vs lossless captured Pi unit data.
 
-The fixture was captured with a reused historical parent; it never substitutes
+The default-delta fixture was captured from the actual pinned driver in a verified
+reused source/dependency closure; it never substitutes
 for the coordinator's fresh complete chain gates.
 """
 
@@ -22,12 +23,12 @@ spec = importlib.util.spec_from_file_location("documents_comparator_tests", SCRI
 assert spec and spec.loader
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-RAW_BYTES = 2_314_697
-RAW_SHA = "7cc663104b1af089b6aaf9d64a9518f39cca95db643719d39fb9a604b0031979"
+RAW_BYTES = 2_428_093
+RAW_SHA = "e592dcf85c2e5a1329436e0f1f62936eb8cfce60cca242eac89b552c315608fd"
 
 
 def captured():
-    wrapper = m.d.load(m.o.FIXTURES / "session-documents-v1.expected.json")
+    wrapper = m.d.load(m.o.FIXTURES / "session-documents-deltas-v1.expected.json")
     m.d.shape(
         wrapper,
         {"schema_version", "encoding", "raw_bytes", "raw_sha256", "data"},
@@ -110,6 +111,9 @@ def test_actual_cli_positive_zero_behavior_control_one(paired, tmp_path, name):
         "missing-case",
         "extra-backend",
         "invalid-tag",
+        "missing-ops",
+        "unknown-publication-field",
+        "invalid-ops",
     ],
 )
 def test_actual_cli_malformed_metadata_is_two(paired, tmp_path, mutation):
@@ -127,7 +131,14 @@ def test_actual_cli_malformed_metadata_is_two(paired, tmp_path, mutation):
     else:
         row = actual["backends"][0]["cases"][0]
         value = m.v.decode(row["profile"])
-        value["counts"]["mint_id"] = True
+        if mutation == "missing-ops":
+            value["publications"][0].pop("ops")
+        elif mutation == "unknown-publication-field":
+            value["publications"][0]["extra"] = None
+        elif mutation == "invalid-ops":
+            value["publications"][0]["ops"] = [["unknown"]]
+        else:
+            value["counts"]["mint_id"] = True
         row["profile"] = m.v.encode(value)
     result = cli(tmp_path, expected, actual)
     assert result.returncode == 2 and "Traceback" not in result.stderr
@@ -220,6 +231,13 @@ def test_current_import_closure_pins_new_document_helper_in_all_session_phases()
     helper = "src/pipy_harness/native/durable/documents.py"
     for inventory in (m.b.g.CLOSURE, m.b.CLOSURE, m.d.CLOSURE, m.CLOSURE):
         assert helper in inventory
+    for helper in ("draft_tracker.py", "delta_ops.py"):
+        assert "src/pipy_harness/native/durable/" + helper in m.b.CLOSURE
+        assert "src/pipy_harness/native/durable/" + helper in m.CLOSURE
+    assert "tests/durable/test_session_deltas.py" in m.CLOSURE
+    assert (
+        "tests/fixtures/durable/session-documents-deltas-v1.expected.json" in m.CLOSURE
+    )
     assert m.configuration()["parents"]["sqlite"] == m.o.sha(m.d.MANIFEST)
 
 
