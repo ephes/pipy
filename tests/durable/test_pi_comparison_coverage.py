@@ -630,6 +630,14 @@ def test_document_join_cannot_land_before_prerequisites(tmp_path, parent):
     path = root / a.LEDGER
     path.parent.mkdir(parents=True)
     lines = (o.ROOT / a.LEDGER).read_text().splitlines()
+    for i, line in enumerate(lines):
+        key = line.split(" |", 1)[0].removeprefix("| ")
+        if key == "DE04b1b3b":
+            lines[i] = re.sub(r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| OPEN |", line)
+        elif key in {"DE04", "DE04b", "DE04b1b", "DE04b1b3"}:
+            lines[i] = re.sub(
+                r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| IN_PROGRESS |", line
+            )
     index = next(
         i for i, line in enumerate(lines) if line.startswith("| " + parent + " |")
     )
@@ -696,7 +704,7 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
         "session-documents-a-v1",
     ]
     assert "docs/durable-session-deltas.md" in rows["DE04b1b3a"]["evidence"]
-    assert rows["DE04b1b3b"]["status"] == "OPEN"
+    assert rows["DE04b1b3b"]["status"] == "IN_PROGRESS"
     assert rows["DE04b1b3b"]["plan_cells"][0] == "DE04b1b3b / DE04b1b3a"
     assert "actual unload" in rows["DE04b1b3b"]["future"].lower()
     assert "second-predicate exception" in rows["DE04b1b3b"]["future"]

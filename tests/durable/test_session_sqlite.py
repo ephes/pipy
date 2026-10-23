@@ -16,7 +16,7 @@ from sqlite_child_support import Child
 from test_session_commit import ASYNC, SYNC
 
 from pipy_harness.native.durable import sqlite, sqlite_connection
-from pipy_harness.native.durable.documents import Doc
+from pipy_harness.native.durable.documents import Doc, define_doc
 from pipy_harness.native.durable.session import SessionFailed
 from pipy_harness.native.durable.session_core import Session
 from pipy_harness.native.durable.sqlite import open_sqlite_storage
@@ -249,6 +249,75 @@ def test_real_commit_ack_loss_fails_session_without_adoption_publication_or_retr
             assert reopened.mint_id() == 7 and reopened.commit(()) == 3
         finally:
             reopened.close()
+
+
+@MODES
+@pytest.mark.parametrize("failure", ["precommit", "ack", "adoption"])
+def test_checkpoint_base_count_reset_failure_and_fresh_session_reopen(
+    tmp_path, mode, monkeypatch, failure
+):
+    from pipy_harness.native.durable.tx import _DocumentCache
+
+    with rig(tmp_path) as r:
+        chosen, policy_counts, publications = [False], [], []
+
+        def policy(_value, _ops, info):
+            policy_counts.append(info.deltas_since_base)
+            return chosen[0]
+
+        spec = define_doc(
+            "sqlite.checkpoint", 1, "session", lambda: {"n": 0}, checkpoint_when=policy
+        )
+        r.session.observe_commits(publications.append)
+        error = ValueError("checkpoint " + failure)
+
+        async def edit(tx):
+            (await tx.doc(spec))["n"] += 1
+
+        async def body():
+            await mode.commit(r, edit)
+            await mode.commit(r, edit)
+            await mode.commit(r, edit)
+            old = await mode.snapshot(r, spec)
+            assert old.value.thaw() == {"n": 3} and old.deltas_since_base == 2
+            chosen[0] = True
+
+            def fail(*_args):
+                raise error
+
+            monkeypatch.setattr(
+                _DocumentCache if failure == "adoption" else sqlite,
+                "swap"
+                if failure == "adoption"
+                else "_after_commit"
+                if failure == "ack"
+                else "_before_commit",
+                fail,
+            )
+            with pytest.raises(ValueError) as caught:
+                await mode.commit(r, edit)
+            assert caught.value is error and r.session.failure is error
+            assert policy_counts == [0, 1, 2]
+            assert len(publications) == 3
+            assert old.value.thaw() == {"n": 3} and old.deltas_since_base == 2
+            assert (await mode.closed(r)).error is error
+            return old
+
+        old = mode.run(body)
+        monkeypatch.undo()
+        reopened = open_sqlite_storage(r.path, mode="open")
+        fresh = SimpleNamespace(session=Session(reopened))
+        try:
+
+            async def read():
+                return await mode.snapshot(fresh, spec)
+
+            loaded = mode.run(read)
+            assert loaded.record.id == old.record.id and loaded.version == 1
+            assert loaded.value.thaw() == {"n": 3 if failure == "precommit" else 4}
+            assert loaded.deltas_since_base == (2 if failure == "precommit" else 0)
+        finally:
+            fresh.session.close(timeout=WAIT)
 
 
 @MODES

@@ -557,12 +557,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE04a e6c1239d, pure operations6e3b838f, supplied-delta S8c8f30d7 and pure Tracker T71cb8c91 are verified delivered. Owner policy266 selects the persisted/replayed value. J is split into default-delta DE04b1b3a and real checkpoint/actual unload DE04b1b3b; all original parent acceptance remains cumulative, DE05 waits full DE04 and all43 P rows remain OPEN. Pi session-documents.test.ts 190 structural no-op/checkpoint acceptance remains cumulative. Carried from DE02b3: private append admission timing requires resolution before DE11 product exposure."
+        "observables": "DE04a e6c1239d, pure operations6e3b838f, supplied-delta S8c8f30d7 and pure Tracker T71cb8c91 are verified delivered. Owner policy266 selects the persisted/replayed value. J1 verified delivered33d39457; real checkpoint/actual unload DE04b1b3b is IN_PROGRESS; all original parent acceptance remains cumulative, DE05 waits full DE04 and all43 P rows remain OPEN. Pi session-documents.test.ts 190 structural no-op/checkpoint acceptance remains cumulative. Carried from DE02b3: private append admission timing requires resolution before DE11 product exposure."
       },
       "future": "Atomic entries/tasks/docs; copied inputs/reads, invalid JSON, init/checkpoint exceptions rollback, terminal task doc retirement; shared mutable readers/writers race barriers. Document contract.  Split into DE04a and DE04b; parent completes only after both children and all original acceptance.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4233,12 +4233,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE04a e6c1239d, pure operations6e3b838f, supplied-delta S8c8f30d7 and pure Tracker T71cb8c91 are verified delivered. Owner policy266 selects the persisted/replayed value. J is split into default-delta DE04b1b3a and real checkpoint/actual unload DE04b1b3b; all original parent acceptance remains cumulative, DE05 waits full DE04 and all43 P rows remain OPEN."
+        "observables": "DE04a e6c1239d, pure operations6e3b838f, supplied-delta S8c8f30d7 and pure Tracker T71cb8c91 are verified delivered. Owner policy266 selects the persisted/replayed value. J1 verified delivered33d39457; real checkpoint/actual unload DE04b1b3b is IN_PROGRESS; all original parent acceptance remains cumulative, DE05 waits full DE04 and all43 P rows remain OPEN."
       },
       "future": "Real normalized operation provenance, current delta support on Memory/SQLite with semantic format bump, checkpoint policy after validation with actual ops/counts, and second-predicate exception rolling back all coupled candidates. Full histories/as-of/fork/migrations remain DE27; no always-base callback substitute. DE04b completes only after DE04b1a and DE04b1b join end to end.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4299,12 +4299,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE04a e6c1239d, pure operations6e3b838f, supplied-delta S8c8f30d7 and pure Tracker T71cb8c91 are verified delivered. Owner policy266 selects the persisted/replayed value. J is split into default-delta DE04b1b3a and real checkpoint/actual unload DE04b1b3b; all original parent acceptance remains cumulative, DE05 waits full DE04 and all43 P rows remain OPEN."
+        "observables": "DE04a e6c1239d, pure operations6e3b838f, supplied-delta S8c8f30d7 and pure Tracker T71cb8c91 are verified delivered. Owner policy266 selects the persisted/replayed value. J1 verified delivered33d39457; real checkpoint/actual unload DE04b1b3b is IN_PROGRESS; all original parent acceptance remains cumulative, DE05 waits full DE04 and all43 P rows remain OPEN."
       },
       "future": "Empty versus structural no-op normalization, current tail replay/count/reset, callback and backend atomic rollback, immutable policy/publication batches, unload/reopen and paired proofs. Further subdivision only immediately before code; full history/as-of/fork/migration remains DE27. Cumulative pre-code split: completes only after DE04b1b1 + DE04b1b2 + DE04b1b3 and every original acceptance cell; no planning-only delivery.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4404,12 +4404,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "No new source or paired evidence claimed for cumulative J. Owner selected persisted/replayed value; a is admitted and b remains open. Every original parent acceptance remains cumulative."
+        "observables": "No new source or independently owned paired cases claimed by cumulative J. J1 verified delivered33d39457; b IN_PROGRESS for real checkpoint/unload/final proofs. Owner uses persisted/replayed value; every original parent acceptance remains cumulative."
       },
       "future": "Owner policy266 was answered BEFORE authoritative candidate/operation selection: use the persisted/replayed value for callbacks, cache and publications; creation keeps its actual final object. Split before code into DE04b1b3a then DE04b1b3b; this parent completes only after both and every original acceptance cell. Preserve every original DE04b1b/b/DE04 cell: all-view revocation, empty versus structural no-ops, exact immutable ops/value/count, policy after validation, second-predicate rollback, atomic backend/ack/retirement/cache/publication agreement and paired proofs. No silent signed-zero choice, always-base substitute or cache/storage discrepancy.",
       "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {
@@ -4440,12 +4440,12 @@
         ],
         "workloads": [],
         "oracles": [],
-        "observables": "Actual Tracker-backed default Session deltas with replay-authoritative loaded value, operation-empty suppression, structural nonempty writes, committed value/count adoption and immutable linked ops publication. Actual migrated pinned Node/native pairs: sync35/async41, typed documents24 per Memory/SQLite/reopen; new actual-captured expected fixture preserves historical A fixture. Worker570P18S6manifestdeselections,30added surface checks,348architecture,20x41barriers each supported3.11/3.12. Shipping candidate conditional on exact final Root review/full/docs/fresh-chain/delivery gates; real checkpoint/unload/final cumulative J remain b, all43P OPEN."
+        "observables": "Verified delivered main+origin33d39457 exactCLEANtreef328e392: Opus5.5 HIGH R3 CLEAN, full16832P20explainedS/no warnings/flake, supported3.11+3.12 each744P18S and20x41finalbarriers, strictdocs9pages1366links0broken, twofreshchains/sixattesters/extraactualCLI0/1/2, guard/normalpush/remote verified. Actual defaultdeltas/persistedvalue/count/immutableops publication; no checkpoint/unload claim, historicalAfixture bytepreserved. All43 P OPEN."
       },
       "future": "All existing mapping/list routes and revocation/affinity behavior; loaded empty ops suppress writes, structural nonempty ops commit even with equal values, creation stores its final object as a base, root replacement fallback remains a delta. Coupled tables/retirement/backend/ack/adoption failures retain atomicity. Actual default-policy Pi comparison, signed-zero witnesses, Memory/SQLite/reopen and immutable linked publication proofs. Checkpoint callbacks and actual unload remain DE04b1b3b; no full J/DE04 or P closure.",
       "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-default-delta-integration-candidate",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
         "docs/durable-session-deltas.md"
       ],
@@ -4474,12 +4474,12 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "No new source or paired evidence claimed by pre-code admission; implementation and exact final gates remain pending."
+        "observables": "No new source or paired evidence claimed by pre-code admission. Delivered J1 main/origin33d39457 is verified; b now implements real checkpoint policy, scoped callback authority, actual unload and all remaining cumulative proofs. Exact final gates remain pending; all43 P OPEN."
       },
       "future": "Exact immutable ops/value/prior-count policy arguments; all views revoked before callbacks; true base/reset and false delta/increment; exact synchronous bool boundary; second-predicate exception rolls back all tables/documents/retirements; callback/reentry/cancellation/backend/ack/adoption/publication agreement. Actual unload/reopen preserves values/versions/counts and old snapshots. Paired Pi policy/backend proofs, signed-zero deviation recorded separately, mutants and fresh cumulative chains. DE04b1b3/b1b/b/DE04 complete only after every original acceptance cell; DE05 waits full DE04 and all P remain OPEN.",
-      "status": "OPEN",
+      "status": "IN_PROGRESS",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission",
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission",
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
       ],
       "inherited_reference": {

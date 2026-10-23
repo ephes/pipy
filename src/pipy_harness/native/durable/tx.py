@@ -46,9 +46,10 @@ Python spelling, documented decisions:
   Terminal task candidates retire staged and unknown persisted members in pages
   of 256 before one coupled Storage admission. Loaded versions still reject
   migrations. Creation writes its actual final base. Loaded nonempty normalized
-  operations write deltas and adopt their exact persisted replay; empty operations
-  retain the prior committed incarnation. Checkpoint predicates remain a later
-  join; full histories/fork/migrations remain DE27.
+  operations adopt their exact persisted replay; checkpoint predicates choose
+  base/reset or delta/increment only after every validation read. Empty
+  operations retain the prior committed incarnation. Full histories, fork and
+  migrations remain DE27.
 * ``Draft``/``DraftList`` are guarded adapters over one delivered ``Tracker``
   owned by one ``_DraftChange``. Every method checks first that the change is open
   (``DraftRevoked`` otherwise), then the driver's thread affinity
@@ -64,6 +65,7 @@ Python spelling, documented decisions:
 
 from __future__ import annotations
 
+import inspect
 import threading
 import time
 from collections.abc import (
@@ -77,6 +79,7 @@ from collections.abc import (
 )
 from dataclasses import dataclass
 from functools import partial
+from types import CoroutineType
 from typing import (
     Any,
     Final,
@@ -90,7 +93,14 @@ from typing import (
 )
 
 from .codec import JsonValueError, OwnedJson
-from .documents import Doc, DocFamily, Token, address_key
+from .documents import (
+    CheckpointInfo,
+    CheckpointWhen,
+    Doc,
+    DocFamily,
+    Token,
+    address_key,
+)
 from .documents import Key as _Key
 from .documents import check_scope as _check_scope
 from .documents import resolve as _resolve
@@ -755,6 +765,7 @@ class _DocEntry:
     target: CommittedDocument | _Created | DocumentRecord | None = None
     change: _DraftChange | None = None
     prepared: _Prepared | None = None
+    checkpoint_when: CheckpointWhen | None = None
 
 
 @dataclass(slots=True)
@@ -768,6 +779,8 @@ class _Plan:
     version: int = 0
     loaded: CommittedDocument | None = None
     conversation_id: int | None = None
+    checkpoint_when: CheckpointWhen | None = None
+    checkpoint: bool = False
 
 
 def _plan(document: _DocEntry) -> _Plan | None:
@@ -815,6 +828,7 @@ def _plan(document: _DocEntry) -> _Plan | None:
         change,
         version,
         loaded,
+        checkpoint_when=document.checkpoint_when,
     )
 
 
@@ -891,6 +905,7 @@ class _TxCore:
         now: Callable[[], float] = _clock,
         conversation_id: int | None = None,
         task_id: int | None = None,
+        healthy: Callable[[], None] | None = None,
     ) -> None:
         if type(storage) is not GuardedStorage:
             raise TypeError("The Tx core reads and writes only through the guard")
@@ -900,6 +915,7 @@ class _TxCore:
         self._cache = cache
         self._driver = driver
         self._now = now
+        self._healthy = healthy
         self._scope_conversation = (
             None if conversation_id is None else _id(conversation_id, "conversation")
         )
@@ -907,6 +923,7 @@ class _TxCore:
         self._sealed = False
         self._assembled = False
         self._adopted = False
+        self._aborted = False
         self._has_table_write = False
         self._pending: set[_Handle[object]] = set()
         # Conversations and entries stage eagerly, in staging order.
@@ -1266,7 +1283,14 @@ class _TxCore:
             if seed is OMITTED:
                 raise TypeError("Document family acquisition requires a seed")
             copied_seed = OwnedJson(seed).thaw()
-        entry = _DocEntry(identity, address, raw, retiring=False, seed=copied_seed)
+        entry = _DocEntry(
+            identity,
+            address,
+            raw,
+            retiring=False,
+            seed=copied_seed,
+            checkpoint_when=raw.checkpoint_when,
+        )
         self._documents.append(entry)
         self._latest[identity] = entry
         # Capture retirement first, so an old acquisition and its replacement stay distinct.
@@ -1431,7 +1455,7 @@ class _TxCore:
                     loaded.record,
                     plan.version,
                     prepared.value,
-                    loaded.deltas_since_base + 1,
+                    0 if plan.checkpoint else loaded.deltas_since_base + 1,
                 )
                 self._cache.swap(plan.key, loaded, new)
             elif loaded is None and adopted:
@@ -1471,7 +1495,45 @@ class _TxCore:
                 if task is not None:
                     plan.conversation_id = _tree(task)["conversationId"]
         await self._resolve_submissions()
+        if self._aborted:
+            raise TransactionSettled()
+        self._checkpoints(plans)
         return self._batch(plans)
+
+    def _checkpoints(self, plans: list[_Plan]) -> None:
+        """All preparation and validation finished; no lock surrounds policy."""
+        for plan in plans:
+            policy, loaded, prepared = plan.checkpoint_when, plan.loaded, plan.prepared
+            if policy is None or loaded is None or plan.content is None:
+                continue
+            assert prepared is not None
+            selected = policy(
+                prepared.value, prepared.ops, CheckpointInfo(loaded.deltas_since_base)
+            )
+            if type(selected) is not bool:
+                # Only a known native, never-started coroutine can be closed.
+                # No foreign close/await/bool/equality/__class__ hook is probed.
+                if (
+                    type(selected) is CoroutineType
+                    and inspect.getcoroutinestate(selected) == inspect.CORO_CREATED
+                ):
+                    selected.close()
+                raise TypeError("checkpoint_when must return an exact bool")
+            if self._healthy is not None:
+                self._healthy()
+            plan.checkpoint = selected
+            if selected:
+                plan.content = StorageWrite(
+                    {
+                        "type": "document.change",
+                        "id": loaded.record.id,
+                        "content": {
+                            "version": plan.version,
+                            "kind": "base",
+                            "value": prepared.value.thaw(),
+                        },
+                    }
+                )
 
     async def _retire_terminal_documents(self, plans: list[_Plan]) -> None:
         terminals = [
@@ -1596,6 +1658,7 @@ class _TxCore:
                 raise RuntimeError(f"{what} {task_id} is abort-marked")
 
     def _abort(self) -> None:
+        self._aborted = True
         for document in self._documents:
             if document.change is not None:
                 document.change.discard()

@@ -343,6 +343,11 @@ class Mode:
             return Ready(rig.session.snapshot(spec, conversation_id=conversation))
         return rig.session.asnapshot(spec, conversation_id=conversation)
 
+    def unload(self, rig: Rig) -> Any:
+        if self.sync:
+            return Ready(rig.session.unload_documents())
+        return rig.session.aunload_documents()
+
     def close(self, rig: Rig) -> Any:
         if self.sync:
             return Ready(rig.session.close(timeout=WAIT))
@@ -593,7 +598,7 @@ def _docs591(M: Mods, mode: Mode) -> None:
             conv = await conversation(rig, mode)
             spec = await live(rig, mode, conv)
             loaded = await mode.snapshot(rig, spec, conv)
-            rig.session._cache.clear()  # Pi unloadDocuments, line idle
+            await mode.unload(rig)
             reloaded = await mode.snapshot(rig, spec, conv)
             assert reloaded is not loaded
             assert reloaded.value == loaded.value
@@ -602,7 +607,7 @@ def _docs591(M: Mods, mode: Mode) -> None:
                 (await tx.doc(spec, conversation_id=conv))["items"].append("c")
 
             await mode.commit(rig, push)
-            rig.session._cache.clear()
+            await mode.unload(rig)
             again = await mode.snapshot(rig, spec, conv)
             assert again.value.thaw()["items"] == ["a", "b", "c"]
             absent = rig.spec("test.absent", "session")
@@ -777,7 +782,7 @@ def _docs284(M: Mods, mode: Mode) -> None:
         async def body() -> None:
             conv = await conversation(rig, mode)
             spec = await live(rig, mode, conv)
-            rig.session._cache.clear()
+            await mode.unload(rig)
             gate = rig.store.hold("find_document")
             commits = len(rig.store.commits)
             pending: list[Any] = []
@@ -844,7 +849,7 @@ def _docs337(M: Mods, mode: Mode) -> None:
         async def body() -> None:
             conv = await conversation(rig, mode)
             spec = await live(rig, mode, conv)
-            rig.session._cache.clear()
+            await mode.unload(rig)
             gate = rig.store.hold("find_document")
             pending: list[Any] = []
 
@@ -2645,7 +2650,7 @@ def _callback_error_survives(M: Mods, mode: Mode) -> None:
         async def body() -> None:
             conv = await conversation(rig, mode)
             spec = await live(rig, mode, conv)
-            rig.session._cache.clear()
+            await mode.unload(rig)
             gate = rig.store.hold("find_document")
 
             async def cb(tx: Any) -> None:
@@ -2797,13 +2802,15 @@ MUTANTS: dict[str, dict[str, list[tuple[str, str]]]] = {
         "core": [
             (
                 "            # A callback that caught a failed read must not commit.\n"
-                "            self._assert_healthy()\n",
-                "",
+                "            self._assert_healthy()\n"
+                "        except BaseException:\n",
+                "        except BaseException:\n",
             ),
             (
-                "                # A callback that caught a failed read must not commit.\n"
-                "                self._assert_healthy()\n",
-                "",
+                "            # A callback that caught a failed read must not commit.\n"
+                "            self._assert_healthy()\n"
+                "            # Seal, check pending work",
+                "            # Seal, check pending work",
             ),
         ]
     },

@@ -44,7 +44,7 @@ Python spelling, documented decisions:
   unqueues). ``Task.cancel`` of a queued async waiter unqueues it at once; a
   granted-but-unused ticket is passed on.
 * Reentry is detected by holder identity, never with an ``RLock``: the
-  holder thread (sync) or the holder's caller and settlement tasks (async)
+  holder thread (sync) or the holder's caller, settlement and scoped driving tasks (async)
   get ``ReentrantSessionCall`` from every entry that would queue behind itself.
   A task spawned by the callback queues normally.
 * Publication is built after adoption, before the line is left, only when a
@@ -56,7 +56,7 @@ Python spelling, documented decisions:
   reported through a done-callback; a returned coroutine is closed and treated
   as a ``TypeError``. A process-control exception from a listener fails the
   owner and propagates. Listener registries compare callables by identity only.
-* Every cache write (cold load, adoption, close clear) runs while the line is
+* Every cache write (cold load, adoption, explicit unload, close clear) runs while the line is
   held or after it drained; off-line snapshot hits see the old or the new
   committed incarnation, never a candidate.
 * No caller object is released under the owner lock: listener registries are
@@ -82,6 +82,7 @@ import sys
 import threading
 import traceback
 from collections.abc import Awaitable, Callable, Coroutine, Generator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Generic, TypeVar, cast, final
@@ -192,6 +193,21 @@ def _current_task() -> object | None:
         return None
 
 
+@contextmanager
+def _driving(ticket: _LineTicket) -> Generator[None, None, None]:
+    """Loop-confined authority for one synchronous send/throw, never an await.
+
+    Keep the displaced identity alive locally and restore it even for nested
+    eager advances and process-control exceptions. No owner/cache lock is held.
+    """
+    previous = ticket.actor
+    ticket.actor = _current_task()
+    try:
+        yield
+    finally:
+        ticket.actor = previous
+
+
 @final
 class TxOp(Generic[T]):
     """Handle of one ``AsyncTx`` operation; awaiting it never cancels it."""
@@ -221,12 +237,17 @@ class TxOp(Generic[T]):
 class _AsyncDriver:
     """Drives core bodies on one loop; backend calls run in its default executor."""
 
-    __slots__ = ("_calls", "_loop", "_thread")
+    __slots__ = ("_calls", "_loop", "_scope", "_thread")
 
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        scope: Callable[[], AbstractContextManager[None]] = nullcontext,
+    ) -> None:
         self._loop = loop
         self._thread = threading.get_ident()
         self._calls: dict[_Io[Any], asyncio.Future[Any]] = {}
+        self._scope = scope
 
     def check(self) -> None:
         if threading.get_ident() != self._thread or _running_loop() is not self._loop:
@@ -235,13 +256,39 @@ class _AsyncDriver:
     def spawn(self, body: Coroutine[Any, Any, T]) -> TxOp[T]:
         """Run ``body`` eagerly to its first backend call, then on the loop."""
         try:
-            request = body.send(None)
+            with self._scope():
+                request = body.send(None)
         except StopIteration as stop:
             return self.ready(cast(T, stop.value))
         except Exception as error:  # noqa: BLE001 - the operation's outcome
             return TxOp(self._failed(error))
-        first = self._submit(body, request)
-        task = self._loop.create_task(self._resume(body, first))
+        first: asyncio.Future[Any] | None = None
+        continuation: Coroutine[Any, Any, T] | None = None
+        try:
+            first = self._submit(body, request)
+            continuation = self._resume(body, first)
+            task = self._loop.create_task(continuation)
+        except BaseException as error:
+            if continuation is not None:
+                continuation.close()
+            body.close()
+            if not issubclass(type(error), Exception):
+                raise
+            # Submission may already be running. Keep this operation pending
+            # until it finishes, including when the caller catches the error.
+            failed = self._loop.create_future()
+            failed.add_done_callback(_retrieved)
+            if first is None or first.done():
+                failed.set_exception(error)
+            else:
+
+                def rejected(
+                    _done: asyncio.Future[Any], error: BaseException = error
+                ) -> None:
+                    failed.set_exception(error)
+
+                first.add_done_callback(rejected)
+            return TxOp(failed)
         task.add_done_callback(_retrieved)
         return TxOp(task)
 
@@ -274,10 +321,20 @@ class _AsyncDriver:
         """Run a settlement or load coroutine inside the current task."""
         self.check()
         try:
-            request = body.send(None)
-        except StopIteration as stop:
-            return cast(T, stop.value)
-        return await self._resume(body, self._submit(body, request))
+            try:
+                with self._scope():
+                    request = body.send(None)
+            except StopIteration as stop:
+                return cast(T, stop.value)
+            return await self._resume(body, self._submit(body, request))
+        finally:
+            body.close()
+
+    def pending(self) -> tuple[_Handle[object], ...]:
+        """Backend work surviving an exceptional prologue/handoff, loop-only."""
+        return tuple(
+            TxOp(future) for future in self._calls.values() if not future.done()
+        )
 
     def _failed(self, error: BaseException) -> asyncio.Future[Any]:
         future: asyncio.Future[Any] = self._loop.create_future()
@@ -302,18 +359,24 @@ class _AsyncDriver:
     async def _resume(
         self, body: Coroutine[Any, Any, T], future: asyncio.Future[Any]
     ) -> T:
-        while True:
-            send: object = None
-            error: BaseException | None = None
-            try:
-                send = await future
-            except BaseException as caught:  # noqa: BLE001 - delivered into the body
-                error = caught
-            try:
-                request = body.throw(error) if error is not None else body.send(send)
-            except StopIteration as stop:
-                return cast(T, stop.value)
-            future = self._submit(body, request)
+        try:
+            while True:
+                send: object = None
+                error: BaseException | None = None
+                try:
+                    send = await future
+                except BaseException as caught:  # noqa: BLE001 - delivered into the body
+                    error = caught
+                try:
+                    with self._scope():
+                        request = (
+                            body.throw(error) if error is not None else body.send(send)
+                        )
+                except StopIteration as stop:
+                    return cast(T, stop.value)
+                future = self._submit(body, request)
+        finally:
+            body.close()
 
 
 async def _wait_all(handles: tuple[_Handle[object], ...]) -> None:
@@ -719,34 +782,52 @@ class Session:
         self._refuse_reentry("acommit")
         ticket = await self._enter_async(loop, caller)
         owned = False
+        core: _TxCore | None = None
+        driver: _AsyncDriver | None = None
+        prepared: TxOp[tuple[StorageWrite, ...]] | None = None
+
+        def handed_off() -> None:
+            # An eager factory can run (and even finish) settlement before
+            # create_task returns or raises. The body claims ownership first.
+            nonlocal owned
+            owned = True
+
         try:
             self._grant_checks(view)
-            driver = _AsyncDriver(loop)
+            driver = _AsyncDriver(loop, partial(_driving, ticket))
             core = self._core(driver, view)
-            try:
-                value: object = change(AsyncTx(core))
-                while inspect.isawaitable(value):
-                    value = await value
-                # A callback that caught a failed read must not commit.
-                self._assert_healthy()
-            except BaseException:
-                # Seal and abort now; draining is owned work.
-                pending = core.settle_failure()
-                drain = loop.create_task(self._drain_async(pending, ticket))
-                owned = True
-                await self._own(drain, ticket)
-                raise
+            value: object = change(AsyncTx(core))
+            while inspect.isawaitable(value):
+                value = await value
+            # A callback that caught a failed read must not commit.
+            self._assert_healthy()
             # Seal, check pending work and prepare now (eagerly, to the first
             # backend call); the rest is owned, shielded settlement.
             prepared = driver.spawn(core.settle_success())
-            settle = loop.create_task(
-                self._settle_async(core, prepared, cast(T, value), ticket)
+            settlement = self._settle_async(
+                core, prepared, cast(T, value), ticket, handed_off
             )
+            try:
+                settle = loop.create_task(settlement)
+            except BaseException:
+                if not owned:
+                    settlement.close()
+                raise
             owned = True
             return await self._own(settle, ticket)
         except BaseException:
             if not owned:
-                self._leave(ticket, raising=True)
+                if core is None or driver is None:
+                    self._leave(ticket, raising=True)
+                else:
+                    pending = (*core.settle_failure(), *driver.pending())
+                    if prepared is not None and not prepared.done():
+                        pending = (*pending, prepared)
+                    # Exceptional cleanup must work even when create_task's
+                    # factory caused the failure. Bypass that hook only here;
+                    # the owned drain retains the line through cancellation.
+                    drain = asyncio.Task(self._drain_async(pending, ticket), loop=loop)
+                    await self._own(drain, ticket)
             raise
 
     def _enter_sync(self) -> _LineTicket:
@@ -781,9 +862,15 @@ class Session:
 
     async def _own(self, settle: asyncio.Task[T], ticket: _LineTicket) -> T:
         """Await owned settlement; a cancelled waiter never cuts it."""
-        ticket.tasks = (*ticket.tasks, settle)
         settle.add_done_callback(_retrieved)
         return await asyncio.shield(settle)
+
+    def _settlement_actor(self, ticket: _LineTicket) -> None:
+        # Run at the first instruction of the owned body, before caller hooks;
+        # registering after create_task returns is too late for eager factories.
+        current = _current_task()
+        if not any(task is current for task in ticket.tasks):
+            ticket.tasks = (*ticket.tasks, current)
 
     async def _drain_async(
         self, pending: tuple[_Handle[object], ...], ticket: _LineTicket
@@ -792,6 +879,7 @@ class Session:
 
         The callback's error is in flight, so a close error never replaces it.
         """
+        self._settlement_actor(ticket)
         try:
             await _wait_all(pending)
         finally:
@@ -803,7 +891,10 @@ class Session:
         prepared: TxOp[tuple[StorageWrite, ...]],
         result: T,
         ticket: _LineTicket,
+        handed_off: Callable[[], None],
     ) -> T:
+        handed_off()
+        self._settlement_actor(ticket)
         try:
             try:
                 writes = await prepared
@@ -856,6 +947,7 @@ class Session:
             self._cache,
             driver,
             now=self._now,
+            healthy=self._assert_healthy,
         )
 
     def _grant_checks(self, view: CancelView | None) -> None:
@@ -875,18 +967,32 @@ class Session:
             raise pending
 
     def _refuse_reentry(self, method: str) -> None:
+        thread, current = threading.get_ident(), _current_task()
         holder = self._owner._line_holder()
         if holder is None:
             return
-        if holder.wake is None:
-            if holder.thread == threading.get_ident():
-                raise ReentrantSessionCall(method)
+        # Async identities are loop-thread confined. No foreign thread reads
+        # tasks/actor; no await or caller hook separates the snapshot and test.
+        if holder.thread != thread:
             return
-        current = _current_task()
-        if current is not None and any(task is current for task in holder.tasks):
+        if holder.wake is None:
+            raise ReentrantSessionCall(method)
+        if current is not None and (
+            current is holder.actor or any(task is current for task in holder.tasks)
+        ):
             raise ReentrantSessionCall(method)
 
     # -- read-only line jobs and snapshots ----------------------------------------
+
+    def unload_documents(self) -> None:
+        """Drop committed document residency on the line; retained snapshots live."""
+        self._owner._assert_usable()
+        self._on_line_sync("unload_documents", self._cache.clear)
+
+    async def aunload_documents(self) -> None:
+        """Queue committed document unloading on the same line as acommit()."""
+        self._owner._assert_usable()
+        await self._on_line_async("aunload_documents", self._cache.clear)
 
     def read_on_line(self, job: Callable[[], T]) -> T:
         """Run a read-only job on the line (Pi ``readOnLine``)."""

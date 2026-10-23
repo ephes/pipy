@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeAlias, TypeVar
 
+from .codec import OwnedJson
 from .records import OMITTED, SAFE_INTEGER, DocumentCreate, DocumentRecord
 from .storage import DocumentAddress
 
@@ -18,6 +19,16 @@ V = TypeVar("V")
 S = TypeVar("S")
 Scope: TypeAlias = Literal["session", "conversation", "task"]
 Key: TypeAlias = tuple[bytes, str, int | None, bytes | None]
+
+
+@dataclass(frozen=True, slots=True)
+class CheckpointInfo:
+    """Prior committed delta count supplied to a document's checkpoint policy."""
+
+    deltas_since_base: int
+
+
+CheckpointWhen: TypeAlias = Callable[[OwnedJson, OwnedJson, CheckpointInfo], bool]
 
 
 def _choice(value: object, choices: tuple[str, ...], name: str) -> str:
@@ -36,6 +47,7 @@ def _fields(
     initial: object,
     history: object,
     fork: object,
+    checkpoint_when: object,
 ) -> tuple[str, Any, Any]:
     if type(kind) is not str:
         raise TypeError("Document kind must be a string")
@@ -44,6 +56,8 @@ def _fields(
     scoped = _choice(scope, ("session", "conversation", "task"), "scope")
     if not callable(initial):
         raise TypeError(f"Document {kind} requires an initial factory")
+    if checkpoint_when is not None and not callable(checkpoint_when):
+        raise TypeError("Document checkpoint_when must be callable or None")
     if scoped != "conversation":
         if history is not None or fork is not None:
             raise TypeError("Only conversation documents have history/fork policies")
@@ -66,10 +80,17 @@ class Doc(Generic[V]):
     initial: Callable[[], V]
     history: Literal["latest", "rewindable"] | None = None
     fork: Literal["current", "initial", "asOf"] | None = None
+    checkpoint_when: CheckpointWhen | None = None
 
     def __post_init__(self) -> None:
         scope, history, fork = _fields(
-            self.kind, self.version, self.scope, self.initial, self.history, self.fork
+            self.kind,
+            self.version,
+            self.scope,
+            self.initial,
+            self.history,
+            self.fork,
+            self.checkpoint_when,
         )
         object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "history", history)
@@ -86,10 +107,17 @@ class DocFamily(Generic[S, V]):
     initial: Callable[[S], V]
     history: Literal["latest", "rewindable"] | None = None
     fork: Literal["current", "initial", "asOf"] | None = None
+    checkpoint_when: CheckpointWhen | None = None
 
     def __post_init__(self) -> None:
         scope, history, fork = _fields(
-            self.kind, self.version, self.scope, self.initial, self.history, self.fork
+            self.kind,
+            self.version,
+            self.scope,
+            self.initial,
+            self.history,
+            self.fork,
+            self.checkpoint_when,
         )
         object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "history", history)
@@ -106,8 +134,9 @@ def define_doc(
     initial: Callable[[], V],
     history: Literal["latest", "rewindable"] | None = None,
     fork: Literal["current", "initial", "asOf"] | None = None,
+    checkpoint_when: CheckpointWhen | None = None,
 ) -> Doc[V]:
-    return Doc(kind, version, scope, initial, history, fork)
+    return Doc(kind, version, scope, initial, history, fork, checkpoint_when)
 
 
 def define_doc_family(
@@ -117,8 +146,9 @@ def define_doc_family(
     initial: Callable[[S], V],
     history: Literal["latest", "rewindable"] | None = None,
     fork: Literal["current", "initial", "asOf"] | None = None,
+    checkpoint_when: CheckpointWhen | None = None,
 ) -> DocFamily[S, V]:
-    return DocFamily(kind, version, scope, initial, history, fork)
+    return DocFamily(kind, version, scope, initial, history, fork, checkpoint_when)
 
 
 def address_key(value: dict[str, Any]) -> Key:
@@ -143,7 +173,13 @@ def resolve(
         raise TypeError("Expected a document token")
     # Recheck exact components before cache lookup, even after hostile object.__setattr__.
     scope, _, _ = _fields(
-        token.kind, token.version, token.scope, token.initial, token.history, token.fork
+        token.kind,
+        token.version,
+        token.scope,
+        token.initial,
+        token.history,
+        token.fork,
+        token.checkpoint_when,
     )
     scoped: dict[str, Any]
     if scope == "session":

@@ -301,14 +301,14 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
-    "DE04": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
     "DE04b1b1": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
     "DE04b1b2": "de04b1b2-verified-delivery-and-t-integration-successor",
-    "DE04b1b3": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
-    "DE04b1b3a": "de04b1b3a-default-delta-integration-candidate",
-    "DE04b1b3b": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04b1b3": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
+    "DE04b1b3a": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
+    "DE04b1b3b": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
     "DE04b1a": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
-    "DE04b1b": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04b1b": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
     "DE32a": "de32a-delivery-and-de04a-repaired-main-integration",
     "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
@@ -344,7 +344,7 @@ DE_EVIDENCE = {
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
     "DE04a": "de04a-verified-delivery-and-de04b1a-integration-successor",
-    "DE04b": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04b": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
 }
 
 

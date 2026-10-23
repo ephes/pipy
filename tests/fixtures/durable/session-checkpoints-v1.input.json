@@ -1,0 +1,3590 @@
+{
+  "schema_version": 1,
+  "phase": "session-checkpoints-j-v1",
+  "clock": 1000,
+  "terminal_members": 257,
+  "profile": "binary64-utf16-ordered-v1",
+  "working_probe": "derived-plain-mirror-only; no live Draft traversal",
+  "cases": [
+    {
+      "id": "counts-absent",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4008000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4010000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4014000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4018000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "401c000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4020000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4022000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "counts-false",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4008000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4010000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4014000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4018000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "401c000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4020000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4022000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "counts-true",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4008000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4010000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4014000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4018000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "401c000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4020000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4022000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "counts-count>=2",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4008000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4010000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4014000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4018000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "401c000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4020000000000000"
+            ]
+          ]
+        ],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "4022000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "count>=2",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "scope-conversation-false",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "conversation",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "scope-conversation-true",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "conversation",
+      "family": true,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "scope-task-false",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "task",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "scope-task-true",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "task",
+      "family": true,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "structural-equal",
+      "base": [
+        "object",
+        [
+          [
+            "0061",
+            [
+              "array",
+              [
+                [
+                  "number",
+                  "3ff0000000000000"
+                ],
+                [
+                  "number",
+                  "4000000000000000"
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "pop-reinsert",
+            [
+              "a"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "empty-policy-skip",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [],
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "dirty-retired",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "retire",
+      "creation": []
+    },
+    {
+      "id": "clean-retired",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "retire",
+      "creation": []
+    },
+    {
+      "id": "terminal-pages",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "terminal",
+      "creation": []
+    },
+    {
+      "id": "second-policy-rollback",
+      "base": [
+        "object",
+        [
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "rollback",
+      "creation": []
+    },
+    {
+      "id": "root-fallback",
+      "base": [
+        "object",
+        []
+      ],
+      "steps": [
+        [
+          [
+            "bulk",
+            [],
+            4097
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "root",
+      "creation": []
+    },
+    {
+      "id": "creation-final-zero",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": [
+        [
+          "flip",
+          [
+            "zero"
+          ]
+        ]
+      ]
+    },
+    {
+      "id": "zero-absent-positive-simple-empty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-positive-simple-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-positive-accessed-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-positive-accessed-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-positive-untouched-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-positive-untouched-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-negative-simple-empty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "8000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-negative-simple-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "8000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-negative-accessed-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-negative-accessed-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-negative-untouched-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-absent-negative-untouched-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "absent",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-positive-simple-empty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-positive-simple-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-positive-accessed-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-positive-accessed-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-positive-untouched-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-positive-untouched-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-negative-simple-empty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "8000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-negative-simple-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "8000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-negative-accessed-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-negative-accessed-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-negative-untouched-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-false-negative-untouched-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "false",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-positive-simple-empty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-positive-simple-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-positive-accessed-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-positive-accessed-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-positive-untouched-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-positive-untouched-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "0000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-negative-simple-empty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "8000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-negative-simple-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "007a00650072006f",
+            [
+              "number",
+              "8000000000000000"
+            ]
+          ],
+          [
+            "0032",
+            [
+              "number",
+              "4000000000000000"
+            ]
+          ],
+          [
+            "0031",
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ],
+          [
+            "d800",
+            [
+              "number",
+              "0000000000000001"
+            ]
+          ],
+          [
+            "006d00610078",
+            [
+              "number",
+              "7fefffffffffffff"
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-negative-accessed-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-negative-accessed-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "flip",
+            [
+              "nested",
+              "zero"
+            ]
+          ],
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-negative-untouched-empty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        []
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    },
+    {
+      "id": "zero-true-negative-untouched-dirty",
+      "base": [
+        "object",
+        [
+          [
+            "006e00650073007400650064",
+            [
+              "object",
+              [
+                [
+                  "007a00650072006f",
+                  [
+                    "number",
+                    "8000000000000000"
+                  ]
+                ],
+                [
+                  "0032",
+                  [
+                    "number",
+                    "4000000000000000"
+                  ]
+                ],
+                [
+                  "0031",
+                  [
+                    "number",
+                    "3ff0000000000000"
+                  ]
+                ],
+                [
+                  "d800",
+                  [
+                    "number",
+                    "0000000000000001"
+                  ]
+                ],
+                [
+                  "006d00610078",
+                  [
+                    "number",
+                    "7fefffffffffffff"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "006e",
+            [
+              "number",
+              "0000000000000000"
+            ]
+          ]
+        ]
+      ],
+      "steps": [
+        [
+          [
+            "set",
+            [
+              "n"
+            ],
+            [
+              "number",
+              "3ff0000000000000"
+            ]
+          ]
+        ]
+      ],
+      "policy": "true",
+      "scope": "session",
+      "family": false,
+      "special": "ordinary",
+      "creation": []
+    }
+  ]
+}

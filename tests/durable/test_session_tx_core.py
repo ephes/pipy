@@ -29,6 +29,7 @@ import pytest
 
 from pipy_harness.native.durable import tx as real_tx
 from pipy_harness.native.durable.codec import JsonValueError, OwnedJson
+from pipy_harness.native.durable.documents import define_doc
 from pipy_harness.native.durable.memory import MemoryStorage
 from pipy_harness.native.durable.records import OMITTED, RecordError
 from pipy_harness.native.durable.session import SessionFailed, SessionLifecycle
@@ -315,6 +316,47 @@ class Rig:
 
 def tree(record: Any) -> Any:
     return None if record is None else record.to_tree()
+
+
+def test_checkpoint_capture_once_and_submission_validation_precedes_policy():
+    with Rig(real_tx) as rig:
+        calls = []
+
+        def original(_value, _ops, info):
+            calls.append(("original", info.deltas_since_base))
+            return True
+
+        def replacement(*_args):
+            calls.append(("replacement", -1))
+            return False
+
+        spec = define_doc(
+            "core.policy", 1, "session", lambda: {"n": 0}, checkpoint_when=original
+        )
+        rig.commit(lambda tx: tx.doc(spec))
+        old = rig.cache.peek(spec)
+
+        def invalid(tx):
+            tx.doc(spec)["n"] = 1
+            tx.settle_submission(999, {"status": "done", "answer": 1})
+
+        with pytest.raises(RuntimeError, match="Submission 999"):
+            rig.commit(invalid)
+        assert calls == [] and rig.cache.peek(spec) is old
+
+        def valid(tx):
+            draft = tx.doc(spec)
+            draft["n"] = 2
+            object.__setattr__(spec, "checkpoint_when", object())
+            with pytest.raises(TypeError, match="checkpoint_when"):
+                tx.doc(spec)  # Ingress is rechecked before same-Tx memo cutoff.
+            object.__setattr__(spec, "checkpoint_when", replacement)
+
+        rig.commit(valid)
+        assert calls == [("original", 0)]
+        current = rig.cache.peek(spec)
+        assert current.value.thaw() == {"n": 2} and current.deltas_since_base == 0
+        assert rig.publications[-1].writes[0].to_tree()["content"]["kind"] == "base"
 
 
 def trees(writes: tuple[Any, ...]) -> list[dict[str, Any]]:
