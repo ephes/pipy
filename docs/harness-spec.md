@@ -4783,7 +4783,8 @@ The private [canonical DTO codec](durable-canonical-codec.md) encodes canonical
 messages, frozen requests and provider/tool outcomes. DE06a supplies the pure
 arena; DE06b activates it on actual delivered TaskRuntime phases with saved
 semantics, private material references and live auth reconstruction. Cumulative
-DE06 retains every original field/privacy/recovery cell; DE07 generation is next. [The backlog](backlog.md#additive-canonical-dto-codec-de06a)
+DE06 retains every original field/privacy/recovery cell;
+[DE07 generation](durable-generation.md) supplies the next private execution join. [The backlog](backlog.md#additive-canonical-dto-codec-de06a)
 and [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#next-delivery-gate)
 own current status and delivery gates.
 

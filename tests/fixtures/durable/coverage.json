@@ -721,16 +721,20 @@
         "Assistant+tool admissions atomic; response committed before publication, stable request cutoff/provider identity, no duplicate committed usage; crash during provider/after response/before & after commit. No claim of durable partials yet. Generation contract."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "generation-b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE07: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add durable generation prepare/request/settlement phases using native request snapshot and `ProviderTurnExecutor` transport seams, fixed/pure adapters only; share loop policy rather than run entire product loop on resume."
+        "observables": "Actual native generation prepare/request/receipt/settlement on the delivered TaskRuntime, scoped committed context and provider-session identity, saved semantic reconstruction and pricing; committed response reuse and atomic assistant/usage/all real generation-owned tool admissions. Real Memory/SQLite/reopen and SIGKILL/ack/adoption/fault/held-worker/cancelled-close barriers are separate from the pinned Harness SQLite generation common admission/usage/publication/reopen comparison. Exact original rich outcomes/fallback thinking/raw args/usage1h/reasoning and saved tiers remain native arena evidence. One actual prepared logical attempt is counted against Codex standalone four. No product activation, durable partials or working tool continuation; DE08/DE13/DE14/DE15/DE17/DE26 and all43 P retain original ownership. Final review/full/platform/docs/fresh-chain delivery gates remain required. Paired terminal-answer reuse explicitly resumes and waits for real idle/drain; tools remain admission/open-only. Both sides compare normalized actual model totals to assistant usage; actual close reasons replace lifetime flags. Intermediate receipt recovery and held-thread lifetime remain native proofs. Quadratic terminal request-history storage is explicit DE27/28 versioned-retention/migration/growth-test debt before full-feature acceptance."
       },
       "future": "Assistant+tool admissions atomic; response committed before publication, stable request cutoff/provider identity, no duplicate committed usage; crash during provider/after response/before & after commit. No claim of durable partials yet. Generation contract.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de07-generation-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-generation.md"
       ],
       "inherited_reference": {
         "owners": [],

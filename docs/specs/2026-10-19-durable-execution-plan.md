@@ -780,3 +780,17 @@ families include explicit IAM target binding and Codex static headers. Actual
 pinned task/SQLite serialization comparison has a declared persisted-number
 projection; native field/type/privacy/wire evidence remains separate. No DE07
 execution or P closure follows. DE07 is next; all43 P rows stay OPEN.
+
+
+### DE07 generation admission (2026-10-24)
+
+[Private native generation](../durable-generation.md) adds actual
+prepare/request/receipt/settlement on delivered DE06b `69812fa5`, retaining the
+original DE07/P15/P16/P17/P19 cells. Default rounds atomically admit all offered
+real generation-owned pi.tool version2 children; DE08's sequential execution is
+a separate boundary. Explicit upstream sequential-round staged admission remains
+unsupported until its policy owner. A narrow allSettled admission is pulled
+forward; DE08 retains direct owned-leaf execution/wake and DE15 general graphs.
+The existing prepared-provider allowance pins one logical attempt; actual Codex
+fake-SSE counts distinguish this from its standalone retry loop. No durable
+partials or complete tool continuation is claimed. All43 P rows remain OPEN.

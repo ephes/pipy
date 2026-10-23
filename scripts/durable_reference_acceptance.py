@@ -290,6 +290,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE07",
     "DE06b",
     "DE05b",
     "DE05a",
@@ -308,6 +309,7 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE07": "de07-generation-acceptance",
     "DE06": "de06b-canonical-checkpoint-acceptance",
     "DE05": "de05b-runtime-reservation-recovery-acceptance",
     "DE05a": "de05a-typed-creation-acceptance",
@@ -392,6 +394,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE05a": ["task-creation-a-v1"],
         "DE05b": ["task-runtime-b-v1"],
         "DE06b": ["canonical-checkpoint-b-v1"],
+        "DE07": ["generation-b-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -432,6 +435,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE05a": "docs/durable-task-creation.md",
         "DE05b": "docs/durable-task-runtime.md",
         "DE06b": "docs/durable-canonical-codec.md",
+        "DE07": "docs/durable-generation.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -603,6 +607,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"task-creation-a-v1"} if key == "DE05a" else set())
                 | ({"task-runtime-b-v1"} if key == "DE05b" else set())
                 | ({"canonical-checkpoint-b-v1"} if key == "DE06b" else set())
+                | ({"generation-b-v1"} if key == "DE07" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

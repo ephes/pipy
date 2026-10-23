@@ -1078,3 +1078,15 @@ snapshots are read-only. Provider adapters share IAM environment-default helpers
 with target binding and accept a detached environment without global mutation.
 No authentication or provider policy engine is duplicated. See the
 [codec/reconstruction contract](durable-canonical-codec.md).
+
+## Private durable generation (DE07)
+
+[Generation](durable-generation.md) owns prepare/request/receipt/settlement as
+ordinary versioned tasks on the existing Session line. Shared pure provider
+validation, assistant assembly and usage policy serve both runtimes. Provider
+workers run off-line and their actual thread/finalizer lifetime stays within the
+existing invocation join; no second close or storage owner is introduced.
+Assistant/usage/real tool admissions settle atomically before observation. The
+bounded waiting admission pulls no general graph scheduler forward: owned leaf
+execution/wake is DE08 and full ownership is DE15. Product/CLI activation and
+committed streaming remain their assigned later slices.

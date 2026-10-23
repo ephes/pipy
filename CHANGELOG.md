@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private durable generation with saved request identity/options/pricing,
+  committed response reuse and atomic assistant/usage/real owned-tool admission.
+  Actual provider worker/finalizer joins remain owned through close. Observation
+  is completed-only; tool execution and product/CLI activation remain later work.
+
 - Activate private canonical durable checkpoints on real versioned task phases,
   preserving rich requests/outcomes, saved provider semantics and pricing.
   Reconstruction uses live credentials and immutable auth-owned private header/

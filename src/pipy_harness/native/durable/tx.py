@@ -1266,6 +1266,13 @@ class _TxCore:
     def staged_tasks(self) -> tuple[TaskRecord, ...]:
         return tuple(t.write[1] for t in self._tasks.values() if t.write is not None)
 
+    def staged_entries(self) -> tuple[EntryRecord, ...]:
+        return tuple(
+            cast(EntryRecord, record)
+            for kind, record in self._writes
+            if kind == "entry"
+        )
+
     def staged_conversations(self) -> tuple[ConversationRecord, ...]:
         return tuple(
             cast(ConversationRecord, r)

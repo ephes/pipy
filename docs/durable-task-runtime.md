@@ -88,10 +88,16 @@ uses a fresh Session and scheduler.
 A phase receives `(current_task, runtime, context)`. `await runtime.commit(change)`
 passes a scoped `TaskTx` and detached latest running record to `change`. Return
 `None` for entry/document-only changes, a running checkpoint state for progress,
-or a terminal outcome. `TaskTx.append_entry(draft)`, `doc(token, key=..., seed=...)`
+or a terminal outcome. DE07 additionally admits its narrowly validated initial
+generation tool wait. `TaskTx.append_entry(draft)`, `doc(token, key=..., seed=...)`
 and `retire_doc(token, key=...)` use the invocation scopes; there is no raw task
-replacement or foreign-ID access through this facade. `await runtime.memo(name)`
-returns `OMITTED` when absent; a candidate argument establishes a durable first
+replacement or foreign-ID mutation through this facade. DE07 adds scoped
+`entry(id)`/`entries()` reads and typed `create_task(task, input)` with the current
+task forced as owner and its conversation forced as scope. A foreign entry read
+refuses. The only new waiting transition is the actual generation receipt plus
+all newly admitted model ToolTasks; unrelated ownership joins and terminal
+live-child bypasses still refuse. See [generation](durable-generation.md).
+`await runtime.memo(name)` returns `OMITTED` when absent; a candidate argument establishes a durable first
 winner. `await context.signal.wait()` cooperates with shutdown. A phase that
 returns without checkpoint progress faults; a committed terminal outcome wins
 against a later exception.
@@ -105,4 +111,6 @@ maps the original DE05 cells to actual native process/race tests and the pinned
 reference comparison. All43 parity rows remain OPEN. The bounded scheduler scans
 all current tasks; live-graph indexing/retention and performance ownership remain
 DE27/28. It has no migration, park/retry, full task ownership, sleep, abort-handler,
-provider/tool execution or product activation claim.
+tool execution or product activation claim. DE07 supplies the bounded provider
+phase lifetime and real tool admission described in the generation contract;
+owned child dispatch/wake remains DE08, general waits/graphs DE15.

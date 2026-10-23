@@ -408,6 +408,9 @@ class _Tx:
     def staged_tasks(self) -> tuple[TaskRecord, ...]:
         return self._core.staged_tasks()
 
+    def staged_entries(self) -> tuple[EntryRecord, ...]:
+        return self._core.staged_entries()
+
     def staged_conversations(self) -> tuple[ConversationRecord, ...]:
         return self._core.staged_conversations()
 

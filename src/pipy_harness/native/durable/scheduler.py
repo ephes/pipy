@@ -18,10 +18,10 @@ from typing import Any, TypeVar, cast
 
 from .codec import OwnedJson
 from .documents import Doc, DocFamily, Token
-from .records import OMITTED, TaskRecord
+from .records import OMITTED, EntryRecord, TaskRecord
 from .session import SessionClosedError
 from .session_core import AsyncTx, CommitPublication, Session, SyncTx
-from .storage import ConversationQuery, StorageWrite, TaskQuery
+from .storage import ConversationQuery, EntryQuery, StorageWrite, TaskQuery
 from .task_values import identity, json_equal
 from .tasks import Task, capture
 
@@ -117,6 +117,115 @@ def _owned(record: Tree, tasks: Iterable[Tree], conversations: Iterable[Tree]) -
     )
 
 
+def _tool_wait(
+    current: Tree,
+    state: Tree | None,
+    tasks: list[Tree],
+    conversations: list[Tree],
+    staged: list[Tree],
+    staged_conversations: list[Tree],
+    entries: tuple[EntryRecord, ...],
+) -> bool:
+    """Only DE07's new real children may cross the conservative DE15 fence."""
+    if type(state) is not dict or state.get("status") != "waiting":
+        return False
+    from .checkpoint_codec import decode_checkpoint
+    from .generation_tasks import GENERATION_NAME, GENERATION_VERSION
+
+    if (
+        (current["kind"], current["version"]) != (GENERATION_NAME, GENERATION_VERSION)
+        or _owned(current, tasks, conversations)
+        or staged_conversations
+        or state.get("policy") != "allSettled"
+    ):
+        raise UnsupportedTaskExecution("Task ownership joins require DE15")
+    previous = decode_checkpoint(
+        current["state"]["checkpoint"],
+        name=GENERATION_NAME,
+        version=GENERATION_VERSION,
+        phase="settle",
+        role="provider_outcome",
+    ).to_tree()
+    candidate = decode_checkpoint(
+        state.get("checkpoint"),
+        name=GENERATION_NAME,
+        version=GENERATION_VERSION,
+        phase="tools",
+        role="provider_outcome",
+    ).to_tree()
+    previous["phase"] = "tools"
+    if OwnedJson(previous) != OwnedJson(candidate):
+        raise UnsupportedTaskExecution("Tool wait must retain its response receipt")
+    _new_tool_children(current, staged, state.get("on"), tasks)
+    _tool_inputs(current, staged, entries)
+    return True
+
+
+def _tool_inputs(
+    parent: Tree, children: list[Tree], entries: tuple[EntryRecord, ...]
+) -> None:
+    from pipy_harness.native.agent.messages import AgentAssistantMessage
+    from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
+
+    from .canonical_codec import decode_canonical
+
+    assistants = [
+        entry.to_tree()
+        for entry in entries
+        if entry.to_tree()["kind"] == "pi.assistant"
+    ]
+    if len(assistants) != 1:
+        raise UnsupportedTaskExecution(
+            "Tool admission requires its new assistant entry"
+        )
+    entry = assistants[0]
+    model = entry.get("model", [])
+    if type(model) is not list or len(model) != 1:
+        raise UnsupportedTaskExecution(
+            "Tool admission requires its canonical assistant"
+        )
+    assistant = decode_canonical(model[0])
+    snapshot = decode_canonical(parent["input"])
+    if (
+        type(assistant) is not AgentAssistantMessage
+        or type(snapshot) is not AgentProviderRequestSnapshot
+    ):
+        raise UnsupportedTaskExecution("Tool admission requires its canonical request")
+    expected = [
+        {
+            "kind": "model",
+            "assistant": entry["id"],
+            "callId": call.provider_correlation_id,
+        }
+        for call in assistant.tool_calls
+        if snapshot.authorizes(call.tool_name)
+    ]
+    if [child["input"] for child in children] != expected:
+        raise UnsupportedTaskExecution("Tool admission must include every offered call")
+
+
+def _new_tool_children(
+    parent: Tree, staged: list[Tree], on: object, tasks: list[Tree]
+) -> None:
+    from .generation_tasks import TOOL_NAME, TOOL_VERSION, tool_input
+
+    existing = {task["id"] for task in tasks}
+    for child in staged:
+        if (
+            child["id"] in existing
+            or (child["kind"], child["version"]) != (TOOL_NAME, TOOL_VERSION)
+            or child.get("owner") != parent["id"]
+            or child["conversationId"] != parent["conversationId"]
+            or child["background"]
+            or child["abortRequested"]
+            or child["state"] != {"status": "pending", "checkpoint": {"phase": "call"}}
+        ):
+            raise UnsupportedTaskExecution("Tool wait requires new owned tool tasks")
+        tool_input(child["input"])
+    if type(on) is not list or on != [child["id"] for child in staged]:
+        raise UnsupportedTaskExecution("Tool wait must name every admitted child")
+
+
 class TaskRuntime:
     """Invocation-scoped async commits and first-writer memos."""
 
@@ -151,7 +260,17 @@ class TaskRuntime:
                 value = await value
             staged_tasks = [r.to_tree() for r in tx.staged_tasks()]
             staged_conversations = [r.to_tree() for r in tx.staged_conversations()]
-            if _owned(
+            state = None if value is None else cast(Tree, OwnedJson(value).thaw())
+            waiting = _tool_wait(
+                current,
+                state,
+                tasks,
+                conversations,
+                staged_tasks,
+                staged_conversations,
+                tx.staged_entries(),
+            )
+            if not waiting and _owned(
                 current,
                 (*tasks, *staged_tasks),
                 (*conversations, *staged_conversations),
@@ -159,10 +278,15 @@ class TaskRuntime:
                 raise UnsupportedTaskExecution("Task ownership joins require DE15")
             if value is None:
                 return
-            state = cast(Tree, OwnedJson(value).thaw())
-            if type(state) is not dict or state.get("status") not in (
-                "running",
-                "terminal",
+            assert state is not None
+            if (
+                type(state) is not dict
+                or state.get("status")
+                not in (
+                    "running",
+                    "terminal",
+                )
+                and not waiting
             ):
                 raise UnsupportedTaskExecution(
                     "Only running and terminal transitions are supported"
@@ -206,6 +330,36 @@ class TaskTx:
 
     def append_entry(self, draft: object) -> Any:
         return self._tx.append_entry(self._conversation_id, draft)
+
+    async def entry(self, id: int) -> EntryRecord | None:
+        record = await self._tx.entry(id)
+        if (
+            record is not None
+            and record.to_tree()["conversationId"] != self._conversation_id
+        ):
+            raise UnsupportedTaskExecution("Entry is outside the task conversation")
+        return record
+
+    async def entries(self) -> tuple[EntryRecord, ...]:
+        result: list[EntryRecord] = []
+        cursor = None
+        while True:
+            page = await self._tx.scan_entries(
+                EntryQuery({"conversationId": self._conversation_id}), 128, cursor
+            )
+            result.extend(page.items)
+            cursor = page.next
+            if cursor is None:
+                return tuple(result)
+
+    def create_task(self, task: Task[Any, Any, Any], input: object) -> Any:
+        """Own before suspension; callers cannot select another owner or scope."""
+        return self._tx.create_task(
+            task,
+            input,
+            ownership={"kind": "task", "taskId": self._task_id},
+            conversation_id=self._conversation_id,
+        )
 
     def doc(self, raw: Token, *, key: object = OMITTED, seed: object = OMITTED) -> Any:
         conversation_id, task_id = self._document_ids(raw)

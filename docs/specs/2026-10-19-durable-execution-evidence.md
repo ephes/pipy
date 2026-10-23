@@ -180,7 +180,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | LANDED | Cumulative DE06a + DE06b; original cells mapped below |
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
 | DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | LANDED | Canonical checkpoint acceptance below; normal review/check/delivery gates must pass before commit/push |
-| DE07 | Durable generation phases | OPEN | None; all gates OPEN |
+| DE07 | Durable generation phases | LANDED | [Generation acceptance](#de07-generation-acceptance); normal review/check/delivery gates must pass before commit/push |
 | DE08 | Sequential tool intents and blocked uncertainty | OPEN | None; all gates OPEN |
 | DE09 | Completed-message projection | OPEN | None; all gates OPEN |
 | DE10 | Compatibility, inspect and recovery resolutions | OPEN | None; all gates OPEN |
@@ -287,11 +287,11 @@ incarnation/count. The cumulative DE04 evidence below remains historical.
 DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
-canonical integration retain every original DE06 acceptance cell. DE07 generation
-is next; DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
+retains every original DE06 acceptance cell. DE07 generation supplies its bounded execution/admission join; DE08 is next; DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
-`gpt-6.1-sol` HIGH implements DE06b; Claude Code `claude-opus-5-5` (Opus5.5)
+`gpt-6.1-sol` HIGH implements DE07; Claude Code `claude-opus-5-5` (Opus5.5)
 HIGH reviews the whole slice first and accepted repairs against the actual prior
 baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
 pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
@@ -8334,3 +8334,96 @@ DE07 generation/usage admission, DE08 tool effects, DE09 publication, DE10
 operational compatibility, DE11/12 product/CLI composition, DE17 retries, DE21–25
 extensions/nested tools and DE26+ partials/full ledger/history remain assigned.
 All43 P rows remain OPEN, with every original P15/P16/P19 cell retained.
+
+
+## DE07 generation acceptance
+
+Against delivered DE06b `69812fa5`, the private generation uses actual TaskRuntime
+phases, scoped reads/creation and the same Session/lifecycle authority. Shared
+pure validators/assistant conversion/usage policy serve the existing volatile
+loop as well. No AgentLoop or state-first coordinator is replayed on recovery.
+
+| Original DE07 acceptance | Executable mapping |
+| --- | --- |
+| Stable request cutoff/provider/cache identity | Actual current-conversation entry scan and persisted ProviderDoc first winner; recovered request ignores later history/current prices; distinct conversations and later generations |
+| Real atomic assistant/tool admissions | Default all-offered pi.tool version2 owned children, unavailable-call entries and complete waiting list in one commit; actual second child initializer failure rolls everything back; foreign scope and terminal live-child refusal |
+| Response before publication and reuse | Separate canonical provider_outcome plus request/completed-assistant receipt; independent SQLite reads at settlement publication; repeated reopen uses committed result without provider/preparer |
+| Usage/pricing once | Coupled request-to-entry settlement identity and model totals, saved rates/tiers, failed completed spend, cache1h/reasoning/cost; exact rich original outcome and fallback-thinking receipt |
+| Crash during provider/after response/before and after commit | Real SIGKILL request/provider/response/receipt/settlement cuts for final answers and tool rounds; independent counted calls, repeat reopen, integrity and lock reacquisition |
+| Acknowledgement/adoption/storage failures | Real SQLite before/ack/adoption injection at request, receipt and settlement; original owner seals/joins and recovery reads actual old/new persisted state |
+| Real close lifetime and late write refusal | Held actual inner provider/finalizer, bounded legacy join returning first, second opener refused, timeout/cancelled close waiter keeps ownership; abort winner before provider |
+| Actual executor attempt semantics | Native Codex fake-SSE transient failure makes four standalone HTTP attempts and one durable prepared logical attempt; no None-means-no-retry assumption |
+| Genuine pinned comparison | generation-b-v1 uses built-in Harness generation/transactions/usage/admissions/publication/SQLite/reopen with the pinned tests' fixed streamSimple fixture boundary and actual pi-ai.calculateCost; native Memory/SQLite/reopen common view, exact raw records retained |
+
+The comparison's required executed-module set excludes upstream MemoryStorage,
+which this SQLite child producer does not execute. Every observed module still
+has actual source/dependency verification; cumulative parent Memory evidence is
+separate. The initial diagnostic was rejected for that inherited module demand.
+A subsequent common-view probe exposed fauxProvider's replacement of supplied
+usage with estimates; the producer now uses the existing upstream fixed-stream
+seam so declared usage reaches built-in settlement. Failed diagnostics remain
+external records and are not promoted to passing gates.
+
+Tool admissions are real retained work, not functional tool continuation. DE08
+must enable the direct owned leaf, intent/result/safety, allSettled matching-parent
+line reconciliation/recovery and tools continuation. General ownership/waits
+remain DE15, unsafe interrupted-error continuation DE13, full definitions DE14,
+retry/deferred DE17 and durable partials DE26. All original acceptance remains
+assigned and all43 P rows stay OPEN. Final source-frozen independent review,
+full/platform/docs checks and two fresh complete reference chains with actual
+postexecution attestation precede normal commit/push; exact identities live in
+the external delivery receipt.
+
+
+Diagnostic execute and separate attestation passed at
+`~/.local/state/pipy/durable-checkpoints/de07-20261024-ijo178de/diagnostic-generation2/`:
+2 common cases,10 actual CLI0/1 semantic mutants, CLI2 malformed,766 pinned
+modules,360 native modules and167 bound artifacts. The corresponding source
+archive/tree and attestation receipts are retained outside git. The focused
+native/coverage selection passed205; an earlier affected architecture/legacy
+policy/runtime/checkpoint selection passed464. These are diagnostic gates,
+not the final full/platform/two-chain receipts.
+
+The DE07 LANDED registry state describes this candidate's coherent delivery
+scope, not proof of a commit or push. Final frozen-source review and validation
+must pass before normal delivery. Every later owner and all43 P rows remain
+unchanged.
+
+
+### DE07 first independent review and bounded repair
+
+Whole-slice Opus5.5 HIGH R1 reviewed tree
+`a8a4e4b65ee643c7e0dac8c81e7b8d3e9c927464`, returned ISSUES with one Warning
+and one Suggestion, no Critical, and no skipped/truncated/redacted/excluded or
+denied inputs; its isolated copy was removed. The Warning is accepted: the
+paired reopen counter lacked explicit resume, lifetime was a constant Pi flag,
+and native/Pi usage-once predicates differed. The repair explicitly resumes the
+terminal answer with a real idle/drain barrier, compares actual normalized model
+ledger totals on both sides, and observes actual close reasons. The tool case
+remains admission/open-only. Intermediate receipt recovery and held-thread
+lifetime stay separate native process/fault proofs. A doubled aggregate with an
+unchanged settlement map is an explicit negative regression.
+
+The Suggestion identifies quadratic terminal request-history copies. It is
+accepted as named DE27/28 retention debt with a concrete version/migration,
+fidelity/authorization, stored-byte growth and recovery-test obligation, rather
+than a rushed request-format change. Full-feature acceptance must resolve or
+explicitly justify its storage budget. Re-review is valuable because the Warning
+invalidated the claimed paired evidence; the next review uses the exact R1
+baseline and only this evidence/docs repair delta in the same DE07 ledger.
+R1 is not relabeled CLEAN, and prior diagnostics remain historical/nonfinal.
+
+
+## DE07 R2 advisory repair disposition
+
+The exact-baseline Opus5.5 HIGH repair review returned ISSUES with two
+Suggestions and no Critical/Warning, with no input omissions and its copy
+removed. The R1 required evidence finding is resolved. Both advisory items are
+accepted proportionately: optional reasoning/cache1h projection now preserves
+absence versus explicit zero on both sides, pinned by positive optional-member
+cases. The Memory description now states that its post-terminal empty drain may
+come from the prior terminal notification; fresh SQLite/reopen owners still
+cannot drain before explicit resume. The actual paired fixtures were unaffected,
+and production generation code is unchanged. This is an advisory verdict, not
+CLEAN; any additional review must be justified only by the owner's explicit
+clean-gate requirement and verify this narrow optional-field/docs delta.

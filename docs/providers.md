@@ -668,3 +668,12 @@ and WebSocket requests; live Authorization/account headers overwrite them
 regardless of casing. Internal reconstruction selects `openai-codex.json` beside
 the chosen `auth.json`. Azure routing/API-version and request cache defaults are
 bound from detached inputs; ordinary adapters still use their ambient defaults.
+
+The private [durable generation](durable-generation.md) uses the same saved
+construction/auth policy. It gives prepared providers one actual logical-attempt
+allowance through ProviderTurnExecutor; None would enter Codex's standalone
+retry loop. Adapter-owned transport fallback can still make multiple connection
+attempts. Native fake-SSE tests count the standalone four-attempt transient case
+and the durable one-attempt case separately. Every real provider worker/finalizer
+remains join-owned through close; product defaults and legacy cancellation keep
+their existing behavior.

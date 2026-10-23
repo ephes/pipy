@@ -236,3 +236,12 @@ Codex uses the existing dedicated `openai-codex.json` credential store beside th
 selected `auth.json`, through its existing refresh manager. Configured and
 callback header names merge case-insensitively before live auth/account fields;
 mandatory protocol headers likewise have one spelling on either transport.
+
+## Generation use (DE07)
+
+[Generation](durable-generation.md) now consumes these exact envelopes/settings
+on the existing TaskRuntime. Request recovery does not reprepare. A separate
+provider_outcome receipt retains the original request and rich completed
+assistant before atomic entry/usage/tool admission. Terminal entry receipts stay
+readable without current private material. The original request cache fields
+and saved effective defaults retain their distinct representations.

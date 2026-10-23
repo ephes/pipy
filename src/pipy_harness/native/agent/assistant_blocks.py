@@ -200,3 +200,16 @@ def _bounded(blocks: Sequence[AgentContentBlock]) -> tuple[AgentContentBlock, ..
             room -= len(block.text)
         bounded.append(block)
     return tuple(bounded)
+
+
+def failed_provider_blocks(
+    result: ProviderResult, streamed: Sequence[TextContent | ThinkingContent]
+) -> tuple[AgentContentBlock, ...]:
+    """What a failed turn keeps: the adapter's partial, the deltas, or its text."""
+
+    if result.content_blocks:
+        return agent_blocks(result.content_blocks)
+    if streamed:
+        return tuple(streamed)
+    text = result.final_text or ""
+    return (TextContent(text),) if text else ()

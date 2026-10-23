@@ -786,3 +786,21 @@ def test_canonical_runtime_completion_owns_exact_acceptance_without_p_closure():
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )
+
+
+def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundaries():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    row = rows["DE07"]
+    assert row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == ["generation-b-v1"]
+    assert row["evidence"][0] == a.LEDGER + "#de07-generation-acceptance"
+    assert "Assistant+tool admissions atomic" in row["future"]
+    assert "No claim of durable partials" in row["future"]
+    assert "all real generation-owned tool admissions" in row["current"]["observables"]
+    assert all(
+        rows[key]["status"] == "OPEN"
+        for key in ("DE08", "DE13", "DE14", "DE15", "DE17", "DE26")
+    )
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )

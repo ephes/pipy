@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 is next.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 owns tool execution.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -1026,7 +1026,7 @@ above is unchanged. The codec lane landed at
 `caf4d34e`, with Opus5.5 HIGH R2 unscoped CLEAN, a green local full check,
 two fresh reference chains and verified push. DE06b now supplies the
 [canonical runtime integration](durable-canonical-codec.md#checkpoint-and-reconstruction-apis);
-cumulative DE06 is complete and DE07 is next. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
+cumulative DE06 is complete and DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 owns tool execution. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
 records the completed gates and current D1 integration boundary.
 
 ## Additive streaming line scanner (DE32a)
@@ -1050,7 +1050,7 @@ All43 P rows remain OPEN. See the [document contract](durable-reference.md#typed
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is complete: DE04b1b3a delivered [default deltas, count adoption and linked ops publication](durable-session-deltas.md) at `33d39457` with [verified gates and successor admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission); DE04b1b3b completes [checkpoint callbacks, actual unload and cumulative acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance). DE04b1b/b/DE04 and DE05 are complete; DE07 is next; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is complete: DE04b1b3a delivered [default deltas, count adoption and linked ops publication](durable-session-deltas.md) at `33d39457` with [verified gates and successor admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission); DE04b1b3b completes [checkpoint callbacks, actual unload and cumulative acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance). DE04b1b/b/DE04 and DE05 are complete; DE07 native generation supplies the bounded execution join; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.
 
@@ -1062,5 +1062,24 @@ compose with the [private DE05b runtime](durable-task-runtime.md). Cumulative
 DE05 is complete: scoped commits/memos, sequential acknowledged reservations,
 explicit resume, recovery and lifecycle-owned invocation joins. All original
 process-cut/atomicity/failure cells remain mapped in the acceptance ledger.
-DE07 is next; full definition/ownership/cancellation/reload semantics retain
+DE07 native generation supplies the bounded execution join; full definition/ownership/cancellation/reload semantics retain
 DE14/15/16/23 ownership. All43 P rows remain OPEN.
+
+
+## Durable generation (DE07)
+
+The [native generation contract](durable-generation.md) joins delivered DE06b
+`69812fa5` through saved request/receipt/settlement, one logical prepared attempt,
+real provider joins and atomic assistant/usage/all-child admissions. Current
+[evidence](specs/2026-10-19-durable-execution-evidence.md#de07-generation-acceptance)
+keeps native process/lifetime/fake-wire proofs separate from the genuine pinned
+Harness admission comparison. No product activation, durable partial streaming,
+owned tool execution or full parity closure follows. DE08 is the execution/wake
+successor; full DE15 ownership and all43 P rows retain their original scope.
+
+
+DE27/28 additionally own the [DE07 request-snapshot retention debt](durable-generation.md#request-snapshot-retention-debt-de2728):
+terminal entries retain full request history and storage grows quadratically.
+Resolve or bound it through a versioned format/retention migration, exact
+cutoff/authorization/terminal-inspection preservation and multi-generation byte
+budget/recovery tests before full-feature acceptance.

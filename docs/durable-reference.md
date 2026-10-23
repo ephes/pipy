@@ -1353,3 +1353,42 @@ target reconstruction, rotations and family fake wires are separate evidence.
 This does not claim raw Pi arena/credential equality or DE07 execution. See
 [the complete codec contract](durable-canonical-codec.md) and
 [acceptance mapping](specs/2026-10-19-durable-execution-evidence.md#de06b-canonical-checkpoint-acceptance).
+
+
+## Native generation admission (DE07)
+
+`generation-b-v1` is the sixteenth source-closed phase. Run it against a fresh
+complete baseline acceptance with `scripts/durable_generation_comparison.py run
+--acceptance <parent> --output <new-output>`, then independently call
+`attest(output, parent)`. Its manifest is `generation-v1.manifest.json`, with the
+canonical checkpoint manifest as parent and pinned generation/provider/tool/usage
+and generation-test source identities. Comparator CLI0/1/2, process argv/cwd,
+loaded modules/dependencies and all retained artifacts remain independently bound.
+
+This child runs actual pinned Harness generation on SQLite and reopen. Only its
+provider streamSimple boundary is a fixed fixture, following upstream generation
+tests; actual pi-ai calculateCost and built-in generation, transactions, usage,
+owned child creation and publication are untouched. The declared common view
+covers completed answer/default all-child admission, provider/cutoff relation,
+exact common assistant/model-ledger usage/cost, atomic publication, actual
+close reason and explicit terminal-answer resume after reopen without another
+provider request. Native Memory/SQLite/reopen observations use actual
+product phases. Pi raw publications and native exact canonical records are kept
+separately from the finite-binary64 common projection.
+
+Native process-death, acknowledgement/adoption, retry-limit and noncooperative
+worker/finalizer proofs remain separate executable evidence. This comparison
+never substitutes those as Pi observations. Root recipes/producer traces remain
+immutable; mutants/malformed inputs live under mutants/, process receipts/output
+under processes/. Only the root result receipt and relative stores/ database
+subtree are excluded from artifact hashing; exact native records live outside
+that subtree. A source-only plan or a rejected diagnostic is not acceptance.
+
+The generation answer case calls resume and waits for actual idle/drain (on the
+live Memory owner, its prior terminal notification may cause that drain);
+its retained-call/state checks do not stand in for intermediate response-receipt
+recovery. The tool case remains admission/open-only until DE08. Both producers
+compare normalized actual model totals with the same assistant usage; a doubled
+native aggregate fails even with its request-to-entry settlement map unchanged.
+Actual close reason replaces the previous constant lifetime flag. The native
+held-thread proof is distinct from any Pi lifecycle claim.
