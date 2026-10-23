@@ -8,33 +8,37 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private durable document checkpoint policies with exact synchronous bool
+  results, immutable persisted candidates, atomic base/count reset, scoped
+  callback authority and rollback on policy failure. Explicit document unloading
+  uses the existing Session line and cold-loads persisted values and counts;
+  retained snapshots remain valid. Product defaults are unchanged.
+
 - Internal durable Session document drafts now use the existing mutation tracker
   and persist actual normalized deltas by default. Empty operation batches retain
   the committed snapshot; structural changes with nonempty operations still write
   even when final values compare equal. Acknowledged adoption keeps the persisted
   value, delta count and immutable published operations together across Memory,
-  SQLite and reopen. Creation remains a base; checkpoint policy and actual unload
-  follow in DE04b1b3b. The owner-selected replayed value also retains native
+  SQLite and reopen. Creation remains a base; checkpoint policies and explicit unload
+  are described above. The owner-selected replayed value also retains native
   signed-zero fidelity. Product defaults are unchanged.
 
 - Add private pure draft mutation provenance and immutable normalized decoded
   operations, with owned replayed values, placement/detachment and revocable
   mapping/list views. Numeric-looking JSON keys remain supported; comparison
   projects only JavaScript array-index own-key order while retaining raw profiles.
-  Session/Draft/Tx activation is described above. Real checkpoint callbacks
-  remain DE04b1b3b; product defaults are unchanged.
+  Session/Draft/Tx activation is described above. Checkpoint policies are described above; product defaults are unchanged.
 
 - Internal durable Memory/SQLite storage now applies supplied current document
   deltas atomically, persists actual operations and preserves lossless values
   and committed tail counts. Semantic SQLite schema2 upgrades existing bases
   without rewriting them and makes older openers refuse the new format.
-  The default Draft/Tx/publication join is described above; real checkpoint
-  callbacks remain DE04b1b3b. Product defaults are unchanged.
+  The default Draft/Tx/publication join is described above; checkpoint policies are described above. Product defaults are unchanged.
 
 - Add private owned decoded JSON operation validation and atomic application for
   future durable deltas, with exact UTF-16/path/array behavior and pinned Node
   comparison. Supplied Storage deltas and the default Draft/Tx join are described
-  above; real checkpoint callbacks remain DE04b1b3b.
+  above; checkpoint policies are described above.
 
 - Add a private bounded streaming line scanner for future durable readers, with
   immutable byte offsets and exact replacement-decoded UTF-8 sizes across arbitrary
@@ -44,7 +48,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Add private typed singleton/family document tokens for session, conversation
   and task scopes, with copied first seeds, atomic table/document updates and
   complete terminal-task document retirement. Product defaults are unchanged;
-  real operation/delta/checkpoint preparation remains DE04b.
+  operation/delta/checkpoint preparation is described above.
 
 - Add a closed internal Pi SQLite/Memory oracle with native reopen checks,
   exact observed divergence witnesses and explicit unused-ID lifetime evidence.

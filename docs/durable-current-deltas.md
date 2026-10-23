@@ -3,10 +3,10 @@
 The private Memory and SQLite Storage backends accept owned
 `StorageWrite` batches containing current document deltas. This is the independent
 storage slice S: it does not integrate tracking, Draft/Tx preparation, checkpoint
-callbacks, Session adoption or linked publication. Those remain in DE04b1b3,
+callbacks, Session adoption or linked publication. Those are owned by DE04b1b3,
 with the owner's policy266 decision to use the persisted/replayed value for
 callbacks, cache and publications. The default delta join is DE04b1b3a; real
-checkpoint callbacks and actual unload remain DE04b1b3b. The
+[checkpoint callbacks and actual unload](durable-session-checkpoints.md) are DE04b1b3b. The
 [default Session join](durable-session-deltas.md) activates tracking, count adoption
 and linked operations publication through the existing authority.
 Copy, numeric historical reads, fork reconstruction and full history policy

@@ -5,6 +5,7 @@ import dataclasses
 import pytest
 
 from pipy_harness.native.durable.documents import (
+    CheckpointInfo,
     Doc,
     DocFamily,
     define_doc,
@@ -96,3 +97,44 @@ def test_family_keys_and_kinds_have_exact_utf16_identity():
     two = define_doc_family("\ud83d\ude00", 1, "session", dict)
     assert resolve(one, key="\U0001f600")[0] == resolve(two, key="\ud83d\ude00")[0]
     assert resolve(one, key="")[0] != resolve(one, key="\ud800")[0]
+
+
+@pytest.mark.parametrize("factory", [define_doc, define_doc_family])
+@pytest.mark.parametrize("scope", ["session", "conversation", "task"])
+def test_checkpoint_policy_ingress_identity_positional_and_tampered_resolve(
+    factory, scope
+):
+    calls = []
+
+    class Policy:
+        def __call__(self, value, ops, info):
+            return False
+
+        def __bool__(self):
+            calls.append("bool")
+            raise AssertionError
+
+    class Foreign:
+        def __getattribute__(self, name):
+            calls.append(name)
+            raise AssertionError
+
+    policy = Policy()
+    history, fork = ("latest", "initial") if scope == "conversation" else (None, None)
+    spec = factory("k", 1, scope, dict, history, fork, policy)
+    assert spec.checkpoint_when is policy
+    options = {} if scope == "session" else {scope + "_id": 7}
+    if factory is define_doc_family:
+        options["key"] = ""
+    resolve(spec, **options)
+    assert factory("k", 1, scope, dict, history, fork).checkpoint_when is None
+    for invalid in (False, 1, Foreign()):
+        with pytest.raises(TypeError, match="checkpoint_when"):
+            factory("k", 1, scope, dict, history, fork, invalid)
+        object.__setattr__(spec, "checkpoint_when", invalid)
+        with pytest.raises(TypeError, match="checkpoint_when"):
+            resolve(spec, **options)
+    assert calls == []
+    info = CheckpointInfo(4)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        info.deltas_since_base = 5

@@ -1065,7 +1065,8 @@ conversation and task scope. Existing schema-v1 fields already hold family keys
 and task scope; DE04a changes no Storage signature or SQLite capability. Task
 terminal settlement retires every current member in the same table/document
 commit; cache adoption and publication follow Storage success. Real
-checkpoint callbacks remain DE04b1b3b. DE04b1b3a activates actual normalized
+checkpoint callbacks and line-owned unloading are described in
+[the checkpoint contract](durable-session-checkpoints.md). DE04b1b3a activates actual normalized
 default deltas through the existing Session authority, adopting persisted value
 and committed count atomically and publishing the same immutable operation batch.
 Empty normalized batches retain the prior snapshot; structural nonempty batches

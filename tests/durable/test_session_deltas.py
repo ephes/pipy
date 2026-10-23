@@ -29,6 +29,8 @@ from test_session_documents import (
 
 from pipy_harness.native.durable import tx as tx_module
 from pipy_harness.native.durable.codec import JsonValueError, OwnedJson
+from pipy_harness.native.durable.delta_ops import apply_operations
+from pipy_harness.native.durable.documents import define_doc
 from pipy_harness.native.durable.tx import (
     Draft,
     DraftList,
@@ -292,9 +294,10 @@ def test_persisted_signed_zero_is_authoritative_without_global_projection(
             assert current.deltas_since_base == 1
         else:
             assert current is old and len(r.store.commits) == before
-        # Test-only residency eviction pins this join's cold path. Actual unload
-        # and its line lifecycle remain a later production slice.
-        r.session._cache.clear()
+        if r.mode.sync:
+            r.session.unload_documents()
+        else:
+            await r.session.aunload_documents()
         cold = await snapshot(r, spec)
         assert (
             cold.value == current.value
@@ -613,5 +616,83 @@ def test_untouched_nested_signed_zero_and_order_survive_other_edits(rig, accesse
             d["n"] = 1
 
         await changed(r, spec, edit, [["s", ["n"], 1]], {"nested": branch, "n": 1})
+
+    r.mode.run(run)
+
+
+@pytest.mark.parametrize("policy", [None, False, True])
+@pytest.mark.parametrize("zero", [0.0, -0.0], ids=["positive", "negative"])
+@pytest.mark.parametrize("variant", ["simple", "accessed", "untouched"])
+@pytest.mark.parametrize("dirty", [False, True], ids=["empty", "unrelated-edit"])
+def test_checkpoint_signed_zero_uses_exact_persisted_replay(
+    rig, policy, zero, variant, dirty
+):
+    r = rig
+    seen = []
+    branch = {
+        "zero": zero,
+        "2": 2,
+        "1": 1,
+        "\ud800": 5e-324,
+        "max": 1.7976931348623157e308,
+    }
+    initial = branch | {"n": 0} if variant == "simple" else {"nested": branch, "n": 0}
+
+    def choose(value, ops, info):
+        seen.append((value, ops, info))
+        return policy
+
+    spec = define_doc(
+        "checkpoint.zero",
+        1,
+        "session",
+        lambda: initial,
+        checkpoint_when=None if policy is None else choose,
+    )
+
+    async def edit(tx):
+        draft = await tx.doc(spec)
+        if variant != "untouched":
+            target = draft if variant == "simple" else draft["nested"]
+            target["zero"] = 1
+            target["zero"] = -zero
+        if dirty:
+            draft["n"] = 1
+
+    async def run():
+        old = await create(r, spec)
+        before = len(r.store.commits)
+        await commit(r, edit)
+        current = await snapshot(r, spec)
+        if dirty:
+            pub = docs(r.publications[-1])[0]
+            assert pub.ops == OwnedJson([["s", ["n"], 1]])
+            expected = apply_operations(old.value, pub.ops)
+            assert current.value == expected and pub.value is current.value
+            assert current.deltas_since_base == (0 if policy is True else 1)
+            assert r.store.commits[-1][0].to_tree()["content"]["kind"] == (
+                "base" if policy is True else "delta"
+            )
+            if policy is not None:
+                assert (
+                    len(seen) == 1
+                    and seen[0][0] is current.value
+                    and seen[0][1] is pub.ops
+                )
+        else:
+            assert len(r.store.commits) == before and current is old and seen == []
+        if r.mode.sync:
+            r.session.unload_documents()
+        else:
+            await r.session.aunload_documents()
+        cold = await snapshot(r, spec)
+        assert (
+            cold.value == current.value
+            and cold.deltas_since_base == current.deltas_since_base
+        )
+        assert (
+            OwnedJson(r.inner.document(cold.record.id).to_tree()["value"])
+            == current.value
+        )
 
     r.mode.run(run)

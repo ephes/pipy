@@ -248,17 +248,21 @@ class _LineTicket:
 
     ``wake`` is ``None`` for a sync waiter (woken through the owner Condition)
     or an owned callback that schedules an async waiter's wake-up on its loop.
-    ``tasks`` holds the async holder's caller and settlement tasks, for
-    reentry detection by identity.
+    ``tasks`` holds the async holder's caller and settlement tasks. ``actor``
+    holds its driving Task only during a synchronous core advance. Both are
+    confined to ``thread``: Session writes them before publication or on that
+    event-loop thread, and refuses foreign-thread inspection before reading.
+    Publication/retirement of the ticket itself uses the owner's condition.
     """
 
-    __slots__ = ("state", "tasks", "thread", "wake")
+    __slots__ = ("actor", "state", "tasks", "thread", "wake")
 
     def __init__(self, wake: Callable[[], object] | None = None) -> None:
         self.state: str = _QUEUED
         self.thread = threading.get_ident()
         self.wake = wake
         self.tasks: tuple[object, ...] = ()
+        self.actor: object | None = None
 
 
 def _view(value: CancelView | None) -> CancelView | None:

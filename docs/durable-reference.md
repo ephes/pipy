@@ -1277,8 +1277,8 @@ driver to absent-policy deltas and captures a new expected fixture from actual
 pinned execution; complete writes, stored counts and publication operations are
 compared. Native loaded candidates use the exact persisted/replayed value chosen
 by the owner. The actual method, structural-no-op and failure matrix is described
-in [the Session delta contract](durable-session-deltas.md). Real checkpoint-policy
-exceptions and actual unload remain DE04b1b3b. History/as-of/fork/migrations remain
+in [the Session delta contract](durable-session-deltas.md). [DE04b1b3b](durable-session-checkpoints.md) adds real checkpoint-policy
+exceptions, actual unload and the closed `session-checkpoints-j-v1` oracle. History/as-of/fork/migrations remain
 DE27; product defaults are unchanged. D1 historical
 proof/source hashes identify their immutable delivered snapshot, independently
 from the current source closure and migrated D1 Session tests. All43 P rows
@@ -1297,6 +1297,6 @@ the [delivery successor](specs/2026-10-19-durable-execution-evidence.md#de04a-ve
 
 ## Pure decoded durable operations (DE04b1a)
 
-DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is IN_PROGRESS: DE04b1b3a implements [default deltas, count adoption and linked ops publication](durable-session-deltas.md) as a shipping candidate conditional on final Root gates; DE04b1b3b retains real checkpoint callbacks, actual unload and final cumulative proofs. DE04b1b/b/DE04 remain IN_PROGRESS until every original acceptance cell completes. DE05 waits full DE04; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
+DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current deltas and schema2](durable-current-deltas.md), delivered at `8c8f30d7`. T (`DE04b1b1`) supplies [pure draft provenance](durable-draft-tracker.md), delivered at `71cb8c91` with [verified final gates and owner-selected J admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b1-verified-delivery-and-owner-selected-j-admission). The owner selected the persisted/replayed value for callbacks, cache and publications. J (`DE04b1b3`) is complete: DE04b1b3a delivered [default deltas, count adoption and linked ops publication](durable-session-deltas.md) at `33d39457` with [verified gates and successor admission](specs/2026-10-19-durable-execution-evidence.md#de04b1b3a-verified-delivery-and-de04b1b3b-admission); DE04b1b3b completes [checkpoint callbacks, actual unload and cumulative acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance). DE04b1b/b/DE04 are complete; DE05 is the next slice; DE27 retains history/as-of/fork/migrations; all43 P rows remain OPEN.
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.

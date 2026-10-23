@@ -628,6 +628,27 @@ def test_negative_control_inventory_matches_b2b_mutants():
     assert set(NEGATIVE_CONTROLS) == set(b2b().MUTANTS)
 
 
+def test_predecessor_no_policy_driver_still_reaches_default_delta_writes(traces):
+    m = module()
+    for mode in m.MODES:
+        assert m.document_changes(traces[mode]) > 0
+        changed = json.loads(json.dumps(traces[mode]))
+        reached = False
+        for row in changed["scenarios"]:
+            for effect in row["effects"]:
+                if effect["e"] != "call" or effect["op"] != "commit":
+                    continue
+                arguments = m.v.decode(effect["args"])
+                for write in arguments["writes"]:
+                    if write["type"] == "document.change":
+                        write["content"] = {"kind": "base", "version": 1, "value": {}}
+                        reached = True
+                effect["args"] = m.v.encode(arguments)
+        assert reached
+        with pytest.raises(m.o.EvidenceError, match="non-delta"):
+            m.document_changes(changed)
+
+
 @pytest.mark.parametrize("name", sorted(NEGATIVE_CONTROLS))
 def test_b2b_source_mutants_through_the_native_runner(traces, name):
     m = module()

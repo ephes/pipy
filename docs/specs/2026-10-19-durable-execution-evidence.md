@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 IN_PROGRESS, candidate DE04b1b3a LANDED and DE04b1b3b OPEN (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 IN_PROGRESS, DE04b1b3a LANDED and DE04b1b3b IN_PROGRESS (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a LANDED, DE06 IN_PROGRESS, DE06b OPEN; all parity rows OPEN**,
 2026-10-22. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -164,16 +164,16 @@ that coverage here. A local validation result is not a landed slice.
 | DE03d | Paired Pi SQLite oracle, Session over SQLite and P43 workload | LANDED | Cumulative d1+d2; all original acceptance retained |
 | DE03d1 | Session over SQLite and bounded native current-base workload | LANDED | 8ab38d20; final Opus5.5 HIGH R4 CLEAN, owner known-preview-flake exception, isolated16 PASS, push/remote verified |
 | DE03d2 | Closed paired SQLite oracle and final DE03 gate | LANDED | 2dba6008; final Opus5.5 HIGH R3 CLEAN, known-preview exception, two fresh chains, push/remote verified |
-| DE04 | Minimal typed documents | IN_PROGRESS | Cumulative a+b; all original checkpoint rollback acceptance retained |
+| DE04 | Minimal typed documents | LANDED | Cumulative acceptance below; local checks, retained prerequisites and actual paired proofs complete; normal commit/push remains the delivery gate |
 | DE04a | Typed current documents and coupled task lifetime | LANDED | e6c1239d; exact Opus5.5 HIGH R3 CLEAN, green full check, fresh chains, push/remote verified; no CI claim |
-| DE04b | Real operation/delta/checkpoint prerequisite | IN_PROGRESS | Retained checkpoint rollback acceptance; depends DE04a |
+| DE04b | Real operation/delta/checkpoint prerequisite | LANDED | Cumulative acceptance below; local checks, retained prerequisites and actual paired proofs complete; normal commit/push remains the delivery gate |
 | DE04b1a | Pure decoded operations; depends DE02a1 | LANDED | 6e3b838f; exact Opus5.5 HIGH R4 CLEAN, green full check/docs, fresh pairs and push/remote verified; no CI claim |
-| DE04b1b | Cumulative normalized tracking/current deltas/checkpoints | IN_PROGRESS | T and independent S delivered; waits both J children and all original acceptance |
+| DE04b1b | Cumulative normalized tracking/current deltas/checkpoints | LANDED | Cumulative acceptance below; local checks, retained prerequisites and actual paired proofs complete; normal commit/push remains the delivery gate |
 | DE04b1b1 | T pure provenance/normalized ops; depends DE04a + DE04b1a | LANDED | 71cb8c91; exact Opus5.5 HIGH R2 CLEAN, green full/docs/fresh chains, push/remote verified; no Session activation |
 | DE04b1b2 | S independent current deltas/schema2; depends DE03d + DE04b1a | LANDED | 8c8f30d7; exact Opus5.5 HIGH R2 CLEAN, green full/docs/fresh chains, push/remote verified; no dependency on T |
-| DE04b1b3 | J Draft/Tx/checkpoint/cache/publication; depends T + S + DE04a + owner policy266 | IN_PROGRESS | Owner selected persisted value; cumulative a+b and every original acceptance retained |
-| DE04b1b3a | Tracker-backed default delta/count/publication join | LANDED | Shipping candidate conditional on exact final Root gates; actual pairs/focused checks below; no checkpoint/unload claim |
-| DE04b1b3b | Checkpoint callbacks, actual unload and final cumulative join | OPEN | Depends DE04b1b3a; all remaining parent acceptance retained |
+| DE04b1b3 | J Draft/Tx/checkpoint/cache/publication; depends T + S + DE04a + owner policy266 | LANDED | Cumulative acceptance below; local checks, retained prerequisites and actual paired proofs complete; normal commit/push remains the delivery gate |
+| DE04b1b3a | Tracker-backed default delta/count/publication join | LANDED | 33d39457; exact Opus5.5 HIGH R3 CLEAN/full/docs/fresh chains/push/remote verified; no checkpoint/unload claim |
+| DE04b1b3b | Checkpoint callbacks, actual unload and final cumulative join | LANDED | Real policy/authority/unload with cumulative acceptance below; local checks and actual paired proofs complete; normal commit/push remains the delivery gate |
 | DE05 | Minimal task runtime and recovery scheduler | OPEN | None; all gates OPEN |
 | DE06 | Canonical checkpoint/request/outcome codecs; cumulative a+b join | IN_PROGRESS | Original acceptance retained; DE06a LANDED, DE06b OPEN |
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
@@ -284,8 +284,9 @@ DE04/DE04b/DE04b1b remain IN_PROGRESS. S (DE04b1b2) is verified LANDED at
 the [S delivery successor](#de04b1b2-verified-delivery-and-t-integration-successor).
 T (DE04b1b1) is verified LANDED at `71cb8c91`; the [delivery and J admission](#de04b1b1-verified-delivery-and-owner-selected-j-admission) records its final gates and the owner decision.
 J (DE04b1b3) is IN_PROGRESS: owner policy266 selects the persisted/replayed value
-for callbacks, cache and publications. DE04b1b3a is a [shipping candidate](#de04b1b3a-default-delta-integration-candidate) with actual default delta pairs/focused checks; exact final Root gates and delivery remain pending.
-DE04b1b3b retains real checkpoints, actual unload and the final cumulative gate. The [delivery/admission successor](#de04b1a-verified-delivery-and-de04b1b-pre-code-admission)
+for callbacks, cache and publications. DE04b1b3a is verified LANDED at `33d39457`; [delivery and successor admission](#de04b1b3a-verified-delivery-and-de04b1b3b-admission) records its final gates.
+DE04b1b3b is IN_PROGRESS with real checkpoints, scoped callback authority, actual
+unload and the final cumulative DE04 gate. No further split is needed before code. The [delivery/admission successor](#de04b1a-verified-delivery-and-de04b1b-pre-code-admission)
 retains verified B1a gates and the exact dependency map. DE05 waits full DE04;
 DE27 retains full history/as-of/fork/migrations. All 43 P rows remain OPEN.
 
@@ -7942,3 +7943,178 @@ and restored the newline, preserving the recorded facts. The previous link-only
 check did not detect that presentation defect; the repair additionally checks
 the rendered section for stray markers and unintended list items. R2 is not
 CLEAN. Exact independent delta review and final delivery gates remain pending.
+
+
+## DE04b1b3a verified delivery and DE04b1b3b admission
+
+2026-10-23: Root verified main and origin at
+`33d39457ba73c583e2590e8d42f4f7e782a15ed6`, exact reviewed37-file tree
+`f328e3929f2d36f94281da9e1a2e232544f6e2d9`, parent delivered T71cb8c91.
+Guard and normal push exited0; `git ls-remote origin refs/heads/main` matched
+exactly and the checkout was clean. Final proof SHA256:
+`73742a1485347238e61ab01a7c96db0eaa529ba52826b182415906319f094c02`.
+Receipts/logs: `/private/tmp/pipy-de04b1b3a-gates.kr8afv9b`.
+
+Exact mandatory Opus5.5 HIGH R3 returned unscoped CLEAN64.646s, baseline
+`80d8fd081a3bc94dc273b55b4ff6d7d1ec102409`; no omitted, redacted, truncated
+or denied inputs and the isolated copy was removed. R1's three Suggestions
+(329.084s) and R2's evidence-format Warning (92.521s) remain historical ISSUES;
+all accepted repairs are present. Root verified all3992 source hashes and the
+staged/committed tree after every final gate.
+
+Full `just check` exited0:16,832 passed,20 explained skips, no warnings and no
+preview flake;1660.93s pytest/1692.9611452079844s wrapper. Ruff999 formatted and
+mypy925 source files passed. Skips:18 explicit async-only document cases on
+the blocking sync facade, optional CodeMode worker runtime and case-insensitive
+filesystem. Both supported3.11.13/3.12.15 independently passed744 affected
+cases with18 explained skips, with imports from the exact final snapshot.
+Each also passed20 final repetitions of41 critical barriers (820 each), with
+isolated state, bounded/reaped children and absent groups. These final repeats
+exercise the repaired constructor/source, separately from earlier worker runs.
+Strict docs passed9 changed pages/1366 links/zero broken targets or anchors;
+the repaired evidence section additionally had zero stray diff markers and zero
+unintended list items. Both global themes remained `pi`.
+
+Two actual fresh cumulative chains at
+`/private/tmp/pipy-de04b1b3a-integrated-chains-PdN7nD` passed in400.2367s.
+Six independent artifact attesters passed:12 core IDs/ten parent bindings,
+14 core/document IDs,24 Pi document recipes and72 native observations per
+chain,38 pinned source/664 dependency hashes, scanner30,000, decoded deltas66,
+supplied deltas9 per native backend, and Tracker1612 with its explicit key-order
+comparison profile, ten retained raw differences and two signed-zero witnesses.
+Minimal phases make no full-bootstrap/UUID-lineage claim. A further Root J1
+attester verified702 loaded file hashes and recursive artifacts, absent policy
+and13 delta changes, sync35/async41 Session scenarios and24 document cases per
+native backend,26 Session and8 typed-document schema-valid mutants. Twelve
+additional real CLI controls exercised0/1/2 across both phases and both chains.
+All final process groups were reaped; after the full supervisor exited, Root
+found no owned marker process and no remaining full process group. No CI or
+new Linux result is claimed.
+
+Private-checker diagnostics remain retained: the inherited document attester
+expected six controls and was updated to the exact eight IDs, including the
+new publication-ops/default-base controls. An extra checker initially assumed
+the wrong mutant folder and an unsupported mode flag; corrected invocations
+then passed all twelve controls. Those were private verifier errors, not product
+repairs or new source changes after CLEAN. Original attempts remain available.
+
+DE04b1b3b is now admitted as one coherent implementation slice. Astra MAX's
+read-only assessment of delivered33d39457 estimates250–400 production lines in
+documents/tx/session_core plus a narrow ticket field/contract in session.py;
+tests and the closed actual Pi/native oracle are larger, about1.5–2.5k lines.
+The mechanisms share one acceptance boundary, so no further cut or owner
+decision is needed. Root remains the sole metadata writer until the worker GO;
+this admission folds into actual implementation, not a planning-only delivery.
+
+Before callbacks are active, establish the authority/lifetime contract: scoped
+driving-task identity surrounds every synchronous eager/resumed core send/throw,
+never an await, and restores in finally, including nested advances/errors.
+Persistent caller/settlement identities and sync holder-thread semantics remain.
+Task identity is compared with `is`; foreign threads are excluded before reading
+loop-confined actor fields. All readers/writers must preserve that confinement
+or consistently use the existing lifecycle condition, with current-task capture
+and displaced reference drops outside it. No extra lock or growing helper
+registry. Current ticket.tasks is not a demonstrated race. Exceptional task
+factory/submit/owned-handoff cleanup must be proven before enabling callbacks;
+never strand a ticket, unawaited body or live authority marker.
+
+The owner-selected persisted/replayed value remains authoritative for callbacks,
+cache and publication; exact ops and prior counts are immutable. Every view is
+revoked and all validation/terminal pages/publication ownership/submissions finish
+before policy. Eligible loaded nonempty changes alone invoke exact synchronous
+bool policy; true selects base/reset, false/absent delta/increment, including root
+fallback. Second-predicate failure rolls back all coupled candidates. Foreign
+callbacks/result disposal/finalizers run outside locks, thrown error identity is
+preserved and post-policy health permits requested close but blocks failed owners.
+
+Actual unload_documents/aunload_documents reuse the existing line/cache.clear,
+with same-holder refusal, independent async queuing, foreign-thread sync waiting
+and existing own-loop sync refusal. No writes/publication or test-only eviction
+substitute. Cold value/version/count, old snapshots, all scopes/keys, queued cancel,
+close/failure and fresh SQLite reopen remain required. The final oracle executes
+actual pinned Pi Session Memory/SQLite/reopen and actual native backends with
+separate typed observations, explicit signed-zero/runtime boundaries, closed
+schemas, mutants and fresh cumulative source chains. Every original DE04/b/b1b/J
+cell remains cumulative; DE05 waits full DE04 and all43 P rows remain OPEN.
+
+
+## DE04b1b3b resumed integration
+
+2026-10-23: The owner requested continuation. Root restored the complete WIP
+commit `3b1c395d` as a squash delta against delivered main `33d39457`; the
+preservation branch remains intact. No historical checkpoint receipt is promoted
+to a fresh final gate. Product source is unchanged from the preserved worker
+freeze. Shared docs and release notes now describe the implemented checkpoint
+and unload behavior, with its bounded actual Pi/native phase registered for B.
+The checkpoint manifest and all11 predecessor closure identities are integrated.
+The repaired focused integration selection passed267 cases; coverage passed138
+and reference artifacts49. The initial docs build passed with1384 rendered local
+links across9 changed pages and zero broken targets/anchors. Two fresh cumulative
+chains, full checks and exact independent review were still running at this
+intermediate observation. DE04 parents remain IN_PROGRESS and all43 P
+rows remain OPEN.
+
+
+The first whole-slice Opus5.5 HIGH review returned ISSUES: one Warning for Root's
+accidental insertion of the new changelog entry under all six Added headings,
+and one Suggestion about the stale operational continuation note. Root retained
+the entry only in Unreleased and rewrote that note as dated history, linking
+the live backlog/evidence. No product-code finding was reported. The review had
+no skipped, truncated, redacted, excluded or denied inputs, and its isolated copy
+was removed. Earlier oversized attempts failed before any verdict and are not
+review evidence. Consolidating staged and unstaged changes prevented duplicate
+old/new fixture diffs in the review bundle. The actual capture's exact raw hash
+is unchanged after LZMA repacking. A delta review is warranted to verify these
+accepted documentation repairs; final delivery gates remain pending.
+
+
+## DE04b1b3b cumulative acceptance
+
+2026-10-23: B completes the retained J/b1b/b/DE04 implementation acceptance.
+The owner-selected persisted/replayed candidate remains authoritative; no
+product runtime default or P requirement is closed. DE05 is the next bounded
+slice. Full history/as-of/fork/migrations remain DE27.
+
+| Retained acceptance | Executable ownership |
+| --- | --- |
+| Definitions, scopes and captured policy identity | document definitions and Session Tx core tests |
+| Exact normalized operations, replay fidelity, empty versus structural edits | delivered Tracker/current-delta tests plus Session delta matrix |
+| Immutable policy candidate/ops/prior count, true base/reset and false delta/increment | Session checkpoint matrix over sync/async Memory, SQLite and reopen |
+| Full validation/revocation before policy, second-policy rollback and terminal pages | Session checkpoint rollback and actual257-member retirement probes |
+| Eager/resumed authority, exceptional factory drain, health and reentry | Session callback-authority barriers and retained commit/guard suites |
+| Actual unload, retained snapshots, queued cancel/close and cross-thread waiting | Session unload tests using the real line-owned methods |
+| Acknowledgement/adoption failures and durable outcomes | actual SQLite checkpoint-reset refusal/ack-loss/reopen tests |
+| Actual pinned pairing and strict native backend equality | session-checkpoints-j-v1:52 recipes per each3 Pi/native backends,8 schema-valid mutants and invalid2 |
+
+The full local `just check` passed: 17260 passed, 20 skipped in 1916.91s (0:31:56). Ruff1004 formatted and Mypy929
+source files passed. Compatibility checks with `-I -X dev -W error` passed
+772 cases on Python3.11 with4 unavailable eager-factory skips, and776 on
+Python3.12. Both bounded leaders were reaped with absent process groups.
+Focused integration passed267, coverage138 and reference artifacts49. Docs
+build and rendered-link checks passed; the pre-closeout render checked1381
+local links across9 pages with zero broken targets or anchors.
+
+Two fresh cumulative reference chains passed on pinned Node26.12.0/npm11.20.0.
+Seven independent artifact attesters passed: core, typed documents, scanner,
+decoded operations, current deltas, Tracker and checkpoints. Each checkpoint
+phase verified710 loaded-module hashes and466 artifact hashes; actual CLI
+0/1/2 and strict native Memory/SQLite/reopen sign/member-order equality passed.
+Both earlier document fixtures remain byte-identical; the new LZMA fixture
+preserves the actual raw capture SHA256 recorded above. Pure minimal phases
+retain their explicit reused-dependency scope and make no bootstrap claim.
+No new Linux or GitHub CI result is claimed.
+
+Whole-slice Opus5.5 HIGH R1 reported one Warning and one Suggestion, both
+accepted and repaired; exact-baseline R2 was unscoped CLEAN with no skipped,
+truncated, redacted, excluded or denied inputs and its isolated copy removed.
+The final closeout changes only documentation, status/coverage expectations and
+the consequent manifest hashes. The product source and oracle mechanisms are
+unchanged from that CLEAN and full-check snapshot. Final delivery requires
+focused validation and exact independent review of that closeout delta, plus a
+guarded normal push with remote SHA verification. These receipts are retained
+locally outside git, separately from the earlier preservation archive.
+
+Workflow lesson: consolidate a restored staged snapshot before assembling its
+review bundle, and validate changelog edits within Unreleased. The oversized
+review attempts and initial metadata failures are retained diagnostics, not
+passing gates. Promotion: incident; local repair and explicit receipts suffice.

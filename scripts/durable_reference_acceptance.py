@@ -287,6 +287,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE04b1b3b",
     "DE04b1b3a",
     "DE04b1b1",
     "DE04b1b2",
@@ -301,14 +302,14 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
-    "DE04": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04": "de04b1b3b-cumulative-acceptance",
     "DE04b1b1": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
     "DE04b1b2": "de04b1b2-verified-delivery-and-t-integration-successor",
-    "DE04b1b3": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
-    "DE04b1b3a": "de04b1b3a-default-delta-integration-candidate",
-    "DE04b1b3b": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04b1b3": "de04b1b3b-cumulative-acceptance",
+    "DE04b1b3a": "de04b1b3a-verified-delivery-and-de04b1b3b-admission",
+    "DE04b1b3b": "de04b1b3b-cumulative-acceptance",
     "DE04b1a": "de04b1a-verified-delivery-and-de04b1b-pre-code-admission",
-    "DE04b1b": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04b1b": "de04b1b3b-cumulative-acceptance",
     "DE32a": "de32a-delivery-and-de04a-repaired-main-integration",
     "DE32b": "de32-pre-code-scanner-split",
     "DE00": "de00-acceptance-evidence",
@@ -344,7 +345,7 @@ DE_EVIDENCE = {
     "DE03d1": "de03d1-delivery-and-de03d2-implementation-admission-2026-10-22",
     "DE03d2": "de03d2-paired-implementation-and-approved-lifetime-boundary",
     "DE04a": "de04a-verified-delivery-and-de04b1a-integration-successor",
-    "DE04b": "de04b1b1-verified-delivery-and-owner-selected-j-admission",
+    "DE04b": "de04b1b3b-cumulative-acceptance",
 }
 
 
@@ -377,6 +378,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE04b1b1": ["draft-tracker-v1"],
         "DE04b1b2": ["storage-current-deltas-v1"],
         "DE04b1b3a": ["session-commit-b3-v1", "session-documents-a-v1"],
+        "DE04b1b3b": ["session-checkpoints-j-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -418,6 +420,8 @@ def de_current(row: Any, c: Any) -> None:
         links.append("docs/durable-current-deltas.md")
     if key == "DE04b1b3a":
         links.append("docs/durable-session-deltas.md")
+    if key == "DE04b1b3b":
+        links.append("docs/durable-session-checkpoints.md")
     require(row["evidence"] == links, "DE bounded evidence link drift", c)
 
 
@@ -582,6 +586,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"session-documents-a-v1"} if key == "DE04a" else set())
                 | ({"storage-current-deltas-v1"} if key == "DE04b1b2" else set())
                 | ({"draft-tracker-v1"} if key == "DE04b1b1" else set())
+                | ({"session-checkpoints-j-v1"} if key == "DE04b1b3b" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

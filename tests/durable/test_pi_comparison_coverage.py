@@ -396,7 +396,7 @@ def test_sqlite_split_children_keep_original_parent_contract():
     assert "sqlite_schema.py" in rows["DE03b"]["contract"]
     assert "SqliteStorage" in rows["DE03c"]["contract"]
     assert "openNodeSqliteStorage" in rows["DE03d"]["future"]
-    assert rows["DE04"]["status"] == "IN_PROGRESS"
+    assert rows["DE04"]["status"] == "LANDED"
     assert "Carried from DE02b3" in rows["DE04"]["current"]["observables"]
 
 
@@ -595,9 +595,9 @@ def test_typed_document_split_preserves_checkpoint_rollback_and_parent_dependenc
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
     assert len(rows) == len(a.ALL_IDS)
-    assert rows["DE04"]["status"] == "IN_PROGRESS"
+    assert rows["DE04"]["status"] == "LANDED"
     assert rows["DE04a"]["status"] == "LANDED"
-    assert rows["DE04b"]["status"] == "IN_PROGRESS"
+    assert rows["DE04b"]["status"] == "LANDED"
     assert rows["DE04a"]["plan_cells"][0] == "DE04a / DE03"
     assert rows["DE04b"]["plan_cells"][0] == "DE04b / DE04a"
     assert rows["DE05"]["plan_cells"][0] == "DE05 / DE04"
@@ -630,6 +630,14 @@ def test_document_join_cannot_land_before_prerequisites(tmp_path, parent):
     path = root / a.LEDGER
     path.parent.mkdir(parents=True)
     lines = (o.ROOT / a.LEDGER).read_text().splitlines()
+    for i, line in enumerate(lines):
+        key = line.split(" |", 1)[0].removeprefix("| ")
+        if key == "DE04b1b3b":
+            lines[i] = re.sub(r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| OPEN |", line)
+        elif key in {"DE04", "DE04b", "DE04b1b", "DE04b1b3"}:
+            lines[i] = re.sub(
+                r"\| (?:OPEN|IN_PROGRESS|LANDED) \|", "| IN_PROGRESS |", line
+            )
     index = next(
         i for i, line in enumerate(lines) if line.startswith("| " + parent + " |")
     )
@@ -647,7 +655,7 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
     rows = {row["id"]: row for row in value["rows"]}
     assert len(rows) == len(a.ALL_IDS)
     assert rows["DE04b1a"]["status"] == "LANDED"
-    assert rows["DE04b1b"]["status"] == "IN_PROGRESS"
+    assert rows["DE04b1b"]["status"] == "LANDED"
     dependencies = {
         "DE04b1b1": "DE04b1b1 / DE04a + DE04b1a",
         "DE04b1b2": "DE04b1b2 / DE03d + DE04b1a",
@@ -679,7 +687,7 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
             == {
                 "DE04b1b1": "LANDED",
                 "DE04b1b2": "LANDED",
-                "DE04b1b3": "IN_PROGRESS",
+                "DE04b1b3": "LANDED",
             }[key]
         )
     assert "no dependency on T" in rows["DE04b1b2"]["contract"]
@@ -696,7 +704,13 @@ def test_tracker_storage_join_dependency_map_and_current_storage_evidence():
         "session-documents-a-v1",
     ]
     assert "docs/durable-session-deltas.md" in rows["DE04b1b3a"]["evidence"]
-    assert rows["DE04b1b3b"]["status"] == "OPEN"
+    completion = a.LEDGER + "#de04b1b3b-cumulative-acceptance"
+    for key in ("DE04", "DE04b", "DE04b1b", "DE04b1b3", "DE04b1b3b"):
+        assert rows[key]["evidence"][0] == completion
+    assert rows["DE04b1b3b"]["status"] == "LANDED"
+    assert rows["DE04b1b3b"]["current"]["kind"] == "bounded-native"
+    assert rows["DE04b1b3b"]["current"]["cases"] == ["session-checkpoints-j-v1"]
+    assert "docs/durable-session-checkpoints.md" in rows["DE04b1b3b"]["evidence"]
     assert rows["DE04b1b3b"]["plan_cells"][0] == "DE04b1b3b / DE04b1b3a"
     assert "actual unload" in rows["DE04b1b3b"]["future"].lower()
     assert "second-predicate exception" in rows["DE04b1b3b"]["future"]

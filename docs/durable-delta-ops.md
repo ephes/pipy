@@ -90,14 +90,14 @@ non-root checkouts, source/driver/native drift and unexpected imports refuse.
 DE04a retains typed current-base documents. DE04b1b depends on DE04a + DE04b1a
 and retains normalized operation provenance/tracking, Memory/SQLite current
 deltas and semantic schema2, real checkpoint callbacks, rollback and linked
-publication. DE04b and DE04 wait for their cumulative children; DE05 waits full
-DE04. Full history/as-of/fork/migrations remain DE27. All43 P rows remain OPEN.
+publication. Their [cumulative DE04 acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance)
+is complete through the J join; DE05 is next. Full history/as-of/fork/migrations remain DE27. All43 P rows remain OPEN.
 
-The pure prerequisite landed at `6e3b838f`. The remaining parent is now split
-before code into T (`DE04b1b1`, pure provenance/ops), independent S (`DE04b1b2`,
+The pure prerequisite landed at `6e3b838f`. Before implementation, the parent was split
+into T (`DE04b1b1`, pure provenance/ops), independent S (`DE04b1b2`,
 current delta Storage/schema2), and J (`DE04b1b3`, real Draft/Tx/checkpoint/cache/
 publication join). S now uses this applier for [supplied current Storage deltas
 and semantic schema2](durable-current-deltas.md), delivered at `8c8f30d7`. Independent [T pure draft provenance](durable-draft-tracker.md) uses the
 applier to validate/replay immutable operations; it does not activate Session.
-J requires the answer to owner policy266 before authoritative candidate/operation
-selection.
+The owner answered policy266 before J candidate/operation selection: use the
+persisted/replayed value for callbacks, cache and publications.

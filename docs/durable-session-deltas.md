@@ -4,7 +4,8 @@ The private `native/durable/tx.py` joins the delivered
 [draft Tracker](durable-draft-tracker.md) to actual Session transactions and
 [current-delta Storage](durable-current-deltas.md). A new document writes one
 base. An ordinary loaded document writes a delta when its normalized operations
-are nonempty. Definitions still have no checkpoint callback API. This changes
+are nonempty and its optional [checkpoint policy](durable-session-checkpoints.md)
+does not select a base. This changes
 the private durable Session; it does not make durable execution the product
 runtime default or close any P row.
 
@@ -54,9 +55,10 @@ then uses its separately captured final object for the base.
 Operation emptiness is the write decision, not final-value equality. Appending
 and then popping an introduced value can normalize to no operations. Removing
 an existing array element and inserting an equal value retains structural
-operations, writes a delta and adopts a new snapshot even when its value equals
+operations, persists content and adopts a new snapshot even when its value equals
 the prior value. Reserved-key folding and the greater-than-4,096-operation root
-replacement are still deltas; there is no hidden base checkpoint threshold.
+replacement remain deltas under the default policy; there is no hidden base
+checkpoint threshold. An explicit true policy instead writes a base.
 
 A pinned Pi signed-zero case has an unrelated field update as its only operation,
 while Pi's prepared/warm/publication zero differs from replay and stored zero.
@@ -70,7 +72,8 @@ do not constitute the complete later callback/signed-zero comparison matrix.
 
 `CommittedDocument.deltas_since_base` is required committed state. Cold load
 retains Storage's `deltasSinceBase`. Creation adopts zero; an acknowledged loaded
-delta adopts the previous count plus one. Empty content retains the prior count.
+delta adopts the previous count plus one; a policy-selected base resets it to
+zero. Empty content retains the prior count.
 Value and count reside in one immutable cache object swapped under the cache
 lock after backend acknowledgement, so concurrent snapshot hits see a committed
 pair. A fresh SQLite Session reloads the persisted count and continues its tail.
@@ -119,8 +122,9 @@ A evidence with the old forced-base adaptation. The new capture used a verified
 pinned source/dependency closure with reused dependencies; it does not substitute
 for a fresh complete acceptance chain.
 
-DE04b1b3b retains real checkpoint callbacks, eligibility and post-I/O authority,
-base reset, actual line-owned unload and complete paired proofs. Test-only cache
-clear used to exercise cold load is not unload lifecycle acceptance. History,
-as-of, fork and migrations remain DE27. DE04 and its parent acceptance remain
-incomplete until the retained cells finish; DE05 still waits for complete DE04.
+[DE04b1b3b](durable-session-checkpoints.md) adds real checkpoint callbacks,
+eligibility and post-I/O authority, base reset, actual line-owned unload and its
+closed paired oracle. The predecessor test-only cache clear remains historical
+cold-load evidence; unload lifecycle tests call the real Session methods. History,
+as-of, fork and migrations remain DE27. The [cumulative DE04 acceptance](specs/2026-10-19-durable-execution-evidence.md#de04b1b3b-cumulative-acceptance)
+is complete; DE05 is next and all43 P rows remain OPEN.
