@@ -1,7 +1,7 @@
 # Native durable execution implementation plan
 
 Status: **execution authorized; DE01 and DE02 with all children landed;
-DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08 LANDED**,
+DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09 LANDED**,
 2026-10-24. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
@@ -804,9 +804,32 @@ replay intersection, committed rich receipts and matching-parent allSettled
 reconciliation on the existing Session line. Default rounds still admit all
 children atomically; execution follows saved call slots and blocks later calls
 when an earlier result is uncertain. Pending unsafe uncertainty remains a
-validated nondispatchable pending checkpoint. DE09 is next; full interrupted-error
+validated nondispatchable pending checkpoint. DE09 supplies private completed projection; full interrupted-error
 continuation remains DE13 and full graph/mode/extension ownership remains with
 DE15/24/25/28/30. The actual paired profile compares a logical closed round,
 not whole graph identity: Pi creates a successor generation task, while the
 bounded native adapter advances its same parent with fresh request identity.
 All original DE08/P20/P21/P22 cells and all43 whole OPEN parity rows remain.
+
+### DE09 committed completed projection
+
+[Private completed observation](../durable-completed-projection.md) reads actual
+settled messages/outcomes, committed usage and saved tool-round ordering from
+delivered DE08 `8571f88b`. Baseline capture and listener registration share one
+real guarded synchronous Session line ticket; caller reentry is checked before
+off-host scheduling. Cancellation abandons attachment immediately while actual
+read/ticket lifetime remains owned through close and consumer-loop teardown.
+One capture, one callback and one pending replacement bound observation.
+
+Automatic notification and independent readers prove commit-before-callback.
+Real SQLite SIGKILL cuts before callback and after ambiguous caller acknowledgement
+reopen without reissuing old provider/tool effects; caller-owned keyed dedupe is
+separate from watch state. Drain is a new capture plus successful delivery, not
+runtime idle, persistent replay or exactly-once callback. Retained canonical
+payloads preserve fidelity without exposing request/settings/material authority.
+Pi public watch/watchEvents comparison covers declared logical completed facts,
+with raw exact observations retained. Full DE28 watch/event semantics, DE26
+partials, DE20/27 context, DE15/28 graph compatibility and DE27/28 quadratic
+request-history debt remain. DE10 active compatibility/inspection/resolution is
+next; DE11/12 own product activation. Original DE09 acceptance and all43 whole
+OPEN P rows remain intact; final independent and delivery gates still apply.

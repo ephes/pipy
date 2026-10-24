@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private committed completed-message/outcome snapshots with gapfree
+  attachment, ordered tool-result prefixes, coalesced async observers and truthful
+  drain/reconnect semantics. Listener failures stay isolated; actual read tickets
+  retain SQLite ownership through canceled waiters and consumer-loop teardown.
+  Observation reuses committed usage and receipts without executing effects.
+  Product/CLI activation and full watch/event/partial parity remain later work.
+
 - Add private durable sequential tool execution on actual generation-owned tasks.
   Acknowledged intents retain prepared arguments and explicit replay contracts;
   unsafe recovery blocks later effects, committed receipts survive result-write

@@ -1110,3 +1110,21 @@ per-request material memo. [Tool policy](durable-tools.md) keeps unknown replay
 unsafe and holds real invocation/finalizer lifetime. This adds no second storage,
 auth, UI coordinator or general graph authority. The actual Pi successor-task
 versus native same-parent difference remains an explicit DE15/28 obligation.
+
+## Private committed projection (DE09)
+
+[Completed observation](durable-completed-projection.md) adds two internal
+modules. `completed_values.py` reads immutable facts through guarded Storage on
+one actual synchronous Session line ticket, reusing pure tool ownership/result
+and saved round-order checks. `completed_projection.py` owns only attachment,
+capture and consumer delivery state: one in-flight read, one callback and one
+coalesced pending replacement. Shared publisher flags have their own consistent
+lock; loop-local Tasks/Futures remain confined to their loop.
+
+The caller's existing Session reentry guard runs before any await. A shielded
+loop-owned acquisition task latches cancellation abandonment immediately; the
+real worker ticket retains backend lifetime even if wrappers/consumer loop end.
+No callback, loop wake, I/O, unsubscribe or final foreign-reference disposal runs
+under either guard. The observer has no mutation, scheduling, provider/tool/auth
+or usage-accounting authority. Factory/CLI activation remains DE11/12 and full
+watch/context/stream/graph work remains DE20/26/27/28 and DE15/28.

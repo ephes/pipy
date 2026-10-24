@@ -1434,3 +1434,42 @@ The same real lazy dependency roots are imported for fresh-process attestation;
 attestation verifies sources without rerunning effects. The former18-module
 prelisted durable map did not bind these newly reached dependencies. Earlier
 runtime recipe outcomes are unchanged; old diagnostics remain historical.
+
+## Completed observer facts (DE09)
+
+The eighteenth source-closed phase is
+`completed-projection-v1.manifest.json`, parented by the tool manifest. Run
+`scripts/durable_completed_comparison.py run --acceptance <fresh-parent> --output <new-output>`
+after a fresh current parent acceptance, then call that module's actual
+`attest(output, acceptance)` API in its own fresh Python process. Each phase's
+postexecution attester gets a separate process; a shared interpreter's growing
+`sys.modules` is not a truthful native producer inventory.
+
+The pinned reference executes genuine `Harness` and `Conversation.watch`, plus
+the publicly exported `watchEvents`, with fixed synthetic provider/tool seams.
+It awaits automatic completed callbacks before refreshing final records. Native
+Memory/SQLite/reopen exercise the actual private completed observer. Common
+facts cover completed logical role/result order, actual model ledger usage and
+sum-once validation, independent commit readback, isolated listener failure,
+same-store fresh-snapshot identity, observed stop and unchanged effect counts.
+Provider `calculateCost` and built-in task transactions/settlement remain real.
+Both raw graphs/views/events and exact native canonical outcomes remain bound.
+Pi's successor task versus native same-parent fresh request is not flattened
+into a full graph-parity claim.
+
+The producer retains ten schema-valid semantic mutants and invokes the actual
+CLI for positive0/negative1, with malformed bodies separately requiring exit2.
+Raw faulted TaskRecord and doubled ledger totals with unchanged settlement keys
+must fail through the actual predicates. Immutable recipes, reference/module
+resolutions, all imported native module paths/hashes and process argv/cwd/
+inputs/streams/reaped/group receipts are bound before and after execution.
+Artifact exclusions apply only to that output root's result and native stores;
+nested result.json and an ancestor named stores never disappear by basename.
+
+Only terminal/reopened common values use the declared binary64 numeric profile;
+exact native arenas retain numeric type/sign/presence and live observations are
+not rewritten. The [native contract](durable-completed-projection.md) retains
+separate actual SIGKILL/ack/adoption/read-ticket/SQLite-lock evidence and
+caller-owned callback lifetime. Full P28 views/events/100-frame delivery,
+DE26 partials, DE20/27 context, DE15/28 graph compatibility and DE27/28 request
+retention remain open. All 43 whole P rows remain OPEN.

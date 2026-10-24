@@ -793,16 +793,20 @@
         "Independent reader proves commit-before-callback; kill after commit/before callback and ambiguous callback ack produce no repeated effect; listener failure isolated. Document coalescing/dedupe and completed-only limit."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "completed-projection-b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE09: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add committed completed-message/outcome projection and reconnect/drain sequence to Python observers, replacing state-first mutation for this mode."
+        "observables": "Private native completed snapshots on the existing guarded Session line: atomic baseline+registration, actual persisted EntryLookup commit sequences, real owned-slot completed prefix and committed closed-round order, full canonical message/provider/tool outcome fidelity, actual terminal records and committed usage without an accumulator. Automatic callback before drain, independent commit readback, Memory/SQLite/reopen, listener isolation/coalescing, truthful capture/delivery barriers, reentry and foreign/newer/context fences, actual SIGKILL after COMMIT/before callback and ambiguous caller acknowledgement with independently counted effects, before/ack/adoption faults, canceled acquisition/read/close and actual consumer-loop teardown with independent-process SQLite lock refusal until real ticket exit. Genuine pinned Harness Conversation.watch and exported watchEvents fake-provider/tool fixture compare only logical completed facts/usage and bounded attachment observations; raw exact Pi/native data retained. No durable replay cursor or exactly-once arbitrary callback claim. Product activation DE11/12, full watch/100-frame/event/partial/context semantics DE20/26/27/28, unsafe continuation DE13, graph difference DE15/28 and quadratic request-history debt DE27/28 remain. Independent CLEAN/full/platform/docs/two fresh18phase chains gate delivery; all43 whole P rows stay OPEN."
       },
       "future": "Independent reader proves commit-before-callback; kill after commit/before callback and ambiguous callback ack produce no repeated effect; listener failure isolated. Document coalescing/dedupe and completed-only limit.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de09-completed-projection-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-completed-projection.md"
       ],
       "inherited_reference": {
         "owners": [],
@@ -3046,17 +3050,20 @@
         "DE09, DE28"
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "completed-projection-b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
+        "observables": "Private native completed snapshots on the existing guarded Session line: atomic baseline+registration, actual persisted EntryLookup commit sequences, real owned-slot completed prefix and committed closed-round order, full canonical message/provider/tool outcome fidelity, actual terminal records and committed usage without an accumulator. Automatic callback before drain, independent commit readback, Memory/SQLite/reopen, listener isolation/coalescing, truthful capture/delivery barriers, reentry and foreign/newer/context fences, actual SIGKILL after COMMIT/before callback and ambiguous caller acknowledgement with independently counted effects, before/ack/adoption faults, canceled acquisition/read/close and actual consumer-loop teardown with independent-process SQLite lock refusal until real ticket exit. Genuine pinned Harness Conversation.watch and exported watchEvents fake-provider/tool fixture compare only logical completed facts/usage and bounded attachment observations; raw exact Pi/native data retained. No durable replay cursor or exactly-once arbitrary callback claim. Product activation DE11/12, full watch/100-frame/event/partial/context semantics DE20/26/27/28, unsafe continuation DE13, graph difference DE15/28 and quadratic request-history debt DE27/28 remain. Independent CLEAN/full/platform/docs/two fresh18phase chains gate delivery; all43 whole P rows stay OPEN."
       },
       "future": "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
-        "docs/durable-reference.md"
+        "docs/durable-reference.md",
+        "docs/durable-completed-projection.md"
       ],
       "inherited_reference": {
         "owners": [],

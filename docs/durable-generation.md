@@ -137,3 +137,10 @@ memo; recovered request/receipt phases keep their original identity. Native
 currently advances its same parent, whereas pinned Pi creates a successor
 generation task. [The bounded graph difference](durable-tools.md#logical-round-and-graph-boundary)
 remains with DE15/28 before full exposed ownership/graph parity is accepted.
+
+[DE09 completed snapshots](durable-completed-projection.md) expose settled
+assistant/provider outcome payloads and committed usage without reconstructing
+current credentials or repricing. Outward DTOs exclude original saved requests,
+settings and private material pointers. Whole generation terminal outcomes and
+logical closed rounds remain distinct; waiting/pending control holds are not
+reported as completed parents. Public product activation remains DE11/12.

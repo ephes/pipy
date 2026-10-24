@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "phase": "completed-projection-b-v1",
+  "cases": [
+    {
+      "id": "completed",
+      "names": ["keyed", "unavailable", "later"],
+      "reasoning": 3
+    }
+  ]
+}

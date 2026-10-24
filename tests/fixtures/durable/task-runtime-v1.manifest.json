@@ -3,11 +3,11 @@
   "phase": "task-runtime-b-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "ec5176b9a05b6fe62446e52f9c1a58f87d835940a0729508fd6e212741a3cbd4"
+    "documents": "2d662e223b47ed078bec14bacf446ca5611fade01734252e5dd71b93acd51423"
   },
   "closure": {
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
-    "docs/durable-task-runtime.md": "e54f922327e338cb0c20e000ae0f4feab700caab7077040d136fd68917d1c14f",
+    "docs/durable-task-runtime.md": "3d9a96d49c7c3250f430d5f9f887b3bc1038aa45b922a906fd1ceca8c0c890c2",
     "scripts/durable_documents_comparison.py": "caea47f5675dfd17dc9986679a91564d9f2c7e68739c612924d94b21734c0be2",
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
     "scripts/durable_reference/cases/session-commit.mts": "85acad87181f0f16d1319434f316f770961b83052b00b59ec41ec0c2a478b445",
@@ -131,6 +131,8 @@
     "src/pipy_harness/native/durable/canonical_codec.py": "3285359a65ea5067bd650efbbe76575449d5856847dd5cefb567023b8f8cc9a2",
     "src/pipy_harness/native/durable/checkpoint_codec.py": "da66033a7b1f2784f594ef5ed1739fffe3b0af18cb0256cb9e07e1a6fe15b333",
     "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
+    "src/pipy_harness/native/durable/completed_projection.py": "f7285c7df2ed1981e1983d826503213f2034d1a4dc0094b906b35cfd211209f7",
+    "src/pipy_harness/native/durable/completed_values.py": "98af87aac9f3c258247cab2e1a43e09776291939285ccb6a70c620cc21823a59",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
     "src/pipy_harness/native/durable/documents.py": "1c84708f8c37771f34b3a2c545e77f80841548eb02f5c9062294ec972a7946c6",
     "src/pipy_harness/native/durable/draft_tracker.py": "8b19f015b6e01b7942ad699a3d64d69c897c623671eec491e5c296fcc3799288",
@@ -155,7 +157,7 @@
     "src/pipy_harness/native/durable/task_values.py": "a2d464280af7377cfae6e33158b4d99fd332ae73ba3c5e4c836a8152ca0f25fb",
     "src/pipy_harness/native/durable/tasks.py": "5ba7439fbd0ed947386661f43334b07253bd665e8cba6dab9d371414eaffc501",
     "src/pipy_harness/native/durable/tool_execution.py": "ed6e6d36e5f12b23ac3661d960f7985008bbd308216309def7a5bbc6c273e3b0",
-    "src/pipy_harness/native/durable/tool_graph.py": "e7d881a02f87f7ea7e56dba8fd7a387f08be4d7cb37e2ddf6ad581def5d12238",
+    "src/pipy_harness/native/durable/tool_graph.py": "097ef23fe7a6c439eac4fd8178bc5e0dca4c3eeb69835e62e2d78ec00356ac87",
     "src/pipy_harness/native/durable/tool_history.py": "310b9a45951acfd166c65bfbfcd3c88a28f2c6e0964d5cf9bfba1f8ee8068195",
     "src/pipy_harness/native/durable/tool_values.py": "2daffce4cddf37f2acaf9953a729f7cba17d76b33ee2efde6584a1e6f8358d5a",
     "src/pipy_harness/native/durable/tx.py": "60fac95b2a2516eecd54b3df87b9f093acf3d63cfe7edd891e70011aeb19b8f9",
@@ -464,19 +466,19 @@
     "tests/fixtures/durable/storage-sqlite-workload-v1.input.json": "79d43012e682e94f15ad6ff6adef292a5bf63835d6522db7391c19842ace6111"
   },
   "reference_sources": {
-    "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
-    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
-    "packages/chord/src/delta/tracker.ts": "68bd2d7b9c0538366b079004ddd5dc9180cedd67d129f5c8de6c9ef6380e2c54",
-    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d",
     "packages/chord/src/delta/index.ts": "b6c606044d3e3005034308cd000c9dae7f1dcdd9edef4db795856417daf42c81",
+    "packages/durable/src/ids.ts": "bbeede57cfc771208d6d333ea1d29a03690be8c039479841572570decfbaf228",
     "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
     "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d",
-    "packages/durable/src/session/transaction.ts": "9255181a7be480a4f16892dab8952993cc88d48225bb416488ddaf4cddcec65c",
-    "packages/durable/src/ids.ts": "bbeede57cfc771208d6d333ea1d29a03690be8c039479841572570decfbaf228",
     "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
     "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
-    "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
+    "packages/durable/src/session/transaction.ts": "9255181a7be480a4f16892dab8952993cc88d48225bb416488ddaf4cddcec65c",
     "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981",
-    "packages/durable/src/harness/scheduler.ts": "77e4f0f71c099308cf7ead442c9a1335b5156a1a1194315cd41f2aa06ef4a1ab"
+    "packages/chord/src/delta/tracker.ts": "68bd2d7b9c0538366b079004ddd5dc9180cedd67d129f5c8de6c9ef6380e2c54",
+    "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
+    "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
+    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
+    "packages/durable/src/harness/scheduler.ts": "77e4f0f71c099308cf7ead442c9a1335b5156a1a1194315cd41f2aa06ef4a1ab",
+    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d"
   }
 }

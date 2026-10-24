@@ -4858,7 +4858,27 @@ recovery. Unknown safety defaults unsafe; annotations are unverified hints.
 Captured slots control both dispatch and next-request result order. An unsafe
 interrupted call blocks later work in its round; unrelated conversations remain
 independent. Actual tool/finalizer exit precedes backend and path-lock release.
-DE09 completed-message projection is next. Full graph, unsafe continuation,
+[DE09 completed projection](durable-completed-projection.md) supplies bounded private observers; DE10 inspection/recovery resolution is next. Full graph, unsafe continuation,
 extensions/modes and history/retention retain DE13/15/24/25/27/28/30 ownership;
 all43 P rows remain OPEN. The Pi successor-task/native same-parent distinction
 is an explicit full-graph compatibility obligation, not whole-graph parity.
+
+## Private committed completed observation (DE09)
+
+[Completed snapshots](durable-completed-projection.md) attach baseline and
+notifications on the existing Session line. Canonical owned payloads preserve
+message/result fidelity, actual commit sequences, saved tool-slot prefix and
+closed-round order, retained terminal outcomes and committed usage. Observation
+does not execute, reconstruct credentials, initialize documents or accumulate
+usage. A waiting terminate hold is neither a closed round nor terminal parent;
+DE10 retains the inspection explanation.
+
+One capture/one caller-owned callback/one pending replacement bounds delivery.
+Drain proves a new capture plus successful delivery, not runtime idle or durable
+acknowledgement. Reconnect is a fresh snapshot with same-store entity dedupe;
+there is no persistent replay cursor or exactly-once callback claim. Real read
+tickets retain Session/SQLite lifetime after canceled API waiters and complete
+consumer-loop teardown. Stopping a watch does not join arbitrary callbacks.
+Actual Pi watch/watchEvents comparison covers only declared completed facts;
+full views/events, partials and context remain DE20/26/27/28. Product activation
+remains DE11/12; all 43 whole parity rows remain OPEN.

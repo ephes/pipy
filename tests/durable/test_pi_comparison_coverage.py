@@ -800,7 +800,7 @@ def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundarie
     assert "all real generation-owned tool admissions" in row["current"]["observables"]
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE09", "DE13", "DE14", "DE15", "DE17", "DE26")
+        for key in ("DE10", "DE13", "DE14", "DE15", "DE17", "DE26")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
@@ -818,8 +818,25 @@ def test_tools_owns_actual_bounded_acceptance_without_closing_full_parity():
     assert "Pi successor task" in row["current"]["observables"]
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE09", "DE13", "DE15", "DE24", "DE25", "DE28", "DE30")
+        for key in ("DE10", "DE13", "DE15", "DE24", "DE25", "DE28", "DE30")
     )
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+
+
+def test_completed_projection_owns_actual_evidence_and_preserves_whole_watch_scope():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    row = rows["DE09"]
+    assert row["status"] == "LANDED" and row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == ["completed-projection-b-v1"]
+    assert row["evidence"][0] == a.LEDGER + "#de09-completed-projection-acceptance"
+    assert "kill after commit/before callback" in row["future"]
+    assert "ambiguous callback ack" in row["future"]
+    assert "coalescing/dedupe and completed-only limit" in row["future"]
+    assert rows["P28"]["status"] == "OPEN" and rows["P28"]["owners"] == ["DE09", "DE28"]
+    assert "100-frame" in rows["P28"]["current"]["observables"]
+    assert rows["DE10"]["status"] == "OPEN"
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )

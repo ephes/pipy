@@ -1,5 +1,13 @@
 # Durable tool execution (DE08)
 
+[DE09 completed observation](durable-completed-projection.md) reads the actual
+saved slot prefix and committed closed-round order, retaining native tool output
+payloads without live registrations or effects. A nonfinal terminate result can
+be a completed child fact while its waiting parent and later unstarted children
+remain live; no closed round or terminal parent is invented. DE10 must explain
+the retained-control hold. Full termination/graph policy stays with DE25/30 and
+DE15/28; public product activation stays DE11/12.
+
 ## Pre-code contract
 
 DE08 extends delivered DE07 `9f6ef9cf` on the existing native Session authority.

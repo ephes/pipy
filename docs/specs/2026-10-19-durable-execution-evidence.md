@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08 LANDED; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09 LANDED; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -182,7 +182,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | LANDED | Canonical checkpoint acceptance below; normal review/check/delivery gates must pass before commit/push |
 | DE07 | Durable generation phases | LANDED | [Generation acceptance](#de07-generation-acceptance); normal review/check/delivery gates must pass before commit/push |
 | DE08 | Sequential tool intents and blocked uncertainty | LANDED | [Tool execution acceptance](#de08-tool-execution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
-| DE09 | Completed-message projection | OPEN | None; all gates OPEN |
+| DE09 | Completed-message projection | LANDED | [Completed projection acceptance](#de09-completed-projection-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE10 | Compatibility, inspect and recovery resolutions | OPEN | None; all gates OPEN |
 | DE11 | Opt-in Python product session | OPEN | None; all gates OPEN |
 | DE12 | Opt-in headless CLI recovery | OPEN | None; all gates OPEN |
@@ -260,7 +260,7 @@ commit, pushed ref and any explicit platform exclusion from plan section 1.
 | P25 | Hook composition and memos | DE22 | OPEN | None |
 | P26 | Reload and version transitions | DE23, DE32 | OPEN | None |
 | P27 | Committed live progress | DE26, DE32–33 | OPEN | None |
-| P28 | Views and subscription baseline | DE09, DE28 | OPEN | None |
+| P28 | Views and subscription baseline | DE09, DE28 | OPEN | Bounded DE09 completed projection; full DE28 views/events remain |
 | P29 | Task graph and cache bounds | DE27–28, DE31 | OPEN | None |
 | P30 | Compaction | DE29 | OPEN | None |
 | P31 | Fork/reset/handoff | DE27, DE30 | OPEN | None |
@@ -288,10 +288,10 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation; DE09 is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 supplies private completed projection; DE10 inspection/recovery resolution is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
-`gpt-6.1-sol` HIGH implements DE08; Claude Code `claude-opus-5-5` (Opus5.5)
+`gpt-6.1-sol` HIGH implements DE09; Claude Code `claude-opus-5-5` (Opus5.5)
 HIGH reviews the whole slice first and accepted repairs against the actual prior
 baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
 pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
@@ -8501,3 +8501,106 @@ A fresh actual execute/fresh-process attestation, recascaded manifests, exact
 source freeze and R1-baseline repair review are required. Re-review adds value
 because the Warning weakened evidence discrimination. The same DE08 ledger and
 actual baseline are retained; no redundant full-slice audit follows valid CLEAN.
+
+## DE09 completed projection acceptance
+
+The private Python [completed projection](../durable-completed-projection.md)
+uses actual delivered DE08 `8571f88b`, tree
+`aff87f14f195c9046358fc60c062b9566ee69511`. Before editing, the complete4066-file
+tracked map matched the independently verified R2 source inventory and archive.
+It adds no second storage, execution, scheduling or usage authority and does not
+activate product/CLI paths. All original DE09 and whole P28 cells remain.
+
+| Original DE09 acceptance | Executable mapping |
+| --- | --- |
+| Independent reader proves commit-before-callback | Actual Memory/SQLite two-owned-tool round and following answer, automatic callback Event before any drain, independently guarded entry/commit-sequence and terminal-task readbacks; actual usage ledger reused once |
+| Kill after commit/before callback produces no repeated effect | Actual SQLite child SIGKILL after durable terminal COMMIT while a synchronous raw-publication barrier holds before the async observer callback; fresh process reopen/two drains retain independently counted2provider/2tool attempts/applications/prepares |
+| Ambiguous callback ack produces no repeated effect | Actual SIGKILL after caller-owned keyed consumer ledger write but before callback return; fresh snapshot/two drains add no duplicate consumer key and no provider/tool reissue; no exactly-once arbitrary callback claim |
+| Listener failure isolated | Real second observer throw, blocked/slow listener, internal Session listener failure preserving current raw publication, safe observer end and committed reopen |
+| Coalescing/dedupe/completed-only limit | One in-flight capture/callback/pending replacement, new drain barrier cannot be acknowledged by older accepted read, self-drain and held async-line reentry refuse, same-store IDs/fresh snapshots; raw canonical equality-excluded fields retained |
+
+Additional meaningful probes cover actual slot prefixes withholding physically
+early unavailable results, all three terminate-hold paths, rich absent/null/
+structured/images/raw arguments/correlation/duration/optional usage values,
+foreign/document-owner/newer/context fences and no initialization/mutation on
+read. Actual before-COMMIT, lost-ack and adoption faults expose no unacknowledged
+closed round. Explicit continuation reuses old tool/provider receipts; its next
+answer is a legitimate new provider call. Cancellation after registration and
+complete host-loop teardown leave the real synchronous ticket holding SQLite
+ownership; a fresh process refuses open until actual worker/ticket exit.
+Stopped watches do not join arbitrary consumer callbacks.
+
+`completed-projection-v1.manifest.json` adds the eighteenth closed phase, parented
+by the tool phase. It source-hashes the actual native module graph, fixture
+producer and pinned exports. Actual Pi `Harness`, `Conversation.watch` and
+exported `watchEvents` run over SQLite with the existing upstream-test fixed
+`Models.streamSimple` seam and real built-in generation/tools/transactions/
+`calculateCost`. Native Memory/SQLite/reopen run actual completed observers.
+Only logical completed facts, real usage/aggregate-once predicates, independent
+readback, automatic delivery/isolation/reconnect/stop and effect counts are
+paired. Raw Pi snapshots/events/tasks and exact native canonical records remain
+retained. Ten actual semantic positive0/negative1 CLI controls and malformed2
+controls reject wrong observations. Raw schema-valid faulted TaskRecord and
+doubled aggregate usage without changing settlements reject through the actual
+predicate; no projected constant substitutes for these regressions.
+
+The first bound focused selection passed55, native comparison selection15,
+foreign/version/context fences10 and lifecycle selection15, including actual
+canceled-wrapper/host-loop teardown and independent-process SQLite refusal.
+The first actual pinned watch pair and own fresh-process attestation passed;
+its parent bootstrap's outer all-source census preceded the reentry guard, so it
+remains an explicitly historical diagnostic. Fresh full-current parent/execute/
+fresh-attest lineage is required before freeze. A failed handoff test attempted
+to patch a slotted Session instance; the corrected class-level fixture passed
+without changing the production assertion. Exploratory failures and raw process
+receipts stay outside git. The external delivery receipt supplies exact final
+review tree, source/archive hashes, process/platform/full/docs results and two
+fresh cumulative18-phase chains. No final gate is inferred from source or this
+LANDED bounded-scope registry. DE10 is next; product activation DE11/12,
+DE20/26/27/28 full observation/context and DE15/28 graph compatibility remain;
+DE27/28 request-retention debt and all43 whole OPEN P rows are unchanged.
+
+Before source freeze, a policy check found that the initial observer treated a
+completed terminate result as a visibility barrier. Actual DE08 holds later
+unstarted real children; unavailable results have already committed with the
+assistant. Two real branches (terminate/unavailable/pending child and
+terminate/unavailable only) failed against that initial projection, while the
+three existing branches passed. Removing this observer-only restriction retains
+the actual completed slot prefix without changing execution, parent hold or
+closed-round semantics. The failing-old receipt is preserved; repaired focused
+proof and fresh current parent/execute/attest lineage replace prior diagnostics
+before the first independent review.
+
+### DE09 first independent review and bounded repair
+
+Primary Opus5.5 HIGH R1 reviewed tree
+`fbe762491112601915f839df94224c647c26de44`, baseline
+`b6beffd69d779391c2873ae1e9ee61440017ac32`: valid ISSUES, three Suggestions,
+zero Critical/Warning and no omitted/redacted/truncated/excluded/denied inputs.
+This is not CLEAN. The privacy suggestion is material: the original repr-only
+test accepted an actual saved full frame containing synthetic settings/material
+references. With Ruff-clean fixture code and an ordinary actual completed round
+passing first, the expected leaked-frame rejection failed on Memory and SQLite.
+The repaired assertion checks actual DTO field shapes and exact owned model,
+provider-outcome payload and native tool output against committed records. It
+rejects both genuine saved full frames and saved requests without forbidding
+arbitrary user tool-content words.
+
+The bounded resource suggestion is also accepted: a closed consumer loop is
+checked through its public plain closed flag before relevance/deep-thaw work.
+Existing guarded end/unsubscribe paths detach on any next publication, including
+another conversation. The actual irrelevant-publication regression failed on
+the prior code while the relevant case passed. No foreign Task/Future access,
+timer, weakref/GC mechanism, Session/owned_call rewrite or new lifecycle owner is
+added. Callers must stop before loop destruction; an idle Session still uses the
+documented next-publication/close fallback, with full lifecycle semantics DE28.
+
+The remaining Suggestion is an explicit [DE27/28/41 budget/refactor
+obligation](../durable-completed-projection.md#publication-cost-debt-de272841):
+O(W×H) per-watch full-write thaw on the publication path must receive measured
+numeric allocation/latency budgets and any required immutable DTO optimization
+before default activation/full-feature acceptance. A rushed cache protocol is
+not part of this repair. Re-review is materially valuable because it verifies
+the original private-authority regression boundary and bounded active-session
+subscription cleanup; it is scoped to this repair against the exact R1 baseline
+on the same DE09 ledger. No full or expensive final chains precede valid CLEAN.

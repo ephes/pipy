@@ -37,6 +37,14 @@ that ignores its signal leaves close pending; a timeout never releases ownership
 
 ## Persisted task semantics
 
+[DE09 completed observation](durable-completed-projection.md) is a private reader
+of this authority. Its complete synchronous read/registration job owns a real
+Session line ticket in an off-host `owned_call`; the caller checks Session
+reentry before scheduling it. Cancellation can finish its API/asyncio wrapper
+while that ticket still retains actual reads and SQLite ownership. Observer
+callbacks are caller-owned and do not participate in the runtime invocation join.
+The projection neither dispatches on open nor rewrites task state/usage.
+
 Open changes interrupted running tasks to pending and increments their restart
 count once; it dispatches nothing. Explicit resume is idempotent. Definition
 names, phase names and memo names use UTF-16 identity, including equivalent

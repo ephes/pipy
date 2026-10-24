@@ -1093,7 +1093,35 @@ recovery. Unknown safety defaults unsafe; annotations are unverified hints.
 Captured slots control both dispatch and next-request result order. An unsafe
 interrupted call blocks later work in its round; unrelated conversations remain
 independent. Actual tool/finalizer exit precedes backend and path-lock release.
-DE09 completed-message projection is next. Full graph, unsafe continuation,
+[DE09 completed projection](durable-completed-projection.md) supplies bounded private observers; DE10 inspection/recovery resolution is next. Full graph, unsafe continuation,
 extensions/modes and history/retention retain DE13/15/24/25/27/28/30 ownership;
 all43 P rows remain OPEN. The Pi successor-task/native same-parent distinction
 is an explicit full-graph compatibility obligation, not whole-graph parity.
+
+## Private committed completed observation (DE09)
+
+[Completed projection](durable-completed-projection.md) supplies gapfree
+baseline/notification attachment, immutable completed facts, saved slot-prefix
+ordering and committed usage over the existing native Session. It has bounded
+coalesced delivery, truthful drain, fresh-snapshot reconnect and isolated
+listeners. Actual read-ticket ownership survives canceled acquisition/drain/
+close waiters and consumer-loop teardown; independent-process SQLite refusal
+ends only after real worker/ticket exit. Process-death/ack faults retain counted
+effects and caller-owned deduplication. This is a private foundation, with
+product factory/CLI activation still DE11/12.
+
+DE10 active compatibility, metadata-first inspect and authorized recovery
+resolution is next. Derive terminate-hold explanations from retained committed
+control; do not call provider/tool/preparer/resolver merely to inspect. Full
+DE28 watches/events, DE26 partials, DE20/27 context and DE15/28 exposed graph
+compatibility remain open, as does DE27/28 quadratic saved request-history debt.
+All original DE09 acceptance and all 43 whole OPEN P rows remain intact.
+
+DE27/28/41 additionally own [DE09 publication cost](durable-completed-projection.md#publication-cost-debt-de272841):
+the current per-watch deep thaw copies O(W×H) publication bytes on the mutation
+line. Establish numeric allocation/latency budgets and measured history/watcher
+workloads, then refactor immutable identity filtering if needed before a default
+durable path/full-feature acceptance. Preserve rich payload and seq/ownership
+fidelity. DE11/12 must stop watches before consumer-loop destruction; DE28 owns
+stronger idle abandonment semantics beyond the current next-publication/Session
+close fallback. These obligations do not remove original acceptance cells.

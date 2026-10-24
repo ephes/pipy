@@ -141,9 +141,10 @@ def _round_calls(
         refuse()
 
 
-def _child_result_id(
+def owned_child(
     parent: Tree, assistant_id: int, call: AgentToolCall, slot: Tree, rows: list[Tree]
-) -> int:
+) -> Tree:
+    """Validate the actual owned link independently of child progress."""
     child = next((r for r in rows if r["id"] == slot["taskId"]), None)
     if (
         child is None
@@ -158,6 +159,14 @@ def _child_result_id(
         }
     ):
         refuse()
+    assert child is not None
+    return child
+
+
+def _child_result_id(
+    parent: Tree, assistant_id: int, call: AgentToolCall, slot: Tree, rows: list[Tree]
+) -> int:
+    child = owned_child(parent, assistant_id, call, slot, rows)
     state = child["state"]
     if state["status"] != "terminal" or state["outcome"]["status"] != "completed":
         refuse()
@@ -186,6 +195,17 @@ async def result(
     found = await entry(tx, id, entries)
     if found is None:
         refuse()
+    return id, result_value(found, parent, assistant_id, call, slot)
+
+
+def result_value(
+    found: EntryRecord,
+    parent: Tree,
+    assistant_id: int,
+    call: AgentToolCall,
+    slot: Tree,
+) -> AgentToolResultMessage:
+    """Pure owned-entry validation shared with committed observation."""
     tree = cast(Tree, found.to_tree())
     if (
         tree["conversationId"] != parent["conversationId"]
@@ -214,9 +234,13 @@ async def result(
         _, actual = read_native_tool_output(data["nativeToolOutput"])
         if OwnedJson(tree["model"][0]) != OwnedJson(encode_canonical(actual.result)):
             refuse()
-    elif not message.is_error or message.details != {"code": "tool_unavailable"}:
+    elif (
+        tree.get("byTaskId") != parent["id"]
+        or not message.is_error
+        or message.details != {"code": "tool_unavailable"}
+    ):
         refuse()
-    return id, message
+    return message
 
 
 async def _ordered_call(
