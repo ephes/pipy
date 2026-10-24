@@ -144,3 +144,20 @@ current credentials or repricing. Outward DTOs exclude original saved requests,
 settings and private material pointers. Whole generation terminal outcomes and
 logical closed rounds remain distinct; waiting/pending control holds are not
 reported as completed parents. Public product activation remains DE11/12.
+
+## Inspection and explicit new generation attempts (DE10)
+
+Factories capture finite private support metadata once, separate from live
+handlers/auth/material. [Inspection](durable-inspection.md) may compare known
+provider/model/API and format fit without reconstructing a provider. Saved
+thinking/options/pricing stay authoritative for an existing prepared request;
+changed defaults do not reprice or rewrite it. Actual reconstruction still checks
+private target/environment/cache/header semantics and live credentials before
+effects. Material availability is not probed merely to inspect.
+
+An explicit operator retry supports only eligible ownerless failed/faulted/
+aborted terminal generation with no live descendants and a new canonical seed.
+It admits fresh request/attempt identity without changing the old terminal row.
+Pending blocked terminate is not retryable. Product activation, automatic retries,
+full graphs/controls and request-history/publication budgets keep their later
+owners; this does not close the Pi successor-task/native same-parent difference.

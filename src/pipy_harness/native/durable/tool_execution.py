@@ -18,6 +18,7 @@ from pipy_harness.native.tools.base import ToolContext, ToolDefinition, ToolPort
 from .canonical_codec import _schema_lists, decode_canonical, encode_canonical
 from .codec import OwnedJson
 from .documents import Doc, define_doc
+from .execution_support import ExecutionSupport
 from .generation import message_entry
 from .generation_tasks import TOOL_NAME, TOOL_VERSION, _initial
 from .generation_transport import owned_call
@@ -448,6 +449,21 @@ def define_tool_task(
                 "settle": _safe(driver.settle),
             },
             _abort,
+            support=ExecutionSupport(
+                {
+                    "family": "model_tool",
+                    "version": 1,
+                    "workspace": str(workspace_root),
+                    "tools": {
+                        name: {
+                            "descriptor": value.descriptor.thaw(),
+                            "advertised": encode_canonical(value.port.definition),
+                            "supported": value.supported,
+                        }
+                        for name, value in owned.items()
+                    },
+                }
+            ),
         )
     except (TypeError, ValueError):
         refuse()

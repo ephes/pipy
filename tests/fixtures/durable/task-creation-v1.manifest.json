@@ -3,7 +3,7 @@
   "phase": "task-creation-a-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "2d662e223b47ed078bec14bacf446ca5611fade01734252e5dd71b93acd51423"
+    "documents": "9ae2c32e30c370ea4a01a53062915f5d477a202c650a2cfbaee3644a3023d1fe"
   },
   "closure": {
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
@@ -32,12 +32,12 @@
     "src/pipy_harness/native/durable/ownership.py": "2d066029f6cd95df2bbebae0ecc59d49eb1e41894284304fd84ac8d960cfacf0",
     "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
     "src/pipy_harness/native/durable/session.py": "7584a3132b52a5053d00147c08344f7bf7b2acf87a237ca8fbee764e3b88a2a0",
-    "src/pipy_harness/native/durable/session_core.py": "4fe8aacd5e9033709b70bdf53d4fb2b378dbda9bf9ed243946bbecc7ddaeecd2",
-    "src/pipy_harness/native/durable/sqlite.py": "7f7d9267d66eeadacec4271d549b5cd4ffb1d9a22ad50b01c333b64d09b31ae4",
-    "src/pipy_harness/native/durable/sqlite_connection.py": "2f9599d652262da1421c75c7c37b58a432b869636ecd7ca0568f71964e308bc6",
+    "src/pipy_harness/native/durable/session_core.py": "cafa671a6311a8d9e6982b7452d94140a50cc9e5962f466fa05425741e67c33f",
+    "src/pipy_harness/native/durable/sqlite.py": "484aaa18beed7c353604dd2a1294e6f6849dcaef108b008cd919b3dbc4926a39",
+    "src/pipy_harness/native/durable/sqlite_connection.py": "77c7819182c06bbf9b1b66e311d957684b1bd7062aa7edbc7ec91136480280db",
     "src/pipy_harness/native/durable/sqlite_schema.py": "76a2693412fef88ce5652817d79849d01b8d9dd8f9022b9eccfefb43edc90342",
     "src/pipy_harness/native/durable/storage.py": "29fd5e5f5b2f784a67e623080f42ccfd5d4a3475c842a65f88170ed56abadeff",
-    "src/pipy_harness/native/durable/tasks.py": "5ba7439fbd0ed947386661f43334b07253bd665e8cba6dab9d371414eaffc501",
+    "src/pipy_harness/native/durable/tasks.py": "90443be5c8c1b76463b44bdc59e7a15e5bf60f2955fb204019becbfaaec1d929",
     "src/pipy_harness/native/durable/tx.py": "60fac95b2a2516eecd54b3df87b9f093acf3d63cfe7edd891e70011aeb19b8f9",
     "tests/durable/sqlite_child_support.py": "33521ef45fb317b5519f74fe3431f9fef529b64ed7f399db789e79848d1a02a2",
     "tests/durable/storage_contract_cases.py": "c4abf6b7b08f4322b9e401b1cc043632fc7c0b6f04773712e19072084c748549",
@@ -76,18 +76,18 @@
     "tests/fixtures/durable/storage-sqlite-workload-v1.input.json": "79d43012e682e94f15ad6ff6adef292a5bf63835d6522db7391c19842ace6111"
   },
   "reference_sources": {
-    "packages/chord/src/delta/index.ts": "b6c606044d3e3005034308cd000c9dae7f1dcdd9edef4db795856417daf42c81",
-    "packages/durable/src/ids.ts": "bbeede57cfc771208d6d333ea1d29a03690be8c039479841572570decfbaf228",
-    "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
-    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d",
-    "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
-    "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
-    "packages/durable/src/session/transaction.ts": "9255181a7be480a4f16892dab8952993cc88d48225bb416488ddaf4cddcec65c",
-    "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981",
     "packages/chord/src/delta/tracker.ts": "68bd2d7b9c0538366b079004ddd5dc9180cedd67d129f5c8de6c9ef6380e2c54",
+    "packages/durable/src/session/transaction.ts": "9255181a7be480a4f16892dab8952993cc88d48225bb416488ddaf4cddcec65c",
     "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
+    "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
+    "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
     "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
+    "packages/chord/src/delta/index.ts": "b6c606044d3e3005034308cd000c9dae7f1dcdd9edef4db795856417daf42c81",
     "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
-    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d"
+    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d",
+    "packages/durable/src/ids.ts": "bbeede57cfc771208d6d333ea1d29a03690be8c039479841572570decfbaf228",
+    "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
+    "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981",
+    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d"
   }
 }

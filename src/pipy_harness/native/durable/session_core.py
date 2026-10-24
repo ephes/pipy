@@ -754,12 +754,25 @@ class Session:
         self, change: Callable[[SyncTx], T], *, cancel: CancelView | None = None
     ) -> T:
         """Run one atomic transaction on the line from this thread (Pi ``commit``)."""
+        return self._commit(change, cancel=cancel)
+
+    def _commit(
+        self,
+        change: Callable[[SyncTx], T],
+        *,
+        cancel: CancelView | None = None,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
+    ) -> T:
+        """Internal sync counterpart of _acommit's existing scoped authority."""
         view = _view(cancel)
         self._refuse_reentry("commit")
         _refuse_loop_thread("commit", "acommit")
         ticket = self._enter_sync()
         try:
-            result = self._run_sync(change, view)
+            result = self._run_sync(
+                change, view, conversation_id=conversation_id, task_id=task_id
+            )
         except BaseException:
             self._leave(ticket, raising=True)
             raise
@@ -772,10 +785,12 @@ class Session:
         view: CancelView | None,
         *,
         publish: bool = True,
+        conversation_id: int | None = None,
+        task_id: int | None = None,
     ) -> T:
         self._grant_checks(view)
         driver = _SyncDriver()
-        core = self._core(driver, view)
+        core = self._core(driver, view, conversation_id, task_id)
         try:
             result = change(SyncTx(core))
             if inspect.isawaitable(result):

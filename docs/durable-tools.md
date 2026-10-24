@@ -174,3 +174,25 @@ termination support. DE10 inspection must derive and display this retained
 control hold from the round/receipt, rather than present unexplained active work.
 Full all-terminate/any-handoff behavior remains DE25/30. The unused tool
 checkpoint reason unsupported_control is not an admitted emitted state.
+
+## Explicit operator new-attempt authorization (DE10)
+
+[Private recovery operations](durable-inspection.md) do not make an old unsafe
+intent safe. ANY receipt on pending blocked, even malformed or intent=None after
+failed settlement, is held-needs-later-repair: no retry, settlement handler,
+mutation or task-document retirement. Existing actual still-settle receipt reuse
+stays separate and resource-free. Receipt absence is never inferred from an
+unchanged file or lack of observed effect.
+
+A compatible direct blocked model leaf may receive explicit NEW operator
+authority. One Session transaction retains its old checkpoint/intent/key only in
+private conversation audit, records exactly aborted/operator_retry publicly,
+admits a fresh owned child and replaces only its matching saved slot/tools/on.
+The fresh task prepares its own arguments/key through ordinary acknowledged
+execution. Prior outputs/receipts/usage remain unchanged; durable nonce winners
+deduplicate lost ACK/reopen, and real invocation/finalizer/abort/close guards stay
+in force. Original offered/current callable declaration and stored/current
+implementation/schema/workspace/replay must fit before admission; no policy-name
+heuristic or mutable reload registry is added. Nonfinal/final terminate holds are
+reported from actual committed controls and cannot be resolved away. DE13/14/15/
+24/25/30 and DE15/28 full exposed graph obligations remain.

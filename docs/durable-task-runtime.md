@@ -131,3 +131,16 @@ and prior-result checks. It distinguishes a leaf being owned from a task owning
 live descendants. Terminal live-child refusal stays universal. Graph I/O runs
 only on the Session line; the lifecycle condition guards scheduler metadata and
 never wraps callbacks, backend reads, joins or foreign-reference disposal.
+
+## Closed operator authority (DE10)
+
+[Inspection/recovery](durable-inspection.md) does not call open/recover/resume or
+use the scheduler's candidate path as an inspection probe. Session-only reads
+report invocation ownership unknown. The actual owning scheduler additionally
+supplies private expected-state capture and explicit nonce-deduplicated new-
+attempt authorization through the same scoped Session commit. Its existing
+condition guards only owned metadata; current records/rounds/receipts are checked
+on the line. Still-owned invocation/finalizer returns busy even after a blocked
+checkpoint commits. Late runtime writes remain fenced after retirement, and
+close never releases backend/path ownership early. No new scheduler flag, guard,
+observer writer, general retry/migration or graph engine is introduced.

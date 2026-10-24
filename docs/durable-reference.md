@@ -1473,3 +1473,34 @@ separate actual SIGKILL/ack/adoption/read-ticket/SQLite-lock evidence and
 caller-owned callback lifetime. Full P28 views/events/100-frame delivery,
 DE26 partials, DE20/27 context, DE15/28 graph compatibility and DE27/28 request
 retention remain open. All 43 whole P rows remain OPEN.
+
+## Inspection metadata and native operator proof (DE10)
+
+The nineteenth phase is `inspection-v1.manifest.json`, parented by completed
+projection. Run `scripts/durable_inspection_comparison.py run --acceptance
+<fresh-parent> --output <new-output>` and that module's real attest API in its own
+fresh process. The pinned driver imports the public package and executes genuine
+Harness.inspect/getTask with poisoned task callbacks. Equal/missing/newer/older
+without migration and terminal records compare a declared logical metadata
+profile: ordered logical live identities, stored version/status, static fit,
+known reason mapping, terminal outcome tag, unchanged independent records and
+zero task-code delta. Native Session-only invocation ownership remains unknown;
+Pi raw task/error contents are retained and are not a redacted native report.
+
+A separate native-only proof uses actual operator transactions, private audit,
+receipt-absent uncertainty, new owned task/key, exact round replacement, durable
+nonce reopen, saved usage, acknowledged intent and real invoke/finalizer times.
+It includes actual terminate-held inspection. It is never labelled Pi evidence:
+there is no generic upstream resolve export. Eleven common metadata mutants and
+sixteen native relational mutants run actual positive0/negative1 CLI processes;
+malformed protocol bodies require separate exit2. Inputs/argv/streams/process
+lifetime, raw records, interpreter/module/pin/source/parent/artifact hashes remain
+bound. Workflow archives do not receive these private product captures.
+
+A fresh attester must import explicit pure lazy dependency roots matching actual
+execution, without re-running effects or dropping imported paths. DE07's shared-
+process contamination and a later missing lazy root are distinct failures, both
+rejected by exact inventory equality. Source-only imported availability never
+proves credential/material executability. [Native operations](durable-inspection.md)
+retain separate process/WAL/lifetime/privacy proof and all later boundaries;
+all43 whole P rows remain OPEN.

@@ -106,6 +106,18 @@ class StorageConfigurationError(RuntimeError):
     """SQLite cannot run the durable store with its required configuration."""
 
 
+class UnsupportedInspectionVersion(StorageConfigurationError):
+    """A nonmigrating open requires the current effective schema."""
+
+
+def _schema_policy(value: object, mode: str) -> Literal["migrate", "validate_current"]:
+    if type(value) is not str or value not in ("migrate", "validate_current"):
+        raise ValueError("Unknown storage schema policy")
+    if value == "validate_current" and mode != "open":
+        raise ValueError("Validate-current requires an existing store")
+    return "migrate" if value == "migrate" else "validate_current"
+
+
 def check_sqlite_runtime() -> None:
     """Fail closed on an old or non-serialized SQLite, before any file effect."""
 
@@ -202,6 +214,20 @@ def _validate_after_crash(owner: PathOwner) -> None:
     locks on the file then (see ``ownership`` on POSIX record locks).
     """
 
+    _validate_readonly(owner, quick=True)
+
+
+def _validate_readonly(
+    owner: PathOwner,
+    *,
+    quick: bool,
+    migrations: tuple[sqlite_schema.Migration, ...] | None = None,
+) -> int:
+    """One RO preflight, closed before any RW connection of this owner.
+
+    SQLite may create absent empty WAL/SHM files. Existing database/WAL contents
+    are not checkpointed by this read-only connection.
+    """
     label = f"database {owner.path.database!r}"
     validation = _connect(owner.path.database, "ro")
     try:
@@ -210,8 +236,9 @@ def _validate_after_crash(owner: PathOwner) -> None:
         for name, value, _ in _VALIDATION_SETTINGS:
             validation.execute(f"PRAGMA {name}={value}").fetchall()
         _read_back(validation, _VALIDATION_SETTINGS)
-        sqlite_schema.validate_store(validation, label=label)
-        sqlite_schema.quick_check(validation, label=label)
+        version = sqlite_schema.validate_store(validation, migrations, label=label)
+        if quick:
+            sqlite_schema.quick_check(validation, label=label)
     except BaseException as error:
         try:
             validation.close()
@@ -221,6 +248,7 @@ def _validate_after_crash(owner: PathOwner) -> None:
             )
         raise
     validation.close()
+    return version
 
 
 def _settings(durability: Durability) -> tuple[tuple[str, str, int], ...]:
@@ -407,7 +435,11 @@ class OwnedDatabase:
 
 
 def open_owned_database(
-    path: object, *, mode: object, durability: object = "full"
+    path: object,
+    *,
+    mode: object,
+    durability: object = "full",
+    schema_policy: object = "migrate",
 ) -> OwnedDatabase:
     """Own, connect, configure and migrate a durable SQLite store.
 
@@ -420,11 +452,17 @@ def open_owned_database(
     with ``quick_check``) and applies pending migrations. Input is admitted and
     the runtime checked before any filesystem effect. A failure after
     ``create`` made the database removes it again; the lock is released on
-    every failure path.
+    every failure path. ``schema_policy="validate_current"`` is existing-store
+    only: same-owner effective-WAL RO preflight then current-only RW validation
+    without prepare/migration. RO may create empty sidecars; RW close can
+    checkpoint even on refusal. Logical read-only does not promise byte identity.
     """
 
     admitted = _admit_durability(durability)
     request = ownership.admit_request(path, mode)
+    policy = _schema_policy(schema_policy, request.mode)
+    migrations = sqlite_schema._active() if policy == "validate_current" else None
+    target = None if migrations is None else sqlite_schema._target(migrations)
     check_sqlite_runtime()
     owner = ownership.acquire(request, check=check_store_header)
     label = f"database {owner.path.database!r}"
@@ -433,7 +471,15 @@ def open_owned_database(
         # Every SQLite step from here on reports damage as StorageCorruption;
         # the cleanup below sees the converted error.
         with sqlite_schema.damage_as_corruption(label):
-            if owner.wal_size_at_open > 0:
+            if policy == "validate_current":
+                version = _validate_readonly(
+                    owner, quick=owner.wal_size_at_open > 0, migrations=migrations
+                )
+                if version != target:
+                    raise UnsupportedInspectionVersion(
+                        "Inspection requires the current storage schema"
+                    )
+            elif owner.wal_size_at_open > 0:
                 _validate_after_crash(owner)
             connection = _connect(owner.path.database, "rw")
             # Pinned before any other reference escapes, so a forked child can
@@ -446,9 +492,18 @@ def open_owned_database(
             _verify_identity(owner)
             _configure(connection, owner, admitted)
             _verify_identity(owner)
-            version = sqlite_schema.prepare(
-                connection, created=owner.created, label=label
-            )
+            if policy == "validate_current":
+                version = sqlite_schema.validate_store(
+                    connection, migrations, label=label
+                )
+                if version != target:
+                    raise UnsupportedInspectionVersion(
+                        "Inspection requires the current storage schema"
+                    )
+            else:
+                version = sqlite_schema.prepare(
+                    connection, created=owner.created, label=label
+                )
     except BaseException as error:
         _undo_failed_open(owner, connection, error)
         raise

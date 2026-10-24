@@ -1264,7 +1264,11 @@ class SqliteStorage:
 
 
 def open_sqlite_storage(
-    path: object, *, mode: object, durability: object = "full"
+    path: object,
+    *,
+    mode: object,
+    durability: object = "full",
+    schema_policy: object = "migrate",
 ) -> SqliteStorage:
     """Own and open (``mode="open"``) or create a store as a ``SqliteStorage``.
 
@@ -1273,7 +1277,9 @@ def open_sqlite_storage(
     original error.
     """
 
-    database = open_owned_database(path, mode=mode, durability=durability)
+    database = open_owned_database(
+        path, mode=mode, durability=durability, schema_policy=schema_policy
+    )
     try:
         return SqliteStorage(database)
     except BaseException as error:

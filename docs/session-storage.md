@@ -1091,3 +1091,22 @@ callbacks, cache and publications; default deltas are DE04b1b3a, real checkpoint
 and actual unload DE04b1b3b. Storage itself chooses no authoritative Session
 candidate. Historical raw-base oracle results retain their original measured
 scope, rather than becoming new delta evidence.
+
+## Durable inspection and operator recovery
+
+[Private durable inspection](durable-inspection.md) is a separate metadata
+boundary over full-content product records. Its default reports allow only safe
+numeric identities/versions, known states/reasons and bounded dependencies.
+They exclude TaskRecord/input/checkpoint, prompts/final arguments, workspace/
+endpoint/header selectors, auth/material references, arbitrary stored errors and
+secret-derived hashes. Terminal reads need no current handler or credential;
+opaque material remains not_checked rather than proven executable.
+
+Explicit operator retry preserves old uncertainty in a private conversation-
+scoped product audit, never the optional coding/workflow archive. The old public
+tool outcome is exactly aborted/operator_retry with no result/private authority.
+Only explicit numeric source/new-task linkage enters the operation response.
+Do not append target captures, audit bodies, frames or tool/provider output to
+workflow events. Existing-store inspect is logically read-only under the real
+path owner; effective-WAL validation and normal close can maintain sidecars or
+checkpoint. It never migrates, creates a missing store or steals another owner.

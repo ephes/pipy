@@ -185,3 +185,14 @@ runs in a separate fresh Python process and binds source, modules, artifacts,
 inputs, actual process receipts and both raw/common numeric profiles. Final
 independent review, full/platform/docs checks and two fresh cumulative18-phase
 chains still gate delivery. Full Durable feature completion is later work.
+
+## Operator outcome privacy (DE10)
+
+[Operator retry](durable-inspection.md) preserves old uncertainty only in a
+private conversation audit. CompletedSnapshot continues projecting actual
+terminal outcomes: the old tool outcome is exactly
+`{"status":"aborted","reason":"operator_retry"}`, with no result, replacement
+linkage, checkpoint, intent, prepared arguments or material authority. Numeric
+replacement linkage belongs only to the explicit operation response/private
+winner. Real saved-frame/material negatives test actual DTO values, not repr.
+Pure operator metadata uses a separate allowlist and never attaches a watch.

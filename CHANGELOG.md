@@ -8,6 +8,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private metadata-only durable inspection and explicit operator retry.
+  Pure reads never run task/auth/provider/tool code; existing-store inspection
+  validates the effective WAL schema without migrating. Retry preserves old
+  uncertainty privately and atomically authorizes a new attempt; blocked tasks
+  with any receipt remain held even when abort is requested. Invalid operator
+  IDs use fixed inspection/resolution errors before reads or path access.
+  Actual cleanup retains SQLite ownership.
+  Product factory/CLI activation and full migration/control policies remain later.
+
 - Add private committed completed-message/outcome snapshots with gapfree
   attachment, ordered tool-result prefixes, coalesced async observers and truthful
   drain/reconnect semantics. Listener failures stay isolated; actual read tickets

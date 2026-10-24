@@ -829,16 +829,20 @@
         "Changed model/env/workspace/tool/codec refuses before effect; terminal inspect works without credentials; resolution vs late result/abort race serialized; retry is a new authorized attempt, never old success forgery. Operations/privacy docs."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "inspection-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE10: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add active-execution compatibility and redacted inspect/recovery resolution operations, supported version rules and terminal read-only access."
+        "observables": "Pure allowlisted committed Session inspection with optional finite captured definition descriptors; unknown/newer envelope metadata before decode, terminal reads without handlers/auth, actual retained terminate controls and opaque material not_checked. Same PathOwner validate_current uses effective-WAL RO preflight and current-only RW second validation without migrations, with measured RO/RW maintenance limits. Closed scheduler-owned operator retry has exact private expected state including receipt existence/value, nonce-first durable conversation audit, ANY blocked receipt hold, NEW owned tool child plus atomic exact slot/on replacement and exact public old aborted/operator_retry outcome; explicit new terminal ownerless generation seed. Memory/SQLite/reopen, actual before/after-COMMIT SIGKILL, ACK/adoption/storage/abort/close/late-runtime/cancel races, actual worker/finalizer/read-ticket and fresh-process lease proof. Genuine pinned Harness.inspect/getTask compare declared logical metadata only; native-only operator/privacy relational controls remain separate, with actual CLI0/1/2. Saved provider/tool/codec drift refuses before effects through existing authority; saved pricing/options and live credential rotation remain authoritative. Full migration/unsafe continuation/graphs/extensions/controls/history/publication/product activation retain later owners. Independent CLEAN/full/platform/docs/two fresh19phase chains gate delivery; all43 whole P rows stay OPEN."
       },
       "future": "Changed model/env/workspace/tool/codec refuses before effect; terminal inspect works without credentials; resolution vs late result/abort race serialized; retry is a new authorized attempt, never old success forgery. Operations/privacy docs.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de10-inspection-and-operator-resolution-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-inspection.md"
       ],
       "inherited_reference": {
         "owners": [],

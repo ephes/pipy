@@ -62,6 +62,7 @@ from .canonical_codec import decode_canonical, encode_canonical
 from .checkpoint_codec import CanonicalCheckpoint, decode_checkpoint, encode_checkpoint
 from .codec import OwnedJson
 from .documents import Doc, define_doc
+from .execution_support import ExecutionSupport
 from .generation_tasks import GENERATION_NAME, GENERATION_VERSION, TOOL_TASK
 from .generation_transport import execute_provider, owned_call
 from .provider_checkpoint import (
@@ -609,4 +610,16 @@ def define_generation(
             "tools": _safe(driver.tools),
         },
         _abort,
+        support=ExecutionSupport(
+            {
+                "family": "generation",
+                "version": 1,
+                "provider": driver.spec.provider_name,
+                "model": driver.spec.model_id,
+                "api": driver.spec.api,
+                "thinking": driver.thinking,
+                "options": encode_options(driver.options),
+                "pricing": encode_pricing(driver.pricing),
+            }
+        ),
     )

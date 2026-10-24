@@ -541,6 +541,7 @@ def test_current_delivery_gate_names_current_reviewer_and_lanes():
     assert "DE05a" in current and "DE05b" in current
     assert "Delivered DE06a" in current and "DE07 generation" in current
     assert "DE08 tool" in current and "DE09" in current
+    assert "DE10" in current and "DE11" in current
     assert "claude-opus-5-5" in current and "HIGH" in current
     assert "Codex gpt-6.1-sol HIGH CLEAN" not in current
     assert "All43 P rows remain OPEN" in current
@@ -800,7 +801,7 @@ def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundarie
     assert "all real generation-owned tool admissions" in row["current"]["observables"]
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE10", "DE13", "DE14", "DE15", "DE17", "DE26")
+        for key in ("DE13", "DE14", "DE15", "DE17", "DE26")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
@@ -818,7 +819,7 @@ def test_tools_owns_actual_bounded_acceptance_without_closing_full_parity():
     assert "Pi successor task" in row["current"]["observables"]
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE10", "DE13", "DE15", "DE24", "DE25", "DE28", "DE30")
+        for key in ("DE13", "DE15", "DE24", "DE25", "DE28", "DE30")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
@@ -836,7 +837,29 @@ def test_completed_projection_owns_actual_evidence_and_preserves_whole_watch_sco
     assert "coalescing/dedupe and completed-only limit" in row["future"]
     assert rows["P28"]["status"] == "OPEN" and rows["P28"]["owners"] == ["DE09", "DE28"]
     assert "100-frame" in rows["P28"]["current"]["observables"]
-    assert rows["DE10"]["status"] == "OPEN"
+    assert rows["DE10"]["status"] == "LANDED"
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+
+
+def test_inspection_owns_full_acceptance_and_retains_whole_parity():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    row = rows["DE10"]
+    assert row["status"] == "LANDED" and row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == ["inspection-v1"]
+    assert (
+        row["evidence"][0]
+        == a.LEDGER + "#de10-inspection-and-operator-resolution-acceptance"
+    )
+    assert "retry is a new authorized attempt" in row["future"]
+    assert "ANY blocked receipt hold" in row["current"]["observables"]
+    assert "metadata only" in row["current"]["observables"]
+    assert rows["DE11"]["status"] == "OPEN"
+    assert all(
+        rows[key]["status"] == "OPEN"
+        for key in ("DE13", "DE14", "DE15", "DE20", "DE24", "DE28", "DE41")
+    )
+    assert all(
+        value["status"] == "OPEN" for key, value in rows.items() if key.startswith("P")
     )

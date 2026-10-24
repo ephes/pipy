@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import CoroutineType, MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
 
 from .codec import OwnedJson
+from .execution_support import ExecutionSupport
 
 if TYPE_CHECKING:
     from .scheduler import TaskContext, TaskRuntime
@@ -36,6 +37,7 @@ class Task(Generic[TInput, TCheckpoint, TResult]):
     initial: Callable[[TInput], TCheckpoint]
     phases: Mapping[str, PhaseHandler]
     abort: PhaseHandler
+    support: ExecutionSupport | None = field(default=None, kw_only=True, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.name) is not str:
@@ -53,6 +55,12 @@ class Task(Generic[TInput, TCheckpoint, TResult]):
         if any(not callable(handler) for handler in phases.values()):
             raise TypeError("Task phase handlers must be callable")
         object.__setattr__(self, "phases", MappingProxyType(phases))
+        if self.support is not None:
+            if type(self.support) is not ExecutionSupport:
+                raise TypeError("Expected finite execution support")
+            object.__setattr__(
+                self, "support", ExecutionSupport(self.support.to_tree())
+            )
 
 
 def define_task(
@@ -61,16 +69,25 @@ def define_task(
     initial: Callable[[TInput], TCheckpoint],
     phases: dict[str, PhaseHandler],
     abort: PhaseHandler,
+    *,
+    support: ExecutionSupport | None = None,
 ) -> Task[TInput, TCheckpoint, Any]:
     """Define a task; creating it persists initial(input), without dispatch."""
-    return Task(name, version, initial, phases, abort)
+    return Task(name, version, initial, phases, abort, support=support)
 
 
 def capture(task: object) -> Task[Any, Any, Any]:
     """Revalidate and snapshot before suspension, including hostile reflection."""
     if type(task) is not Task:
         raise TypeError("Expected a task definition")
-    return Task(task.name, task.version, task.initial, task.phases, task.abort)
+    return Task(
+        task.name,
+        task.version,
+        task.initial,
+        task.phases,
+        task.abort,
+        support=task.support,
+    )
 
 
 def initialize(definition: Task[Any, Any, Any], owned_input: OwnedJson) -> OwnedJson:

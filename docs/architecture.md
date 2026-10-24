@@ -1128,3 +1128,32 @@ No callback, loop wake, I/O, unsubscribe or final foreign-reference disposal run
 under either guard. The observer has no mutation, scheduling, provider/tool/auth
 or usage-accounting authority. Factory/CLI activation remains DE11/12 and full
 watch/context/stream/graph work remains DE20/26/27/28 and DE15/28.
+
+
+## Private inspect and operator capability (DE10)
+
+[Inspection/recovery](durable-inspection.md) adds nine private modules to the
+package inventory, preserving the existing mutation, auth and lifecycle owners:
+
+| Module | Owner and purpose |
+| --- | --- |
+| execution_support.py | Finite immutable callback-free Task metadata, captured by existing factories and Task.capture |
+| inspection_values.py | Closed allowlisted metadata DTOs and admitted support values |
+| inspection_read.py | Pure guarded committed document/entry/round capture with no initialization |
+| inspection_support.py | Static finite compatibility checks; no material/auth or live port lookup |
+| inspection.py | Whole Session read-line sync/async and existing-store metadata access |
+| resolution_values.py | Private repr-free expected-state capability and bounded numeric response/errors |
+| resolution_read.py | Private exact committed CID/task/entry/round/receipt facts |
+| resolution_policy.py | Closed native retry eligibility over existing graph/codec rules |
+| resolution.py | Same Session scoped commit, durable nonce winner/audit and atomic new-attempt admission |
+
+The Session's sync scoped internal commit is the counterpart of its existing
+async scoped authority. The scheduler owns resolution metadata through its sole
+lifecycle condition; no new shared scheduler field or guard is added. No I/O,
+callbacks, future completion, joining or final foreign-reference disposal occurs
+under that condition. The expected state and audit never enter inspection or
+completion DTOs; old public tool outcome is exactly aborted/operator_retry.
+SQLite validate_current retains the one real PathOwner across RO/WAL preflight
+and normal current-only RW validation/cleanup. Logical read-only is distinct from
+allowed filesystem maintenance. Product factory/CLI and broader migrations,
+graphs, controls and history/publication budgets retain their owning slices.

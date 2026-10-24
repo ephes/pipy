@@ -170,3 +170,16 @@ native currently advances the same parent with fresh request identity. Full
 exposed ownership/lifecycle/graph compatibility remains DE15/28 before whole P
 closure. Nested/extension/mode/control policies remain DE24/25/30, with every
 original acceptance cell and all43 OPEN parity rows retained.
+
+## DE10 public inspection boundary
+
+Pinned `harness/harness.ts` getTask/inspect read on the Session line;
+`harness/scheduler.ts` derives live state and fit without executing task code.
+`test/harness-inspect.test.ts` explicitly proves paused inspection does not run
+migrations. Public raw TaskRecord/errors are not a redacted operator report.
+There is no generic resolve export: retryTask clears a parked restart count,
+which is distinct from [native explicit new-attempt authorization](../durable-inspection.md).
+The genuine phase19 oracle compares declared logical metadata only. Native
+private-audit policy, redaction and physical ownership are separate evidence;
+full missing/migration/restart/orphan/graph/control semantics keep their declared
+owners. All43 whole P rows remain OPEN.

@@ -14,7 +14,7 @@ import inspect
 import threading
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .codec import OwnedJson
 from .documents import Doc, DocFamily, Token
@@ -24,6 +24,12 @@ from .session_core import AsyncTx, CommitPublication, Session, SyncTx
 from .storage import ConversationQuery, EntryQuery, StorageWrite, TaskQuery
 from .task_values import identity, json_equal
 from .tasks import Task, capture
+
+if TYPE_CHECKING:
+    from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
+
+    from .resolution_values import ResolutionResult, ResolutionTarget
+
 
 Tree = dict[str, Any]
 T = TypeVar("T")
@@ -614,6 +620,40 @@ class TaskScheduler:
         """One immutable committed revision; record trees detach on access."""
         with self._guard:
             return tuple(self._index[id] for id in sorted(self._index))
+
+    def resolution_target(self, task_id: int) -> ResolutionTarget:
+        """Capture private expected state without recovering or dispatching work."""
+        from .resolution import resolution_target
+
+        return resolution_target(self, task_id)
+
+    async def aresolution_target(self, task_id: int) -> ResolutionTarget:
+        from .resolution import aresolution_target
+
+        return await aresolution_target(self, task_id)
+
+    def resolve(
+        self,
+        target: ResolutionTarget,
+        *,
+        nonce: str,
+        new_request: AgentProviderRequestSnapshot | None = None,
+    ) -> ResolutionResult:
+        """Authorize one NEW native attempt, deduplicated by a durable nonce."""
+        from .resolution import resolve
+
+        return resolve(self, target, nonce=nonce, new_request=new_request)
+
+    async def aresolve(
+        self,
+        target: ResolutionTarget,
+        *,
+        nonce: str,
+        new_request: AgentProviderRequestSnapshot | None = None,
+    ) -> ResolutionResult:
+        from .resolution import aresolve
+
+        return await aresolve(self, target, nonce=nonce, new_request=new_request)
 
     def _observe(self, publication: CommitPublication) -> None:
         updates = []

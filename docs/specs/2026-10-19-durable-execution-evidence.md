@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09 LANDED; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10 LANDED; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -183,7 +183,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE07 | Durable generation phases | LANDED | [Generation acceptance](#de07-generation-acceptance); normal review/check/delivery gates must pass before commit/push |
 | DE08 | Sequential tool intents and blocked uncertainty | LANDED | [Tool execution acceptance](#de08-tool-execution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE09 | Completed-message projection | LANDED | [Completed projection acceptance](#de09-completed-projection-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
-| DE10 | Compatibility, inspect and recovery resolutions | OPEN | None; all gates OPEN |
+| DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | OPEN | None; all gates OPEN |
 | DE12 | Opt-in headless CLI recovery | OPEN | None; all gates OPEN |
 | DE13 | Unsafe top-level interrupted-error continuation | OPEN | None; all gates OPEN |
@@ -288,10 +288,10 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 supplies private completed projection; DE10 inspection/recovery resolution is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 opt-in factory is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
-`gpt-6.1-sol` HIGH implements DE09; Claude Code `claude-opus-5-5` (Opus5.5)
+`gpt-6.1-sol` HIGH implements DE10; Claude Code `claude-opus-5-5` (Opus5.5)
 HIGH reviews the whole slice first and accepted repairs against the actual prior
 baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
 pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
@@ -8604,3 +8604,56 @@ not part of this repair. Re-review is materially valuable because it verifies
 the original private-authority regression boundary and bounded active-session
 subscription cleanup; it is scoped to this repair against the exact R1 baseline
 on the same DE09 ledger. No full or expensive final chains precede valid CLEAN.
+
+
+## DE10 inspection and operator resolution acceptance
+
+This implements the whole original DE10 row over delivered DE09 `48a742ae`,
+with no product/CLI activation or whole P closure. The implementation registry
+labels this bounded candidate LANDED; exact reviewed/committed/remote identities
+and final gate outcomes belong to retained delivery receipts. No final review,
+full/platform or fresh-chain result is invented by this source update.
+
+| Original DE10 acceptance | Executable mapping |
+| --- | --- |
+| Active compatibility and supported versions; changed model/env/workspace/tool/codec refuses before effect | Finite copied Task support, pure definition/version fit, native saved-request model/API/Responses cache environment and codec SIGKILL/reopen negatives; actual current workspace/schema/implementation/replay/missing-tool refusal. Existing authoritative provider reconstruction/rotation and all four stored/current safety intersections remain cumulative. Saved pricing/options are not silently rebound to new defaults. |
+| Redacted inspection and terminal read without credentials | Actual TaskInspection/InspectionPage whitelist, poisoned callbacks/writes/mint/decoder, unknown/newer outer metadata, terminal offline validate-current reads without handlers/auth, explicit material not_checked and Session-only ownership unknown; actual saved full-frame/material/private-intent outcome sentinel controls. |
+| Resolution versus late result/abort race serialized | Existing Session/scoped Tx and scheduler metadata guard, exact private task/CID entries/parent/round/receipt capture, actual still-owned blocked phase-finalizer busy, stale Runtime write refusal, abort/close winners, cancelled accepted resolution/read/close waiters, independent fresh-process inspect busy until actual invoke/finalizer/read exit. No second observer mutation authority. |
+| Retry is a new authorized attempt, never old success forgery | Actual Memory/SQLite parent→new owned child→parent; one nonce winner, exact atomic round slot/tools/on replacement, old public outcome exactly aborted/operator_retry, old uncertainty only in private conversation audit, independently counted old/new calls/applications/prepares/usage, same/different-nonce concurrency, before/after-COMMIT SIGKILL and before/ACK/adoption faults followed by readback/integrity/reopen. Explicit eligible terminal ownerless generation seed gets fresh identity; old row unchanged. |
+| Privacy and operations | [Inspection/recovery operations](../durable-inspection.md), same-owner RO effective-WAL/current-only RW validation without migrations, actual older/newer/current-WAL/second-validation/config/identity cuts with truthful sidecar/checkpoint limits; no missing-store creation or lease bypass. |
+
+ANY task receipt on a pending blocked tool means held-needs-later-repair,
+including the actual failed-settle intent=None shape over a committed executed
+receipt. It cannot retry, mutate, retire evidence or invoke a settlement handler.
+Valid reuse belongs only to an actual still-settle task, already retry-ineligible.
+Nonfinal committed terminate keeps a waiting parent/later pending child held;
+final/only leaves generation pending/blocked. Inspection derives this reason and
+resolution cannot remove it.
+
+The nineteenth manifest `inspection-v1.manifest.json` is parented by completed
+projection. Genuine pinned Harness.inspect/getTask uses callback counters and
+raw committed records; the declared common profile covers logical live IDs,
+static fit/version relation, terminal metadata, unchanged independent reads and
+zero task code. Pi's raw inspection is not a native redaction or resolve API.
+The separate native operator proof actually closes/reopens, authorizes a new
+child, records acknowledged intent versus real invoke timestamps/finalizers,
+compares committed usage and checks exact private/public placement. Eleven
+common metadata mutants and sixteen native-only relational mutants retain
+schema-valid inputs; actual positive0/negative1 and malformed2 processes are
+separate. No native record is relabelled as Pi evidence.
+
+Pre-final diagnostics are retained outside git in the DE10 gate. The first
+actual paired execute passed; its fresh attester correctly refused a375-versus374
+native import scope, identifying only lazy pure inspection_support.py. Explicit
+pure import roots fix scope without effects in attestation or map shrink. Earlier
+fixture diagnostics (reentry exception regex, automatic endedAt stamping,
+strict declared x schema, irrelevant cache environment under Completions, and
+adapter output directory/whole-owned-call placement) remain failures rather
+than aggregated passes. Current-candidate execute/attest and all final gates
+must bind the consolidated source.
+
+All original DE10 cells and all43 whole OPEN P rows remain. Full DE13 unsafe
+interrupted-error continuation, DE14 migration/restart/orphan, DE15/28 exposed
+graph/successor identity, DE20 context, DE24 nested/MCP/extensions, DE25/30 full
+controls, DE27/28 request history and DE27/28/41 publication budgets retain their
+owners. DE11/12 still own opt-in product/CLI lifecycle and accepted-input seams.

@@ -1,7 +1,7 @@
 # Native durable execution implementation plan
 
 Status: **execution authorized; DE01 and DE02 with all children landed;
-DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09 LANDED**,
+DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09/DE10 LANDED**,
 2026-10-24. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
@@ -830,6 +830,38 @@ payloads preserve fidelity without exposing request/settings/material authority.
 Pi public watch/watchEvents comparison covers declared logical completed facts,
 with raw exact observations retained. Full DE28 watch/event semantics, DE26
 partials, DE20/27 context, DE15/28 graph compatibility and DE27/28 quadratic
-request-history debt remain. DE10 active compatibility/inspection/resolution is
-next; DE11/12 own product activation. Original DE09 acceptance and all43 whole
+request-history debt remain. DE10 supplies private active compatibility/inspection/resolution;
+DE11/12 own product activation. Original DE09 acceptance and all43 whole
 OPEN P rows remain intact; final independent and delivery gates still apply.
+
+
+### DE10 inspection and operator resolution
+
+[Private inspection](../durable-inspection.md) reads committed allowlisted
+metadata on the existing Session line without starting/recovering a scheduler,
+executing task or port code, preparing requests, reading private material or
+refreshing auth. Captured finite support is distinct from proven executability;
+terminal reads need no current handler or credential and newer payload formats
+remain outer metadata. Nonfinal/final terminate holds derive from committed
+round slots/results rather than a fabricated status.
+
+The same SQLite PathOwner performs a WAL-aware RO effective-schema preflight,
+then current-only RW validation without migration. RO sidecar creation and RW
+close/checkpoint maintenance are measured separately from logical record writes.
+A closed scheduler-owned operation compares private expected state and actual
+receipt presence/value on the Session line, checks real invocation retirement
+and records a durable nonce winner. ANY receipt on pending blocked is held for
+later repair, never retried or settled through this operation. An eligible retry
+atomically preserves old uncertainty in private conversation audit, exposes only
+aborted/operator_retry for the old tool and replaces its exact round slot/on with
+a NEW authorized owned child. Explicit terminal ownerless generation retry uses
+a new canonical seed/identity. Effects belong to subsequent acknowledged normal
+scheduling; lost ACK/reopen returns the same winner.
+
+Genuine pinned Harness.inspect/getTask compares declared logical metadata;
+redaction, operator policy, OS ownership and native relational controls are
+separate native proof. Full migration/automatic unsafe continuation/general
+graphs/nested tools/control semantics remain DE13/14/15/24/25/30, product factory
+and CLI DE11/12, and retention/publication budgets DE27/28/41. Original DE10 and
+all43 whole OPEN P cells remain. Independent CODE CLEAN and final full/platform/
+docs/two genuinely fresh19phase-chain receipts still gate commit and delivery.
