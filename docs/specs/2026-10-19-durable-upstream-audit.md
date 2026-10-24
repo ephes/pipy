@@ -154,3 +154,19 @@ format, full generation, or raw credential equality. Explicit terminal/reopen
 negative-zero representation accounting and native-only type/privacy/wire proofs
 are documented in [the codec contract](../durable-canonical-codec.md). Every
 published requirement retains its original owning slices; all P rows remain OPEN.
+
+
+### Sequential native tool effects (DE08)
+
+Pinned `harness/tool.ts` commits final args/replay intent before invoking and
+reissues only stored-safe/current-safe. Native uses an explicit immutable trusted
+registration descriptor; existing readOnly/idempotent annotations never supply
+that contract. Its early unsafe BLOCK is Milestone A behavior, while pinned Pi
+settles an interrupted error and continues (DE13). Actual Harness/SQLite/reopen
+comparison retains both exact outcomes and compares only the declared logical
+round/replay prefix; native real-process/OS-lock/lifetime proofs stay separate.
+Pinned `generation.ts:finishToolRound` creates a successor generation task;
+native currently advances the same parent with fresh request identity. Full
+exposed ownership/lifecycle/graph compatibility remains DE15/28 before whole P
+closure. Nested/extension/mode/control policies remain DE24/25/30, with every
+original acceptance cell and all43 OPEN parity rows retained.

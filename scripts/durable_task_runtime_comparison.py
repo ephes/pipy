@@ -20,12 +20,17 @@ assert spec and spec.loader
 a = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a)
 d, b, o, v = a.d, a.b, a.o, a.v
+# The scheduler's DE08 graph path lazily reaches these real product modules.
+# Load the same dependency roots in execute and fresh-process attestation so
+# actual imported module identity is stable without rerunning product effects.
+from pipy_harness.native.durable.generation import ROUND_DOC  # noqa: E402,F401
 from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
 from pipy_harness.native.durable.scheduler import TaskScheduler  # noqa: E402
 from pipy_harness.native.durable.session_core import Session  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
 from pipy_harness.native.durable.storage import StorageWrite  # noqa: E402
 from pipy_harness.native.durable.tasks import define_task  # noqa: E402
+from pipy_harness.native.durable.tool_graph import capture_entries  # noqa: E402,F401
 
 PHASE = "task-runtime-b-v1"
 MANIFEST = o.FIXTURES / "task-runtime-v1.manifest.json"
@@ -39,16 +44,20 @@ SOURCES = b.SOURCES | {
     "packages/durable/src/tasks.ts",
     "packages/durable/src/harness/scheduler.ts",
 }
-CLOSURE = a.CLOSURE | {
-    "src/pipy_harness/native/durable/scheduler.py",
-    "src/pipy_harness/native/durable/task_values.py",
-    "tests/durable/test_task_runtime_sqlite.py",
-    "scripts/durable_task_runtime_comparison.py",
-    "scripts/durable_reference/cases/task-runtime.mts",
-    "tests/durable/test_task_runtime.py",
-    "tests/durable/test_task_runtime_comparison.py",
-    "docs/durable-task-runtime.md",
-}
+CLOSURE = (
+    a.CLOSURE
+    | {str(p.relative_to(ROOT)) for p in (ROOT / "src").rglob("*.py")}
+    | {
+        "src/pipy_harness/native/durable/scheduler.py",
+        "src/pipy_harness/native/durable/task_values.py",
+        "tests/durable/test_task_runtime_sqlite.py",
+        "scripts/durable_task_runtime_comparison.py",
+        "scripts/durable_reference/cases/task-runtime.mts",
+        "tests/durable/test_task_runtime.py",
+        "tests/durable/test_task_runtime_comparison.py",
+        "docs/durable-task-runtime.md",
+    }
+)
 CASES = ("counter", "recovery", "no-progress", "throws", "terminal-late", "close")
 MUTANTS = ("dispatch", "checkpoint", "memo", "restarts", "result", "late", "close")
 
@@ -335,21 +344,17 @@ def configuration():
 
 def native_modules():
     modules = {}
-    for relative in sorted(CLOSURE):
-        if not relative.startswith(
-            "src/pipy_harness/native/durable/"
-        ) or not relative.endswith(".py"):
+    for name, module in tuple(sys.modules.items()):
+        if name != "pipy_harness" and not name.startswith("pipy_harness."):
             continue
-        name = (
-            relative.removeprefix("src/")
-            .removesuffix(".py")
-            .replace("/", ".")
-            .removesuffix(".__init__")
+        filename = getattr(module, "__file__", None)
+        d.require(filename is not None, "Task runtime producer lacks a source file")
+        path = Path(filename).resolve()
+        d.require(
+            path.is_relative_to(ROOT), "Task runtime native module outside checkout"
         )
-        module = sys.modules.get(name)
-        d.require(module is not None, "Task runtime native module not imported")
-        path = Path(module.__file__).resolve()
-        d.require(path == ROOT / relative, "Task runtime native module outside closure")
+        relative = str(path.relative_to(ROOT))
+        d.require(relative in CLOSURE, "Task runtime native module outside closure")
         modules[relative] = o.sha(path)
     return modules
 

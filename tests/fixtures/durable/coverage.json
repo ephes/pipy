@@ -757,16 +757,20 @@
         "Pending runs once; safe explicit fixture retries; unsafe intent/effect cuts block even if effect absent; result-commit loss reuses receipt; no next provider call on block; current/stored policy drift fails closed. Tool safety docs."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "tool-execution-b-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE08: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add sequential native tool intent/result state with stored prepared args and safety intersection; controlled blocked uncertainty for this milestone."
+        "observables": "Actual generation-owned pi.tool version2 direct leaves, captured all-child admission then slot-ordered sequential dispatch, once-prepared stored final arguments, acknowledged intent and immutable trusted implementation/schema/replay descriptor default unsafe; stored/current safety intersection, stable keyed independent invocation/application fixture, validated pending blocked uncertainty, committed rich receipt reuse without resources and atomic result/child terminal/matching-parent wake. Real Memory/SQLite/reopen, process death, before/ack/adoption faults, lateabort/scope/drift guards, held actual ToolExecutor invoke/finalizer and cancelled close with independent fresh-process SQLite refusal are native evidence. Genuine pinned Harness SQLite/reopen tools uses actual intents/transactions/waits/results plus explicit fake-tool/fixed-provider seams, preserving raw Pi interrupted-error continuation versus native BLOCK. Closed logical-round common view retains actual effect counts/keys/args, ordered results, fresh request identity, usage/presence, close and terminal reuse. Pi successor task differs from native same-parent new prepare; full exposed graph compatibility remains DE15/28 before whole parity closure. Product activation/public projection DE09–12, unsafe continuation DE13, general definitions/graph/extensions/modes DE14/15/21–25/30 and request-retention debt DE27/28 remain. Final independent review/full/platform/docs/two fresh17phase chains still gate delivery; all43 P rows remain OPEN. Non-final terminate is a committed-receipt control hold with waiting parent/unstarted later calls; final/only leaves generation pending blocked. DE10 must display this hold reason; no full termination claim. Common completed-round terminal means outcome completed, with raw faultoutcome and terminal-only negative controls."
       },
       "future": "Pending runs once; safe explicit fixture retries; unsafe intent/effect cuts block even if effect absent; result-commit loss reuses receipt; no next provider call on block; current/stored policy drift fails closed. Tool safety docs.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de08-tool-execution-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-tools.md"
       ],
       "inherited_reference": {
         "owners": [],

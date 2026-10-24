@@ -8,10 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private durable sequential tool execution on actual generation-owned tasks.
+  Acknowledged intents retain prepared arguments and explicit replay contracts;
+  unsafe recovery blocks later effects, committed receipts survive result-write
+  failure, and closed rounds continue with ordered results and fresh requests.
+  Actual tool workers/finalizers hold close and SQLite ownership until exit.
+  Product/CLI activation and full interrupted-error continuation remain later.
+
 - Add private durable generation with saved request identity/options/pricing,
   committed response reuse and atomic assistant/usage/real owned-tool admission.
   Actual provider worker/finalizer joins remain owned through close. Observation
-  is completed-only; tool execution and product/CLI activation remain later work.
+  is completed-only; DE08 supplies private tool execution, while product/CLI
+  activation remains later work.
 
 - Activate private canonical durable checkpoints on real versioned task phases,
   preserving rich requests/outcomes, saved provider semantics and pricing.

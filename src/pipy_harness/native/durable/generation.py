@@ -168,10 +168,10 @@ def _initial(value: object) -> Tree:
 def _history(entries: tuple[Any, ...]) -> tuple[tuple[AgentMessage, ...], int]:
     history: list[AgentMessage] = []
     cutoff = 0
-    for entry in sorted((e.to_tree() for e in entries), key=lambda e: e["id"]):
+    for entry in (e.to_tree() for e in entries):
         if "edits" in entry or "head" in entry:
             _fail()
-        cutoff = entry["id"]
+        cutoff = max(cutoff, entry["id"])
         for arena in entry.get("model", []):
             message = decode_canonical(arena)
             if type(message) not in (
@@ -316,12 +316,17 @@ class _Generation:
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
     ) -> None:
         frame = _read(record, "prepare", "prepare")
-        seed = _seed(record["input"])
+        initial_seed = _seed(record["input"])
         chosen: list[Any] = []
 
         async def capture(tx: TaskTx, current: Tree) -> None:
             _current(current, frame)
-            history, cutoff = _history(await tx.entries())
+            from .tool_history import ORDER_DOC, PREPARE_DOC, ordered_entries
+
+            next_value = (await tx.doc(PREPARE_DOC)).snapshot().thaw()
+            seed = initial_seed if not next_value else _seed(next_value["seed"])
+            order = (await tx.doc(ORDER_DOC)).snapshot().thaw()
+            history, cutoff = _history(ordered_entries(await tx.entries(), order))
             provider = await tx.doc(PROVIDER_DOC)
             if provider["sessionId"] is None:
                 provider["sessionId"] = uuid4().hex
@@ -330,14 +335,16 @@ class _Generation:
                 _fail()
             if seed.request.session_id not in (None, session_id):
                 _fail()
-            chosen.extend((history, cutoff, session_id))
+            chosen.extend((seed, history, cutoff, session_id))
 
         await runtime.commit(capture)
-        history, cutoff, session_id = chosen
+        seed, history, cutoff, session_id = chosen
         snapshot = snapshot_provider_request(
             replace(seed.request, session_id=session_id), messages=history
         )
-        material = await runtime.memo("pi.generation.material", uuid4().hex)
+        material = await runtime.memo(
+            "pi.generation.material." + frame.identity["request"], uuid4().hex
+        )
         if type(material) is not str:
             _fail()
         saved = await owned_call(
@@ -466,6 +473,40 @@ class _Generation:
 
         await runtime.commit(settlement)
 
+    async def tools(
+        self, record: Tree, runtime: TaskRuntime, context: TaskContext
+    ) -> None:
+        from .tool_history import ORDER_DOC, PREPARE_DOC
+
+        frame = _read(record, "tools", "provider_outcome")
+
+        async def closed(tx: TaskTx, current: Tree) -> Tree:
+            _current(current, frame)
+            round_value, assistant, snapshot, results = await tx.tool_round()
+            if any(message.terminate for _, message in results):
+                blocked = frame.to_tree()
+                blocked["phase"] = "blocked"
+                return {"status": "pending", "checkpoint": blocked}
+            index = await tx.doc(ORDER_DOC)
+            key = str(round_value["assistant"])
+            ids = [id for id, _ in results]
+            existing = index["rounds"].get(key)
+            if existing is not None and list(existing) != ids:
+                _fail()
+            index["rounds"][key] = ids
+            seed = snapshot_provider_request(
+                replace(
+                    snapshot.request,
+                    provider_turn_index=snapshot.request.provider_turn_index + 1,
+                )
+            )
+            next_value = await tx.doc(PREPARE_DOC)
+            next_value["seed"] = encode_canonical(seed)
+            prepared = _initial(encode_canonical(seed))
+            return {"status": "running", "checkpoint": prepared}
+
+        await runtime.commit(closed)
+
 
 async def _tool_round(
     tx: TaskTx,
@@ -565,6 +606,7 @@ def define_generation(
             "prepare": _safe(driver.prepare),
             "request": _safe(driver.request),
             "settle": _safe(driver.settle),
+            "tools": _safe(driver.tools),
         },
         _abort,
     )

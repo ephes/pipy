@@ -3,7 +3,7 @@
   "phase": "task-creation-a-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "ee52b47c5a61ed261de25ba37c1c0045e1f24a502ad62779b950c62a143f0492"
+    "documents": "ec5176b9a05b6fe62446e52f9c1a58f87d835940a0729508fd6e212741a3cbd4"
   },
   "closure": {
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
@@ -76,18 +76,18 @@
     "tests/fixtures/durable/storage-sqlite-workload-v1.input.json": "79d43012e682e94f15ad6ff6adef292a5bf63835d6522db7391c19842ace6111"
   },
   "reference_sources": {
-    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d",
-    "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
-    "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
-    "packages/chord/src/delta/index.ts": "b6c606044d3e3005034308cd000c9dae7f1dcdd9edef4db795856417daf42c81",
-    "packages/chord/src/delta/tracker.ts": "68bd2d7b9c0538366b079004ddd5dc9180cedd67d129f5c8de6c9ef6380e2c54",
-    "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
-    "packages/durable/src/session/transaction.ts": "9255181a7be480a4f16892dab8952993cc88d48225bb416488ddaf4cddcec65c",
-    "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
-    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
-    "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981",
-    "packages/durable/src/ids.ts": "bbeede57cfc771208d6d333ea1d29a03690be8c039479841572570decfbaf228",
     "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
-    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d"
+    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
+    "packages/chord/src/delta/tracker.ts": "68bd2d7b9c0538366b079004ddd5dc9180cedd67d129f5c8de6c9ef6380e2c54",
+    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d",
+    "packages/chord/src/delta/index.ts": "b6c606044d3e3005034308cd000c9dae7f1dcdd9edef4db795856417daf42c81",
+    "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
+    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d",
+    "packages/durable/src/session/transaction.ts": "9255181a7be480a4f16892dab8952993cc88d48225bb416488ddaf4cddcec65c",
+    "packages/durable/src/ids.ts": "bbeede57cfc771208d6d333ea1d29a03690be8c039479841572570decfbaf228",
+    "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
+    "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
+    "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
+    "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981"
   }
 }

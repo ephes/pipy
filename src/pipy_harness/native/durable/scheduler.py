@@ -103,6 +103,12 @@ async def _conversations(tx: AsyncTx) -> list[Tree]:
             return result
 
 
+def _model_tool(record: Tree) -> bool:
+    from .generation_tasks import TOOL_NAME
+
+    return bool(record["kind"] == TOOL_NAME)
+
+
 def _owned(record: Tree, tasks: Iterable[Tree], conversations: Iterable[Tree]) -> bool:
     """Conservative DE15 boundary, before a handler or terminal transition."""
     id = record["id"]
@@ -252,6 +258,9 @@ class TaskRuntime:
     ) -> None:
         async def apply(tx: AsyncTx, current: Tree) -> None:
             tasks, conversations = await _tasks(tx), await _conversations(tx)
+            from .tool_graph import capture_entries
+
+            graph_entries = await capture_entries(tx, tasks)
             value = change(
                 TaskTx(tx, self.conversation_id, self.task_id),
                 cast(Tree, OwnedJson(current).thaw()),
@@ -270,15 +279,31 @@ class TaskRuntime:
                 staged_conversations,
                 tx.staged_entries(),
             )
-            if not waiting and _owned(
+            from .tool_graph import model_call, overlay, reconcile
+
+            supported_leaf = await model_call(
+                tx,
                 current,
-                (*tasks, *staged_tasks),
-                (*conversations, *staged_conversations),
+                overlay(tasks, tx),
+                list((*conversations, *staged_conversations)),
+                graph_entries,
+            )
+            if (
+                not waiting
+                and supported_leaf is None
+                and _owned(
+                    current,
+                    (*tasks, *staged_tasks),
+                    (*conversations, *staged_conversations),
+                )
             ):
                 raise UnsupportedTaskExecution("Task ownership joins require DE15")
             if value is None:
                 return
             assert state is not None
+            from .tool_values import blocked_transition
+
+            blocked = blocked_transition(current, state)
             if (
                 type(state) is not dict
                 or state.get("status")
@@ -287,6 +312,7 @@ class TaskRuntime:
                     "terminal",
                 )
                 and not waiting
+                and not blocked
             ):
                 raise UnsupportedTaskExecution(
                     "Only running and terminal transitions are supported"
@@ -294,6 +320,13 @@ class TaskRuntime:
             tx.set_task(
                 _state(current, state, progress=not json_equal(current["state"], state))
             )
+            if self._scheduler._tool_execution_enabled():
+                await reconcile(
+                    tx,
+                    tasks,
+                    graph_entries,
+                    list((*conversations, *staged_conversations)),
+                )
 
         ignored: object = await self._scheduler._gated(
             self._invocation, cast(Callable[[AsyncTx, Tree], Awaitable[object]], apply)
@@ -351,6 +384,38 @@ class TaskTx:
             cursor = page.next
             if cursor is None:
                 return tuple(result)
+
+    async def model_tool_call(self) -> Any:
+        from .tool_graph import model_call, overlay
+
+        found = await self._tx.task(self._task_id)
+        if found is None:
+            raise UnsupportedTaskExecution("Model tool no longer exists")
+        value = await model_call(
+            self._tx,
+            found.to_tree(),
+            overlay(await _tasks(self._tx), self._tx),
+            await _conversations(self._tx),
+        )
+        if value is None:
+            raise UnsupportedTaskExecution("Model tool authority is incompatible")
+        return value
+
+    async def tool_round(self) -> Any:
+        from .tool_graph import overlay, result, round_context
+
+        found = await self._tx.task(self._task_id)
+        if found is None:
+            raise UnsupportedTaskExecution("Tool round no longer exists")
+        parent = found.to_tree()
+        value, assistant, snapshot = await round_context(self._tx, parent)
+        rows = overlay(await _tasks(self._tx), self._tx)
+        outputs = []
+        for call, slot in zip(assistant.tool_calls, value["slots"], strict=True):
+            outputs.append(
+                await result(self._tx, parent, value["assistant"], call, slot, rows)
+            )
+        return value, assistant, snapshot, tuple(outputs)
 
     def create_task(self, task: Task[Any, Any, Any], input: object) -> Any:
         """Own before suspension; callers cannot select another owner or scope."""
@@ -496,6 +561,14 @@ class TaskScheduler:
     async def _recover(self) -> None:
         async def change(tx: AsyncTx) -> None:
             rows = await _tasks(tx)
+            conversations = await _conversations(tx)
+            from .tool_graph import capture_entries
+
+            graph_entries = (
+                await capture_entries(tx, rows)
+                if self._tool_execution_enabled()
+                else {}
+            )
             # Commit observation installs replacements. Seed every unchanged row
             # on the line before publication; every value is already owned.
             captured = {r["id"]: TaskRecord(r) for r in rows}
@@ -510,6 +583,10 @@ class TaskScheduler:
                     )
                     pending["restarts"] = row.get("restarts", 0) + 1
                     tx.set_task(pending)
+            if self._tool_execution_enabled():
+                from .tool_graph import reconcile
+
+                await reconcile(tx, rows, graph_entries, conversations)
 
         try:
             ignored: object = await self._session.acommit(
@@ -583,8 +660,18 @@ class TaskScheduler:
         async def change(tx: AsyncTx) -> None:
             nonlocal tentative
             rows, conversations = await _tasks(tx), await _conversations(tx)
+            from .tool_graph import capture_entries
+
+            graph_entries = (
+                await capture_entries(tx, rows)
+                if self._tool_execution_enabled()
+                else {}
+            )
+            rows = await self._reconciled(tx, rows, graph_entries, conversations)
             for row in rows:
-                definition = self._candidate(row, rows, conversations)
+                definition = await self._candidate(
+                    tx, row, rows, conversations, graph_entries
+                )
                 if definition is None:
                     continue
                 invocation = _Invocation(
@@ -628,8 +715,38 @@ class TaskScheduler:
                 return None
             raise
 
-    def _candidate(
-        self, row: Tree, rows: list[Tree], conversations: list[Tree]
+    async def _reconciled(
+        self,
+        tx: AsyncTx,
+        rows: list[Tree],
+        graph_entries: dict[int, EntryRecord],
+        conversations: list[Tree],
+    ) -> list[Tree]:
+        if not self._tool_execution_enabled():
+            return rows
+        from .tool_graph import reconcile
+
+        return await reconcile(tx, rows, graph_entries, conversations)
+
+    def _tool_execution_enabled(self) -> bool:
+        from .generation_tasks import TOOL_NAME, TOOL_VERSION
+
+        key = identity(TOOL_NAME)
+        with self._guard:
+            definition = self._definitions.get(key)
+        return (
+            definition is not None
+            and definition.version == TOOL_VERSION
+            and {"call", "execute", "settle"} <= set(definition.phases)
+        )
+
+    async def _candidate(
+        self,
+        tx: AsyncTx,
+        row: Tree,
+        rows: list[Tree],
+        conversations: list[Tree],
+        graph_entries: dict[int, EntryRecord],
     ) -> Task[Any, Any, Any] | None:
         if (
             row["state"]["status"] != "pending"
@@ -637,13 +754,20 @@ class TaskScheduler:
             or row.get("abandonOnRestart")
         ):
             return None
-        definition = self._definitions.get(identity(row["kind"]))
-        if (
-            definition is None
-            or definition.version != row["version"]
-            or _owned(row, rows, conversations)
-        ):
+        from .tool_values import blocked_record
+
+        if blocked_record(row):
             return None
+        key = identity(row["kind"])
+        with self._guard:
+            definition = self._definitions.get(key)
+        if definition is None or definition.version != row["version"]:
+            return None
+        if _model_tool(row) or _owned(row, rows, conversations):
+            from .tool_graph import model_call
+
+            if await model_call(tx, row, rows, conversations, graph_entries) is None:
+                return None
         return definition
 
     def _retire(self, invocation: _Invocation) -> None:
@@ -682,6 +806,12 @@ class TaskScheduler:
             current = cast(Tree, record.to_tree())
             if current["state"]["status"] != "running" or current["abortRequested"]:
                 raise InvocationEnded("Task is not an unmarked running task")
+            rows, conversations = await _tasks(tx), await _conversations(tx)
+            if _model_tool(current) or _owned(current, rows, conversations):
+                from .tool_graph import model_call
+
+                if await model_call(tx, current, rows, conversations) is None:
+                    raise InvocationEnded("Model tool authority ended")
             value = change(tx, current)
             while inspect.isawaitable(value):
                 value = await value
@@ -713,7 +843,11 @@ class TaskScheduler:
                 self._end(invocation)
                 return None
             rows, conversations = await _tasks(tx), await _conversations(tx)
-            if _owned(current, rows, conversations):
+            from .tool_graph import model_call
+
+            if (
+                _model_tool(current) or _owned(current, rows, conversations)
+            ) and await model_call(tx, current, rows, conversations) is None:
                 self._end(invocation)
                 tx.set_task(
                     _state(

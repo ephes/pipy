@@ -1090,3 +1090,23 @@ Assistant/usage/real tool admissions settle atomically before observation. The
 bounded waiting admission pulls no general graph scheduler forward: owned leaf
 execution/wake is DE08 and full ownership is DE15. Product/CLI activation and
 committed streaming remain their assigned later slices.
+
+
+## Private durable tools (DE08)
+
+The package inventory adds four internal modules without product entry points:
+
+| Module under native/durable | Authority |
+| --- | --- |
+| tool_execution.py | Fixed captured registrations, acknowledged intent, existing synchronous ToolExecutor through owned_call, receipt/settlement phases |
+| tool_graph.py | Session-line direct-owned-leaf eligibility, saved slots/prior receipts and exact allSettled parent reconciliation |
+| tool_values.py | Closed versioned intents/checkpoints/nativeToolOutput receipts and payload-free refusal |
+| tool_history.py | Committed closed-round entry order and next-prepare seed over existing canonical DTOs |
+
+[scheduler](durable-task-runtime.md) retains its single consistently guarded
+registry and existing Session close owner. [Generation](durable-generation.md)
+consumes the saved closed-round order, advances a fresh request and uses a
+per-request material memo. [Tool policy](durable-tools.md) keeps unknown replay
+unsafe and holds real invocation/finalizer lifetime. This adds no second storage,
+auth, UI coordinator or general graph authority. The actual Pi successor-task
+versus native same-parent difference remains an explicit DE15/28 obligation.

@@ -33,7 +33,7 @@
     "scripts/durable_delta_ops_comparison.py": "0bf32213f69353530c4e11d2668e90e6fc715dc39fbffa08156f013f2e457d4f",
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
     "scripts/durable_reference/cases/storage-current-deltas.mts": "6273a79a76c436c31edea0a7c54432ede3a0f04ef684637ab9c97e488f7a245b",
-    "scripts/durable_reference_acceptance.py": "398f14dc955d2dd42a1ac4d7868fb7c3b7c3bdcf6f756b258805f9fbc1948ce3",
+    "scripts/durable_reference_acceptance.py": "e96f324303875b2ed94caffd489e9ef2c50108a979a29673e5024314b45facf1",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",

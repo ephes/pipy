@@ -39,9 +39,10 @@ upstream and is unsupported here. TaskTx adds only current-conversation reads
 and current-owner child creation. Waiting admission is restricted to the actual
 new generation children and `allSettled`; terminal live-child refusal remains.
 
-DE07 holds admitted tool rounds without execution or continuation. DE08 must
-provide direct owned-leaf eligibility, tool intent/result/safety, captured-parent
-wait reconciliation on the Session line and generation continuation. DE15 still
+The original DE07 admission token holds rounds without execution. Registering
+[DE08's real tool definition](durable-tools.md) enables direct owned-leaf
+eligibility, tool intent/result/safety, captured-parent wait reconciliation on
+the Session line and fresh-request generation continuation. DE15 still
 owns general graph/wait/cycle/completing/background semantics. Retries/deferred
 handles remain DE17, committed partials DE26, and product projection DE09–12.
 All original DE07/P15/P16/P17/P19 acceptance remains; all43 parity rows are OPEN.
@@ -88,7 +89,8 @@ call's actual result entry. The runtime verifies its newly staged assistant and
 all offered call inputs, exact owner/conversation/version, complete wait list and
 retained receipt before admitting waiting. ToolTask has its actual version2
 initializer and no executable phases yet; there is no success/no-op placeholder.
-No owned child dispatches until DE08 supplies its documented execution/wake seam.
+Owned children dispatch only with the explicit [DE08 tool definition](durable-tools.md);
+the original admission token remains non-executable.
 
 The comparison phase `generation-b-v1` runs actual pinned Harness generation,
 transactions, usage and atomic admission on SQLite, using the fixed streamSimple
@@ -126,3 +128,12 @@ inspection without credentials. Their acceptance must include multi-generation
 stored-byte growth tests and retained-old-format recovery. Full-feature
 acceptance must resolve this debt or record an explicit justified storage budget;
 it cannot disappear merely because DE07 is complete.
+
+
+DE08 preserves each closed round's committed slot order for later context reads,
+including unavailable results physically written before other calls complete.
+Every new prepare has a distinct seed/request/attempt and per-request material
+memo; recovered request/receipt phases keep their original identity. Native
+currently advances its same parent, whereas pinned Pi creates a successor
+generation task. [The bounded graph difference](durable-tools.md#logical-round-and-graph-boundary)
+remains with DE15/28 before full exposed ownership/graph parity is accepted.

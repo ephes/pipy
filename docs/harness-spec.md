@@ -4848,3 +4848,17 @@ explicit resume, recovery and lifecycle-owned invocation joins. All original
 process-cut/atomicity/failure cells remain mapped in the acceptance ledger.
 DE07 is next; full definition/ownership/cancellation/reload semantics retain
 DE14/15/16/23 ownership. All43 P rows remain OPEN.
+
+
+## Private durable tools (DE08)
+
+[Tool execution](durable-tools.md) uses the existing Session/scheduler/lifecycle
+owner for actual model-owned leaves, acknowledged intent and committed receipt
+recovery. Unknown safety defaults unsafe; annotations are unverified hints.
+Captured slots control both dispatch and next-request result order. An unsafe
+interrupted call blocks later work in its round; unrelated conversations remain
+independent. Actual tool/finalizer exit precedes backend and path-lock release.
+DE09 completed-message projection is next. Full graph, unsafe continuation,
+extensions/modes and history/retention retain DE13/15/24/25/27/28/30 ownership;
+all43 P rows remain OPEN. The Pi successor-task/native same-parent distinction
+is an explicit full-graph compatibility obligation, not whole-graph parity.

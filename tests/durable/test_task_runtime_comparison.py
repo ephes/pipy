@@ -50,3 +50,21 @@ def test_run_under_stores_ancestor_keeps_its_artifacts(tmp_path):
     run.mkdir(parents=True)
     (run / "input.json").write_text("actual input")
     assert m.artifact_hashes(run) == {"input.json": m.o.sha(run / "input.json")}
+
+
+def test_actual_transitive_product_imports_are_bound_and_unlisted_import_refuses(
+    monkeypatch,
+):
+    modules = m.native_modules()
+    assert "src/pipy_harness/native/durable/tool_graph.py" in modules
+    assert "src/pipy_harness/native/durable/generation.py" in modules
+    assert "src/pipy_harness/native/provider_construction.py" in modules
+    assert all(
+        path in m.CLOSURE and digest == m.o.sha(ROOT / path)
+        for path, digest in modules.items()
+    )
+    monkeypatch.setattr(
+        m, "CLOSURE", m.CLOSURE - {"src/pipy_harness/native/provider_construction.py"}
+    )
+    with pytest.raises(m.o.EvidenceError, match="outside closure"):
+        m.native_modules()

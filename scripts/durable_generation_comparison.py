@@ -56,6 +56,10 @@ from pipy_harness.native.durable.scheduler import TaskScheduler  # noqa:E402
 from pipy_harness.native.durable.session_core import Session  # noqa:E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa:E402
 from pipy_harness.native.durable.storage import EntryQuery
+
+# Actual generation phases reach this pure history dependency lazily; fresh
+# postexecution attestation imports the identical source root without effects.
+from pipy_harness.native.durable.tool_history import ORDER_DOC  # noqa: E402,F401
 from pipy_harness.native.http import JsonResponse
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition

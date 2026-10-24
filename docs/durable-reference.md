@@ -1392,3 +1392,45 @@ compare normalized actual model totals with the same assistant usage; a doubled
 native aggregate fails even with its request-to-entry settlement map unchanged.
 Actual close reason replaces the previous constant lifetime flag. The native
 held-thread proof is distinct from any Pi lifecycle claim.
+
+## Owned tool execution (DE08)
+
+`tool-execution-b-v1` is the seventeenth source-closed phase, with
+`tool-execution-v1.manifest.json` parented by the generation manifest. Run
+`scripts/durable_tool_comparison.py run --acceptance <fresh-parent> --output <new-output>`,
+then independently call `attest(output, parent)` in a fresh Python process.
+The producer recipe is `tests/fixtures/durable/tools-input-v1.json`.
+Producer/recipe paths are immutable; every mutant/malformed body lives under
+mutants/, every process receipt/stream under processes/. Hash exclusions apply
+only to this run's root result and relative stores/ subtree; nested result.json
+and input.json files remain bound. Native exact records and Pi raw task/result/
+request/usage/publication records stay outside the excluded database subtree.
+
+Actual pinned Harness tool tasks perform prepare/intent/effect/settle, allSettled
+and reopen recovery. An explicit keyed fake tool independently counts invocation
+attempts and deduplicated applications; a fixed provider stream uses actual
+pi-ai pricing and built-in generation/usage. Five cases cover a full owned round
+with unavailable call-order results and all four stored/current replay safety
+combinations. The common profile `owned-tool-prefix-and-closed-round-v1` compares
+actual arguments/key relations/attempts/applications/preparation and acknowledged
+intent, closed-round result order, fresh request/cutoff, usage presence and real
+resume/idle receipt reuse. CLI0 equal, CLI1 schema-valid semantic mutants and
+CLI2 malformed receipts are independently retained and attested.
+
+Unsafe recovery compares only its effect/replay prefix: Pi emits an interrupted
+error and continues; native Milestone A blocks. Exact raw outcomes retain that
+difference, with native blocking proved separately. Pi creates a successor
+generation task; native advances the same parent with a fresh request. Full
+exposed graph compatibility is an explicit DE15/28 obligation, not whole-graph
+parity. Native SIGKILL/ack/adoption/storage and actual worker/finalizer/OS-lock
+proofs remain separate from Pi evidence. See [the tool contract](durable-tools.md).
+
+
+DE08 extends the retained DE05b runtime producer's source accounting for the
+scheduler's new graph/generation dependencies. Its manifest now explicitly
+closes the complete local src inventory, and native module receipts hash every
+actually imported product module, refusing any unlisted/outside-checkout origin.
+The same real lazy dependency roots are imported for fresh-process attestation;
+attestation verifies sources without rerunning effects. The former18-module
+prelisted durable map did not bind these newly reached dependencies. Earlier
+runtime recipe outcomes are unchanged; old diagnostics remain historical.

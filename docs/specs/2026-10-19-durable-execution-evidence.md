@@ -1,7 +1,7 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; all parity rows OPEN**,
-2026-10-23. This ledger accompanies the
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08 LANDED; all parity rows OPEN**,
+2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
 index, not an upstream comparison result. The prototypes are experimental
@@ -181,7 +181,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE06a | Additive canonical DTO codec; depends DE02a1 | LANDED | caf4d34e; Opus5.5 HIGH R2 CLEAN unscoped, full local check green, two fresh chains and push/remote verified |
 | DE06b | Actual task checkpoint/envelope integration; depends DE05 + DE06a | LANDED | Canonical checkpoint acceptance below; normal review/check/delivery gates must pass before commit/push |
 | DE07 | Durable generation phases | LANDED | [Generation acceptance](#de07-generation-acceptance); normal review/check/delivery gates must pass before commit/push |
-| DE08 | Sequential tool intents and blocked uncertainty | OPEN | None; all gates OPEN |
+| DE08 | Sequential tool intents and blocked uncertainty | LANDED | [Tool execution acceptance](#de08-tool-execution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE09 | Completed-message projection | OPEN | None; all gates OPEN |
 | DE10 | Compatibility, inspect and recovery resolutions | OPEN | None; all gates OPEN |
 | DE11 | Opt-in Python product session | OPEN | None; all gates OPEN |
@@ -288,10 +288,10 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation supplies its bounded execution/admission join; DE08 is next; DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation; DE09 is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
-`gpt-6.1-sol` HIGH implements DE07; Claude Code `claude-opus-5-5` (Opus5.5)
+`gpt-6.1-sol` HIGH implements DE08; Claude Code `claude-opus-5-5` (Opus5.5)
 HIGH reviews the whole slice first and accepted repairs against the actual prior
 baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
 pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
@@ -8427,3 +8427,77 @@ cannot drain before explicit resume. The actual paired fixtures were unaffected,
 and production generation code is unchanged. This is an advisory verdict, not
 CLEAN; any additional review must be justified only by the owner's explicit
 clean-gate requirement and verify this narrow optional-field/docs delta.
+
+
+## DE08 tool execution acceptance
+
+Against delivered DE07 `9f6ef9cf`, actual pi.tool version2 model inputs execute
+through the existing native ToolExecutor, Session line, storage and lifecycle.
+Default rounds retain atomic admission of all actual children. Direct leaf
+eligibility, runtime writes and settlement validate current owner/conversation/
+input/call/slot/prior receipts; terminal live-descendant refusal remains universal.
+Matching allSettled parent wake and reopen reconciliation occur on that same line.
+
+| Original DE08 acceptance | Executable mapping |
+| --- | --- |
+| Pending runs once | Actual Memory/SQLite owned loop and three-turn/unavailable-only rounds; ToolExecutor prepares once, saved final args validate again without another prepare |
+| Safe explicit fixture retries | All four stored/current policies after real effect/SIGKILL; actual call/application tables independently prove stable key/args and application deduplication |
+| Unsafe intent/effect cuts block even if effect absent | Pre-prepare/pre-intent/intent-COMMIT/pre-invoke/post-effect barriers and zero-effect uncertainty; later captured children/parent provider remain unstarted; readonly/idempotent hints remain unverified |
+| Result-commit loss reuses receipt | Before/after receipt/result/final-child COMMIT; before/ack/adoption failure seals original owner; actual backend rows differ old/new truth; reopen with missing registry consumes receipt without tool/preparer |
+| No next provider on block | Actual blocked pending checkpoints remain nondispatchable across repeated reopen/restoration; unrelated conversation stays healthy; unsupported terminate/modes/callbacks never silently continue |
+| Current/stored drift fails closed | Implementation revision/schema/workspace/missing resource and policy intersection; corrupt/newer/missing/wrong-key receipt; reservation/commit owner/input/live-descendant and lateabort gates |
+| Tool safety docs | [Private API, replay and graph contract](../durable-tools.md), explicit unsafe default and native/MCP unknown-contract boundary; no unchanged-file or annotation inference |
+| Required lifetime/fidelity/fault supplement | Rich missing/null/blocks/details/raw args/correlation/duration/flags, numeric model usage once; held real ToolExecutor/finalizer and cancelled close; independent fresh-process lock refusal until actual exit/join |
+| Genuine pinned evidence | Built-in Harness tools/transactions/waits/SQLite/reopen with explicit fixed provider/keyed tool seams; five cases and schema-valid mutants/CLI0/1/2; raw differences retained |
+
+The paired `owned-tool-prefix-and-closed-round-v1` profile does not equate unsafe
+continuations: pinned Pi emits an interrupted error and continues; native blocks
+under Milestone A. Pi finishes its generation and creates a successor task;
+native currently advances the same parent with fresh request/attempt/turn/material
+identity. Full exposed graph/ownership/lifecycle compatibility remains DE15/28
+before whole-feature acceptance. Exact raw task graphs are not erased. Native
+process/worker/OS-lock evidence is separate from Pi observations. Native tool
+results supply no token usage, so the current tool ledger is honestly empty;
+model request settlements and numeric totals are asserted without repricing.
+
+The first actual Node attempt exited0 but its positive comparator failed because
+the fixture selected an already-completed generation on the second request and
+faulted the real successor at a nonexistent checkpoint.cutoff. The selector now
+reads the actual running request. The repaired exploratory producer matched all
+five common cases. Failed TaskQuery fixture/namespace and Node diagnostics stay
+retained outside git and are not final gates. Normal delivery still requires an
+actual source-closed execute followed by independent attestation, exact-source
+Opus5.5 HIGH CLEAN, supported Python/Linux, strict docs, full local check and two
+fresh complete17phase chains. The LANDED registry describes this coherent slice;
+commit/push identities and gate receipts belong to the external DELIVERY record.
+All original DE08/P20/P21/P22 cells and all43 whole OPEN P rows remain intact.
+
+
+### DE08 first independent review and bounded repair
+
+Primary Opus5.5 HIGH R1 reviewed tree
+`2d79eb4be66fd36f612cbad59c00d6cac7fdec64`, baseline
+`c4f12a1b93f44a054b74b105fb93739839b648f1`: ISSUES, one Warning and two
+Suggestions; no skipped/truncated/redacted/denied inputs, copy removed. All three
+are accepted as narrow correctness/coverage/documentation repairs. The native
+common completed-round predicate now requires terminal plus completed outcome,
+matching Pi. A valid faulted raw TaskRecord derived from an actual native run
+failed the old predicate assertion (True instead of False); the repaired test
+and terminal-only semantic mutant discriminate it without changing other fields.
+
+The stale driver admission-only description is corrected. Unsupported terminate
+remains a recorded control hold: non-final leaves the parent waiting and later
+calls unstarted because its committed result asks to terminate; final/only closes
+the children and leaves the parent pending/blocked. Actual single/final-call
+coverage exercises generation blocked_record/blocked_transition. The unused
+unsupported_control reason is removed. DE10 must explain the retained-control
+hold in inspection; full termination remains DE25/30. No termination/graph policy
+is silently added or completed.
+
+The focused repaired boundary/comparison selection passed50, including the
+failing-old raw-record regression and the actual single/final terminate paths.
+Prior execute/attestation and source-bound receipts remain pre-repair diagnostics.
+A fresh actual execute/fresh-process attestation, recascaded manifests, exact
+source freeze and R1-baseline repair review are required. Re-review adds value
+because the Warning weakened evidence discrimination. The same DE08 ledger and
+actual baseline are retained; no redundant full-slice audit follows valid CLEAN.

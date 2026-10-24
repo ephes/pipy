@@ -540,6 +540,7 @@ def test_current_delivery_gate_names_current_reviewer_and_lanes():
     assert "DE04 and all its children are delivered" in current
     assert "DE05a" in current and "DE05b" in current
     assert "Delivered DE06a" in current and "DE07 generation" in current
+    assert "DE08 tool" in current and "DE09" in current
     assert "claude-opus-5-5" in current and "HIGH" in current
     assert "Codex gpt-6.1-sol HIGH CLEAN" not in current
     assert "All43 P rows remain OPEN" in current
@@ -799,7 +800,25 @@ def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundarie
     assert "all real generation-owned tool admissions" in row["current"]["observables"]
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE08", "DE13", "DE14", "DE15", "DE17", "DE26")
+        for key in ("DE09", "DE13", "DE14", "DE15", "DE17", "DE26")
+    )
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+
+
+def test_tools_owns_actual_bounded_acceptance_without_closing_full_parity():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    row = rows["DE08"]
+    assert row["status"] == "LANDED" and row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == ["tool-execution-b-v1"]
+    assert row["evidence"][0] == a.LEDGER + "#de08-tool-execution-acceptance"
+    assert "unsafe intent/effect cuts block even if effect absent" in row["future"]
+    assert "stored prepared args" in row["contract"]
+    assert "Pi successor task" in row["current"]["observables"]
+    assert all(
+        rows[key]["status"] == "OPEN"
+        for key in ("DE09", "DE13", "DE15", "DE24", "DE25", "DE28", "DE30")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")

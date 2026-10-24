@@ -113,4 +113,13 @@ all current tasks; live-graph indexing/retention and performance ownership remai
 DE27/28. It has no migration, park/retry, full task ownership, sleep, abort-handler,
 tool execution or product activation claim. DE07 supplies the bounded provider
 phase lifetime and real tool admission described in the generation contract;
-owned child dispatch/wake remains DE08, general waits/graphs DE15.
+[DE08](durable-tools.md) supplies the direct owned model-tool leaf and exact
+matching-parent allSettled wake; general waits/graphs remain DE15.
+
+
+The direct model-tool exception is checked at candidate, phase-start and runtime
+commit boundaries, with current token/abort/input/owner/conversation/round-slot
+and prior-result checks. It distinguishes a leaf being owned from a task owning
+live descendants. Terminal live-child refusal stays universal. Graph I/O runs
+only on the Session line; the lifecycle condition guards scheduler metadata and
+never wraps callbacks, backend reads, joins or foreign-reference disposal.

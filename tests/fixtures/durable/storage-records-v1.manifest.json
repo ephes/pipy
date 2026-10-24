@@ -2,7 +2,7 @@
   "schema_version": 1,
   "phase": "values-records-a1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "f4d1f41096019c8d2f2b0ca94fd863b91c7d32fef04f5e108aabf2ded21b396c",
+  "baseline_manifest_sha256": "bf8ff55104cb1cd92b01e79b665cba9249d8740432e13fb250456a6fd00519ab",
   "closure": {
     "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
     "scripts/durable_storage_comparison.py": "b4f1e47b6767b2983d5fe3248492e5aedc4f7cb3a2aba802f2acfc0cd71aa577",
