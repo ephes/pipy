@@ -855,11 +855,35 @@ def test_inspection_owns_full_acceptance_and_retains_whole_parity():
     assert "retry is a new authorized attempt" in row["future"]
     assert "ANY blocked receipt hold" in row["current"]["observables"]
     assert "metadata only" in row["current"]["observables"]
-    assert rows["DE11"]["status"] == "OPEN"
+    assert rows["DE11"]["status"] == "LANDED"
+    assert rows["DE12"]["status"] == "OPEN"
     assert all(
         rows[key]["status"] == "OPEN"
         for key in ("DE13", "DE14", "DE15", "DE20", "DE24", "DE28", "DE41")
     )
     assert all(
         value["status"] == "OPEN" for key, value in rows.items() if key.startswith("P")
+    )
+
+
+def test_product_session_preserves_original_acceptance_and_whole_parity():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    row = rows["DE11"]
+    assert row["status"] == "LANDED" and row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == ["product-session-v1"]
+    assert row["evidence"][0] == a.LEDGER + "#de11-opt-in-product-session-acceptance"
+    assert "hard kill + reopen finish" in row["future"]
+    assert (
+        "unsupported compaction/tree/fork/reset/queued input/extension injection"
+        in row["future"]
+    )
+    assert "no accepted unpersisted input" in row["future"]
+    assert rows["DE12"]["status"] == "OPEN"
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+    assert rows["P16"]["owners"] == ["DE06", "DE07", "DE10", "DE12"]
+    assert all(
+        rows[key]["current"]["cases"] == ["product-session-v1"]
+        for key in ("P41", "P42")
     )

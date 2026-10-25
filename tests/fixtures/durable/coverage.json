@@ -865,16 +865,20 @@
         "New session + one request + hard kill + reopen finish; executable tests reject unsupported compaction/tree/fork/reset/queued input/extension injection before admission, with no JSONL file or volatile queue claim; no accepted unpersisted input or workflow archive payloads; errors/close leave all locks/workers correct; legacy SDK behavior stays green. `sdk.md`, `session-storage.md`."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "product-session-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE11: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Expose opt-in new durable Python product-session factory plus explicit reopen/close, with one path authority; adapt existing `coding/product_session.py` seams. Existing defaults stay until DE44."
+        "observables": "Actual opt-in async public Python SQLite factory, empty exact reopen, atomic one entry+initialized generation+initial pointers, explicit resume and guarded disable/quiesce through real reservation/phase/finalizer/retirement. Rooted derived-only retry and all-store live preflight prevent siblings/unbound dispatch; same-nonce winners recover without a second header pointer commit. Real public API all-native-family fake wires, rich owned values, saved pricing, unsupported Milestone A refusal before effects, callback/reentry, cancellation/loop teardown and fresh-process leases; actual SIGKILL admission/provider/tool/final cuts with independent counted fake effects, paid-reissue uncertainty and held unsafe tools. Genuine pinned public Harness/Conversation admission/completion/usage/empty+terminal reopen compare only the declared common subset; native explicit resume/one input/privacy/retry/lifetime remain separate policy. Real CLI0/1 semantic and CLI2 malformed controls, own fresh pure attesters, actual source/module/artifact/process closure. First prepare remains private target authority; CLI/live/P16 proof DE12, unsafe continuation DE13, whole SDK/modes/queues/defaults later. Independent CODE CLEAN/full/platform/docs/two fresh20phase chains gate delivery; all43 whole P rows OPEN. Positive later-page hold recaptures actual parent metadata; deterministic pre-read/terminate-commit barrier matches independent current inspection, with invalid-result sibling preserving parent reason None and one counted effect."
       },
       "future": "New session + one request + hard kill + reopen finish; executable tests reject unsupported compaction/tree/fork/reset/queued input/extension injection before admission, with no JSONL file or volatile queue claim; no accepted unpersisted input or workflow archive payloads; errors/close leave all locks/workers correct; legacy SDK behavior stays green. `sdk.md`, `session-storage.md`.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de11-opt-in-product-session-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-product-session.md"
       ],
       "inherited_reference": {
         "owners": [],
@@ -3512,17 +3516,20 @@
         "DE11–12, DE41–44"
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "product-session-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
+        "observables": "Bounded DE11 public async Python single-input factory/reopen/resume/close over one native SQLite/Session authority with private DTO and real process/fault/lifetime controls. Genuine pinned common admission/completion comparison only; full CLI/TUI/RPC, queued input, streams, abort, compaction/tree, export/import/migration/default adoption remain with original future owners. Whole row stays OPEN."
       },
       "future": "Native SDK/headless/TUI/RPC recovery, queued input/stream/abort/retry/compaction/tree behavior uses same authority",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
-        "docs/durable-reference.md"
+        "docs/durable-reference.md",
+        "docs/durable-product-session.md"
       ],
       "inherited_reference": {
         "owners": [],
@@ -3553,17 +3560,20 @@
         "DE10–12, DE40–44"
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "product-session-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
+        "observables": "Bounded DE11 public async Python single-input factory/reopen/resume/close over one native SQLite/Session authority with private DTO and real process/fault/lifetime controls. Genuine pinned common admission/completion comparison only; full CLI/TUI/RPC, queued input, streams, abort, compaction/tree, export/import/migration/default adoption remain with original future owners. Whole row stays OPEN."
       },
       "future": "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
-        "docs/durable-reference.md"
+        "docs/durable-reference.md",
+        "docs/durable-product-session.md"
       ],
       "inherited_reference": {
         "owners": [],
@@ -3650,7 +3660,7 @@
           "duplicate-effect",
           "post-abort-write"
         ],
-        "observables": "minimal actual MemoryStorage session/document commit, rollback, detached historical value and close; one faux rich/null tool round with histories, canonical message fields, provider requests and usage; recorded reset/summary/head selection with full history and selected context views; cooperative SQLite close/reopen four stored/current policies, actual effects1/2/1/1 and unsafe interrupted-error continuation; no process-death claim; actual durable abort mark, refused late memo/commit, callback not entered and fresh abort outcome; two exported NodeEnv cases: byte reader lifetime/errors and literal argv, not full filesystem/watch/platform suite; bounded MemoryStorage twelve exported reads/three writes with persisted readbacks, hardware/counts, no performance parity or other backends"
+        "observables": "minimal actual MemoryStorage session/document commit, rollback, detached historical value and close; one faux rich/null tool round with histories, canonical message fields, provider requests and usage; recorded reset/summary/head selection with full history and selected context views; cooperative SQLite close/reopen four stored/current policies, actual effects1/2/1/1 and unsafe interrupted-error continuation; no process-death claim; actual durable abort mark, refused late memo/commit, callback not entered and fresh abort outcome; two exported NodeEnv cases: byte reader lifetime/errors and literal argv, not full filesystem/watch/platform suite; bounded MemoryStorage twelve exported reads/three writes with persisted readbacks, hardware/counts, no performance parity or other backends; DE11 additionally provides the separately source-closed product-session-v1 public admission/completed comparison and native policy/fault controls; no full performance or whole conformance claim."
       },
       "future": "Conformance runner/fixtures and useful performance bounds; no test skip or deviation substitutes for required behavior",
       "status": "OPEN",

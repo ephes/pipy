@@ -56,6 +56,7 @@ from pipy_harness.native.auth_store import ProviderAuthRequestConfig
 from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.provider_construction import ConstructionOptions
+from pipy_harness.native.providers.mistral_wire import MISTRAL_CONVERSATIONS_API
 from pipy_harness.status import HarnessStatus
 
 from .canonical_codec import decode_canonical, encode_canonical
@@ -272,10 +273,14 @@ def _validate_receipt(
 def _outcome_api(
     outcome: ProviderTurnOutcome, settings: PreparedProviderSettings
 ) -> None:
-    if outcome.result is not None and outcome.result.api not in (
-        None,
-        settings.to_tree()["api"],
-    ):
+    construction_api = settings.to_tree()["api"]
+    # These are the actual native adapters' replay identities, not aliases
+    # permitting another construction target (mistral.py/cloudflare.py).
+    replay_api = {
+        "mistral": MISTRAL_CONVERSATIONS_API,
+        "cloudflare-workers-ai": "openai-completions",
+    }.get(construction_api, construction_api)
+    if outcome.result is not None and outcome.result.api not in (None, replay_api):
         _fail()
 
 

@@ -5,7 +5,95 @@ Python agent runtime. If a Python program needs an agentic workflow, it should
 link pipy in-process through `pipy_harness.sdk` rather than shelling out to the
 `pipy` CLI.
 
-## Product session API
+## Opt-in async durable session
+
+`create_durable_product_session` and `open_durable_product_session` expose the
+new native SQLite task runtime explicitly. Existing SDK/CLI defaults remain
+unchanged. This Milestone A API accepts one literal input; `submit()` acknowledges
+its atomic durable admission, and a separate `resume()` executes it. It does not
+expand slash commands, load extensions, compact, fork or queue another input.
+
+```python
+from pathlib import Path
+from pipy_harness.sdk import (
+    DurableProviderProfile,
+    create_durable_product_session,
+    open_durable_product_session,
+)
+
+async def run(profile: DurableProviderProfile) -> None:
+    path = Path("/private/state/example.sqlite")
+    workspace = Path("/workspace/project")
+    async with await create_durable_product_session(
+        path, workspace=workspace, profile=profile
+    ) as session:
+        admission = await session.submit("Read the project and explain it")
+        result = await session.resume()
+        print(admission.generation_task_id, result.status)
+
+    async with await open_durable_product_session(
+        path, workspace=workspace, profile=profile
+    ) as session:
+        result = await session.resume()  # reuses committed work; no resubmission
+        print(result.inspection.outcome)
+```
+
+`DurableProviderProfile` takes an exact `NativeModelSpec` plus explicit absolute
+`auth_path`, detached `env` and the existing native construction options, pricing
+and optional host HTTP client. It captures values without resolving credentials;
+it does not accept an arbitrary live ProviderPort. Supply supported tool
+registrations through `tools`, or use the fixed native built-ins. An optional
+canonical `request_template` contains configuration and advertised tools, with
+empty user/history fields and no caller-selected session ID or live callback.
+
+Open never creates/promotes/imports a missing or uninitialized store and never
+dispatches. Empty created stores reopen before any input. Workspace/path and
+finite provider/model/API/tool selection remain bound; SQLite's real PathOwner
+refuses another owner. Database-basename symlinks/hard links retain its existing
+refusal checks. Logical passive reads can maintain WAL/SHM/lock diagnostics and
+normal close can checkpoint; they never migrate or write logical task records.
+
+A nonterminal unprepared resume requires an explicit current profile. Full
+private target/options/default/material binding occurs at first prepare; do not
+interpret accepted seed metadata as an earlier private-target guarantee. Prepared
+recovery consumes saved semantics, and target drift refuses before effect.
+Terminal resume/inspection needs no profile/auth/material/provider construction.
+Provider interruption before receipt can reissue a possibly paid request;
+committed receipts never re-call the provider. Interrupted unsafe tools remain
+held until explicit new-attempt authorization, not fabricated success.
+
+The facade is caller-loop affiliated. Cancellation detaches an API waiter while
+accepted work remains owned; await `close()` or use `async with` before destroying
+that loop. A second input refuses while busy. `observe_completed()` returns the
+actual completed watch; callbacks receive full canonical product content and
+remain caller-owned. Close stops future delivery without joining arbitrary
+consumer callbacks. `inspect()` returns metadata only. Do not put completed
+payloads, private frames/profile/audit or errors from external services in the
+metadata-only workflow archive.
+
+`authorize_retry(task_id, nonce=...)` returns numeric source/new IDs and stays
+paused. Tool retry preserves the original root. A retried generation requires
+`DurableRunSelection(new_task_id, nonce)` on resume/open; the initial binding is
+not overwritten, and there is no latest-row fallback. See the full
+[durable product contract](durable-product-session.md) for holds, capability
+refusals, actual lifetime and the explicit DE12/P16/later-slice boundaries.
+
+The default request template has an empty system prompt and loads no workspace
+context or files automatically, even when the fixed native built-ins are
+advertised. It is a bare model/tool session, not the normal coding-session
+prompt loader. Supply an explicit canonical `request_template` with the
+host-authorized system prompt/context and the exact advertised tool catalog
+when those are required; its user/history fields remain empty until admission.
+
+`inspect()` is a bounded metadata page. Pass its `next` cursor back as
+`inspect(cursor=page.next, limit=128)` until `next` is None; an empty page can
+still have a continuation because terminal rows are filtered after storage
+paging. Task-specific inspection does not accept paging. Explicit resume itself
+follows every page when determining a child's committed hold. Cursors belong
+to the existing same-store guarded read API, not a durable watch replay cursor.
+Invalid task IDs use fixed `DurableProductError("invalid_request")` before reads.
+
+## Synchronous product session API
 
 `create_product_session(...)` starts one synchronous native coding lifetime with
 an explicitly supplied tool-capable `ProviderPort`. `submit()` accepts nonempty

@@ -1,6 +1,6 @@
 # Durable inspection and operator recovery (DE10)
 
-This private native boundary uses the existing Session, Storage and scheduler. Product factories and CLI activation remain DE11/12.
+This private native boundary uses the existing Session, Storage and scheduler. The [DE11 async product factory](durable-product-session.md) composes this boundary; CLI activation remains DE12.
 The canonical DE10 acceptance includes compatibility, metadata-only inspection,
 supported versions, terminal reads without credentials, and serialized operator
 resolution; it is not only an inspection formatter.
@@ -147,3 +147,11 @@ Offline continuation reuses the existing positional Storage Cursor (after/order)
 with the same store and filter, even after an empty terminal-only page. Every
 page is a new committed read. It is not a durable replay cursor, a snapshot
 revision or a cross-store capability; no Session identity or lease is bypassed.
+
+
+The opt-in [DE11 async product session](durable-product-session.md) now composes
+this existing native authority. It admits one input atomically, executes only
+on explicit resume, and closes through actual Session ownership. Python
+activation does not activate the CLI or change legacy defaults. Full private
+target binding still occurs at first prepare; CLI/live and pre-prepare P16
+acceptance remain DE12. Broader parity obligations remain OPEN.

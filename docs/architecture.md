@@ -1126,7 +1126,7 @@ loop-owned acquisition task latches cancellation abandonment immediately; the
 real worker ticket retains backend lifetime even if wrappers/consumer loop end.
 No callback, loop wake, I/O, unsubscribe or final foreign-reference disposal runs
 under either guard. The observer has no mutation, scheduling, provider/tool/auth
-or usage-accounting authority. Factory/CLI activation remains DE11/12 and full
+or usage-accounting authority. The [DE11 async product factory](durable-product-session.md) supplies Python activation; CLI activation remains DE12 and full
 watch/context/stream/graph work remains DE20/26/27/28 and DE15/28.
 
 
@@ -1157,3 +1157,23 @@ SQLite validate_current retains the one real PathOwner across RO/WAL preflight
 and normal current-only RW validation/cleanup. Logical read-only is distinct from
 allowed filesystem maintenance. Product factory/CLI and broader migrations,
 graphs, controls and history/publication budgets retain their owning slices.
+
+
+## Opt-in durable Python product session (DE11)
+
+The [new async SDK facade](durable-product-session.md) composes one existing
+SQLite PathOwner, Session line and TaskScheduler host. Its private modules own
+closed captured profile values, exact header/retry binding, per-acquisition
+unclaimed-resource cleanup and a bounded signal-only commit wake. The public
+facade serializes control work on its caller loop; it adds no coordinator,
+JSONL writer, accepted-input queue or alternate host/storage authority.
+
+Create commits an empty product identity/conversation. Submit commits one user
+entry, initialized generation and both initial pointers together; explicit
+resume alone enables dispatch. The existing scheduler guard now owns a
+minimum disable-and-quiesce barrier through reservation, actual invocation,
+finalizer and retirement. All-store preflight and rooted nonce selectors keep
+unselected work from executing. Reads/open remain passive; cancellation drops
+waiters while accepted physical work retains the lease. Full private request
+binding remains first prepare. CLI/live acceptance and the corresponding P16
+boundary remain DE12; all43 whole parity rows remain OPEN.

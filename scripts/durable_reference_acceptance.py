@@ -290,6 +290,9 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE11",
+    "P41",
+    "P42",
     "DE10",
     "DE09",
     "P28",
@@ -313,6 +316,7 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE11": "de11-opt-in-product-session-acceptance",
     "DE10": "de10-inspection-and-operator-resolution-acceptance",
     "DE09": "de09-completed-projection-acceptance",
     "DE08": "de08-tool-execution-acceptance",
@@ -405,6 +409,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE08": ["tool-execution-b-v1"],
         "DE09": ["completed-projection-b-v1"],
         "DE10": ["inspection-v1"],
+        "DE11": ["product-session-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -449,6 +454,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE08": "docs/durable-tools.md",
         "DE09": "docs/durable-completed-projection.md",
         "DE10": "docs/durable-inspection.md",
+        "DE11": "docs/durable-product-session.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -624,6 +630,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"tool-execution-b-v1"} if key == "DE08" else set())
                 | ({"completed-projection-b-v1"} if key in {"DE09", "P28"} else set())
                 | ({"inspection-v1"} if key == "DE10" else set())
+                | ({"product-session-v1"} if key in {"DE11", "P41", "P42"} else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

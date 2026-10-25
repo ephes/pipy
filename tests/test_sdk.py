@@ -17,6 +17,15 @@ from pipy_session.recorder import SessionRecord
 
 def test_sdk_exports_expected_surface() -> None:
     expected = {
+        "DurableProductSession",
+        "DurableProviderProfile",
+        "DurableAdmission",
+        "DurableRunSelection",
+        "DurableRunResult",
+        "DurableProductError",
+        "UnsupportedDurableCapability",
+        "create_durable_product_session",
+        "open_durable_product_session",
         "AgentEvent",
         "AgentEventSink",
         "CodemodeOptions",

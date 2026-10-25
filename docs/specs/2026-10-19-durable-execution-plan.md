@@ -1,7 +1,7 @@
 # Native durable execution implementation plan
 
 Status: **execution authorized; DE01 and DE02 with all children landed;
-DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09/DE10 LANDED**,
+DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09/DE10/DE11 LANDED**,
 2026-10-24. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
@@ -865,3 +865,36 @@ graphs/nested tools/control semantics remain DE13/14/15/24/25/30, product factor
 and CLI DE11/12, and retention/publication budgets DE27/28/41. Original DE10 and
 all43 whole OPEN P cells remain. Independent CODE CLEAN and final full/platform/
 docs/two genuinely fresh19phase-chain receipts still gate commit and delivery.
+
+
+### DE11 opt-in Python product session
+
+[The async product facade](../durable-product-session.md) exposes create, exact
+open, one admission-only submit, explicit resume, inspect/completed observation,
+explicit new-attempt retry and actual close. It composes the existing native
+SQLite/Session/scheduler authority, with a minimum guarded disable-and-quiesce
+barrier and caller-loop control ownership. There is no legacy coordinator,
+JSONL/volatile queue, second host, latest-row selector or second pointer commit.
+
+The initial header/conversation is atomic and can reopen before input. The
+accepted user entry, initialized generation and both initial identities commit
+together. Derived generation retry preserves that seed and validates every
+private audit edge; same-nonce winners recover and fresh siblings refuse.
+Store-wide live preflight fences explicit resume. Unsupported Milestone A
+capabilities refuse before effects. Physical acquisition/provider/tool/read/
+finalizer lifetime survives canceled wrappers and retains SQLite ownership.
+
+First prepare remains the private target/options/default/material binding
+boundary. Unprepared reopen requires explicit current profile authorization;
+after prepare drift refuses before effects. Before receipt a provider request
+can be reissued and paid twice; unsafe tool uncertainty remains held and only
+explicit new authorization creates another attempt. No exactly-once claim.
+
+Actual public SQLite/fake-wire/SIGKILL and genuine pinned public
+Harness/Conversation comparisons retain raw observations and declared common
+completion/admission facts. Native-only product/lifetime policy is not Pi API
+parity. Original DE11 acceptance and every whole P cell remain intact. DE12
+retains CLI/live acceptance and the full P16 boundary comparison, DE13 unsafe
+continuation, DE15/28 graph shape, DE18/19 queues, DE20/26/27/28 views/streams,
+DE27/28/41 publication/retention budgets and DE41–44 broader/default adoption.
+Independent CODE CLEAN/full/platform/docs/two fresh20phase chains gate delivery.

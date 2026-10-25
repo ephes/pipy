@@ -50,7 +50,7 @@ All original DE09 acceptance remains: independent commit-before-callback reads,
 real process death after COMMIT/before delivery, ambiguous callback acknowledgement,
 counted effects, listener isolation, coalescing and truthful drain/stop lifetime.
 All 43 whole P rows remain OPEN. Full watch/stream/context/graph behavior retains
-DE20/26/27/28; unsafe continuation DE13; product activation DE11/12. The native
+DE20/26/27/28; unsafe continuation DE13; the opt-in [Python factory](durable-product-session.md) in DE11 and CLI in DE12. The native
 same-parent/Pi successor-task distinction remains DE15/28, and quadratic saved
 request-history retention remains DE27/28 debt.
 
@@ -196,3 +196,11 @@ linkage, checkpoint, intent, prepared arguments or material authority. Numeric
 replacement linkage belongs only to the explicit operation response/private
 winner. Real saved-frame/material negatives test actual DTO values, not repr.
 Pure operator metadata uses a separate allowlist and never attaches a watch.
+
+
+The opt-in [DE11 async product session](durable-product-session.md) now composes
+this existing native authority. It admits one input atomically, executes only
+on explicit resume, and closes through actual Session ownership. Python
+activation does not activate the CLI or change legacy defaults. Full private
+target binding still occurs at first prepare; CLI/live and pre-prepare P16
+acceptance remain DE12. Broader parity obligations remain OPEN.

@@ -144,3 +144,11 @@ on the line. Still-owned invocation/finalizer returns busy even after a blocked
 checkpoint commits. Late runtime writes remain fenced after retirement, and
 close never releases backend/path ownership early. No new scheduler flag, guard,
 observer writer, general retry/migration or graph engine is introduced.
+
+
+The opt-in [DE11 async product session](durable-product-session.md) now composes
+this existing native authority. It admits one input atomically, executes only
+on explicit resume, and closes through actual Session ownership. Python
+activation does not activate the CLI or change legacy defaults. Full private
+target binding still occurs at first prepare; CLI/live and pre-prepare P16
+acceptance remain DE12. Broader parity obligations remain OPEN.

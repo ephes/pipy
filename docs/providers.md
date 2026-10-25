@@ -677,3 +677,11 @@ attempts. Native fake-SSE tests count the standalone four-attempt transient case
 and the durable one-attempt case separately. Every real provider worker/finalizer
 remains join-owned through close; product defaults and legacy cancellation keep
 their existing behavior.
+
+
+The opt-in [DE11 async product session](durable-product-session.md) now composes
+this existing native authority. It admits one input atomically, executes only
+on explicit resume, and closes through actual Session ownership. Python
+activation does not activate the CLI or change legacy defaults. Full private
+target binding still occurs at first prepare; CLI/live and pre-prepare P16
+acceptance remain DE12. Broader parity obligations remain OPEN.

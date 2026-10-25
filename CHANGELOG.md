@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add an opt-in async durable Python product session with exact SQLite reopen,
+  one atomically accepted input and explicit resume. The same Session and
+  scheduler own provider/tool recovery, committed rich snapshots and explicit
+  new-attempt retry. Cancellation retains actual workers and path ownership;
+  unsupported compaction/tree/queues/extensions refuse before admission.
+  Existing synchronous SDK and CLI defaults remain unchanged. Headless CLI and
+  live-provider acceptance remain DE12; this is not full durable parity.
+
 - Add private metadata-only durable inspection and explicit operator retry.
   Pure reads never run task/auth/provider/tool code; existing-store inspection
   validates the effective WAL schema without migrating. Retry preserves old
@@ -15,7 +23,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   with any receipt remain held even when abort is requested. Invalid operator
   IDs use fixed inspection/resolution errors before reads or path access.
   Actual cleanup retains SQLite ownership.
-  Product factory/CLI activation and full migration/control policies remain later.
+  The opt-in Python factory is available; CLI activation and full migration/control policies remain later.
 
 - Add private committed completed-message/outcome snapshots with gapfree
   attachment, ordered tool-result prefixes, coalesced async observers and truthful
@@ -1021,6 +1029,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   remain usable without modifying the changelog file.
 
 ### Added
+
 
 - `pipy config inherit builtin <name>` puts a project's setting for a
   built-in extension (`mcp`, `codemode`, `tool-search`) back to inherit, as

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "phase": "product-session-v1",
+  "cases": [
+    {"id": "plain", "names": []},
+    {"id": "tools", "names": ["keyed", "later"]}
+  ]
+}

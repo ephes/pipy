@@ -143,7 +143,7 @@ assistant/provider outcome payloads and committed usage without reconstructing
 current credentials or repricing. Outward DTOs exclude original saved requests,
 settings and private material pointers. Whole generation terminal outcomes and
 logical closed rounds remain distinct; waiting/pending control holds are not
-reported as completed parents. Public product activation remains DE11/12.
+reported as completed parents. The [DE11 async product factory](durable-product-session.md) composes this boundary; CLI activation remains DE12.
 
 ## Inspection and explicit new generation attempts (DE10)
 
@@ -161,3 +161,11 @@ It admits fresh request/attempt identity without changing the old terminal row.
 Pending blocked terminate is not retryable. Product activation, automatic retries,
 full graphs/controls and request-history/publication budgets keep their later
 owners; this does not close the Pi successor-task/native same-parent difference.
+
+
+The opt-in [DE11 async product session](durable-product-session.md) now composes
+this existing native authority. It admits one input atomically, executes only
+on explicit resume, and closes through actual Session ownership. Python
+activation does not activate the CLI or change legacy defaults. Full private
+target binding still occurs at first prepare; CLI/live and pre-prepare P16
+acceptance remain DE12. Broader parity obligations remain OPEN.

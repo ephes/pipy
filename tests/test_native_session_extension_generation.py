@@ -3239,6 +3239,13 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         # `release` has to be listed rather than filtered out.
         ("release", "native/ui/paint_lock.py", ("class:PaintLock", "function:release")),
         ("drain", hooks, sequencer),
+        # Unrelated to reload: the durable facade drains its committed completed
+        # watch before returning the selected outcome. Keep the scan exhaustive.
+        (
+            "drain",
+            "durable_product_api.py",
+            ("class:DurableProductSession", "function:_wait_result"),
+        ),
         ("abort", sg, reserve),
         (
             "abort",

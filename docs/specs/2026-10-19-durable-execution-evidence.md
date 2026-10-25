@@ -184,7 +184,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE08 | Sequential tool intents and blocked uncertainty | LANDED | [Tool execution acceptance](#de08-tool-execution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE09 | Completed-message projection | LANDED | [Completed projection acceptance](#de09-completed-projection-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
-| DE11 | Opt-in Python product session | OPEN | None; all gates OPEN |
+| DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
 | DE12 | Opt-in headless CLI recovery | OPEN | None; all gates OPEN |
 | DE13 | Unsafe top-level interrupted-error continuation | OPEN | None; all gates OPEN |
 | DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
@@ -288,7 +288,7 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 opt-in factory is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
 `gpt-6.1-sol` HIGH implements DE10; Claude Code `claude-opus-5-5` (Opus5.5)
@@ -8657,3 +8657,62 @@ interrupted-error continuation, DE14 migration/restart/orphan, DE15/28 exposed
 graph/successor identity, DE20 context, DE24 nested/MCP/extensions, DE25/30 full
 controls, DE27/28 request history and DE27/28/41 publication budgets retain their
 owners. DE11/12 still own opt-in product/CLI lifecycle and accepted-input seams.
+
+
+## DE11 opt-in product session acceptance
+
+The [public async SDK](../durable-product-session.md) implements the original
+DE11/Milestone A factory, one request, hard-kill/reopen and lifecycle boundary.
+It uses one real SQLite/Session/scheduler authority. Empty identity/header
+creation and exact passive reopen are covered independently of input. Accepted
+entry+initialized generation+initial IDs commit together, including rollback,
+commit/ACK/adoption and canceled-waiter cuts. Explicit resume alone enables
+execution; guarded pause waits through reservation, accepted phase, finalizer
+and retirement. Self-join/reentry refuses promptly. Store-wide live graph
+preflight, rooted numeric/nonce selection and derived-only generation retry
+prevent sibling/unbound dispatch and input override. Same-nonce recovery never
+creates a second winner or rewrites the initial header.
+
+A deterministic committed-hold barrier captures the parent before a terminate
+result, waits for the real child settlement, then exposes the older read to the
+facade. Resume refreshes its parent inspection after a positive later-page hold;
+the returned reason matches a current independent inspection. The invalid-result
+sibling preserves an honest reasonless parent and actual single effect counts.
+This does not promise one atomic multi-page inspection/snapshot or change tool
+control policy. Failed Linux and interrupted obsolete full-run diagnostics stay
+external; repaired-source review and all final gates remain required.
+
+Actual public API tests run all admitted provider families over fake wires,
+rich canonical fields, complete ordered tool history, saved pricing/defaults,
+terminal no-auth/material reopen, private DTO sentinels and unsupported controls.
+Real SQLite SIGKILL cuts cover admission, provider in-flight/response/receipt,
+assistant, tool intent/effect/receipt and final outcome with independent counted
+fake effects. Before provider receipt paid reissue is explicitly uncertain;
+unsafe tool intent/effect remains held until a NEW explicit authorization.
+Post-receipt recovery performs no old effect/preparation. Fresh-process lease
+probes retain actual acquisition/read/provider/finalizer work after cancellation
+and complete caller-loop teardown. Legacy SDK behavior remains tested unchanged.
+
+The source-closed `product-session-v1` phase uses actual pinned exported
+Harness/Conversation creation/submission/wait/reopen and real built-in usage
+settlement/calculation. Provider streams/tools are explicit fake seams; a neutral
+fresh-process SQL observer reads actual birth facts before admission ACK. Raw
+exact observations and actual loaded source/module/process/artifact bindings
+are retained. Only declared admission/completed/usage/reconnect facts are common;
+explicit resume/one input/retry/privacy/physical ownership remain native-only
+policy. Semantic CLI0/1 controls and malformed CLI2 controls are separate.
+Each pure attester runs in its own fresh process without reexecuting effects.
+
+Independent CODE CLEAN, full just check, supported Mac Python3.11–3.15 and
+actual Linux focused/fault/lifetime evidence, strict/rendered docs and TWO fresh
+complete20phase cumulative chains remain delivery gates. Receipts are external;
+failed diagnostics are retained honestly. This is fake-wire/process-death proof,
+not live-provider, power-loss or full performance/parity acceptance.
+
+First prepare is still the full private-target binding boundary. Explicit
+current profile authorizes unprepared reopen; full §3.3/P16 acceptance stays
+unchanged and OPEN with DE12's pre/post-prepare live/reference proof. CLI is DE12,
+unsafe continuation DE13, graph shape DE15/28, queues DE18/19, full watch/context/
+partials DE20/26/27/28, retention/publication budgets DE27/28/41 and broader
+product/default adoption DE41–44. Every original DE11 acceptance cell and all43
+whole OPEN P rows remain; no competing workflow archive or storage writer exists.

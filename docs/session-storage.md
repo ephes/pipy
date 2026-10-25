@@ -1110,3 +1110,43 @@ Do not append target captures, audit bodies, frames or tool/provider output to
 workflow events. Existing-store inspect is logically read-only under the real
 path owner; effective-WAL validation and normal close can maintain sidecars or
 checkpoint. It never migrates, creates a missing store or steals another owner.
+
+
+## Opt-in native durable Python product store (DE11)
+
+The [async durable product API](durable-product-session.md) owns one explicit
+SQLite path, Session line and scheduler. Its full-content store contains one
+private product header, the accepted canonical user entry, real tasks, requests/
+receipts, ordered tool results and committed usage. It is a product transcript/
+execution record, not the metadata-only `pipy-session` workflow archive. No JSONL
+tree or workflow recorder is instantiated by this mode; existing defaults stay
+until DE44. Do not automatically archive/export these records or copy their
+payloads into workflow events.
+
+The product header atomically binds the workspace/conversation/profile/template
+and initial user/generation IDs. Credentials, arbitrary headers/endpoints and
+secret-derived hashes are not serialized there. Full private construction
+material remains in the existing selected auth authority and its immutable
+companion, referenced only by private committed envelopes. Outward completed
+DTOs exclude request/settings/material/audit; default inspect remains allowlisted
+metadata. Provider/model selection is explicit, while the pre-first-prepare
+current-profile boundary and full P16/DE12 proof remain documented.
+
+Exact open refuses missing, foreign, uninitialized or unsupported stores without
+create/import fallback or migration and never runs a provider, tool or preparer.
+It retains the same PathOwner's actual maintenance contract: supported effective-
+WAL RO inspection may write lock diagnostics/create absent empty WAL/SHM; normal
+RW validation/close can checkpoint. Logical read-only never means a second
+read-only Storage or lock bypass. Missing/pre-lock refusal cuts keep their
+existing no-unintended-creation guarantee.
+
+Cancel/close does not release ownership while an accepted read, provider/tool
+worker or finalizer can still access the backend. Actual Session close joins
+those owners; a blocked worker keeps close/lease pending. Completed-watch
+callbacks are caller-owned and must not be confused with provider finalizers.
+Terminal reads reuse committed rich facts without current credentials/material.
+Before a provider receipt, paid reissue remains uncertain; unsafe interrupted
+tools remain held in this milestone, and explicit retry is a new authorized
+attempt with the old uncertainty retained privately. No exactly-once external
+effect/callback or durable observer cursor is promised. Full data migration,
+export/import, retention and default adoption retain DE27/28/40–44 ownership.

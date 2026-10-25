@@ -3,11 +3,11 @@
   "phase": "storage-sqlite-d2-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "baseline": "e86acb8a86d7f5003e3a1de877cf52755c3be35674fc5253d2cde3ebf6b07a2e",
-    "a1": "73e33f06003ba6c003794b57ddc1ffdc801385599f1a1f3d404ea942f6715639",
-    "a2b": "d0b28e29eda69fff84ab36b97514bc3def28d4b977740f25b4932c7f18a77a7f",
-    "b1b": "f53ca6cdb962837f15d764faffec587449573679ff3072461f3bc38c4132c457",
-    "b3": "885134752d091154ba704e9b8844749dbe354f68a87fd3c7fed9283fca736ff4"
+    "baseline": "270b9ba6948ca10e35e1cc505fb063f7142e66f81f17402e7406bb751ee6ec96",
+    "a1": "d74f83cdac1597b0e99c07be0672fb62ed6b25ceed113b5ecd02cdd47fb34345",
+    "a2b": "39ee958f8f25eaf92489ea5ee22f85fc0491f73bdf2e6922c1dda8280ee95830",
+    "b1b": "fe89d30fefb6a21e4db5a66bc5b725917c95abcdd2ef1f606f7f17ce0cd6da0f",
+    "b3": "a099b8dd0f1fe1182bc432526c15ec59bd1b5d0e31a9e134b2b8ddaef5b0834a"
   },
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
@@ -30,7 +30,7 @@
     "src/pipy_harness/native/durable/ownership.py": "2d066029f6cd95df2bbebae0ecc59d49eb1e41894284304fd84ac8d960cfacf0",
     "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
     "src/pipy_harness/native/durable/session.py": "7584a3132b52a5053d00147c08344f7bf7b2acf87a237ca8fbee764e3b88a2a0",
-    "src/pipy_harness/native/durable/session_core.py": "cafa671a6311a8d9e6982b7452d94140a50cc9e5962f466fa05425741e67c33f",
+    "src/pipy_harness/native/durable/session_core.py": "5800eea7138182d5b65e306984af553ce9d27f068ece384c02904b091ab14e28",
     "src/pipy_harness/native/durable/sqlite.py": "484aaa18beed7c353604dd2a1294e6f6849dcaef108b008cd919b3dbc4926a39",
     "src/pipy_harness/native/durable/sqlite_connection.py": "77c7819182c06bbf9b1b66e311d957684b1bd7062aa7edbc7ec91136480280db",
     "src/pipy_harness/native/durable/sqlite_schema.py": "76a2693412fef88ce5652817d79849d01b8d9dd8f9022b9eccfefb43edc90342",

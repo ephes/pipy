@@ -3,8 +3,8 @@
 ``Session`` runs one atomic transaction at a time on the owner's FIFO line,
 through a sync ``commit()`` and an async ``acommit()`` that drive the one
 sans-IO ``_TxCore``; it publishes committed changes, serves raw committed
-snapshots and closes behind accepted work. It is not exported from the package
-and has no product, factory or SDK integration.
+snapshots and closes behind accepted work. It remains a private kernel authority; the
+opt-in async DE11 facade composes it without changing existing SDK defaults.
 
 Semantics adapted from Pi durable 1.3.0 ``packages/durable/src/session/session.ts``
 (``commitWith``, ``#runCommit``, ``#publish``, ``readOnLine``, ``snapshot``,

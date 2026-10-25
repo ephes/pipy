@@ -99,6 +99,15 @@ def _assert_private_markers_absent(*texts: str) -> None:
 
 def test_sdk_surface_is_product_only() -> None:
     expected_exports = {
+        "DurableAdmission",
+        "DurableProductError",
+        "DurableProductSession",
+        "DurableProviderProfile",
+        "DurableRunResult",
+        "DurableRunSelection",
+        "UnsupportedDurableCapability",
+        "create_durable_product_session",
+        "open_durable_product_session",
         "AgentEvent",
         "AgentEventSink",
         "CodemodeOptions",

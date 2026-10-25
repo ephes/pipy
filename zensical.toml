@@ -32,6 +32,7 @@ nav = [
     {"JSON Mode" = "json.md"},
     {"RPC Mode" = "rpc.md"},
     {"Python SDK" = "sdk.md"},
+    {"Opt-in durable Python session" = "durable-product-session.md"},
   ]},
   {"Reference and internals" = [
     {"Architecture" = "architecture.md"},

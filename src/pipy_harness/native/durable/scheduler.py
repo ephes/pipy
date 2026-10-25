@@ -36,6 +36,11 @@ T = TypeVar("T")
 LIVE = ("pending", "running", "waiting", "sleeping", "completing")
 
 
+def _observed(future: asyncio.Future[Any]) -> None:
+    if not future.cancelled():
+        future.exception()
+
+
 class InvocationEnded(RuntimeError):
     """The runtime no longer owns a running invocation."""
 
@@ -476,12 +481,18 @@ class TaskScheduler:
         self._invocation: _Invocation | None = None
         self._stopped: set[int] = set()
         self._enabled = False
+        self._draining = False
         self._opened = False
         self._opening = False
         self._host_done = False
         self._startup_failed = False
         self._loop = asyncio.new_event_loop()
         self._wake = asyncio.Event()
+        # Only the host operates this event. Activity itself uses the same
+        # lifecycle guard as reservation/enable/close; event completion is
+        # deliberately outside that guard.
+        self._quiescent = asyncio.Event()
+        self._quiescent.set()
         self._ready = threading.Event()
         self._service_task: asyncio.Task[None] | None = None
         self._thread = threading.Thread(
@@ -616,6 +627,46 @@ class TaskScheduler:
             self._enabled = True
         self._notify()
 
+    async def apause(self) -> None:
+        """Disable dispatch and await real reservation/invocation retirement.
+
+        Already-admitted work drains normally. Cancelling this waiter does not
+        re-enable dispatch or cancel the host's barrier. Callers serialize any
+        competing resume; a competing enable refuses this pause acknowledgement.
+        """
+        self._session._refuse_reentry("apause")
+        if asyncio.get_running_loop() is self._loop:
+            raise RuntimeError("Cannot pause the scheduler from its phase host")
+        with self._guard:
+            self._enabled = False
+            closed = self._owner._line_sealed or self._host_done
+        if closed:
+            raise SessionClosedError()
+
+        async def settled() -> None:
+            while True:
+                with self._guard:
+                    closed = self._owner._line_sealed or self._host_done
+                    enabled = self._enabled
+                    busy = self._draining or self._invocation is not None
+                if closed:
+                    raise SessionClosedError()
+                if enabled:
+                    raise RuntimeError("Scheduler resumed during pause")
+                if not busy:
+                    return
+                await self._quiescent.wait()
+
+        barrier = settled()
+        try:
+            future = asyncio.run_coroutine_threadsafe(barrier, self._loop)
+        except BaseException:
+            barrier.close()
+            raise
+        waiting = asyncio.wrap_future(future)
+        waiting.add_done_callback(_observed)
+        await asyncio.shield(waiting)
+
     def inspect(self) -> tuple[TaskRecord, ...]:
         """One immutable committed revision; record trees detach on access."""
         with self._guard:
@@ -677,10 +728,18 @@ class TaskScheduler:
                 with self._guard:
                     closing = self._owner._line_sealed
                     enabled = self._enabled and self._opened
+                    if enabled and not closing:
+                        self._draining = True
                 if closing:
                     return
                 if enabled:
-                    await self._drain()
+                    self._quiescent.clear()
+                    try:
+                        await self._drain()
+                    finally:
+                        with self._guard:
+                            self._draining = False
+                        self._quiescent.set()
         except BaseException as error:  # noqa: BLE001 - host failure seals its owner
             self._session.fail(error)
 
