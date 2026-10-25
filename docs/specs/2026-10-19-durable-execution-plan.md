@@ -1,7 +1,7 @@
 # Native durable execution implementation plan
 
 Status: **execution authorized; DE01 and DE02 with all children landed;
-DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09/DE10/DE11 LANDED**,
+DE03a/b/c/d1/d2 and cumulative DE03d/DE03 landed; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06a/DE06b and cumulative DE06 LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED**,
 2026-10-24. Authored
 by GPT-6.1 Sol at high effort. The owner authorized the DE00–DE45 campaign after
 the planning handoff. The final plan review returned **ISSUES, Suggestions only**;
@@ -898,3 +898,27 @@ retains CLI/live acceptance and the full P16 boundary comparison, DE13 unsafe
 continuation, DE15/28 graph shape, DE18/19 queues, DE20/26/27/28 views/streams,
 DE27/28/41 publication/retention budgets and DE41–44 broader/default adoption.
 Independent CODE CLEAN/full/platform/docs/two fresh20phase chains gate delivery.
+
+### DE12 opt-in headless CLI
+
+The [explicit command family](../durable-headless.md) composes the delivered
+async factory, selection, admission, inspection, completed output and close APIs.
+It routes before legacy parsing/signals/settings. One manual caller loop owns
+non-raising finite-domain signals and accepted acquisition/control/output/close
+through physical join; ignored signals remain ignored and arbitrary handlers/
+off-main execution refuse before effects. Pipe/FIFO/regular-file stdin is bounded;
+TTY stdin refuses. Explicit credential flags are absent; existing auth authority
+is used only on execution paths. Passive inspect/unprofiled terminal reuse do
+not instantiate a catalog, auth, providers or tools.
+
+Original DE12/Milestone A cells remain: real subprocess assistant/tool/final
+SIGKILL and reopen, same-owner read-only/missing/busy/version refusal, unsupported
+capabilities before effects, actual rich/absence/saved-usage output, fake family/
+SSE wires, signal/output/physical lease and live-when-available acceptance.
+A bounded actual synthetic Codex probe completed and terminal-reused without an
+HTTP/paid-attempt count claim. Full supported live lifecycle stays later work.
+The genuine headless-cli-v1 oracle compares only declared Harness logical
+completed facts and P16 retention relations. Pi resolves current model at request;
+native refuses prepared-target drift before transport. Exact raw differences
+remain, not a whole-P16 or CLI/API parity claim. Unsafe continuation is DE13;
+all43 whole P rows and every later owner remain OPEN.

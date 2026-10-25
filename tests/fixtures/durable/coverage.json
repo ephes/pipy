@@ -901,16 +901,20 @@
         "Real subprocess SIGKILL at assistant/tool/final cuts, read-only/missing path no accidental creation, terminal exit/resume and counted uncertain paid request; fake SSE/transport wire cases always required. CLI probes assert the same Milestone A unsupported-capability errors, disabled auto/overflow compaction and absence of competing stores/volatile queue claims or accepted unpersisted input. Record live credential blockers without a false live claim. CLI help/guide/changelog."
       ],
       "current": {
-        "kind": "source-only",
-        "cases": [],
+        "kind": "bounded-native",
+        "cases": [
+          "headless-cli-v1"
+        ],
         "workloads": [],
         "oracles": [],
-        "observables": "DE12: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Expose opt-in headless native start/resume/inspect via existing CLI composition, graceful disconnect/exit and documented state locations; real-provider acceptance probe when auth available."
+        "observables": "Actual early-routed native headless CLI start/resume/inspect/explicit retry; committed rich DTO/absence/saved usage; real assistant/tool/final SIGKILL and request-before/after-prepare cuts; fake construction-family/SSE wire, drift/rotation/privacy, counted calls/apps/prepares; passive metadata/terminal reuse; same-owner WAL/missing/busy refusal; non-raising finite signal domain, real output/acquisition/invoke/finalizer close and OS lease; bounded synthetic live Codex start/terminal reuse with HTTP/paid attempt counts unobserved. Genuine pinned Harness logical completion/usage/reopen and P16 relational request-boundary comparison only; Pi-current versus native protected-target raw difference explicit, no CLI/API/raw-target parity. Inherited shared-description flags stay intact across actual SIGKILL; advisory readiness races retain real blocking read/write/flush off-loop, and accepted I/O/finalizers join before backend/lease release even after canceled cleanup waiters."
       },
       "future": "Real subprocess SIGKILL at assistant/tool/final cuts, read-only/missing path no accidental creation, terminal exit/resume and counted uncertain paid request; fake SSE/transport wire cases always required. CLI probes assert the same Milestone A unsupported-capability errors, disabled auto/overflow compaction and absence of competing stores/volatile queue claims or accepted unpersisted input. Record live credential blockers without a false live claim. CLI help/guide/changelog.",
-      "status": "OPEN",
+      "status": "LANDED",
       "evidence": [
-        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
+        "docs/specs/2026-10-19-durable-execution-evidence.md#de12-opt-in-headless-cli-acceptance",
+        "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices",
+        "docs/durable-headless.md"
       ],
       "inherited_reference": {
         "owners": [],

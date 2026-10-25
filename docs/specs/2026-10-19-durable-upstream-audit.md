@@ -183,3 +183,14 @@ The genuine phase19 oracle compares declared logical metadata only. Native
 private-audit policy, redaction and physical ownership are separate evidence;
 full missing/migration/restart/orphan/graph/control semantics keep their declared
 owners. All43 whole P rows remain OPEN.
+
+## DE12 headless and P16 request comparison
+
+The public pinned Harness has no CLI activation API. The headless-cli-v1 fixture
+therefore uses genuine Harness create/submit/wait/reopen and Storage commit cuts,
+with explicit synthetic model/tool transport boundaries. generation.ts prepares
+a model reference/thinking/stream/cutoff, then request resolves getModel again.
+Actual retained getModel/streamSimple observations expose current target after
+reopen; native captured prepared-target protection deliberately refuses drift.
+The comparison records this difference explicitly rather than claiming raw
+provider target parity. Original P16 stays whole OPEN with its named owners.

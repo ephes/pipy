@@ -856,7 +856,7 @@ def test_inspection_owns_full_acceptance_and_retains_whole_parity():
     assert "ANY blocked receipt hold" in row["current"]["observables"]
     assert "metadata only" in row["current"]["observables"]
     assert rows["DE11"]["status"] == "LANDED"
-    assert rows["DE12"]["status"] == "OPEN"
+    assert rows["DE12"]["status"] == "LANDED"
     assert all(
         rows[key]["status"] == "OPEN"
         for key in ("DE13", "DE14", "DE15", "DE20", "DE24", "DE28", "DE41")
@@ -878,7 +878,7 @@ def test_product_session_preserves_original_acceptance_and_whole_parity():
         in row["future"]
     )
     assert "no accepted unpersisted input" in row["future"]
-    assert rows["DE12"]["status"] == "OPEN"
+    assert rows["DE12"]["status"] == "LANDED"
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )
@@ -887,3 +887,17 @@ def test_product_session_preserves_original_acceptance_and_whole_parity():
         rows[key]["current"]["cases"] == ["product-session-v1"]
         for key in ("P41", "P42")
     )
+
+
+def test_headless_cli_preserves_whole_original_acceptance_and_later_owners():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    row = rows["DE12"]
+    assert row["status"] == "LANDED" and row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == ["headless-cli-v1"]
+    assert row["evidence"][0] == a.LEDGER + "#de12-opt-in-headless-cli-acceptance"
+    assert "Real subprocess SIGKILL" in row["future"]
+    assert "fake SSE/transport wire" in row["future"]
+    assert "read-only/missing path" in row["future"]
+    assert "live credential blockers" in row["future"]
+    assert rows["DE13"]["status"] == "OPEN"
+    assert all(r["status"] == "OPEN" for k, r in rows.items() if k.startswith("P"))

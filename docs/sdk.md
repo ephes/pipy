@@ -7,6 +7,9 @@ link pipy in-process through `pipy_harness.sdk` rather than shelling out to the
 
 ## Opt-in async durable session
 
+The [opt-in headless CLI](durable-headless.md) composes this same async authority.
+It is separate from the existing synchronous product API below.
+
 `create_durable_product_session` and `open_durable_product_session` expose the
 new native SQLite task runtime explicitly. Existing SDK/CLI defaults remain
 unchanged. This Milestone A API accepts one literal input; `submit()` acknowledges

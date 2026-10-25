@@ -8,13 +8,25 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add opt-in `pipy durable start/resume/inspect/authorize-retry` over the native
+  durable SDK, with explicit paths/profile, passive metadata inspection and
+  committed rich output/usage. The CLI retains actual acquisition, workers,
+  finalizers and path ownership through signals, output cancellation and close.
+  Inherited stream flags stay intact and accepted blocking I/O joins off-loop
+  before the lease releases. Output preserves any caller-buffered prefix before
+  the command payload. Unsupported options refuse before effects.
+  Credentials use existing runtime
+  authority, with no credential flags. Existing CLI defaults stay unchanged.
+  Unsafe uncertainty remains held pending explicit new-attempt authorization;
+  full parity and broader live lifecycle remain later work.
+
 - Add an opt-in async durable Python product session with exact SQLite reopen,
   one atomically accepted input and explicit resume. The same Session and
   scheduler own provider/tool recovery, committed rich snapshots and explicit
   new-attempt retry. Cancellation retains actual workers and path ownership;
   unsupported compaction/tree/queues/extensions refuse before admission.
-  Existing synchronous SDK and CLI defaults remain unchanged. Headless CLI and
-  live-provider acceptance remain DE12; this is not full durable parity.
+  Existing synchronous SDK and CLI defaults remain unchanged. This is not full
+  durable parity.
 
 - Add private metadata-only durable inspection and explicit operator retry.
   Pure reads never run task/auth/provider/tool code; existing-store inspection

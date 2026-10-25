@@ -160,6 +160,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=False)
 
+    subparsers.add_parser(
+        "durable",
+        add_help=False,
+        help="Opt-in native durable start/resume/inspect (pipy durable --help).",
+    )
+
     from pipy_harness.native.codemode.cli import configure_parser
 
     codemode_parser = subparsers.add_parser(
@@ -1043,6 +1049,12 @@ def _bind_tool_modifier_values(argv: list[str]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    incoming = sys.argv[1:] if argv is None else argv
+    if incoming[:1] == ["durable"]:
+        # Before legacy signal handlers, argparse and all session/resource setup.
+        from pipy_harness.durable_cli import durable_main
+
+        return durable_main(list(incoming[1:]))
     # SIGTERM and SIGHUP unwind the command like any other exit, so a session
     # restores its terminal and ends its MCP servers (Pi's signal handlers).
     with exit_on_termination_signals():

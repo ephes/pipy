@@ -146,7 +146,9 @@ closed DTOs, quiescence and physical ownership. They are not Pi API/thread
 parity. Raw exact observations remain retained; common numeric projection does
 not change native arena type/sign/presence.
 
-CLI/live acceptance and the pre-first-prepare P16 comparison remain DE12. Unsafe
+[CLI/bounded live acceptance and the P16 comparison](durable-headless.md) are
+provided by DE12, with explicit current-model/protected-target differences and
+whole-P16 scope retained. Unsafe
 interrupted-error continuation remains DE13; full version/ownership/cleanup
 DE14–16, retries/deferred DE17, submissions DE18/19, context/hooks/extensions/
 nested/modes/partials DE20–26, full views/history/retention DE27/28, compaction

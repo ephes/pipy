@@ -3,7 +3,7 @@
   "phase": "task-runtime-b-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "c8a3644a0711289344294967dd08769471af86238ad96f567ad85b53bdfaa76c"
+    "documents": "3a333eb0e05ac9c9f73a778d3371321fe5f76ab3b7e49d416dd9eb5fd94752d2"
   },
   "closure": {
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
@@ -29,7 +29,8 @@
     "src/pipy_harness/adapters/native.py": "19c565eef24d4dd4a10cca227d45e4929a7d9a44a9bb7261c755c69bc785c18d",
     "src/pipy_harness/adapters/subprocess.py": "37a2e204ea73067abb800fca9f44efc3c3fc67b3eee9df291e740838e9f779bb",
     "src/pipy_harness/capture.py": "b7dad7389afa4b791cb5114f08f8718e7865e0647c48be01ef831380a674dc78",
-    "src/pipy_harness/cli.py": "6d934f41a27bc72cb1bb6463b09a29795396ccb0cf9abbc3c70e4db8f4aa105b",
+    "src/pipy_harness/cli.py": "2e94b76de8920bf4e1d3d61c69342db43d1a6a2e07933d8c77dbf12a506a551d",
+    "src/pipy_harness/durable_cli.py": "619c266f35b6699e7544abc6fb1b5edc6323ab192eec23498d94869020e54de2",
     "src/pipy_harness/durable_product_api.py": "56dfdd91725efeea0bf0f5786806c1010d9172d447f4ddb4a4b3d9448b7378b4",
     "src/pipy_harness/exit_signals.py": "608a9c7f2cbb0f3e7439d1c3de58ae6a0dbf7005f29d70e0575ec5fd566f89c8",
     "src/pipy_harness/extensions.py": "b7d5e8b6fa4f2789976b27bc81b56151961aeaddd983321a5c52fffdf508aae5",
@@ -74,6 +75,9 @@
     "src/pipy_harness/native/autocomplete_provider.py": "54fa2560529c89790254cceebb5c1928a8aebfbb1602dd0d99bda69e2325b366",
     "src/pipy_harness/native/automation/__init__.py": "08ddd02e4eb3fd3214c3cdd1e20ba2b53ab51e1e755f6c69bb85d9a0cc8679d7",
     "src/pipy_harness/native/automation/agent_events.py": "13f97974f25086ac1d7145764ca81233171bb77dd1bdbf81cf205c591ebe2e3a",
+    "src/pipy_harness/native/automation/durable_args.py": "9aa5ca914316aa3138818f57ac1fdfec410d532eb96ae64447e855e3d764ca0e",
+    "src/pipy_harness/native/automation/durable_lifetime.py": "c943cef5369c1b78c512b594e41e365f23b5b5446c59bfd4b984c6c052d17211",
+    "src/pipy_harness/native/automation/durable_output.py": "440f8174c1ac28791560edf8924359438ddab03b697cf02295a96fc4c252de54",
     "src/pipy_harness/native/automation/events.py": "2f8444a2eda6fb7047f38c47c1c19490f37fb684b447c61000a49dc37a178859",
     "src/pipy_harness/native/automation/jsonl.py": "9c595c5a8962576178d5ad69613bbc0d39f018bcd014f643364dbdda8f2e0d2d",
     "src/pipy_harness/native/automation/rpc.py": "714028f560ebef6f658ade81f35557caf4bc47fbd2fba94a938d31d2a2ef014b",

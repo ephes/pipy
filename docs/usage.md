@@ -3,6 +3,15 @@
 This page collects day-to-day product usage details that do not fit on the
 quickstart page.
 
+## Opt-in durable headless runs
+
+Use [`pipy durable start/resume/inspect/authorize-retry`](durable-headless.md)
+for an explicit native SQLite run. This reserved command family routes before
+legacy session/settings setup; it has no JSONL fallback and does not change
+interactive/JSON/RPC defaults. Start takes one prompt or supported stdin source;
+resume reuses committed state and inspect is passive metadata. See the linked
+guide for profile authority, uncertainty, exit codes, signals and state locations.
+
 ## Interactive mode
 
 Run `pipy` in a project directory to start the product TUI. A quoted positional

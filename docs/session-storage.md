@@ -1130,7 +1130,12 @@ material remains in the existing selected auth authority and its immutable
 companion, referenced only by private committed envelopes. Outward completed
 DTOs exclude request/settings/material/audit; default inspect remains allowlisted
 metadata. Provider/model selection is explicit, while the pre-first-prepare
-current-profile boundary and full P16/DE12 proof remain documented.
+current-profile boundary and full P16 proof remain documented. The opt-in
+[headless CLI](durable-headless.md) uses this same explicit store, never a JSONL
+fallback. Its JSON completed output is full-content product data; keep it out
+of metadata-only workflow events. Passive inspect emits allowlisted metadata
+without constructing the catalog/auth authority. CLI terminal reuse requires no
+credentials/material, and fixed refusal messages never echo caller tokens.
 
 Exact open refuses missing, foreign, uninitialized or unsupported stores without
 create/import fallback or migration and never runs a provider, tool or preparer.

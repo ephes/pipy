@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "phase": "headless-cli-v1",
+  "cases": [
+    {"id": "plain", "names": []},
+    {"id": "tools", "names": ["keyed", "later"]}
+  ],
+  "profiles": [
+    {"id": "unprepared-current", "cut": "prepare", "stream": {}},
+    {"id": "prepared-current", "cut": "request", "stream": {}}
+  ]
+}

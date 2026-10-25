@@ -4880,10 +4880,15 @@ there is no persistent replay cursor or exactly-once callback claim. Real read
 tickets retain Session/SQLite lifetime after canceled API waiters and complete
 consumer-loop teardown. Stopping a watch does not join arbitrary callbacks.
 Actual Pi watch/watchEvents comparison covers only declared completed facts;
-full views/events, partials and context remain DE20/26/27/28. The [DE11 async factory](durable-product-session.md) supplies Python activation; CLI remains DE12; all 43 whole parity rows remain OPEN.
+full views/events, partials and context remain DE20/26/27/28. The [DE11 async factory](durable-product-session.md) supplies Python activation; [CLI activation](durable-headless.md) is opt-in through DE12; all 43 whole parity rows remain OPEN.
 
 
 ## Opt-in durable Python product session (DE11)
+
+The [opt-in durable headless CLI](durable-headless.md) composes this same SDK
+authority through early raw dispatch and one physically drained caller loop.
+Passive inspection/terminal reuse remain free of catalog/auth/resource setup;
+signals/output failure retain workers and path ownership until actual close.
 
 The [new async SDK facade](durable-product-session.md) composes one existing
 SQLite PathOwner, Session line and TaskScheduler host. Its private modules own

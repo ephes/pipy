@@ -1126,7 +1126,7 @@ loop-owned acquisition task latches cancellation abandonment immediately; the
 real worker ticket retains backend lifetime even if wrappers/consumer loop end.
 No callback, loop wake, I/O, unsubscribe or final foreign-reference disposal runs
 under either guard. The observer has no mutation, scheduling, provider/tool/auth
-or usage-accounting authority. The [DE11 async product factory](durable-product-session.md) supplies Python activation; CLI activation remains DE12 and full
+or usage-accounting authority. The [DE11 async product factory](durable-product-session.md) supplies Python activation; [CLI activation](durable-headless.md) is opt-in through DE12 and full
 watch/context/stream/graph work remains DE20/26/27/28 and DE15/28.
 
 
@@ -1176,4 +1176,26 @@ finalizer and retirement. All-store preflight and rooted nonce selectors keep
 unselected work from executing. Reads/open remain passive; cancellation drops
 waiters while accepted physical work retains the lease. Full private request
 binding remains first prepare. CLI/live acceptance and the corresponding P16
-boundary remain DE12; all43 whole parity rows remain OPEN.
+boundary are documented by DE12; all43 whole parity rows remain OPEN.
+
+## Opt-in durable headless CLI (DE12)
+
+The [durable command family](durable-headless.md) branches in `cli.main` before
+legacy signal/parser/settings/session composition. Three private automation
+modules separate closed argument admission (`durable_args`), one-loop physical
+lifetime/signal/stdio ownership (`durable_lifetime`), explicit public rich output
+(`durable_output`). Outer `pipy_harness.durable_cli` owns SDK/catalog composition
+without a native-to-SDK import. These modules own no
+alternate scheduler, auth store, accepted-input queue or transcript writer.
+Profile-free inspection and terminal reads never construct the catalog. The
+existing path owner/schema policy and SDK rooted retry/dispatch gates remain
+the sole authorities. JSON output preserves current DTO fields without exposing
+private request/material/audit; no new nesting bound or generic details ABI is
+invented. Future DE13 must update the encoder when that ABI changes.
+
+The same caller loop owns one retained current I/O task and its stopping gate.
+Readiness is advisory; the existing durable `owned_call` seam executes actual
+read/write/flush off-loop and joins its invocation/finalizer. Cleanup seals I/O
+admission and joins that call before product close releases the backend/lease,
+then retains the existing close-before-control-drain ordering. No inherited
+caller-controlled stream status flags are changed and no new worker/scheduler authority exists.

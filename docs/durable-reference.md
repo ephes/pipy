@@ -1504,3 +1504,23 @@ rejected by exact inventory equality. Source-only imported availability never
 proves credential/material executability. [Native operations](durable-inspection.md)
 retain separate process/WAL/lifetime/privacy proof and all later boundaries;
 all43 whole P rows remain OPEN.
+
+## Native headless CLI boundary (DE12)
+
+The [headless contract](durable-headless.md) and twenty-first headless-cli-v1
+manifest extend the complete cumulative chain. Actual native CLI serialization
+and pinned Harness public creation/submit/wait/reopen share only a declared
+logical completed-message/tool-order/effect-count/saved-usage profile. Pi has no
+durable CLI export; native exits, passive privacy, explicit authorization,
+signal/worker/OS-lease ownership remain native-only evidence.
+
+The P16 protocol performs real SQLite COMMIT→SIGKILL→open→resume before first
+prepare and after request preparation, with independent committed SQL readback.
+Actual Pi getModel/streamSimple records show current model resolution at request;
+native protected prepared-target refusal is checked as an explicit policy
+difference while cutoff/model/thinking/session correlation and unprepared-current
+facts are compared. Raw exact records stay retained; no whole-P16/raw target
+parity or paid exactly-once claim follows. All source, actual imported modules,
+child argv/inputs/streams/process lifecycles, immutable recipes and mutant bodies
+are bound by fresh pure API attesters; effects never run during attest. Each
+attester requires its own fresh process and explicit pure lazy dependency roots.

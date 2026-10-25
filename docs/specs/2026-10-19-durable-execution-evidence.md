@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10 LANDED; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -185,7 +185,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE09 | Completed-message projection | LANDED | [Completed projection acceptance](#de09-completed-projection-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
-| DE12 | Opt-in headless CLI recovery | OPEN | None; all gates OPEN |
+| DE12 | Opt-in headless CLI recovery | LANDED | [Native CLI/real cuts, wire/live and declared reference boundary](#de12-opt-in-headless-cli-acceptance); full parity OPEN |
 | DE13 | Unsafe top-level interrupted-error continuation | OPEN | None; all gates OPEN |
 | DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
@@ -8716,3 +8716,73 @@ unsafe continuation DE13, graph shape DE15/28, queues DE18/19, full watch/contex
 partials DE20/26/27/28, retention/publication budgets DE27/28/41 and broader
 product/default adoption DE41–44. Every original DE11 acceptance cell and all43
 whole OPEN P rows remain; no competing workflow archive or storage writer exists.
+
+## DE12 opt-in headless CLI acceptance
+
+The [headless CLI](../durable-headless.md) routes before legacy parser/signal/
+settings/resource/session setup and composes the existing native async SDK.
+Actual subprocess tests retain SIGKILL admission/provider/assistant/tool/final
+cuts, independent committed readback and reopen effect/prepare/request/usage
+counts. Fake wires cover supported construction families, one-byte SSE framing,
+terminal-before-EOF behavior, auth rotation, protected target/default drift and
+privacy. Deep actual serialized stdout and exhaustive current DTO field
+inventories preserve rich fields, absence/null/zero, raw arguments/correlation,
+public receipt payloads and saved pricing; current generic details ABI limits
+remain explicit for DE13. No duplicate settlement/repricing or exactly-once
+external effect follows from one committed record.
+
+Actual fresh-process lease probes hold acquisition, invocation/finalizer,
+backpressured output and cleanup through repeated TERM/HUP/INT/cancellation and
+caller-loop destruction. Ignored/default/custom/off-main signal contracts,
+restore timing, stdin pipe/FIFO/regular versus PTY refusal, empty/no_input,
+missing/corrupt/foreign/newer/effective-WAL/busy paths and resource-free passive
+inspect/terminal resume are covered. RO sidecar/lock maintenance is not presented
+as blanket filesystem immutability. Created-empty stores use explicit guarded
+public SDK submit/recovery, with no implicit input/overwrite/delete shortcut.
+
+A bounded synthetic actual openai-codex/gpt-6.1-sol low-thinking/no-tools start
+returned its marker and saved usage, followed by terminal resume and passive
+inspect. Only normal runtime auth authority was used; no key/config/availability
+inspection or credential argv was recorded. Actual HTTP attempts/paid count and
+unobserved provider session facts remain unclaimed. The external receipt binds
+its historical source; later final-source claims require consumed-input delta
+accounting, never rebinding it. Broader supported live lifecycle remains later.
+
+The twenty-first closed headless-cli-v1 manifest inherits all earlier evidence.
+Genuine pinned Harness submit/wait/reopen and real Storage COMMIT/SIGKILL/open/
+resume compare logical committed message order, effects/applications/prepares,
+usage and terminal reuse against actual native CLI output. P16 pre/post-prepare
+records retain independent committed SQL readers, actual getModel/streamSimple
+facts and private-native protection. Pi-current versus native prepared-target
+refusal is an explicit separate policy check, not raw target/API or whole-P16
+parity. Schema-valid semantic CLI0/1 mutants and malformed CLI2 inputs are
+separate; pure attesters run in own fresh processes with explicit lazy roots,
+no effect reexecution and full loaded/module/source/artifact/process bindings.
+
+Diagnostic failures stay retained: exact Path/string inspect boundary, StrEnum
+JSON field handling and fixture DTO owner, HTTP line-fixture construction,
+binary64 arithmetic-order assertion, busy scan query fixture, reserved command
+inventory, and oracle validator/projection/expected-refusal diagnostics. Each is
+separate from consolidated current-source evidence. Independent CODE CLEAN,
+all-source mypy/Ruff, full just check, relevant Mac3.11–3.15 and Linux native CLI
+proof, strict/rendered docs and TWO fresh complete21phase chains remain delivery
+gates with external immutable receipts; no final gate is inferred from a
+pre-freeze protocol diagnostic.
+
+The first code review identified an invalid published nonce, fixed-JSON report
+documentation and a material shared open-file-description mutation. The CLI now
+preserves inherited status flags and retains real read/write/flush through the
+existing owned-call seam. Actual private shared descriptors survive SIGKILL
+without flag changes; the same regression reaches seven changed-O_NONBLOCK
+failures on the old source, with seven already-nonblocking controls. Output
+fixtures establish/discard kernel write history before the full raw baseline,
+without an ignored-bit mask. Earlier overstrict raw-history and advisory-ready
+capacity assumptions remain failed diagnostics. Actual peer readiness races,
+held syscalls/finalizers, loop responsiveness, repeated canceled cleanup waiters
+and independent OS opener refusals/release pin the corrected physical boundary.
+
+All original DE12 acceptance and all43 whole OPEN P rows remain. Full unsafe
+interrupted-error/details continuation DE13, versions/graphs DE14–16, retries
+DE17, queues DE18/19, context/extension/nested/modes/control/stream DE20/24–26/30,
+full views/history DE27/28, publication budgets DE27/28/41 and broader product/
+default adoption DE41–44 retain their original owners.
