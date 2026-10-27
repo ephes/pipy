@@ -104,8 +104,11 @@ constants are `NO_TOOL_DETAILS`, `LEGACY_TOOL_DETAILS_NONE` and
 `UNCHANGED_TOOL_DETAILS`; nested scalar/array/null composites use the finite
 `NestedCallEvidence` field instead of overwriting their details. New rich
 canonical histories choose v2, while saved v1 data remains byte-identical.
-These changes do not activate unsafe continuation, retained progress or a new
-runtime/observer authority. A shared/non-durable executor never substitutes a
+These normal-value changes do not activate unsafe continuation or a new
+runtime/observer authority. Opt-in durable tool contexts separately support
+[retained reporting](durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b)
+through `report_details` (committed-prefix ACK) and `report_diagnostic` (void,
+no ACK). A shared/non-durable executor never substitutes a
 partial result's details for an absent final value.
 
 Ordinary SDK results retain Python's native JSON values, including tuple

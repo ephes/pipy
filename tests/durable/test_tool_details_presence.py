@@ -243,18 +243,22 @@ def test_public_sqlite_tool_producer_admission_and_reopen_do_not_reissue(
             )
             assert OwnedJson(message.details) == OwnedJson(value)
         else:
-            assert outcome.status == "held"
-            assert not any(
-                isinstance(row.decode(), AgentToolResultMessage)
+            # Admission still refuses the same producer value. DE13b now
+            # carries the actual invoke exception as a fixed failed result.
+            assert outcome.status == "terminal"
+            message = next(
+                row
                 for row in outcome.completed.messages
+                if isinstance(row.decode(), AgentToolResultMessage)
             )
-            page = await product.inspect()
-            assert any(
-                task.family == "model_tool" and task.reason == "invalid_result"
-                for task in page.tasks
-            )
+            assert message.decode().is_error
+            assert message.decode().details is NO_TOOL_DETAILS
+            assert message.tool_output.thaw()["recovery"] == {
+                "reason": "tool_error",
+                "category": "invocation_exception",
+            }
         assert len(port.calls) == 1
-        assert len(wire.calls) == (2 if admitted else 1)
+        assert len(wire.calls) == 2
 
     async def scenario():
         product = await create_durable_product_session(
@@ -272,10 +276,7 @@ def test_public_sqlite_tool_producer_admission_and_reopen_do_not_reissue(
         reopened = await open_durable_product_session(
             path,
             workspace=tmp_path,
-            tools={}
-            if admitted
-            else {"rich": ToolRegistration(port, "fixture.rich", "1")},
-            profile=None if admitted else profile(tmp_path, wire),
+            tools={},
         )
         try:
             await assert_outcome(reopened)
@@ -362,15 +363,22 @@ def test_public_durable_sdk_refuses_nonexact_normal_integer_before_result_commit
         try:
             await product.submit("strict durable boundary")
             first = await product.resume()
-            assert first.status == "held"
-            assert not any(
-                isinstance(row.decode(), AgentToolResultMessage)
+            assert first.status == "terminal"
+            message = next(
+                row
                 for row in first.completed.messages
+                if isinstance(row.decode(), AgentToolResultMessage)
             )
-            assert len(port.calls) == 1 and len(wire.calls) == 1
+            assert message.decode().is_error
+            assert message.decode().details is NO_TOOL_DETAILS
+            assert message.tool_output.thaw()["recovery"] == {
+                "reason": "tool_error",
+                "category": "invalid_result",
+            }
+            assert len(port.calls) == 1 and len(wire.calls) == 2
             second = await product.resume()
-            assert second.status == "held"
-            assert len(port.calls) == 1 and len(wire.calls) == 1
+            assert second.status == "terminal"
+            assert len(port.calls) == 1 and len(wire.calls) == 2
         finally:
             await product.close()
 

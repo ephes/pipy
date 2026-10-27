@@ -124,9 +124,10 @@ or re-prepared by encoding. Projection validation uses the recorded arena
 version, not DTO equality (which excludes local metadata) or a new writer default.
 
 Existing ordinary `nativeToolOutput`/receipt wrappers keep their version-1
-outer shape while embedding independently versioned canonical arenas. Failed
-result/diagnostic/recovery wrapper changes, progress and unsafe continuation
-remain parent DE13 work; no such runtime policy is enabled by this codec ABI.
+outer shape while embedding independently versioned canonical arenas. New diagnostic/ordinary-failure wrappers use fact/receipt v2 under the
+[DE13b tool contract](durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b).
+They do not change this canonical ABI or old v1 arena bytes. Unsafe interrupted
+continuation remains parent DE13 work.
 
 ## Request and credential boundary
 

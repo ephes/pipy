@@ -32,6 +32,7 @@ SCRATCH_SELECT = "SELECT record FROM conversations ORDER BY id"
 
 PRELUDE = f"""
 import json, os, sys
+sys.path[:0] = {list(map(str, (Path(__file__).resolve().parents[2] / "src", Path(__file__).resolve().parents[1], Path(__file__).resolve().parent)))!r}
 from pipy_harness.native.durable import ownership
 from pipy_harness.native.durable import sqlite_connection
 from pipy_harness.native.durable import sqlite_schema

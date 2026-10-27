@@ -7,7 +7,7 @@ import threading
 import pytest
 from generation_support import admit
 from test_tool_sqlite import resume
-from tool_support import counts, definitions
+from tool_support import Keyed, counts, definitions
 
 from pipy_harness.native.durable import sqlite
 from pipy_harness.native.durable import tx as tx_module
@@ -66,11 +66,13 @@ def install_fault(monkeypatch, parent, fault, reached):
 
 
 @pytest.mark.parametrize("fault", ["before", "ack", "adoption"])
+@pytest.mark.parametrize("reporting", ["ordinary", "diagnostic", "failed"])
 def test_real_final_tool_commit_fault_seals_owner_and_reopen_reuses_receipt(
-    tmp_path, monkeypatch, fault
+    tmp_path, monkeypatch, fault, reporting
 ):
     for name in ("HOME", "PIPY_AUTH_DIR", "PIPY_CONFIG_HOME", "XDG_STATE_HOME"):
         monkeypatch.setenv(name, str(tmp_path / name.lower()))
+    _install_reporting(monkeypatch, reporting)
     generation, tool, snapshot = definitions(tmp_path)
     session = Session(
         open_sqlite_storage(str(tmp_path / "session.sqlite"), mode="create")
@@ -144,6 +146,7 @@ def test_real_final_tool_commit_fault_seals_owner_and_reopen_reuses_receipt(
         assert (
             sum(entry.to_tree()["kind"] == "pi.tool-result" for entry in entries) == 2
         )
+        _check_reporting(entries, reporting)
         ledger = inspector.snapshot(
             USAGE_DOC, conversation_id=conversation
         ).value.thaw()
@@ -153,3 +156,39 @@ def test_real_final_tool_commit_fault_seals_owner_and_reopen_reuses_receipt(
         assert ledger["tools"] == {}
     finally:
         inspector.close(timeout=10)
+
+
+def _install_reporting(monkeypatch, reporting):
+    if reporting == "ordinary":
+        return
+    invoke = Keyed.invoke
+
+    def reported(self, request, context):
+        result = invoke(self, request, context)
+        context.report_details({"acknowledged": self.definition.name})
+        context.report_diagnostic(severity="warning", message="retained warning")
+        if reporting == "failed":
+            raise RuntimeError("PRIVATE after real counted effect")
+        return result
+
+    monkeypatch.setattr(Keyed, "invoke", reported)
+
+
+def _check_reporting(entries, reporting):
+    for entry in entries:
+        tree = entry.to_tree()
+        if tree["kind"] != "pi.tool-result":
+            continue
+        data = tree["data"]
+        if reporting == "ordinary":
+            assert data["nativeToolOutput"]["version"] == 1
+        else:
+            assert set(data) == {"nativeToolReceipt"}
+            carrier = data["nativeToolReceipt"]
+            assert carrier["version"] == 2
+            assert carrier["nativeToolOutput"]["ending"] == (
+                "failed" if reporting == "failed" else "completed"
+            )
+            assert carrier["nativeToolOutput"]["diagnostics"][0]["message"] == (
+                "retained warning"
+            )

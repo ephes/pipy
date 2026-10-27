@@ -5,15 +5,22 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.tools import ToolExecutionOutcome, ToolExecutor
-from pipy_harness.native.tools.base import ToolContext, ToolDefinition, ToolPort
+from pipy_harness.native.tools.base import (
+    ToolArgumentError,
+    ToolContext,
+    ToolDefinition,
+    ToolPort,
+)
 
 from .canonical_codec import _schema_lists, decode_canonical, encode_canonical
 from .codec import OwnedJson
@@ -24,7 +31,16 @@ from .generation_tasks import TOOL_NAME, TOOL_VERSION, _initial
 from .generation_transport import owned_call
 from .scheduler import TaskContext, TaskRuntime, TaskTx
 from .tasks import Task, define_task
+from .tool_output_values import failure_text, project_tool_output
+from .tool_progress import ProgressEnded, RetainedToolProgress
+from .tool_progress_values import (
+    FailureCategory,
+    detail_value,
+    initial_progress,
+    progress,
+)
 from .tool_values import (
+    _model_declaration,
     checkpoint,
     declaration,
     intent,
@@ -36,6 +52,27 @@ from .tool_values import (
 
 Tree = dict[str, Any]
 RECEIPT_DOC: Doc[Tree] = define_doc("pi.tool.receipt", 1, "task", dict)
+PROGRESS_DOC: Doc[Tree] = define_doc(
+    "pi.tool.progress",
+    1,
+    "task",
+    dict,
+    checkpoint_when=lambda value, operations, info: True,
+)
+
+
+class _InvocationFailure(RuntimeError):
+    def __init__(self, seconds: float) -> None:
+        super().__init__("Durable tool invocation failed")
+        self.seconds = seconds
+
+
+class _ToolDomainFailure(RuntimeError):
+    def __init__(
+        self, category: FailureCategory, retained: OwnedJson, seconds: float | None
+    ) -> None:
+        super().__init__("Durable tool failed: " + category)
+        self.category, self.retained, self.seconds = category, retained, seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +80,28 @@ class DurableToolContext(ToolContext):
     """Stable idempotency identity for tools with an explicitly admitted protocol."""
 
     call_key: str = field(kw_only=True)
+    _reporter: RetainedToolProgress | None = field(
+        default=None, kw_only=True, repr=False
+    )
+
+    def report_details(self, value: object) -> None:
+        """Wait for committed-prefix details, or raise a fixed refusal/end."""
+        if self._reporter is None:
+            raise ProgressEnded()
+        self._reporter.report_details(value)
+
+    def report_diagnostic(
+        self,
+        *,
+        severity: Literal["info", "warning", "error"],
+        message: str,
+        code: str | None = None,
+    ) -> None:
+        """Report an ordered diagnostic; a normal return is not an ACK."""
+        if self._reporter is not None:
+            self._reporter.report_diagnostic(
+                severity=severity, message=message, code=code
+            )
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)
@@ -71,7 +130,14 @@ class _PinnedPort:
     prepare_function: Any
 
     def invoke(self, request: Any, context: ToolContext) -> Any:
-        return self.invoke_function(request, context)
+        began = monotonic()
+        try:
+            return self.invoke_function(request, context)
+        except ToolArgumentError:
+            # The shared executor preserves this intentional argument refusal.
+            raise
+        except Exception:  # noqa: BLE001 - fixed durable cause, no exception-text guessing
+            raise _InvocationFailure(monotonic() - began) from None
 
     def prepare_arguments(self, raw: object) -> object:
         return raw if self.prepare_function is None else self.prepare_function(raw)
@@ -133,6 +199,26 @@ def _same(current: Tree, previous: Tree) -> None:
         refuse()
 
 
+async def _join_reporter(
+    reporter: RetainedToolProgress,
+    flusher: asyncio.Task[None],
+    watcher: asyncio.Task[None],
+) -> None:
+    reporter.finish()
+    try:
+        await asyncio.shield(flusher)
+    finally:
+        while not flusher.done():
+            try:
+                await asyncio.shield(flusher)
+            except asyncio.CancelledError:
+                continue
+        if not flusher.cancelled():
+            flusher.exception()
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+
 async def _transport(
     executor: ToolExecutor,
     call: Any,
@@ -140,7 +226,10 @@ async def _transport(
     workspace: Path,
     key: str,
     context: TaskContext,
-) -> ToolExecutionOutcome:
+    runtime: TaskRuntime,
+    previous: Tree,
+    initial: OwnedJson,
+) -> tuple[ToolExecutionOutcome, OwnedJson]:
     cancelled = threading.Event()
 
     async def stop() -> None:
@@ -148,18 +237,65 @@ async def _transport(
         cancelled.set()
 
     watcher = asyncio.create_task(stop())
+
+    async def commit(snapshot: OwnedJson) -> None:
+        async def save(tx: TaskTx, current: Tree) -> None:
+            nonlocal snapshot
+            _same(current, previous)
+            document = await tx.doc(PROGRESS_DOC)
+            new = cast(Tree, snapshot.thaw())
+            if any(
+                document[k] != new[k] for k in ("call", "key", "attempts", "restarts")
+            ):
+                refuse()
+            document.update(new)
+            # The guarded document update owns the detached candidate now.
+            # The commit Task still owns the transaction through backend
+            # completion/adoption; this handoff is not a persistence ACK.
+            del snapshot
+
+        await runtime.commit(save)
+
+    reporter = RetainedToolProgress(initial, commit, runtime._reporting_preflight)
+    flusher = asyncio.create_task(reporter.flush())
+    failure: FailureCategory | None = None
+    seconds: float | None = None
+    outcome: ToolExecutionOutcome | None = None
     try:
         tool_context = DurableToolContext(
-            workspace, cancel_event=cancelled, call_key=key
+            workspace, cancel_event=cancelled, call_key=key, _reporter=reporter
         )
-        return await owned_call(
-            lambda: executor.execute(
-                call, tool_context, wait_for_interrupt=None, arguments=arguments
+        try:
+            outcome = await owned_call(
+                lambda: executor.execute(
+                    call,
+                    tool_context,
+                    wait_for_interrupt=None,
+                    arguments=arguments,
+                    retained_output=reporter,
+                )
             )
-        )
+        except _InvocationFailure as error:
+            failure, seconds = "invocation_exception", error.seconds
+        except Exception:  # noqa: BLE001 - returned/normalized result failed after real invoke
+            failure = "invalid_result"
     finally:
-        watcher.cancel()
-        await asyncio.gather(watcher, return_exceptions=True)
+        await _join_reporter(reporter, flusher, watcher)
+    retained, domain_failure = reporter.result()
+    if context.signal.cancelled:
+        raise ProgressEnded()
+    category = domain_failure or failure
+    if category is not None:
+        raise _ToolDomainFailure(
+            category,
+            retained,
+            seconds if outcome is None else outcome.execution_seconds,
+        )
+    assert outcome is not None
+    if outcome.result.details is NO_TOOL_DETAILS:
+        details = detail_value(cast(Tree, retained.thaw())["details"])
+        outcome = replace(outcome, result=replace(outcome.result, details=details))
+    return outcome, retained
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -197,8 +333,8 @@ class _Tool:
         )
         if (
             offered is None
-            or OwnedJson(encode_canonical(offered))
-            != OwnedJson(encode_canonical(registration.port.definition))
+            or _model_declaration(offered)
+            != _model_declaration(registration.port.definition)
             or offered.schema_mode != registration.port.definition.schema_mode
         ):
             await self.block(runtime, previous, None, "incompatible", record["input"])
@@ -227,13 +363,19 @@ class _Tool:
         )
         execute = {"phase": "execute", "version": 1, "intent": final}
 
-        def admit(tx: TaskTx, current: Tree) -> Tree:
+        async def admit(tx: TaskTx, current: Tree) -> Tree:
             _same(current, previous)
+            saved = initial_progress(
+                record["input"], key, attempts=1, restarts=current.get("restarts", 0)
+            )
+            (await tx.doc(PROGRESS_DOC)).update(cast(Tree, saved.thaw()))
             return {"status": "running", "checkpoint": execute}
 
         await runtime.commit(admit)
         # This fresh acknowledged continuation may execute unsafe exactly once.
-        await self.run(record, runtime, context, execute, model.call, registration)
+        await self.run(
+            record, runtime, context, execute, model.call, registration, fresh=True
+        )
 
     async def execute(
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
@@ -278,29 +420,85 @@ class _Tool:
         previous: Tree,
         call: Any,
         registration: _Registration,
+        *,
+        fresh: bool = False,
     ) -> None:
         final = previous["intent"]
-        await runtime.commit(lambda tx, current: _same(current, previous))
+        admitted: list[OwnedJson] = []
+
+        async def attempt(tx: TaskTx, current: Tree) -> None:
+            _same(current, previous)
+            document = await tx.doc(PROGRESS_DOC)
+            raw = document.snapshot().thaw()
+            old = cast(Tree, progress(raw).thaw()) if raw else None
+            if fresh:
+                if (
+                    old is None
+                    or old["call"] != record["input"]
+                    or old["key"] != final["key"]
+                ):
+                    refuse()
+                captured = progress(old)
+            else:
+                count = None if old is None else old["attempts"]
+                captured = initial_progress(
+                    record["input"],
+                    final["key"],
+                    attempts=None if count is None else count + 1,
+                    restarts=current.get("restarts"),
+                )
+                document.update(cast(Tree, captured.thaw()))
+            admitted.append(captured)
+
+        await runtime.commit(attempt)
         if context.signal.cancelled:
             return
         try:
             executor = ToolExecutor(
                 MappingProxyType({call.tool_name: registration.port})
             )
-            outcome = await _transport(
+            outcome, retained = await _transport(
                 executor,
                 call,
                 final["arguments"],
                 self.workspace,
                 final["key"],
                 context,
+                runtime,
+                previous,
+                admitted[0],
             )
             if context.signal.cancelled:
                 return
-            match_result(outcome.result, call)
-            output = native_tool_output(outcome, datetime.now(timezone.utc))
-        except Exception:  # noqa: BLE001 - invocation errors preserve possible effects, not private diagnostics
-            # An invoke may already have effected the world; no fabricated result.
+            try:
+                match_result(outcome.result, call)
+                output = native_tool_output(
+                    outcome,
+                    datetime.now(timezone.utc),
+                    diagnostics=cast(Tree, retained.thaw())["diagnostics"],
+                )
+            except (ValueError, TypeError, KeyError, IndexError):
+                raise _ToolDomainFailure(
+                    "invalid_result", retained, outcome.execution_seconds
+                ) from None
+        except _ToolDomainFailure as error:
+            retained = error.retained
+            tree = cast(Tree, retained.thaw())
+            result = executor.error_result(call, tree["output"])
+            outcome = ToolExecutionOutcome(
+                replace(result, details=detail_value(tree["details"])),
+                execution_seconds=error.seconds,
+            )
+            output = native_tool_output(
+                outcome,
+                datetime.now(timezone.utc),
+                diagnostics=tree["diagnostics"],
+                failure=error.category,
+            )
+        except ProgressEnded:
+            if context.signal.cancelled:
+                return
+            # No handled failure permission follows from lost reporting/commit authority.
             await self.block(
                 runtime, previous, final, "invalid_result", record["input"]
             )
@@ -327,7 +525,7 @@ class _Tool:
         output: Tree | None = None,
     ) -> None:
         saved = {
-            "version": 1,
+            "version": 1 if output is None else output["version"],
             "intent": final,
             "call": call_input,
             "key": key,
@@ -340,6 +538,8 @@ class _Tool:
         async def received(tx: TaskTx, current: Tree) -> Tree:
             _same(current, previous)
             output = await tx.doc(RECEIPT_DOC)
+            if output.snapshot().thaw():
+                refuse()  # A committed receipt is the first winner, never overwritten.
             output.update(saved)
             return {
                 "status": "running",
@@ -373,20 +573,31 @@ class _Tool:
                         "call": record["input"],
                     },
                 }
-            draft = message_entry(outcome.result)
-            draft["data"] = {
-                "nativeToolOutput": saved["nativeToolOutput"],
-                "call": saved["call"],
-                "key": saved["key"],
-            }
+            full = saved["nativeToolOutput"]
+            draft = message_entry(project_tool_output(full, outcome))
+            draft["data"] = (
+                {"nativeToolReceipt": saved}
+                if saved["version"] == 2
+                else {
+                    "nativeToolOutput": saved["nativeToolOutput"],
+                    "call": saved["call"],
+                    "key": saved["key"],
+                }
+            )
             entry = await tx.append_entry(draft)
-            return {
+            terminal: Tree = {
                 "status": "terminal",
                 "outcome": {
                     "status": "completed",
                     "result": {"kind": "model", "entryId": entry.id},
                 },
             }
+            if full["version"] == 2 and full["ending"] == "failed":
+                terminal["outcome"].update(
+                    status="failed",
+                    error={"message": failure_text(full["recovery"]["category"])},
+                )
+            return terminal
 
         await runtime.commit(settled)
 

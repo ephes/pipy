@@ -171,6 +171,7 @@ def _encode(value: object) -> bytes:
                 key, child = pairs[index]
                 work.append(child)
                 work.append((("," if index else "") + _scalar(key) + ":",))
+            del pairs
         elif isinstance(item, list):
             parts.append("[")
             work.append(("]",))

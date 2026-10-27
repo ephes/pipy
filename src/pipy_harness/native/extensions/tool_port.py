@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
+    TextContent,
     ToolPartialResult,
     ToolResultBlock,
     tool_result_text,
@@ -30,6 +31,8 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolOutputSink,
     ToolRequest,
+    dispatch_tool_output,
+    forward_tool_details,
     json_safe_details,
     json_safe_value,
 )
@@ -70,11 +73,25 @@ def _partial_update(sink: ToolOutputSink) -> Callable[[ToolResult], None]:
     each partial ``ToolResult`` becomes a partial result that replaces the
     previous one, its text bounded like the final result's."""
 
-    def update(partial: ToolResult) -> None:
+    def capture(partial: ToolResult) -> ToolPartialResult:
         if not isinstance(partial, ToolResult):
             raise TypeError("on_update expects a ToolResult")
         if partial.blocks:
-            text = tool_result_text(partial.blocks)
+            # Joining all caller-owned blocks before truncation can allocate
+            # unbounded text. This prefix has identical truncation semantics.
+            pieces: list[str] = []
+            length = 0
+            for block in partial.blocks:
+                if not isinstance(block, TextContent):
+                    continue
+                prefix = ("\n" if pieces else "") + block.text[
+                    : _TOOL_OUTPUT_MAX_CHARS + 1
+                ]
+                pieces.append(prefix[: _TOOL_OUTPUT_MAX_CHARS + 1 - length])
+                length += len(pieces[-1])
+                if length > _TOOL_OUTPUT_MAX_CHARS:
+                    break
+            text = "".join(pieces)
         else:
             text = (
                 partial.content
@@ -83,7 +100,10 @@ def _partial_update(sink: ToolOutputSink) -> Callable[[ToolResult], None]:
             )
         if len(text) > _TOOL_OUTPUT_MAX_CHARS:
             text = text[: _TOOL_OUTPUT_MAX_CHARS - 64] + _TRUNCATED
-        sink(ToolPartialResult(text, json_safe_details(partial.details)))
+        return ToolPartialResult(text, forward_tool_details(sink, partial.details))
+
+    def update(partial: ToolResult) -> None:
+        dispatch_tool_output(sink, lambda: capture(partial))
 
     return update
 

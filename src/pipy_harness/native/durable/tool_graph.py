@@ -24,7 +24,13 @@ from .generation_tasks import (
 )
 from .records import EntryRecord, safe_integer
 from .session_core import AsyncTx
-from .tool_values import checkpoint, match_result, read_native_tool_output, refuse
+from .tool_output_values import failure_text, project_tool_output
+from .tool_values import (
+    checkpoint,
+    entry_tool_output,
+    match_result,
+    refuse,
+)
 
 Tree = dict[str, Any]
 LIVE = ("pending", "running", "waiting", "sleeping", "completing")
@@ -164,18 +170,72 @@ def owned_child(
 
 
 def _child_result_id(
-    parent: Tree, assistant_id: int, call: AgentToolCall, slot: Tree, rows: list[Tree]
-) -> int:
+    parent: Tree,
+    assistant_id: int,
+    call: AgentToolCall,
+    slot: Tree,
+    rows: list[Tree],
+    found: EntryRecord | None = None,
+) -> int | None:
     child = owned_child(parent, assistant_id, call, slot, rows)
     state = child["state"]
-    if state["status"] != "terminal" or state["outcome"]["status"] != "completed":
-        refuse()
+    if state["status"] != "terminal":
+        return None
+    terminal = state["outcome"]
+    if terminal["status"] not in ("completed", "failed"):
+        return None
+    if terminal["status"] == "failed" and "result" not in terminal:
+        return None
     output = state["outcome"]["result"]
     if type(output) is not dict or output.get("kind") != "model":
         refuse()
-    id = output["entryId"]
-    safe_integer(id)
-    return cast(int, id)
+    id = safe_integer(output.get("entryId"))
+    if terminal["status"] == "failed":
+        if found is None or found.id != id:
+            refuse()
+        result_value(found, parent, assistant_id, call, slot)
+        raw = entry_tool_output(cast(Tree, found.to_tree())["data"])[0]
+        if (
+            raw["version"] != 2
+            or raw["ending"] != "failed"
+            or set(terminal) != {"status", "error", "result"}
+            or terminal["error"]
+            != {"message": failure_text(raw["recovery"]["category"])}
+            or set(output) != {"kind", "entryId"}
+            or child["abortRequested"]
+            or child["background"]
+            or child.get("abandonOnRestart")
+            or any(row.get("owner") == child["id"] for row in rows)
+        ):
+            refuse()
+    elif found is not None:
+        raw = entry_tool_output(cast(Tree, found.to_tree())["data"])[0]
+        if raw.get("version") == 2 and raw.get("ending") != "completed":
+            refuse()
+    return id
+
+
+def child_result_id(
+    parent: Tree,
+    assistant_id: int,
+    call: AgentToolCall,
+    slot: Tree,
+    rows: list[Tree],
+    entries: dict[int, EntryRecord],
+) -> int | None:
+    child = owned_child(parent, assistant_id, call, slot, rows)
+    output = child["state"].get("outcome", {}).get("result")
+    found = (
+        entries.get(output["entryId"])
+        if type(output) is dict and type(output.get("entryId")) is int
+        else None
+    )
+    id = _child_result_id(parent, assistant_id, call, slot, rows, found)
+    if id is not None:
+        if found is None:
+            refuse()
+        result_value(found, parent, assistant_id, call, slot)
+    return id
 
 
 async def result(
@@ -187,13 +247,23 @@ async def result(
     rows: list[Tree],
     entries: dict[int, EntryRecord] | None = None,
 ) -> tuple[int, AgentToolResultMessage]:
-    id = (
-        _child_result_id(parent, assistant_id, call, slot, rows)
-        if "taskId" in slot
-        else slot["entryId"]
-    )
+    # Candidate acquisition is not result-bearing authorization. The shared
+    # predicate runs only after its actual entry/receipt have been captured.
+    if "taskId" in slot:
+        child = owned_child(parent, assistant_id, call, slot, rows)
+        output = child["state"].get("outcome", {}).get("result")
+        if type(output) is not dict:
+            refuse()
+        id = safe_integer(output.get("entryId"))
+    else:
+        id = slot["entryId"]
     found = await entry(tx, id, entries)
     if found is None:
+        refuse()
+    if (
+        "taskId" in slot
+        and _child_result_id(parent, assistant_id, call, slot, rows, found) != id
+    ):
         refuse()
     return id, result_value(found, parent, assistant_id, call, slot)
 
@@ -210,6 +280,7 @@ def result_value(
     if (
         tree["conversationId"] != parent["conversationId"]
         or tree["kind"] != "pi.tool-result"
+        or len(tree["model"]) != 1
     ):
         refuse()
     message = decode_canonical(tree["model"][0])
@@ -219,22 +290,22 @@ def result_value(
     if "taskId" in slot:
         if tree.get("byTaskId") != slot["taskId"]:
             refuse()
-        data = tree["data"]
+        full, actual, recorded_call, key = entry_tool_output(tree["data"])
         if (
-            data.get("call")
+            recorded_call
             != {
                 "kind": "model",
                 "assistant": assistant_id,
                 "callId": call.provider_correlation_id,
             }
-            or type(data.get("key")) is not str
-            or not data["key"]
+            or type(key) is not str
+            or not key
         ):
             refuse()
-        _, actual = read_native_tool_output(data["nativeToolOutput"])
         if OwnedJson(tree["model"][0]) != OwnedJson(
             encode_canonical(
-                actual.result, codec_version=tree["model"][0]["codec_version"]
+                project_tool_output(full, actual),
+                codec_version=tree["model"][0]["codec_version"],
             )
         ):
             refuse()

@@ -15,7 +15,11 @@ sys.path.insert(0, str(ROOT / "tests/durable"))
 from dataclasses import replace
 
 from generation_support import Wire, admit, definition, seed
-from test_resolution import InvalidFirst, make_definitions, setup  # noqa: E402
+from test_resolution import (  # noqa: E402
+    InfrastructureFailureFirst,
+    make_definitions,
+    setup,
+)
 from test_tool_boundaries import RichTool, run_idle
 from test_tool_execution import KeyedTool
 from tool_support import counts  # noqa: E402
@@ -117,7 +121,7 @@ def produce(root, d):
     session.close(timeout=10)
     acks, invocations, guard = [], [], threading.Lock()
 
-    class ProofPort(InvalidFirst):
+    class ProofPort(InfrastructureFailureFirst):
         def invoke(self, request, context):
             event = {
                 "key": context.call_key,

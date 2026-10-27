@@ -158,13 +158,20 @@ def completed_message(value: CompletedMessage) -> dict[str, Any]:
         raw, outcome = read_native_tool_output(value.tool_output.thaw())
         completed_at = decode_canonical(raw["completedAt"])
         assert type(completed_at) is datetime
-        result["tool_execution"] = {
+        execution: dict[str, Any] = {
             "malformed_arguments": outcome.malformed_arguments,
             "interruption": outcome.interruption.value,
             "cancelled": outcome.cancelled,
             "execution_seconds": outcome.execution_seconds,
             "completed_at": completed_at.isoformat(),
         }
+        result["tool_execution"] = execution
+        if raw["version"] == 2:
+            execution.update(
+                ending=raw["ending"],
+                diagnostics=raw["diagnostics"],
+                recovery=raw["recovery"],
+            )
     return result
 
 

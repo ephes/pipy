@@ -206,4 +206,131 @@ executor, canonical receipt/history, completed view and SDK/CLI. Old v1 arenas
 and unknown None presence are preserved. No tool task/receipt ownership, replay,
 unsafe block, control or settlement policy changes. The outer ordinary fact/
 receipt remains v1 with independently versioned canonical content. Parent DE13
-unsafe interrupted-error continuation and retained progress are still OPEN.
+unsafe interrupted-error continuation remains OPEN; retained reporting and ordinary
+failures are implemented separately by DE13b below.
+
+## Retained reporting and ordinary tool failures (DE13b)
+
+An executing durable tool receives `DurableToolContext`. Its
+`report_details(value)` replaces retained details and returns only after that
+prefix has committed successfully. It raises a fixed refusal if admission or
+persistence authority is lost. `NO_TOOL_DETAILS` explicitly clears the value;
+`None`, false, zero, empty containers and scalar/array/object values remain
+present. A final result inherits retained details only when its own details are
+exactly absent. Explicit final null, empty values and legacy unknown presence
+are not replaced. The shared non-durable executor keeps its existing behavior.
+
+`report_diagnostic(severity=..., message=..., code=None)` accepts the finite
+severities `info`, `warning` and `error`. Diagnostics must fit the reserved model
+text space and be UTF-8 representable before admission. Diagnostics and the
+ordinary output callback are void: normal return is **not** a persistence ACK.
+Ordinary callback failures, including a failed error-path wake, cannot escape
+into the Bash selector. Infrastructure failure takes precedence over a handled
+tool error. A previously admitted epoch remains owned after a later refusal;
+there is no rollback fiction or acknowledgement after an uncertain commit.
+
+One host-owned flusher commits the current `pi.tool.progress` document on the
+existing Session transaction line. Both Bash capture and extension partial
+normalization enter retained admission before copying/converting their payload.
+The existing native worker, admitted callbacks, barrier waiters, commit task,
+flusher and physical finalizers remain joined before the store lease releases.
+A commit task retains its payload until a successful document update transfers
+ownership to the transaction; only backend completion and adoption permit ACK.
+Metadata guards protect admission/epochs and never run foreign-reference
+cleanup, payload copying or storage I/O. One nonblocking preparation workspace
+bounds allocating work; a busy workspace refuses immediately. Up to 16 callback
+or explicit-barrier lifetimes may remain admitted, with waiting barriers holding
+only their prefix/permit rather than earlier payload copies.
+
+Current progress policy is provisional native policy, not Pi timing parity:
+
+| Item | Current policy |
+| --- | --- |
+| Whole progress snapshot | 512 KiB compact escaped JSON and 32,768 logical nodes |
+| Retained output | Last 50 KiB UTF-8 / 2,000 lines, with dropped counters |
+| Periodic writes | At least 200 ms apart and a 128 KiB/s token budget with one snapshot burst |
+| Explicit details barrier/final drain | Flush required prefix without periodic throttling |
+| Diagnostic text | Reserved within the existing 64 Ki-character model result limit |
+
+Capture checks capacity before expanding containers or encoding large scalars.
+The strict plain finite JSON/binary64 domain remains unchanged; historical
+canonical values retain their unrestricted depth/value contract. Extension
+forwarding first performs bounded normal-value capture, then the existing JSON
+text normalization; ordinary producer and forwarding policies are unchanged.
+Each changed progress commit uses the existing always-base checkpoint policy,
+so repeated flushes retain one current base. This does not bound SQLite WAL,
+whole conversation/request history, graph scans, database amplification or RSS.
+The finite worst-state resource controls account for native payload/index/
+encoder/decoder ownership, transaction/cache overlap and scalar workspaces;
+they do not establish those broader budgets. Pi's 100 ms / 100 KiB/s behavior
+and full DE26/33/27/28 obligations remain open.
+
+A real ordinary invoke exception, invalid final result or refused progress now
+produces a fixed `tool_error` category on the same raw **failed** child and a
+model-visible error result. Categories are `invocation_exception`,
+`invalid_result`, `invalid_progress` and `progress_capacity`; exception wording
+never determines them and private exception text is not projected. A returned
+ordinary `is_error` result remains a completed tool execution. Valid completed
+and failed results continue the actual next provider request once, with existing
+ordered slots and usage settlement. Lost Session/commit/callback infrastructure
+authority does not create a handled failure result.
+
+An intentional `ToolArgumentError` raised inside a tool invocation retains the
+shared executor's argument-refusal behavior: the tool's useful message and
+`malformed_arguments=True` remain a normal completed outcome. For example,
+`find` with an empty pattern preserves its semantic argument error. Without
+diagnostics this uses fact/receipt v1. Other `ValueError` or ordinary exceptions
+from invocation still use the fixed `invocation_exception` failed outcome.
+
+Request admission, tool-call admission and explicit operator retry compare full
+supported model declarations in the canonical decoder's schema-list form. A
+schema array and its frozen request tuple therefore agree, including `required`
+and nested `enum` arrays. Names, descriptions, schema modes, schema contents and
+catalog order remain strict; unsupported metadata and live hooks are rejected
+before normalization. Saved declarations and private implementation, revision,
+replay, workspace and receipt authority keep their existing checks and bytes.
+
+Unchanged normal outputs retain outer fact/receipt v1. Diagnostics or a handled
+failure use closed fact/receipt v2. On settlement, one internal
+`Entry.data.nativeToolReceipt` carries the exact saved, validated receipt2 read
+on that transaction line; its nested full fact is the only outcome authority.
+Task documents retire normally. All later readers validate the carrier, full
+fact, exact canonical projection, parent/conversation/call/task/slot ownership
+and permitted terminal cause. Non-object task result references and missing,
+non-integer or out-of-range entry IDs use fixed validation refusals. Candidate
+lookup accepts only exact integer keys before the shared result predicate runs;
+completing children retain their existing safe-skip behavior. Malformed references
+cannot escape as incidental attribute, key or unhashable-key errors.
+Private intent, prepared arguments, workspace and
+idempotency key remain internal: metadata inspection, completed output, CLI JSON
+and provider wire do not export the carrier. The public full fact retains raw
+supported content; the model projection bounds text, preserves image order and
+keeps empty text blocks when they represent retained newline separators.
+
+Native tool-result DTOs currently reject signed text blocks, including during
+canonical reads. DE13b preserves that domain; it does not claim positive signed
+tool-result parity. Existing supported assistant signatures are unchanged.
+Full P15 tool metadata parity remains open under
+`pipy-durable-p15-tool-text-signatures`. Pi preserves tool text signatures even
+when bounding content; this slice establishes no later signature-removal policy.
+
+The cumulative `retained-tool-reporting-v1` comparison follows the existing
+22 phases with four actual public Harness/native cases: reported details with
+absent final details, explicit final null, failure after reported details and
+failure without details. It retains raw records, committed prefix ACKs, model
+requests and fake-provider wire bodies, and checks the actual next answer and
+reopen without another effect. Only its declared common observables are paired.
+Pi's normal fixture omits final output; the native normal fixture explicitly
+returns the reported text because `ToolExecutionResult` currently requires it.
+That different input is retained, not presented as fallback parity:
+`pipy-durable-p16-omitted-tool-output` remains open. Native ordinary failures do
+use their retained output. Pi's automatic error diagnostic and native's fixed
+recovery category/model suffix, warning spelling and reporting stage, graph
+shape and policy constants remain raw differences. The comparison does not
+measure timing/capacity or establish whole-feature parity.
+
+This child does not produce or accept an interrupted branch as a failed-child
+continuation cause. Unsafe execute recovery, explicit old-blocked upgrades,
+missing/current implementation resolution and replay ceilings remain DE13c;
+provider retry/auth/default activation and general graph work keep their existing
+owners. Parent DE13 and all 43 whole parity obligations remain open.

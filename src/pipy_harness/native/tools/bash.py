@@ -74,6 +74,7 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolOutputSink,
     ToolRequest,
+    dispatch_tool_output,
 )
 from pipy_harness.native.tools.bash_executor import ExecutorOutput
 from pipy_harness.native.tools.output_accumulator import (
@@ -570,7 +571,7 @@ def _partial_results(
     if sink is None:
         return None
 
-    def publish(chunk: str) -> None:
+    def capture(chunk: str) -> ToolPartialResult:
         snapshot = accumulator.snapshot(persist_if_truncated=True)
         if snapshot.full_output_path is not None:
             # The file the update names holds the output so far; a failed
@@ -582,7 +583,10 @@ def _partial_results(
             details["truncation"] = snapshot.truncation.to_details()
         if snapshot.full_output_path is not None:
             details["fullOutputPath"] = snapshot.full_output_path
-        sink(ToolPartialResult(snapshot.content, details, appended=chunk))
+        return ToolPartialResult(snapshot.content, details, appended=chunk)
+
+    def publish(chunk: str) -> None:
+        dispatch_tool_output(sink, lambda: capture(chunk))
 
     return publish
 

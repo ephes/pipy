@@ -235,22 +235,19 @@ def test_closed_loop_bridge_detaches_on_next_actual_publication():
 def test_held_commit_between_metadata_read_and_wait_cannot_be_lost(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
-
     from test_product_session import tools
-    from tool_support import CountedWire, Keyed
+    from tool_support import CountedWire, Keyed, reporting_infrastructure_failure
 
     entered, release, blocked = (threading.Event() for _ in range(3))
 
-    class InvalidHeld(Keyed):
+    class InfrastructureFailureHeld(Keyed):
         def invoke(self, request, context):
             entered.set()
             assert release.wait(10)
-            return replace(
-                super().invoke(request, context), details={"invalid": object()}
-            )
+            result = super().invoke(request, context)
+            return reporting_infrastructure_failure(self.root, request, context, result)
 
-    registry = tools(tmp_path, port_type=InvalidHeld)
+    registry = tools(tmp_path, port_type=InfrastructureFailureHeld)
     actual = product_api.ainspect_live
 
     async def scenario():
@@ -456,10 +453,13 @@ def test_cancelled_first_admission_does_not_queue_second_input_before_ack(
 def test_positive_hold_refreshes_parent_after_precommit_metadata_capture(
     tmp_path, monkeypatch, control
 ):
-    from dataclasses import replace
-
     from test_product_session import tools
-    from tool_support import CountedWire, Keyed, counts
+    from tool_support import (
+        CountedWire,
+        Keyed,
+        counts,
+        reporting_infrastructure_failure,
+    )
 
     from pipy_harness.native.durable.storage import StorageWrite
 
@@ -471,7 +471,7 @@ def test_positive_hold_refreshes_parent_after_precommit_metadata_capture(
             assert release.wait(10)
             result = super().invoke(request, context)
             return (
-                replace(result, details={"invalid": object()})
+                reporting_infrastructure_failure(self.root, request, context, result)
                 if control == "invalid_result"
                 else result
             )

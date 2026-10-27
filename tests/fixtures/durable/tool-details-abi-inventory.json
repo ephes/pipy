@@ -2008,7 +2008,7 @@
       "end_line": 1069,
       "scope": "embedded JavaScript tool-result iteration",
       "kind": "manual_non_attribute_consumer",
-      "description": "Actual msg.details \u2192 appendNestedCalls consumer callsite; propagate/select new typed nested evidence.",
+      "description": "Actual msg.details → appendNestedCalls consumer callsite; propagate/select new typed nested evidence.",
       "source_sha256": "b10dbdf0f96b523a1ee6f9e4e49dc01f734f8a743364b5bd008488f04f98f49c",
       "excerpt_sha256": "49da2f8662a58f2b852af4ef2f4572cc4c7abddbd3180e277201ebdbbf9a661f",
       "expression": "        for (const call of calls) {\n          const rows = rendered(call.provider_correlation_id);\n          if (rows) appendRenderedTool(rows, call.provider_correlation_id);\n        }\n      }\n      else if (msg.role === \"tool\") {\n        // A result drawn ahead is shown in its call's box.\n        const id = msg.provider_correlation_id;\n        const rows = rendered(id);\n        const box = rows && \"resultHtmlExpanded\" in rows ? renderedBoxes.get(id) : undefined;\n        const target = box || append(\"Tool result\", msg.output_text || \"\", \"tool\");\n        appendNestedCalls(target, msg.details);\n        appendImages(msg.blocks);\n"
@@ -2047,12 +2047,12 @@
     },
     {
       "path": "src/pipy_harness/native/agent/tools.py",
-      "current_sha256": "a6a4c2f8f5202efeed8f4ba2340ced17deb1a77383cdfd9c17658ff4e285c5a7",
+      "current_sha256": "84ef4a4a163ae6200d666cf92e48b2bdae031857185aec025fb471a069b2bbfd",
       "disposition": "Existing executor forwards actual final details/evidence only; no retained-gate or lifecycle policy change."
     },
     {
       "path": "src/pipy_harness/native/automation/durable_output.py",
-      "current_sha256": "589950ba5047127412235c0fa6b26d1af2937268c2526b997922960aee893739",
+      "current_sha256": "9e4247adabb257e129378710060aae329c251358c378c529c829e1f649ea2152",
       "disposition": "Run output v2 explicitly reports absent/value/legacy-unspecified; inspect/retry formats stay unchanged."
     },
     {
@@ -2082,7 +2082,7 @@
     },
     {
       "path": "src/pipy_harness/native/durable/tool_graph.py",
-      "current_sha256": "26e7fc7b597f78fbca694ab0a64b698a291d996ddf927060ee5f79b79d0b149b",
+      "current_sha256": "c0f6d8ec30552604c8e2aec57667625f7b2db4480e6344e76b2a245ae88302ae",
       "disposition": "Compare result using its recorded arena version, without changing raw task status/ownership/control validation."
     },
     {
@@ -2117,7 +2117,7 @@
     },
     {
       "path": "src/pipy_harness/native/extensions/tool_port.py",
-      "current_sha256": "ca33b2da257b87002735c38751c3cc3f113eadec1fd7bb791025a756664f539c",
+      "current_sha256": "1c6c5aeb4b59b7b5a2d30ca88544242d2eca65db0fee656eede00dc1e2b4aca4",
       "disposition": "Extension result forwards exact details and typed evidence; plain text result is absent."
     },
     {
@@ -2177,12 +2177,12 @@
     },
     {
       "path": "src/pipy_harness/native/tools/base.py",
-      "current_sha256": "1c7e89761136a7d028d4a3bd333a451f7df6fcfadd995d66f1dda6469379cf17",
+      "current_sha256": "f9c69be3b25584a98f68bb6af27b7f626511f4733e2f4536c8dd15191101893e",
       "disposition": "Direct ToolExecutionResult owns normal values and applies a stdlib encoding predicate; extension forwarding retains its JSON text-copy policy. Nested/history DTOs copy values only; durable ingress retains exact binary64/plain JSON validation."
     },
     {
       "path": "src/pipy_harness/native/tools/bash.py",
-      "current_sha256": "b48749120a3288859ccab178b291e518c0b645eb7e949d606ccc131eac6f1c37",
+      "current_sha256": "6ce29629ec62cf814cee13f0d84d3f7a14a2dead8879a4a74e1eba010fc78b09",
       "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
     },
     {

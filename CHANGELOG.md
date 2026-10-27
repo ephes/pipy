@@ -8,6 +8,26 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add retained output, explicit details-prefix acknowledgements and typed
+  diagnostics to opt-in durable tool execution. One owned flusher and bounded
+  preparation retain physical workers, callbacks and finalizers through close.
+  Ordinary tool/reporting failures continue with a fixed error result on the
+  actual failed child; commit or ownership failures never become handled errors.
+  Intentional tool argument refusals keep their useful message and existing
+  completed malformed-arguments outcome. Malformed task result references use
+  fixed reader refusals before entry lookup, including missing, non-integer and
+  out-of-range entry IDs; completing children keep their safe-skip behavior.
+  Request, tool-call and operator-retry admission compare equivalent frozen
+  schema arrays consistently while preserving declaration and replay checks.
+  Diagnostic/failure facts retain their actual saved receipt internally while
+  public output excludes private intent/prepared/workspace/key fields. Normal
+  fact/receipt v1 output stays unchanged. New fact2 model text preserves image
+  order and newline-bearing empty text blocks. Native signed tool-result blocks
+  remain unsupported; unsafe recovery, full metadata/resource parity and all
+  whole durable parity obligations remain open. Existing operator-retry tests
+  retain real infrastructure uncertainty after an applied effect; invalid final
+  results now exercise ordinary handled failure.
+
 - Add normal tool-details presence and finite JSON values across native results,
   canonical storage, SDK/JSONL/CLI output and renderers. Missing, null and
   unchanged transforms are distinct; saved canonical v1 bytes retain their old
@@ -24,8 +44,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
   their JSON text-copy semantics, including surrogate-pair normalization for
   UTF-8 output. Historical canonical reads and unchanged hook details keep their
   broader value domain and raw string representations.
-  This DE13a prerequisite does not enable unsafe interrupted-error continuation
-  or retained progress; all full durable parity obligations remain open.
+  This DE13a prerequisite does not enable unsafe interrupted-error continuation;
+  retained reporting is a separate addition below. All full parity obligations
+  remain open.
 
 - Add opt-in `pipy durable start/resume/inspect/authorize-retry` over the native
   durable SDK, with explicit paths/profile, passive metadata inspection and

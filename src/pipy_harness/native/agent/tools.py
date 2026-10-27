@@ -21,6 +21,7 @@ from pipy_harness.native.tools.base import (
     ToolOutputSink,
     ToolPort,
     ToolRequest,
+    _RetainedOutputSink,
     make_tool_request_id,
     validate_arguments,
 )
@@ -189,28 +190,101 @@ def cancelled_tool_outcome(
     )
 
 
-class _InvocationOutputGate:
+class _InvocationOutputGate(_RetainedOutputSink):
     """Keep one invocation's live-output callback within its execution lifetime."""
 
-    def __init__(self, sink: ToolOutputSink | None) -> None:
+    def __init__(
+        self, sink: ToolOutputSink | None, *, retain: bool = False, permits: int = 16
+    ) -> None:
         self._sink = sink
         self._active = True
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
+        self._retain = retain
+        self._permits = permits
+        self._active_callbacks = 0
+        self._callback_threads: dict[int, int] = {}
+        self._capture_failed = False
 
     @property
     def sink(self) -> ToolOutputSink | None:
-        return self.emit if self._sink is not None else None
+        with self._condition:
+            present, retained = self._sink is not None, self._retain
+        return (self if retained else self.emit) if present else None
+
+    def __call__(self, output: ToolOutput) -> None:
+        self.dispatch(lambda: output)
+
+    def dispatch(self, capture: Callable[[], ToolOutput]) -> None:
+        """Admit before capture; a void return is never a persistence ACK."""
+        try:
+            self._dispatch(capture)
+        except Exception as error:  # noqa: BLE001 - also contain admission/bridge failures
+            self._capture_failure(error)
+
+    def _dispatch(self, capture: Callable[[], ToolOutput]) -> None:
+        self._run_admitted(lambda sink: sink(capture()))
+
+    def _run_admitted(self, callback: Callable[[ToolOutputSink], object]) -> bool:
+        """Keep explicit reporter barriers in the same callback ownership."""
+        thread = threading.get_ident()
+        with self._condition:
+            if not self._active or self._sink is None:
+                return False
+            refused = self._active_callbacks >= self._permits
+            if not refused:
+                self._active_callbacks += 1
+                self._callback_threads[thread] = (
+                    self._callback_threads.get(thread, 0) + 1
+                )
+                sink = self._sink
+        if refused:
+            self._refused_capacity()
+            return False
+        try:
+            callback(sink)
+        finally:
+            with self._condition:
+                self._active_callbacks -= 1
+                depth = self._callback_threads[thread] - 1
+                if depth:
+                    self._callback_threads[thread] = depth
+                else:
+                    del self._callback_threads[thread]
+                self._condition.notify_all()
+        return True
+
+    def _capture_failure(self, error: Exception) -> None:
+        # The durable subclass retains fixed categories, never exception text.
+        with self._condition:
+            self._capture_failed = True
+
+    def _refused_capacity(self) -> None:
+        with self._condition:
+            self._capture_failed = True
 
     def emit(self, output: ToolOutput) -> None:
-        with self._lock:
+        with self._condition:
             if not self._active or self._sink is None:
                 return
             sink = self._sink
         sink(output)
 
     def deactivate(self) -> None:
-        with self._lock:
+        retired = None
+        with self._condition:
+            if self._retain and self._callback_threads.get(threading.get_ident(), 0):
+                raise RuntimeError("Cannot drain output from its admitted callback")
             self._active = False
+            if self._retain:
+                while self._active_callbacks:
+                    self._condition.wait()
+                retired, self._sink = self._sink, None
+        del retired  # Foreign finalizers must never run under the Condition.
+
+    @property
+    def retaining(self) -> bool:
+        with self._condition:
+            return self._retain
 
 
 class _ExecutionOrder:
@@ -278,6 +352,7 @@ class ToolExecutor:
         wait_for_interrupt: ToolInterruptWaiter | None = None,
         *,
         arguments: dict[str, Any] | None = None,
+        retained_output: _InvocationOutputGate | None = None,
     ) -> ToolExecutionOutcome:
         """Execute ``call``, optionally on a worker observed by ``wait_for_interrupt``.
 
@@ -289,7 +364,11 @@ class ToolExecutor:
         call (Pi runs ``prepareArguments`` once, before the hooks).
         """
 
-        output_gate = _InvocationOutputGate(context.output_sink)
+        if retained_output is not None and (
+            wait_for_interrupt is not None or not retained_output.retaining
+        ):
+            raise ValueError("Retained output requires the physically owned executor")
+        output_gate = retained_output or _InvocationOutputGate(context.output_sink)
         invocation_context = replace(context, output_sink=output_gate.sink)
         try:
             if wait_for_interrupt is None:

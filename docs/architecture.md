@@ -1094,14 +1094,19 @@ committed streaming remain their assigned later slices.
 
 ## Private durable tools (DE08)
 
-The package inventory adds four internal modules without product entry points:
+DE08 introduced four internal modules before product entry points were added.
+DE13b extends that inventory with retained reporting and closed failure facts;
+the current ownership boundaries are:
 
 | Module under native/durable | Authority |
 | --- | --- |
-| tool_execution.py | Fixed captured registrations, acknowledged intent, existing synchronous ToolExecutor through owned_call, receipt/settlement phases |
-| tool_graph.py | Session-line direct-owned-leaf eligibility, saved slots/prior receipts and exact allSettled parent reconciliation |
-| tool_values.py | Closed versioned intents/checkpoints/nativeToolOutput receipts and payload-free refusal |
+| tool_execution.py | Fixed captured registrations, acknowledged intent, existing synchronous ToolExecutor through owned_call, retained reporter lifetime and receipt/settlement phases |
+| tool_graph.py | Session-line direct-owned-leaf eligibility, strict shared result/receipt/cause validation, saved slots and exact allSettled parent reconciliation |
+| tool_values.py | Validated model-declaration comparison, closed intents/checkpoints, fact/receipt v1 and v2, the actual receipt2 entry carrier and payload-free refusal |
 | tool_history.py | Committed closed-round entry order and next-prepare seed over existing canonical DTOs |
+| tool_progress.py | Retained reporter admission, prefix acknowledgements and one host-owned flusher with joined commit ownership |
+| tool_progress_values.py | Bounded value capture, output/details presence, diagnostic validation and progress limits |
+| tool_output_values.py | Closed fact2 endings/failure causes and deterministic bounded model projection |
 
 [scheduler](durable-task-runtime.md) retains its single consistently guarded
 registry and existing Session close owner. [Generation](durable-generation.md)

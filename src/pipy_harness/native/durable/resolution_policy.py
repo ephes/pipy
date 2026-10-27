@@ -6,7 +6,7 @@ from typing import Any, NoReturn
 
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 
-from .canonical_codec import decode_canonical, encode_canonical
+from .canonical_codec import decode_canonical
 from .codec import OwnedJson
 from .generation_tasks import (
     GENERATION_NAME,
@@ -18,8 +18,12 @@ from .inspection_read import round_facts, terminate_index
 from .inspection_values import InspectionSupport
 from .resolution_values import ResolutionError
 from .storage import Storage
-from .tool_graph import _child_result_id, _parent_leaf_round, result_value
-from .tool_values import blocked_record, checkpoint
+from .tool_graph import (
+    _parent_leaf_round,
+    child_result_id,
+    result_value,
+)
+from .tool_values import _model_declaration, blocked_record, checkpoint
 
 Tree = dict[str, Any]
 LIVE = ("pending", "running", "waiting", "sleeping", "completing")
@@ -101,10 +105,18 @@ def _prefix(
             break
         result_id = slot.get("entryId")
         if result_id is None:
-            result_id = _child_result_id(parent, value["assistant"], call, slot, rows)
+            result_id = child_result_id(
+                parent, value["assistant"], call, slot, rows, entries
+            )
         if result_id not in entries:
             _refuse()
-        result_value(entries[result_id], parent, value["assistant"], call, slot)
+        result_value(
+            entries[result_id],
+            parent,
+            value["assistant"],
+            call,
+            slot,
+        )
     if selected is None:
         _refuse()
     seen = False
@@ -148,7 +160,8 @@ def _registration(
         or not registration["supported"]
         or offered is None
         or current["workspace"] != str(snapshot.request.cwd)
-        or OwnedJson(registration["advertised"]) != OwnedJson(encode_canonical(offered))
+        or _model_declaration(decode_canonical(registration["advertised"]))
+        != _model_declaration(offered)
     ):
         _refuse()
     previous = checkpoint(task["state"]["checkpoint"]).get("intent")

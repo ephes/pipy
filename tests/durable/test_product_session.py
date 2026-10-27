@@ -254,18 +254,23 @@ def test_generation_retry_derived_seed_explicit_selector_no_sticky_dispatch(tmp_
 
 
 def test_tool_authorized_retry_stays_paused_until_resume(tmp_path):
-    from dataclasses import replace
+    from tool_support import (
+        CountedWire,
+        Keyed,
+        counts,
+        reporting_infrastructure_failure,
+    )
 
-    from tool_support import CountedWire, Keyed, counts
-
-    class InvalidFirst(Keyed):
+    class InfrastructureFailureFirst(Keyed):
         def invoke(self, request, context):
             result = super().invoke(request, context)
             if self.definition.name == "keyed" and counts(self.root)["calls"] == 1:
-                return replace(result, details={"private": object()})
+                return reporting_infrastructure_failure(
+                    self.root, request, context, result
+                )
             return result
 
-    registry = tools(tmp_path, port_type=InvalidFirst)
+    registry = tools(tmp_path, port_type=InfrastructureFailureFirst)
 
     async def scenario():
         async with await create_durable_product_session(
@@ -387,19 +392,21 @@ def test_derived_generation_retry_preserves_closed_tool_history_and_one_user_inp
 
 
 def test_held_child_beyond_terminal_page_returns_and_public_inspect_pages(tmp_path):
-    from dataclasses import replace
-
-    from tool_support import CountedWire, Keyed, counts
+    from tool_support import (
+        CountedWire,
+        Keyed,
+        counts,
+        reporting_infrastructure_failure,
+    )
 
     from pipy_harness.native.durable.generation_transport import owned_call
     from pipy_harness.native.durable.storage import StorageWrite
     from pipy_harness.native.durable.tasks import define_task
 
-    class InvalidFirst(Keyed):
+    class InfrastructureFailureFirst(Keyed):
         def invoke(self, request, context):
-            return replace(
-                super().invoke(request, context), details={"private": object()}
-            )
+            result = super().invoke(request, context)
+            return reporting_infrastructure_failure(self.root, request, context, result)
 
     async def never(*args):
         raise AssertionError("Terminal history must never execute")
@@ -407,7 +414,7 @@ def test_held_child_beyond_terminal_page_returns_and_public_inspect_pages(tmp_pa
     old = define_task(
         "fixture.done", 1, lambda value: {"phase": "done"}, {"done": never}, never
     )
-    registry = tools(tmp_path, port_type=InvalidFirst)
+    registry = tools(tmp_path, port_type=InfrastructureFailureFirst)
     wire = CountedWire(tmp_path)
 
     async def scenario():

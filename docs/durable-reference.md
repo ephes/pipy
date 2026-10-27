@@ -1571,3 +1571,32 @@ OPEN. Retained progress, unsafe continuation, failed-result validation and
 current callable ceilings are not implemented by this phase. Every final pure
 API attester uses its own fresh process; no shared-import contamination or
 re-executed effect is accepted as provenance.
+
+## Retained reporting and ordinary failures (DE13b)
+
+The twenty-third `retained-tool-reporting-v1.manifest.json` cumulatively inherits
+all 22 previous source/pin/parent inventories. Run
+`scripts/durable_reporting_comparison.py run --acceptance <fresh-parent>
+--output <new-output>`, then call its pure `attest(output, acceptance)` in its own
+fresh process. Producers use actual Harness/SQLite and native CLI/SQLite paths,
+a scripted first model response, then the real OpenAI adapter with fake fetch.
+The Harness progress clock advances normally; raw timestamps remain recorded.
+
+Four cases cover reported details followed by absent/null final details and
+ordinary failure with/without reported details. Both sides retain actual prefix
+ACK snapshots, final raw tasks/results, next requests and wire bodies, next
+answers, execution/preparation/provider counters and terminal reopen. The closed
+manifest declares the finite shared projection and open boundaries; raw records
+and `differences.json` preserve the side-specific inputs and outcomes. Native
+normal returns explicitly provide text; Pi normal returns omit it. Failed
+Native invocations actually retain their reported output. P16 omitted-output
+API parity is not inferred. Pi automatic error diagnostics, native fixed
+recovery text, warning spelling/stage, graph shape and policy constants differ.
+P15 tool-signature metadata remains outside the current legal native DTO domain.
+
+Seventeen semantic controls execute actual compare CLIs (positive0/negative1),
+with separate malformed2 and source/lifecycle/ACK/corrupt-receiver tests. Fresh
+attestation checks exact raw-to-projection joins, next-request/CLI records,
+source/module/resolution/process/artifact identities and the retained raw delta.
+No producer effects execute during attest. This bounded comparison closes no
+whole P row, unsafe recovery policy or general timing/RSS/storage budget.

@@ -50,7 +50,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, get_args, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, cast, get_args, runtime_checkable
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
@@ -76,6 +76,37 @@ from pipy_harness.native.agent.tool_details import (
 
 ToolOutputSink = Callable[[ToolOutput], None]
 """Where a running tool writes its live output (``ToolContext.output_sink``)."""
+
+
+class _RetainedOutputSink:
+    """Private executor capability: own a wrapper before it captures output."""
+
+    def __call__(self, output: ToolOutput) -> None:
+        raise NotImplementedError
+
+    def dispatch(self, capture: Callable[[], ToolOutput]) -> None:
+        raise NotImplementedError
+
+    def forward_details(self, value: object) -> object:
+        return json_safe_details(value)
+
+
+def dispatch_tool_output(
+    sink: ToolOutputSink, capture: Callable[[], ToolOutput]
+) -> None:
+    """Own retained wrapper capture; ordinary sinks keep existing behavior."""
+    if issubclass(type(sink), _RetainedOutputSink):
+        cast(_RetainedOutputSink, sink).dispatch(capture)
+    else:
+        sink(capture())
+
+
+def forward_tool_details(sink: ToolOutputSink, value: object) -> object:
+    """Called inside a retained wrapper's already-owned capture workspace."""
+    if issubclass(type(sink), _RetainedOutputSink):
+        return cast(_RetainedOutputSink, sink).forward_details(value)
+    return json_safe_details(value)
+
 
 _ALLOWED_TOP_LEVEL_TYPES = ("object",)
 _ALLOWED_TYPES = ("object", "string", "integer", "boolean", "array")

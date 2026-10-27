@@ -24,7 +24,11 @@ from .generation import ROUND_DOC, USAGE_DOC
 from .generation_tasks import GENERATION_NAME, GENERATION_VERSION
 from .records import ConversationId, DocumentId, EntryId, EntryRecord, safe_integer
 from .storage import EntryQuery, Storage, TaskQuery
-from .tool_graph import _child_result_id, _round_calls, owned_child, result_value
+from .tool_graph import (
+    _round_calls,
+    child_result_id,
+    result_value,
+)
 from .tool_history import ORDER_DOC, ordered_entries
 
 Tree = dict[str, Any]
@@ -170,15 +174,10 @@ def _prefix(
     held = False
     for call, slot in zip(assistant.tool_calls, slots, strict=True):
         if "taskId" in slot:
-            child = owned_child(parent, assistant_id, call, slot, rows)
-            state = child["state"]
-            if (
-                state["status"] != "terminal"
-                or state["outcome"]["status"] != "completed"
-            ):
+            id = child_result_id(parent, assistant_id, call, slot, rows, by_id)
+            if id is None:
                 held = True
                 continue
-            id = _child_result_id(parent, assistant_id, call, slot, rows)
         else:
             id = slot["entryId"]
         found = by_id.get(id)
@@ -272,11 +271,17 @@ def _closed_links(
             slot: Tree = {"callId": call.provider_correlation_id}
             if seed.authorizes(call.tool_name):
                 slot["taskId"] = child_tree.get("byTaskId")
-                if _child_result_id(parent, assistant_id, call, slot, rows) != id:
+                if child_result_id(parent, assistant_id, call, slot, rows, by_id) != id:
                     refuse()
             else:
                 slot["entryId"] = id
-            result_value(by_id[id], parent, assistant_id, call, slot)
+            result_value(
+                by_id[id],
+                parent,
+                assistant_id,
+                call,
+                slot,
+            )
             slots.append(slot)
             linked.add(id)
         _round_calls(
@@ -319,10 +324,12 @@ def _message(storage: Storage, cid: int, entry: EntryRecord) -> CompletedMessage
             role="provider_outcome",
         )
         provider = OwnedJson(frame.to_tree()["payload"])
-    if tree["kind"] == "pi.tool-result" and "nativeToolOutput" in data:
-        from .tool_values import read_native_tool_output
+    if tree["kind"] == "pi.tool-result" and (
+        "nativeToolOutput" in data or "nativeToolReceipt" in data
+    ):
+        from .tool_values import entry_tool_output
 
-        tool = OwnedJson(read_native_tool_output(data["nativeToolOutput"])[0])
+        tool = OwnedJson(entry_tool_output(data)[0])
     return CompletedMessage(
         cid,
         entry.id,

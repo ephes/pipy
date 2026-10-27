@@ -262,6 +262,11 @@ class TaskRuntime:
     def signal(self) -> TaskSignal:
         return self._invocation.context.signal
 
+    def _reporting_preflight(self) -> None:
+        """Refuse a blocking reporter on its own Session line or ended token."""
+        self._scheduler._session._refuse_reentry("report_details")
+        self._scheduler._check(self._invocation)
+
     async def commit(
         self,
         change: Callable[[TaskTx, Tree], object | Awaitable[object]],

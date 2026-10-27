@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite implemented, DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -186,8 +186,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
 | DE12 | Opt-in headless CLI recovery | LANDED | [Native CLI/real cuts, wire/live and declared reference boundary](#de12-opt-in-headless-cli-acceptance); full parity OPEN |
-| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a normal ABI prerequisite only; unsafe continuation remains OPEN |
+| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a delivered; DE13b retained reporting active; unsafe continuation remains OPEN |
 | DE13a | Normal generic details ABI prerequisite | LANDED | [Normal details acceptance](#de13a-normal-details-abi-acceptance); external final gates required |
+| DE13b | Retained reporting and ordinary failed-child continuation | IN_PROGRESS | [Bounded reporting acceptance](#de13b-retained-reporting-acceptance); review and final delivery gates pending |
 | DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
@@ -289,10 +290,10 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a is the bounded normal-details prerequisite; DE13 unsafe interrupted-error continuation remains next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a delivered at `c642ac9b` is the bounded normal-details prerequisite; DE13b retained reporting and ordinary failure continuation is active, with unsafe interrupted-error continuation deferred to DE13c. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
-`gpt-6.1-sol` HIGH implements DE13a; Claude Code `claude-opus-5-5` (Opus5.5)
+`gpt-6-astra` HIGH implements the authorized DE13b shared-lifetime integration; Claude Code `claude-opus-5-5` (Opus5.5)
 HIGH reviews the whole slice first and accepted repairs against the actual prior
 baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
 pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
@@ -8871,3 +8872,54 @@ DE26/33 progress-domain/capacity/timing and DE27/28 DB amplification obligations
 remain mandatory before default/full-feature acceptance. All43 whole P rows stay
 OPEN. External source-bound CODE/full/platform/docs/two fresh22phase receipts gate
 this bounded child's delivery; a preliminary diagnostic is not a final gate.
+
+## DE13b retained reporting acceptance
+
+DE13b is implemented in the working slice; this entry is not a CODE verdict or
+delivery claim. [The bounded contract](../durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b)
+covers actual pre-capture admission, one preparation workspace/host flusher,
+prefix ACKs, physical Bash cleanup and lease joins, raw ordinary failed-child
+continuation and the single actual saved receipt2 carrier. Normal fact/receipt1
+bytes and historical canonical domains stay unchanged. Pure readers validate
+exactly one projected arena and matching ownership/cause; private receipt fields
+are not public metadata, completed output or provider wire.
+
+Intentional `ToolArgumentError` raised during invocation retains the shared
+executor's useful argument message and normal malformed-arguments outcome;
+other ordinary invocation exceptions remain fixed `invocation_exception`
+failures. Result acquisition rejects primitive, array and null references before
+entry lookup. Schema-valid result objects with list/object, null, boolean, float,
+string, absent, negative or unsafe-integer entry IDs exercise the same real
+producer-backed reader matrix. Exact integer candidate lookup and the shared
+safe-integer predicate preserve fixed refusal or completing safe-skip behavior;
+no incidental unhashable-key or missing-key exception is accepted.
+Request, tool-call and operator-retry admission use one full model-declaration
+comparison form through the existing canonical decoder. Schema lists and frozen
+request tuples agree without dropping metadata validation, changing recorded
+bytes or weakening current implementation/replay/receipt authority.
+
+Operator-retry and held-session fixtures inject a reporting infrastructure
+failure after a real keyed effect, observe actual capture and normal void return,
+and return the original valid result. They require the original blocked intent
+and no receipt/result; malformed final results now exercise ordinary handled
+failure instead. Fixture setup closes its owned Session on failure. Writer tests
+observe preparation release under the actual Condition before overlapping updates;
+backend entry alone does not establish that release.
+A blocked `invalid_result` reason alone does not prove ordinary handled failure:
+reporting infrastructure loss can use that hold reason after an effect. DE13c
+must adjudicate origin/evidence before upgrading historical blocked tasks.
+
+The cumulative phase23 fixture uses actual pinned Harness and native public
+SQLite/CLI paths for four reporting/failure cases, with the next model request,
+answer and counted no-reissue reopen. Native explicit final text versus Pi
+omitted output, raw diagnostic/error text, graph shape and policy constants are
+retained differences. P15 tool signatures and P16 omitted-output API are open
+ledger tasks; this is no whole-parity or timing/resource benchmark claim.
+
+Physical fault matrices, actual commit/ACK/adoption/SIGKILL cuts, all-reader
+mutants, rich legal content/presence/deep controls and finite worst-state native
+ownership probes accompany the slice. Final source-closed comparison chains,
+supported runtimes, strict rendered docs, full checks and independent Opus5.5
+HIGH CODE review remain delivery gates. Unsafe recovered continuation/old blocked
+upgrades/current missing ports/ceilings belong to DE13c. Parent DE13, full
+DE26/33/27/28 budgets and all 43 P obligations remain open.

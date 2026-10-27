@@ -7,11 +7,13 @@ from typing import Any, NoReturn, cast
 
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.tools import ToolExecutionOutcome
+from pipy_harness.native.tools.base import ToolDefinition
 
 from .canonical_codec import decode_canonical, encode_canonical
 from .codec import OwnedJson
 from .generation_tasks import tool_input
 from .records import shape
+from .tool_output_values import check_ending, project_tool_output
 
 Tree = dict[str, Any]
 
@@ -22,6 +24,14 @@ class DurableToolError(ValueError):
 
 def refuse() -> NoReturn:
     raise DurableToolError("Durable tool execution is incompatible") from None
+
+
+def _model_declaration(value: object) -> OwnedJson:
+    """Compare a complete supported declaration in the codec's schema-list form."""
+    if type(value) is not ToolDefinition:
+        refuse()
+    # Encode first: unsupported metadata/hooks must not disappear in projection.
+    return OwnedJson(encode_canonical(decode_canonical(encode_canonical(value))))
 
 
 def declaration(value: object) -> Tree:
@@ -127,28 +137,51 @@ def checkpoint(value: object) -> Tree:
         refuse()
 
 
-def native_tool_output(outcome: ToolExecutionOutcome, completed: datetime) -> Tree:
-    return read_native_tool_output(
-        {
-            "version": 1,
-            "outcome": encode_canonical(outcome),
-            "completedAt": encode_canonical(completed),
-        }
-    )[0]
+def native_tool_output(
+    outcome: ToolExecutionOutcome,
+    completed: datetime,
+    *,
+    diagnostics: list[Tree] | None = None,
+    failure: str | None = None,
+) -> Tree:
+    tree: Tree = {
+        "version": 1,
+        "outcome": encode_canonical(outcome),
+        "completedAt": encode_canonical(completed),
+    }
+    if diagnostics or failure is not None:
+        tree.update(
+            version=2,
+            ending="completed" if failure is None else "failed",
+            diagnostics=[] if diagnostics is None else diagnostics,
+            recovery=None
+            if failure is None
+            else {"reason": "tool_error", "category": failure},
+        )
+    return read_native_tool_output(tree)[0]
 
 
 def read_native_tool_output(value: object) -> tuple[Tree, ToolExecutionOutcome]:
     try:
         tree = cast(Tree, OwnedJson(value).thaw())
-        shape(tree, {"version", "outcome", "completedAt"})
-        if type(tree["version"]) is not int or tree["version"] != 1:
+        if type(tree.get("version")) is not int or tree["version"] not in (1, 2):
             refuse()
+        shape(
+            tree,
+            {"version", "outcome", "completedAt"}
+            | (
+                {"ending", "diagnostics", "recovery"} if tree["version"] == 2 else set()
+            ),
+        )
         outcome = decode_canonical(tree["outcome"])
         if (
             type(outcome) is not ToolExecutionOutcome
             or type(decode_canonical(tree["completedAt"])) is not datetime
         ):
             refuse()
+        if tree["version"] == 2:
+            check_ending(tree, outcome)
+            project_tool_output(tree, outcome)
         return tree, outcome
     except (ValueError, TypeError, KeyError, IndexError, RecursionError, OverflowError):
         refuse()
@@ -158,7 +191,7 @@ def receipt(value: object) -> tuple[Tree, ToolExecutionOutcome]:
     try:
         tree = cast(Tree, OwnedJson(value).thaw())
         shape(tree, {"version", "intent", "call", "key", "nativeToolOutput"})
-        if type(tree["version"]) is not int or tree["version"] != 1:
+        if type(tree["version"]) is not int or tree["version"] not in (1, 2):
             refuse()
         tool_input(tree["call"])
         if type(tree["key"]) is not str or not tree["key"]:
@@ -167,7 +200,9 @@ def receipt(value: object) -> tuple[Tree, ToolExecutionOutcome]:
             final = intent(tree["intent"])
             if final["call"] != tree["call"] or final["key"] != tree["key"]:
                 refuse()
-        _, outcome = read_native_tool_output(tree["nativeToolOutput"])
+        output, outcome = read_native_tool_output(tree["nativeToolOutput"])
+        if tree["version"] != output["version"]:
+            refuse()
         return tree, outcome
     except (ValueError, TypeError, KeyError, IndexError, RecursionError, OverflowError):
         refuse()
@@ -178,6 +213,30 @@ def match_result(message: AgentToolResultMessage, call: AgentToolCall) -> None:
         message.tool_name != call.tool_name
         or message.provider_correlation_id != call.provider_correlation_id
     ):
+        refuse()
+
+
+def entry_tool_output(value: object) -> tuple[Tree, ToolExecutionOutcome, Tree, str]:
+    """Read the one final carrier, without reviving retired task documents.
+
+    New entries retain the actual receipt2 read by settlement. Historical
+    fact1 entries keep their old carrier and do not acquire a receipt duty.
+    The private receipt/intent is never part of the returned public full fact.
+    """
+    try:
+        if type(value) is not dict:
+            refuse()
+        if "nativeToolReceipt" in value:
+            shape(value, {"nativeToolReceipt"})
+            saved, outcome = receipt(value["nativeToolReceipt"])
+            if saved["version"] != 2:
+                refuse()
+            return saved["nativeToolOutput"], outcome, saved["call"], saved["key"]
+        full, outcome = read_native_tool_output(value["nativeToolOutput"])
+        if full["version"] != 1:
+            refuse()
+        return full, outcome, value["call"], value["key"]
+    except (ValueError, TypeError, KeyError, IndexError):
         refuse()
 
 

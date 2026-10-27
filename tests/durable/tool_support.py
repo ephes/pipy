@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 
 from generation_support import Wire, definition, seed
@@ -15,6 +16,7 @@ from pipy_harness.native.tools.base import (
     ToolAnnotations,
     ToolDefinition,
     ToolExecutionResult,
+    dispatch_tool_output,
 )
 
 
@@ -29,7 +31,7 @@ def database(root):
 
 
 def counts(root):
-    with sqlite3.connect(root / "effects.sqlite") as db:
+    with closing(sqlite3.connect(root / "effects.sqlite")) as db, db:
         return {
             name: db.execute("SELECT COUNT(*) FROM " + name).fetchone()[0]
             for name in ("calls", "applications", "prepares", "providers")
@@ -107,6 +109,51 @@ class Keyed:
             structured_content=None,
             terminate=self.terminate,
         )
+
+
+def reporting_infrastructure_failure(root, request, context, result):
+    """Lose reporting authority after a real effect, not via an invalid result."""
+    assert type(result) is ToolExecutionResult
+    with closing(sqlite3.connect(root / "effects.sqlite")) as db, db:
+        assert (
+            db.execute(
+                "SELECT COUNT(*) FROM applications WHERE key=?", (context.call_key,)
+            ).fetchone()[0]
+            == 1
+        )
+    captured = []
+
+    def capture_fault():
+        captured.append(True)
+        raise RuntimeError("synthetic reporting infrastructure failure")
+
+    dispatch_tool_output(context.output_sink, capture_fault)
+    assert captured == [True]  # actual capture raised and the void sink returned
+    with closing(sqlite3.connect(root / "effects.sqlite")) as db, db:
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS reporting_faults "
+            "(name TEXT,key TEXT,capture_ran INTEGER,void_returned INTEGER)"
+        )
+        db.execute(
+            "INSERT INTO reporting_faults VALUES (?,?,1,1)",
+            (request.tool_name, context.call_key),
+        )
+    return result  # the original valid result, with every field unchanged
+
+
+def reporting_faults(root):
+    with closing(sqlite3.connect(root / "effects.sqlite")) as db, db:
+        return db.execute(
+            "SELECT name,key,capture_ran,void_returned FROM reporting_faults"
+        ).fetchall()
+
+
+class InfrastructureFailureFirst(Keyed):
+    def invoke(self, request, context):
+        result = super().invoke(request, context)
+        if self.definition.name == "keyed" and counts(self.root)["calls"] == 1:
+            return reporting_infrastructure_failure(self.root, request, context, result)
+        return result
 
 
 class CountedWire(Wire):

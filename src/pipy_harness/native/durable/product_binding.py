@@ -21,6 +21,7 @@ from .provider_checkpoint import FAMILIES
 from .records import safe_integer
 from .resolution import AUDIT, _winner_binding
 from .storage import DocumentQuery, Storage
+from .tool_values import _model_declaration
 
 Tree = dict[str, Any]
 HEADER: Doc[Tree] = define_doc("pipy.product.binding", 1, "session", lambda: {})
@@ -103,8 +104,8 @@ def _profile(
         if type(definition) is not ToolDefinition or definition.name != name:
             raise DurableProductError("incompatible")
         advertised.append(definition)
-    if OwnedJson(encode_canonical(tuple(advertised))) != OwnedJson(
-        encode_canonical(template.request.available_tools)
+    if tuple(_model_declaration(tool) for tool in advertised) != tuple(
+        _model_declaration(tool) for tool in template.request.available_tools
     ):
         raise DurableProductError("incompatible")
 

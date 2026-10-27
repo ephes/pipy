@@ -4916,9 +4916,23 @@ records require it; recorded v1 bytes stay unchanged. Actual normal JSONL/SDK/UI
 HTML/headless consumers and saved next-request history preserve those values.
 An absent final normal result never implicitly takes earlier partial details.
 
-This bounded DE13 prerequisite adds no retained gate, unsafe error continuation,
+This DE13a prerequisite added no retained gate, unsafe error continuation,
 new scheduling/storage authority, provider/auth policy or automatic retry. Parent
 DE13 and all43 whole parity rows remain OPEN/incomplete. Later progress policy
 must resolve DE26/33 capacity/timing/domain and DE27/28 graph/DB amplification
 before default/full-feature acceptance; parent infrastructure void-path warning
 requires actual physical-child regressions before implementation lands.
+
+## Retained native tool reporting (DE13b)
+
+[The retained tool contract](durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b)
+adds bounded capture at the actual Bash/extension wrapper entries, one owned
+Session flusher, explicit details-prefix ACKs and no-throw void reporting.
+Ordinary invocation/result/progress failures retain a fixed raw failed-child
+cause and continue the next provider through the same strict result predicate
+as completed observation, inspection and resolution. New fact2 entries carry
+only the actual saved receipt2 internally; normal fact1/receipt1 and old canonical
+bytes remain unchanged. Interrupted/recovered unsafe calls remain held under
+the existing policy; DE13c owns their later extension. Provisional resource
+accounting is not RSS/WAL/whole-history or Pi timing parity. Existing native
+tool-result signature refusal remains; full P15 metadata parity is still open.

@@ -64,11 +64,17 @@ def copy_forwarded_tool_details(value: Any) -> Any:
     Forwarding normalizes strings and keys as a JSON roundtrip does. Historical
     copies and direct ToolPort admission retain their separate value policies.
     """
-    snapshot = copy_tool_details(value)
+    return _forward_owned_tool_details(copy_tool_details(value))
+
+
+def _forward_owned_tool_details(snapshot: Any) -> Any:
+    """Consume a normal-owned snapshot through the established JSON text tail."""
     if not has_tool_details(snapshot):
         return snapshot
     try:
-        return json.loads(json.dumps(snapshot, allow_nan=False))
+        encoded = json.dumps(snapshot, allow_nan=False)
+        del snapshot
+        return json.loads(encoded)
     except (TypeError, ValueError, RecursionError):
         raise ValueError("Tool details exceed native JSON forwarding support") from None
 

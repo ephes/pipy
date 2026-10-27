@@ -3,7 +3,7 @@
   "phase": "task-creation-a-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "d17e936c865894a9a920288235df0e63e2ab5fadbf769039b5e447f4e5140b56"
+    "documents": "a89e0f1fd76256698098cc4c7dee534a2763fc17b9b939086d081e20de4896b7"
   },
   "closure": {
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
@@ -24,7 +24,7 @@
     "scripts/durable_storage_comparison.py": "209674ac88437d413d00945beb0f3d1e83875e65cf986e24ff70baa71e96be96",
     "scripts/durable_task_creation_comparison.py": "dc20c7151f251df08ce1f01d6db1808dca1a446dbfcf86fe47be3c79bb9bc21c",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
-    "src/pipy_harness/native/agent/tool_details.py": "7306d7f205fcd1a87eb943a7cccab161efd0fc6f88777be55687548851823d27",
+    "src/pipy_harness/native/agent/tool_details.py": "92dc8388d8abc006d3638453e9f757bed5dab9b63f708d356d63aea6db8f4295",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
@@ -35,13 +35,13 @@
     "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
     "src/pipy_harness/native/durable/session.py": "7584a3132b52a5053d00147c08344f7bf7b2acf87a237ca8fbee764e3b88a2a0",
     "src/pipy_harness/native/durable/session_core.py": "5800eea7138182d5b65e306984af553ce9d27f068ece384c02904b091ab14e28",
-    "src/pipy_harness/native/durable/sqlite.py": "484aaa18beed7c353604dd2a1294e6f6849dcaef108b008cd919b3dbc4926a39",
+    "src/pipy_harness/native/durable/sqlite.py": "bfed03d3f19b6a2cd88e090e34898ddbe2a18cd276b26c22a2f361f3018a8daa",
     "src/pipy_harness/native/durable/sqlite_connection.py": "77c7819182c06bbf9b1b66e311d957684b1bd7062aa7edbc7ec91136480280db",
     "src/pipy_harness/native/durable/sqlite_schema.py": "76a2693412fef88ce5652817d79849d01b8d9dd8f9022b9eccfefb43edc90342",
     "src/pipy_harness/native/durable/storage.py": "29fd5e5f5b2f784a67e623080f42ccfd5d4a3475c842a65f88170ed56abadeff",
     "src/pipy_harness/native/durable/tasks.py": "90443be5c8c1b76463b44bdc59e7a15e5bf60f2955fb204019becbfaaec1d929",
     "src/pipy_harness/native/durable/tx.py": "60fac95b2a2516eecd54b3df87b9f093acf3d63cfe7edd891e70011aeb19b8f9",
-    "tests/durable/sqlite_child_support.py": "33521ef45fb317b5519f74fe3431f9fef529b64ed7f399db789e79848d1a02a2",
+    "tests/durable/sqlite_child_support.py": "9453ade614c44cb3fe81ca61fa5f112bc6860ce79140531b744677a0691d4368",
     "tests/durable/storage_contract_cases.py": "c4abf6b7b08f4322b9e401b1cc043632fc7c0b6f04773712e19072084c748549",
     "tests/durable/task_support.py": "4f0921533de8627e35d17b7a7c48e1e067888b7c1fd4cbca85600e1e53fe1483",
     "tests/durable/test_document_definitions.py": "0363e61ad078d937de2efc36c127f6ec64ec29bb07c15f576614bbff3842caff",

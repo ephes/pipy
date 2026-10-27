@@ -70,6 +70,9 @@ SOURCES = canonical.SOURCES | {
     "packages/durable/test/harness-tools.test.ts",
 }
 CLOSURE = canonical.CLOSURE | {
+    "src/pipy_harness/native/durable/tool_progress.py",
+    "src/pipy_harness/native/durable/tool_progress_values.py",
+    "src/pipy_harness/native/durable/tool_output_values.py",
     "scripts/durable_tool_comparison.py",
     "scripts/durable_reference/cases/tools.mts",
     "tests/fixtures/durable/tools-input-v1.json",

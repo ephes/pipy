@@ -722,6 +722,7 @@ _AGENT_TOOLS_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.base.ToolOutputSink",
         "pipy_harness.native.tools.base.ToolPort",
         "pipy_harness.native.tools.base.ToolRequest",
+        "pipy_harness.native.tools.base._RetainedOutputSink",
         "pipy_harness.native.tools.base.make_tool_request_id",
         "pipy_harness.native.tools.base.validate_arguments",
         # Arguments of a foreign-schema tool (an MCP server's) are checked by

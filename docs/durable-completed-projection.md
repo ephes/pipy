@@ -204,3 +204,14 @@ on explicit resume, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
+
+## Diagnostic and failed tool facts
+
+DE13b permits the strictly validated ordinary `tool_error` failed child as a
+result-bearing slot. Every pure reader uses the shared ownership/cause/arena
+predicate. Its internal entry carries the actual saved receipt2; completed
+messages expose only the nested full fact and deterministic model projection,
+never private receipt intent or prepared/workspace/key fields. Existing normal
+fact1 entries keep their historical format and do not acquire a receipt-carrier
+requirement. Interrupted, generic failed, foreign or malformed children do not
+become continuable. See the [tool contract](durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b).

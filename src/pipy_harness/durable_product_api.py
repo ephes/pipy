@@ -67,6 +67,7 @@ from .native.durable.tool_execution import (
     builtin_registrations,
     define_tool_task,
 )
+from .native.durable.tool_values import _model_declaration
 
 T = TypeVar("T")
 Tree = dict[str, Any]
@@ -135,8 +136,8 @@ def _template(
             or request.user_prompt
             or request.messages
             or (request.provider_name, request.model_id) != profile._selection[:2]
-            or OwnedJson(encode_canonical(request.available_tools))
-            != OwnedJson(encode_canonical(advertised))
+            or tuple(_model_declaration(tool) for tool in request.available_tools)
+            != tuple(_model_declaration(tool) for tool in advertised)
         ):
             raise UnsupportedDurableCapability
         return result

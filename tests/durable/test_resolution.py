@@ -6,7 +6,14 @@ from dataclasses import replace
 
 import pytest
 from generation_support import Wire, admit, definition, seed
-from tool_support import CountedWire, Keyed, counts, database
+from tool_support import (
+    CountedWire,
+    InfrastructureFailureFirst,
+    Keyed,
+    counts,
+    database,
+    reporting_faults,
+)
 
 from pipy_harness.native.agent.request import snapshot_provider_request
 from pipy_harness.native.durable.codec import OwnedJson
@@ -33,17 +40,7 @@ def isolated(tmp_path, monkeypatch):
         monkeypatch.setenv(name, str(tmp_path / name.lower()))
 
 
-class InvalidFirst(Keyed):
-    def invoke(self, request, context):
-        result = super().invoke(request, context)
-        if self.definition.name == "keyed" and counts(self.root)["calls"] == 1:
-            # An actual applied effect whose output cannot be committed. This is
-            # not absence of an effect and never becomes safe old-key replay.
-            return replace(result, details={"private": object()})
-        return result
-
-
-def make_definitions(root, *, port_type=InvalidFirst):
+def make_definitions(root, *, port_type=InfrastructureFailureFirst):
     database(root)
     ports = [port_type(root, name) for name in ("keyed", "later")]
     tool = define_tool_task(
@@ -70,37 +67,71 @@ def make_definitions(root, *, port_type=InvalidFirst):
     return generation, tool, snapshot
 
 
-def setup(root, backend, *, port_type=InvalidFirst):
+def setup(root, backend, *, port_type=InfrastructureFailureFirst):
     generation, tool, snapshot = make_definitions(root, port_type=port_type)
     session = Session(
         MemoryStorage()
         if backend == "memory"
         else open_sqlite_storage(str(root / "session.sqlite"), mode="create")
     )
-    cid, _, parent = admit(session, generation, snapshot)
-    scheduler = TaskScheduler(session, [generation, tool])
-    idle = threading.Event()
-    reserve = scheduler._reserve
+    try:
+        cid, _, parent = admit(session, generation, snapshot)
+        scheduler = TaskScheduler(session, [generation, tool])
+        idle = threading.Event()
+        reserve = scheduler._reserve
 
-    async def observed():
-        result = await reserve()
-        if result is None:
-            idle.set()
-        return result
+        async def observed():
+            result = await reserve()
+            if result is None:
+                idle.set()
+            return result
 
-    scheduler._reserve = observed
-    scheduler.open()
-    scheduler.resume()
-    assert idle.wait(10), session.failure
-    rows = [r.to_tree() for r in scheduler.inspect()]
-    child = next(
-        r for r in rows if r["kind"] == "pi.tool" and r["input"]["callId"] == "call:0"
-    )
-    assert (
-        child["state"]["status"] == "pending"
-        and child["state"]["checkpoint"]["phase"] == "blocked"
-    )
-    return session, scheduler, cid, parent, child, idle
+        scheduler._reserve = observed
+        scheduler.open()
+        scheduler.resume()
+        assert idle.wait(10), session.failure
+        rows = [r.to_tree() for r in scheduler.inspect()]
+        child = next(
+            r
+            for r in rows
+            if r["kind"] == "pi.tool" and r["input"]["callId"] == "call:0"
+        )
+        assert (
+            child["state"]["status"] == "pending"
+            and child["state"]["checkpoint"]["phase"] == "blocked"
+        )
+        if port_type is InfrastructureFailureFirst:
+            assert reporting_faults(root) == [
+                ("keyed", child["state"]["checkpoint"]["intent"]["key"], 1, 1)
+            ]
+            assert counts(root) == {
+                "calls": 1,
+                "applications": 1,
+                "prepares": 1,
+                "providers": 1,
+            }
+            entries = session.read_on_line(
+                lambda: (
+                    session._owner.storage.scan_entries(
+                        EntryQuery({"conversationId": cid}), 100
+                    ).items
+                )
+            )
+            assert not any(
+                entry.to_tree()["kind"] == "pi.tool-result" for entry in entries
+            )
+            from pipy_harness.native.durable.inspection_read import document_exists
+            from pipy_harness.native.durable.tool_execution import RECEIPT_DOC
+
+            assert not session.read_on_line(
+                lambda: document_exists(
+                    session._owner.storage, RECEIPT_DOC, cid, child["id"]
+                )
+            )
+        return session, scheduler, cid, parent, child, idle
+    except BaseException:
+        session.close(timeout=10)
+        raise
 
 
 @pytest.mark.parametrize("backend", ["memory", "sqlite"])

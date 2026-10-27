@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "phase": "retained-tool-reporting-v1",
+  "cases": [
+    {
+      "id": "reported_details_absent_final",
+      "reportedDetails": {
+        "phase": "reported",
+        "renderer": "report-only"
+      },
+      "final": "absent"
+    },
+    {
+      "id": "reported_details_null_final",
+      "reportedDetails": {
+        "phase": "reported",
+        "renderer": "report-only"
+      },
+      "final": "null"
+    },
+    {
+      "id": "throw_after_reports",
+      "reportedDetails": [
+        "report-only",
+        false,
+        0,
+        null
+      ],
+      "final": "throw"
+    },
+    {
+      "id": "throw_without_details",
+      "final": "throw"
+    }
+  ]
+}

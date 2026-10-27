@@ -18,7 +18,7 @@ from .generation import ROUND_DOC
 from .generation_tasks import GENERATION_NAME, GENERATION_VERSION
 from .records import DocumentId, EntryRecord
 from .storage import ConversationQuery, EntryQuery, Storage, TaskQuery
-from .tool_graph import _child_result_id, _round_calls, owned_child, result_value
+from .tool_graph import _round_calls, child_result_id, owned_child, result_value
 from .tool_values import refuse
 
 Tree = dict[str, Any]
@@ -187,13 +187,11 @@ def terminate_index(
         zip(assistant.tool_calls, value["slots"], strict=True)
     ):
         if "taskId" in slot:
-            child = owned_child(parent, value["assistant"], call, slot, rows)
-            if (
-                child["state"]["status"] != "terminal"
-                or child["state"]["outcome"]["status"] != "completed"
-            ):
+            result_id = child_result_id(
+                parent, value["assistant"], call, slot, rows, by_id
+            )
+            if result_id is None:
                 continue
-            result_id = _child_result_id(parent, value["assistant"], call, slot, rows)
         else:
             result_id = slot["entryId"]
         found = by_id.get(result_id)
