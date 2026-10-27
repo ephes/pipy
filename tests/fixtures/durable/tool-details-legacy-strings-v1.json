@@ -1,0 +1,518 @@
+{
+  "source_commit": "df5c31373a1cca45812200bf3b3e949244f924f1",
+  "encoder_sha256": "3285359a65ea5067bd650efbbe76575449d5856847dd5cefb567023b8f8cc9a2",
+  "cases": {
+    "astral-key": {
+      "codec_version": 1,
+      "nodes": [
+        {
+          "tag": "AgentToolResultMessage",
+          "children": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            11
+          ],
+          "keys": [
+            "tool_request_id",
+            "tool_name",
+            "content",
+            "provider_correlation_id",
+            "is_error",
+            "details",
+            "structured_content",
+            "blocks",
+            "terminate"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "706970792d746f6f6c2d64656570"
+        },
+        {
+          "tag": "string",
+          "value": "6e6f726d616c"
+        },
+        {
+          "tag": "ProductContent",
+          "children": [
+            4
+          ],
+          "keys": [
+            "value"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "string",
+          "value": "63616c6c"
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        },
+        {
+          "tag": "mapping",
+          "children": [
+            8
+          ],
+          "keys": [
+            "f09f9880"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "NoStructuredContent",
+          "value": "NO_STRUCTURED_CONTENT"
+        },
+        {
+          "tag": "tuple",
+          "children": []
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        }
+      ]
+    },
+    "astral-value": {
+      "codec_version": 1,
+      "nodes": [
+        {
+          "tag": "AgentToolResultMessage",
+          "children": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            11
+          ],
+          "keys": [
+            "tool_request_id",
+            "tool_name",
+            "content",
+            "provider_correlation_id",
+            "is_error",
+            "details",
+            "structured_content",
+            "blocks",
+            "terminate"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "706970792d746f6f6c2d64656570"
+        },
+        {
+          "tag": "string",
+          "value": "6e6f726d616c"
+        },
+        {
+          "tag": "ProductContent",
+          "children": [
+            4
+          ],
+          "keys": [
+            "value"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "string",
+          "value": "63616c6c"
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        },
+        {
+          "tag": "mapping",
+          "children": [
+            8
+          ],
+          "keys": [
+            "73"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "f09f9880"
+        },
+        {
+          "tag": "NoStructuredContent",
+          "value": "NO_STRUCTURED_CONTENT"
+        },
+        {
+          "tag": "tuple",
+          "children": []
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        }
+      ]
+    },
+    "lone-key": {
+      "codec_version": 1,
+      "nodes": [
+        {
+          "tag": "AgentToolResultMessage",
+          "children": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            11
+          ],
+          "keys": [
+            "tool_request_id",
+            "tool_name",
+            "content",
+            "provider_correlation_id",
+            "is_error",
+            "details",
+            "structured_content",
+            "blocks",
+            "terminate"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "706970792d746f6f6c2d64656570"
+        },
+        {
+          "tag": "string",
+          "value": "6e6f726d616c"
+        },
+        {
+          "tag": "ProductContent",
+          "children": [
+            4
+          ],
+          "keys": [
+            "value"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "string",
+          "value": "63616c6c"
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        },
+        {
+          "tag": "mapping",
+          "children": [
+            8
+          ],
+          "keys": [
+            "eda080"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "NoStructuredContent",
+          "value": "NO_STRUCTURED_CONTENT"
+        },
+        {
+          "tag": "tuple",
+          "children": []
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        }
+      ]
+    },
+    "lone-value": {
+      "codec_version": 1,
+      "nodes": [
+        {
+          "tag": "AgentToolResultMessage",
+          "children": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            11
+          ],
+          "keys": [
+            "tool_request_id",
+            "tool_name",
+            "content",
+            "provider_correlation_id",
+            "is_error",
+            "details",
+            "structured_content",
+            "blocks",
+            "terminate"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "706970792d746f6f6c2d64656570"
+        },
+        {
+          "tag": "string",
+          "value": "6e6f726d616c"
+        },
+        {
+          "tag": "ProductContent",
+          "children": [
+            4
+          ],
+          "keys": [
+            "value"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "string",
+          "value": "63616c6c"
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        },
+        {
+          "tag": "mapping",
+          "children": [
+            8
+          ],
+          "keys": [
+            "73"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "eda080"
+        },
+        {
+          "tag": "NoStructuredContent",
+          "value": "NO_STRUCTURED_CONTENT"
+        },
+        {
+          "tag": "tuple",
+          "children": []
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        }
+      ]
+    },
+    "pair-key": {
+      "codec_version": 1,
+      "nodes": [
+        {
+          "tag": "AgentToolResultMessage",
+          "children": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            11
+          ],
+          "keys": [
+            "tool_request_id",
+            "tool_name",
+            "content",
+            "provider_correlation_id",
+            "is_error",
+            "details",
+            "structured_content",
+            "blocks",
+            "terminate"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "706970792d746f6f6c2d64656570"
+        },
+        {
+          "tag": "string",
+          "value": "6e6f726d616c"
+        },
+        {
+          "tag": "ProductContent",
+          "children": [
+            4
+          ],
+          "keys": [
+            "value"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "string",
+          "value": "63616c6c"
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        },
+        {
+          "tag": "mapping",
+          "children": [
+            8
+          ],
+          "keys": [
+            "eda0bdedb880"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "NoStructuredContent",
+          "value": "NO_STRUCTURED_CONTENT"
+        },
+        {
+          "tag": "tuple",
+          "children": []
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        }
+      ]
+    },
+    "pair-value": {
+      "codec_version": 1,
+      "nodes": [
+        {
+          "tag": "AgentToolResultMessage",
+          "children": [
+            1,
+            2,
+            3,
+            5,
+            6,
+            7,
+            9,
+            10,
+            11
+          ],
+          "keys": [
+            "tool_request_id",
+            "tool_name",
+            "content",
+            "provider_correlation_id",
+            "is_error",
+            "details",
+            "structured_content",
+            "blocks",
+            "terminate"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "706970792d746f6f6c2d64656570"
+        },
+        {
+          "tag": "string",
+          "value": "6e6f726d616c"
+        },
+        {
+          "tag": "ProductContent",
+          "children": [
+            4
+          ],
+          "keys": [
+            "value"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "78"
+        },
+        {
+          "tag": "string",
+          "value": "63616c6c"
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        },
+        {
+          "tag": "mapping",
+          "children": [
+            8
+          ],
+          "keys": [
+            "73"
+          ]
+        },
+        {
+          "tag": "string",
+          "value": "eda0bdedb880"
+        },
+        {
+          "tag": "NoStructuredContent",
+          "value": "NO_STRUCTURED_CONTENT"
+        },
+        {
+          "tag": "tuple",
+          "children": []
+        },
+        {
+          "tag": "scalar",
+          "value": false
+        }
+      ]
+    }
+  },
+  "case_raw_sha256": {
+    "astral-key": "a3f0e1c14dd6315685f20e3eab005ad720d078daaf19042e9db29b3df8af10a2",
+    "astral-value": "ecd174b364ffcaaa31941e91b7775a143af1de7908ee745c9df2421c05c1ff08",
+    "lone-key": "157509cda9cf564c694478d4198c9439788737b76c1770174c2b9a76cef6b5a1",
+    "lone-value": "39427827c33612f5adb00728e6820d5a8110aa399903aba419096b7d590f893d",
+    "pair-key": "1bf07dd93bef06701ebf14d3ea45aa53c26c3cb04488a251b1038b41f7d15a26",
+    "pair-value": "dedb873a3cfbf4daf23f9ad116a7d0a253b36bbc8ad634e6044793e96c68ff4c"
+  }
+}

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.agent.content import NO_STRUCTURED_CONTENT, ToolResultBlock
@@ -22,7 +22,11 @@ from pipy_harness.native.agent.loop_policy import (
     AgentProviderRequestPolicyInput,
     AgentToolResultTransform,
 )
+from pipy_harness.native.agent.nested_record import NestedCallEvidence
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+)
 from pipy_harness.native.agent_request import (
     NativeProviderRequestHookContext,
     prepare_provider_request,
@@ -256,8 +260,9 @@ class SessionExtensionOperations:
         tool_call_id: str = "",
         parent_tool_call_id: str | None = None,
         tool_input: Mapping[str, object] | None = None,
-        details: Mapping[str, object] | None = None,
+        details: Any = NO_TOOL_DETAILS,
         blocks: tuple[ToolResultBlock, ...] = (),
+        nested_call_evidence: NestedCallEvidence | None = None,
     ) -> AgentToolResultTransform:
         """The result as the ``tool_result`` hooks leave it; the result's own
         content and structured content when no hook changed it."""
@@ -284,6 +289,7 @@ class SessionExtensionOperations:
             parent_tool_call_id=parent_tool_call_id,
             tool_input=tool_input,
             details=details,
+            nested_call_evidence=nested_call_evidence,
             blocks=blocks,
         )
         if transformed is None:

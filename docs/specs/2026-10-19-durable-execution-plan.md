@@ -435,6 +435,7 @@ DE13–DE28 close deliberate Milestone A limits. They are required for full pari
 | ID / dependencies | Concrete change and seams | Acceptance / crash cuts and documents |
 | --- | --- | --- |
 | DE13 / DE12 | Implement **Pi interrupted-error continuation** for unsafe recovered top-level model-issued tool calls, retaining uncertainty diagnostics; replace initial blocking default for supported tasks. | Comparative fixture: kill before invocation and after unsafe append; zero/one actual effect respectively, exactly one interrupted error, next provider sees it and completes, repeat resume never appends; old milestone blocked records upgrade explicitly. Missing/unsafe-current implementation never reruns. Interruption/recovery docs. |
+| DE13a / DE12 | Preserve generic final tool details presence/value and finite actual nested evidence through normal DTOs/consumers, canonical oldest-lossless v2 with recorded v1 identity and next-request history. | Actual old-API discriminators; scalar/array/null/absent/false/zero normal pipelines, public SQLite/CLI/reopen and next provider history; v1 bytes unchanged, native finite nested evidence and genuine pinned normal-details fixture; no retained progress/unsafe recovery changes; CODE CLEAN/full/platform/docs/two fresh22phase chains. |
 | DE14 / DE13 | Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection. | Reference recovery cases and upgrade fixtures; close does not increment, repeated crash does, document chatter does not reset; abort blocked becomes orphaned, missing code alone never settles. State-machine/migration docs. |
 | DE15 / DE14 | Add immutable task/conversation ownership, durable waiting/completing, candidate-state child admission, allSettled/failFast and wait-cycle detection. | Crash held completion/cascade/final commit; no owner terminal before ordinary work drains; child created in finishing candidate holds/rejects as appropriate; wait cycles reject atomically; background boundaries. Ownership spec. |
 | DE16 / DE15 | Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups. | Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs. |
@@ -922,3 +923,44 @@ completed facts and P16 retention relations. Pi resolves current model at reques
 native refuses prepared-target drift before transport. Exact raw differences
 remain, not a whole-P16 or CLI/API parity claim. Unsafe continuation is DE13;
 all43 whole P rows and every later owner remain OPEN.
+
+### DE13a normal details ABI prerequisite
+
+[Normal tool details](../tool-details.md) are detached finite JSON with separate
+absence, explicit null and old-v1 unspecified states. Transform omission has a
+separate unchanged marker. Normal executor/AgentLoop/JSONL paths never replace
+an absent final result with a prior partial; that policy belongs only to a later
+durable retained gate. The generic final domain gains no progress size/depth cap.
+
+Normal iterative snapshots preserve native JSON values: tuple descendants
+normalize to arrays and arbitrary finite integers retain their value. Old deep
+message/v1 data and exact strings/keys have no new recursion/text-copy gate.
+Canonical/durable ingress remains exact plain JSON and finite binary64;
+nonexact integers refuse before a result commits, without rounding. Ordinary
+SDK compatibility and strict durable SDK refusal are separate acceptance cases.
+
+New arenas select the oldest lossless codec. Known v1 arenas preserve original
+fieldsets, declarations and encoded bytes, including retained next-request
+history; rich value/presence and optional finite NestedCallEvidence select v2.
+Receipt/output outer v1 composes its independently versioned arena. The headless
+run output is v2, with explicit details_state. Mapping/absent nested outputs keep
+the legacy channel; nonmapping details keep their original value plus one typed
+finite actual-call record, propagated through real normal consumers.
+
+Actual DTO/serializer/executor old-source failures, real Memory and public
+SQLite/terminal CLI/reopen, normal hooks/UI/render/export/SDK and genuine pinned
+Harness normal final values/next history provide the bounded prerequisite.
+Canonical v1 identity, deep finite JSON, scalar/array/null/absent/false/zero,
+mutations, exact native arenas and native-only nested evidence are separate
+controls. Parent DE13 unsafe interruption, failed-with-result validation,
+retained progress, current-callability/upgrade and next-seed fencing remain
+unimplemented here. Parent PLAN R3 remains ISSUES with a void-sink infrastructure
+warning; no known child-escape implementation may land in the retained-gate slice.
+
+The future retained progress policy is explicitly provisional, not full finite
+Pi parity: DE26/33 must resolve progress capacity/timing/domain and DE27/28 must
+resolve full graph/DB amplification before default/full-feature acceptance.
+Physical invocation/callback/finalizer ownership and no-throw void streaming
+remain mandatory later tests. This prerequisite does not close P15/P20/P21 or
+any other whole P row. Independent CODE CLEAN and current source-bound full,
+platform, docs and two fresh complete22phase chains still gate delivery.

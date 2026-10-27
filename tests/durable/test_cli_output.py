@@ -66,6 +66,7 @@ def test_completed_output_field_inventory_requires_explicit_future_alignment():
         "structured_content",
         "blocks",
         "terminate",
+        "nested_call_evidence",
     }
     assert {f.name for f in fields(CompletedMessage)} == {
         "conversation_id",

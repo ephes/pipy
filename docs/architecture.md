@@ -1190,8 +1190,17 @@ alternate scheduler, auth store, accepted-input queue or transcript writer.
 Profile-free inspection and terminal reads never construct the catalog. The
 existing path owner/schema policy and SDK rooted retry/dispatch gates remain
 the sole authorities. JSON output preserves current DTO fields without exposing
-private request/material/audit; no new nesting bound or generic details ABI is
-invented. Future DE13 must update the encoder when that ABI changes.
+private request/material/audit. DE13a adds the finite JSON
+[normal details ABI](tool-details.md), explicit presence/transform sentinels,
+oldest-lossless canonical v2 and finite typed nested evidence across actual
+normal consumers. The CLI run envelope becomes v2; inspection and lifecycle
+policies remain unchanged. Unsafe continuation and retained progress are still
+parent DE13, not supplied by this value layer.
+
+The shared owned JSON implementation lives in the dependency-neutral agent
+value layer. Durable records and normal details use the same class/functions;
+the move preserves the prior implementation bytes and encoded domain. Agent
+values do not import durable storage or scheduling.
 
 The same caller loop owns one retained current I/O task and its stopping gate.
 Readiness is advisory; the existing durable `owned_call` seam executes actual

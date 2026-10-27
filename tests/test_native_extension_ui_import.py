@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pipy_harness.extensions as public_extensions
 import pipy_harness.native.agent.content as agent_content
+import pipy_harness.native.agent.nested_record as agent_nested_record
+import pipy_harness.native.agent.tool_details as agent_tool_details
 import pipy_harness.native.extension_hooks as extension_hooks
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
@@ -35,6 +37,11 @@ import pipy_harness.native.tools.base as tools_base
 import pipy_harness.native.tools.loadout as tools_loadout
 
 _PUBLIC_EXTENSION_NAMES = (
+    "NO_TOOL_DETAILS",
+    "LEGACY_TOOL_DETAILS_NONE",
+    "UNCHANGED_TOOL_DETAILS",
+    "NestedCallEvidence",
+    "NestedCallRecord",
     "PipyExtensionAPI",
     "CommandContext",
     "ExtensionToolContext",
@@ -155,6 +162,11 @@ _PUBLIC_EXTENSION_NAMES = (
 )
 
 _OWNER_GROUPS = (
+    (agent_nested_record, ("NestedCallEvidence", "NestedCallRecord")),
+    (
+        agent_tool_details,
+        ("NO_TOOL_DETAILS", "LEGACY_TOOL_DETAILS_NONE", "UNCHANGED_TOOL_DETAILS"),
+    ),
     (agent_content, ("ImageContent", "NO_STRUCTURED_CONTENT", "TextContent")),
     (
         tools_base,
@@ -448,10 +460,10 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
 
 def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
-    assert len(_PUBLIC_EXTENSION_NAMES) == 117
+    assert len(_PUBLIC_EXTENSION_NAMES) == 122
 
     owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
-    assert len(owned_names) == len(set(owned_names)) == 117
+    assert len(owned_names) == len(set(owned_names)) == 122
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
         for name in names:
@@ -472,7 +484,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
         if (alias.asname or alias.name) in expected_owners
     ]
 
-    assert len(direct_imports) == len(dict(direct_imports)) == 117
+    assert len(direct_imports) == len(dict(direct_imports)) == 122
     assert dict(direct_imports) == expected_owners
 
 

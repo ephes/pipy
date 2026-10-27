@@ -8,6 +8,25 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add normal tool-details presence and finite JSON values across native results,
+  canonical storage, SDK/JSONL/CLI output and renderers. Missing, null and
+  unchanged transforms are distinct; saved canonical v1 bytes retain their old
+  unknown-None interpretation. New rich histories use codec v2 only when needed.
+  Finite typed nested evidence preserves scalar/array/null composite details;
+  legacy mapping/absent output stays unchanged. Durable run JSON is version 2.
+  Normal snapshots retain the existing Python JSON domain, including tuple
+  descendants and arbitrary finite integers; durable ingress still requires
+  exact finite binary64 values without rounding. Iterative value copies preserve
+  deeply nested old v1 messages and exact string/key representations.
+  New tool results retain native stdlib JSON encoding admission, preventing
+  unsupported producer values from entering history before JSONL persistence
+  fails. Extension final/partial forwarding and explicit replacement hooks keep
+  their JSON text-copy semantics, including surrogate-pair normalization for
+  UTF-8 output. Historical canonical reads and unchanged hook details keep their
+  broader value domain and raw string representations.
+  This DE13a prerequisite does not enable unsafe interrupted-error continuation
+  or retained progress; all full durable parity obligations remain open.
+
 - Add opt-in `pipy durable start/resume/inspect/authorize-retry` over the native
   durable SDK, with explicit paths/profile, passive metadata inspection and
   committed rich output/usage. The CLI retains actual acquisition, workers,

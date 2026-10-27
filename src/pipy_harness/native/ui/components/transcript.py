@@ -691,7 +691,9 @@ class TranscriptComponent:
             if state is not None:
                 state.result = result
                 if not state.nested_lines:
-                    state.nested_lines = nested_lines_from_details(result.details)
+                    state.nested_lines = nested_lines_from_details(
+                        result.details, result.nested_call_evidence
+                    )
                 state.partial_output = ""
                 state.duration_seconds = duration_seconds
                 if state.started_at is not None:

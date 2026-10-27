@@ -17,6 +17,11 @@ from pipy_session.recorder import SessionRecord
 
 def test_sdk_exports_expected_surface() -> None:
     expected = {
+        "NO_TOOL_DETAILS",
+        "LEGACY_TOOL_DETAILS_NONE",
+        "UNCHANGED_TOOL_DETAILS",
+        "NestedCallEvidence",
+        "NestedCallRecord",
         "DurableProductSession",
         "DurableProviderProfile",
         "DurableAdmission",

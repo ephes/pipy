@@ -27,6 +27,7 @@ from pipy_harness.native.agent.request import (
     validate_agent_tool_call,
     validate_agent_tool_result_message,
 )
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -426,6 +427,7 @@ def nested_tool_result(outcome: NestedToolCallOutcome) -> NestedToolResult:
         result.content.value,
         is_error=result.is_error,
         details=result.details,
+        nested_call_evidence=result.nested_call_evidence,
         structured_content=result.structured_content,
         blocks=result.blocks,
         terminate=result.terminate,
@@ -1515,7 +1517,8 @@ class NestedToolCallService:
             result=replace(
                 outcome.result,
                 content=ProductContent(error[:500]),
-                details=None,
+                details=NO_TOOL_DETAILS,
+                nested_call_evidence=None,
                 structured_content=NO_STRUCTURED_CONTENT,
                 blocks=(),
             ),

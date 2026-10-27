@@ -41,7 +41,9 @@ import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -459,11 +461,11 @@ class _Formatter:
 
 def _format_output(
     matches: _Matches, options: _Options, location: _Location
-) -> tuple[str, dict[str, object] | None]:
+) -> tuple[str, Any]:
     """The output and Pi's ``details`` (omitted when no limit was hit)."""
 
     if not matches.items:
-        return "No matches found", None
+        return "No matches found", NO_TOOL_DETAILS
     formatter = _Formatter(location, options.context)
     rows: list[str] = []
     for match in matches.items:
@@ -489,7 +491,7 @@ def _format_output(
         details["linesTruncated"] = True
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output, details or None
+    return output, details or NO_TOOL_DETAILS
 
 
 __all__ = ["DEFAULT_LIMIT", "GREP_TOOL_DESCRIPTION", "GrepTool"]

@@ -17,6 +17,12 @@ from pipy_harness.durable_product_api import (
     open_durable_product_session,
 )
 from pipy_harness.native.agent import AgentEvent, AgentEventSink
+from pipy_harness.native.agent.nested_record import NestedCallEvidence, NestedCallRecord
+from pipy_harness.native.agent.tool_details import (
+    LEGACY_TOOL_DETAILS_NONE,
+    NO_TOOL_DETAILS,
+    UNCHANGED_TOOL_DETAILS,
+)
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 from pipy_harness.native.durable.product_values import (
     DurableAdmission,
@@ -40,6 +46,11 @@ from pipy_harness.product_api import (
 )
 
 __all__ = [
+    "NO_TOOL_DETAILS",
+    "LEGACY_TOOL_DETAILS_NONE",
+    "UNCHANGED_TOOL_DETAILS",
+    "NestedCallEvidence",
+    "NestedCallRecord",
     "DurableProductSession",
     "DurableAdmission",
     "DurableProductError",

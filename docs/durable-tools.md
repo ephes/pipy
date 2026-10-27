@@ -196,3 +196,14 @@ implementation/schema/workspace/replay must fit before admission; no policy-name
 heuristic or mutable reload registry is added. Nonfinal/final terminate holds are
 reported from actual committed controls and cannot be resolved away. DE13/14/15/
 24/25/30 and DE15/28 full exposed graph obligations remain.
+
+
+## DE13a normal rich-value prerequisite
+
+Normal tool results now retain [arbitrary finite details and explicit
+presence](tool-details.md), including scalar/array/null, through the actual
+executor, canonical receipt/history, completed view and SDK/CLI. Old v1 arenas
+and unknown None presence are preserved. No tool task/receipt ownership, replay,
+unsafe block, control or settlement policy changes. The outer ordinary fact/
+receipt remains v1 with independently versioned canonical content. Parent DE13
+unsafe interrupted-error continuation and retained progress are still OPEN.

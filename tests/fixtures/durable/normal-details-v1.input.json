@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "phase": "normal-details-v1",
+  "cases": [
+    {"id": "absent"},
+    {"id": "null", "details": null},
+    {"id": "false", "details": false},
+    {"id": "zero", "details": 0},
+    {"id": "scalar", "details": "scalar"},
+    {"id": "array", "details": [null, false, "s"]},
+    {"id": "mapping", "details": {"key": "value"}}
+  ]
+}

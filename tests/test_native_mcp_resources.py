@@ -21,6 +21,7 @@ from pipy_harness.native.agent.content import (
     ImageContent,
     TextContent,
 )
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.codemode.declarations import render_tool_signature
 from pipy_harness.native.mcp.client import McpRequestOptions
 from pipy_harness.native.mcp.protocol import McpAbortError
@@ -647,7 +648,7 @@ def test_a_failed_read_is_the_error_of_the_call() -> None:
         True,
         "Resource not found: docs://x",
     )
-    assert result.details is None
+    assert result.details is NO_TOOL_DETAILS
 
 
 def test_the_servers_are_asked_for_at_every_call() -> None:

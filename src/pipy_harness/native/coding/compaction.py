@@ -18,9 +18,11 @@ from pipy_harness.native.agent.messages import (
 )
 from pipy_harness.native.agent.nested_record import (
     parse_nested_record,
+    selected_nested_details,
 )
 from pipy_harness.native.agent.request import validate_frozen_provider_request
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS, has_tool_details
 from pipy_harness.native.coding.state import CodingProviderBinding, CodingRunContext
 from pipy_harness.native.models import (
     ProviderHeaderCallback,
@@ -127,12 +129,19 @@ def _summary_message(message: AgentMessage) -> AgentMessage:
     content = truncate_for_summary(message.content.value, SUMMARY_TOOL_RESULT_MAX_CHARS)
     if (
         content == message.content.value
-        and message.details is None
+        and not has_tool_details(message.details)
         and not message.blocks
+        and message.nested_call_evidence is None
     ):
         return message
     # Pi ``serializeConversation`` quotes a tool result's text only.
-    return replace(message, content=ProductContent(content), details=None, blocks=())
+    return replace(
+        message,
+        content=ProductContent(content),
+        details=NO_TOOL_DETAILS,
+        nested_call_evidence=None,
+        blocks=(),
+    )
 
 
 MAX_DIRECT_ARGUMENT_BYTES = 1024 * 1024
@@ -187,7 +196,9 @@ def file_operation_input(messages: tuple[AgentMessage, ...]) -> str:  # noqa: C9
                 scanned += 1
                 add(call.tool_name, _direct_arguments(call.arguments_json.value))
         elif isinstance(message, AgentToolResultMessage):
-            for row in parse_nested_record(message.details):
+            for row in parse_nested_record(
+                selected_nested_details(message.details, message.nested_call_evidence)
+            ):
                 scanned += 1
                 add(row["name"], row.get("arguments"))
     if not sizes:

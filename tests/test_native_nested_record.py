@@ -27,6 +27,7 @@ from pipy_harness.native.agent.nested_calls import (
 )
 from pipy_harness.native.agent.nested_record import parse_nested_record
 from pipy_harness.native.agent.nested_status import NestedCallStatus
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.tools import ToolExecutionOutcome
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.coding.compaction import file_operation_input
@@ -86,7 +87,7 @@ def test_exact_schema_argument_byte_bounds_and_snapshot(multibyte: bool) -> None
     calls[0]["arguments"]["p"] = "mutated"
     assert service.durable_record()["calls"] != calls
     assert all(
-        row.result.details is None and row.result.content.value == ""
+        row.result.details is NO_TOOL_DETAILS and row.result.content.value == ""
         for row in service.records()
     )
 

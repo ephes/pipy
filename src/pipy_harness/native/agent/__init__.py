@@ -41,6 +41,7 @@ from pipy_harness.native.agent.messages import (
     AgentUserMessage,
     provider_replay_messages,
 )
+from pipy_harness.native.agent.nested_record import NestedCallEvidence, NestedCallRecord
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.results import (
     AgentCancellationReason,
@@ -50,8 +51,18 @@ from pipy_harness.native.agent.results import (
     AgentTurnOutcome,
     AgentUsage,
 )
+from pipy_harness.native.agent.tool_details import (
+    LEGACY_TOOL_DETAILS_NONE,
+    NO_TOOL_DETAILS,
+    UNCHANGED_TOOL_DETAILS,
+)
 
 __all__ = [
+    "NO_TOOL_DETAILS",
+    "LEGACY_TOOL_DETAILS_NONE",
+    "UNCHANGED_TOOL_DETAILS",
+    "NestedCallEvidence",
+    "NestedCallRecord",
     "AGENT_TOOL_REQUEST_ID_PREFIX",
     "AgentAssistantMessage",
     "AgentCancellationReason",

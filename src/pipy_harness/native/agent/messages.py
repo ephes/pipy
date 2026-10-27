@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from math import isfinite
@@ -22,6 +22,11 @@ from pipy_harness.native.agent.content import (
     normalized_tool_result_blocks,
 )
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+    validate_nested_evidence,
+)
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS, copy_tool_details
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,7 +304,7 @@ class AgentToolResultMessage:
     is_error: bool = False
     # Pi ``ToolResultMessage.details``: stored and rendered, never sent to a
     # provider, so it takes no part in history equality.
-    details: Mapping[str, Any] | None = field(default=None, compare=False)
+    details: Any = field(default=NO_TOOL_DETAILS, compare=False)
     # Pi ``AgentToolResult.structuredContent``: the machine-readable result for
     # programmatic callers (codemode scripts). Pi keeps it on the tool result
     # and leaves it out of the ``ToolResultMessage`` it stores, so it is never
@@ -313,11 +318,12 @@ class AgentToolResultMessage:
     # batch asks. Like ``structured_content`` it stays on the tool result:
     # never sent to a provider, never written to the session file.
     terminate: bool = field(default=False, compare=False)
+    nested_call_evidence: NestedCallEvidence | None = field(default=None, compare=False)
     CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
-        if self.details is not None and not isinstance(self.details, Mapping):
-            raise TypeError("AgentToolResultMessage.details must be a mapping or None")
+        object.__setattr__(self, "details", copy_tool_details(self.details))
+        validate_nested_evidence(self.details, self.nested_call_evidence)
         require_non_empty_string(
             self.tool_request_id, "AgentToolResultMessage.tool_request_id"
         )

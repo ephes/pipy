@@ -199,40 +199,63 @@ def test_private_source_mutants_defeated_by_designated_tests(
     package.mkdir(parents=True)
     for parent in (package, package.parent, package.parent.parent):
         (parent / "__init__.py").write_text("")
+    agent = package.parent / "agent"
+    agent.mkdir()
+    (agent / "__init__.py").write_text("")
+    (agent / "json_values.py").write_bytes(
+        (m.ROOT / "src/pipy_harness/native/agent/json_values.py").read_bytes()
+    )
     source = (m.ROOT / "src/pipy_harness/native/durable/delta_ops.py").read_text()
     assert source.count(before) == 1
-    (package / "delta_ops.py").write_text(source.replace(before, after))
+    (package / "delta_ops.py").write_text(source)
     (package / "codec.py").write_bytes(
         (m.ROOT / "src/pipy_harness/native/durable/codec.py").read_bytes()
     )
     target = tmp_path / "test_delta_ops.py"
     target.write_bytes((m.ROOT / "tests/durable/test_delta_ops.py").read_bytes())
-    process = subprocess.run(
-        [
-            sys.executable,
-            "-X",
-            "dev",
-            "-W",
-            "error",
-            "-m",
-            "pytest",
-            "-q",
-            "-c",
-            "/dev/null",
-            "-p",
-            "no:cacheprovider",
-            "--rootdir",
-            str(tmp_path),
-            str(target) + "::" + selector,
-            "--basetemp",
-            str(tmp_path / "pytest"),
-        ],
+    command = [
+        sys.executable,
+        "-X",
+        "dev",
+        "-W",
+        "error",
+        "-m",
+        "pytest",
+        "-q",
+        "-c",
+        "/dev/null",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        str(tmp_path),
+        str(target) + "::" + selector,
+        "--basetemp",
+        str(tmp_path / "pytest"),
+    ]
+    environment = {
+        "PATH": "/usr/bin:/bin",
+        "PYTHONPATH": str(tmp_path / "src"),
+        "TMPDIR": str(tmp_path),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    for key in ("HOME", "PIPY_AUTH_DIR", "PIPY_CONFIG_HOME", "XDG_STATE_HOME"):
+        path = tmp_path / "environment" / key
+        path.mkdir(parents=True)
+        environment[key] = str(path)
+    baseline = subprocess.run(
+        command,
         cwd=tmp_path,
-        env={
-            "PATH": "/usr/bin:/bin",
-            "PYTHONPATH": str(tmp_path / "src"),
-            "TMPDIR": str(tmp_path),
-        },
+        env=environment,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert baseline.returncode == 0, baseline.stdout.decode() + baseline.stderr.decode()
+    (package / "delta_ops.py").write_text(source.replace(before, after))
+    process = subprocess.run(
+        command,
+        cwd=tmp_path,
+        env=environment,
         capture_output=True,
         timeout=30,
         check=False,

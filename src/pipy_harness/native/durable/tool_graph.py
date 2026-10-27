@@ -232,7 +232,11 @@ def result_value(
         ):
             refuse()
         _, actual = read_native_tool_output(data["nativeToolOutput"])
-        if OwnedJson(tree["model"][0]) != OwnedJson(encode_canonical(actual.result)):
+        if OwnedJson(tree["model"][0]) != OwnedJson(
+            encode_canonical(
+                actual.result, codec_version=tree["model"][0]["codec_version"]
+            )
+        ):
             refuse()
     elif (
         tree.get("byTaskId") != parent["id"]

@@ -1,0 +1,2261 @@
+{
+  "schema_version": 1,
+  "scope": "Disposition of the exact delivered-DE12 syntactic 112 producer and 100 consumer rows, including three manual schema/embedded-JavaScript rows. Frozen old row positions are historical anchors, not current line claims. This is not interprocedural/dynamic completeness proof. Runtime tests and source-closed phase22 provide additional actual behavior.",
+  "base_commit": "df5c31373a1cca45812200bf3b3e949244f924f1",
+  "base_inventory_sha256": "7a9a4456127221b68707b9745926915a75a4f0907d3f276552a461ae4feccabf",
+  "original_producer_inventory_sha256": "7ab332d1a13e022d0a7d5fe6aae0a0188625ab7a087fb12805aa720dfdc8f058",
+  "original_consumer_inventory_sha256": "e0a071f59e8667b17e10cbf7d9d55e5691c160e3342d2754ee98f97e4b53d5a2",
+  "original_producers": [
+    {
+      "path": "src/pipy_harness/native/agent/content.py",
+      "line": 76,
+      "scope": "ToolPartialResult",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1413,
+      "end_line": 1416,
+      "scope": "AgentLoop._emit_unfinished_composite",
+      "kind": "constructor_or_details_keyword",
+      "callee": "replace",
+      "details_expression": "{\"nestedCalls\": service.durable_record()}",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1464,
+      "end_line": 1467,
+      "scope": "AgentLoop._with_nested_record",
+      "kind": "constructor_or_details_keyword",
+      "callee": "replace",
+      "details_expression": "{**(result.details or {}), \"nestedCalls\": service.durable_record()}",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1803,
+      "scope": "_transform_tool_result",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1837,
+      "end_line": 1844,
+      "scope": "_transform_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "replace",
+      "details_expression": "new_details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop_policy.py",
+      "line": 158,
+      "scope": "AgentToolResultTransform",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/messages.py",
+      "line": 302,
+      "scope": "AgentToolResultMessage",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "field(default=None, compare=False)"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_calls.py",
+      "line": 425,
+      "end_line": 437,
+      "scope": "nested_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "NestedToolResult",
+      "details_expression": "result.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_calls.py",
+      "line": 769,
+      "end_line": 775,
+      "scope": "NestedToolCallService.call",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultMessage",
+      "details_expression": "<omitted>",
+      "positional_details_index": 5,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_calls.py",
+      "line": 900,
+      "end_line": 900,
+      "scope": "NestedToolCallService._output_sink.sink",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolPartialResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_calls.py",
+      "line": 1515,
+      "end_line": 1521,
+      "scope": "NestedToolCallService._retain",
+      "kind": "constructor_or_details_keyword",
+      "callee": "replace",
+      "details_expression": "None",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/tools.py",
+      "line": 314,
+      "end_line": 320,
+      "scope": "ToolExecutor.error_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultMessage",
+      "details_expression": "<omitted>",
+      "positional_details_index": 5,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/agent/tools.py",
+      "line": 538,
+      "end_line": 551,
+      "scope": "ToolExecutor._execute_once",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultMessage",
+      "details_expression": "execution_result.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/coding/codemode_runner.py",
+      "line": 89,
+      "scope": "_spill_result",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{\n        \"truncation\": {\n            \"truncated\": True,\n            \"truncatedBy\": \"tokens\",\n            \"totalCharacters\": len(body),\n            \"totalBytes\": len(data),\n            \"maxTokens\": max_tokens,\n            \"estimate\": \"characters/4\",\n        }\n    }"
+    },
+    {
+      "path": "src/pipy_harness/native/coding/codemode_runner.py",
+      "line": 353,
+      "scope": "CodemodeCompositeRunner._run.result",
+      "kind": "details_parameter_default_None",
+      "annotation": "dict[str, object] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/coding/codemode_runner.py",
+      "line": 361,
+      "end_line": 373,
+      "scope": "CodemodeCompositeRunner._run.result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultMessage",
+      "details_expression": "{\n                        **(details or {}),\n                        **({\"argumentPreviews\": previews} if previews else {}),\n                        \"nestedCalls\": service.durable_record(),\n                    }",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/coding/codemode_runner.py",
+      "line": 465,
+      "end_line": 471,
+      "scope": "CodemodeCompositeRunner._run",
+      "kind": "constructor_or_details_keyword",
+      "callee": "result",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/coding/compaction.py",
+      "line": 135,
+      "end_line": 135,
+      "scope": "_summary_message",
+      "kind": "constructor_or_details_keyword",
+      "callee": "replace",
+      "details_expression": "None",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/durable/generation.py",
+      "line": 539,
+      "end_line": 546,
+      "scope": "_tool_round",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultMessage",
+      "details_expression": "{\"code\": \"tool_unavailable\"}",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/export_tool_rows.py",
+      "line": 127,
+      "end_line": 131,
+      "scope": "render_export_tools",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolRowResult",
+      "details_expression": "None if details is None else redact(details)",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 656,
+      "scope": ".dispatch_tool_result_hooks",
+      "kind": "details_parameter_default_None",
+      "annotation": "Mapping[str, object] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 691,
+      "end_line": 701,
+      "scope": "dispatch_tool_result_hooks",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolResultEvent",
+      "details_expression": "state.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 714,
+      "end_line": 720,
+      "scope": "dispatch_tool_result_hooks",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolResultTransform",
+      "details_expression": "state.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 789,
+      "scope": "_ToolResultState._prepared",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_types.py",
+      "line": 345,
+      "scope": "ToolRenderContext",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, object] | None",
+      "default_expression": "<required>"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_types.py",
+      "line": 878,
+      "scope": "QueuedCustomMessage",
+      "kind": "details_field_or_local",
+      "annotation": "object | None",
+      "default_expression": "<required>"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_types.py",
+      "line": 906,
+      "scope": "ToolResultEvent",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, object] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_types.py",
+      "line": 930,
+      "scope": "ToolResultTransform",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, object] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_types.py",
+      "line": 966,
+      "scope": "ToolResult",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, object] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "line": 231,
+      "end_line": 231,
+      "scope": "_partial_results.update",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "line": 334,
+      "end_line": 341,
+      "scope": "_CommandContext.execute_tool",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolResult",
+      "details_expression": "result.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/custom_payloads.py",
+      "line": 66,
+      "end_line": 72,
+      "scope": "coerce_custom_message",
+      "kind": "constructor_or_details_keyword",
+      "callee": "QueuedCustomMessage",
+      "details_expression": "safe_custom_entry_data(message.get(\"details\"))",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 83,
+      "end_line": 83,
+      "scope": "_partial_update.update",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolPartialResult",
+      "details_expression": "json_safe_details(partial.details)",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 207,
+      "end_line": 214,
+      "scope": "_ExtensionToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 220,
+      "end_line": 225,
+      "scope": "_ExtensionToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 248,
+      "end_line": 258,
+      "scope": "_ExtensionToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "json_safe_details(details)",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/manager_menus.py",
+      "line": 76,
+      "scope": "McpMenu",
+      "kind": "details_field_or_local",
+      "annotation": "str | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/manager_menus.py",
+      "line": 264,
+      "end_line": 272,
+      "scope": "server_menu",
+      "kind": "constructor_or_details_keyword",
+      "callee": "McpMenu",
+      "details_expression": "\"\\n\".join(details)",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/manager_menus.py",
+      "line": 304,
+      "end_line": 311,
+      "scope": "tools_menu",
+      "kind": "constructor_or_details_keyword",
+      "callee": "McpMenu",
+      "details_expression": "f\"Exposure {exposure}: {meaning}{overridden}\"",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/manager_menus.py",
+      "line": 326,
+      "end_line": 340,
+      "scope": "exposure_menu",
+      "kind": "constructor_or_details_keyword",
+      "callee": "McpMenu",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/callback.py",
+      "line": 74,
+      "scope": "OAuthCallbackPage",
+      "kind": "details_field_or_local",
+      "annotation": "str | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/page.py",
+      "line": 70,
+      "scope": "._render",
+      "kind": "details_parameter_default_None",
+      "annotation": "str | None"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/page.py",
+      "line": 97,
+      "scope": ".oauth_error_html",
+      "kind": "details_parameter_default_None",
+      "annotation": "str | None"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/resources.py",
+      "line": 351,
+      "end_line": 358,
+      "scope": "McpResourceToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/resources.py",
+      "line": 364,
+      "end_line": 369,
+      "scope": "McpResourceToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "line": 114,
+      "scope": "McpToolResult",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, str]",
+      "default_expression": "<required>"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "line": 565,
+      "end_line": 572,
+      "scope": "convert_mcp_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "McpToolResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "line": 745,
+      "end_line": 753,
+      "scope": "McpToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "converted.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "line": 759,
+      "end_line": 765,
+      "scope": "McpToolPort.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "{\"server\": self._server, \"tool\": self._tool}",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "line": 774,
+      "end_line": 777,
+      "scope": "McpToolPort._call.on_progress",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolPartialResult",
+      "details_expression": "{\"server\": self._server, \"tool\": self._tool}",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/repl/collaborators.py",
+      "line": 719,
+      "end_line": 729,
+      "scope": "SessionCollaborators.transform_extension_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "transform_tool_result",
+      "details_expression": "result.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/repl/extension_operations.py",
+      "line": 259,
+      "scope": "SessionExtensionOperations.transform_tool_result",
+      "kind": "details_parameter_default_None",
+      "annotation": "Mapping[str, object] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/repl/extension_operations.py",
+      "line": 267,
+      "end_line": 267,
+      "scope": "SessionExtensionOperations.transform_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultTransform",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/repl/extension_operations.py",
+      "line": 270,
+      "end_line": 288,
+      "scope": "SessionExtensionOperations.transform_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "dispatch_tool_result_hooks",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/repl/extension_operations.py",
+      "line": 292,
+      "end_line": 298,
+      "scope": "SessionExtensionOperations.transform_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultTransform",
+      "details_expression": "transformed.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 183,
+      "scope": "_UnresolvedToolResultMessage",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 282,
+      "scope": "CustomMessageEntry",
+      "kind": "details_field_or_local",
+      "annotation": "Any",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 482,
+      "end_line": 490,
+      "scope": "_message_from_json",
+      "kind": "constructor_or_details_keyword",
+      "callee": "AgentToolResultMessage",
+      "details_expression": "raw_details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 491,
+      "end_line": 498,
+      "scope": "_message_from_json",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_UnresolvedToolResultMessage",
+      "details_expression": "raw_details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 664,
+      "end_line": 672,
+      "scope": "_decode_entry_from_json",
+      "kind": "constructor_or_details_keyword",
+      "callee": "CustomMessageEntry",
+      "details_expression": "body.get(\"details\")",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 1926,
+      "scope": "NativeSessionTree.append_custom_message",
+      "kind": "details_parameter_default_None",
+      "annotation": "Any"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 1928,
+      "end_line": 1936,
+      "scope": "NativeSessionTree.append_custom_message",
+      "kind": "constructor_or_details_keyword",
+      "callee": "CustomMessageEntry",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 2012,
+      "end_line": 2017,
+      "scope": "NativeSessionTree._clone_entry_onto_leaf",
+      "kind": "constructor_or_details_keyword",
+      "callee": "append_custom_message",
+      "details_expression": "entry.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "line": 819,
+      "end_line": 828,
+      "scope": "_ToolLoopRenderer.render_tool_call",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_dispatch_render",
+      "details_expression": "None",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "line": 898,
+      "scope": "_ToolLoopRenderer.render_tool_result",
+      "kind": "details_parameter_default_None",
+      "annotation": "Mapping[str, Any] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "line": 973,
+      "end_line": 983,
+      "scope": "_ToolLoopRenderer._extension_result_lines",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_dispatch_render",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "line": 1058,
+      "end_line": 1075,
+      "scope": "_ToolLoopRenderer._dispatch_render",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolRenderContext",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 144,
+      "scope": "ToolRowResult",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "<required>"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1400,
+      "end_line": 1427,
+      "scope": "_render_extension",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolRenderContext",
+      "details_expression": "result.details if result is not None else None",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1465,
+      "end_line": 1465,
+      "scope": "_own_lines",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolRowResult",
+      "details_expression": "ctx.details",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1577,
+      "end_line": 1581,
+      "scope": "render_tool_row",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolRowResult",
+      "details_expression": "_live_nested_details(state) if _has_nested_calls(state) else None",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_search.py",
+      "line": 412,
+      "end_line": 416,
+      "scope": "ToolSearchTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_result",
+      "details_expression": "{\"loaded\": [tool.name for tool in loaded]}",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tool_search.py",
+      "line": 440,
+      "scope": "ToolSearchTool._result",
+      "kind": "details_parameter_default_None",
+      "annotation": "Mapping[str, Any] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_search.py",
+      "line": 442,
+      "end_line": 448,
+      "scope": "ToolSearchTool._result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/base.py",
+      "line": 481,
+      "scope": "ToolExecutionResult",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/base.py",
+      "line": 632,
+      "scope": "NestedToolResult",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 233,
+      "scope": "BashTool.invoke",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object] | None",
+      "default_expression": "None"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 253,
+      "end_line": 259,
+      "scope": "BashTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_result",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 260,
+      "end_line": 266,
+      "scope": "BashTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_result",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 281,
+      "scope": "BashTool._result",
+      "kind": "details_parameter_default_None",
+      "annotation": "dict[str, object] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 286,
+      "end_line": 293,
+      "scope": "BashTool._result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 579,
+      "scope": "_partial_results.publish",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{}"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "line": 584,
+      "end_line": 584,
+      "scope": "_partial_results.publish",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolPartialResult",
+      "details_expression": "details",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/codemode.py",
+      "line": 122,
+      "end_line": 127,
+      "scope": "CodemodeTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/edit.py",
+      "line": 177,
+      "scope": "EditTool.invoke",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{\"diff\": diff}"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/edit.py",
+      "line": 182,
+      "end_line": 187,
+      "scope": "EditTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "_result",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/edit.py",
+      "line": 285,
+      "scope": "._result",
+      "kind": "details_parameter_default_None",
+      "annotation": "dict[str, object] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/edit.py",
+      "line": 287,
+      "end_line": 293,
+      "scope": "_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/find.py",
+      "line": 144,
+      "end_line": 149,
+      "scope": "FindTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/find.py",
+      "line": 219,
+      "end_line": 224,
+      "scope": "FindTool._error",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/find.py",
+      "line": 253,
+      "scope": "_format_output",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{}"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/grep.py",
+      "line": 180,
+      "end_line": 185,
+      "scope": "GrepTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/grep.py",
+      "line": 204,
+      "end_line": 209,
+      "scope": "GrepTool._error",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/grep.py",
+      "line": 474,
+      "scope": "_format_output",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{}"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/ls.py",
+      "line": 121,
+      "end_line": 126,
+      "scope": "LsTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/ls.py",
+      "line": 154,
+      "end_line": 159,
+      "scope": "LsTool._error",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/ls.py",
+      "line": 172,
+      "scope": "_format_output",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{}"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/read.py",
+      "line": 197,
+      "end_line": 203,
+      "scope": "ReadTool.invoke",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/read.py",
+      "line": 215,
+      "end_line": 220,
+      "scope": "ReadTool._image",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/read.py",
+      "line": 222,
+      "end_line": 236,
+      "scope": "ReadTool._image",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/read.py",
+      "line": 251,
+      "end_line": 256,
+      "scope": "ReadTool._error",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/tools/read.py",
+      "line": 316,
+      "scope": "_format_text",
+      "kind": "details_field_or_local",
+      "annotation": "dict[str, object]",
+      "default_expression": "{\"truncation\": truncation.to_details()}"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/write.py",
+      "line": 141,
+      "end_line": 146,
+      "scope": "_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolExecutionResult",
+      "details_expression": "<omitted>",
+      "positional_details_index": 4,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/custom_entry_renderer.py",
+      "line": 422,
+      "scope": "CustomEntryRenderer.extension_send_message",
+      "kind": "details_parameter_default_None",
+      "annotation": "object | None"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/custom_entry_renderer.py",
+      "line": 445,
+      "end_line": 450,
+      "scope": "CustomEntryRenderer._deliver_custom_message_effects",
+      "kind": "constructor_or_details_keyword",
+      "callee": "append_custom_message",
+      "details_expression": "message.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/session_history.py",
+      "line": 268,
+      "end_line": 273,
+      "scope": "_render_assistant",
+      "kind": "constructor_or_details_keyword",
+      "callee": "render_tool_result",
+      "details_expression": "result.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/tool_loop_renderer.py",
+      "line": 476,
+      "scope": "TuiToolLoopRenderer.render_tool_result",
+      "kind": "details_parameter_default_None",
+      "annotation": "Mapping[str, Any] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/tool_loop_renderer.py",
+      "line": 486,
+      "end_line": 486,
+      "scope": "TuiToolLoopRenderer.render_tool_result",
+      "kind": "constructor_or_details_keyword",
+      "callee": "ToolRowResult",
+      "details_expression": "details",
+      "positional_details_index": 1,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/ui/rendering.py",
+      "line": 84,
+      "scope": "AgentEventRenderer.render_tool_result",
+      "kind": "details_parameter_default_None",
+      "annotation": "Mapping[str, Any] | None"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/rendering.py",
+      "line": 205,
+      "end_line": 211,
+      "scope": "RenderingAgentEventAdapter._apply_tool_decision",
+      "kind": "constructor_or_details_keyword",
+      "callee": "render_tool_result",
+      "details_expression": "decision.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    },
+    {
+      "path": "src/pipy_harness/native/ui/state.py",
+      "line": 174,
+      "scope": "RenderToolResult",
+      "kind": "details_field_or_local",
+      "annotation": "Mapping[str, Any] | None",
+      "default_expression": "field(default=None, compare=False)"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/state.py",
+      "line": 363,
+      "end_line": 369,
+      "scope": "_reduce_tool_event",
+      "kind": "constructor_or_details_keyword",
+      "callee": "RenderToolResult",
+      "details_expression": "event.result.details",
+      "positional_details_index": null,
+      "starred_arguments_require_manual_check": false
+    }
+  ],
+  "original_consumers": [
+    {
+      "path": "src/pipy_harness/native/agent/content.py",
+      "line": 82,
+      "end_line": 82,
+      "scope": "ToolPartialResult.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "9c703319e8ed7e71d4538e7eb4101137c131bb28882f06bb9d2bba0ff83da8d3"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/content.py",
+      "line": 82,
+      "end_line": 82,
+      "scope": "ToolPartialResult.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "9c703319e8ed7e71d4538e7eb4101137c131bb28882f06bb9d2bba0ff83da8d3"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1466,
+      "end_line": 1466,
+      "scope": "AgentLoop._with_nested_record",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "ea6bfa079048371ab9067afdf1c87ee823c7286fb2ffe8b3bbe769475def6dfc"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1811,
+      "end_line": 1811,
+      "scope": "_transform_tool_result",
+      "kind": "details_attribute",
+      "expression": "transformed.details",
+      "source_sha256": "ea6bfa079048371ab9067afdf1c87ee823c7286fb2ffe8b3bbe769475def6dfc"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1828,
+      "end_line": 1828,
+      "scope": "_transform_tool_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "ea6bfa079048371ab9067afdf1c87ee823c7286fb2ffe8b3bbe769475def6dfc"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "line": 1834,
+      "end_line": 1834,
+      "scope": "_transform_tool_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "ea6bfa079048371ab9067afdf1c87ee823c7286fb2ffe8b3bbe769475def6dfc"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop_policy.py",
+      "line": 166,
+      "end_line": 166,
+      "scope": "AgentToolResultTransform.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "a31b3352c40f5832fac7134a124ee9e2fe4bd29461560267890c2cb214de29a4"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop_policy.py",
+      "line": 166,
+      "end_line": 166,
+      "scope": "AgentToolResultTransform.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "a31b3352c40f5832fac7134a124ee9e2fe4bd29461560267890c2cb214de29a4"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/messages.py",
+      "line": 319,
+      "end_line": 319,
+      "scope": "AgentToolResultMessage.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "66e72cbd45aa0b2a5a09c3f2ca02d63b8f0e5daa8d916e1b0e0711ae5d3b3046"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/messages.py",
+      "line": 319,
+      "end_line": 319,
+      "scope": "AgentToolResultMessage.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "66e72cbd45aa0b2a5a09c3f2ca02d63b8f0e5daa8d916e1b0e0711ae5d3b3046"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_calls.py",
+      "line": 428,
+      "end_line": 428,
+      "scope": "nested_tool_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "abbb04bee34de96bde5db91901bddb13eaf8815b222cd07fe94b17249fcf69b9"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_record.py",
+      "line": 112,
+      "end_line": 112,
+      "scope": "parse_nested_record",
+      "kind": "details_key_lookup",
+      "expression": "details.get(\"nestedCalls\")",
+      "source_sha256": "d13918e3e028d4e79f3333c46aa15ea0c75b08af383b3f7f07ad8671e2516167"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_record.py",
+      "line": 164,
+      "end_line": 164,
+      "scope": "parse_argument_previews",
+      "kind": "details_key_lookup",
+      "expression": "details.get(\"argumentPreviews\")",
+      "source_sha256": "d13918e3e028d4e79f3333c46aa15ea0c75b08af383b3f7f07ad8671e2516167"
+    },
+    {
+      "path": "src/pipy_harness/native/agent/tools.py",
+      "line": 547,
+      "end_line": 547,
+      "scope": "ToolExecutor._execute_once",
+      "kind": "details_attribute",
+      "expression": "execution_result.details",
+      "source_sha256": "c343481f08085fa7cc22f9b1ded5941a4b6b2fbdab9d830d00e5ce0547c3cc85"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/durable_output.py",
+      "line": 118,
+      "end_line": 118,
+      "scope": "message",
+      "kind": "details_attribute",
+      "expression": "value.details",
+      "source_sha256": "440f8174c1ac28791560edf8924359438ddab03b697cf02295a96fc4c252de54"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/durable_output.py",
+      "line": 119,
+      "end_line": 119,
+      "scope": "message",
+      "kind": "details_attribute",
+      "expression": "value.details",
+      "source_sha256": "440f8174c1ac28791560edf8924359438ddab03b697cf02295a96fc4c252de54"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 53,
+      "end_line": 53,
+      "scope": "nested_call_fields",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 56,
+      "end_line": 56,
+      "scope": "nested_call_fields",
+      "kind": "details_key_lookup",
+      "expression": "details.get(\"nestedCalls\")",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 84,
+      "end_line": 84,
+      "scope": "tool_result_json",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 85,
+      "end_line": 85,
+      "scope": "tool_result_json",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 85,
+      "end_line": 85,
+      "scope": "tool_result_json",
+      "kind": "details_key_subscript",
+      "expression": "result[\"details\"]",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 108,
+      "end_line": 108,
+      "scope": "partial_result_json",
+      "kind": "details_attribute",
+      "expression": "update.details",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 109,
+      "end_line": 109,
+      "scope": "partial_result_json",
+      "kind": "details_attribute",
+      "expression": "update.details",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 109,
+      "end_line": 109,
+      "scope": "partial_result_json",
+      "kind": "details_key_subscript",
+      "expression": "partial[\"details\"]",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "line": 219,
+      "end_line": 219,
+      "scope": "serialize_message",
+      "kind": "named_details_consumer",
+      "expression": "nested_call_fields(message)",
+      "source_sha256": "b8fe3bc0d214527e0f069b6f4cb30246a978be0c5bea9fa0b988dc73b9fe30a7"
+    },
+    {
+      "path": "src/pipy_harness/native/coding/compaction.py",
+      "line": 130,
+      "end_line": 130,
+      "scope": "_summary_message",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "22edea4890d10e3335a03a3cd490dbc53a3dcf1ec81e471f320b45bc48239700"
+    },
+    {
+      "path": "src/pipy_harness/native/coding/compaction.py",
+      "line": 190,
+      "end_line": 190,
+      "scope": "file_operation_input",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "22edea4890d10e3335a03a3cd490dbc53a3dcf1ec81e471f320b45bc48239700"
+    },
+    {
+      "path": "src/pipy_harness/native/coding/compaction.py",
+      "line": 190,
+      "end_line": 190,
+      "scope": "file_operation_input",
+      "kind": "named_details_consumer",
+      "expression": "parse_nested_record(message.details)",
+      "source_sha256": "22edea4890d10e3335a03a3cd490dbc53a3dcf1ec81e471f320b45bc48239700"
+    },
+    {
+      "path": "src/pipy_harness/native/durable/tool_graph.py",
+      "line": 240,
+      "end_line": 240,
+      "scope": "result_value",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "097ef23fe7a6c439eac4fd8178bc5e0dca4c3eeb69835e62e2d78ec00356ac87"
+    },
+    {
+      "path": "src/pipy_harness/native/export_tool_rows.py",
+      "line": 126,
+      "end_line": 126,
+      "scope": "render_export_tools",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "b4c4851d009b859c17b864a99de8145c95bb946e388c0f75daef0543cfe02306"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 199,
+      "end_line": 199,
+      "scope": "deliver_staged_custom",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 699,
+      "end_line": 699,
+      "scope": "dispatch_tool_result_hooks",
+      "kind": "details_attribute",
+      "expression": "state.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 719,
+      "end_line": 719,
+      "scope": "dispatch_tool_result_hooks",
+      "kind": "details_attribute",
+      "expression": "state.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 750,
+      "end_line": 750,
+      "scope": "_ToolResultState.__init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 773,
+      "end_line": 773,
+      "scope": "_ToolResultState.apply",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 790,
+      "end_line": 790,
+      "scope": "_ToolResultState._prepared",
+      "kind": "details_attribute",
+      "expression": "transform.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 791,
+      "end_line": 791,
+      "scope": "_ToolResultState._prepared",
+      "kind": "details_attribute",
+      "expression": "transform.details",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "line": 791,
+      "end_line": 791,
+      "scope": "_ToolResultState._prepared",
+      "kind": "named_details_consumer",
+      "expression": "json_safe_details(transform.details)",
+      "source_sha256": "cfa02b148dbad27c394c52bb93e4aae2aa3f688080d0c9e2c2668db64ff26469"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "line": 230,
+      "end_line": 230,
+      "scope": "_partial_results.update",
+      "kind": "details_attribute",
+      "expression": "partial.details",
+      "source_sha256": "9f4fff00b8240a9deb80cb420b4d42149057a141fb7f1ef5e5d1858ddcffebf9"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "line": 230,
+      "end_line": 230,
+      "scope": "_partial_results.update",
+      "kind": "details_attribute",
+      "expression": "partial.details",
+      "source_sha256": "9f4fff00b8240a9deb80cb420b4d42149057a141fb7f1ef5e5d1858ddcffebf9"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "line": 336,
+      "end_line": 336,
+      "scope": "_CommandContext.execute_tool",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "9f4fff00b8240a9deb80cb420b4d42149057a141fb7f1ef5e5d1858ddcffebf9"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "line": 434,
+      "end_line": 434,
+      "scope": "_CommandContext.send_message",
+      "kind": "details_attribute",
+      "expression": "queued.details",
+      "source_sha256": "9f4fff00b8240a9deb80cb420b4d42149057a141fb7f1ef5e5d1858ddcffebf9"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/custom_payloads.py",
+      "line": 70,
+      "end_line": 70,
+      "scope": "coerce_custom_message",
+      "kind": "details_key_lookup",
+      "expression": "message.get(\"details\")",
+      "source_sha256": "b674358be286935a0221d8fb3b182c20726239a927bb12bc3ac7d88ce4f22cd2"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/custom_payloads.py",
+      "line": 100,
+      "end_line": 100,
+      "scope": "_custom_message_renderer_payload",
+      "kind": "details_attribute",
+      "expression": "entry.details",
+      "source_sha256": "b674358be286935a0221d8fb3b182c20726239a927bb12bc3ac7d88ce4f22cd2"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 83,
+      "end_line": 83,
+      "scope": "_partial_update.update",
+      "kind": "details_attribute",
+      "expression": "partial.details",
+      "source_sha256": "1b5f68971f1c5cc4161c74ae96ee46ccdc696fa79570a10345194f6511dc2070"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 83,
+      "end_line": 83,
+      "scope": "_partial_update.update",
+      "kind": "named_details_consumer",
+      "expression": "json_safe_details(partial.details)",
+      "source_sha256": "1b5f68971f1c5cc4161c74ae96ee46ccdc696fa79570a10345194f6511dc2070"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 239,
+      "end_line": 239,
+      "scope": "_ExtensionToolPort.invoke",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "1b5f68971f1c5cc4161c74ae96ee46ccdc696fa79570a10345194f6511dc2070"
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "line": 253,
+      "end_line": 253,
+      "scope": "_ExtensionToolPort.invoke",
+      "kind": "named_details_consumer",
+      "expression": "json_safe_details(details)",
+      "source_sha256": "1b5f68971f1c5cc4161c74ae96ee46ccdc696fa79570a10345194f6511dc2070"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/callback.py",
+      "line": 98,
+      "end_line": 98,
+      "scope": "_plain_text",
+      "kind": "details_attribute",
+      "expression": "page.details",
+      "source_sha256": "8c888d57d915ac55f7ab73ed18668436778becf1025d7ae70ec182160dff1ea7"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/callback.py",
+      "line": 98,
+      "end_line": 98,
+      "scope": "_plain_text",
+      "kind": "details_attribute",
+      "expression": "page.details",
+      "source_sha256": "8c888d57d915ac55f7ab73ed18668436778becf1025d7ae70ec182160dff1ea7"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/page.py",
+      "line": 106,
+      "end_line": 106,
+      "scope": "render_sign_in_page",
+      "kind": "details_attribute",
+      "expression": "page.details",
+      "source_sha256": "0cb6e137f4e5f97214bf4cdf015b9b6248ab0161ec84d397f0e1f83aa083da20"
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "line": 751,
+      "end_line": 751,
+      "scope": "McpToolPort.invoke",
+      "kind": "details_attribute",
+      "expression": "converted.details",
+      "source_sha256": "ec2c97b7b901f7a486cdcbf31513bed573c37a2d574bfc44d84eeb44f50c5041"
+    },
+    {
+      "path": "src/pipy_harness/native/repl/collaborators.py",
+      "line": 727,
+      "end_line": 727,
+      "scope": "SessionCollaborators.transform_extension_tool_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "092807ab2d8c3492663325a1af8bc78197050489357eca88861075ca3184505c"
+    },
+    {
+      "path": "src/pipy_harness/native/repl/extension_operations.py",
+      "line": 297,
+      "end_line": 297,
+      "scope": "SessionExtensionOperations.transform_tool_result",
+      "kind": "details_attribute",
+      "expression": "transformed.details",
+      "source_sha256": "6a11f432adaaa1040eddffbcc4e511039eeddd28510b3fe3bc231cf5287f7149"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 354,
+      "end_line": 354,
+      "scope": "_tool_result_to_json",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 355,
+      "end_line": 355,
+      "scope": "_tool_result_to_json",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 355,
+      "end_line": 355,
+      "scope": "_tool_result_to_json",
+      "kind": "details_key_subscript",
+      "expression": "body[\"details\"]",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 473,
+      "end_line": 473,
+      "scope": "_message_from_json",
+      "kind": "details_key_lookup",
+      "expression": "body.get(\"details\")",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 533,
+      "end_line": 533,
+      "scope": "_entry_to_json",
+      "kind": "details_attribute",
+      "expression": "entry.details",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 533,
+      "end_line": 533,
+      "scope": "_entry_to_json",
+      "kind": "details_key_subscript",
+      "expression": "base[\"details\"]",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 671,
+      "end_line": 671,
+      "scope": "_decode_entry_from_json",
+      "kind": "details_key_lookup",
+      "expression": "body.get(\"details\")",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 1248,
+      "end_line": 1248,
+      "scope": "_strict_tool_message_from_json",
+      "kind": "details_key_lookup",
+      "expression": "message.get(\"details\")",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "line": 2016,
+      "end_line": 2016,
+      "scope": "NativeSessionTree._clone_entry_onto_leaf",
+      "kind": "details_attribute",
+      "expression": "entry.details",
+      "source_sha256": "2d1cbe1368c2d86c5120c370415b9a1360c900056d09a95bc5be4b137646542f"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "line": 1093,
+      "end_line": 1093,
+      "scope": "_ToolLoopRenderer._own_lines",
+      "kind": "details_attribute",
+      "expression": "ctx.details",
+      "source_sha256": "ddf30bf1c07d0c46ea8328089d11342b9d7aa6557cd729926a155d32486e35cc"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "line": 1116,
+      "end_line": 1116,
+      "scope": "_ToolLoopRenderer._own_lines",
+      "kind": "named_details_consumer",
+      "expression": "nested_lines_from_details(details)",
+      "source_sha256": "ddf30bf1c07d0c46ea8328089d11342b9d7aa6557cd729926a155d32486e35cc"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 189,
+      "end_line": 189,
+      "scope": "nested_lines_from_details",
+      "kind": "named_details_consumer",
+      "expression": "parse_argument_previews(details)",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 190,
+      "end_line": 190,
+      "scope": "nested_lines_from_details",
+      "kind": "named_details_consumer",
+      "expression": "parse_nested_record(details)",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 599,
+      "end_line": 599,
+      "scope": "_read_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 941,
+      "end_line": 941,
+      "scope": "apply_edit_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 942,
+      "end_line": 942,
+      "scope": "apply_edit_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 945,
+      "end_line": 945,
+      "scope": "apply_edit_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 945,
+      "end_line": 945,
+      "scope": "apply_edit_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 989,
+      "end_line": 989,
+      "scope": "_edit_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 989,
+      "end_line": 989,
+      "scope": "_edit_result",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1042,
+      "end_line": 1042,
+      "scope": "_bash_result_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1169,
+      "end_line": 1169,
+      "scope": "_full_output_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1406,
+      "end_line": 1406,
+      "scope": "_render_extension",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1465,
+      "end_line": 1465,
+      "scope": "_own_lines",
+      "kind": "details_attribute",
+      "expression": "ctx.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1532,
+      "end_line": 1532,
+      "scope": "_own_nested",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1533,
+      "end_line": 1533,
+      "scope": "_own_nested",
+      "kind": "details_attribute",
+      "expression": "ctx.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1535,
+      "end_line": 1535,
+      "scope": "_own_nested",
+      "kind": "details_attribute",
+      "expression": "ctx.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1535,
+      "end_line": 1535,
+      "scope": "_own_nested",
+      "kind": "named_details_consumer",
+      "expression": "nested_lines_from_details(ctx.details)",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1874,
+      "end_line": 1874,
+      "scope": "_result_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1875,
+      "end_line": 1875,
+      "scope": "_result_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1875,
+      "end_line": 1875,
+      "scope": "_result_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1892,
+      "end_line": 1892,
+      "scope": "_result_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "line": 1901,
+      "end_line": 1901,
+      "scope": "_result_rows",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "99a34890214713a83d66bf4a457567e771fa9f4ee8941c0c94c6ba0b15dd492b"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/base.py",
+      "line": 526,
+      "end_line": 526,
+      "scope": "ToolExecutionResult.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "6f8e17526d5d9a76eec2804e3780d6391dbfa9e3731a4dd9ec196ee2c0a68b28"
+    },
+    {
+      "path": "src/pipy_harness/native/tools/base.py",
+      "line": 526,
+      "end_line": 526,
+      "scope": "ToolExecutionResult.__post_init__",
+      "kind": "details_attribute",
+      "expression": "self.details",
+      "source_sha256": "6f8e17526d5d9a76eec2804e3780d6391dbfa9e3731a4dd9ec196ee2c0a68b28"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/custom_entry_renderer.py",
+      "line": 449,
+      "end_line": 449,
+      "scope": "CustomEntryRenderer._deliver_custom_message_effects",
+      "kind": "details_attribute",
+      "expression": "message.details",
+      "source_sha256": "249d20c9b74200b85b9cbf50cb2ce022af7a7e3d24d41deb22144a960fb1cf63"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/mcp_manager_view.py",
+      "line": 424,
+      "end_line": 424,
+      "scope": "McpManagerView._render_menu",
+      "kind": "details_attribute",
+      "expression": "menu.details",
+      "source_sha256": "b2a06089bed371c442cd72cfa859ec80b97dc8520f0cb0924a6f5c5c0f6239f5"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/mcp_manager_view.py",
+      "line": 425,
+      "end_line": 425,
+      "scope": "McpManagerView._render_menu",
+      "kind": "details_attribute",
+      "expression": "menu.details",
+      "source_sha256": "b2a06089bed371c442cd72cfa859ec80b97dc8520f0cb0924a6f5c5c0f6239f5"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/session_history.py",
+      "line": 271,
+      "end_line": 271,
+      "scope": "_render_assistant",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "985d36bc1af830a49035ccdd4c53b958edc4cfa6c7361af7a1010235adefc730"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/transcript.py",
+      "line": 694,
+      "end_line": 694,
+      "scope": "TranscriptComponent.finish_tool",
+      "kind": "details_attribute",
+      "expression": "result.details",
+      "source_sha256": "b4cf1f65fdc0e66755800e9aa391c43f0f53541f0788fc69d9c9423ffad182a5"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/transcript.py",
+      "line": 694,
+      "end_line": 694,
+      "scope": "TranscriptComponent.finish_tool",
+      "kind": "named_details_consumer",
+      "expression": "nested_lines_from_details(result.details)",
+      "source_sha256": "b4cf1f65fdc0e66755800e9aa391c43f0f53541f0788fc69d9c9423ffad182a5"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/rendering.py",
+      "line": 209,
+      "end_line": 209,
+      "scope": "RenderingAgentEventAdapter._apply_tool_decision",
+      "kind": "details_attribute",
+      "expression": "decision.details",
+      "source_sha256": "f884c74a07c2c69f88e1628158b2494a6da50d5ddc23cb38af899ff0f9a4fd26"
+    },
+    {
+      "path": "src/pipy_harness/native/ui/state.py",
+      "line": 367,
+      "end_line": 367,
+      "scope": "_reduce_tool_event",
+      "kind": "details_attribute",
+      "expression": "event.result.details",
+      "source_sha256": "dea1dde00b2cca6355c58217b7b94515a55e472576f4f341fae029fff18e0b7c"
+    },
+    {
+      "path": "src/pipy_harness/native/durable/canonical_codec.py",
+      "line": 102,
+      "end_line": 113,
+      "scope": "SCHEMAS.AgentToolResultMessage",
+      "kind": "manual_non_attribute_consumer",
+      "description": "Canonical v1 closed details optional_mapping field schema; preserve historical fieldset/arena, extend only v2 for new rich presence/evidence.",
+      "source_sha256": "3285359a65ea5067bd650efbbe76575449d5856847dd5cefb567023b8f8cc9a2",
+      "excerpt_sha256": "271006551c88a0bd8561cb8c774c59b9a810556c9aac40684ff01b82a625bfdb",
+      "expression": "    AgentToolResultMessage: {\n        \"tool_request_id\": S,\n        \"tool_name\": S,\n        \"content\": ProductContent,\n        \"provider_correlation_id\": S,\n        \"is_error\": bool,\n        \"details\": \"optional_mapping\",\n        \"structured_content\": \"structured\",\n        \"blocks\": [(TextContent, ImageContent)],\n        \"terminate\": bool,\n    },\n    AgentToolDeclaration: {\"name\": S, \"description\": S, \"parameters_json\": S},\n"
+    },
+    {
+      "path": "src/pipy_harness/native/export_distribution.py",
+      "line": 979,
+      "end_line": 1025,
+      "scope": "embedded JavaScript nestedCallsText/appendNestedCalls",
+      "kind": "manual_non_attribute_consumer",
+      "description": "Embedded JS details.nestedCalls and argumentPreviews reader/renderer; add typed evidence selector while preserving raw details.",
+      "source_sha256": "b10dbdf0f96b523a1ee6f9e4e49dc01f734f8a743364b5bd008488f04f98f49c",
+      "excerpt_sha256": "1c8dab389b0c9f9fc2e08d55df8772c81faeeb8716b7bc12e0170da262e208b8",
+      "expression": "  function nestedCallsText(details) {\n    const record = details && typeof details === \"object\" ? details.nestedCalls : null;\n    // An imported file may hold anything: a call without a string name and\n    // status is left out, and only plain values are shown.\n    const calls = record && Array.isArray(record.calls)\n      ? record.calls.filter(call => call && typeof call === \"object\" &&\n        typeof call.name === \"string\" && typeof call.status === \"string\") : [];\n    if (!calls.length) return \"\";\n    const icons = new Map([[\"ok\", \"\\u2713\"], [\"error\", \"\\u2717\"], [\"unfinished\", \"\\u2026\"], [\"cancelled\", \"\\u2298\"]]);\n    // The start of the arguments the record left out, by call id (Pi's\n    // codemode row shows them from details.calls).\n    const previews = details.argumentPreviews && typeof details.argumentPreviews === \"object\"\n      ? details.argumentPreviews : {};\n    const lines = calls.map(call => {\n      const bytes = typeof call.argumentsBytes === \"number\" ? call.argumentsBytes : \"?\";\n      const preview = typeof call.id === \"string\" &&\n        Object.prototype.hasOwnProperty.call(previews, call.id) &&\n        typeof previews[call.id] === \"string\" ? `${previews[call.id].slice(0, 200)} ` : \"\";\n      const args = call.arguments !== undefined\n        ? JSON.stringify(call.arguments)\n        : `${preview}[arguments omitted, ${bytes} bytes]`;\n      const duration = typeof call.durationMs === \"number\" ? ` ${Math.round(call.durationMs)}ms` : \"\";\n      const error = typeof call.error === \"string\" && call.error\n        ? `\\\\n    ${call.error.split(\"\\\\n\").join(\"\\\\n    \")}` : \"\";\n      return `${icons.get(call.status) || \"?\"} ${call.name} ${args}${duration}${error}`;\n    });\n    const title = `Nested calls: ${calls.length}${record.complete ? \"\" : \" (incomplete record)\"}`;\n    return [title, ...lines].join(\"\\\\n\");\n  }\n  function appendNestedCalls(target, details) {\n    const text = nestedCallsText(details);\n    if (!text) return;\n    const lines = text.split(\"\\\\n\");\n    const output = document.createElement(\"div\");\n    output.className = \"nested-calls\";\n    const preview = document.createElement(\"pre\");\n    preview.className = \"output-preview\";\n    preview.textContent = `${lines[0]}\\\\n... (${lines.length - 1} more lines)`;\n    const full = document.createElement(\"pre\");\n    full.className = \"output-full\";\n    full.textContent = text;\n    output.append(preview, full);\n    output.addEventListener(\"click\", function () {\n      if (!window.getSelection().toString()) output.classList.toggle(\"expanded\");\n    });\n    target.append(output);\n  }\n"
+    },
+    {
+      "path": "src/pipy_harness/native/export_distribution.py",
+      "line": 1057,
+      "end_line": 1069,
+      "scope": "embedded JavaScript tool-result iteration",
+      "kind": "manual_non_attribute_consumer",
+      "description": "Actual msg.details \u2192 appendNestedCalls consumer callsite; propagate/select new typed nested evidence.",
+      "source_sha256": "b10dbdf0f96b523a1ee6f9e4e49dc01f734f8a743364b5bd008488f04f98f49c",
+      "excerpt_sha256": "49da2f8662a58f2b852af4ef2f4572cc4c7abddbd3180e277201ebdbbf9a661f",
+      "expression": "        for (const call of calls) {\n          const rows = rendered(call.provider_correlation_id);\n          if (rows) appendRenderedTool(rows, call.provider_correlation_id);\n        }\n      }\n      else if (msg.role === \"tool\") {\n        // A result drawn ahead is shown in its call's box.\n        const id = msg.provider_correlation_id;\n        const rows = rendered(id);\n        const box = rows && \"resultHtmlExpanded\" in rows ? renderedBoxes.get(id) : undefined;\n        const target = box || append(\"Tool result\", msg.output_text || \"\", \"tool\");\n        appendNestedCalls(target, msg.details);\n        appendImages(msg.blocks);\n"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/pipy_harness/native/agent/content.py",
+      "current_sha256": "55edb949476542735eff1673e195ae69d86a06ec4033765d24d1dff2d7f5b2df",
+      "disposition": "ToolPartialResult owns generic finite details; absent marker is distinct from explicit null."
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop.py",
+      "current_sha256": "fdaaff6185600a847e84f527c2d91550c908c8acf2f488de1c87ebbc4d15222c",
+      "disposition": "Normal nested service attaches actual finite evidence; transformations preserve or retarget the single legacy/typed channel, never partial-to-final fallback."
+    },
+    {
+      "path": "src/pipy_harness/native/agent/loop_policy.py",
+      "current_sha256": "f0297ca93771d22ddadbb0a348bdb54474512e27c3f233f40e752a325622c5aa",
+      "disposition": "Result transform omission is UNCHANGED, explicit absent/null are data operations."
+    },
+    {
+      "path": "src/pipy_harness/native/agent/messages.py",
+      "current_sha256": "abe802a4b23b60259f2db7a5f393589a1576fa2c1bd107dff8fcf79381f69658",
+      "disposition": "AgentToolResultMessage owns generic details and one optional validated finite nested evidence field."
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_calls.py",
+      "current_sha256": "a291e0a1ea19f475ea36cb3c0200599a54044f52373b43fb3923846ba037a9d6",
+      "disposition": "Nested result forwards generic details and typed evidence without truthiness fallback."
+    },
+    {
+      "path": "src/pipy_harness/native/agent/nested_record.py",
+      "current_sha256": "8beb5120582ec6118f19f1ce059473c71994cdb6d5d87836ab35489fde33f101",
+      "disposition": "Closed finite existing actual-call record; normal mapping/absent stays legacy; nonmapping uses typed field; selectors provide transient renderer views."
+    },
+    {
+      "path": "src/pipy_harness/native/agent/tools.py",
+      "current_sha256": "a6a4c2f8f5202efeed8f4ba2340ced17deb1a77383cdfd9c17658ff4e285c5a7",
+      "disposition": "Existing executor forwards actual final details/evidence only; no retained-gate or lifecycle policy change."
+    },
+    {
+      "path": "src/pipy_harness/native/automation/durable_output.py",
+      "current_sha256": "589950ba5047127412235c0fa6b26d1af2937268c2526b997922960aee893739",
+      "disposition": "Run output v2 explicitly reports absent/value/legacy-unspecified; inspect/retry formats stay unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/automation/serialize.py",
+      "current_sha256": "c60b3bb18ddf7434cb1cbea81e9ebde5329a9b94fcd8bf692dbdb31dee274f48",
+      "disposition": "Normal result/partial preserves scalar/array/null/absence; legacy mapping ordinary-message bytes retained and typed evidence explicit."
+    },
+    {
+      "path": "src/pipy_harness/native/coding/codemode_runner.py",
+      "current_sha256": "3628269f706c2d1450746577057d99962aec0db67840b5ad3c4201c424ba1830",
+      "disposition": "Actual normal codemode record attaches to legacy or typed channel according to original final details."
+    },
+    {
+      "path": "src/pipy_harness/native/coding/compaction.py",
+      "current_sha256": "782a1f7fc6b60371c64b01195d4e4adcf1a9c6c5464b9deb8b158025323dd66f",
+      "disposition": "Actual nested file-operation evidence uses selected channel; intentional retention erasure clears both channels."
+    },
+    {
+      "path": "src/pipy_harness/native/durable/canonical_codec.py",
+      "current_sha256": "208eb52b3d21c406fe4d277a87e9234cf39b52c3ef06453b6cd2f5320bf8ed12",
+      "disposition": "Recorded v1 schema preserved; oldest-lossless v2 presence and finite typed evidence; no global codec flip."
+    },
+    {
+      "path": "src/pipy_harness/native/durable/generation.py",
+      "current_sha256": "2d7f69504337d1871fcd9537f7f8a4ea365c3bcbc5b22f027d4741ecd432ccff",
+      "disposition": "Existing synthetic unavailable result has explicit mapping details; no change needed."
+    },
+    {
+      "path": "src/pipy_harness/native/durable/tool_graph.py",
+      "current_sha256": "26e7fc7b597f78fbca694ab0a64b698a291d996ddf927060ee5f79b79d0b149b",
+      "disposition": "Compare result using its recorded arena version, without changing raw task status/ownership/control validation."
+    },
+    {
+      "path": "src/pipy_harness/native/export_distribution.py",
+      "current_sha256": "f35afa92c611e6df538d1912cf98451d3dc98e3dd9b0fc762d86d639ea0f9a9e",
+      "disposition": "Embedded JavaScript reads actual typed field or legacy nested details; full generic details remain original."
+    },
+    {
+      "path": "src/pipy_harness/native/export_tool_rows.py",
+      "current_sha256": "0599f320d4880c6ce2cb479cbce4c354e2d1f99101a9a4bb9dd215143796ccbd",
+      "disposition": "Export row selects typed/legacy evidence and preserves original details value."
+    },
+    {
+      "path": "src/pipy_harness/native/extension_hooks.py",
+      "current_sha256": "9309670c2a2a41c93578fd66d8851861960f5ff7b13b9b1f505f268d2cfda014",
+      "disposition": "Owned generic event details; explicit replacement uses established JSON text forwarding with atomic invalid-transform refusal; absent/null/unchanged and original nested evidence remain distinct."
+    },
+    {
+      "path": "src/pipy_harness/native/extension_types.py",
+      "current_sha256": "b171365c23c4149e5d2d1c75daa9787dfc1f554339c512cf932b20334c7c6f98",
+      "disposition": "Public normal result/event/context generic details and optional finite evidence; transform default remains a separate control marker."
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/command_context.py",
+      "current_sha256": "4556844fa8ae8351d70393f207bb63ca3ae6f4412affc84f387bd3aaa45b74c1",
+      "disposition": "Nested normal command result forwards exact details/evidence."
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/custom_payloads.py",
+      "current_sha256": "b674358be286935a0221d8fb3b182c20726239a927bb12bc3ac7d88ce4f22cd2",
+      "disposition": "Custom message/entry details is separate existing domain, not ToolExecutionResult; unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/extensions/tool_port.py",
+      "current_sha256": "ca33b2da257b87002735c38751c3cc3f113eadec1fd7bb791025a756664f539c",
+      "disposition": "Extension result forwards exact details and typed evidence; plain text result is absent."
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/manager_menus.py",
+      "current_sha256": "2f98890db8a448cf1b7b078adf984f731e3cf834b1640e34a347411c244e5682",
+      "disposition": "Manager panel description named details is unrelated to tool results; unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/callback.py",
+      "current_sha256": "8c888d57d915ac55f7ab73ed18668436778becf1025d7ae70ec182160dff1ea7",
+      "disposition": "OAuth page error description named details is unrelated to tool results; unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/oauth/page.py",
+      "current_sha256": "0cb6e137f4e5f97214bf4cdf015b9b6248ab0161ec84d397f0e1f83aa083da20",
+      "disposition": "HTML OAuth diagnostic named details is unrelated to tool results; unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/resources.py",
+      "current_sha256": "52eca2f34b307e5db686727e655bf34ed35aaeccaa3fe9041000ebc6495e95a0",
+      "disposition": "Builtin MCP resource results produce explicit mapping metadata or omit details; new generic DTO default preserves actual absence."
+    },
+    {
+      "path": "src/pipy_harness/native/mcp/tools.py",
+      "current_sha256": "ec2c97b7b901f7a486cdcbf31513bed573c37a2d574bfc44d84eeb44f50c5041",
+      "disposition": "Builtin MCP converted details are deliberately mapping metadata; omitted generic constructor default/partial values remain correct."
+    },
+    {
+      "path": "src/pipy_harness/native/repl/collaborators.py",
+      "current_sha256": "2f9e037b6c9880608421e3f8f815214d6eb3285cad2aba73066d46026340a59c",
+      "disposition": "Render completion forwards finite evidence along with exact original details."
+    },
+    {
+      "path": "src/pipy_harness/native/repl/extension_operations.py",
+      "current_sha256": "37cd0e78221e0676e9baadbd72bfa7558aa85232d943c67ff71e0d3f4a07a703",
+      "disposition": "Actual extension render context forwards selected evidence; passes extra callback argument only when present."
+    },
+    {
+      "path": "src/pipy_harness/native/session_tree.py",
+      "current_sha256": "edd3b9cd5d2d55b747dc95c7377ff56ceb91240c3b3da42b1cf62355127f01ee",
+      "disposition": "Normal JSONL key-presence decoding/writing; optional typed field; old record interpretation does not invent null presence."
+    },
+    {
+      "path": "src/pipy_harness/native/tool_renderers.py",
+      "current_sha256": "d09b4a319ceabb9cf305a49113f8db16d946717f4ab1b32001b3004ff45de39d",
+      "disposition": "Generic renderer accepts values; mapping-specific builtin fields are guarded; nested renderer selects actual typed evidence."
+    },
+    {
+      "path": "src/pipy_harness/native/tool_rows.py",
+      "current_sha256": "47dcd1266efba0f1e7940ec592abe103bfabc564822a76c33a151f21354b81e0",
+      "disposition": "Rows retain original generic values and optional evidence; builtin mapping reads guarded; selectors do not create a second authoritative fact."
+    },
+    {
+      "path": "src/pipy_harness/native/tool_search.py",
+      "current_sha256": "5683114cc0ac1ae9356a4f5220c813351171a9cacf5ea925006e343e32564b46",
+      "disposition": "Search internal absent default becomes NO_TOOL_DETAILS; metadata branches remain real mappings."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/base.py",
+      "current_sha256": "1c7e89761136a7d028d4a3bd333a451f7df6fcfadd995d66f1dda6469379cf17",
+      "disposition": "Direct ToolExecutionResult owns normal values and applies a stdlib encoding predicate; extension forwarding retains its JSON text-copy policy. Nested/history DTOs copy values only; durable ingress retains exact binary64/plain JSON validation."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/bash.py",
+      "current_sha256": "b48749120a3288859ccab178b291e518c0b645eb7e949d606ccc131eac6f1c37",
+      "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/codemode.py",
+      "current_sha256": "e4c6e5ad8c8fa6f1ddc2f77d23d8d97f0a0c267dea00cef7421fb2594981926e",
+      "disposition": "Base codemode stub omits final details; generic DTO absent default is correct."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/edit.py",
+      "current_sha256": "cc73773e5cf0c361f88125e7d68d4566f6a1b05f7ac2662513093ede22a79e7a",
+      "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/find.py",
+      "current_sha256": "24d6276df9ac595ef0a2a3b2568b74d4cb8de9da75c8aba5de6d581f6325a14d",
+      "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/grep.py",
+      "current_sha256": "763c1f0938a9f7449f9b18d3bdf50ec3261b3d80218d2b8cf8ba6169ba468c6c",
+      "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/ls.py",
+      "current_sha256": "92017fb5f815f02bb89161b97c1a1d9a059acb73696c71b399b6f417988724f3",
+      "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/read.py",
+      "current_sha256": "81d5fbfd3725efb5f3967649281f8e712503f5c7cbf6f40448b0045bf3a77b7f",
+      "disposition": "Builtin explicit absence uses NO_TOOL_DETAILS; real mapping metadata remains mapping, including error/limited-result branches."
+    },
+    {
+      "path": "src/pipy_harness/native/tools/write.py",
+      "current_sha256": "80d792d7ea3934d9658fe334d2559c51e957bce4bd93500c6948968838062358",
+      "disposition": "Builtin write result omits final details; generic DTO absent default is correct."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/custom_entry_renderer.py",
+      "current_sha256": "249d20c9b74200b85b9cbf50cb2ce022af7a7e3d24d41deb22144a960fb1cf63",
+      "disposition": "Custom-entry metadata domain is separate from normal tool-result details; unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/mcp_manager_view.py",
+      "current_sha256": "b2a06089bed371c442cd72cfa859ec80b97dc8520f0cb0924a6f5c5c0f6239f5",
+      "disposition": "Existing MCP status-panel details are a distinct fixed UI domain; unchanged."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/session_history.py",
+      "current_sha256": "5546f17ebc3fafd3086d7b9df62cbbaf95acf69f09dabdaeeccbf306d2b3cd9f",
+      "disposition": "Actual reopened/active-branch normal tool-result replay forwards original generic details and typed nested evidence into the same renderer/transcript as live turns; custom entry metadata remains a separate domain."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/tool_loop_renderer.py",
+      "current_sha256": "414774e3f64ff24dc2ed96a587d6c9fa83e9054d328a9a198fe52bbbbcd74916",
+      "disposition": "Renderer retains exact generic value/evidence without mapping-only coercion."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/components/transcript.py",
+      "current_sha256": "0ea6dde46e49d714657f67161408cc627842e6c54c0d4cb6048c3c5ed8914b11",
+      "disposition": "Completed row explicitly selects typed evidence with original details; actual component regression catches missing selection."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/rendering.py",
+      "current_sha256": "3f759e44d0e2f99a85334a767c36a6b2dd5dc6bc8aa4124d404af06452eeb5f2",
+      "disposition": "Actual event-to-row adapter forwards evidence; legacy callbacks receive original call shape if absent."
+    },
+    {
+      "path": "src/pipy_harness/native/ui/state.py",
+      "current_sha256": "735a5b1de1ae8ec9165ee3b0c5dbde421cb9d2f0a7c969a010cf8b1a224e96d8",
+      "disposition": "RenderToolResult carries original generic details and finite evidence."
+    }
+  ],
+  "new_pure_authority": "native/agent/tool_details.py separates iterative historical value ownership, direct-producer stdlib encoding admission, and extension/replacement JSON text forwarding. native/agent/json_values.py retains unchanged strict OwnedJson class/functions and durable identity; no second wire codec or result store.",
+  "retained_parent_boundaries": "No retained gate/progress/no-throw bridge/unsafe continuation/failed-child/current ceilings/recovery/scheduler/auth policy. Parent PLAN R3 ISSUES1W; all43wholeP OPEN."
+}

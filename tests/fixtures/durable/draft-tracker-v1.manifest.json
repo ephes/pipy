@@ -15,17 +15,18 @@
   },
   "closure": {
     "docs/durable-draft-tracker.md": "5906cc3937e308405202a681d0bd167c6ed3d15d8ab1d7c4bc18aab761f997d4",
-    "scripts/durable_draft_tracker_comparison.py": "1a2d0ebba4454501d6400088eaed23b0cd383867f86e81a86eb4ea3a4323e4bc",
+    "scripts/durable_draft_tracker_comparison.py": "eaa23ef87b442714c031018a3b36ff89ebcc769fda9f53f9c67b346d60d9df44",
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
     "scripts/durable_reference/cases/draft-tracker.mts": "7da47ef95cf5fd143a512f6ca1c0042a1cdee79978b2b15fb9f1195feff618bc",
-    "scripts/durable_reference_acceptance.py": "2d53e2caf7031949ba55034ed4c60414ee72864616f3c9bbae83c3ce3aed1592",
+    "scripts/durable_reference_acceptance.py": "891695eaab900dcfa1fb8e7e823d9fbc938f6902e25298d502b77279416939d9",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
+    "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
-    "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
+    "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
     "src/pipy_harness/native/durable/draft_tracker.py": "8b19f015b6e01b7942ad699a3d64d69c897c623671eec491e5c296fcc3799288",
     "tests/durable/test_draft_tracker.py": "1105e5fd1e87d7d04389308936423c0cfa73334d8ba3942e210c1c4276753abd",
-    "tests/durable/test_draft_tracker_comparison.py": "2ab1f70d954e00ca36ce66d1d8efd83ef69793ff2f7ebcc46c12de458e993cae",
+    "tests/durable/test_draft_tracker_comparison.py": "5f43a3febcd3740aab48df6a62dbef854faf5f6de24f42754c15c7933f698171",
     "tests/fixtures/durable/draft-tracker-v1.input.json": "307a7a63401b5c46b0a381e2c0a4e94e5932ec7ab4415b35e36ee17bafc543a2"
   }
 }

@@ -19,6 +19,7 @@ from test_native_session_history_render import _Terminal
 import pipy_harness.cli as cli
 from pipy_harness.adapters.native import CodingSessionAdapter
 from pipy_harness.native.agent import AgentToolResultMessage, ToolCallCompleted
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.codemode import host, selftest
 from pipy_harness.native.codemode.runtime import RUNTIME_PIN, CodemodePaths
 from pipy_harness.native.coding import codemode_runner
@@ -447,7 +448,7 @@ text(tools.read(path='alpha.txt'))
         ]
     else:
         assert parents[0].is_error
-        assert parents[-1].details is None
+        assert parents[-1].details is NO_TOOL_DETAILS
 
 
 def test_public_malformed_errors_are_catchable_and_calls_take_no_budget(

@@ -38,6 +38,7 @@ from pipy_harness.native.agent.nested_calls import (
     PendingNestedCall,
 )
 from pipy_harness.native.agent.nested_status import NestedCallStatus
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -310,7 +311,7 @@ def test_a_result_without_nested_calls_has_no_record(tmp_path, monkeypatch) -> N
     assert result.status is HarnessStatus.SUCCEEDED
     completed = next(e.result for e in sink.events if isinstance(e, ToolCallCompleted))
     assert completed.content.value == "echo: x"
-    assert completed.details is None
+    assert completed.details is NO_TOOL_DETAILS
     assert "run_tools" in _tool_names(provider.requests[0])
 
 

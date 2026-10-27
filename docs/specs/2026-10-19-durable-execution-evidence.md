@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite implemented, DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -186,7 +186,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
 | DE12 | Opt-in headless CLI recovery | LANDED | [Native CLI/real cuts, wire/live and declared reference boundary](#de12-opt-in-headless-cli-acceptance); full parity OPEN |
-| DE13 | Unsafe top-level interrupted-error continuation | OPEN | None; all gates OPEN |
+| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a normal ABI prerequisite only; unsafe continuation remains OPEN |
+| DE13a | Normal generic details ABI prerequisite | LANDED | [Normal details acceptance](#de13a-normal-details-abi-acceptance); external final gates required |
 | DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
@@ -288,10 +289,10 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance is next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a is the bounded normal-details prerequisite; DE13 unsafe interrupted-error continuation remains next. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
-`gpt-6.1-sol` HIGH implements DE10; Claude Code `claude-opus-5-5` (Opus5.5)
+`gpt-6.1-sol` HIGH implements DE13a; Claude Code `claude-opus-5-5` (Opus5.5)
 HIGH reviews the whole slice first and accepted repairs against the actual prior
 baseline. Stop at valid CLEAN with no unresolved findings; no redundant whole-slice
 pass is required. No GitHub CI result is claimed. Historical roles stay unchanged.
@@ -8786,3 +8787,87 @@ interrupted-error/details continuation DE13, versions/graphs DE14–16, retries
 DE17, queues DE18/19, context/extension/nested/modes/control/stream DE20/24–26/30,
 full views/history DE27/28, publication budgets DE27/28/41 and broader product/
 default adoption DE41–44 retain their original owners.
+
+## DE13a normal details ABI acceptance
+
+[Normal final details](../tool-details.md) have separate absent, explicit-null,
+legacy-v1 unspecified and transform-unchanged semantics. Actual old DTO/executor/
+serializer APIs produce nine discriminating failures and one already-correct
+nondurable partial-to-absent-final control; the identical test bytes pass after
+repair. New-only APIs are additional controls, not the old failure witness.
+
+The normal-domain repair additionally uses identical existing-API witnesses:
+the delivered pre-ABI source accepts both tuple descendants under a mapping and
+a nonexact-binary64 integer, while the initial ABI copier rejects both. The
+repaired normal pipeline snapshots them with legacy JSON semantics, including
+actual ordinary SDK next-request history and detached values. Durable SDK and
+canonical ingress separately refuse the nonexact integer before result commit;
+the strict owned JSON implementation and old canonical identity stay unchanged.
+Actual old Python 3.11 direct-message/partial construction and canonical v1
+roundtrip accept 1500 nested mappings; the formerly stricter execution-result
+constructor is a separate domain observation. Captured old deep and six
+lone-surrogate/pair/astral value/key arenas pin that compatibility. Iterative
+normal materialization preserves them without whole-tree JSON text conversion;
+actual normal JSONL retains its existing UTF-16 text semantics separately.
+
+Producer admission remains separate from that owned-value domain. New
+ToolExecutionResult values check detached snapshots against the running stdlib
+JSON encoder without using a text roundtrip as the value. Extension final/partial
+forwarding and explicit replacement hooks retain their separate stdlib JSON
+text-copy policy, requiring both encoding and decoding support. Actual old/new
+Python 3.11 extension and replacement-hook witnesses show that replacing this
+roundtrip with a value-only copy breaks UTF-8 output for explicit surrogate
+pairs in keys and values. Restoring that boundary preserves the old normalized
+astral bytes; lone-surrogate refusal remains an existing writer limitation.
+Unchanged hook details and historical copies retain raw codepoints.
+Actual Python 3.11 SDK evidence shows that
+accepting deep1500 or a 5001-digit integer until the session write leaves a
+successful result in memory but not on disk; refusal at construction prevents
+that divergence. Old SDK calls also raised, but earlier; this is not a claim
+that old failures were controlled tool-error messages. Invalid extension
+details become absent and invalid replacement transforms are ignored atomically.
+The added unrestricted deep ToolPort success promise is superseded explicitly;
+the unchanged old deep-v1 fixture still survives actual SQLite message storage,
+close/reopen and the durable CLI JSON writer. That historical control does not
+claim a full product CLI invocation or invent completed tool ownership.
+Deep direct carriers' existing normal JSONL/RPC limitations remain unchanged.
+
+Real Memory generation/tool settlement and public SQLite product execution,
+actual terminal CLI serialization and SDK reopen preserve all seven final value
+classes and the canonical saved next ProviderRequest. Normal provider transport
+omits local details. Exact old-v1 fixture bytes were captured with the delivered
+old encoder; new canonical v2 is selected only when v1 would lose information.
+Known v1 declaration/header/request/receipt facts retain their recorded identity;
+outer receipt v1 and rich inner arena compose independently. Actual deep finite
+JSON has no new global cap. Hooks, normal nested/codemode execution, JSONL/import,
+SDK/automation, tool rows/renderers and exported HTML preserve generic values.
+Finite typed nested evidence uses only the nonmapping branch and never duplicates
+an authoritative legacy nestedCalls record.
+
+The twenty-second normal-details-v1 manifest extends all prior closed inventories.
+A genuine exported pinned Harness with actual SQLite, submission, tool settlement,
+next model history, watch/reopen and terminal reuse compares only completed normal
+result presence/value and counted prepare/tool/provider calls against actual
+native CLI/SQLite records. The first streamSimple response and fixture tools are scripted. The next real
+exported OpenAI adapter/client builds its actual body and parses synthetic SSE
+through an explicit fake-fetch boundary; raw native/Pi transport IDs remain
+distinct and only field presence/content/within-body correlation is paired,
+without whole-P15 transport parity. Local details remain in next model
+history and stay off the actual tool wire message. Canonical/native nested policy
+and CLI format are not Pi API parity.
+Both raw records and source/module/process/artifact joins remain retained. Twelve
+schema-valid semantic CLI0/1 controls and a distinct malformed CLI2 control reject
+lost null/absence/false/scalar/array, next-history loss, reopen loss, duplicate
+execution/reprepare, leaked wire details, broken within-request correlation and false completion. Raw faulted-record controls test the
+actual completed predicate. Attesters run in fresh own processes without effects.
+
+DE13 remains IN_PROGRESS and its original unsafe interruption acceptance stays
+intact. This child does not implement retained progress/no-throw streaming,
+failed-result continuation, unsafe recovery/upgrade, missing/current callability,
+new ceilings or scheduler/auth policy. Parent PLAN R3 is ISSUES, not CLEAN; its
+remaining infrastructure void-path warning must be closed with physical-child
+regressions and independent CODE CLEAN before that implementation lands.
+DE26/33 progress-domain/capacity/timing and DE27/28 DB amplification obligations
+remain mandatory before default/full-feature acceptance. All43 whole P rows stay
+OPEN. External source-bound CODE/full/platform/docs/two fresh22phase receipts gate
+this bounded child's delivery; a preliminary diagnostic is not a final gate.

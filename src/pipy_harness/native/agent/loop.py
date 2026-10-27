@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -87,6 +87,10 @@ from pipy_harness.native.agent.nested_calls import (
     NestedToolEligibility,
     PendingNestedCall,
 )
+from pipy_harness.native.agent.nested_record import (
+    attach_nested_record,
+    retarget_nested_evidence,
+)
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.provider_result_validation import (
     validate_provider_result,
@@ -118,6 +122,10 @@ from pipy_harness.native.agent.system_messages import (
     current_tools,
     declare_tool_changes,
     tool_declaration,
+)
+from pipy_harness.native.agent.tool_details import (
+    UNCHANGED_TOOL_DETAILS,
+    copy_tool_details,
 )
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
@@ -1461,10 +1469,10 @@ class AgentLoop:
     def _with_nested_record(
         result: AgentToolResultMessage, service: NestedToolCallService
     ) -> AgentToolResultMessage:
-        return replace(
-            result,
-            details={**(result.details or {}), "nestedCalls": service.durable_record()},
+        details, evidence = attach_nested_record(
+            result.details, service.durable_record()
         )
+        return replace(result, details=details, nested_call_evidence=evidence)
 
     def _record_tool_call(
         self,
@@ -1800,7 +1808,7 @@ def _transform_tool_result(
     transformed = policy.transform_result(call, result, arguments, parent_call_id)
     blocks: tuple[ToolResultBlock, ...] | None = None
     is_error: bool | None = None
-    details: Mapping[str, Any] | None = None
+    details: Any = UNCHANGED_TOOL_DETAILS
     if isinstance(transformed, AgentToolResultTransform):
         content = transformed.content
         validate_product_content(content, "AgentToolPolicy.transform_result result")
@@ -1825,7 +1833,11 @@ def _transform_tool_result(
         # included; a policy that leaves the text as it is keeps them.
         blocks = result.blocks if content == result.content else ()
     new_is_error = result.is_error if is_error is None else is_error
-    new_details = result.details if details is None else dict(details)
+    new_details = (
+        result.details
+        if details is UNCHANGED_TOOL_DETAILS
+        else copy_tool_details(details)
+    )
     if (
         content == result.content
         and structured_content is result.structured_content
@@ -1834,6 +1846,9 @@ def _transform_tool_result(
         and new_details is result.details
     ):
         return result
+    new_details, evidence = retarget_nested_evidence(
+        new_details, result.nested_call_evidence
+    )
     return replace(
         result,
         content=content,
@@ -1841,6 +1856,7 @@ def _transform_tool_result(
         blocks=blocks,
         is_error=new_is_error,
         details=new_details,
+        nested_call_evidence=evidence,
     )
 
 

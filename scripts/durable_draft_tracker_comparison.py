@@ -44,6 +44,7 @@ SOURCES = MODULES | {
     "packages/chord/test/delta-apply-immutable.test.ts",
 }
 CLOSURE = {
+    "src/pipy_harness/native/agent/json_values.py",
     "docs/durable-draft-tracker.md",
     "src/pipy_harness/native/durable/__init__.py",
     "src/pipy_harness/native/durable/codec.py",

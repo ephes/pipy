@@ -29,6 +29,12 @@ from pipy_harness.native.agent.content import (
     ImageContent,
     TextContent,
 )
+from pipy_harness.native.agent.nested_record import NestedCallEvidence, NestedCallRecord
+from pipy_harness.native.agent.tool_details import (
+    LEGACY_TOOL_DETAILS_NONE,
+    NO_TOOL_DETAILS,
+    UNCHANGED_TOOL_DETAILS,
+)
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
@@ -170,6 +176,11 @@ from pipy_harness.native.tools.base import (
 from pipy_harness.native.tools.loadout import ToolLoadout, ToolLoadoutChanges
 
 __all__ = [
+    "NO_TOOL_DETAILS",
+    "LEGACY_TOOL_DETAILS_NONE",
+    "UNCHANGED_TOOL_DETAILS",
+    "NestedCallEvidence",
+    "NestedCallRecord",
     "PipyExtensionAPI",
     "CommandContext",
     "ExtensionToolContext",

@@ -35,6 +35,13 @@ from pipy_harness.native.agent import (
     NestedToolCallCompleted,
     NestedToolCallStarted,
 )
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+)
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    copy_tool_details,
+)
 from pipy_harness.native.coding.summary_retry import (
     SummaryRetryAttemptStarted,
     SummaryRetryFinished,
@@ -473,8 +480,9 @@ class TuiToolLoopRenderer:
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
-        details: Mapping[str, Any] | None = None,
+        details: Any = NO_TOOL_DETAILS,
         images: ResultImages | None = None,
+        nested_call_evidence: NestedCallEvidence | None = None,
     ) -> None:
         # Give a running edit preview a short, bounded moment to land first:
         # the preview normally resolves before the edit finishes (in Pi too),
@@ -483,7 +491,13 @@ class TuiToolLoopRenderer:
         if thread is not None:
             thread.join(timeout=_PREVIEW_JOIN_SECONDS)
         self._transcript.finish_tool(
-            ToolRowResult(output_text, details, is_error, images),
+            ToolRowResult(
+                output_text,
+                copy_tool_details(details),
+                is_error,
+                images,
+                nested_call_evidence,
+            ),
             duration_seconds=duration_seconds,
         )
 

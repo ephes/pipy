@@ -19,6 +19,7 @@ from pipy_harness.native.agent import (
     AgentToolResultMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.tools import ToolContext, ToolRequest, make_tool_request_id
 from pipy_harness.native.tools.base import ToolExecutionResult, json_safe_details
@@ -59,7 +60,7 @@ def test_truncation_details_use_pis_field_names() -> None:
 
 def test_read_details_only_when_truncated(tmp_path: Path) -> None:
     (tmp_path / "small.txt").write_text("one\ntwo\n")
-    assert _run(ReadTool(), tmp_path, path="small.txt").details is None
+    assert _run(ReadTool(), tmp_path, path="small.txt").details is NO_TOOL_DETAILS
     (tmp_path / "big.txt").write_text("".join(f"{n}\n" for n in range(2500)))
     details = _run(ReadTool(), tmp_path, path="big.txt").details
     assert details is not None
@@ -67,7 +68,7 @@ def test_read_details_only_when_truncated(tmp_path: Path) -> None:
     assert details["truncation"]["outputLines"] == 2000
     # A user limit that stops early is not a truncation (Pi: no details).
     limited = _run(ReadTool(), tmp_path, path="big.txt", limit=3)
-    assert limited.details is None
+    assert limited.details is NO_TOOL_DETAILS
 
 
 def test_search_tools_report_their_limits(tmp_path: Path) -> None:
@@ -75,20 +76,20 @@ def test_search_tools_report_their_limits(tmp_path: Path) -> None:
         (tmp_path / f"f{n}.py").write_text("def x(): pass\n")
     grep = _run(GrepTool(), tmp_path, pattern="def", limit=2)
     assert grep.details == {"matchLimitReached": 2}
-    assert _run(GrepTool(), tmp_path, pattern="nothing-here").details is None
+    assert _run(GrepTool(), tmp_path, pattern="nothing-here").details is NO_TOOL_DETAILS
     find = _run(FindTool(), tmp_path, pattern="*.py", limit=2)
     assert find.details == {"resultLimitReached": 2}
-    assert _run(FindTool(), tmp_path, pattern="*.md").details is None
+    assert _run(FindTool(), tmp_path, pattern="*.md").details is NO_TOOL_DETAILS
     ls = _run(LsTool(), tmp_path, limit=2)
     assert ls.details == {"entryLimitReached": 2}
-    assert _run(LsTool(), tmp_path).details is None
+    assert _run(LsTool(), tmp_path).details is NO_TOOL_DETAILS
 
 
 def test_bash_details_carry_the_truncation_and_full_output_path(tmp_path: Path) -> None:
     from pipy_harness.native.tools.bash import BashTool
 
     short = _run(BashTool(), tmp_path, command="echo hi")
-    assert short.details is None
+    assert short.details is NO_TOOL_DETAILS
     long = _run(BashTool(), tmp_path, command="seq 1 3000")
     assert long.details is not None
     assert long.details["truncation"]["truncated"] is True
@@ -103,7 +104,7 @@ def test_bash_details_carry_the_truncation_and_full_output_path(tmp_path: Path) 
         Path(result.details["fullOutputPath"]).unlink(missing_ok=True)
 
 
-def test_execution_results_only_take_json_objects() -> None:
+def test_execution_results_only_take_finite_json() -> None:
     with pytest.raises(ValueError, match="details"):
         ToolExecutionResult(
             tool_request_id=make_tool_request_id(),
@@ -117,8 +118,8 @@ def test_execution_results_only_take_json_objects() -> None:
             details=cast(Any, {1: "a"}),
         )
     assert json_safe_details({"a": (1, 2)}) == {"a": [1, 2]}
-    assert json_safe_details({"a": float("nan")}) is None
-    assert json_safe_details("text") is None
+    assert json_safe_details({"a": float("nan")}) is NO_TOOL_DETAILS
+    assert json_safe_details("text") == "text"
 
 
 def _path(tree: NativeSessionTree) -> Path:
@@ -168,18 +169,18 @@ def test_the_session_file_stores_and_restores_details(tmp_path: Path) -> None:
     ]
     assert [result.details for result in results] == [
         {"matchLimitReached": 5, "linesTruncated": True},
-        None,
+        NO_TOOL_DETAILS,
     ]
 
 
-def test_a_stored_non_object_details_is_rejected(tmp_path: Path) -> None:
+def test_a_stored_non_finite_details_is_rejected(tmp_path: Path) -> None:
     tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
     call = AgentToolCall("call-1", "grep", ProductContent("{}"))
     tree.append_message(AgentAssistantMessage(ProductContent(""), tool_calls=(call,)))
     tree.append_message(_result({"ok": True}))
     lines = _path(tree).read_text().splitlines()
     row = json.loads(lines[-1])
-    row["message"]["details"] = ["not", "an", "object"]
+    row["message"]["details"] = {"not_finite": float("nan")}
     lines[-1] = json.dumps(row)
     _path(tree).write_text("\n".join(lines) + "\n")
     with pytest.raises(ValueError):

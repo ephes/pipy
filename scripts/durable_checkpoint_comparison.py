@@ -154,6 +154,38 @@ MUTANTS = (
     "partial",
 )
 NUMBER_PROFILE = "finite-binary64-live-v1/persisted-json-zero-v1"
+DTO_PROFILE = "legacy-v1-dto/absent-native-nesting-v1"
+
+
+def _legacy_dto_fields(observed):
+    """Select only the finite DTO positions in the original paired recipe."""
+    for frame in [*observed["phases"], observed["result"], observed["reopened"]]:
+        payload = frame.get("payload")
+        if type(payload) is not dict:
+            continue
+        if payload.get("$type") == "AgentProviderRequestSnapshot":
+            messages = payload["fields"]["request"]["fields"]["messages"]["$tuple"]
+            results = [
+                message["fields"]
+                for message in messages
+                if message["$type"] == "AgentToolResultMessage"
+            ]
+        elif payload.get("$type") == "ToolExecutionOutcome":
+            result = payload["fields"]["result"]
+            d.require(
+                result["$type"] == "AgentToolResultMessage",
+                "Legacy canonical tool outcome result type drift",
+            )
+            results = [result["fields"]]
+        else:
+            continue
+        for fields in results:
+            if "nested_call_evidence" in fields:
+                d.require(
+                    fields["nested_call_evidence"] is None,
+                    "Native nesting is outside the legacy canonical common profile",
+                )
+                del fields["nested_call_evidence"]
 
 
 def _persisted_numbers(value):
@@ -167,10 +199,11 @@ def _persisted_numbers(value):
 
 
 def common_profile(value):
-    """Only persisted common result views use Pi's observed JSON zero rule."""
+    """Legacy DTO subset; only persisted views use Pi's JSON zero rule."""
     changed = copy.deepcopy(value)
     for row in changed["cases"]:
         observed = v.decode(row["observed"])
+        _legacy_dto_fields(observed)
         for key in ("result", "reopened"):
             observed[key] = _persisted_numbers(observed[key])
         row["observed"] = v.encode(observed)
@@ -612,6 +645,7 @@ def execute(acceptance, output):
             "fresh_reference_bootstrap": False,
             "scheduler": True,
             "number_profile": NUMBER_PROFILE,
+            "dto_profile": DTO_PROFILE,
         },
     )
     return status
@@ -711,6 +745,7 @@ def attest(folder, acceptance):
         "fresh_reference_bootstrap": False,
         "scheduler": True,
         "number_profile": NUMBER_PROFILE,
+        "dto_profile": DTO_PROFILE,
     }
     d.shape(
         value,

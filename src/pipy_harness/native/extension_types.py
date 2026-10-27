@@ -29,11 +29,18 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
     NoStructuredContent,
+)
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+)
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    UNCHANGED_TOOL_DETAILS,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
@@ -323,7 +330,7 @@ class ToolRenderContext:
 
     `state` is a single mutable mapping shared across render_call ->
     render_result for one tool execution. `details` is the extension's
-    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme.
+    ToolResult.details (NO_TOOL_DETAILS at call phase). `theme` is a ToolRenderTheme.
     `is_result` says that there is a result to draw, a partial one too;
     `is_partial` that the call has no final result yet.
 
@@ -342,7 +349,7 @@ class ToolRenderContext:
     is_result: bool
     is_error: bool
     content: str | None
-    details: Mapping[str, object] | None
+    details: Any
     expanded: bool
     width: int
     theme: object  # ToolRenderTheme | None (None only in unit tests)
@@ -354,6 +361,7 @@ class ToolRenderContext:
     is_partial: bool = field(default=False, kw_only=True)
     show_images: bool = field(default=False, kw_only=True)
     duration_ms: float | None = field(default=None, kw_only=True)
+    nested_call_evidence: NestedCallEvidence | None = field(default=None, kw_only=True)
     invalidate: Callable[[], None] = field(
         default=_no_invalidate, kw_only=True, repr=False, compare=False
     )
@@ -903,8 +911,9 @@ class ToolResultEvent:
     tool_call_id: str = ""
     parent_tool_call_id: str | None = None
     input: Mapping[str, object] = field(default_factory=dict)
-    details: Mapping[str, object] | None = None
+    details: Any = NO_TOOL_DETAILS
     blocks: tuple[ToolResultBlock, ...] = ()
+    nested_call_evidence: NestedCallEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -920,14 +929,15 @@ class ToolResultTransform:
     without one drops it. A hook that redacts `content` and wants codemode
     scripts to keep receiving a structured value returns the redacted value
     here (`None` is the JSON value null); a value that is not JSON is
-    dropped. `is_error` and `details` (a JSON object) replace the result's.
+    dropped. `is_error` replaces the flag; `details` replaces with any finite JSON value.
+    UNCHANGED_TOOL_DETAILS keeps it; NO_TOOL_DETAILS clears it; None sets null.
     """
 
     content: str | None = None
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
     blocks: tuple[ToolResultBlock, ...] | None = None
     is_error: bool | None = None
-    details: Mapping[str, object] | None = None
+    details: Any = UNCHANGED_TOOL_DETAILS
 
 
 @dataclass(frozen=True, slots=True)
@@ -937,8 +947,8 @@ class ToolResult:
     `content` is the provider-visible result text (bounded before it
     reaches the model). `details` is structured local state/metadata for
     rendering or later hooks; it is not sent to the provider. Like Pi, the
-    session file stores it (a JSON object; a value that does not survive a
-    JSON round trip is dropped). (Pi-shaped `content`/`details`.)
+    session file stores finite JSON with explicit absence/null presence.
+    NO_TOOL_DETAILS means absent; None is a present null. (Pi-shaped `content`/`details`.)
 
     `blocks` is Pi's ordered `content` array for a result with images: a
     tuple of `TextContent` and `ImageContent` values. A result whose blocks
@@ -963,11 +973,12 @@ class ToolResult:
     """
 
     content: str
-    details: Mapping[str, object] | None = None
+    details: Any = NO_TOOL_DETAILS
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
     is_error: bool = False
     blocks: "tuple[ToolResultBlock, ...]" = ()
     terminate: bool = False
+    nested_call_evidence: NestedCallEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)

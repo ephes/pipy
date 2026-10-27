@@ -60,13 +60,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
     NoStructuredContent,
     ToolPartialResult,
 )
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
@@ -230,7 +231,7 @@ class BashTool:
         text = output or "(no output)"
         # Pi `formatOutput` details: set only when the output was truncated.
         # (Pi's aborted/timed-out paths throw and so carry none.)
-        details: dict[str, object] | None = None
+        details: Any = NO_TOOL_DETAILS
         if snapshot.truncation.truncated:
             details = {"truncation": snapshot.truncation.to_details()}
             if snapshot.full_output_path is not None:
@@ -278,7 +279,7 @@ class BashTool:
         output_text: str,
         *,
         is_error: bool,
-        details: dict[str, object] | None = None,
+        details: Any = NO_TOOL_DETAILS,
         structured_content: dict[str, object] | NoStructuredContent = (
             NO_STRUCTURED_CONTENT
         ),

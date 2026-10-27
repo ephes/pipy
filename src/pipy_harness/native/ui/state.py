@@ -10,7 +10,6 @@ canonical ``agent`` value types.  The outer rendering adapter holds a
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -32,7 +31,14 @@ from pipy_harness.native.agent.events import (
     ToolCallUpdated,
 )
 from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentToolCall
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+)
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    copy_tool_details,
+)
 from pipy_harness.native.tool_result_display import (
     ResultImages,
     result_images,
@@ -171,9 +177,10 @@ class RenderToolResult:
     is_error: bool
     duration_seconds: float | None
     # Pi ``ToolResultMessage.details`` for the tool's result renderer.
-    details: Mapping[str, Any] | None = field(default=None, compare=False)
+    details: Any = field(default=NO_TOOL_DETAILS, compare=False)
     # The result's images, for a terminal row that draws them inline.
     images: ResultImages | None = field(default=None, compare=False)
+    nested_call_evidence: NestedCallEvidence | None = field(default=None, compare=False)
 
 
 RenderDecision = (
@@ -364,7 +371,8 @@ def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
                     output_text=tool_result_display_text(event.result),
                     is_error=event.result.is_error,
                     duration_seconds=event.duration_seconds,
-                    details=event.result.details,
+                    details=copy_tool_details(event.result.details),
+                    nested_call_evidence=event.result.nested_call_evidence,
                     images=result_images(event.result),
                 ),
             ),

@@ -27,7 +27,9 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -282,7 +284,7 @@ def _result(
     text: str,
     *,
     is_error: bool,
-    details: dict[str, object] | None = None,
+    details: Any = NO_TOOL_DETAILS,
 ) -> ToolExecutionResult:
     return ToolExecutionResult(
         tool_request_id=request.tool_request_id,

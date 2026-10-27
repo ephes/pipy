@@ -55,10 +55,19 @@ from pipy_harness.native.agent.content import (
     normalized_tool_result_blocks,
 )
 from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+    validate_nested_evidence,
+)
 from pipy_harness.native.agent.system_messages import (
     current_system_message,
     system_message_from_json,
     system_message_to_json,
+)
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    copy_tool_details,
+    has_tool_details,
 )
 from pipy_harness.native.agent.usage_json import usage_from_json, usage_to_json
 from pipy_harness.native.assistant_blocks_json import (
@@ -180,8 +189,9 @@ class _UnresolvedToolResultMessage:
     content: str
     provider_correlation_id: str | None
     is_error: bool = False
-    details: dict[str, Any] | None = None
+    details: Any = NO_TOOL_DETAILS
     blocks: tuple[ToolResultBlock, ...] = ()
+    nested_call_evidence: NestedCallEvidence | None = None
 
 
 _StoredMessage = AgentTranscriptMessage | _UnresolvedToolResultMessage
@@ -351,8 +361,10 @@ def _tool_result_to_json(
         "provider_correlation_id": message.provider_correlation_id,
     }
     # Pi ``ToolResultMessage.details``; omitted when the tool gave none.
-    if message.details is not None:
-        body["details"] = dict(message.details)
+    if has_tool_details(message.details):
+        body["details"] = copy_tool_details(message.details)
+    if message.nested_call_evidence is not None:
+        body["nestedCallEvidence"] = message.nested_call_evidence.to_json()
     # Pi ``ToolResultMessage.content`` of a result that has an image.
     if message.blocks:
         body["blocks"] = tool_result_blocks_to_json(message.blocks)
@@ -470,9 +482,13 @@ def _message_from_json(
             if provider_correlation_id
             else None
         )
-        raw_details = body.get("details")
-        if raw_details is not None and not isinstance(raw_details, dict):
-            raise ValueError("tool details must be an object")
+        raw_details = copy_tool_details(body.get("details", NO_TOOL_DETAILS))
+        evidence = (
+            NestedCallEvidence.from_json(body["nestedCallEvidence"])
+            if "nestedCallEvidence" in body
+            else None
+        )
+        validate_nested_evidence(raw_details, evidence)
         blocks = normalized_tool_result_blocks(
             tool_result_blocks_from_json(body.get("blocks")),
             output_text,
@@ -486,6 +502,7 @@ def _message_from_json(
                 is_error=is_error,
                 provider_correlation_id=provider_correlation_id,
                 details=raw_details,
+                nested_call_evidence=evidence,
                 blocks=blocks,
             )
         return _UnresolvedToolResultMessage(
@@ -494,6 +511,7 @@ def _message_from_json(
             provider_correlation_id=provider_correlation_id,
             is_error=is_error,
             details=raw_details,
+            nested_call_evidence=evidence,
             blocks=blocks,
         )
     raise ValueError(f"unsupported message role: {role!r}")
@@ -1245,9 +1263,13 @@ def _strict_tool_message_from_json(message: dict[str, Any]) -> None:
     correlation_id = message.get("provider_correlation_id")
     if correlation_id is not None and type(correlation_id) is not str:
         raise ValueError("native session tool result is invalid")
-    details = message.get("details")
-    if details is not None and not isinstance(details, dict):
-        raise ValueError("native session tool result is invalid")
+    details = copy_tool_details(message.get("details", NO_TOOL_DETAILS))
+    evidence = (
+        NestedCallEvidence.from_json(message["nestedCallEvidence"])
+        if "nestedCallEvidence" in message
+        else None
+    )
+    validate_nested_evidence(details, evidence)
 
 
 def _strict_system_message_from_json(message: dict[str, Any]) -> None:

@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Any, TypeVar, cast
 
 from pipy_harness.native.agent import AgentAssistantMessage, AgentToolResultMessage
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+)
+from pipy_harness.native.agent.tool_details import copy_tool_details, has_tool_details
 from pipy_harness.native.chrome import ChromeStyle, chrome_style_for
 from pipy_harness.native.session_tree import MessageEntry, SessionEntry
 from pipy_harness.native.tool_renderer_lookup import (
@@ -126,8 +130,15 @@ def render_export_tools(
             details = message.details
             state.result = ToolRowResult(
                 redact(tool_result_display_text(message)),
-                None if details is None else redact(details),
+                copy_tool_details(details)
+                if not has_tool_details(details)
+                else redact(details),
                 message.is_error,
+                nested_call_evidence=None
+                if message.nested_call_evidence is None
+                else NestedCallEvidence.from_json(
+                    redact(message.nested_call_evidence.to_json())
+                ),
             )
             result_html = _drawn(_result_html, state, style)
             if result_html is None:

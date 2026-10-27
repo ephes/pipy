@@ -12,6 +12,9 @@ from pipy_harness.native.agent.content import (
     ToolResultBlock,
     tool_result_text,
 )
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+)
 from pipy_harness.native.extension_hooks import bounded_result_blocks
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_types import (
@@ -236,7 +239,7 @@ class _ExtensionToolPort:
         # Pi stores `details` on the tool result and hands it to the result
         # renderer; the JSON copy is what the session file keeps, so live and
         # restored rows render from the same value.
-        details = result.details if isinstance(result, ToolResult) else None
+        details = result.details if isinstance(result, ToolResult) else NO_TOOL_DETAILS
         # Pi `isError` and `structuredContent`: a handler reports a failure
         # that still carries data by returning it instead of raising.
         is_error = isinstance(result, ToolResult) and bool(result.is_error)
@@ -251,6 +254,9 @@ class _ExtensionToolPort:
             is_error=is_error,
             provider_correlation_id=request.provider_correlation_id,
             details=json_safe_details(details),
+            nested_call_evidence=result.nested_call_evidence
+            if isinstance(result, ToolResult)
+            else None,
             structured_content=json_safe_value(structured_content),
             blocks=blocks,
             # Pi ``terminate === true``: only an exact True asks.

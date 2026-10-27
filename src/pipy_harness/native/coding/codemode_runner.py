@@ -11,6 +11,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
+from typing import Any
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
@@ -26,7 +27,9 @@ from pipy_harness.native.agent.nested_calls import (
     NestedToolCallService,
     tool_error_text,
 )
+from pipy_harness.native.agent.nested_record import attach_nested_record
 from pipy_harness.native.agent.nested_status import NestedCallStatus
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -350,13 +353,16 @@ class CodemodeCompositeRunner:
             *,
             error: bool,
             malformed: bool = False,
-            details: dict[str, object] | None = None,
+            details: Any = NO_TOOL_DETAILS,
             interruption: ToolExecutionInterruption = ToolExecutionInterruption.SETTLED,
             blocks: tuple[ToolResultBlock, ...] = (),
         ) -> ToolExecutionOutcome:
             # The rows of calls whose arguments the record leaves out show
             # the start of them, as Pi's rows show ``details.calls[].args``.
             previews = service.argument_previews()
+            owned_details, evidence = attach_nested_record(
+                details, service.durable_record(), previews
+            )
             return ToolExecutionOutcome(
                 AgentToolResultMessage(
                     tool_request_id=make_tool_request_id(),
@@ -364,11 +370,8 @@ class CodemodeCompositeRunner:
                     content=ProductContent(text),
                     is_error=error,
                     provider_correlation_id=call.provider_correlation_id,
-                    details={
-                        **(details or {}),
-                        **({"argumentPreviews": previews} if previews else {}),
-                        "nestedCalls": service.durable_record(),
-                    },
+                    details=owned_details,
+                    nested_call_evidence=evidence,
                     blocks=blocks,
                 ),
                 malformed_arguments=malformed,

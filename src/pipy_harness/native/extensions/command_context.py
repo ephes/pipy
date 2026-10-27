@@ -22,6 +22,9 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ToolPartialResult
+from pipy_harness.native.agent.tool_details import (
+    copy_tool_details,
+)
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
@@ -227,7 +230,7 @@ def _partial_results(
     """Hand each partial result to an extension as Pi's result object."""
 
     def update(partial: ToolPartialResult) -> None:
-        details = None if partial.details is None else dict(partial.details)
+        details = copy_tool_details(partial.details)
         on_update(ToolResult(content=partial.content, details=details))
 
     return update
@@ -334,6 +337,7 @@ class _CommandContext:
             result=ToolResult(
                 content=result.content,
                 details=result.details,
+                nested_call_evidence=result.nested_call_evidence,
                 structured_content=result.structured_content,
                 is_error=result.is_error,
                 blocks=result.blocks,

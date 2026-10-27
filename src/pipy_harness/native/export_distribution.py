@@ -976,8 +976,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
   // The calls a tool made to other tools (a codemode script's), from the
   // nestedCalls record of its result, without their results (Pi
   // renderNestedCalls): the count, and one line per call on a click.
-  function nestedCallsText(details) {
-    const record = details && typeof details === "object" ? details.nestedCalls : null;
+  function nestedCallsText(details, evidence) {
+    const source = evidence && typeof evidence === "object" ? evidence : details;
+    const record = evidence && typeof evidence === "object" ? evidence : details && typeof details === "object" ? details.nestedCalls : null;
     // An imported file may hold anything: a call without a string name and
     // status is left out, and only plain values are shown.
     const calls = record && Array.isArray(record.calls)
@@ -987,8 +988,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     const icons = new Map([["ok", "\u2713"], ["error", "\u2717"], ["unfinished", "\u2026"], ["cancelled", "\u2298"]]);
     // The start of the arguments the record left out, by call id (Pi's
     // codemode row shows them from details.calls).
-    const previews = details.argumentPreviews && typeof details.argumentPreviews === "object"
-      ? details.argumentPreviews : {};
+    const previews = source.argumentPreviews && typeof source.argumentPreviews === "object"
+      ? source.argumentPreviews : {};
     const lines = calls.map(call => {
       const bytes = typeof call.argumentsBytes === "number" ? call.argumentsBytes : "?";
       const preview = typeof call.id === "string" &&
@@ -1005,8 +1006,8 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
     const title = `Nested calls: ${calls.length}${record.complete ? "" : " (incomplete record)"}`;
     return [title, ...lines].join("\\n");
   }
-  function appendNestedCalls(target, details) {
-    const text = nestedCallsText(details);
+  function appendNestedCalls(target, details, evidence) {
+    const text = nestedCallsText(details, evidence);
     if (!text) return;
     const lines = text.split("\\n");
     const output = document.createElement("div");
@@ -1065,7 +1066,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 13px/1.45
         const rows = rendered(id);
         const box = rows && "resultHtmlExpanded" in rows ? renderedBoxes.get(id) : undefined;
         const target = box || append("Tool result", msg.output_text || "", "tool");
-        appendNestedCalls(target, msg.details);
+        appendNestedCalls(target, msg.details, msg.nestedCallEvidence);
         appendImages(msg.blocks);
       }
       else append("Message", JSON.stringify(msg, null, 2));

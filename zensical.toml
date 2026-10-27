@@ -34,6 +34,7 @@ nav = [
     {"Python SDK" = "sdk.md"},
     {"Opt-in durable Python session" = "durable-product-session.md"},
     {"Opt-in durable headless CLI" = "durable-headless.md"},
+    {"Tool details and presence" = "tool-details.md"},
   ]},
   {"Reference and internals" = [
     {"Architecture" = "architecture.md"},

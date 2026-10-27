@@ -1155,3 +1155,15 @@ tools remain held in this milestone, and explicit retry is a new authorized
 attempt with the old uncertainty retained privately. No exactly-once external
 effect/callback or durable observer cursor is promised. Full data migration,
 export/import, retention and default adoption retain DE27/28/40–44 ownership.
+
+
+## Normal tool-details value ABI (DE13a)
+
+[Tool details](tool-details.md) carry finite local JSON with explicit absence and
+null. Normal JSONL key presence and new rich canonical v2 arenas retain those
+facts; known old canonical v1 None remains unspecified and its bytes stay exact.
+Finite typed nested evidence uses its own field only for nonmapping composite
+details; legacy mapping/absent bytes keep the existing representation. These are
+full-content product records, not permission for workflow capture or automatic
+archive. Unsafe uncertainty/progress/recovery and default adoption remain with
+their original owners; inspection/auth/lifetime policies do not change.

@@ -23,6 +23,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
@@ -437,7 +438,7 @@ class ToolSearchTool:
         text: str,
         *,
         is_error: bool = False,
-        details: Mapping[str, Any] | None = None,
+        details: Any = NO_TOOL_DETAILS,
     ) -> ToolExecutionResult:
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,

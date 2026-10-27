@@ -38,7 +38,9 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -240,13 +242,11 @@ def _matcher(pattern: str) -> _Matcher:
     )
 
 
-def _format_output(
-    results: list[str], *, limit: int
-) -> tuple[str, dict[str, object] | None]:
+def _format_output(results: list[str], *, limit: int) -> tuple[str, Any]:
     """The output and Pi's ``details`` (omitted when no limit was hit)."""
 
     if not results:
-        return "No files found matching pattern", None
+        return "No files found matching pattern", NO_TOOL_DETAILS
     truncation = truncate_head("\n".join(results), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
@@ -263,7 +263,7 @@ def _format_output(
         details["truncation"] = truncation.to_details()
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output, details or None
+    return output, details or NO_TOOL_DETAILS
 
 
 __all__ = ["DEFAULT_LIMIT", "FIND_TOOL_DESCRIPTION", "FindTool"]

@@ -52,6 +52,7 @@ from pipy_harness.native.agent.content import (
 )
 from pipy_harness.native.agent.messages import AgentMessageUsage
 from pipy_harness.native.agent.nested_status import NestedCallStatus
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.agent_adapters import (
     AppendProductMessage,
@@ -124,6 +125,7 @@ class _RecordingRenderer:
         duration_seconds: float | None = None,
         details: Mapping[str, object] | None = None,
         images: object = None,
+        nested_call_evidence: object = None,
     ) -> None:
         self.actions.append(
             ("tool-complete", output_text, is_error, duration_seconds, details)
@@ -478,7 +480,9 @@ def test_automation_projection_emits_pi_tool_result_objects() -> None:
     # A call whose tool never ran has a lifecycle duration but no
     # execution time.
     adapter.emit(
-        ToolCallCompleted(0, replace(parent_result, details=None), duration_seconds=0.2)
+        ToolCallCompleted(
+            0, replace(parent_result, details=NO_TOOL_DETAILS), duration_seconds=0.2
+        )
     )
 
     chunk, nested_update, nested_end, end, unrun = sink.events

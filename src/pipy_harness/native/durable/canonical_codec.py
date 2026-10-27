@@ -28,6 +28,7 @@ from pipy_harness.native.agent.messages import (
     AgentUsageCost,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.nested_record import NestedCallEvidence, NestedCallRecord
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.request import (
     AgentProviderRequestSnapshot,
@@ -35,6 +36,12 @@ from pipy_harness.native.agent.request import (
     freeze_provider_request,
 )
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.tool_details import (
+    LEGACY_TOOL_DETAILS_NONE,
+    NO_TOOL_DETAILS,
+    UNCHANGED_TOOL_DETAILS,
+    ToolDetailsState,
+)
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -191,19 +198,52 @@ SCHEMAS: dict[type[Any], dict[str, Any]] = {
         "advertised_tool_names": [S],
     },
 }
+SCHEMAS_V2 = {
+    **SCHEMAS,
+    AgentToolResultMessage: {
+        **SCHEMAS[AgentToolResultMessage],
+        "details": "tool_details",
+        "nested_call_evidence": (NestedCallEvidence, N),
+    },
+    NestedCallRecord: {
+        "id": S,
+        "name": S,
+        "status": S,
+        "duration_ms": (int, float),
+        "arguments_json": (S, N),
+        "arguments_bytes": (int, N),
+        "error": (S, N),
+    },
+    NestedCallEvidence: {
+        "calls": [NestedCallRecord],
+        "complete": bool,
+        "argument_previews": "pairs",
+    },
+}
+
+
+class _NeedsV2(Exception):
+    pass
+
+
+def _schemas(codec_version: int) -> dict[type[Any], dict[str, Any]]:
+    return SCHEMAS if codec_version == 1 else SCHEMAS_V2
+
+
 ENUMS: tuple[type[Any], ...] = (
     HarnessStatus,
     AgentStopReason,
     NoStructuredContent,
     ToolExecutionInterruption,
     AgentCancellationReason,
+    ToolDetailsState,
 )
-TAGS: dict[str, type[Any]] = {cls.__name__: cls for cls in (*SCHEMAS, *ENUMS)}
+TAGS: dict[str, type[Any]] = {cls.__name__: cls for cls in (*SCHEMAS_V2, *ENUMS)}
 
 
 def _class(value: object) -> type[Any] | None:
     # Identity checks avoid foreign metaclass __hash__/__eq__ on ingress.
-    return next((cls for cls in (*SCHEMAS, *ENUMS) if type(value) is cls), None)
+    return next((cls for cls in (*SCHEMAS_V2, *ENUMS) if type(value) is cls), None)
 
 
 def _fail() -> NoReturn:
@@ -217,14 +257,12 @@ def _matches(value: object, spec: Any) -> bool:
         return type(value) is tuple and all(_matches(child, spec[0]) for child in value)
     if type(spec) is not str:
         return type(value) is spec
-    if spec == "sections":
-        return type(value) is tuple and all(
-            type(pair) is tuple
-            and len(pair) == 2
-            and type(pair[0]) is str
-            and (type(pair[1]) is str or pair[1] is None)
-            for pair in value
-        )
+    if spec in ("sections", "pairs"):
+        return _matches_pairs(value, nullable=spec == "sections")
+    if spec == "tool_details" and (
+        value is NO_TOOL_DETAILS or value is LEGACY_TOOL_DETAILS_NONE
+    ):
+        return True
     if spec == "structured" and type(value) is NoStructuredContent:
         return True
     if spec == "optional_mapping" and value is None:
@@ -233,6 +271,10 @@ def _matches(value: object, spec: Any) -> bool:
         value = _schema_lists(value)
     if spec in ("optional_mapping", "schema") and type(value) is not dict:
         return False
+    return _matches_json(value)
+
+
+def _matches_json(value: object) -> bool:
     try:
         OwnedJson(value)
     except JsonValueError:
@@ -240,13 +282,44 @@ def _matches(value: object, spec: Any) -> bool:
     return True
 
 
-def _construct(cls: type[Any], values: dict[str, Any]) -> object:
-    schema = SCHEMAS[cls]
+def _matches_pairs(value: object, *, nullable: bool) -> bool:
+    return type(value) is tuple and all(
+        type(pair) is tuple
+        and len(pair) == 2
+        and type(pair[0]) is str
+        and (type(pair[1]) is str or (nullable and pair[1] is None))
+        for pair in value
+    )
+
+
+def _construct(cls: type[Any], values: dict[str, Any], codec_version: int) -> object:
+    schema = _schemas(codec_version)[cls]
+    if (
+        cls is AgentToolResultMessage
+        and codec_version == 2
+        and "nested_call_evidence" in values
+        and values["nested_call_evidence"] is None
+    ):
+        _fail()
+    if (
+        cls is AgentToolResultMessage
+        and codec_version == 2
+        and "nested_call_evidence" not in values
+    ):
+        schema = {
+            key: spec for key, spec in schema.items() if key != "nested_call_evidence"
+        }
     if set(values) != set(schema) or not all(
         _matches(value, schema[key]) for key, value in values.items()
     ):
         _fail()
     try:
+        if (
+            codec_version == 1
+            and cls is AgentToolResultMessage
+            and values["details"] is None
+        ):
+            values = dict(values, details=LEGACY_TOOL_DETAILS_NONE)
         if cls is ToolDefinition:
             values = dict(values, input_schema=_schema_lists(values["input_schema"]))
         result = cls(**values)
@@ -272,7 +345,7 @@ def _schema_lists(value: object) -> object:
     return value
 
 
-def _dto_values(value: object, cls: type[Any]) -> dict[str, object]:
+def _dto_values(value: object, cls: type[Any], codec_version: int) -> dict[str, object]:
     if cls is ProviderRequest and value.provider_header_callback is not None:  # type: ignore[attr-defined]
         raise CanonicalCodecError("Live provider header callbacks cannot be persisted")
     if cls is ToolDefinition:
@@ -304,7 +377,28 @@ def _dto_values(value: object, cls: type[Any]) -> dict[str, object]:
                 raise CanonicalCodecError(
                     "Only model-visible tool declarations are supported"
                 )
-    return {name: getattr(value, name) for name in SCHEMAS[cls]}
+    values = {name: getattr(value, name) for name in _schemas(codec_version)[cls]}
+    return _versioned_values(value, cls, values, codec_version)
+
+
+def _versioned_values(
+    value: Any, cls: type[Any], values: dict[str, object], codec_version: int
+) -> dict[str, object]:
+    if cls is AgentToolResultMessage and codec_version == 1:
+        if value.nested_call_evidence is not None:
+            raise _NeedsV2
+        details = values["details"]
+        if details is LEGACY_TOOL_DETAILS_NONE:
+            values["details"] = None
+        elif type(details) is not dict:
+            raise _NeedsV2
+    if (
+        cls is AgentToolResultMessage
+        and codec_version == 2
+        and values["nested_call_evidence"] is None
+    ):
+        values.pop("nested_call_evidence")
+    return values
 
 
 def _leaf(value: object) -> dict[str, object] | None:
@@ -340,7 +434,9 @@ def _leaf(value: object) -> dict[str, object] | None:
     return None
 
 
-def _children(value: object) -> tuple[str, list[object], list[str] | None]:
+def _children(
+    value: object, codec_version: int
+) -> tuple[str, list[object], list[str] | None]:
     if type(value) is list or type(value) is tuple:
         return ("list" if type(value) is list else "tuple", list(value), None)
     if type(value) is dict or type(value) is _ImmutableSchemaMapping:
@@ -363,15 +459,32 @@ def _children(value: object) -> tuple[str, list[object], list[str] | None]:
             [key.encode("utf-8", "surrogatepass").hex() for key in keys],
         )
     cls = _class(value)
-    if cls is None or cls not in SCHEMAS:
+    if cls is None:
         _fail()
+    if cls not in _schemas(codec_version):
+        raise _NeedsV2
     assert cls is not None
-    values = _dto_values(value, cls)
+    values = _dto_values(value, cls, codec_version)
     return cls.__name__, list(values.values()), list(values)
 
 
-def encode_canonical(value: object) -> dict[str, object]:
-    """Detach one canonical value into a version-1 finite JSON node arena."""
+def encode_canonical(
+    value: object, *, codec_version: int | None = None
+) -> dict[str, object]:
+    """Choose the oldest lossless arena; saved v1 values retain their bytes."""
+    if codec_version is not None and (
+        type(codec_version) is not int or codec_version not in (1, 2)
+    ):
+        _fail()
+    try:
+        return _encode_canonical(value, 1 if codec_version is None else codec_version)
+    except _NeedsV2:
+        if codec_version == 1:
+            raise CanonicalCodecError("Value requires canonical version 2") from None
+        return _encode_canonical(value, 2)
+
+
+def _encode_canonical(value: object, codec_version: int) -> dict[str, object]:
     nodes: list[dict[str, object]] = []
     active: set[int] = set()
     work: list[tuple[object, list[int], bool]] = [(value, [], False)]
@@ -382,6 +495,11 @@ def encode_canonical(value: object) -> dict[str, object]:
                 active.remove(id(item))
                 continue
             target.append(len(nodes))
+            if type(item) is ToolDetailsState:
+                if codec_version == 1:
+                    raise _NeedsV2
+                if item is UNCHANGED_TOOL_DETAILS:
+                    _fail()
             leaf = _leaf(item)
             if leaf is not None:
                 nodes.append(leaf)
@@ -389,7 +507,7 @@ def encode_canonical(value: object) -> dict[str, object]:
             if id(item) in active:
                 _fail()
             active.add(id(item))
-            tag, children, keys = _children(item)
+            tag, children, keys = _children(item, codec_version)
             refs: list[int] = []
             node: dict[str, object] = {"tag": tag, "children": refs}
             if keys is not None:
@@ -397,7 +515,7 @@ def encode_canonical(value: object) -> dict[str, object]:
             nodes.append(node)
             work.append((item, [], True))
             work.extend((child, refs, False) for child in reversed(children))
-        tree: dict[str, object] = {"codec_version": 1, "nodes": nodes}
+        tree: dict[str, object] = {"codec_version": codec_version, "nodes": nodes}
         decode_canonical(tree)  # Constructors enforce the normal DTO contracts.
         return tree
     except (JsonValueError, RecursionError):
@@ -455,7 +573,7 @@ def _canonical_path(text: str) -> Path:
     return path
 
 
-def _decode_leaf(node: dict[str, Any], tag: str) -> object:
+def _decode_leaf(node: dict[str, Any], tag: str, codec_version: int) -> object:
     if tag == "datetime":
         return _decode_datetime(node)
     _shape(node, {"tag", "value"})
@@ -475,10 +593,14 @@ def _decode_leaf(node: dict[str, Any], tag: str) -> object:
     if cls is None or not any(cls is enum for enum in ENUMS) or type(value) is not str:
         _fail()
     assert cls is not None
+    if cls is ToolDetailsState and (codec_version == 1 or value == "unchanged"):
+        _fail()
     return cls(value)
 
 
-def _decode_node(node: dict[str, Any], children: list[object], tag: str) -> object:
+def _decode_node(
+    node: dict[str, Any], children: list[object], tag: str, codec_version: int
+) -> object:
     if tag in ("list", "tuple"):
         _shape(node, {"tag", "children"})
         return children if tag == "list" else tuple(children)
@@ -504,10 +626,10 @@ def _decode_node(node: dict[str, Any], children: list[object], tag: str) -> obje
             _fail()
         return dict(zip(keys, children, strict=True))
     cls = TAGS.get(tag)
-    if cls is None or cls not in SCHEMAS:
+    if cls is None or cls not in _schemas(codec_version):
         _fail()
     assert cls is not None
-    return _construct(cls, values)
+    return _construct(cls, values, codec_version)
 
 
 def decode_canonical(tree: object) -> object:
@@ -516,8 +638,12 @@ def decode_canonical(tree: object) -> object:
         owned = OwnedJson(tree).thaw()
         if type(owned) is not dict or set(owned) != {"codec_version", "nodes"}:
             _fail()
-        if type(owned["codec_version"]) is not int or owned["codec_version"] != 1:
+        if type(owned["codec_version"]) is not int or owned["codec_version"] not in (
+            1,
+            2,
+        ):
             _fail()
+        codec_version = owned["codec_version"]
         nodes = owned["nodes"]
         if type(nodes) is not list or not nodes:
             _fail()
@@ -530,9 +656,11 @@ def decode_canonical(tree: object) -> object:
             tag = node["tag"]
             if "children" in node:
                 refs = _references(node, index, len(nodes), seen)
-                built[index] = _decode_node(node, [built[ref] for ref in refs], tag)
+                built[index] = _decode_node(
+                    node, [built[ref] for ref in refs], tag, codec_version
+                )
             else:
-                built[index] = _decode_leaf(node, tag)
+                built[index] = _decode_leaf(node, tag, codec_version)
         if seen != set(range(1, len(nodes))):
             _fail()
         return built[0]

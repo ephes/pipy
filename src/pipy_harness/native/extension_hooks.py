@@ -59,6 +59,14 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from pipy_harness.native.agent.nested_record import NestedCallEvidence
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    UNCHANGED_TOOL_DETAILS,
+    copy_forwarded_tool_details,
+    copy_tool_details,
+)
+
 if TYPE_CHECKING:
     from pipy_harness.native.session_generation import SessionGenerationSnapshot
 
@@ -171,7 +179,7 @@ from pipy_harness.native.session_generation import (
     OrderedDeliveryGate,
     OrderedDeliveryToken,
 )
-from pipy_harness.native.tools.base import json_safe_details, json_safe_value
+from pipy_harness.native.tools.base import json_safe_value
 
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.package_resources import PackageRoot
@@ -653,8 +661,9 @@ def dispatch_tool_result_hooks(
     tool_call_id: str = "",
     parent_tool_call_id: str | None = None,
     tool_input: Mapping[str, object] | None = None,
-    details: Mapping[str, object] | None = None,
+    details: Any = NO_TOOL_DETAILS,
     blocks: tuple[ToolResultBlock, ...] = (),
+    nested_call_evidence: NestedCallEvidence | None = None,
 ) -> ToolResultTransform | None:
     """Run `tool_result` hooks over a finalized tool result (Pi `emitToolResult`).
 
@@ -696,7 +705,8 @@ def dispatch_tool_result_hooks(
                     tool_call_id=tool_call_id,
                     parent_tool_call_id=parent_tool_call_id,
                     input=arguments,
-                    details=state.details,
+                    details=copy_tool_details(state.details),
+                    nested_call_evidence=nested_call_evidence,
                     blocks=state.blocks,
                 ),
                 ctx,
@@ -716,7 +726,9 @@ def dispatch_tool_result_hooks(
         structured_content=state.structured_content,
         blocks=state.blocks,
         is_error=state.is_error,
-        details=state.details,
+        details=copy_tool_details(state.details)
+        if state.details_modified
+        else UNCHANGED_TOOL_DETAILS,
     )
 
 
@@ -730,6 +742,7 @@ class _ToolResultState:
         "blocks",
         "content",
         "details",
+        "details_modified",
         "is_error",
         "modified",
         "structured_content",
@@ -741,13 +754,14 @@ class _ToolResultState:
         blocks: tuple[ToolResultBlock, ...],
         structured_content: object,
         is_error: bool,
-        details: Mapping[str, object] | None,
+        details: Any,
     ) -> None:
         self.content = content
         self.blocks = blocks
         self.structured_content = structured_content
         self.is_error = is_error
         self.details = details
+        self.details_modified = False
         self.modified = False
 
     def apply(self, transform: ToolResultTransform) -> None:
@@ -769,8 +783,9 @@ class _ToolResultState:
             self.structured_content = structured
         if transform.is_error is not None:
             self.is_error = transform.is_error
-        if details is not None:
+        if details is not UNCHANGED_TOOL_DETAILS:
             self.details = details
+            self.details_modified = True
         self.modified = True
 
     def _prepared(
@@ -778,7 +793,7 @@ class _ToolResultState:
     ) -> tuple[
         tuple[str, tuple[ToolResultBlock, ...]] | None,
         object,
-        dict[str, Any] | None,
+        Any,
     ]:
         """The checked replacement content, structured content and details.
         Raises ``TypeError`` for a field of the wrong kind."""
@@ -786,11 +801,9 @@ class _ToolResultState:
         replaced = _replaced_content(transform)
         if transform.is_error is not None and type(transform.is_error) is not bool:
             raise TypeError("is_error must be a bool")
-        details: dict[str, Any] | None = None
-        if transform.details is not None:
-            details = json_safe_details(transform.details)
-            if details is None:
-                raise TypeError("details must be a JSON object")
+        details: Any = UNCHANGED_TOOL_DETAILS
+        if transform.details is not UNCHANGED_TOOL_DETAILS:
+            details = copy_forwarded_tool_details(transform.details)
         given = transform.structured_content
         # The event's own value handed back is kept as it is; any other is a
         # detached JSON copy, and a value that is not JSON is dropped.

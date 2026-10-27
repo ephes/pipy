@@ -545,6 +545,7 @@ class ToolExecutor:
                     or call.provider_correlation_id
                 ),
                 details=execution_result.details,
+                nested_call_evidence=execution_result.nested_call_evidence,
                 structured_content=execution_result.structured_content,
                 blocks=execution_result.blocks,
                 terminate=execution_result.terminate,

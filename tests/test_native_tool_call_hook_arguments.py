@@ -19,6 +19,7 @@ from typing import Any
 
 from test_native_extension_tool_metadata import _result, _StubProvider, _tool_results
 
+from pipy_harness.extensions import NO_TOOL_DETAILS
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent.messages import AgentAssistantMessage
 from pipy_harness.native.coding.session import CodingSession
@@ -151,7 +152,7 @@ _RESULT_HOOKS = (
     """import json
 from pathlib import Path
 from pipy_harness.extensions import (
-    ExtensionTool, ImageContent, ToolResult, ToolResultTransform,
+    ExtensionTool, ImageContent, NO_TOOL_DETAILS, ToolResult, ToolResultTransform,
 )
 
 LOG = Path(__file__).with_name('log.jsonl')
@@ -178,10 +179,12 @@ def activate(api):
 
     @api.on('tool_result')
     def judge(event, ctx):
+        details = ({'details_state': 'absent'}
+                   if event.details is NO_TOOL_DETAILS else event.details)
         with LOG.open('a') as handle:
             handle.write(json.dumps([event.tool_name, event.tool_call_id,
                                      event.parent_tool_call_id, dict(event.input),
-                                     event.details, len(event.blocks)]) + '\\n')
+                                     details, len(event.blocks)]) + '\\n')
         if event.tool_name == 'echo' and event.input.get('text') == 'bad':
             return ToolResultTransform(is_error=True, details={'judged': True})
         if event.tool_name == 'shot':
@@ -236,4 +239,7 @@ def test_a_tool_result_hook_that_empties_the_content_drops_the_image(
 
     (result,) = _tool_results(provider.requests[1])
     assert result.content.value == "" and result.blocks == ()
-    assert _log(log) == [["shot", "p1", None, {"text": "x"}, None, 1]]
+    assert result.details is NO_TOOL_DETAILS
+    assert _log(log) == [
+        ["shot", "p1", None, {"text": "x"}, {"details_state": "absent"}, 1]
+    ]

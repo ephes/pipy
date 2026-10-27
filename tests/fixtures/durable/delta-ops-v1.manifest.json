@@ -13,16 +13,17 @@
     "packages/chord/test/delta.test.ts": "de120d2970e8ddf4628321917b48018d523963506bc31df6b06cc78a9fa343c1"
   },
   "closure": {
-    "scripts/durable_delta_ops_comparison.py": "0bf32213f69353530c4e11d2668e90e6fc715dc39fbffa08156f013f2e457d4f",
+    "scripts/durable_delta_ops_comparison.py": "fc6c3d0fe5b2204a6bd3a522424584d2528105e0e920aa6405459d3c84d226d1",
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
     "scripts/durable_reference/cases/delta-ops.mts": "38c6b490748adcc1621de0c5daeea2dbc256ebd68895be54fe414cf5887b8b1e",
-    "scripts/durable_reference_acceptance.py": "2d53e2caf7031949ba55034ed4c60414ee72864616f3c9bbae83c3ce3aed1592",
+    "scripts/durable_reference_acceptance.py": "891695eaab900dcfa1fb8e7e823d9fbc938f6902e25298d502b77279416939d9",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
+    "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
-    "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
+    "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
     "tests/durable/test_delta_ops.py": "810d00adc49d7b079f790e08567accfb0c10915b74ec85974d1fbb8cebce0923",
-    "tests/durable/test_delta_ops_comparison.py": "9b694dd697def4ab067f530dc52cd7219a97274140607cfdb41cc0e98c4e960d",
+    "tests/durable/test_delta_ops_comparison.py": "4cd7f036b9ebf1a5a3ac70c3a4e8dea543681656ab432edd0f7784e78066d908",
     "tests/fixtures/durable/delta-ops-v1.input.json": "84d503dda1b66584960b3f0821b41f274a09a02c83dbafbb80963d23aa2a8b8c"
   }
 }

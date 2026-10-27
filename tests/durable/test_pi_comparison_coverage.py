@@ -800,8 +800,7 @@ def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundarie
     assert "No claim of durable partials" in row["future"]
     assert "all real generation-owned tool admissions" in row["current"]["observables"]
     assert all(
-        rows[key]["status"] == "OPEN"
-        for key in ("DE13", "DE14", "DE15", "DE17", "DE26")
+        rows[key]["status"] == "OPEN" for key in ("DE14", "DE15", "DE17", "DE26")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
@@ -819,7 +818,7 @@ def test_tools_owns_actual_bounded_acceptance_without_closing_full_parity():
     assert "Pi successor task" in row["current"]["observables"]
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE13", "DE15", "DE24", "DE25", "DE28", "DE30")
+        for key in ("DE15", "DE24", "DE25", "DE28", "DE30")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
@@ -859,7 +858,7 @@ def test_inspection_owns_full_acceptance_and_retains_whole_parity():
     assert rows["DE12"]["status"] == "LANDED"
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE13", "DE14", "DE15", "DE20", "DE24", "DE28", "DE41")
+        for key in ("DE14", "DE15", "DE20", "DE24", "DE28", "DE41")
     )
     assert all(
         value["status"] == "OPEN" for key, value in rows.items() if key.startswith("P")
@@ -899,5 +898,21 @@ def test_headless_cli_preserves_whole_original_acceptance_and_later_owners():
     assert "fake SSE/transport wire" in row["future"]
     assert "read-only/missing path" in row["future"]
     assert "live credential blockers" in row["future"]
-    assert rows["DE13"]["status"] == "OPEN"
+    assert rows["DE13"]["status"] == "IN_PROGRESS"
     assert all(r["status"] == "OPEN" for k, r in rows.items() if k.startswith("P"))
+
+
+def test_normal_details_child_does_not_close_parent_unsafe_continuation():
+    rows = {row["id"]: row for row in o.load(o.FIXTURES / "coverage.json")["rows"]}
+    child, parent = rows["DE13a"], rows["DE13"]
+    assert child["status"] == "LANDED"
+    assert child["current"]["cases"] == ["normal-details-v1"]
+    assert child["current"]["kind"] == "bounded-native"
+    assert parent["status"] == "IN_PROGRESS"
+    assert parent["current"]["kind"] == "source-only"
+    assert parent["current"]["cases"] == []
+    assert "kill before invocation and after unsafe append" in parent["future"]
+    assert "Missing/unsafe-current implementation never reruns" in parent["future"]
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )

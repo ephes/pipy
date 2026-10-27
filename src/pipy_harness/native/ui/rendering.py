@@ -9,7 +9,6 @@ including the tool-call, tool-update, and tool-result renders.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, Protocol, assert_never, runtime_checkable
 
 from pipy_harness.native.agent import (
@@ -18,6 +17,12 @@ from pipy_harness.native.agent import (
     AgentToolCall,
     NestedToolCallCompleted,
     NestedToolCallStarted,
+)
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+)
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tool_result_display import ResultImages
@@ -81,8 +86,9 @@ class AgentEventRenderer(Protocol):
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
-        details: Mapping[str, Any] | None = None,
+        details: Any = NO_TOOL_DETAILS,
         images: ResultImages | None = None,
+        nested_call_evidence: NestedCallEvidence | None = None,
     ) -> None: ...
 
 
@@ -208,6 +214,11 @@ class RenderingAgentEventAdapter:
                 duration_seconds=decision.duration_seconds,
                 details=decision.details,
                 images=decision.images,
+                **(
+                    {"nested_call_evidence": decision.nested_call_evidence}
+                    if decision.nested_call_evidence is not None
+                    else {}
+                ),
             )
         else:
             assert_never(decision)

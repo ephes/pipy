@@ -270,6 +270,7 @@ def _render_assistant(
                 is_error=result.is_error,
                 details=result.details,
                 images=result_images(result),
+                nested_call_evidence=result.nested_call_evidence,
             )
         else:
             # No stored result: the row stays pending, at its own position.

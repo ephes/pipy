@@ -54,7 +54,7 @@ domains survive. Missing structured content is the canonical
 
 ## Format and validation
 
-The envelope has exactly `codec_version: 1` and a nonempty `nodes` array. Node
+The envelope has exactly `codec_version` (known versions 1 and 2) and a nonempty `nodes` array. Node
 zero is the root. Nodes carry closed tags and either scalar values or ordered
 child references. Each reference names a strictly later node and every nonroot
 node has exactly one incoming reference. Unknown versions, tags, fields,
@@ -89,6 +89,44 @@ Timestamps preserve microseconds, offset, fixed-offset timezone name and fold;
 paths retain their canonical platform spelling without resolving filesystem
 state. Decode refuses alternate datetime spellings and paths that the platform
 would normalize; encoder-produced values always use the accepted spelling.
+
+## Normal rich details (DE13a)
+
+[Tool details](tool-details.md) distinguish absent, explicit JSON null/value and
+historical v1 unspecified presence. `encode_canonical(..., codec_version=1|2)`
+can request a known version; by default it selects the oldest lossless version.
+A v1 message with raw None decodes to `LEGACY_TOOL_DETAILS_NONE` and re-encodes
+byte-for-byte, without inventing old key presence. V1's fieldsets and schemas
+stay exact. Explicit v1 refuses new absent/null/scalar/array details or typed
+nested evidence rather than collapsing them. Mapping-only old values still
+choose v1. Unchanged transform sentinels cannot enter stored results/history.
+
+Normal native details use an iterative value snapshot, including tuple-to-array
+normalization and arbitrary finite Python integers. Known deeply nested v1
+messages and raw string/key representations survive without a JSON text copy.
+New ToolPort results separately retain stdlib JSON encoding admission, including
+its interpreter-dependent depth and integer decimal limits. Canonical decoding
+reconstructs `AgentToolResultMessage`, not the producer `ToolExecutionResult`,
+so this admission does not restrict historical arena readability.
+Extension final/partial forwarding and replacement hooks separately retain
+their JSON text-copy semantics, including surrogate-pair normalization; that
+new-forwarding policy never runs over canonical history or unchanged details.
+Canonical ingress remains stricter: its plain JSON and exact finite binary64
+checks are unchanged. A normal result containing a nonexact integer cannot
+commit as a durable result; no encoder rounds it into the stored domain.
+
+V2 carries the new details state/value and finite `NestedCallEvidence` DTOs.
+The optional evidence field is present only when used; legacy mapping/absent
+nested data remains in its original channel. New ProviderRequest histories can
+mix rich v2 messages with legacy unknown presence. Saved requests/header/
+definition/receipt bytes are consumed in their recorded format, never migrated
+or re-prepared by encoding. Projection validation uses the recorded arena
+version, not DTO equality (which excludes local metadata) or a new writer default.
+
+Existing ordinary `nativeToolOutput`/receipt wrappers keep their version-1
+outer shape while embedding independently versioned canonical arenas. Failed
+result/diagnostic/recovery wrapper changes, progress and unsafe continuation
+remain parent DE13 work; no such runtime policy is enabled by this codec ABI.
 
 ## Request and credential boundary
 

@@ -454,7 +454,7 @@ class ExtensionTool:
 @dataclass(frozen=True)
 class ToolResult:
     content: ToolContent
-    details: Mapping[str, Any] | None = None
+    details: object = NO_TOOL_DETAILS
     structured_content: Any = NO_STRUCTURED_CONTENT
     is_error: bool = False
     # Pi's content array for a result with images: TextContent and
@@ -886,7 +886,9 @@ Rules:
   result (Pi `onUpdate`); see [partial results](#partial-results).
 - Tool results use Pi-shaped `content` plus `details`, where `content` is the
   provider-visible result and `details` is structured local state/metadata that
-  can support rendering, state reconstruction, or later hooks.
+  can support rendering, state reconstruction, or later hooks. Details accept
+  any finite JSON value; `NO_TOOL_DETAILS` is absent and `None` is explicit null.
+  See [presence and nested evidence](tool-details.md).
 - A tool result may also carry `structured_content` and `is_error`; see
   "Extension tool metadata" below.
 - A tool result may set `terminate=True` when it is final and no automatic
@@ -1192,8 +1194,9 @@ leaves at its default stays as it is:
   longer match. A handler that redacts `content` of a tool with an output
   schema therefore returns the redacted structured value as well, or scripts
   receive the redacted text.
-- `is_error` replaces the error flag and `details` (a JSON object) the
-  details. The result's `terminate` hint stays as the tool set it (see
+- `is_error` replaces the error flag. `details` left at
+  `UNCHANGED_TOOL_DETAILS` keeps the value; `NO_TOOL_DETAILS` clears it; any finite
+  JSON value, including `None` (null), replaces it. The result's `terminate` hint stays as the tool set it (see
   [ending the batch](#ending-the-batch)).
 
 Later handlers see what earlier ones left. A handler that returns nothing,

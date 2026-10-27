@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools import (
     ToolContext,
     ToolPort,
@@ -186,4 +187,4 @@ def test_a_write_has_no_details(tmp_path: Path) -> None:
     result = _invoke(tmp_path, {"path": "a.py", "content": "a\r\n\tb\n"})
 
     assert result.is_error is False
-    assert result.details is None
+    assert result.details is NO_TOOL_DETAILS

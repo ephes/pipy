@@ -186,3 +186,60 @@ def test_number_projection_retains_raw_live_sign_presence_and_substantive_number
     assert projected["result"]["null"] is None
     assert projected["result"]["sentinel"] == value["sentinel"]
     assert "absent" not in projected["result"]
+
+
+def _raw_native_projection(native_run):
+    _, root = native_run
+    return m.d.load(root.parent / "native-exact.json")
+
+
+def test_common_legacy_dto_profile_preserves_full_raw_native_fields(native_run):
+    raw = _raw_native_projection(native_run)
+    before = copy.deepcopy(raw)
+    projected = m.common_profile(raw)
+    evidence_fields = []
+    for row in raw["cases"]:
+        value = m.v.decode(row["observed"])
+        evidence_fields.extend(
+            (kind, key)
+            for kind, key, _path in fields(value)
+            if key == "nested_call_evidence"
+        )
+    assert len(evidence_fields) == 12
+    assert {kind for kind, _key in evidence_fields} == {"AgentToolResultMessage"}
+    assert raw == before
+    assert projected == native_run[0]
+
+
+def test_common_legacy_profile_refuses_populated_native_only_evidence(native_run):
+    raw = _raw_native_projection(native_run)
+    row = next(row for row in raw["cases"] if row["id"] == "tool-null")
+    value = m.v.decode(row["observed"])
+    value["result"]["payload"]["fields"]["result"]["fields"]["nested_call_evidence"] = {
+        "calls": []
+    }
+    row["observed"] = m.v.encode(value)
+    with pytest.raises(m.o.EvidenceError, match="outside the legacy"):
+        m.common_profile(raw)
+
+
+def test_common_profile_never_scans_generic_user_details_for_dto_lookalikes(
+    native_run,
+):
+    raw = _raw_native_projection(native_run)
+    row = next(row for row in raw["cases"] if row["id"] == "tool-null")
+    value = m.v.decode(row["observed"])
+    lookalike = {
+        "$type": "AgentToolResultMessage",
+        "fields": {"nested_call_evidence": None, "details": [None, False, 0]},
+    }
+    for frame in [*value["phases"], value["result"], value["reopened"]]:
+        frame["payload"]["fields"]["result"]["fields"]["details"] = lookalike
+    row["observed"] = m.v.encode(value)
+    projected = m.common_profile(raw)
+    changed = next(row for row in projected["cases"] if row["id"] == "tool-null")
+    actual = m.v.decode(changed["observed"])
+    assert all(
+        frame["payload"]["fields"]["result"]["fields"]["details"] == lookalike
+        for frame in [*actual["phases"], actual["result"], actual["reopened"]]
+    )

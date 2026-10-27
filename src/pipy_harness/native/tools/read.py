@@ -47,8 +47,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pipy_harness.native.agent.content import ImageContent, TextContent
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -273,7 +275,7 @@ def _not_text_message(mime_type: str) -> str:
 
 def _format_text(
     text: str, *, path: str, offset: int | None, limit: int | None
-) -> tuple[str, dict[str, object] | None] | _ReadFailure:
+) -> tuple[str, Any] | _ReadFailure:
     """Select and truncate lines exactly like Pi's `read` text branch.
 
     Returns the output and Pi's ``details`` (``{truncation}`` when the line
@@ -332,8 +334,8 @@ def _format_text(
         return (
             f"{truncation.content}\n\n[{remaining} more lines in file. "
             f"Use offset={next_offset} to continue.]"
-        ), None
-    return truncation.content, None
+        ), NO_TOOL_DETAILS
+    return truncation.content, NO_TOOL_DETAILS
 
 
 __all__ = ["READ_TOOL_DESCRIPTION", "ReadTool"]

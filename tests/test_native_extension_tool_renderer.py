@@ -10,6 +10,7 @@ from pipy_harness.extensions import (
     lines_component,
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.extensions.tool_port import _ExtensionToolPort
 from pipy_harness.native.frame_renderer import decode_tool_box_line
 from pipy_harness.native.tools.base import (
@@ -57,7 +58,7 @@ def test_port_result_has_no_details_when_absent(tmp_path: Path):
         _registered(lambda ctx, inp: ToolResult(content="c")),
         has_ui=False,
     )
-    assert _invoke(port, tmp_path).details is None
+    assert _invoke(port, tmp_path).details is NO_TOOL_DETAILS
 
 
 def test_port_drops_details_that_are_not_json(tmp_path: Path):
@@ -67,7 +68,7 @@ def test_port_drops_details_that_are_not_json(tmp_path: Path):
         _registered(lambda ctx, inp: ToolResult(content="c", details={"k": object()})),
         has_ui=False,
     )
-    assert _invoke(port, tmp_path).details is None
+    assert _invoke(port, tmp_path).details is NO_TOOL_DETAILS
 
 
 def test_port_details_are_a_detached_json_copy(tmp_path: Path):

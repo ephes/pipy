@@ -1301,6 +1301,12 @@ DE04b1a is LANDED at `6e3b838f`. Independent S (`DE04b1b2`) supplies [current de
 
 See [the pure decoded-operation contract](durable-delta-ops.md) for DE04b1a grammar, ownership and pinned comparison bounds.
 
+Delta/tracker private mutation fixtures copy the actual shared
+`agent/json_values.py` defining owner alongside the durable codec facade. Each
+isolated command first passes with unmutated source, then fails semantically
+with its single mutant; collection/import errors do not count as mutation kills.
+The delta, tracker and current-delta source inventories bind that defining leaf.
+
 
 ## Typed task creation (DE05a)
 
@@ -1339,8 +1345,12 @@ barrier tests are additional requirements, not replaced by this paired trace.
 `scripts/durable_checkpoint_comparison.py run --acceptance <fresh-parent>
 --output <new-output>` runs actual pinned Harness typed tasks and SQLite reopen,
 then native canonical phases on Memory/SQLite/reopen. It compares the declared
-common rich-value projection, including all registered DTO fields and
-compare=False metadata. The exact source input is
+common rich-value projection, including all original v1 registered DTO fields and
+compare=False metadata. The finite `legacy-v1-dto/absent-native-nesting-v1` profile
+omits only the new absent optional native nesting field at the actual typed
+request-message and tool-outcome positions. Populated native nesting refuses this
+legacy pair; generic user JSON is never scanned or filtered. Full new DTO fields
+remain in `native-exact.json`; DE13a nesting is separately native-only evidence. The exact source input is
 `tests/fixtures/durable/canonical-input-v1.json`; the closed15th manifest is
 `canonical-checkpoint-v1.manifest.json`. `attest(folder, acceptance)` separately
 rechecks actual source/module/input/argv/process/artifact receipts.
@@ -1524,3 +1534,40 @@ parity or paid exactly-once claim follows. All source, actual imported modules,
 child argv/inputs/streams/process lifecycles, immutable recipes and mutant bodies
 are bound by fresh pure API attesters; effects never run during attest. Each
 attester requires its own fresh process and explicit pure lazy dependency roots.
+
+## Normal details and next local history (DE13a)
+
+The twenty-second `normal-details-v1.manifest.json` inherits all21 earlier closed
+source/pin/tool/parent inventories. `scripts/durable_details_comparison.py run
+--acceptance <fresh-parent> --output <new-output>` runs genuine pinned exported
+Harness/Conversation/SQLite with a scripted first streamSimple response and
+fixture tools. The next response uses the real exported OpenAI adapter/client
+and SSE parser with fake fetch, plus
+actual native headless CLI/SQLite execution and terminal reopen. Its own fresh
+`attest(output, acceptance)` API verifies retained facts without effects.
+
+The declared common subset is final normal result presence/value, actual next
+model tool-result history, actual adapter tool wire message, reopened value,
+completed raw task outcomes and counted prepare/tool/provider calls. Seven
+fixtures cover absent/null/false/zero/scalar/array/
+mapping. Common roles include user/assistant/toolResult only, matching native
+completed snapshots; Pi's additional context-setup system entry remains in raw
+records and is outside this normal-results comparison. Native arena numeric
+type/sign, v1 byte identity, v2 selection and finite nested evidence remain
+separately labelled native ABI proof, not whole Pi API/CLI/nesting parity.
+The paired wire observation covers OpenAI completions only,
+with synthetic credentials/response and no real network. Existing native `tc_`
+transport IDs and Pi IDs remain exact in raw records; the common wire view
+compares all tool-message field names, content and actual within-request
+assistant/result correlation, without raw ID equality or whole-P15/DE33
+transport parity. No progress fallback is used by this normal fixture.
+Raw records stay exact. Twelve semantic controls run
+real positive0/negative1 CLIs and malformed inputs separately require2. Actual
+source/import/resolution/runtime/argv/streams/reaping/artifact closure is bound;
+root-relative exclusions retain nested result.json and ancestor stores paths.
+
+[The details contract](tool-details.md) retains parent DE13 and all whole P rows
+OPEN. Retained progress, unsafe continuation, failed-result validation and
+current callable ceilings are not implemented by this phase. Every final pure
+API attester uses its own fresh process; no shared-import contamination or
+re-executed effect is accepted as provenance.

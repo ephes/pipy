@@ -75,6 +75,7 @@ CLOSURE = {
         "ownership",
     )
 } | {
+    "src/pipy_harness/native/agent/json_values.py",
     "scripts/durable_current_deltas_comparison.py",
     "scripts/durable_delta_ops_comparison.py",
     "scripts/durable_pi_comparison.py",

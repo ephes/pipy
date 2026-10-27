@@ -27,6 +27,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.agent.history import compact_agent_history_tool_cycles
 from pipy_harness.native.agent.provider_turn import ProviderTurnExecutor
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.cancellation import ProviderCancelledError
 from pipy_harness.native.coding.product_session import (
@@ -102,7 +103,7 @@ def _fixture(
     tmp_path: Path,
     *,
     previous_summary: str = "",
-    nested_details: dict[str, Any] | None = None,
+    nested_details: Any = NO_TOOL_DETAILS,
 ) -> tuple[ProviderMutationEffects, _SummaryProvider]:
     original, _state, _tools, ref, _coordinator, tree, _footers = (
         _provider_mutation_fixture(tmp_path, persist_tree=True)
@@ -1144,7 +1145,7 @@ def test_actual_compaction_receives_nested_attempt_paths_before_details_stripped
         '"nested-written"' in message.content.value for message in request.messages
     )
     assert all(
-        message.details is None
+        message.details is NO_TOOL_DETAILS
         for message in request.messages
         if isinstance(message, AgentToolResultMessage)
     )

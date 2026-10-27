@@ -725,6 +725,7 @@ class SessionCollaborators:
             parent_tool_call_id=parent_call_id,
             tool_input=arguments,
             details=result.details,
+            nested_call_evidence=result.nested_call_evidence,
             blocks=result.blocks,
         )
 

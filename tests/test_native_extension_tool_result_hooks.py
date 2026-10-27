@@ -473,19 +473,15 @@ def test_a_tool_result_hook_replaces_the_content_with_blocks() -> None:
     )
 
 
-def test_details_too_deep_to_copy_change_nothing_and_later_hooks_run() -> None:
-    # Deep enough that copying it as JSON raises RecursionError.
-    deep: dict[str, object] = {}
-    node = deep
-    for _ in range(100_000):
-        node["k"] = {}
-        node = node["k"]  # type: ignore[assignment]
+def test_invalid_details_change_nothing_and_later_hooks_run() -> None:
+    cycle: dict[str, object] = {}
+    cycle["cycle"] = cycle
 
     def too_deep(event, ctx):
-        return ToolResultTransform(content="lost", details=deep)
+        return ToolResultTransform(content="lost", details=cycle)
 
     def not_an_object(event, ctx):
-        return ToolResultTransform(content="lost", details=["a"])  # type: ignore[arg-type]
+        return ToolResultTransform(content="lost", details={"invalid": object()})
 
     def later(event, ctx):
         return ToolResultTransform(content=event.content + "!", details={"ok": 1})

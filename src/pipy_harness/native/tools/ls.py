@@ -27,7 +27,9 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
@@ -161,11 +163,11 @@ class LsTool:
 
 def _format_output(
     rows: list[str], *, limit_reached: bool, limit: int
-) -> tuple[str, dict[str, object] | None]:
+) -> tuple[str, Any]:
     """The output and Pi's ``details`` (omitted when no limit was hit)."""
 
     if not rows:
-        return "(empty directory)", None
+        return "(empty directory)", NO_TOOL_DETAILS
     truncation = truncate_head("\n".join(rows), max_lines=_NO_LINE_LIMIT)
     output = truncation.content
     notices: list[str] = []
@@ -178,7 +180,7 @@ def _format_output(
         details["truncation"] = truncation.to_details()
     if notices:
         output += f"\n\n[{'. '.join(notices)}]"
-    return output, details or None
+    return output, details or NO_TOOL_DETAILS
 
 
 __all__ = ["DEFAULT_LIMIT", "LS_TOOL_DESCRIPTION", "LsTool"]

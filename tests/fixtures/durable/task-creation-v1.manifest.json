@@ -3,7 +3,7 @@
   "phase": "task-creation-a-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "3a333eb0e05ac9c9f73a778d3371321fe5f76ab3b7e49d416dd9eb5fd94752d2"
+    "documents": "d17e936c865894a9a920288235df0e63e2ab5fadbf769039b5e447f4e5140b56"
   },
   "closure": {
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
@@ -21,10 +21,12 @@
     "scripts/durable_session_guard_comparison.py": "4e6786a6045b999631be9e65e037d22128ddd8b4682b7b0758a5fd3cd4d7d585",
     "scripts/durable_sqlite_comparison.py": "fcdd8e9de9e7584c885faf7c6e4206e35abacd1e4dd8657db48b0e62972697e3",
     "scripts/durable_sqlite_workload.py": "2407f5f41ef73886417951a82b5d26930b5edf9fefe5103e594dc26bd75c009b",
-    "scripts/durable_storage_comparison.py": "b4f1e47b6767b2983d5fe3248492e5aedc4f7cb3a2aba802f2acfc0cd71aa577",
+    "scripts/durable_storage_comparison.py": "209674ac88437d413d00945beb0f3d1e83875e65cf986e24ff70baa71e96be96",
     "scripts/durable_task_creation_comparison.py": "dc20c7151f251df08ce1f01d6db1808dca1a446dbfcf86fe47be3c79bb9bc21c",
+    "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
+    "src/pipy_harness/native/agent/tool_details.py": "7306d7f205fcd1a87eb943a7cccab161efd0fc6f88777be55687548851823d27",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
-    "src/pipy_harness/native/durable/codec.py": "fd038dbc7753014c1ec00160cd62bbaccc375f2441a4bd58602fc8f6a30ebbcb",
+    "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
     "src/pipy_harness/native/durable/documents.py": "1c84708f8c37771f34b3a2c545e77f80841548eb02f5c9062294ec972a7946c6",
     "src/pipy_harness/native/durable/draft_tracker.py": "8b19f015b6e01b7942ad699a3d64d69c897c623671eec491e5c296fcc3799288",
@@ -44,7 +46,7 @@
     "tests/durable/task_support.py": "4f0921533de8627e35d17b7a7c48e1e067888b7c1fd4cbca85600e1e53fe1483",
     "tests/durable/test_document_definitions.py": "0363e61ad078d937de2efc36c127f6ec64ec29bb07c15f576614bbff3842caff",
     "tests/durable/test_documents_comparison.py": "bf0b01af2c39c413254b8ee470a4dd05ec3e8afaa98eeabff72336609fd8510a",
-    "tests/durable/test_json_codec.py": "18ff4301d8ea7fa42900a6c2ca35e28e091841a7e1688418666c3784d4c96aab",
+    "tests/durable/test_json_codec.py": "988762824fa53bc2c742ab3a679422d75b5c764c61e28d5f8d9334c783f88d12",
     "tests/durable/test_memory_comparison.py": "eaaf0f55edf809ee4cd3a494fb95b0541a9d21e211cd126d8941850988c73177",
     "tests/durable/test_memory_storage.py": "49cf0dad541a8ca28c7e5962d60226bdd12dbc69ff45e52f2c6591f0ca97b736",
     "tests/durable/test_records.py": "0bd8d39c1f97cf7287ea8a2b648d402efaf1e746fd8066d2d6292f4f8f2c7735",

@@ -20,10 +20,12 @@ message share one definition.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final
+
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS, copy_tool_details
 
 
 class NoStructuredContent(Enum):
@@ -61,7 +63,7 @@ class ToolPartialResult:
     """A partial result a running tool reports (Pi ``onUpdate(partialResult)``).
 
     Pi's ``{content: [{type: "text", text}], details}``: ``content`` is the
-    text, ``details`` a JSON object or None. Each one replaces the previous
+    text, ``details`` any finite JSON value (None is null; NO_TOOL_DETAILS is absent). Each one replaces the previous
     partial result of the call, as an MCP tool's progress does.
 
     A tool that streams its output (``bash``) reports the output so far as
@@ -73,14 +75,13 @@ class ToolPartialResult:
     """
 
     content: str
-    details: Mapping[str, Any] | None = None
+    details: Any = NO_TOOL_DETAILS
     appended: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, str):
             raise TypeError("ToolPartialResult.content must be a string")
-        if self.details is not None and not isinstance(self.details, Mapping):
-            raise TypeError("ToolPartialResult.details must be a mapping or None")
+        object.__setattr__(self, "details", copy_tool_details(self.details))
         if self.appended is not None and not isinstance(self.appended, str):
             raise TypeError("ToolPartialResult.appended must be a string or None")
 

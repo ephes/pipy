@@ -53,6 +53,8 @@ CLOSURE = (
         for name in ("test_json_codec", "test_records", "test_storage_contract")
     }
     | {
+        "src/pipy_harness/native/agent/json_values.py",
+        "src/pipy_harness/native/agent/tool_details.py",
         "scripts/durable_storage_comparison.py",
         "scripts/durable_reference/cases/storage-records.mts",
         "tests/fixtures/durable/storage-records-v1.input.json",

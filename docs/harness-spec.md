@@ -4906,3 +4906,19 @@ unselected work from executing. Reads/open remain passive; cancellation drops
 waiters while accepted physical work retains the lease. Full private request
 binding remains first prepare. CLI/live acceptance and the corresponding P16
 boundary remain DE12; all43 whole parity rows remain OPEN.
+
+## Normal tool details ABI prerequisite (DE13a)
+
+[Normal details](tool-details.md) own generic finite JSON independently of
+absence/null/legacy-unspecified and transform-unchanged markers. Canonical values
+select v1 when lossless and v2 when richer presence or finite actual nested
+records require it; recorded v1 bytes stay unchanged. Actual normal JSONL/SDK/UI/
+HTML/headless consumers and saved next-request history preserve those values.
+An absent final normal result never implicitly takes earlier partial details.
+
+This bounded DE13 prerequisite adds no retained gate, unsafe error continuation,
+new scheduling/storage authority, provider/auth policy or automatic retry. Parent
+DE13 and all43 whole parity rows remain OPEN/incomplete. Later progress policy
+must resolve DE26/33 capacity/timing/domain and DE27/28 graph/DB amplification
+before default/full-feature acceptance; parent infrastructure void-path warning
+requires actual physical-child regressions before implementation lands.

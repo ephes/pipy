@@ -33,6 +33,11 @@ from pipy_harness.native.agent.content import (
 )
 from pipy_harness.native.agent.messages import AgentContentBlock
 from pipy_harness.native.agent.system_messages import system_message_to_json
+from pipy_harness.native.agent.tool_details import (
+    copy_tool_details,
+    has_tool_details,
+    tool_details_fields,
+)
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.assistant_blocks_json import tool_result_blocks_to_json
 from pipy_harness.native.automation.jsonl import loads_strict
@@ -51,8 +56,13 @@ def nested_call_fields(message: AgentToolResultMessage) -> dict[str, Any]:
     are any; other results keep their details to ``tool_execution_end``.
     """
     details = message.details
+    if message.nested_call_evidence is not None:
+        return {
+            **tool_details_fields(details),
+            "nestedCallEvidence": message.nested_call_evidence.to_json(),
+        }
     if (
-        details is not None
+        isinstance(details, dict)
         and type(record := details.get("nestedCalls")) is dict
         and type(record.get("calls")) is list
         and type(record.get("complete")) is bool
@@ -62,7 +72,9 @@ def nested_call_fields(message: AgentToolResultMessage) -> dict[str, Any]:
             **({"details": rest} if rest else {}),
             "nestedCalls": dict(record),
         }
-    return {}
+    # Existing mapping/absent message bytes remain unchanged. New rich values
+    # carry their own presence; execution-end and stored messages keep all values.
+    return tool_details_fields(details) if not isinstance(details, dict) else {}
 
 
 def tool_result_content(message: AgentToolResultMessage) -> list[dict[str, Any]]:
@@ -81,8 +93,10 @@ def tool_result_json(message: AgentToolResultMessage) -> dict[str, Any]:
     the result asks the agent to stop after the batch."""
 
     result: dict[str, Any] = {"content": tool_result_content(message)}
-    if message.details is not None:
-        result["details"] = dict(message.details)
+    if has_tool_details(message.details):
+        result["details"] = copy_tool_details(message.details)
+    if message.nested_call_evidence is not None:
+        result["nestedCallEvidence"] = message.nested_call_evidence.to_json()
     if message.structured_content is not NO_STRUCTURED_CONTENT:
         result["structuredContent"] = message.structured_content
     if message.terminate:
@@ -105,8 +119,8 @@ def partial_result_json(update: ProductContent | ToolPartialResult) -> dict[str,
         partial: dict[str, Any] = {
             "content": [{"type": "text", "text": update.content}]
         }
-        if update.details is not None:
-            partial["details"] = dict(update.details)
+        if has_tool_details(update.details):
+            partial["details"] = copy_tool_details(update.details)
         return partial
     return {"content": [{"type": "text", "text": update.value}], "details": {}}
 

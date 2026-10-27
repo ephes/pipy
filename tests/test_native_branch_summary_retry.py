@@ -23,6 +23,7 @@ from test_native_coding_session_retry import (
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent.events import RetryCompleted, RetryScheduled
 from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.models import ProviderRequest, ProviderResult
@@ -542,7 +543,7 @@ def test_actual_tree_summary_receives_nested_file_attempts(tmp_path: Path) -> No
     text = "\n".join(m.content.value for m in request.messages)
     assert '"nested-read"' in text and '"nested-edited"' in text
     assert all(
-        m.details is None
+        m.details is NO_TOOL_DETAILS
         for m in request.messages
         if isinstance(m, AgentToolResultMessage)
     )

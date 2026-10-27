@@ -252,7 +252,7 @@ def test_explicit_registry_has_no_unnoticed_new_dto_fields():
         "prompt_guidelines",
         "execution_mode",
     }
-    for cls, schema in c.SCHEMAS.items():
+    for cls, schema in c.SCHEMAS_V2.items():
         if cls is not ToolDefinition:
             assert {f.name for f in fields(cls)} == set(schema)
     assert {type(value) for value in VALUES if type(value) in c.SCHEMAS} == set(
@@ -531,7 +531,7 @@ def malformed_trees():
         None,
         {},
         {"codec_version": True, "nodes": [leaf]},
-        {"codec_version": 2, "nodes": [leaf]},
+        {"codec_version": 3, "nodes": [leaf]},
         {"codec_version": 1, "nodes": []},
         {"codec_version": 1, "nodes": [leaf], "extra": None},
         {"codec_version": 1, "nodes": [{"tag": "unknown", "value": "PRIVATE_PAYLOAD"}]},
@@ -689,10 +689,10 @@ def test_every_registered_dto_rejects_missing_fields_at_schema(
     original = c._construct
     observed = []
 
-    def construct(cls, values):
+    def construct(cls, values, codec_version):
         if cls is type(value) and field not in values:
             observed.append(set(values))
-        return original(cls, values)
+        return original(cls, values, codec_version)
 
     monkeypatch.setattr(c, "_construct", construct)
     with pytest.raises(c.CanonicalCodecError):

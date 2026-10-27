@@ -47,6 +47,7 @@ from pipy_harness.native.agent.nested_calls import (
 )
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.request import snapshot_provider_request
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -511,7 +512,9 @@ def test_transient_records_bound_argument_bytes_and_drop_mutable_details() -> No
         for _ in range(5):
             service.call("read", "x" * 8192)
         assert len(service.records()) == 6
-        assert all(record.result.details is None for record in service.records())
+        assert all(
+            record.result.details is NO_TOOL_DETAILS for record in service.records()
+        )
         return ToolExecutionOutcome(_tool_result(call))
 
     runner = _Runner(run)

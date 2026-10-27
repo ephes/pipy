@@ -99,6 +99,11 @@ def _assert_private_markers_absent(*texts: str) -> None:
 
 def test_sdk_surface_is_product_only() -> None:
     expected_exports = {
+        "NO_TOOL_DETAILS",
+        "LEGACY_TOOL_DETAILS_NONE",
+        "UNCHANGED_TOOL_DETAILS",
+        "NestedCallEvidence",
+        "NestedCallRecord",
         "DurableAdmission",
         "DurableProductError",
         "DurableProductSession",

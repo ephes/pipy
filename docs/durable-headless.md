@@ -82,13 +82,15 @@ this command does not implement it.
 For start/resume, `--format text` prints the final completed assistant text;
 `--format json` emits the completed envelope. Inspect and authorize-retry always
 emit their closed JSON report, including when `--format text` is supplied.
-JSON format version1
+JSON run format version2
 emits `pipy-durable-output`: committed completed messages/rounds, saved usage,
 safe task outcomes and metadata. It preserves the current public DTO's complete
 content blocks, IDs/correlation, optional zero/absence values, rich provider/tool
-receipt payloads and structured-content absence versus null. Current generic
-tool details are mapping-or-None; full scalar/array/null/absent details ABI parity
-is retained for DE13, not claimed by coercion. Requests/settings/private auth
+receipt payloads and structured-content absence versus null. Normal [tool details](tool-details.md) preserve scalar/array/null/absent values
+with an explicit details_state, and optional finite nested evidence without
+changing the original value. Historical canonical v1 unknown presence remains
+unknown; this is DE13a normal-value support, not interrupted-error continuation.
+Inspect/authorize-retry formats are unchanged. Requests/settings/private auth
 material/operator audit and arbitrary error strings never appear in output.
 JSON emission adds no nesting cutoff to otherwise admitted OwnedJson values.
 This full-content output is product data, not a metadata-only workflow event.

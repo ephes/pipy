@@ -60,6 +60,19 @@ from pipy_harness.native.agent.content import (
     normalized_tool_result_blocks,
 )
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
+from pipy_harness.native.agent.json_values import (
+    has_only_string_keys as _has_only_string_keys,
+)
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+    validate_nested_evidence,
+)
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    admit_tool_details,
+    copy_forwarded_tool_details,
+    copy_tool_details,
+)
 
 ToolOutputSink = Callable[[ToolOutput], None]
 """Where a running tool writes its live output (``ToolContext.output_sink``)."""
@@ -476,9 +489,9 @@ class ToolExecutionResult:
     output_text: str
     is_error: bool = False
     provider_correlation_id: str | None = None
-    # Pi ``AgentToolResult.details``: structured data for renderers and the
-    # session file, never sent to a provider. A JSON object or None.
-    details: Mapping[str, Any] | None = None
+    # Pi ``AgentToolResult.details``: finite local JSON for renderers and the
+    # session file, never sent to a provider. NO_TOOL_DETAILS is absent; None is null.
+    details: Any = NO_TOOL_DETAILS
     # Pi ``AgentToolResult.structuredContent``: the machine-readable result of
     # a tool that declares an ``output_schema``, for programmatic callers such
     # as codemode scripts. Any JSON value, ``None`` being null;
@@ -493,6 +506,8 @@ class ToolExecutionResult:
     # the current tool batch. The batch ends without the automatic follow-up
     # provider turn only when every result in it asks for that.
     terminate: bool = False
+
+    nested_call_evidence: NestedCallEvidence | None = None
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
@@ -523,8 +538,8 @@ class ToolExecutionResult:
                 "ToolExecutionResult.provider_correlation_id must be a non-empty "
                 "string or None"
             )
-        if self.details is not None and not is_json_object(self.details):
-            raise ValueError("ToolExecutionResult.details must be a JSON object")
+        object.__setattr__(self, "details", admit_tool_details(self.details))
+        validate_nested_evidence(self.details, self.nested_call_evidence)
         if self.structured_content is not NO_STRUCTURED_CONTENT and not is_json_value(
             self.structured_content
         ):
@@ -548,21 +563,6 @@ def is_json_value(value: object) -> bool:
     return _has_only_string_keys(value)
 
 
-def _has_only_string_keys(value: object) -> bool:
-    # Iterative: a value the encoder accepts may nest deeper than Python
-    # frames can follow.
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, dict):
-            if any(type(key) is not str for key in item):
-                return False
-            pending.extend(item.values())
-        elif isinstance(item, (list, tuple)):
-            pending.extend(item)
-    return True
-
-
 def is_json_object(value: object) -> bool:
     """Whether ``value`` is a mapping that JSON encodes as an object."""
 
@@ -575,18 +575,12 @@ def is_json_object(value: object) -> bool:
     return True
 
 
-def json_safe_details(value: object) -> dict[str, Any] | None:
-    """A detached JSON copy of ``value`` when it is a JSON object, else None.
-
-    Pi writes ``details`` to the session file through ``JSON.stringify``;
-    pipy keeps only what survives the same round trip, so live rows and
-    restored rows render from the same value.
-    """
-
-    if not is_json_object(value):
-        return None
-    copied = json.loads(json.dumps(value, allow_nan=False))
-    return copied if isinstance(copied, dict) else None
+def json_safe_details(value: object) -> Any:
+    """Copy extension details through JSON text; invalid data is absent."""
+    try:
+        return copy_forwarded_tool_details(value)
+    except ValueError:
+        return NO_TOOL_DETAILS
 
 
 def json_safe_value(value: object) -> Any:
@@ -629,13 +623,18 @@ class NestedToolResult:
 
     content: str
     is_error: bool = False
-    details: Mapping[str, Any] | None = None
+    details: Any = NO_TOOL_DETAILS
     structured_content: Any = NO_STRUCTURED_CONTENT
     blocks: tuple[ToolResultBlock, ...] = ()
     tool_call_id: str = ""
     arguments: Mapping[str, Any] = field(default_factory=dict)
     duration_ms: float | None = None
     terminate: bool = False
+    nested_call_evidence: NestedCallEvidence | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "details", copy_tool_details(self.details))
+        validate_nested_evidence(self.details, self.nested_call_evidence)
 
 
 class NestedToolCalls(Protocol):

@@ -96,6 +96,31 @@ follows every page when determining a child's committed hold. Cursors belong
 to the existing same-store guarded read API, not a durable watch replay cursor.
 Invalid task IDs use fixed `DurableProductError("invalid_request")` before reads.
 
+## Normal tool result values
+
+Both native normal result paths preserve [tool details](tool-details.md) as
+finite local JSON with explicit missing/null presence. The public presence
+constants are `NO_TOOL_DETAILS`, `LEGACY_TOOL_DETAILS_NONE` and
+`UNCHANGED_TOOL_DETAILS`; nested scalar/array/null composites use the finite
+`NestedCallEvidence` field instead of overwriting their details. New rich
+canonical histories choose v2, while saved v1 data remains byte-identical.
+These changes do not activate unsafe continuation, retained progress or a new
+runtime/observer authority. A shared/non-durable executor never substitutes a
+partial result's details for an absent final value.
+
+Ordinary SDK results retain Python's native JSON values, including tuple
+descendants normalized to arrays and integers outside exact binary64, within
+the running interpreter's stdlib JSON encoding support. New ToolPort results
+apply an encoding predicate separately from iterative value ownership.
+Extension final/partial forwarding and replacement hooks instead retain their
+stdlib JSON text roundtrip, including surrogate-pair normalization in keys and
+values. That boundary requires both encoding and decoding support. Unsupported
+producer values are refused before forwarding; see [failure behavior](tool-details.md).
+Iterative snapshots and canonical decoding keep old deeply nested message data
+and exact string representations. New durable ToolPort results share producer
+admission and additionally pass the strict canonical boundary, which refuses
+nonexact binary64 integers before result commit rather than rounding them.
+
 ## Synchronous product session API
 
 `create_product_session(...)` starts one synchronous native coding lifetime with

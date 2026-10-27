@@ -196,3 +196,21 @@ def test_owned_equality_is_order_and_python_string_representation_sensitive():
     assert OwnedJson({"a": 1, "b": 2}) != OwnedJson({"b": 2, "a": 1})
     assert OwnedJson("\U0001f600") != OwnedJson("\ud83d\ude00")
     assert OwnedJson(True) != OwnedJson(1)
+
+
+def test_durable_and_agent_details_share_the_same_owned_json_implementation():
+    from pipy_harness.native.agent import json_values, tool_details
+    from pipy_harness.native.durable import codec
+
+    assert codec.OwnedJson is json_values.OwnedJson
+    assert codec.JsonValueError is json_values.JsonValueError
+    assert tool_details.copy_normal_json is json_values.copy_normal_json
+    assert codec.encode_value is json_values.encode_value
+    assert codec.decode_value is json_values.decode_value
+    value = {"actual": [None, False, -0.0]}
+    detached = tool_details.copy_tool_details(value)
+    value["actual"].append("late")
+    assert codec.OwnedJson(detached) == codec.decode_value(
+        codec.encode_value(json_values.OwnedJson(detached))
+    )
+    assert len(detached["actual"]) == 3

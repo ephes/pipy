@@ -31,6 +31,10 @@ from pipy_harness.native.agent.request import (
     validate_product_content,
 )
 from pipy_harness.native.agent.results import AgentFailure
+from pipy_harness.native.agent.tool_details import (
+    UNCHANGED_TOOL_DETAILS,
+    copy_tool_details,
+)
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
@@ -148,14 +152,15 @@ class AgentToolResultTransform:
     ``blocks`` is the content's ordered text and image blocks when it has an
     image, ``()`` for a text-only content; ``None`` keeps the result's blocks
     when ``content`` is its text and drops them otherwise. ``is_error`` and
-    ``details`` replace the result's when they are not ``None``.
+    ``details`` replaces when not ``UNCHANGED_TOOL_DETAILS``. ``None`` is null;
+    ``NO_TOOL_DETAILS`` clears the details.
     """
 
     content: ProductContent
     structured_content: object | NoStructuredContent = NO_STRUCTURED_CONTENT
     blocks: tuple[ToolResultBlock, ...] | None = None
     is_error: bool | None = None
-    details: Mapping[str, Any] | None = None
+    details: Any = UNCHANGED_TOOL_DETAILS
 
     def __post_init__(self) -> None:
         validate_product_content(self.content, "AgentToolResultTransform.content")
@@ -163,8 +168,8 @@ class AgentToolResultTransform:
             raise TypeError("AgentToolResultTransform.blocks must be a tuple or None")
         if self.is_error is not None:
             require_bool(self.is_error, "AgentToolResultTransform.is_error")
-        if self.details is not None and not isinstance(self.details, Mapping):
-            raise TypeError("AgentToolResultTransform.details must be a mapping")
+        if self.details is not UNCHANGED_TOOL_DETAILS:
+            object.__setattr__(self, "details", copy_tool_details(self.details))
 
 
 @runtime_checkable

@@ -48,6 +48,11 @@ from pipy_harness.native.agent import (
 )
 
 EXPECTED_PUBLIC_EXPORTS = [
+    "NO_TOOL_DETAILS",
+    "LEGACY_TOOL_DETAILS_NONE",
+    "UNCHANGED_TOOL_DETAILS",
+    "NestedCallEvidence",
+    "NestedCallRecord",
     "AGENT_TOOL_REQUEST_ID_PREFIX",
     "AgentAssistantMessage",
     "AgentCancellationReason",

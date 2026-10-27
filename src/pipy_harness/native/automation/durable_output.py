@@ -22,6 +22,11 @@ from pipy_harness.native.agent.messages import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.agent.tool_details import (
+    LEGACY_TOOL_DETAILS_NONE,
+    NO_TOOL_DETAILS,
+    tool_details_fields,
+)
 from pipy_harness.native.agent.usage_json import usage_to_json
 from pipy_harness.native.durable.canonical_codec import decode_canonical
 from pipy_harness.native.durable.codec import OwnedJson
@@ -114,9 +119,17 @@ def message(value: object) -> dict[str, Any]:
             "content": value.content.value,
             "provider_correlation_id": value.provider_correlation_id,
             "is_error": value.is_error,
-            "details": None
-            if value.details is None
-            else OwnedJson(dict(value.details)).thaw(),
+            "details_state": "absent"
+            if value.details is NO_TOOL_DETAILS
+            else "legacy_unspecified"
+            if value.details is LEGACY_TOOL_DETAILS_NONE
+            else "value",
+            **tool_details_fields(value.details),
+            **(
+                {"nested_call_evidence": value.nested_call_evidence.to_json()}
+                if value.nested_call_evidence is not None
+                else {}
+            ),
             "blocks": [block(b) for b in value.blocks],
             "terminate": value.terminate,
         }
@@ -187,7 +200,7 @@ def run_output(value: DurableRunResult) -> dict[str, Any]:
     snapshot = value.completed
     return {
         "format": "pipy-durable-output",
-        "version": 1,
+        "version": 2,
         "operation": "run",
         "task_id": value.task_id,
         "status": value.status,

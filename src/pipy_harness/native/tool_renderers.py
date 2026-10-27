@@ -16,7 +16,14 @@ from pipy_harness.native.agent import (
     NestedToolCallCompleted,
     NestedToolCallStarted,
 )
+from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
+)
 from pipy_harness.native.agent.nested_status import NestedCallStatus
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    copy_tool_details,
+)
 from pipy_harness.native.chrome import (
     ChromeStyle,
     chrome_style_for,
@@ -822,7 +829,7 @@ class _ToolLoopRenderer:
                     state,
                     is_result=False,
                     content=None,
-                    details=None,
+                    details=NO_TOOL_DETAILS,
                     is_error=False,
                     tool_call_id=call.provider_correlation_id,
                 )
@@ -895,8 +902,9 @@ class _ToolLoopRenderer:
         output_text: str,
         is_error: bool,
         duration_seconds: float | None = None,
-        details: Mapping[str, Any] | None = None,
+        details: Any = NO_TOOL_DETAILS,
         images: ResultImages | None = None,
+        nested_call_evidence: NestedCallEvidence | None = None,
     ) -> None:
         # A line-oriented stream draws no images: `output_text` names them.
         del images
@@ -907,7 +915,13 @@ class _ToolLoopRenderer:
         self._pending_render = None
         self._pending_tool = None
         lines = self._extension_result_lines(
-            pending, tool, output_text, is_error, details, duration_seconds
+            pending,
+            tool,
+            output_text,
+            is_error,
+            details,
+            duration_seconds,
+            nested_call_evidence,
         )
         if lines is not None:
             self._write_extension_result(lines, duration_seconds)
@@ -915,9 +929,7 @@ class _ToolLoopRenderer:
         self._write_mutation_preview(is_error, details)
         self._write_default_result(output_text, is_error, duration_seconds)
 
-    def _write_mutation_preview(
-        self, is_error: bool, details: Mapping[str, Any] | None
-    ) -> None:
+    def _write_mutation_preview(self, is_error: bool, details: Any) -> None:
         """The edit diff or write content, where the tools used to print it.
 
         The tools no longer write side output (Pi's renderers draw both); this
@@ -939,7 +951,7 @@ class _ToolLoopRenderer:
     def _mutation_preview(
         self,
         is_error: bool,
-        details: Mapping[str, Any] | None,
+        details: Any,
         args: Mapping[str, object],
     ) -> str:
         """The edit diff or the write content of the current call with
@@ -947,7 +959,7 @@ class _ToolLoopRenderer:
 
         if is_error:
             return ""
-        if self._last_tool_name == "edit" and details is not None:
+        if self._last_tool_name == "edit" and isinstance(details, Mapping):
             diff = details.get("diff")
             return diff if isinstance(diff, str) else ""
         if self._last_tool_name == "write":
@@ -965,8 +977,9 @@ class _ToolLoopRenderer:
         tool: RowRenderers | None,
         output_text: str,
         is_error: bool,
-        details: Mapping[str, Any] | None,
+        details: Any,
         duration_seconds: float | None = None,
+        nested_call_evidence: NestedCallEvidence | None = None,
     ) -> list[str] | None:
         if pending is None or tool is None or tool.render_result is None:
             return None
@@ -980,6 +993,7 @@ class _ToolLoopRenderer:
             is_error=is_error,
             tool_call_id=pending["corr"],
             duration_ms=None if duration_seconds is None else duration_seconds * 1000,
+            nested_call_evidence=nested_call_evidence,
         )
 
     def _write_extension_result(
@@ -1045,10 +1059,11 @@ class _ToolLoopRenderer:
         *,
         is_result: bool,
         content: str | None,
-        details: Mapping[str, Any] | None,
+        details: Any,
         is_error: bool,
         tool_call_id: str,
         duration_ms: float | None = None,
+        nested_call_evidence: NestedCallEvidence | None = None,
     ) -> list[str] | None:
         """Draw one phase once. These rows are written as they come, so
         ``invalidate`` cannot draw them again and ``last_component`` is
@@ -1061,7 +1076,8 @@ class _ToolLoopRenderer:
             is_result=is_result,
             is_error=is_error,
             content=content,
-            details=details,
+            details=copy_tool_details(details),
+            nested_call_evidence=nested_call_evidence,
             expanded=False,
             width=80,
             theme=build_tool_render_theme(style),
@@ -1113,7 +1129,11 @@ class _ToolLoopRenderer:
             if mcp_label is not None
             else self._mutation_preview(is_error, details, args)
         )
-        nested = nested_lines_from_details(details) if codemode else ()
+        nested = (
+            nested_lines_from_details(details, ctx.nested_call_evidence)
+            if codemode
+            else ()
+        )
         return [
             *("  " + nested_line_text(line, expanded=False) for line in nested),
             *(preview.split("\n") if preview else ()),

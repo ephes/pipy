@@ -36,9 +36,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from pipy_harness.native.agent.nested_record import (
+    NestedCallEvidence,
     argument_json,
     parse_argument_previews,
     parse_nested_record,
+    selected_nested_details,
+)
+from pipy_harness.native.agent.tool_details import (
+    NO_TOOL_DETAILS,
+    copy_tool_details,
 )
 from pipy_harness.native.ansi_wrap import (
     split_lines_with_carry,
@@ -141,11 +147,12 @@ class ToolRowResult:
     """A tool result as a row draws it (Pi ``AgentToolResult`` + ``isError``)."""
 
     content: str
-    details: Mapping[str, Any] | None
+    details: Any
     is_error: bool
     # The result's images; a row that draws them shows `images.text`, the
     # content without its image lines (Pi `getTextOutput` with images).
     images: ResultImages | None = None
+    nested_call_evidence: NestedCallEvidence | None = None
 
 
 @dataclass(slots=True)
@@ -178,13 +185,16 @@ def is_nested_under(parent_id: str | None, caller_id: str) -> bool:
     )
 
 
-def nested_lines_from_details(details: object) -> tuple[NestedToolLine, ...]:
+def nested_lines_from_details(
+    details: object, evidence: NestedCallEvidence | None = None
+) -> tuple[NestedToolLine, ...]:
     """Replay bounded data through the same retained row state as live children.
 
     A call whose arguments the record left out shows the start of them from
     the result's ``argumentPreviews`` (Pi's codemode rows show the preview
     in ``details.calls``), else their byte count.
     """
+    details = selected_nested_details(details, evidence)
     lines = []
     previews = parse_argument_previews(details)
     for call in parse_nested_record(details):
@@ -618,8 +628,8 @@ def _read_result(
     return text
 
 
-def _mapping(details: Mapping[str, Any] | None, key: str) -> Mapping[str, Any] | None:
-    if details is None:
+def _mapping(details: Any, key: str) -> Mapping[str, Any] | None:
+    if not isinstance(details, Mapping):
         return None
     value = details.get(key)
     return value if isinstance(value, Mapping) else None
@@ -708,11 +718,9 @@ def _search_result(
     return text
 
 
-def _limit_warnings(
-    details: Mapping[str, Any] | None, limit_key: str, label: str
-) -> list[str]:
+def _limit_warnings(details: Any, limit_key: str, label: str) -> list[str]:
     warnings: list[str] = []
-    if details is None:
+    if not isinstance(details, Mapping):
         return warnings
     limit = details.get(limit_key)
     if limit:
@@ -938,11 +946,15 @@ def apply_edit_result(state: ToolRowState) -> None:
         return
     diff = (
         None
-        if result.is_error or result.details is None
+        if result.is_error or not isinstance(result.details, Mapping)
         else result.details.get("diff")
     )
     if isinstance(diff, str):
-        first = result.details.get("firstChangedLine") if result.details else None
+        first = (
+            result.details.get("firstChangedLine")
+            if isinstance(result.details, Mapping)
+            else None
+        )
         state.preview = EditPreview(
             diff=diff,
             first_changed_line=first if isinstance(first, int) else None,
@@ -986,7 +998,7 @@ def _edit_result(state: ToolRowState, theme: RowTheme) -> str | None:
         if not text or text == preview_error:
             return None
         return theme.fg("error", text)
-    diff = result.details.get("diff") if result.details is not None else None
+    diff = result.details.get("diff") if isinstance(result.details, Mapping) else None
     if isinstance(diff, str) and diff and diff != preview_diff:
         return render_diff(theme, diff)
     return None
@@ -1041,7 +1053,7 @@ def _bash_result_rows(
     output = _js_trim(_text_output(result.content))
     details = result.details
     truncation = _mapping(details, "truncation")
-    full_path = details.get("fullOutputPath") if details is not None else None
+    full_path = details.get("fullOutputPath") if isinstance(details, Mapping) else None
     full_path = full_path if isinstance(full_path, str) and full_path else None
     if (
         not partial
@@ -1167,7 +1179,7 @@ def _full_output_rows(
     notice at the end of the text."""
 
     details = result.details
-    full_path = details.get("fullOutputPath") if details is not None else None
+    full_path = details.get("fullOutputPath") if isinstance(details, Mapping) else None
     if isinstance(full_path, str) and full_path:
         return _text_rows(theme.fg("muted", f"Full output: {full_path}"), bg)
     return []
@@ -1403,7 +1415,12 @@ def _render_extension(
         is_result=result is not None,
         is_error=current is not None and current.is_error,
         content=result.content if result is not None else None,
-        details=result.details if result is not None else None,
+        details=copy_tool_details(result.details)
+        if result is not None
+        else NO_TOOL_DETAILS,
+        nested_call_evidence=result.nested_call_evidence
+        if result is not None
+        else None,
         expanded=inputs.expanded,
         # Pi renders a box child at the box's content width.
         width=max(1, inputs.width - 2),
@@ -1462,7 +1479,12 @@ def _own_lines(
     if phase == "result":
         if not ctx.is_result:
             return None
-        drawn = ToolRowResult(ctx.content or "", ctx.details, ctx.is_error)
+        drawn = ToolRowResult(
+            ctx.content or "",
+            ctx.details,
+            ctx.is_error,
+            nested_call_evidence=ctx.nested_call_evidence,
+        )
     own_args = dict(ctx.args)
     nested = _own_nested(state, result, ctx, phase)
     own = replace(
@@ -1532,7 +1554,7 @@ def _own_nested(
     own_details = result.details if result is not None else None
     if phase != "result" or (ctx.details == own_details and any(nested)):
         return nested
-    lines = nested_lines_from_details(ctx.details)
+    lines = nested_lines_from_details(ctx.details, ctx.nested_call_evidence)
     if state.result is None:
         # While the script runs, a call that has not ended has no duration
         # yet.
@@ -1576,7 +1598,9 @@ def render_tool_row(
         # sends one with its nested calls as they run, in its details.
         result = ToolRowResult(
             state.partial_output,
-            _live_nested_details(state) if _has_nested_calls(state) else None,
+            _live_nested_details(state)
+            if _has_nested_calls(state)
+            else NO_TOOL_DETAILS,
             False,
         )
     if state.extension is None and is_builtin_edit(state):
@@ -1872,7 +1896,7 @@ def _result_rows(
         )
     elif name == "grep":
         warnings = _limit_warnings(result.details, "matchLimitReached", "matches")
-        if result.details is not None and result.details.get("linesTruncated"):
+        if isinstance(result.details, Mapping) and result.details.get("linesTruncated"):
             warnings.append("some lines truncated")
         text = _search_result(
             theme,
