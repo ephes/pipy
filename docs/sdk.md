@@ -86,6 +86,13 @@ not overwritten, and there is no latest-row fallback. See the full
 [durable product contract](durable-product-session.md) for holds, capability
 refusals, actual lifetime and the explicit DE12/P16/later-slice boundaries.
 
+`adjudicate_interrupted(task_id, nonce=...)` is the separate explicit same-attempt
+[historical decision](durable-adjudication.md). Its `DurableAdjudication` contains
+only `task_id` and `decision`; it neither invokes the old attempt nor implicitly
+resumes. Fresh matching-profile admission and profile-free same-nonce replay have
+different authority. An existing retry selector remains required for subsequent
+resume of a successor root. Opaque or unverifiable historical records stay held.
+
 The default request template has an empty system prompt and loads no workspace
 context or files automatically, even when the fixed native built-ins are
 advertised. It is a bare model/tool session, not the normal coding-session
@@ -100,6 +107,10 @@ paging. Task-specific inspection does not accept paging. Explicit resume itself
 follows every page when determining a child's committed hold. Cursors belong
 to the existing same-store guarded read API, not a durable watch replay cursor.
 Invalid task IDs use fixed `DurableProductError("invalid_request")` before reads.
+If explicit close ends an active `resume()` inspection read, both its original
+caller and any coalesced waiters receive `DurableProductError("closed")`; private inspection
+exceptions do not cross that public boundary. Cancellation still leaves the
+admitted operation and physical cleanup owned until they finish.
 
 ## Normal tool result values
 

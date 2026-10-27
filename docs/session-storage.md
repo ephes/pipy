@@ -1152,7 +1152,8 @@ callbacks are caller-owned and must not be confused with provider finalizers.
 Terminal reads reuse committed rich facts without current credentials/material.
 Before a provider receipt, paid reissue remains uncertain. C1 settles intact
 recovered unsafe tool executes as interrupted without invoking the old key;
-historical blocked tools remain held for C2. Explicit retry remains a new
+automatic resume keeps historical blocked tools held. The separate
+[C2 decision](durable-adjudication.md) requires explicit evidence-backed authority. Explicit retry remains a new
 authorized attempt with the old uncertainty retained privately. No exactly-once external
 effect/callback or durable observer cursor is promised. Full data migration,
 export/import, retention and default adoption retain DE27/28/40–44 ownership.
@@ -1168,3 +1169,15 @@ details; legacy mapping/absent bytes keep the existing representation. These are
 full-content product records, not permission for workflow capture or automatic
 archive. Unsafe uncertainty/progress/recovery and default adoption remain with
 their original owners; inspection/auth/lifetime policies do not change.
+
+
+## Historical decision audit (DE13c2)
+
+The explicit [adjudication operation](durable-adjudication.md) writes a private
+conversation-scoped `pipy.operator.adjudication` audit on the same Session line
+and in the same commit as the receipt/task transition. This is product data, not
+a workflow event. The audit contains saved authority and binding fingerprints;
+metadata inspection, completed output and provider wire must not expose it.
+Exact receipt document identity distinguishes replacement even with identical
+payload. The private Tx metadata read uses the already-acquired entry and its
+existing lifecycle/affinity guards, without a new Storage API or second commit.

@@ -1637,3 +1637,20 @@ are retained; pure attestation checks these receipts without starting children.
 The source closure preserves every earlier phase, parent and pinned member.
 Development producer observations do not substitute for final frozen-source
 execute/own-fresh-attest, platform checks, full checks or independent CODE review.
+
+## Explicit historical decisions (DE13c2)
+
+The native [adjudication operation](durable-adjudication.md) has no asserted Pi
+operator-API equivalent. Its acceptance uses genuine archived DE12/B public SDK
+producers followed by current SDK/CLI decisions, explicit continuation, nonce
+replay, transaction races and state/receipt/audit mutants. Default test sources
+come from read-only pinned Git archives of `src` and `tests`; explicit archived
+source overrides retain pinned anchors and actual per-process module origins.
+These executable subsets are not labelled complete old repository snapshots.
+
+The existing 24 phases remain cumulative with all earlier membership, parents
+and immutable reference pins retained. Their owning native source closures also
+bind the C2 leaves, tests and documentation. Pinned Pi interrupted execution is
+the semantic reference, not a claim that Pi implements native historical audit
+or nonce adjudication. Existing fresh producer/attestation, resource, supported
+runtime and full validation gates still apply to each final source epoch.

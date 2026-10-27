@@ -10,10 +10,12 @@ from test_tool_lifecycle import independent_opener
 
 from pipy_harness import durable_product_api as product_api
 from pipy_harness.native.durable import sqlite
+from pipy_harness.native.durable.inspection_values import InspectionError
 from pipy_harness.native.durable.memory import MemoryStorage
 from pipy_harness.native.durable.product_wake import ProductWake
 from pipy_harness.native.durable.session_core import ReentrantSessionCall, Session
 from pipy_harness.sdk import (
+    DurableProductError,
     create_durable_product_session,
 )
 
@@ -142,6 +144,55 @@ def test_cancelled_resume_close_waiters_retain_actual_provider_and_finalizer(tmp
         finally:
             wire.release.set()
             final_release.set()
+            await product.close()
+
+    asyncio.run(asyncio.wait_for(scenario(), 20))
+
+
+def test_resume_close_translates_actual_inspection_error_for_coalesced_waiters(
+    tmp_path, monkeypatch
+):
+    async def scenario():
+        product = await create_durable_product_session(
+            tmp_path / "product.sqlite",
+            workspace=tmp_path,
+            profile=profile(tmp_path, Wire()),
+            tools={},
+        )
+        entered, release = asyncio.Event(), asyncio.Event()
+        observed = []
+        original = product_api.ainspect_task
+
+        async def held_inspection(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            try:
+                return await original(*args, **kwargs)
+            except InspectionError as error:
+                observed.append(error.code)
+                raise
+
+        try:
+            await product.submit("input")
+            assert (await product.resume()).status == "terminal"
+            monkeypatch.setattr(product_api, "ainspect_task", held_inspection)
+            first = asyncio.create_task(product.resume())
+            await asyncio.wait_for(entered.wait(), 5)
+            owned = product._resume_work
+            second = asyncio.create_task(product.resume())
+            await asyncio.sleep(0)
+            assert product._resume_work is owned and not second.done()
+            closing = asyncio.create_task(product.close())
+            await asyncio.wait_for(product._session.await_closed(), 5)
+            assert not closing.done()  # The real control lease is still held.
+            release.set()
+            results = await asyncio.gather(first, second, return_exceptions=True)
+            await asyncio.wait_for(closing, 5)
+            assert observed == ["closed"]  # Actual inspection, not a fake error.
+            assert [type(error) for error in results] == [DurableProductError] * 2
+            assert [error.code for error in results] == ["closed", "closed"]
+        finally:
+            release.set()
             await product.close()
 
     asyncio.run(asyncio.wait_for(scenario(), 20))

@@ -105,6 +105,7 @@ def test_sdk_surface_is_product_only() -> None:
         "NestedCallEvidence",
         "NestedCallRecord",
         "DurableAdmission",
+        "DurableAdjudication",
         "DurableProductError",
         "DurableProductSession",
         "DurableProviderProfile",

@@ -35,7 +35,7 @@ target/default/material binding remains the existing first prepare commit.
 Prepared/receipt recovery uses that committed envelope exactly. Provider
 pre-receipt interruption can reissue a possibly paid request. Intact recovered
 unsafe tool intents now use the bounded C1 interrupted continuation below; all
-historical blocked origins remain held. Post-receipt recovery never calls
+historical blocked origins remain held by automatic resume. Post-receipt recovery never calls
 the provider or preparer again. No exactly-once external-effect claim follows.
 
 Cancellation detaches public waiters without dropping accepted acquisition,
@@ -82,7 +82,7 @@ the strongly owned operation still finishes and observes the committed tuple.
 ## Public API and boundaries
 
 The factories and `DurableProductSession`, `DurableProviderProfile`,
-`DurableAdmission`, `DurableRunSelection`, `DurableRunResult`,
+`DurableAdmission`, `DurableAdjudication`, `DurableRunSelection`, `DurableRunResult`,
 `DurableProductError` and `UnsupportedDurableCapability` are exported from
 `pipy_harness.sdk`. All methods belong to the acquiring asyncio loop.
 
@@ -95,6 +95,7 @@ The factories and `DurableProductSession`, `DurableProviderProfile`,
 | `await product.inspect(task_id=None)` | Existing DE10 closed live metadata or one same-conversation task, with material still not_checked. |
 | `await product.observe_completed()` | Actual DE09 completed replacement watch; no accumulator or durable replay cursor. |
 | `await product.authorize_retry(task_id, nonce=...)` | A new DE10 attempt under the paused control lease. Same nonce recovers its winner; a fresh sibling generation refuses. No request override is accepted. |
+| `await product.adjudicate_interrupted(task_id, nonce=...)` | Explicit same-attempt historical decision; preserve a valid receipt or commit an uncertain interruption, then acknowledge only the decision. Resume remains separate. |
 | `await product.close()` / `async with` | Seal, stop future watch admission and await actual Session/provider/tool/read/finalizer/backend ownership. |
 
 A held result can carry waiting parent metadata with a blocked child; use
@@ -207,3 +208,14 @@ on the receipt transaction. Historical blocked states and their receipts remain
 held; existing operator retry guards are not broadened. See the
 [C1 contract](specs/2026-10-27-de13c1-interrupted-continuation-plan.md) for the
 physical cuts, mixed-catalog and counter precedence acceptance boundaries.
+
+
+## Explicit historical decisions (DE13c2)
+
+[Historical adjudication](durable-adjudication.md) adds a separate same-attempt
+operation. Its private audit and receipt/task transition commit atomically on
+the existing Session line. Fresh matching-profile admission, fixed refusal codes,
+auth-free same-nonce replay and later explicit resume are distinct operations.
+Existing retry remains NEW-attempt authorization with its unchanged receipt fence.
+A post-decision fault or abort can leave a replayable decision without a completed
+answer; `DurableAdjudication` never claims task completion.

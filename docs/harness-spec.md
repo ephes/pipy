@@ -4934,7 +4934,7 @@ as completed observation, inspection and resolution. New fact2 entries carry
 only the actual saved receipt2 internally; normal fact1/receipt1 and old canonical
 bytes remain unchanged. The following C1 slice adds noninvoking interrupted
 continuation for intact recovered execute; historical blocked calls remain
-held for C2. Provisional resource
+held on automatic resume. Explicit C2 adjudication is described below. Provisional resource
 accounting is not RSS/WAL/whole-history or Pi timing parity. Existing native
 tool-result signature refusal remains; full P15 metadata parity is still open.
 
@@ -4950,4 +4950,17 @@ private native drivers before scheduler open; generation revalidates the actual
 header and owned round before narrowing the next PREPARE_DOC. Normal saved
 requests and fact1/B fact2 representations remain unchanged. This is no mutable
 registry, new persisted authority or scheduler policy API. All historical blocked
-origins remain held for C2; DE14 owns operational restart ceilings.
+origins remain held on automatic resume; the separate C2 operation below handles
+its finite explicit evidence set. DE14 owns operational restart ceilings.
+
+
+## Explicit historical adjudication (DE13c2)
+
+The native [C2 operation](durable-adjudication.md) explicitly ends a validated
+historical blocked attempt without invoking it. Its separate audit and same-task
+receipt/settle transition share one Session transaction; existing settlement alone
+publishes the model entry. Same-nonce replay validates actual state-specific
+bindings and can acknowledge a decision after later fault/abort without claiming
+completion. Retry remains a separate NEW-attempt operation. Unsupported historical
+authority remains held; the canonical codec, fact formats, normal runtime and
+whole parity obligations are unchanged.

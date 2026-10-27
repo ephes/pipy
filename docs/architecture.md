@@ -1110,6 +1110,8 @@ The current ownership boundaries are:
 | tool_output_values.py | Closed fact2 endings/failure/interruption causes and deterministic bounded model projection |
 | tool_recovery.py | Shared noninvoking execute/receipt/progress classifier, saved authority and exact source-counter checks |
 | recovery_catalog.py | One unchanged product binding Doc declaration and a run-owned immutable saved/current catalog value; saved-order request intersection and transaction-line header revalidation |
+| adjudication_policy.py | Pure historical blocked evidence, graph/catalog eligibility and receipt-first decision construction on the Session line |
+| adjudication.py | Private conversation audit, fixed nonce replay bindings and one atomic receipt/task decision; narrowly reads the already-acquired receipt ID through existing Tx lifecycle/affinity guards |
 
 [scheduler](durable-task-runtime.md) retains its single consistently guarded
 registry and existing Session close owner. [Generation](durable-generation.md)

@@ -48,6 +48,11 @@ class DurableProductError(ValueError):
             "successor_exists",
             "invalid_request",
             "busy",
+            "stale",
+            "conflict",
+            "not_supported",
+            "receipt_held_needs_repair",
+            "retained_control",
         }
         self.code = code if type(code) is str and code in allowed else "unavailable"
         super().__init__("Durable product unavailable: " + self.code)
@@ -70,6 +75,25 @@ class DurableAdmission:
     conversation_id: int
     entry_id: int
     generation_task_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class DurableAdjudication:
+    """A committed decision acknowledgement, not a completion result."""
+
+    task_id: int
+    decision: str
+
+    def __post_init__(self) -> None:
+        product_task_id(self.task_id)
+        if type(self.decision) is not str or self.decision not in (
+            "interrupted",
+            "receipt",
+        ):
+            raise DurableProductError("incompatible")
+
+    def to_tree(self) -> dict[str, int | str]:
+        return {"task_id": self.task_id, "decision": self.decision}
 
 
 @dataclass(frozen=True, slots=True)

@@ -373,7 +373,7 @@ unchanged supported current capabilities. New capabilities never enlarge saved
 authority. Normal same-catalog requests are not rebuilt by this binding. The
 original header and provider/material/transport guards remain unchanged.
 
-Every historical blocked origin stays held, including uncertain, incompatible,
+Automatic resume keeps every historical blocked origin held, including uncertain, incompatible,
 invalid_result and intent-less forms. Any receipt on blocked work is an opaque
 repair fence. Existing explicit new-key authorization keeps its guards. C2 owns
 historical migration, including an older B runtime reading a C1 receipt and
@@ -382,3 +382,15 @@ alone distinguishes ordinary failure from reporting infrastructure loss after an
 effect. The [C1 contract](specs/2026-10-27-de13c1-interrupted-continuation-plan.md)
 requires real cold SDK/CLI cuts, receipt-first-winner and all-reader proofs.
 DE13/P21, C2, DE14, P15/P16 and the broader durable parity obligations remain open.
+
+
+## Explicit historical adjudication (DE13c2)
+
+The [separate operator operation](durable-adjudication.md) validates a blocked
+model-owned attempt and either preserves the actual supported receipt or uses
+its intact saved intent to commit the existing C1 uncertain interrupted form.
+No invocation, preparation, new task or model entry occurs in operator code.
+Existing settlement remains the sole result producer. Opaque/newer receipts and
+intent-less absent/default evidence remain held; no reason label proves origin.
+Valid receipts take priority over irrelevant current progress/restart metadata.
+The native-only audit protocol is not claimed as a Pi API equivalent.

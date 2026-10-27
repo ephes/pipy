@@ -48,6 +48,7 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE13c2",
     "DE13c1",
     "DE13b",
     "DE13a",
@@ -293,6 +294,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE13c2",
     "DE13c1",
     "DE13b",
     "DE13a",
@@ -323,6 +325,7 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE13c2": "de13c2-explicit-historical-adjudication",
     "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
     "DE13a": "de13a-normal-details-abi-acceptance",
@@ -474,6 +477,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13a": "docs/tool-details.md",
         "DE13b": "docs/durable-tools.md",
         "DE13c1": "docs/durable-tools.md",
+        "DE13c2": "docs/durable-adjudication.md",
     }
     if key in topics:
         links.append(topics[key])

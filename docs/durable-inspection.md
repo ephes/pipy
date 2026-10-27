@@ -39,11 +39,13 @@ abort/close, actual owned work and incompatible support refuse before effects.
 No I/O, callbacks, joins, Future completion or foreign-reference disposal occur
 under the lifecycle condition.
 
-ANY receipt on a pending blocked tool means held-needs-repair: no retry,
+For operator retry, ANY receipt on a pending blocked tool means held-needs-repair: no retry,
 mutation, retirement or settlement path. This hold also takes precedence over
 an abort request; without a receipt, an abort request keeps its abort reason.
-Valid receipt reuse belongs only to an
-actual still-settle task, which is ineligible for operator retry. Receipt absence
+Automatic valid receipt reuse belongs to an actual still-settle task, which is
+ineligible for operator retry. The separate [C2 adjudication operation](durable-adjudication.md)
+can explicitly preserve supported blocked receipt authority or repair an exact
+known empty default; this does not change the retry predicate. Receipt absence
 does not prove that an unsafe effect did not occur.
 
 An eligible tool retry is a NEW authorized child. One transaction retains old

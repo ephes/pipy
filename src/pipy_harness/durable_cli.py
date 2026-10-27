@@ -14,6 +14,7 @@ from pipy_harness.native.durable.inspection_values import InspectionError
 from pipy_harness.native.durable.tool_execution import ToolRegistration
 from pipy_harness.sdk import (
     DurableProductError,
+    DurableProductSession,
     DurableProviderProfile,
     DurableRunSelection,
     create_durable_product_session,
@@ -128,17 +129,8 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
     if command.action == "start":
         assert content is not None
         await owner.stage(owner.accept(product.submit(content)))
-    if command.action == "authorize-retry":
-        assert command.task_id is not None and command.nonce is not None
-        authorization = await owner.stage(
-            owner.accept(product.authorize_retry(command.task_id, nonce=command.nonce))
-        )
-        output = {
-            "format": "pipy-durable-output",
-            "version": 1,
-            "operation": "authorize-retry",
-            **authorization.to_tree(),
-        }
+    if command.action in ("authorize-retry", "adjudicate-interrupted"):
+        output = await _operator(command, owner, product)
         code = 0
     else:
         if command.nonce is not None:
@@ -154,7 +146,10 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
             else (3 if result.status == "held" else 1)
         )
     text = json_output(output)
-    if command.format == "text" and command.action != "authorize-retry":
+    if command.format == "text" and command.action not in (
+        "authorize-retry",
+        "adjudicate-interrupted",
+    ):
         text = final_text(result) + "\n" if code == 0 else ""
     if text:
         await owner.stage(owner.accept(write_output(text, owner)))
@@ -163,6 +158,31 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
             "Durable command unavailable: " + ("held" if code == 3 else "failed") + "\n"
         )
     return code
+
+
+async def _operator(
+    command: DurableCommand, owner: CommandOwner, product: DurableProductSession
+) -> dict[str, Any]:
+    assert command.task_id is not None and command.nonce is not None
+    payload: dict[str, Any]
+    if command.action == "adjudicate-interrupted":
+        decision = await owner.stage(
+            owner.accept(
+                product.adjudicate_interrupted(command.task_id, nonce=command.nonce)
+            )
+        )
+        payload = decision.to_tree()
+    else:
+        authorization = await owner.stage(
+            owner.accept(product.authorize_retry(command.task_id, nonce=command.nonce))
+        )
+        payload = authorization.to_tree()
+    return {
+        "format": "pipy-durable-output",
+        "version": 1,
+        "operation": command.action,
+        **payload,
+    }
 
 
 async def _run(command: DurableCommand, owner: CommandOwner, fd: int | None) -> int:

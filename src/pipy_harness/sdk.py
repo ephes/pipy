@@ -25,6 +25,7 @@ from pipy_harness.native.agent.tool_details import (
 )
 from pipy_harness.native.coding.state import CodingSessionResultSnapshot
 from pipy_harness.native.durable.product_values import (
+    DurableAdjudication,
     DurableAdmission,
     DurableProductError,
     DurableProviderProfile,
@@ -53,6 +54,7 @@ __all__ = [
     "NestedCallRecord",
     "DurableProductSession",
     "DurableAdmission",
+    "DurableAdjudication",
     "DurableProductError",
     "DurableProviderProfile",
     "DurableRunResult",

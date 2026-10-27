@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -186,10 +186,11 @@ that coverage here. A local validation result is not a landed slice.
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
 | DE12 | Opt-in headless CLI recovery | LANDED | [Native CLI/real cuts, wire/live and declared reference boundary](#de12-opt-in-headless-cli-acceptance); full parity OPEN |
-| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a/b delivered; C1 bounded execute continuation active; C2 historical blocked migration and full P21 remain OPEN |
+| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a/b delivered; C1 bounded execute continuation delivered; C2 explicit historical adjudication active; full P21 remains OPEN |
 | DE13a | Normal generic details ABI prerequisite | LANDED | [Normal details acceptance](#de13a-normal-details-abi-acceptance); external final gates required |
 | DE13b | Retained reporting and ordinary failed-child continuation | LANDED | Delivered at `a069a8a8`; [bounded reporting acceptance](#de13b-retained-reporting-acceptance) |
-| DE13c1 | Intact recovered execute and interrupted continuation | IN_PROGRESS | [Bounded C1 implementation](#de13c1-implementation-boundary-2026-10-27); final comparison/platform/full/CODE gates pending; historical blocked migration remains C2 |
+| DE13c1 | Intact recovered execute and interrupted continuation | LANDED | `5897353`; [delivered validation](#de13c1-delivery-and-c2-boundary-2026-10-27); historical blocked migration remains C2 |
+| DE13c2 | Explicit historical blocked adjudication | IN_PROGRESS | Bounded same-attempt operation, actual receipt/audit bindings and public continuation; final gates pending |
 | DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
@@ -291,7 +292,7 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a delivered at `c642ac9b` is the bounded normal-details prerequisite; DE13b retained reporting and ordinary failure continuation landed at `a069a8a8`; bounded interrupted execute continuation is active in C1, with all historical blocked migration deferred to C2. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a delivered at `c642ac9b` is the bounded normal-details prerequisite; DE13b retained reporting and ordinary failure continuation landed at `a069a8a8`; bounded interrupted execute continuation landed in C1 at `5897353`, with explicit historical blocked adjudication active in C2. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
 `gpt-6-astra` HIGH implements the authorized DE13b shared-lifetime integration; Claude Code `claude-opus-5-5` (Opus5.5)
@@ -8966,3 +8967,36 @@ under the original key. Their provider-uncertainty, normal receipt, usage and
 terminal-reopen controls remain. Historical held/operator-retry cases retain
 their separate unchanged contract; a fresh execute is not converted into a
 historical blocked record merely to preserve an older fixture expectation.
+
+
+## DE13c1 delivery and C2 boundary (2026-10-27)
+
+C1 landed at `589735343d3984fde980d0737c09cb8bf26371fb`, parent
+`a069a8a81affb8672f78f33177c490dce84c1588`, tree
+`cd0934522c7ac9b5e71d8de9c3f398dd8f472a11`. The delivered source/index/archive
+contained 4,213 bound files. Actual full validation passed 19,880 cases with 20
+known skips; all 2,198 focused IDs were included, with six-runtime focused proof.
+Two fresh 24-phase chains and 54 fresh pure API processes passed. Independent
+whole-code review and the narrow final AST inventory correction review were
+accepted. Earlier failed full/platform/comparison epochs remain historical.
+
+## DE13c2 explicit historical adjudication
+
+C2 implements the [explicit historical contract](2026-10-27-de13c2-explicit-historical-adjudication-plan.md).
+Its plan reviews remained ISSUES; accepted profile/lifecycle, error-code and
+state-specific nonce repairs are executable targets for whole-C2 CODE review.
+Preliminary tests distinguish genuine reporting holds from typed policy controls.
+Archived DE12/B kernel fixtures prove historical producer origins but contain no
+product header; public joins require fresh genuine old public SDK stores, never
+a fabricated header. Current C2 focused results are not a final source freeze,
+full validation, review acceptance or delivery. All parent DE13/P21 and broader
+parity obligations remain open pending their actual remaining implementations.
+
+The first whole-C2 CODE review reported a pre-existing public resume/close
+inspection-error leak accepted by the new cleanup test, an unpinned first-winner
+order in the retry/adjudication test, and missing usage documentation. Repair
+keeps translation at public resume for both original and coalesced callers,
+requires only the public closed error in post-ACK cleanup, and observes actual
+first control admission before offering the competing operation. The original
+review and interrupted validation epoch remain historical; new focused and
+final source-bound gates are required before delivery.

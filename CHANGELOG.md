@@ -8,6 +8,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add explicit native historical-tool adjudication through the durable SDK and
+  CLI. A validated blocked attempt can commit an uncertain interruption without
+  invoking it, or preserve its actual saved receipt. The separate private audit
+  supports same-nonce decision recovery, including after settlement or a later
+  scheduler fault. Fresh decisions require matching product/profile authority;
+  valid winner replay can be profile-free. Opaque or unverifiable evidence stays
+  held, retry remains a distinct new attempt, and continuation requires explicit
+  resume. The operation does not establish effect absence or whole DE13 parity.
+
 - Continue intact recovered durable tool executes with an explicit uncertain
   interrupted result when safe replay is unavailable. Retain committed output,
   details and diagnostics without invoking the tool again; an existing valid
@@ -547,6 +556,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   explicitly deferred in the catalog triage.
 
 ### Fixed
+
+- Keep durable `resume()` errors within the public SDK boundary when explicit
+  close races an inspection read. Original and coalesced waiters receive the
+  fixed `DurableProductError("closed")`, while admitted work and cleanup retain
+  their existing ownership and cancellation behavior.
 
 - Codex SSE responses now close when explicitly retired before their first
   read and on every parser exit, including provider errors and sink failures.

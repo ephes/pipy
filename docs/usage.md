@@ -5,12 +5,15 @@ quickstart page.
 
 ## Opt-in durable headless runs
 
-Use [`pipy durable start/resume/inspect/authorize-retry`](durable-headless.md)
+Use [`pipy durable start/resume/inspect/authorize-retry/adjudicate-interrupted`](durable-headless.md)
 for an explicit native SQLite run. This reserved command family routes before
 legacy session/settings setup; it has no JSONL fallback and does not change
 interactive/JSON/RPC defaults. Start takes one prompt or supported stdin source;
 resume reuses committed state and inspect is passive metadata. See the linked
 guide for profile authority, uncertainty, exit codes, signals and state locations.
+The separate [historical adjudication](durable-adjudication.md) command ends a
+validated uncertain attempt without invoking it and requires explicit resume
+after acknowledging the decision.
 
 ## Interactive mode
 

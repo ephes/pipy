@@ -24,6 +24,17 @@ def test_every_delivery_and_parity_requirement_retains_explicit_future_ownership
     )
 
 
+def test_adjudication_has_native_evidence_without_an_invented_reference_case():
+    value = o.load(o.FIXTURES / "coverage.json")
+    row = next(row for row in value["rows"] if row["id"] == "DE13c2")
+    assert row["current"]["kind"] == "bounded-native"
+    assert row["current"]["cases"] == []
+    assert row["status"] == "IN_PROGRESS"
+    row["current"]["cases"] = ["interrupted-tool-continuation-v1"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

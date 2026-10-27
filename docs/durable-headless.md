@@ -58,7 +58,7 @@ Intact recovered unsafe executes use the SDK's C1 uncertain interrupted result
 without invoking the tool again. `resume --no-tools` can use this exception only
 when all unresolved work has closed noninvoking authority; it does not authorize
 pre-intent or old-request dispatch. Historical blocked intent/effect uncertainty
-stays held even if no effect is observed. An operator can explicitly authorize a
+stays held on automatic resume even if no effect is observed. An operator can explicitly authorize a
 distinct new attempt under the unchanged retry guards:
 
 ```bash
@@ -78,14 +78,15 @@ stale states, receipt-bearing blocked tasks and retained terminate controls do
 not become safe replay. Old uncertainty stays private and is never forged into
 old success. Nonfinal terminate can hold a waiting parent/later pending call;
 final/only terminate can leave generation pending/blocked. Inspect derives the
-retained-control reason. C1 does not migrate historical blocked states; C2 owns
-that repair/adjudication boundary. Missing/current capabilities never waive
+retained-control reason. C1 does not migrate historical blocked states. The separate
+[C2 adjudication command](durable-adjudication.md) can acknowledge an eligible
+same-attempt decision without invoking it; it does not weaken retry guards. Missing/current capabilities never waive
 provider/material guards or authorize replay.
 
 ## Output, signals and physical lifetime
 
 For start/resume, `--format text` prints the final completed assistant text;
-`--format json` emits the completed envelope. Inspect and authorize-retry always
+`--format json` emits the completed envelope. Inspect, authorize-retry and adjudicate-interrupted always
 emit their closed JSON report, including when `--format text` is supplied.
 JSON run format version2
 emits `pipy-durable-output`: committed completed messages/rounds, saved usage,
@@ -102,7 +103,7 @@ This full-content output is product data, not a metadata-only workflow event.
 
 | Exit | Meaning after actual cleanup |
 | --- | --- |
-| 0 | Completed committed outcome, successful output/flush and physical close |
+| 0 | Completed committed outcome or acknowledged operator decision, successful output/flush and physical close |
 | 1 | Failed/faulted/aborted outcome or fixed runtime refusal |
 | 2 | Invalid/unsupported command, signal domain or stdin descriptor |
 | 3 | Durable held/uncertain work |

@@ -65,7 +65,13 @@ def _profile(parser: argparse.ArgumentParser, *, required: bool) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="pipy durable", allow_abbrev=False)
     subs = parser.add_subparsers(dest="action", required=True)
-    for action in ("start", "resume", "inspect", "authorize-retry"):
+    for action in (
+        "start",
+        "resume",
+        "inspect",
+        "authorize-retry",
+        "adjudicate-interrupted",
+    ):
         sub = subs.add_parser(action, allow_abbrev=False)
         sub.add_argument("--store", required=True)
         sub.add_argument("--format", choices=("text", "json"), default="text")
@@ -75,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
             select.add_argument("--conversation")
         else:
             sub.add_argument("--workspace", required=True)
-            _profile(sub, required=action != "resume")
+            _profile(sub, required=action not in ("resume", "adjudicate-interrupted"))
         if action == "start":
             source = sub.add_mutually_exclusive_group(required=True)
             source.add_argument("--prompt")
@@ -83,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
         if action == "resume":
             sub.add_argument("--task")
             sub.add_argument("--resolution-nonce", dest="nonce")
-        if action == "authorize-retry":
+        if action in ("authorize-retry", "adjudicate-interrupted"):
             sub.add_argument("--task", required=True)
             sub.add_argument("--nonce", required=True)
     return parser

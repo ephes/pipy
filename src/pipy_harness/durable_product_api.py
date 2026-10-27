@@ -48,6 +48,7 @@ from .native.durable.product_binding import (
     select_run,
 )
 from .native.durable.product_values import (
+    DurableAdjudication,
     DurableAdmission,
     DurableProductError,
     DurableProviderProfile,
@@ -482,11 +483,15 @@ class DurableProductSession:
         if self._resume_work is not None and not self._resume_work[1].done():
             if self._resume_work[0] != selection:
                 raise DurableProductError("selection_required")
-            return await asyncio.shield(self._resume_work[1])
-        work = asyncio.create_task(self._owned(lambda: self._run(selection)))
-        work.add_done_callback(_observe_error)
-        self._resume_work = (selection, work)
-        return await asyncio.shield(work)
+            work = self._resume_work[1]
+        else:
+            work = asyncio.create_task(self._owned(lambda: self._run(selection)))
+            work.add_done_callback(_observe_error)
+            self._resume_work = (selection, work)
+        try:
+            return await asyncio.shield(work)
+        except InspectionError as error:
+            raise DurableProductError(error.code) from None
 
     async def _run(self, selection: DurableRunSelection | None) -> DurableRunResult:
         if self._scheduler is not None:
@@ -584,6 +589,68 @@ class DurableProductSession:
             finally:
                 changed.cancel()
                 await asyncio.gather(changed, return_exceptions=True)
+
+    async def adjudicate_interrupted(
+        self, task_id: int, *, nonce: str, **unsupported: object
+    ) -> DurableAdjudication:
+        """Explicitly end an uncertain historical attempt without invoking it.
+
+        Replaying a validated decision may be auth-free. Fresh admission needs
+        a matching profile; only a later explicit resume can execute a provider.
+        """
+        from .native.durable import adjudication
+
+        _options(unsupported)
+        self._check("durable_adjudicate_interrupted")
+        task_id = product_task_id(task_id)
+        DurableRunSelection(task_id, nonce)
+
+        def target() -> Any:
+            value = self._header()
+            if (
+                self._profile is not None
+                and list(self._profile._selection) != value["selection"]
+            ):
+                raise DurableProductError("incompatible")
+            storage = self._session._owner.storage
+            found = adjudication.winner(storage, value, task_id, nonce)
+            if found is not None:
+                return found
+            if self._profile is None:
+                raise DurableProductError("profile_required")
+            adjudication.refuse_second_decision(storage, value, task_id)
+            catalog = RecoveryCatalog.capture(value, _tool_tree(self._tool))
+            if self._scheduler is not None and self._catalog != catalog:
+                raise DurableProductError("incompatible")
+            return adjudication.prepare(
+                storage, self._path, self._workspace, task_id, _tool_tree(self._tool)
+            )
+
+        async def authorize() -> DurableAdjudication:
+            try:
+                adjudication.metadata(self._scheduler, drained=False)
+                if self._scheduler is not None:
+                    await self._scheduler.apause()
+                adjudication.metadata(self._scheduler)
+                # Keep private fixed policy codes across this operation only.
+                chosen = await owned_call(lambda: self._session.read_on_line(target))
+                if type(chosen) is DurableAdjudication:
+                    return chosen
+                return await owned_call(
+                    lambda: adjudication.commit(
+                        self._session,
+                        self._path,
+                        self._workspace,
+                        _tool_tree(self._tool),
+                        chosen,
+                        nonce,
+                        self._scheduler,
+                    )
+                )
+            except ResolutionError as error:
+                raise DurableProductError(error.code) from None
+
+        return await self._owned(authorize)
 
     async def authorize_retry(
         self, task_id: int, *, nonce: str, **unsupported: object

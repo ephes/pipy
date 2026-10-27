@@ -109,26 +109,31 @@ def archived_b_source(root):
             )
         )
         return older
+    older = root / "archived-b-source"
+    provenance = archived_git_source(
+        older, B_COMMIT, B_TREE, ("src", "tests/durable/sqlite_child_support.py")
+    )
+    _validate_b_parsers(older)
+    provenance["pinned_parser_sha256"] = _B_PARSER_HASHES
+    (root / "archived-b-provenance.json").write_text(json.dumps(provenance, indent=2))
+    return older
+
+
+def archived_git_source(older, commit, tree, paths):
+    """Shared test factory: exact pinned Git source, no imports or network."""
     evidence = []
     assert (
-        _read_git(_REPOSITORY_ROOT, ["rev-parse", B_COMMIT + "^{tree}"], evidence)
+        _read_git(_REPOSITORY_ROOT, ["rev-parse", commit + "^{tree}"], evidence)
         .decode()
         .strip()
-        == B_TREE
+        == tree
     )
     archive = _read_git(
         _REPOSITORY_ROOT,
-        [
-            "archive",
-            "--format=tar",
-            B_COMMIT,
-            "src",
-            "tests/durable/sqlite_child_support.py",
-        ],
+        ["archive", "--format=tar", commit, *paths],
         evidence,
     )
-    older = root / "archived-b-source"
-    older.mkdir()
+    older.mkdir(parents=True)
     files = {}
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as source:
         for member in source:
@@ -147,22 +152,15 @@ def archived_b_source(root):
                 "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
                 "mode": member.mode,
             }
-    _validate_b_parsers(older)
-    (root / "archived-b-provenance.json").write_text(
-        json.dumps(
-            {
-                "mode": "actual read-only pinned Git archive",
-                "commit": B_COMMIT,
-                "tree": B_TREE,
-                "source": str(older),
-                "archive_sha256": hashlib.sha256(archive).hexdigest(),
-                "processes": evidence,
-                "files": files,
-            },
-            indent=2,
-        )
-    )
-    return older
+    return {
+        "mode": "actual read-only pinned Git archive",
+        "commit": commit,
+        "tree": tree,
+        "source": str(older),
+        "archive_sha256": hashlib.sha256(archive).hexdigest(),
+        "processes": evidence,
+        "files": files,
+    }
 
 
 def validate_archived_b_actor(older, event):

@@ -220,3 +220,12 @@ notice; its private receipt intent/key/workspace remain excluded. Generic failed
 foreign or malformed children do not become continuable. Missing counter keys,
 wrong controls and wrong terminal causes refuse through the same shared reader.
 See the [C1 tool contract](durable-tools.md#interrupted-recovered-execute-continuation-de13c1).
+
+
+## Explicit historical decision acknowledgements
+
+An adjudication acknowledgement is not a CompletedMessage or a tool result. The
+separate private audit never enters projection. Normal settlement keeps the
+existing fact1 projection or single actual receipt2 carrier; post-decision
+fault/abort replay acknowledges only the decision, without inventing an entry.
+See [historical adjudication](durable-adjudication.md).
