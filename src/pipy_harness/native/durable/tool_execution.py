@@ -29,9 +29,10 @@ from .execution_support import ExecutionSupport
 from .generation import message_entry
 from .generation_tasks import TOOL_NAME, TOOL_VERSION, _initial
 from .generation_transport import owned_call
+from .recovery_catalog import HEADER, RecoveryCatalog
 from .scheduler import TaskContext, TaskRuntime, TaskTx
 from .tasks import Task, define_task
-from .tool_output_values import failure_text, project_tool_output
+from .tool_output_values import ending_text, project_tool_output
 from .tool_progress import ProgressEnded, RetainedToolProgress
 from .tool_progress_values import (
     FailureCategory,
@@ -302,6 +303,24 @@ async def _transport(
 class _Tool:
     registrations: Mapping[str, _Registration]
     workspace: Path
+    catalog: RecoveryCatalog | None = None
+
+    def support(self) -> ExecutionSupport:
+        return ExecutionSupport(
+            {
+                "family": "model_tool",
+                "version": 1,
+                "workspace": str(self.workspace),
+                "tools": {
+                    name: {
+                        "descriptor": value.descriptor.thaw(),
+                        "advertised": encode_canonical(value.port.definition),
+                        "supported": value.supported,
+                    }
+                    for name, value in self.registrations.items()
+                },
+            }
+        )
 
     async def call(
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
@@ -380,37 +399,115 @@ class _Tool:
     async def execute(
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
     ) -> None:
+        from .tool_recovery import classify, counter
+
         previous = checkpoint(record["state"]["checkpoint"])
-        captured = []
+        replay = []
 
-        async def read(tx: TaskTx, current: Tree) -> None:
+        async def recover(tx: TaskTx, current: Tree) -> Tree | None:
             _same(current, previous)
-            captured.append(await tx.model_tool_call())
-
-        await runtime.commit(read)
-        model = captured[0]
-        saved = previous["intent"]
-        registration = self.registrations.get(model.call.tool_name)
-        compatible = (
-            registration is not None
-            and registration.supported
-            and OwnedJson(saved["definition"]) == registration.descriptor
-            and saved["workspace"]
-            == str(self.workspace)
-            == str(model.snapshot.request.cwd)
-            and saved["call"] == record["input"]
-        )
-        if not compatible or saved["definition"]["replay"] != "safe":
-            await self.block(
-                runtime,
-                previous,
-                saved,
-                "uncertain" if compatible else "incompatible",
-                record["input"],
+            model = await tx.model_tool_call()
+            if self.catalog is not None:
+                actual = (await tx.doc(HEADER)).snapshot().thaw()
+                self.catalog.next_snapshot(
+                    actual, current["conversationId"], model.snapshot
+                )
+                self.catalog.validate_intent(previous["intent"], model.call.tool_name)
+            saved_doc = await tx.doc(RECEIPT_DOC)
+            raw_saved = saved_doc.snapshot().thaw()
+            retained = (
+                (await tx.doc(PROGRESS_DOC)).snapshot().thaw()
+                if type(raw_saved) is dict and not raw_saved
+                else {}
             )
-            return
-        assert registration is not None
-        await self.run(record, runtime, context, previous, model.call, registration)
+            if type(raw_saved) is dict and not raw_saved and "restarts" in current:
+                counter(current["restarts"])
+            try:
+                decision = classify(
+                    current,
+                    model.call,
+                    model.snapshot,
+                    self.support().to_tree(),
+                    raw_saved,
+                    retained,
+                )
+            except (ValueError, TypeError, KeyError, IndexError):
+                # Invalid receipt/progress is a hold, never permission to
+                # synthesize a replacement or to retry an effect.
+                return {
+                    "status": "pending",
+                    "checkpoint": {
+                        "phase": "blocked",
+                        "version": 1,
+                        "intent": previous["intent"],
+                        "reason": "incompatible",
+                    },
+                }
+            if decision.disposition == "replay":
+                if self.catalog is not None and not self.catalog.unchanged:
+                    refuse()
+                replay.append(model.call)
+                return None
+            final = previous["intent"]
+            if model.has_descendants and (
+                decision.disposition == "interrupted"
+                or decision.saved is not None
+                and cast(Tree, decision.saved.thaw())["nativeToolOutput"].get("ending")
+                == "interrupted"
+            ):
+                return {
+                    "status": "pending",
+                    "checkpoint": {
+                        "phase": "blocked",
+                        "version": 1,
+                        "intent": final,
+                        "reason": "incompatible",
+                    },
+                }
+            if decision.disposition == "interrupted":
+                assert decision.retained is not None
+                retained = cast(Tree, decision.retained.thaw())
+                result = ToolExecutor({}).error_result(model.call, retained["output"])
+                outcome = ToolExecutionOutcome(
+                    replace(result, details=detail_value(retained["details"])),
+                    execution_seconds=None,
+                )
+                output = native_tool_output(
+                    outcome,
+                    datetime.now(timezone.utc),
+                    diagnostics=retained["diagnostics"],
+                    interrupted={
+                        "reason": "interrupted",
+                        "attempts": retained["attempts"],
+                        "restarts": decision.restarts,
+                    },
+                )
+                saved = {
+                    "version": 2,
+                    "intent": final,
+                    "call": current["input"],
+                    "key": final["key"],
+                    "nativeToolOutput": output,
+                }
+                receipt(saved)
+                saved_doc.update(saved)
+            # A valid existing receipt is the first winner. No payload rewrite.
+            return {
+                "status": "running",
+                "checkpoint": {"phase": "settle", "version": 1, "key": final["key"]},
+            }
+
+        await runtime.commit(recover)
+        if replay:
+            call = replay[0]
+            await self.run(
+                record,
+                runtime,
+                context,
+                previous,
+                call,
+                self.registrations[call.tool_name],
+            )
 
     async def run(
         self,
@@ -592,10 +689,10 @@ class _Tool:
                     "result": {"kind": "model", "entryId": entry.id},
                 },
             }
-            if full["version"] == 2 and full["ending"] == "failed":
+            if full["version"] == 2 and full["ending"] in ("failed", "interrupted"):
                 terminal["outcome"].update(
                     status="failed",
-                    error={"message": failure_text(full["recovery"]["category"])},
+                    error={"message": ending_text(full)},
                 )
             return terminal
 
@@ -635,9 +732,9 @@ async def _abort(*args: Any) -> None:
     refuse()
 
 
-def define_tool_task(
+def _capture_tool(
     registrations: Mapping[str, ToolRegistration], *, workspace_root: Path
-) -> Task[Any, Any, Any]:
+) -> _Tool:
     """Fixed current model-callable registry; live reload belongs to DE21/23."""
     if (
         type(registrations) not in (dict, MappingProxyType)
@@ -649,32 +746,28 @@ def define_tool_task(
         owned = MappingProxyType(
             {name: _capture(name, raw) for name, raw in registrations.items()}
         )
-        driver = _Tool(owned, workspace_root)
-        return define_task(
-            TOOL_NAME,
-            TOOL_VERSION,
-            _initial,
-            {
-                "call": _safe(driver.call),
-                "execute": _safe(driver.execute),
-                "settle": _safe(driver.settle),
-            },
-            _abort,
-            support=ExecutionSupport(
-                {
-                    "family": "model_tool",
-                    "version": 1,
-                    "workspace": str(workspace_root),
-                    "tools": {
-                        name: {
-                            "descriptor": value.descriptor.thaw(),
-                            "advertised": encode_canonical(value.port.definition),
-                            "supported": value.supported,
-                        }
-                        for name, value in owned.items()
-                    },
-                }
-            ),
-        )
+        return _Tool(owned, workspace_root)
     except (TypeError, ValueError):
         refuse()
+
+
+def _tool_definition(driver: _Tool) -> Task[Any, Any, Any]:
+    return define_task(
+        TOOL_NAME,
+        TOOL_VERSION,
+        _initial,
+        {
+            "call": _safe(driver.call),
+            "execute": _safe(driver.execute),
+            "settle": _safe(driver.settle),
+        },
+        _abort,
+        support=driver.support(),
+    )
+
+
+def define_tool_task(
+    registrations: Mapping[str, ToolRegistration], *, workspace_root: Path
+) -> Task[Any, Any, Any]:
+    """Fixed current model-callable registry without a product catalog binding."""
+    return _tool_definition(_capture_tool(registrations, workspace_root=workspace_root))

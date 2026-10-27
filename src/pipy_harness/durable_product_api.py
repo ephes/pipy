@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -21,13 +22,17 @@ from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition
 
 from .native.durable.canonical_codec import decode_canonical, encode_canonical
-from .native.durable.codec import OwnedJson
 from .native.durable.completed_projection import CompletedWatch, observe_completed
 from .native.durable.generation import message_entry
 from .native.durable.generation_tasks import GENERATION_NAME
 from .native.durable.generation_transport import owned_call
 from .native.durable.inspection import ainspect_live, ainspect_task
-from .native.durable.inspection_read import round_facts, tasks
+from .native.durable.inspection_read import (
+    peek_document,
+    round_facts,
+    tasks,
+    terminate_index,
+)
 from .native.durable.inspection_values import (
     InspectionError,
     InspectionPage,
@@ -36,7 +41,6 @@ from .native.durable.inspection_values import (
 )
 from .native.durable.product_acquisition import acquire
 from .native.durable.product_binding import (
-    HEADER,
     bound_seed,
     header,
     retry_edges,
@@ -54,6 +58,7 @@ from .native.durable.product_values import (
 )
 from .native.durable.product_wake import ProductWake
 from .native.durable.records import TaskId
+from .native.durable.recovery_catalog import HEADER, RecoveryCatalog
 from .native.durable.resolution import GENERATION_ADMISSION, _winner
 from .native.durable.resolution_values import ResolutionError, ResolutionResult
 from .native.durable.scheduler import TaskScheduler
@@ -63,10 +68,16 @@ from .native.durable.sqlite import open_sqlite_storage
 from .native.durable.storage import Cursor, Storage
 from .native.durable.tasks import Task
 from .native.durable.tool_execution import (
+    RECEIPT_DOC,
     ToolRegistration,
+    _capture_tool,
+    _Tool,
     builtin_registrations,
-    define_tool_task,
 )
+from .native.durable.tool_execution import (
+    _tool_definition as _captured_tool_definition,
+)
+from .native.durable.tool_recovery import committed, counter
 from .native.durable.tool_values import _model_declaration
 
 T = TypeVar("T")
@@ -88,9 +99,9 @@ def _paths(path: Path, workspace: Path) -> tuple[Path, Path]:
 
 def _tool_definition(
     tools: Mapping[str, ToolRegistration] | None, workspace: Path
-) -> Task[Any, Any, Any]:
+) -> _Tool:
     try:
-        return define_tool_task(
+        return _capture_tool(
             builtin_registrations() if tools is None else tools,
             workspace_root=workspace,
         )
@@ -171,11 +182,17 @@ class DurableProductSession:
         path: Path,
         workspace: Path,
         profile: DurableProviderProfile | None,
-        tool: Task[Any, Any, Any],
+        tool: _Tool,
         selection: DurableRunSelection | None,
     ) -> None:
         self._session, self._path, self._workspace = session, path, workspace
-        self._profile, self._tool, self._selection = profile, tool, selection
+        self._tool_driver = tool
+        self._profile, self._tool, self._selection = (
+            profile,
+            _captured_tool_definition(tool),
+            selection,
+        )
+        self._catalog: RecoveryCatalog | None = None
         self._loop = asyncio.get_running_loop()
         self._control = asyncio.Lock()
         self._operations: set[asyncio.Task[Any]] = set()
@@ -340,27 +357,34 @@ class DurableProductSession:
         value = self._header()
         return value, select_run(self._session._owner.storage, value, selection)
 
-    async def _scheduler_for_run(self, value: Tree) -> TaskScheduler:
+    async def _scheduler_for_run(
+        self, value: Tree, catalog: RecoveryCatalog
+    ) -> TaskScheduler:
         if self._profile is None:
             raise DurableProductError("profile_required")
-        if list(self._profile._selection) != value["selection"] or OwnedJson(
-            _tool_tree(self._tool)
-        ) != OwnedJson(value["tools"]):
+        if list(self._profile._selection) != value["selection"]:
             raise DurableProductError("incompatible")
         profile = self._profile
         if self._scheduler is None:
             scheduler = await owned_call(
                 lambda: TaskScheduler(
                     self._session,
-                    (profile._definition, self._tool),
+                    (
+                        profile._bound_definition(catalog),
+                        _captured_tool_definition(
+                            replace(self._tool_driver, catalog=catalog)
+                        ),
+                    ),
                 )
             )
+            self._catalog = catalog
             self._scheduler = scheduler
             await scheduler.aopen()
-        assert self._scheduler is not None
+        elif self._catalog != catalog:
+            raise DurableProductError("incompatible")
         return self._scheduler
 
-    def _preflight(self, root: Tree) -> None:
+    def _preflight_ownership(self, root: Tree) -> tuple[list[Tree], list[Tree]]:
         storage = self._session._owner.storage
         rows = tasks(storage)
         allowed = {root["id"]}
@@ -388,6 +412,64 @@ class DurableProductSession:
                 row.get("owner") != root["id"] or row["kind"] != self._tool.name
             ):
                 raise DurableProductError("foreign_live_task")
+
+        return rows, live_children
+
+    def _preflight(self, root: Tree, value: Tree) -> RecoveryCatalog:
+        _, live_children = self._preflight_ownership(root)
+        storage = self._session._owner.storage
+
+        try:
+            catalog = RecoveryCatalog.capture(value, _tool_tree(self._tool))
+            for row in live_children:
+                if row["state"].get("checkpoint", {}).get("phase") != "execute":
+                    continue
+                saved = peek_document(
+                    storage, RECEIPT_DOC, row["conversationId"], row["id"]
+                )
+                raw = {} if saved is None else saved["value"]
+                if type(raw) is dict and not raw and "restarts" in row:
+                    counter(row["restarts"])
+            if not catalog.unchanged:
+                self._recovery_preflight(storage, root, live_children, catalog)
+            return catalog
+        except (ValueError, TypeError, KeyError, IndexError):
+            raise DurableProductError("incompatible") from None
+
+    def _recovery_preflight(
+        self,
+        storage: Storage,
+        root: Tree,
+        children: list[Tree],
+        catalog: RecoveryCatalog,
+    ) -> None:
+        # No old provider request, pre-intent child or mixed safe replay can
+        # enter the exception. Refusal occurs before the scheduler is opened.
+        if (
+            root["state"].get("checkpoint", {}).get("phase") != "tools"
+            or root["abortRequested"]
+            or root["background"]
+            or root.get("abandonOnRestart")
+        ):
+            raise DurableProductError("incompatible")
+        rows = tasks(storage)
+        doc, assistant, snapshot, entries = round_facts(storage, root, rows)
+        if terminate_index(root, doc["value"], assistant, rows, entries) is not None:
+            raise DurableProductError("incompatible")
+        catalog.next_snapshot(self._header(), root["conversationId"], snapshot)
+        for row in children:
+            decision = committed(storage, row, _tool_tree(self._tool))
+            if decision.disposition == "replay":
+                raise DurableProductError("incompatible")
+            frame = row["state"]["checkpoint"]
+            if frame["phase"] == "execute":
+                call_id = row["input"]["callId"]
+                call = next(
+                    c
+                    for c in assistant.tool_calls
+                    if c.provider_correlation_id == call_id
+                )
+                catalog.validate_intent(frame["intent"], call.tool_name)
 
     async def resume(
         self, selection: DurableRunSelection | None = None, **unsupported: object
@@ -425,9 +507,11 @@ class DurableProductSession:
         scheduler = None
         try:
             if root["state"]["status"] != "terminal":
-                scheduler = await self._scheduler_for_run(value)
+                if self._profile is None:
+                    raise DurableProductError("profile_required")
+                catalog = await self._read(lambda: self._preflight(root, value))
+                scheduler = await self._scheduler_for_run(value, catalog)
                 await scheduler.apause()
-                await self._read(lambda: self._preflight(root))
                 scheduler.resume()
             return await self._wait_result(root, value, watch, wake, watcher, closed)
         finally:
@@ -511,7 +595,10 @@ class DurableProductSession:
 
         async def authorize() -> ResolutionResult:
             value = await self._read(self._header)
-            scheduler = await self._scheduler_for_run(value)
+            catalog = RecoveryCatalog.capture(value, _tool_tree(self._tool))
+            if not catalog.unchanged:
+                raise DurableProductError("incompatible")
+            scheduler = await self._scheduler_for_run(value, catalog)
             await scheduler.apause()
 
             row, request, winner = await self._read(
@@ -579,7 +666,7 @@ class DurableProductSession:
             edges = retry_edges(self._session._owner.storage, value)
             if root["id"] != value["initial_generation"] and root["id"] not in edges:
                 raise DurableProductError("incompatible")
-        self._preflight(root)
+        self._preflight_ownership(root)
 
     async def close(self) -> None:
         self._check("durable_close", closing=True)
@@ -669,7 +756,8 @@ async def create_durable_product_session(
         raise UnsupportedDurableCapability
     path, workspace = _paths(path, workspace)
     tool = _tool_definition(tools, workspace)
-    template = _template(profile, workspace, tool, request_template)
+    definition = _captured_tool_definition(tool)
+    template = _template(profile, workspace, definition, request_template)
 
     def setup(session: Session) -> None:
         def create(tx: SyncTx) -> None:
@@ -682,7 +770,7 @@ async def create_durable_product_session(
                     "workspace": str(workspace),
                     "conversation": conversation.id,
                     "selection": list(profile._selection),
-                    "tools": _tool_tree(tool),
+                    "tools": _tool_tree(definition),
                     "template": encode_canonical(template),
                     "initial_entry": None,
                     "initial_generation": None,

@@ -4,6 +4,7 @@ import json
 import signal
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from tool_support import counts, definitions
 
 from pipy_harness.native.durable.scheduler import TaskScheduler
 from pipy_harness.native.durable.session_core import Session
-from pipy_harness.native.durable.sqlite import open_sqlite_storage
+from pipy_harness.native.durable.sqlite import _decode, open_sqlite_storage
 from pipy_harness.native.durable.storage import TaskQuery
 
 CHILD = r"""
@@ -129,6 +130,29 @@ def resume(root, parent, *, replay="unsafe", **kwargs):
     return before, rows, done.is_set()
 
 
+def interrupted_receipt(root, child):
+    """C1 successor expectation: actual failed fact, not an old blocked record."""
+    assert child["state"]["status"] == "terminal"
+    assert child["state"]["outcome"]["status"] == "failed"
+    assert child["state"]["outcome"]["error"] == {
+        "message": "Tool execution interrupted; result is uncertain."
+    }
+    with closing(sqlite3.connect(root / "session.sqlite")) as db:
+        entries = [_decode(row[0]) for row in db.execute("SELECT record FROM entries")]
+    entry = next(row for row in entries if row.get("byTaskId") == child["id"])
+    saved = entry["data"]["nativeToolReceipt"]
+    assert saved["call"] == child["input"]
+    assert saved["intent"]["key"] == saved["key"]
+    assert saved["version"] == saved["nativeToolOutput"]["version"] == 2
+    assert saved["nativeToolOutput"]["ending"] == "interrupted"
+    assert saved["nativeToolOutput"]["recovery"] == {
+        "reason": "interrupted",
+        "attempts": 1,
+        "restarts": 1,
+    }
+    return saved
+
+
 @pytest.mark.parametrize("stored", ["safe", "unsafe"])
 @pytest.mark.parametrize("current", ["safe", "unsafe"])
 def test_actual_stored_current_intersection_keyed_applications_and_parent(
@@ -148,7 +172,7 @@ def test_actual_stored_current_intersection_keyed_applications_and_parent(
         r for r in rows if r["kind"] == "pi.tool" and r["input"]["callId"] == "call:0"
     )
     expected = stored == current == "safe"
-    assert completed is expected
+    assert completed
     if expected:
         assert counts(tmp_path) == {
             "calls": 3,
@@ -160,16 +184,19 @@ def test_actual_stored_current_intersection_keyed_applications_and_parent(
             calls = db.execute("SELECT key,args FROM calls ORDER BY rowid").fetchall()
         assert calls[0] == calls[1] and calls[1][0] != calls[2][0]
     else:
-        assert (
-            first["state"]["status"] == "pending"
-            and first["state"]["checkpoint"]["phase"] == "blocked"
-        )
+        saved = interrupted_receipt(tmp_path, first)
+        assert saved["intent"]["definition"]["replay"] == stored
         assert counts(tmp_path) == {
-            "calls": 1,
-            "applications": 1,
-            "prepares": 1,
-            "providers": 1,
+            "calls": 2,
+            "applications": 2,
+            "prepares": 2,
+            "providers": 2,
         }
+        with closing(sqlite3.connect(tmp_path / "effects.sqlite")) as db:
+            keys = [
+                row[0] for row in db.execute("SELECT key FROM calls ORDER BY rowid")
+            ]
+        assert keys[0] == saved["key"] and keys[1] != saved["key"]
     snapshot = counts(tmp_path)
     for _ in range(2):
         resume(tmp_path, ready["parent"], replay="safe")
@@ -218,9 +245,14 @@ def test_actual_unsafe_cuts_and_receipt_reuse_without_tool_resource(
         assert counts(tmp_path)["prepares"] == original["prepares"]
         assert counts(tmp_path)["providers"] == 1 and not completed
     else:
-        assert first["state"]["checkpoint"]["phase"] == "blocked" and not completed
-        assert counts(tmp_path) == original
-        assert counts(tmp_path)["providers"] == 1
+        assert completed
+        interrupted_receipt(tmp_path, first)
+        assert counts(tmp_path) == {
+            "calls": original["calls"] + 1,
+            "applications": original["applications"] + 1,
+            "prepares": original["prepares"] + 1,
+            "providers": 2,
+        }
     after = counts(tmp_path)
     resume(tmp_path, ready["parent"], replay="safe")
     assert counts(tmp_path) == after
@@ -244,15 +276,33 @@ def test_compatible_safe_flag_never_overrides_definition_or_resource_drift(
     )
     before = counts(tmp_path)
     _, rows, completed = resume(tmp_path, ready["parent"], replay="safe", **options)
-    assert not completed and counts(tmp_path) == before
     first = next(
         r for r in rows if r["kind"] == "pi.tool" and r["input"]["callId"] == "call:0"
     )
-    assert first["state"]["checkpoint"]["phase"] == "blocked"
+    if drift == "workspace":
+        assert not completed and counts(tmp_path) == before
+        assert first["state"]["checkpoint"]["phase"] == "blocked"
+    else:
+        saved = interrupted_receipt(tmp_path, first)
+        if drift == "missing":
+            assert not completed and counts(tmp_path) == before
+        else:
+            assert completed
+            assert counts(tmp_path) == {
+                "calls": 1,
+                "applications": 1,
+                "prepares": 2,
+                "providers": 2,
+            }
+        with closing(sqlite3.connect(tmp_path / "effects.sqlite")) as db:
+            assert db.execute(
+                "SELECT COUNT(*) FROM calls WHERE key=?", (saved["key"],)
+            ).fetchone() == (0,)
+    after = counts(tmp_path)
     resume(tmp_path, ready["parent"], replay="safe")
     assert (
-        counts(tmp_path) == before
-    )  # restoring resources does not authorize old blocked work
+        counts(tmp_path) == after
+    )  # Neither terminal facts nor later blocked work reissue.
 
 
 @pytest.mark.parametrize("corruption", ["missing", "newer", "wrong_type", "wrong_key"])
@@ -334,11 +384,22 @@ def test_unverified_readonly_idempotent_hints_do_not_authorize_replay(tmp_path):
     ready = cut_store(tmp_path, "effect", "unsafe", hints=True)
     before = counts(tmp_path)
     _, rows, completed = resume(tmp_path, ready["parent"], hints=True)
-    assert not completed and counts(tmp_path) == before
+    assert completed
+    assert counts(tmp_path) == {
+        **before,
+        "calls": 2,
+        "applications": 2,
+        "prepares": 2,
+        "providers": 2,
+    }
     child = next(
         row
         for row in rows
         if row["kind"] == "pi.tool" and row["input"]["callId"] == "call:0"
     )
-    assert child["state"]["checkpoint"]["phase"] == "blocked"
-    assert child["state"]["checkpoint"]["intent"]["definition"]["replay"] == "unsafe"
+    saved = interrupted_receipt(tmp_path, child)
+    assert saved["intent"]["definition"]["replay"] == "unsafe"
+    with closing(sqlite3.connect(tmp_path / "effects.sqlite")) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM calls WHERE key=?", (saved["key"],)
+        ).fetchone() == (1,)

@@ -1150,9 +1150,10 @@ worker or finalizer can still access the backend. Actual Session close joins
 those owners; a blocked worker keeps close/lease pending. Completed-watch
 callbacks are caller-owned and must not be confused with provider finalizers.
 Terminal reads reuse committed rich facts without current credentials/material.
-Before a provider receipt, paid reissue remains uncertain; unsafe interrupted
-tools remain held in this milestone, and explicit retry is a new authorized
-attempt with the old uncertainty retained privately. No exactly-once external
+Before a provider receipt, paid reissue remains uncertain. C1 settles intact
+recovered unsafe tool executes as interrupted without invoking the old key;
+historical blocked tools remain held for C2. Explicit retry remains a new
+authorized attempt with the old uncertainty retained privately. No exactly-once external
 effect/callback or durable observer cursor is promised. Full data migration,
 export/import, retention and default adoption retain DE27/28/40–44 ownership.
 

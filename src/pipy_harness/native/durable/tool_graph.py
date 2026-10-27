@@ -24,7 +24,7 @@ from .generation_tasks import (
 )
 from .records import EntryRecord, safe_integer
 from .session_core import AsyncTx
-from .tool_output_values import failure_text, project_tool_output
+from .tool_output_values import ending_text, project_tool_output
 from .tool_values import (
     checkpoint,
     entry_tool_output,
@@ -42,6 +42,7 @@ class ModelCall:
     call: AgentToolCall
     snapshot: AgentProviderRequestSnapshot
     round: Tree
+    has_descendants: bool = False
 
 
 async def entry(
@@ -197,10 +198,9 @@ def _child_result_id(
         raw = entry_tool_output(cast(Tree, found.to_tree())["data"])[0]
         if (
             raw["version"] != 2
-            or raw["ending"] != "failed"
+            or raw["ending"] not in ("failed", "interrupted")
             or set(terminal) != {"status", "error", "result"}
-            or terminal["error"]
-            != {"message": failure_text(raw["recovery"]["category"])}
+            or terminal["error"] != {"message": ending_text(raw)}
             or set(output) != {"kind", "entryId"}
             or child["abortRequested"]
             or child["background"]
@@ -392,7 +392,13 @@ async def model_call(
             or checkpoint(state["checkpoint"])["phase"] == "blocked"
         ):
             return None
-        return ModelCall(parent, call, snapshot, round_value)
+        return ModelCall(
+            parent,
+            call,
+            snapshot,
+            round_value,
+            any(row.get("owner") == current["id"] for row in rows),
+        )
     except (ValueError, TypeError, KeyError, IndexError):
         return None
 

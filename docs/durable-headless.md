@@ -54,8 +54,12 @@ terminal receipt reuse performs no old request/preparation and never reprices
 saved usage. A pre-provider-receipt crash can reissue a possibly paid request:
 one committed task/usage settlement does not prove one HTTP/paid attempt.
 
-Unsafe tool intent/effect uncertainty stays held even if no effect is observed.
-An operator can explicitly authorize a distinct new attempt:
+Intact recovered unsafe executes use the SDK's C1 uncertain interrupted result
+without invoking the tool again. `resume --no-tools` can use this exception only
+when all unresolved work has closed noninvoking authority; it does not authorize
+pre-intent or old-request dispatch. Historical blocked intent/effect uncertainty
+stays held even if no effect is observed. An operator can explicitly authorize a
+distinct new attempt under the unchanged retry guards:
 
 ```bash
 pipy durable authorize-retry --store ./run.sqlite --workspace . \
@@ -74,8 +78,9 @@ stale states, receipt-bearing blocked tasks and retained terminate controls do
 not become safe replay. Old uncertainty stays private and is never forged into
 old success. Nonfinal terminate can hold a waiting parent/later pending call;
 final/only terminate can leave generation pending/blocked. Inspect derives the
-retained-control reason. DE13 owns typed unsafe interrupted-error continuation;
-this command does not implement it.
+retained-control reason. C1 does not migrate historical blocked states; C2 owns
+that repair/adjudication boundary. Missing/current capabilities never waive
+provider/material guards or authorize replay.
 
 ## Output, signals and physical lifetime
 

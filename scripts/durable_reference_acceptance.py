@@ -48,6 +48,7 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE13c1",
     "DE13b",
     "DE13a",
     "DE05a",
@@ -292,6 +293,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE13c1",
     "DE13b",
     "DE13a",
     "DE12",
@@ -321,6 +323,7 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
     "DE13a": "de13a-normal-details-abi-acceptance",
     "DE12": "de12-opt-in-headless-cli-acceptance",
@@ -421,6 +424,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE12": ["headless-cli-v1"],
         "DE13a": ["normal-details-v1"],
         "DE13b": ["retained-tool-reporting-v1"],
+        "DE13c1": ["interrupted-tool-continuation-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -469,6 +473,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE12": "docs/durable-headless.md",
         "DE13a": "docs/tool-details.md",
         "DE13b": "docs/durable-tools.md",
+        "DE13c1": "docs/durable-tools.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -648,6 +653,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"headless-cli-v1"} if key == "DE12" else set())
                 | ({"normal-details-v1"} if key == "DE13a" else set())
                 | ({"retained-tool-reporting-v1"} if key == "DE13b" else set())
+                | ({"interrupted-tool-continuation-v1"} if key == "DE13c1" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

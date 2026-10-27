@@ -33,8 +33,9 @@ Captured native construction inputs are private and immutable within an
 instance. Unprepared reopen requires an explicit current profile; full private
 target/default/material binding remains the existing first prepare commit.
 Prepared/receipt recovery uses that committed envelope exactly. Provider
-pre-receipt interruption can reissue a possibly paid request; unsafe tool intent
-remains uncertain/blocked under Milestone A. Post-receipt recovery never calls
+pre-receipt interruption can reissue a possibly paid request. Intact recovered
+unsafe tool intents now use the bounded C1 interrupted continuation below; all
+historical blocked origins remain held. Post-receipt recovery never calls
 the provider or preparer again. No exactly-once external-effect claim follows.
 
 Cancellation detaches public waiters without dropping accepted acquisition,
@@ -174,3 +175,35 @@ paging. Task-specific inspection does not accept paging. Explicit resume itself
 follows every page when determining a child's committed hold. Cursors belong
 to the existing same-store guarded read API, not a durable watch replay cursor.
 Invalid task IDs use fixed `DurableProductError("invalid_request")` before reads.
+
+
+## Noninvoking recovered-tool resume (DE13c1)
+
+Resume performs the closed C1 admission read before opening its scheduler. With
+an unchanged tool catalog, exact saved/current safe replay remains possible.
+Changed or missing capabilities are accepted only when every unresolved tool
+can settle without invocation from intact execute authority or a valid receipt.
+Pre-intent children, persisted old provider requests and a safe invocation still
+needed anywhere in the round refuse before graph writes. That includes an
+unchanged safe tool when an unrelated capability was removed. Provider profile,
+material and transport compatibility remain independent requirements.
+
+The run owns one immutable saved/current catalog value and fresh bound native
+drivers. It never swaps a running scheduler's definitions or rewrites the saved
+catalog. The immutable binding excludes only `initial_entry` and
+`initial_generation`, which normal first submission fills in; all other header
+fields stay bound, and the complete header/initial graph still undergoes product
+validation. A rejected retry before submission cannot poison later admission.
+For a nonterminal run, a missing profile still reports `profile_required` before
+live-graph/catalog preflight; terminal reuse remains profile-free.
+At the actual tool-round transaction, the next request retains saved
+offered members in order only where their current declarations/descriptors are
+unchanged. A same-catalog request keeps the normal serialization path. Repeated
+resume cannot change the binding of an already owned scheduler.
+
+A valid committed receipt wins unchanged, including its saved counters. Without
+a receipt, recovery validates current restart metadata before dispatch and again
+on the receipt transaction. Historical blocked states and their receipts remain
+held; existing operator retry guards are not broadened. See the
+[C1 contract](specs/2026-10-27-de13c1-interrupted-continuation-plan.md) for the
+physical cuts, mixed-catalog and counter precedence acceptance boundaries.

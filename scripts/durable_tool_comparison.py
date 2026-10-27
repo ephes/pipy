@@ -1,9 +1,10 @@
 # ruff: noqa: E402
 """DE08 actual pinned Harness tools versus native owned sequential execution.
 
-Unsafe recovery deliberately compares the effect/replay prefix only: Pi emits
-an interrupted result and continues; native blocks under the Milestone A rule.
-Both complete raw outcomes remain retained. This is not full P20/P21/P22 parity.
+Unsafe recovery still compares only the historical effect/replay prefix.
+The C1 native expectation now requires interrupted continuation; both complete
+raw outcomes remain retained. The separately versioned C1 phase owns stronger
+recovery comparisons. This is not full P20/P21/P22 parity.
 """
 
 from __future__ import annotations
@@ -56,6 +57,9 @@ from pipy_harness.native.durable.tool_execution import (
 # Actual generation phases reach this pure history dependency lazily; fresh
 # postexecution attestation imports the identical source root without effects.
 from pipy_harness.native.durable.tool_history import ORDER_DOC  # noqa: E402,F401
+
+# C1 recovered execute reaches this pure classifier lazily in the producer.
+from pipy_harness.native.durable.tool_recovery import classify  # noqa: E402,F401
 from pipy_harness.native.http import JsonResponse
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition, ToolExecutionResult
@@ -106,7 +110,7 @@ MUTANTS = (
     "terminal",
 )
 NUMBER_PROFILE = "finite-binary64-live-v1"
-COMPARISON_PROFILE = "owned-tool-prefix-and-closed-round-v1"
+COMPARISON_PROFILE = "owned-tool-prefix-and-closed-round-c1-native-v2"
 BACKENDS = {"loop": ["memory", "sqlite", "reopen"], "recovery": ["sqlite", "reopen"]}
 
 
@@ -482,11 +486,22 @@ async def native_case(case, backend, folder):
         if not closed:
             child = next(row for row in tasks if row["kind"] == "pi.tool")
             d.require(
-                child["state"]["status"] == "pending"
-                and child["state"]["checkpoint"]["phase"] == "blocked"
-                and parent_record["state"]["status"] == "waiting"
-                and len(wire.calls) == 1,
-                "Unsafe recovery did not block",
+                child["state"]["status"] == "terminal"
+                and child["state"]["outcome"]["status"] == "failed"
+                and child["state"]["outcome"]["error"]
+                == {"message": "Tool execution interrupted; result is uncertain."}
+                and child["state"]["outcome"]["result"]["kind"] == "model"
+                and any(
+                    e["id"] == child["state"]["outcome"]["result"]["entryId"]
+                    and e["kind"] == "pi.tool-result"
+                    and e["data"]["nativeToolReceipt"]["nativeToolOutput"]["ending"]
+                    == "interrupted"
+                    for e in entries
+                )
+                and parent_record["state"]["status"] == "terminal"
+                and parent_record["state"]["outcome"]["status"] == "completed"
+                and len(wire.calls) == 2,
+                "C1 unsafe recovery did not continue after interruption",
             )
         lifecycle = {
             "worker_joined": all(call["ended"] for call in effects["calls"]),

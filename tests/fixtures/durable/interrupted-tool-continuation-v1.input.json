@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "phase": "interrupted-tool-continuation-v1",
+  "cases": [
+    {
+      "id": "safe_same",
+      "stored": "safe",
+      "current": "same"
+    },
+    {
+      "id": "unsafe_same",
+      "stored": "unsafe",
+      "current": "same"
+    },
+    {
+      "id": "safe_missing",
+      "stored": "safe",
+      "current": "missing"
+    }
+  ]
+}

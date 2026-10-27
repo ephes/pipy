@@ -82,7 +82,7 @@
   },
   "comparison": {
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
-    "scripts/durable_reference_acceptance.py": "e4927d6fc3e77e94bb6c3bfc6039919bd0680e62fa1db65087616dd16ad84d8e",
+    "scripts/durable_reference_acceptance.py": "c236916b36452e81dc27e962ebf0a422ab9a8ae6029526ccdf6c54ab5d56d19d",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12"
   },
   "cases": [
@@ -331,6 +331,6 @@
   ],
   "coverage": {
     "path": "coverage.json",
-    "sha256": "5847fffd493b806fdf3c56feb1ad85b877eb6679585f07f984fe7cda546724b0"
+    "sha256": "4950f6fa86b254d70d14ecd1c70f7b1414d411a4de94e2da0767917f0e4213cb"
   }
 }

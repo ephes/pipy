@@ -492,3 +492,54 @@ def test_held_child_beyond_terminal_page_returns_and_public_inspect_pages(tmp_pa
                 unsubscribe()
 
     asyncio.run(asyncio.wait_for(scenario(), 20))
+
+
+@pytest.mark.parametrize("retry_first", [False, True])
+def test_failed_retry_before_submit_does_not_poison_bound_catalog(
+    tmp_path, retry_first
+):
+    wire = Wire()
+
+    async def scenario():
+        product = await create_durable_product_session(
+            tmp_path / "product.sqlite",
+            workspace=tmp_path,
+            profile=profile(tmp_path, wire),
+            tools={},
+        )
+        try:
+            if retry_first:
+                with pytest.raises(DurableProductError, match="incompatible"):
+                    await product.authorize_retry(999999, nonce="e" * 32)
+                assert (await product.inspect()).tasks == ()
+                assert wire.calls == []
+            await product.submit("input")
+            result = await product.resume()
+            assert (
+                result.status == "terminal" and result.inspection.outcome == "completed"
+            )
+            assert [m.decode().content.value for m in result.completed.messages] == [
+                "input",
+                "done",
+            ]
+            assert len(wire.calls) == 1
+            again = await product.resume()
+            assert (
+                again.completed.messages == result.completed.messages
+                and len(wire.calls) == 1
+            )
+        finally:
+            await product.close()
+        product = await open_durable_product_session(
+            tmp_path / "product.sqlite", workspace=tmp_path, tools={}
+        )
+        try:
+            result = await product.resume()
+            assert (
+                result.status == "terminal" and result.inspection.outcome == "completed"
+            )
+            assert len(wire.calls) == 1
+        finally:
+            await product.close()
+
+    asyncio.run(asyncio.wait_for(scenario(), 15))

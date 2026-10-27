@@ -8,6 +8,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Continue intact recovered durable tool executes with an explicit uncertain
+  interrupted result when safe replay is unavailable. Retain committed output,
+  details and diagnostics without invoking the tool again; an existing valid
+  receipt remains the first winner. Changed tool catalogs require a closed
+  noninvoking resume before scheduler writes, and subsequent requests retain
+  only saved, unchanged current capabilities in saved order. Historical blocked
+  work and opaque receipts remain held for explicit repair; no automatic blocked
+  migration or new restart-limit policy is introduced.
+
 - Add retained output, explicit details-prefix acknowledgements and typed
   diagnostics to opt-in durable tool execution. One owned flusher and bounded
   preparation retain physical workers, callbacks and finalizers through close.
@@ -23,7 +32,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   public output excludes private intent/prepared/workspace/key fields. Normal
   fact/receipt v1 output stays unchanged. New fact2 model text preserves image
   order and newline-bearing empty text blocks. Native signed tool-result blocks
-  remain unsupported; unsafe recovery, full metadata/resource parity and all
+  remain unsupported; historical blocked migration, full metadata/resource parity and all
   whole durable parity obligations remain open. Existing operator-retry tests
   retain real infrastructure uncertainty after an applied effect; invalid final
   results now exercise ordinary handled failure.
@@ -57,7 +66,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   the command payload. Unsupported options refuse before effects.
   Credentials use existing runtime
   authority, with no credential flags. Existing CLI defaults stay unchanged.
-  Unsafe uncertainty remains held pending explicit new-attempt authorization;
+  Historical blocked uncertainty remains held pending explicit new-attempt authorization;
   full parity and broader live lifecycle remain later work.
 
 - Add an opt-in async durable Python product session with exact SQLite reopen,

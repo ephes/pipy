@@ -213,5 +213,10 @@ predicate. Its internal entry carries the actual saved receipt2; completed
 messages expose only the nested full fact and deterministic model projection,
 never private receipt intent or prepared/workspace/key fields. Existing normal
 fact1 entries keep their historical format and do not acquire a receipt-carrier
-requirement. Interrupted, generic failed, foreign or malformed children do not
-become continuable. See the [tool contract](durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b).
+requirement. C1 additionally permits the exact `interrupted` fact2/cause with
+all three required recovery keys and the matching raw FAILED error. The public
+message exposes retained output/details/diagnostics and the fixed uncertainty
+notice; its private receipt intent/key/workspace remain excluded. Generic failed,
+foreign or malformed children do not become continuable. Missing counter keys,
+wrong controls and wrong terminal causes refuse through the same shared reader.
+See the [C1 tool contract](durable-tools.md#interrupted-recovered-execute-continuation-de13c1).

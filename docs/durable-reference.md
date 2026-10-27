@@ -1421,15 +1421,19 @@ and reopen recovery. An explicit keyed fake tool independently counts invocation
 attempts and deduplicated applications; a fixed provider stream uses actual
 pi-ai pricing and built-in generation/usage. Five cases cover a full owned round
 with unavailable call-order results and all four stored/current replay safety
-combinations. The common profile `owned-tool-prefix-and-closed-round-v1` compares
+combinations. The current common profile `owned-tool-prefix-and-closed-round-c1-native-v2` compares
 actual arguments/key relations/attempts/applications/preparation and acknowledged
 intent, closed-round result order, fresh request/cutoff, usage presence and real
 resume/idle receipt reuse. CLI0 equal, CLI1 schema-valid semantic mutants and
 CLI2 malformed receipts are independently retained and attested.
 
-Unsafe recovery compares only its effect/replay prefix: Pi emits an interrupted
-error and continues; native Milestone A blocks. Exact raw outcomes retain that
-difference, with native blocking proved separately. Pi creates a successor
+Unsafe recovery still compares only its effect/replay prefix. The original
+`owned-tool-prefix-and-closed-round-v1` captures retain native Milestone A
+blocking unchanged. C1 versions the current native expectation: the actual
+interrupted receipt points to a FAILED child, the parent completes and the
+second provider request runs. This does not widen this older phase's common
+projection; exact raw outcomes remain retained, and the separate C1 phase
+compares its declared continuation observations. Pi creates a successor
 generation task; native advances the same parent with a fresh request. Full
 exposed graph compatibility is an explicit DE15/28 obligation, not whole-graph
 parity. Native SIGKILL/ack/adoption/storage and actual worker/finalizer/OS-lock
@@ -1600,3 +1604,36 @@ attestation checks exact raw-to-projection joins, next-request/CLI records,
 source/module/resolution/process/artifact identities and the retained raw delta.
 No producer effects execute during attest. This bounded comparison closes no
 whole P row, unsafe recovery policy or general timing/RSS/storage budget.
+
+
+## Interrupted execute continuation (DE13c1)
+
+`interrupted-tool-continuation-v1` appends the twenty-fourth source-closed phase,
+parented by `retained-tool-reporting-v1`. Run
+`scripts/durable_interrupted_comparison.py run --acceptance <fresh-parent> --output <new-output>`
+and call `attest(output, parent)` in a separate fresh Python process. The three
+cases exercise unchanged safe replay, unchanged unsafe interruption and a saved
+safe tool missing from the current catalog. Native uses real public SDK submit,
+SQLite progress commit, process-group SIGKILL, cold actual CLI resume and
+credential-free terminal reopen. Pi uses the pinned Harness and SQLite, a counted
+tool, graceful close after a details ACK, cold reopen and the real OpenAI adapter
+with synthetic fetch for the next answer.
+
+These cuts are deliberately different. Native's saved prefix is visible before
+the callback ACK; Pi's details ACK has returned. The common view compares
+retained details, safe replay versus no repeated unsafe invocation, model error,
+next-request history and saved-order tool intersection, counted preparations and
+provider calls, terminal answer and unchanged persisted reopen observations.
+It does not equate callback acknowledgements, counters, process-death semantics,
+raw errors, private receipt layouts, graph shape or session-local read revisions.
+Both complete raw sides and a differences artifact remain bound. Native's actual
+receipt2 carries the interrupted full fact; Pi's raw result carries its own
+interrupted diagnostic and error. Historical blocked migration stays C2.
+
+Semantic mutants, malformed comparison bodies, raw receipt/receiver/prefix/wire
+corruptions and actual child source/ACK/lifecycle controls must fail. Native
+child argv, signal exit, reaping, absent process group and loaded-module hashes
+are retained; pure attestation checks these receipts without starting children.
+The source closure preserves every earlier phase, parent and pinned member.
+Development producer observations do not substitute for final frozen-source
+execute/own-fresh-attest, platform checks, full checks or independent CODE review.

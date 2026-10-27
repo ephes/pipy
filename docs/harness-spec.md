@@ -4932,7 +4932,22 @@ Ordinary invocation/result/progress failures retain a fixed raw failed-child
 cause and continue the next provider through the same strict result predicate
 as completed observation, inspection and resolution. New fact2 entries carry
 only the actual saved receipt2 internally; normal fact1/receipt1 and old canonical
-bytes remain unchanged. Interrupted/recovered unsafe calls remain held under
-the existing policy; DE13c owns their later extension. Provisional resource
+bytes remain unchanged. The following C1 slice adds noninvoking interrupted
+continuation for intact recovered execute; historical blocked calls remain
+held for C2. Provisional resource
 accounting is not RSS/WAL/whole-history or Pi timing parity. Existing native
 tool-result signature refusal remains; full P15 metadata parity is still open.
+
+
+## Recovered tool interruption (DE13c1)
+
+The [C1 contract](specs/2026-10-27-de13c1-interrupted-continuation-plan.md) adds a
+closed interrupted fact2/cause and noninvoking continuation for intact execute
+intents. `tool_recovery.py` owns the pure receipt/progress/current-capability
+classification; `recovery_catalog.py` owns the immutable saved/current binding
+and the single existing product HEADER declaration. Product construction captures
+private native drivers before scheduler open; generation revalidates the actual
+header and owned round before narrowing the next PREPARE_DOC. Normal saved
+requests and fact1/B fact2 representations remain unchanged. This is no mutable
+registry, new persisted authority or scheduler policy API. All historical blocked
+origins remain held for C2; DE14 owns operational restart ceilings.

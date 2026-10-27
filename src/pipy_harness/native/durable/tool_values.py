@@ -143,13 +143,16 @@ def native_tool_output(
     *,
     diagnostics: list[Tree] | None = None,
     failure: str | None = None,
+    interrupted: Tree | None = None,
 ) -> Tree:
     tree: Tree = {
         "version": 1,
         "outcome": encode_canonical(outcome),
         "completedAt": encode_canonical(completed),
     }
-    if diagnostics or failure is not None:
+    if failure is not None and interrupted is not None:
+        refuse()
+    if diagnostics or failure is not None or interrupted is not None:
         tree.update(
             version=2,
             ending="completed" if failure is None else "failed",
@@ -158,6 +161,8 @@ def native_tool_output(
             if failure is None
             else {"reason": "tool_error", "category": failure},
         )
+        if interrupted is not None:
+            tree.update(ending="interrupted", recovery=interrupted)
     return read_native_tool_output(tree)[0]
 
 
@@ -202,6 +207,8 @@ def receipt(value: object) -> tuple[Tree, ToolExecutionOutcome]:
                 refuse()
         output, outcome = read_native_tool_output(tree["nativeToolOutput"])
         if tree["version"] != output["version"]:
+            refuse()
+        if output.get("ending") == "interrupted" and tree["intent"] is None:
             refuse()
         return tree, outcome
     except (ValueError, TypeError, KeyError, IndexError, RecursionError, OverflowError):

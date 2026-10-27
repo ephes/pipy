@@ -1095,8 +1095,9 @@ committed streaming remain their assigned later slices.
 ## Private durable tools (DE08)
 
 DE08 introduced four internal modules before product entry points were added.
-DE13b extends that inventory with retained reporting and closed failure facts;
-the current ownership boundaries are:
+DE13b adds retained reporting and closed failure facts; C1 adds finite recovered
+execute classification and immutable catalog narrowing.
+The current ownership boundaries are:
 
 | Module under native/durable | Authority |
 | --- | --- |
@@ -1106,7 +1107,9 @@ the current ownership boundaries are:
 | tool_history.py | Committed closed-round entry order and next-prepare seed over existing canonical DTOs |
 | tool_progress.py | Retained reporter admission, prefix acknowledgements and one host-owned flusher with joined commit ownership |
 | tool_progress_values.py | Bounded value capture, output/details presence, diagnostic validation and progress limits |
-| tool_output_values.py | Closed fact2 endings/failure causes and deterministic bounded model projection |
+| tool_output_values.py | Closed fact2 endings/failure/interruption causes and deterministic bounded model projection |
+| tool_recovery.py | Shared noninvoking execute/receipt/progress classifier, saved authority and exact source-counter checks |
+| recovery_catalog.py | One unchanged product binding Doc declaration and a run-owned immutable saved/current catalog value; saved-order request intersection and transaction-line header revalidation |
 
 [scheduler](durable-task-runtime.md) retains its single consistently guarded
 registry and existing Session close owner. [Generation](durable-generation.md)

@@ -31,8 +31,11 @@ def matches(
     if row["kind"] == GENERATION_NAME:
         return _generation(row, current)
     if row["kind"] == TOOL_NAME:
-        if row["state"]["checkpoint"]["phase"] == "settle":
-            return True  # Committed receipt settlement needs no current tool resource.
+        if row["state"]["checkpoint"]["phase"] in ("execute", "settle"):
+            from .tool_recovery import committed
+
+            committed(storage, row, current)
+            return True
         rows = tasks(storage, row["conversationId"])
         parent = next((r for r in rows if r["id"] == row.get("owner")), None)
         if parent is None:

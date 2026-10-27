@@ -2,10 +2,17 @@
 
 import json
 import signal
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 from sqlite_child_support import Child
+
+from pipy_harness.native.durable import sqlite
+from pipy_harness.native.durable.canonical_codec import decode_canonical
+from pipy_harness.native.durable.tool_output_values import INTERRUPTED_TEXT
+from pipy_harness.native.durable.tool_values import receipt
 
 SUPPORT = str(Path(__file__).parent)
 PROGRAM = r"""
@@ -87,12 +94,6 @@ async def main():
         except DurableProductError as e:assert e.code=='already_admitted'
         else:raise AssertionError('repeated input accepted')
         result=await product.resume()
-        if cut in ('tool-intent','effect'):
-            assert result.status=='held' and counts(root)==before
-            blocked=next(t for t in (await product.inspect()).tasks if t.family=='model_tool' and t.reason=='uncertain')
-            await product.authorize_retry(blocked.task_id,nonce='d'*32)
-            assert counts(root)==before
-            result=await product.resume()
         assert result.status=='terminal' and result.inspection.outcome=='completed'
         assert len(result.completed.messages)==5 and len(result.completed.rounds)==1
         assert len(result.completed.usage.thaw()['settlements'])==2
@@ -105,6 +106,79 @@ before,finished,task=asyncio.run(main())
 assert not list(root.rglob('*.jsonl'))
 say('reopened',before=before,counts=finished,task=task)
 """
+
+
+def interrupted_authority(root, cut):
+    """Capture the actual killed execute and its independent effect prefix."""
+    if cut not in ("tool-intent", "effect"):
+        return None
+    with closing(sqlite3.connect(root / "product.sqlite")) as db:
+        tasks = [
+            sqlite._decode(row[0]) for row in db.execute("SELECT record FROM tasks")
+        ]
+    execute = [
+        task
+        for task in tasks
+        if task["kind"] == "pi.tool"
+        and task["state"].get("checkpoint", {}).get("phase") == "execute"
+    ]
+    assert len(execute) == 1
+    child = execute[0]
+    intent = child["state"]["checkpoint"]["intent"]
+    return {
+        "task_id": child["id"],
+        "intent": intent,
+        "effects": interrupted_effects(root, intent["key"]),
+    }
+
+
+def interrupted_effects(root, key):
+    with closing(sqlite3.connect(root / "effects.sqlite")) as db:
+        return {
+            "calls": db.execute(
+                "SELECT name,key,args FROM calls WHERE key=?", (key,)
+            ).fetchall(),
+            "applications": db.execute(
+                "SELECT key,args FROM applications WHERE key=?", (key,)
+            ).fetchall(),
+            "prepares": db.execute(
+                "SELECT name FROM prepares WHERE name='keyed'"
+            ).fetchall(),
+        }
+
+
+def assert_interrupted_recovery(root, authority):
+    if authority is None:
+        return None
+    with closing(sqlite3.connect(root / "product.sqlite")) as db:
+        tasks = [
+            sqlite._decode(row[0]) for row in db.execute("SELECT record FROM tasks")
+        ]
+        entries = [
+            sqlite._decode(row[0]) for row in db.execute("SELECT record FROM entries")
+        ]
+    child = next(task for task in tasks if task["id"] == authority["task_id"])
+    outcome = child["state"]["outcome"]
+    assert child["state"]["status"] == "terminal"
+    assert outcome["status"] == "failed"
+    assert outcome["error"] == {"message": INTERRUPTED_TEXT}
+    entry = next(row for row in entries if row["id"] == outcome["result"]["entryId"])
+    assert set(entry["data"]) == {"nativeToolReceipt"}
+    saved = entry["data"]["nativeToolReceipt"]
+    receipt(saved)  # The actual committed carrier, never a reconstructed receipt.
+    assert saved["version"] == 2 and saved["intent"] == authority["intent"]
+    full = saved["nativeToolOutput"]
+    assert full["version"] == 2 and full["ending"] == "interrupted"
+    assert full["recovery"]["reason"] == "interrupted"
+    decoded = decode_canonical(full["outcome"])
+    assert decoded.result.is_error and not decoded.result.terminate
+    assert decoded.interruption.value == "settled"
+    assert not decoded.cancelled and not decoded.malformed_arguments
+    assert decoded.execution_seconds is None
+    assert INTERRUPTED_TEXT in decode_canonical(entry["model"][0]).content.value
+    assert interrupted_effects(root, authority["intent"]["key"]) == authority["effects"]
+    assert len(authority["effects"]["prepares"]) == 1
+    return {"authority": authority, "actual_receipt": saved, "outcome": outcome}
 
 
 @pytest.mark.parametrize(
@@ -128,13 +202,14 @@ def test_public_hard_kill_exact_reopen_finishes_without_forged_effects(tmp_path,
         assert child.wait() == -signal.SIGKILL
         child.wait_stdout_eof()
         killed = child.evidence()
+    authority = interrupted_authority(tmp_path, cut)
     with Child(REOPEN, str(tmp_path), SUPPORT, cut, home=tmp_path) as child:
         result = child.expect("reopened")
         assert result["before"] == before["counts"]
         assert result["counts"] == {
-            "calls": 3 if cut == "effect" else 2,
-            "applications": 3 if cut == "effect" else 2,
-            "prepares": 3 if cut in ("effect", "tool-intent") else 2,
+            "calls": 1 if cut == "tool-intent" else 2,
+            "applications": 1 if cut == "tool-intent" else 2,
+            "prepares": 2,
             "providers": 3
             if cut in ("provider-inflight", "response-before-receipt")
             else 2,
@@ -142,6 +217,7 @@ def test_public_hard_kill_exact_reopen_finishes_without_forged_effects(tmp_path,
         assert child.wait() == 0
         child.wait_stdout_eof()
         reopened = child.evidence()
+    interrupted = assert_interrupted_recovery(tmp_path, authority)
     (tmp_path / "public-kill-proof.json").write_text(
         json.dumps(
             {
@@ -150,6 +226,7 @@ def test_public_hard_kill_exact_reopen_finishes_without_forged_effects(tmp_path,
                 "result": result,
                 "killed": killed,
                 "reopened": reopened,
+                "interrupted_recovery": interrupted,
             },
             indent=2,
         )

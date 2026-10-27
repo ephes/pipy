@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation is the active slice; DE13c unsafe interrupted-error continuation follows.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption is active, with historical blocked migration deferred to C2.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -1026,7 +1026,7 @@ above is unchanged. The codec lane landed at
 `caf4d34e`, with Opus5.5 HIGH R2 unscoped CLEAN, a green local full check,
 two fresh reference chains and verified push. DE06b now supplies the
 [canonical runtime integration](durable-canonical-codec.md#checkpoint-and-reconstruction-apis);
-cumulative DE06 is complete and DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation is the active slice; DE13c unsafe interrupted-error continuation follows. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
+cumulative DE06 is complete and DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption is active, with historical blocked migration deferred to C2. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
 records the completed gates and current D1 integration boundary.
 
 ## Additive streaming line scanner (DE32a)
@@ -1093,7 +1093,7 @@ recovery. Unknown safety defaults unsafe; annotations are unverified hints.
 Captured slots control both dispatch and next-request result order. An unsafe
 interrupted call blocks later work in its round; unrelated conversations remain
 independent. Actual tool/finalizer exit precedes backend and path-lock release.
-[DE09 completed projection](durable-completed-projection.md) supplies bounded private observers; DE10 supplies private inspection/recovery resolution; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation is the active slice; DE13c unsafe interrupted-error continuation follows. Full graph, unsafe continuation,
+[DE09 completed projection](durable-completed-projection.md) supplies bounded private observers; DE10 supplies private inspection/recovery resolution; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption is active, with historical blocked migration deferred to C2. Full graph, unsafe continuation,
 extensions/modes and history/retention retain DE13/15/24/25/27/28/30 ownership;
 all43 P rows remain OPEN. The Pi successor-task/native same-parent distinction
 is an explicit full-graph compatibility obligation, not whole-graph parity.
@@ -1111,7 +1111,7 @@ effects and caller-owned deduplication. This is a private foundation; the [DE11 
 is opt-in and [CLI activation](durable-headless.md) is opt-in through DE12.
 
 [DE10 inspection/recovery](durable-inspection.md) supplies pure metadata reads and
-closed scheduler-owned new-attempt authorization. DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation is the active slice; DE13c unsafe interrupted-error continuation follows. Derive terminate-hold explanations from retained committed
+closed scheduler-owned new-attempt authorization. DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption is active, with historical blocked migration deferred to C2. Derive terminate-hold explanations from retained committed
 control; do not call provider/tool/preparer/resolver merely to inspect. Full
 DE28 watches/events, DE26 partials, DE20/27 context and DE15/28 exposed graph
 compatibility remain open, as does DE27/28 quadratic saved request-history debt.
@@ -1177,7 +1177,7 @@ call is automatically retried by this child. Provisional progress resource polic
 must resolve DE26/33 capacity/timing/domain and DE27/28 full graph/DB amplification
 before default/full-feature acceptance. All43 whole parity rows stay OPEN.
 
-## DE13b retained reporting and ordinary failure continuation (active)
+## DE13b retained reporting and ordinary failure continuation (delivered)
 
 [The implementation contract](durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b)
 owns one host flusher, bounded admission at both actual wrapper entries, explicit
@@ -1198,3 +1198,18 @@ explicit text, whereas Pi accepts omitted output and retains reported output.
 comparison records these different producer inputs and compares only declared
 common observables, without claiming fallback parity. All 43 P rows and parent
 DE13 remain OPEN.
+
+
+## DE13c1 recovered-execute interrupted continuation (active)
+
+The [finite C1 contract](specs/2026-10-27-de13c1-interrupted-continuation-plan.md)
+adds noninvoking interruption only for validated execute and supported settlement.
+All historical blocked states remain held; C2 owns explicit migration/adjudication.
+Changed catalogs require a closed noninvoking public preflight before scheduler
+writes, with saved-order offerings intersected only after the owned round closes.
+Receipt-first-winner, exact required nullable counters, mixed-safe catalog refusal,
+actual older-B receipt-parser round trips, cold public SDK/CLI cuts and all-reader
+mutants are mandatory code-review targets. Standalone plan review is not proof
+of those behaviors. Operational restart ceilings remain DE14; P15/P16 and all
+whole DE13/P obligations stay open. Final runtime, comparison, docs, full checks
+and independent code review remain pending until their actual receipts exist.

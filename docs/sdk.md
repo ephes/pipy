@@ -62,8 +62,13 @@ interpret accepted seed metadata as an earlier private-target guarantee. Prepare
 recovery consumes saved semantics, and target drift refuses before effect.
 Terminal resume/inspection needs no profile/auth/material/provider construction.
 Provider interruption before receipt can reissue a possibly paid request;
-committed receipts never re-call the provider. Interrupted unsafe tools remain
-held until explicit new-attempt authorization, not fabricated success.
+committed receipts never re-call the provider. Intact recovered unsafe tool
+executes can continue with an explicit uncertain interrupted result, retaining
+committed output/details/diagnostics without re-invocation. Changed catalogs
+require the [closed noninvoking C1 preflight](durable-product-session.md#noninvoking-recovered-tool-resume-de13c1)
+before scheduler writes; pre-intent work, an old provider request or any required
+safe replay refuses. All historical blocked origins and their receipt fences
+stay held; explicit new-attempt authorization retains its existing guards.
 
 The facade is caller-loop affiliated. Cancellation detaches an API waiter while
 accepted work remains owned; await `close()` or use `async with` before destroying

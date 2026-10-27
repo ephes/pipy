@@ -11,10 +11,12 @@ from reporting_cut_support import definitions
 from sqlite_child_support import Child
 from tool_support import counts
 
+from pipy_harness.native.durable.canonical_codec import decode_canonical
 from pipy_harness.native.durable.generation import USAGE_DOC
 from pipy_harness.native.durable.scheduler import TaskScheduler
 from pipy_harness.native.durable.session_core import Session
 from pipy_harness.native.durable.sqlite import _decode, _encode, open_sqlite_storage
+from pipy_harness.native.durable.tool_progress_values import detail_value
 
 CHILD = r"""
 import hashlib,threading
@@ -137,17 +139,17 @@ def test_actual_process_cut_keeps_ack_and_receipt_authorities_distinct(
             if cut.endswith("before")
             else {"present": True, "value": {"acknowledged": [1]}}
         )
-    recoverable = cut in ("receipt-after", "result-before", "result-after")
+    has_receipt = cut in ("receipt-after", "result-before", "result-after")
     result = _resume(tmp_path)
     assert counts(tmp_path) == {
         "calls": 1,
         "applications": 1,
         "prepares": 1,
-        "providers": 2 if recoverable else 1,
+        "providers": 2,
     }
     parent = next(row for row in result if row["id"] == ready["parent"])
     child_task = next(row for row in result if row["kind"] == "pi.tool")
-    if recoverable:
+    if has_receipt:
         assert parent["state"]["outcome"]["status"] == "completed"
         assert child_task["state"]["outcome"]["status"] == (
             "failed" if failed else "completed"
@@ -169,9 +171,38 @@ def test_actual_process_cut_keeps_ack_and_receipt_authorities_distinct(
         finally:
             session.close()
     else:
-        assert parent["state"]["status"] != "terminal"
-        assert child_task["state"]["status"] != "terminal"
-        assert not any(row["kind"] == "pi.tool-result" for row in _raw(path)[1])
+        assert parent["state"]["outcome"]["status"] == "completed"
+        assert child_task["state"]["outcome"] == {
+            "status": "failed",
+            "error": {"message": "Tool execution interrupted; result is uncertain."},
+            "result": child_task["state"]["outcome"]["result"],
+        }
+        results = [row for row in _raw(path)[1] if row["kind"] == "pi.tool-result"]
+        assert len(results) == 1
+        carrier = results[0]["data"]["nativeToolReceipt"]
+        fact = carrier["nativeToolOutput"]
+        assert fact["ending"] == "interrupted"
+        assert fact["recovery"] == {
+            "reason": "interrupted",
+            "attempts": 1,
+            "restarts": 1,
+        }
+        assert fact["diagnostics"] == progress[0]["diagnostics"]
+        outcome = decode_canonical(fact["outcome"])
+        assert outcome.result.details == detail_value(progress[0]["details"])
+        assert outcome.result.content.value == progress[0]["output"]
+        assert outcome.execution_seconds is None
+        # A locally visible uncommitted receipt is not the first winner.
+        assert hashlib.sha256(_encode(carrier)).hexdigest() != witness["receipt_sha"]
+        session = Session(open_sqlite_storage(str(path), mode="open"))
+        try:
+            ledger = session.snapshot(
+                USAGE_DOC, conversation_id=ready["cid"]
+            ).value.thaw()
+            assert len(ledger["settlements"]) == 2
+            assert ledger["models"]["openai/gpt-test"]["input"] == 32
+        finally:
+            session.close()
     before = counts(tmp_path)
     _resume(tmp_path)
     assert counts(tmp_path) == before

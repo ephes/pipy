@@ -78,6 +78,7 @@ from .provider_settings import (
     encode_options,
     encode_pricing,
 )
+from .recovery_catalog import HEADER, RecoveryCatalog
 from .scheduler import TaskContext, TaskRuntime, TaskTx
 from .tasks import Task, define_task
 
@@ -317,6 +318,7 @@ class _Generation:
     options: ConstructionOptions
     pricing: AgentTokenPricing | None
     http_client: JsonHTTPClient | None
+    catalog: RecoveryCatalog | None = None
 
     async def prepare(
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
@@ -500,6 +502,11 @@ class _Generation:
             if existing is not None and list(existing) != ids:
                 _fail()
             index["rounds"][key] = ids
+            if self.catalog is not None:
+                actual_header = (await tx.doc(HEADER)).snapshot().thaw()
+                snapshot = self.catalog.next_snapshot(
+                    actual_header, current["conversationId"], snapshot
+                )
             seed = snapshot_provider_request(
                 replace(
                     snapshot.request,
@@ -574,7 +581,7 @@ async def _abort(record: Tree, runtime: TaskRuntime, context: TaskContext) -> No
     _fail()
 
 
-def define_generation(
+def _capture_generation(
     spec: NativeModelSpec,
     *,
     auth_path: Path,
@@ -585,7 +592,7 @@ def define_generation(
     options: ConstructionOptions | None = None,
     pricing: AgentTokenPricing | None = None,
     http_client: JsonHTTPClient | None = None,
-) -> Task[Any, Any, Any]:
+) -> _Generation:
     """Fixed native construction; input is an encoded request snapshot seed.
 
     Preparation replaces only its history with supported committed model entries
@@ -604,6 +611,10 @@ def define_generation(
         decode_pricing(encode_pricing(pricing)),
         http_client,
     )
+    return driver
+
+
+def _generation_definition(driver: _Generation) -> Task[Any, Any, Any]:
     return define_task(
         GENERATION_NAME,
         GENERATION_VERSION,
@@ -627,4 +638,32 @@ def define_generation(
                 "pricing": encode_pricing(driver.pricing),
             }
         ),
+    )
+
+
+def define_generation(
+    spec: NativeModelSpec,
+    *,
+    auth_path: Path,
+    env: Mapping[str, str],
+    runtime_api_key: str | None = None,
+    config: ProviderAuthRequestConfig | None = None,
+    thinking: str | None = None,
+    options: ConstructionOptions | None = None,
+    pricing: AgentTokenPricing | None = None,
+    http_client: JsonHTTPClient | None = None,
+) -> Task[Any, Any, Any]:
+    """Capture ordinary native construction without a product catalog binding."""
+    return _generation_definition(
+        _capture_generation(
+            spec,
+            auth_path=auth_path,
+            env=env,
+            runtime_api_key=runtime_api_key,
+            config=config,
+            thinking=thinking,
+            options=options,
+            pricing=pricing,
+            http_client=http_client,
+        )
     )

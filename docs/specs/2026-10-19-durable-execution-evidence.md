@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -186,9 +186,10 @@ that coverage here. A local validation result is not a landed slice.
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
 | DE12 | Opt-in headless CLI recovery | LANDED | [Native CLI/real cuts, wire/live and declared reference boundary](#de12-opt-in-headless-cli-acceptance); full parity OPEN |
-| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a delivered; DE13b retained reporting active; unsafe continuation remains OPEN |
+| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a/b delivered; C1 bounded execute continuation active; C2 historical blocked migration and full P21 remain OPEN |
 | DE13a | Normal generic details ABI prerequisite | LANDED | [Normal details acceptance](#de13a-normal-details-abi-acceptance); external final gates required |
-| DE13b | Retained reporting and ordinary failed-child continuation | IN_PROGRESS | [Bounded reporting acceptance](#de13b-retained-reporting-acceptance); review and final delivery gates pending |
+| DE13b | Retained reporting and ordinary failed-child continuation | LANDED | Delivered at `a069a8a8`; [bounded reporting acceptance](#de13b-retained-reporting-acceptance) |
+| DE13c1 | Intact recovered execute and interrupted continuation | IN_PROGRESS | [Bounded C1 implementation](#de13c1-implementation-boundary-2026-10-27); final comparison/platform/full/CODE gates pending; historical blocked migration remains C2 |
 | DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
@@ -290,7 +291,7 @@ DE05a delivered at `47a81103`; DE05b delivered at
 `753802aa93e5cc1be147574447b966459074adef`, tree
 `29b5fabbb109469f302f7dc4b99e33c2e4d19e12`. Delivered DE06a and the DE06b
 canonical integration delivered at `69812fa51fb9e57d8787635875d1aa77eb985b44`
-retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a delivered at `c642ac9b` is the bounded normal-details prerequisite; DE13b retained reporting and ordinary failure continuation is active, with unsafe interrupted-error continuation deferred to DE13c. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
+retains every original DE06 acceptance cell. DE07 generation delivered at `9f6ef9cf` supplies its bounded execution/admission join. DE08 tool execution supplies owned sequential dispatch, safety/receipt recovery and closed-round continuation, delivered at `8571f88b`. DE09 completed projection delivered at `48a742ae`; DE10 supplies private inspection/recovery resolution and DE11 supplies the opt-in async Python product session; DE12 CLI/live acceptance delivered at `df5c3137`. DE13a delivered at `c642ac9b` is the bounded normal-details prerequisite; DE13b retained reporting and ordinary failure continuation landed at `a069a8a8`; bounded interrupted execute continuation is active in C1, with all historical blocked migration deferred to C2. DE14/15/16/23 retain broader runtime policies. All43 P rows remain OPEN.
 The registry describes implementation scope; exact commit/remote/review-tree and
 final validation identities belong to the retained delivery receipt. Codex
 `gpt-6-astra` HIGH implements the authorized DE13b shared-lifetime integration; Claude Code `claude-opus-5-5` (Opus5.5)
@@ -8875,7 +8876,7 @@ this bounded child's delivery; a preliminary diagnostic is not a final gate.
 
 ## DE13b retained reporting acceptance
 
-DE13b is implemented in the working slice; this entry is not a CODE verdict or
+This DE13b working-slice evidence was retained at delivery `a069a8a8`; this entry is not a CODE verdict or
 delivery claim. [The bounded contract](../durable-tools.md#retained-reporting-and-ordinary-tool-failures-de13b)
 covers actual pre-capture admission, one preparation workspace/host flusher,
 prefix ACKs, physical Bash cleanup and lease joins, raw ordinary failed-child
@@ -8923,3 +8924,45 @@ supported runtimes, strict rendered docs, full checks and independent Opus5.5
 HIGH CODE review remain delivery gates. Unsafe recovered continuation/old blocked
 upgrades/current missing ports/ceilings belong to DE13c. Parent DE13, full
 DE26/33/27/28 budgets and all 43 P obligations remain open.
+
+
+## DE13c1 implementation boundary (2026-10-27)
+
+DE13b landed at `a069a8a81affb8672f78f33177c490dce84c1588`. C1 implementation
+starts from an actual delivered-source/API readback and the
+[finite contract](2026-10-27-de13c1-interrupted-continuation-plan.md). Its initial
+core checks cover ordinary execution, existing reader/schema/public-session
+controls and a real SIGKILL after one keyed effect followed by interrupted
+continuation and counted no-reissue reopen. These development observations are
+not final source-closed, platform, comparison, full-check or review acceptance.
+
+Receipt-first-winner precedes current counter acquisition. Actual valid receipt
+plus invalid later task restart metadata must settle unchanged; receipt-absent
+execute with that source must refuse before public scheduler writes. Required
+receipt recovery keys remain strict. The independent whole-code gate must also
+verify mixed-catalog safe-replay refusal, pre-intent/old-request cuts, actual
+older-B receipt parsing into a held blocked record, and all-reader/private-output
+controls. C1 plan review was not CLEAN; finite remaining precision targets belong
+in executable tests and that mandatory implementation review. C2 historical
+migration, DE14 restart policy, P15/P16 and whole DE13/P21 remain open.
+
+
+C1's integrated development test set includes producer-backed all-reader
+mutations, public SDK/CLI physical cuts and the actual archived B parser under
+its original catalog, plus typed historical-policy controls explicitly labelled
+as reconstructions. Live execute dictionary payload fences cover opaque/newer
+receipts and malformed/mismatched progress without synthesizing a result or
+issuing another provider request. Null/list document roots are refused by the
+existing StorageWrite schema; empty default objects remain distinct positive
+controls. The phase17 native expectation is explicitly migrated to C1 while its
+old unsafe prefix-only common projection and historical captures remain intact.
+The appended C1 phase declares its different native SIGKILL-before-ACK and Pi
+graceful-after-ACK cuts; it makes no counter or process-death parity claim.
+
+The existing nine-cut public SDK and CLI hard-kill fixtures also use the C1
+expectation for intact unsafe execute: interrupted FAILED child and actual
+receipt2, completed parent, and no repeated preparation, invocation or effect
+under the original key. Their provider-uncertainty, normal receipt, usage and
+terminal-reopen controls remain. Historical held/operator-retry cases retain
+their separate unchanged contract; a fresh execute is not converted into a
+historical blocked record merely to preserve an older fixture expectation.

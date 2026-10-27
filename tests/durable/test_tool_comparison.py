@@ -2,9 +2,11 @@
 
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
+from sqlite_child_support import Child
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location(
@@ -122,3 +124,32 @@ def test_faulted_raw_terminal_parent_cannot_match_completed_round(native_run):
     changed["cases"][0]["observed"] = m.v.encode(projected)
     m.trace(changed)
     assert m.compare(actual, changed) == 1
+
+
+def test_actual_producer_and_fresh_pure_import_have_identical_native_maps(tmp_path):
+    program = r"""
+import asyncio
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1])/'scripts'))
+import durable_tool_comparison as comparison
+if sys.argv[2] == 'producer':
+    asyncio.run(comparison.native(Path(sys.argv[3])/'stores'))
+say('modules', role=sys.argv[2], modules=comparison.native_modules())
+"""
+    proofs = {}
+    for role in ("producer", "pure-import"):
+        with Child(
+            program, str(ROOT), role, str(tmp_path / role), home=tmp_path
+        ) as child:
+            event = child.expect("modules")
+            assert event["role"] == role
+            assert child.wait() == 0
+            child.wait_stdout_eof()
+            proofs[role] = child.evidence()
+    producer = proofs["producer"]["events"][0]
+    reader = proofs["pure-import"]["events"][0]
+    assert producer["pid"] != reader["pid"]
+    assert producer["modules"] == reader["modules"]
+    assert "src/pipy_harness/native/durable/tool_recovery.py" in producer["modules"]
+    assert not (tmp_path / "pure-import").exists()
+    (tmp_path / "fresh-native-import-proof.json").write_text(json.dumps(proofs))

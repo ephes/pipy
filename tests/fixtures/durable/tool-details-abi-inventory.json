@@ -2077,12 +2077,12 @@
     },
     {
       "path": "src/pipy_harness/native/durable/generation.py",
-      "current_sha256": "2d7f69504337d1871fcd9537f7f8a4ea365c3bcbc5b22f027d4741ecd432ccff",
+      "current_sha256": "079d6ecdce033004224930c55d2ec579c8595ffb3017ab7b741a11da42b110c3",
       "disposition": "Existing synthetic unavailable result has explicit mapping details; no change needed."
     },
     {
       "path": "src/pipy_harness/native/durable/tool_graph.py",
-      "current_sha256": "c0f6d8ec30552604c8e2aec57667625f7b2db4480e6344e76b2a245ae88302ae",
+      "current_sha256": "6e67fb7a24f79d9f2bd712caa0884315cd44e66d3a3697804b36adc7ee413529",
       "disposition": "Compare result using its recorded arena version, without changing raw task status/ownership/control validation."
     },
     {

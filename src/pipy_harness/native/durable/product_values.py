@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +14,7 @@ from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.provider_construction import ConstructionOptions
 
 from .completed_values import CompletedSnapshot
-from .generation import define_generation
+from .generation import _capture_generation, _Generation, _generation_definition
 from .inspection_values import TaskInspection
 from .provider_checkpoint import FAMILIES
 from .provider_inputs import own_construction_inputs
@@ -25,6 +25,7 @@ from .provider_settings import (
     encode_pricing,
 )
 from .records import RecordError, safe_integer
+from .recovery_catalog import RecoveryCatalog
 from .tasks import Task
 
 
@@ -104,6 +105,7 @@ class DurableProviderProfile:
     """
 
     _definition: Task[Any, Any, Any] = field(repr=False)
+    _driver: _Generation = field(repr=False)
     _selection: tuple[str, str, str] = field(repr=False)
 
     def __init__(
@@ -133,7 +135,7 @@ class DurableProviderProfile:
                 and type(thinking) is not str
             ):
                 raise DurableProductError("incompatible")
-            definition = define_generation(
+            driver = _capture_generation(
                 spec,
                 auth_path=auth_path,
                 env=environment,
@@ -148,7 +150,11 @@ class DurableProviderProfile:
             )
         except Exception:  # noqa: BLE001 - never expose construction inputs
             raise UnsupportedDurableCapability from None
-        object.__setattr__(self, "_definition", definition)
+        object.__setattr__(self, "_driver", driver)
+        object.__setattr__(self, "_definition", _generation_definition(driver))
         object.__setattr__(
             self, "_selection", (spec.provider_name, spec.model_id, spec.api)
         )
+
+    def _bound_definition(self, catalog: RecoveryCatalog) -> Task[Any, Any, Any]:
+        return _generation_definition(replace(self._driver, catalog=catalog))

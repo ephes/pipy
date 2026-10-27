@@ -8,7 +8,11 @@ remain live; no closed round or terminal parent is invented. DE10 must explain
 the retained-control hold. Full termination/graph policy stays with DE25/30 and
 DE15/28; public product activation stays DE11/12.
 
-## Pre-code contract
+## Original DE08 pre-code contract
+
+The following records the original DE08 boundary. The [C1 recovered-execute
+continuation](#interrupted-recovered-execute-continuation-de13c1) below supersedes
+its unsafe-execute hold policy for intact nonblocked intents only.
 
 DE08 extends delivered DE07 `9f6ef9cf` on the existing native Session authority.
 It is private opt-in execution; product/CLI activation remains DE11/12. The
@@ -329,8 +333,52 @@ recovery category/model suffix, warning spelling and reporting stage, graph
 shape and policy constants remain raw differences. The comparison does not
 measure timing/capacity or establish whole-feature parity.
 
-This child does not produce or accept an interrupted branch as a failed-child
-continuation cause. Unsafe execute recovery, explicit old-blocked upgrades,
-missing/current implementation resolution and replay ceilings remain DE13c;
+DE13b did not produce or accept an interrupted branch as a failed-child
+continuation cause. C1 adds the bounded recovered-execute case below; explicit
+old-blocked upgrades remain C2 and operational replay ceilings remain DE14;
 provider retry/auth/default activation and general graph work keep their existing
 owners. Parent DE13 and all 43 whole parity obligations remain open.
+
+
+## Interrupted recovered execute continuation (DE13c1)
+
+An intact, model-owned recovered execute intent can settle without another tool
+invocation. The existing committed receipt wins first. If none exists, an unsafe
+intent, or one whose current implementation is missing or changed, produces an
+`interrupted` fact2/receipt2 with the actual retained output, details presence and
+diagnostics. Its child is raw FAILED; model text appends `Tool execution
+interrupted; result is uncertain.` in the existing harness wrapper. This is an
+uncertain observation, not success or proof that no effect occurred. Exact
+saved-safe/current-safe replay retains the saved arguments/key and its existing
+compatibility checks; public replay additionally requires the whole catalog to
+be unchanged.
+
+The interrupted cause contains exactly `reason`, `attempts` and `restarts`.
+Unknown counters are explicit null, never omitted or invented zero. Attempts
+come from validated committed progress. Restarts describe the current task's
+checkpoint-local scheduler observation, not a cumulative total. Receipt-absent
+execute rejects an invalid present restart source before public scheduler writes
+and revalidates it at the receipt transaction. A valid saved receipt settles with
+its own counters unchanged; subsequent restart metadata cannot replace or reject
+that first winner. Invalid or opaque receipt/progress authority never permits
+synthesis. Missing historical progress yields absent details and empty output.
+
+Public resume admits changed or missing tools only for a closed noninvoking
+recovery: every unresolved child must be an eligible execute requiring no replay
+or supported receipt settlement. A pre-intent child, old provider request or any
+required safe replay refuses before scheduler/task/entry/header writes, even if
+only an unrelated tool disappeared. Restoring the original catalog remains a
+control. The next request retains saved members in saved order intersected with
+unchanged supported current capabilities. New capabilities never enlarge saved
+authority. Normal same-catalog requests are not rebuilt by this binding. The
+original header and provider/material/transport guards remain unchanged.
+
+Every historical blocked origin stays held, including uncertain, incompatible,
+invalid_result and intent-less forms. Any receipt on blocked work is an opaque
+repair fence. Existing explicit new-key authorization keeps its guards. C2 owns
+historical migration, including an older B runtime reading a C1 receipt and
+writing blocked/intent-None; C1 preserves that receipt and hold. No reason label
+alone distinguishes ordinary failure from reporting infrastructure loss after an
+effect. The [C1 contract](specs/2026-10-27-de13c1-interrupted-continuation-plan.md)
+requires real cold SDK/CLI cuts, receipt-first-winner and all-reader proofs.
+DE13/P21, C2, DE14, P15/P16 and the broader durable parity obligations remain open.

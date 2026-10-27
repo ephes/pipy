@@ -155,3 +155,16 @@ on explicit resume, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
+
+
+## Recovered execute classification (DE13c1)
+
+Inspection shares the finite noninvoking execute/receipt classifier used by
+execution and public resume. It does not invoke ports, construct providers or
+create documents. A valid receipt settles without consulting later restart
+metadata; without a receipt, actual current source counters must be exact
+nonnegative safe integers or absent. The new interrupted cause adds no inspection
+reason or waiter enum. Historical blocked records keep their existing reasons,
+and every receipt on blocked work remains `receipt_held_needs_repair`, including
+an older runtime's blocked/intent-None round trip. C2 owns migration; automatic
+resume never replaces the existing operator-new-key authorization contract.

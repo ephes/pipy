@@ -118,9 +118,11 @@ details record. They do not retain two authoritative copies. A hook that changes
 details back to a mapping preserves the actual record in the legacy channel;
 intentional summary/retention clears remove both kinds of local metadata.
 
-This is the normal-value prerequisite DE13a. Unsafe interrupted-error
-continuation, retained progress, failed-result child acceptance, current-tool
-ceilings and general durable nesting remain with their original later owners.
+This normal-value ABI is the DE13a prerequisite. DE13b adds retained progress
+and ordinary failed-result continuation; DE13c1 adds interrupted continuation
+for intact recovered execute and a saved/current next-tool intersection.
+Historical blocked migration, operational restart ceilings, omitted-output
+parity and general durable nesting remain with their later owners.
 The full DE13 crash/effect/continuation acceptance and all whole parity rows stay
 open. Provisional future progress admission limits are not limits or parity
 claims for this final-details ABI.

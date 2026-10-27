@@ -10,7 +10,7 @@ from test_product_session import profile
 from pipy_harness.native.agent.request import snapshot_provider_request
 from pipy_harness.native.durable.codec import OwnedJson
 from pipy_harness.native.durable.generation_tasks import TOOL_TASK
-from pipy_harness.native.durable.product_binding import HEADER
+from pipy_harness.native.durable.recovery_catalog import HEADER
 from pipy_harness.native.durable.resolution import GENERATION_ADMISSION
 from pipy_harness.native.durable.resolution_values import ResolutionError
 from pipy_harness.sdk import (
@@ -450,3 +450,51 @@ def test_invalid_product_inspection_paging_refuses_before_read(
             read.assert_not_called()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("sibling", [False, True])
+def test_profile_required_precedes_live_graph_preflight(tmp_path, sibling):
+    wire = Wire()
+
+    async def scenario():
+        path = tmp_path / "product.sqlite"
+        async with await create_durable_product_session(
+            path, workspace=tmp_path, profile=profile(tmp_path, wire), tools={}
+        ) as product:
+            admission = await product.submit("input")
+            if sibling:
+
+                def add(tx):
+                    row = tx.task(admission.generation_task_id).to_tree()
+                    tx.create_task(
+                        GENERATION_ADMISSION,
+                        row["input"],
+                        ownership={"kind": "conversation"},
+                        conversation_id=row["conversationId"],
+                    )
+
+                await product_api_commit(product, add)
+        async with await open_durable_product_session(
+            path, workspace=tmp_path, tools={}
+        ) as product:
+            with pytest.raises(DurableProductError) as caught:
+                await product.resume()
+            assert caught.value.code == "profile_required"
+            assert product._scheduler is None and wire.calls == []
+        async with await open_durable_product_session(
+            path, workspace=tmp_path, profile=profile(tmp_path, wire), tools={}
+        ) as product:
+            if sibling:
+                with pytest.raises(DurableProductError) as caught:
+                    await product.resume()
+                assert caught.value.code == "foreign_live_task"
+                assert product._scheduler is None and wire.calls == []
+            else:
+                result = await product.resume()
+                assert (
+                    result.status == "terminal"
+                    and result.inspection.outcome == "completed"
+                )
+                assert len(wire.calls) == 1
+
+    asyncio.run(asyncio.wait_for(scenario(), 15))

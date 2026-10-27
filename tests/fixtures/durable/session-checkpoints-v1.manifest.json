@@ -3,14 +3,14 @@
   "phase": "session-checkpoints-j-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "baseline": "3e18a6fbcdcda27345280901a896b6832aecb1a13666ac01f981975a3a7a1408",
-    "a1": "80daf0e507c25c93c2cb6fdbfdc7e69a5844fc0a35a38b14ea733a064857269a",
-    "a2b": "57f5429e4b88ec7814ebb673f757cdc4463ccf0f35afb8b6d62eb88d22cada40",
-    "b1b": "eaf950f2bce8ea25a7c90983cf0179ebff0a5bc81990a4068653ad4a2dcef1d6",
-    "b3": "3f6438da7aab8acab4a22861ba66625de6bc58058f2201b9508531a2e10732ff",
-    "sqlite": "56a119478fc3c30032bbf12027e4672eef53905012912b8baafe4c9eac1c18cc",
-    "documents": "a89e0f1fd76256698098cc4c7dee534a2763fc17b9b939086d081e20de4896b7",
-    "tracker": "7eaa39e0dcffd4c892d402d6ad2cbae1f1eb291136205d6ea6b8037cfa7bd43d"
+    "baseline": "bdc8874e9a0699212e4137fee7bcf5c67b8599d50c79ef7c919947e626d893db",
+    "a1": "f11792885fdebe5034702d61b555fffcebdfbd5040c94ed949f2a836070a889f",
+    "a2b": "8edc3b64f1b2c859ee47656bedc4d34538cae4d5ae82f15dff3eb03be89a3a45",
+    "b1b": "c76af68fb13c95bc3a28e93fc94845b213aa429b0407cb03e625ddbc81285910",
+    "b3": "abd98c4b939f802d3993b5be02dd9359e4bf2c9a063426cf9608e99024e9af79",
+    "sqlite": "058c908ca9dc63b4f2a41cc46700e4c1da263594e045b7bfb1dabb8eb1229dfb",
+    "documents": "722a57e7da9d9ceaa6e805e552fa241d02a4d7abcb4e51e453b016d4de17f586",
+    "tracker": "865490937dcc76afeb19b75fbf24c74c149f8b11617938ccf95c8e86f3aa46b8"
   },
   "closure": {
     "docs/durable-draft-tracker.md": "5906cc3937e308405202a681d0bd167c6ed3d15d8ab1d7c4bc18aab761f997d4",
@@ -28,7 +28,7 @@
     "scripts/durable_reference/cases/storage-memory.mts": "a0d6cf477c8388f8ad3f73d29e43111b4f5d07f65f2e3ba0bb5540462be878df",
     "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
     "scripts/durable_reference/cases/storage-sqlite.mts": "12f11552782c7f782b67f58c54bb12fbf6d2233e5fb1858fa0ef2f98feca3e05",
-    "scripts/durable_reference_acceptance.py": "e4927d6fc3e77e94bb6c3bfc6039919bd0680e62fa1db65087616dd16ad84d8e",
+    "scripts/durable_reference_acceptance.py": "c236916b36452e81dc27e962ebf0a422ab9a8ae6029526ccdf6c54ab5d56d19d",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "scripts/durable_session_checkpoints_comparison.py": "276ad1b3bab81c0db2a022c2e6121fbcd8c001e5e4186b4b0c9a493ef7b06b4c",
     "scripts/durable_session_commit_comparison.py": "892b706e0fbe7a8f7bbc51ab9477d2480103b8573119dc5b9a0f675703875d4d",

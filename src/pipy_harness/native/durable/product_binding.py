@@ -11,7 +11,7 @@ from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 
 from .canonical_codec import decode_canonical, encode_canonical
 from .codec import OwnedJson
-from .documents import Doc, define_doc, resolve
+from .documents import resolve
 from .execution_support import ExecutionSupport
 from .generation import message_entry
 from .generation_tasks import GENERATION_NAME, GENERATION_VERSION
@@ -19,12 +19,12 @@ from .inspection_read import conversations, entries, tasks
 from .product_values import DurableProductError, DurableRunSelection
 from .provider_checkpoint import FAMILIES
 from .records import safe_integer
+from .recovery_catalog import HEADER
 from .resolution import AUDIT, _winner_binding
 from .storage import DocumentQuery, Storage
 from .tool_values import _model_declaration
 
 Tree = dict[str, Any]
-HEADER: Doc[Tree] = define_doc("pipy.product.binding", 1, "session", lambda: {})
 
 
 def header(storage: Storage, path: Path, workspace: Path) -> Tree:

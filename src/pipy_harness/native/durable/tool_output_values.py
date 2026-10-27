@@ -13,7 +13,7 @@ from pipy_harness.native.agent.tools import (
 )
 from pipy_harness.native.tools.truncate import truncate_tail
 
-from .records import shape
+from .records import safe_integer, shape
 from .tool_progress_values import (
     FAILURE_CATEGORIES,
     OUTPUT_BYTES,
@@ -28,20 +28,33 @@ def failure_text(category: object) -> str:
     return "Tool failed (" + category + ")."
 
 
+INTERRUPTED_TEXT = "Tool execution interrupted; result is uncertain."
+
+
+def ending_text(tree: dict[str, Any]) -> str:
+    """The same closed cause determines projection and raw terminal failure."""
+    if tree["ending"] == "interrupted":
+        return INTERRUPTED_TEXT
+    return failure_text(tree["recovery"]["category"])
+
+
 def check_ending(tree: dict[str, Any], outcome: ToolExecutionOutcome) -> None:
-    """DE13b has no interrupted recovery branch or arbitrary failed controls."""
+    """Validate the entire cause before any projection or reader acceptance."""
     diagnostics(tree["diagnostics"])
     ending, recovery = tree["ending"], tree["recovery"]
-    if type(ending) is not str or ending not in ("completed", "failed"):
+    if type(ending) is not str or ending not in ("completed", "failed", "interrupted"):
         raise ValueError("Unsupported durable tool ending")
     if ending == "completed":
         if recovery is not None:
             raise ValueError("Completed output cannot have a failure cause")
         return
-    cause = shape(recovery, {"reason", "category"})
-    if cause["reason"] != "tool_error":
-        raise ValueError("Unsupported durable tool failure cause")
-    failure_text(cause["category"])
+    if ending == "interrupted":
+        _interrupted(recovery, outcome)
+    else:
+        cause = shape(recovery, {"reason", "category"})
+        if cause["reason"] != "tool_error":
+            raise ValueError("Unsupported durable tool failure cause")
+        failure_text(cause["category"])
     if (
         not outcome.result.is_error
         or outcome.result.terminate
@@ -50,6 +63,15 @@ def check_ending(tree: dict[str, Any], outcome: ToolExecutionOutcome) -> None:
         or outcome.interruption is not ToolExecutionInterruption.SETTLED
     ):
         raise ValueError("Unsupported failed tool controls")
+
+
+def _interrupted(recovery: object, outcome: ToolExecutionOutcome) -> None:
+    cause = shape(recovery, {"reason", "attempts", "restarts"})
+    if cause["reason"] != "interrupted" or outcome.execution_seconds is not None:
+        raise ValueError("Unsupported durable interrupted cause")
+    for key in ("attempts", "restarts"):
+        if cause[key] is not None and safe_integer(cause[key], positive=False) < 0:
+            raise ValueError("Unsupported durable interrupted counter")
 
 
 def _projected_blocks(
@@ -99,8 +121,8 @@ def project_tool_output(
     )
     if tail.truncated:
         notices.insert(0, "[tool output truncated]")
-    if tree["ending"] == "failed":
-        notices.append(failure_text(tree["recovery"]["category"]))
+    if tree["ending"] in ("failed", "interrupted"):
+        notices.append(ending_text(tree))
     suffix = "<harness>\n" + "\n".join(notices) + "\n</harness>" if notices else ""
     text = tail.content + ("\n" if tail.content and suffix else "") + suffix
     return replace(
