@@ -1686,3 +1686,37 @@ to `migration_failed`; the full native report remains 17 fields and its common
 Pi projection remains nine. No model/tool migration, live registry, public retry
 enable or whole DE14/P07 parity follows from this profile. See
 [cold task migration](durable-task-migration.md) for the native boundary.
+
+## Owner-local restart-policy publication (DE14b2)
+
+`restart-policy-live-v1` appends the twenty-seventh cumulative phase after
+`task-migration-cold-v1`. Its closed parent/manifest chain retains every earlier
+phase, source member and pinned reference. The driver is
+`scripts/durable_restart_policy_live_comparison.py`; `run` requires a fresh
+parent acceptance, while `attest` validates retained evidence without executing
+producers. Comparison returns 0 for bounded equality, 1 for a schema-valid
+semantic mismatch and 2 for invalid evidence.
+
+The five generic cases raise a finite limit, disable the ceiling, lower before
+admission, repeat a finite limit and repeat unlimited policy. Actual native
+Session/scheduler and pinned Pi Harness owners create tasks, seed explicitly
+labelled counter controls, update host policy, resume explicitly, close and
+reopen with a fresh policy. These are controlled pending records, not physical
+SIGKILL claims. Both complete raw record streams remain available; the common
+projection compares task/counter preservation, parking, invocation counts and
+explicit-resume/fresh-owner outcomes. Thirteen schema-valid mutations distinguish
+those observables. Invalid evidence remains a separate refusal.
+
+Pi receives a changed `HarnessOptions.settings` host object, not an invented
+setter API. A parked live task is not Pi graph-idle. For a freshly opened,
+actually paused owner, the parked branch observes the first resumed reservation
+through a later-microtask read on the same FIFO Session line. That control proves
+the reservation boundary, not global quiescence or task completion; eligible
+and final branches retain actual idle-completion waits. The raw Pi sidefacts
+name the observation used. Native boolean ACK, lack of setter notification/enable, async
+transport, raw Python numeric inputs and owner-versus-standalone inspection are
+side-specific observations. This profile grants no Product live setting,
+listener/registry/handover, physical crash/resource or whole parent parity claim.
+The [private implementation contract](specs/2026-10-28-de14b2-live-restart-policy-plan.md)
+and [evidence record](evidence/2026-10-28-de14b2-live-restart-policy.md) distinguish
+source preparation, development execution and final acceptance.

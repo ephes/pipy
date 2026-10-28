@@ -4967,15 +4967,16 @@ whole parity obligations are unchanged.
 
 ## Bounded restart parking (DE14a)
 
-One immutable [host restart policy](durable-restart-parking.md) is shared by
-scheduler reservation and product inspection. The default ceiling is five;
+An initially captured immutable [host restart policy](durable-restart-parking.md)
+is shared by scheduler reservation and product inspection. The default ceiling is five;
 parking is derived from the existing numeric task record and adds no stored
 state, header setting or audit. It also delays valid-receipt settlement without
 changing the winner. Changed task checkpoints reset the streak; acknowledged
 document-only progress does not. Public same-task reset commits on the existing
 Session line and remains noninvoking until explicit selected resume. Private
-scheduler retry enables only after successful commit. Live policy changes,
-definition migration and full public Pi retry-enable parity remain DE14b work.
+scheduler retry enables only after successful commit. Generic cold migration is
+supplied by DE14b1; public live settings and full Pi retry-enable parity remain
+DE14b work.
 
 
 ## Cold task-definition migration (DE14b1)
@@ -4986,3 +4987,16 @@ catalog and existing Session/condition order own migration, failure observation
 and reservation. Built-in authority and normal codecs remain unchanged. See the
 [bounded contract](specs/2026-10-28-de14b1-cold-task-migration-plan.md); live handover,
 registry subscriptions and broader ownership/reload remain later work.
+
+
+## Owner-local restart-policy publication (DE14b2)
+
+The private scheduler can publish a new immutable policy on the existing Session
+line, then the existing metadata condition. Reservation, retry and same-owner
+inspection capture one value for each decision. The setter neither writes durable
+state nor notifies/enables work; explicit resume requests a pass. Actual completed
+open, health and close ownership govern admission; accepted async work remains
+joined through cancellation. No new lifecycle flag or settings registry exists.
+Public Product/SDK/CLI policy remains immutable and has no setter. See the
+[bounded contract](specs/2026-10-28-de14b2-live-restart-policy-plan.md); generic
+registry publication, active handover and broader ownership remain separate.

@@ -292,11 +292,14 @@ def _inspect_owned_task(
             return None
         row = cast(Tree, found.to_tree())
         if row["state"]["status"] in ("terminal", "completing"):
-            return _capture(storage, row, None, scheduler._restart_policy)
+            with scheduler._guard:
+                policy = scheduler._restart_policy
+            return _capture(storage, row, None, policy)
         from .task_values import identity
 
         key = identity(row["kind"])
         with scheduler._guard:
+            policy = scheduler._restart_policy
             definition = scheduler._definitions.get(key)
             failed = (
                 definition is not None
@@ -306,7 +309,7 @@ def _inspect_owned_task(
             storage,
             row,
             scheduler._inspection_support,
-            scheduler._restart_policy,
+            policy,
             migration_failed=failed,
         )
 

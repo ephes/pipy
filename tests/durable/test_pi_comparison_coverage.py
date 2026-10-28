@@ -953,10 +953,29 @@ def test_cold_migration_child_does_not_own_live_registry_or_parent_parity():
     child = rows["DE14b1"]
     assert child["current"]["kind"] == "bounded-native"
     assert child["current"]["cases"] == ["task-migration-cold-v1"]
-    assert child["status"] == rows["DE14b"]["status"] == "IN_PROGRESS"
+    assert child["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert rows["DE14"]["status"] == "IN_PROGRESS"
     assert rows["DE14b"]["current"]["cases"] == []
     assert "Built-in migration, live registry/handover" in child["future"]
     rows["DE14b"]["current"]["cases"] = ["task-migration-cold-v1"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_live_restart_policy_child_preserves_public_and_parent_boundaries():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    child = rows["DE14b2"]
+    assert child["current"]["kind"] == "bounded-native"
+    assert child["current"]["cases"] == ["restart-policy-live-v1"]
+    assert child["status"] == rows["DE14b"]["status"] == "IN_PROGRESS"
+    assert rows["DE14"]["status"] == "IN_PROGRESS"
+    assert "no-wake explicit resume" in child["future"]
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+    rows["DE14b"]["current"]["cases"] = ["restart-policy-live-v1"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

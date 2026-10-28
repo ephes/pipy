@@ -3,13 +3,13 @@
   "phase": "task-runtime-b-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
   "parents": {
-    "documents": "9807dbd6532214a80a87bcfa8dd0b1ed65ecce50faeaf36116011dc66c71a963"
+    "documents": "c8961b587da7626b0171b310c55e89bcf2420cfe6565f4f283057e91e6214dd9"
   },
   "closure": {
-    "docs/durable-restart-parking.md": "7a3e397bbcb61a241f674d5760b5a0b35445242985b9b4b5d36ce44de2378204",
+    "docs/durable-restart-parking.md": "a394de401a9939ef207f44734faf51bc3fab04e2ff15917c656c19ac56ac995f",
     "docs/durable-session-deltas.md": "cbae3b784e027734c94426e7cb59281a1d35960be479240353b35c7b3d1c75f2",
     "docs/durable-task-migration.md": "2fe248699e157bdbee643cc5a176ae98d4254565bbca62eb91a93052792b86e6",
-    "docs/durable-task-runtime.md": "41013d393a7d341b1f3ab75bf4cf2f849af6bd3259c74caa4b657189e6aa09b2",
+    "docs/durable-task-runtime.md": "d5008dbaab3ee936f91963c196ee0087cd44c948fe414eb669c4df14e5c1eb67",
     "docs/specs/2026-10-28-de14a-restart-parking-plan.md": "318fcb43e983a7f5743e7b6fcc0e1ab2ded9df7103adfc170fda13d71beb5afd",
     "docs/specs/2026-10-28-de14b1-cold-task-migration-plan.md": "5b9282111b95044922f46c37e96518bc80b2fb4218a29c9b3f75b490878bd06d",
     "scripts/durable_documents_comparison.py": "caea47f5675dfd17dc9986679a91564d9f2c7e68739c612924d94b21734c0be2",
@@ -155,7 +155,7 @@
     "src/pipy_harness/native/durable/generation.py": "079d6ecdce033004224930c55d2ec579c8595ffb3017ab7b741a11da42b110c3",
     "src/pipy_harness/native/durable/generation_tasks.py": "26dec4401347eee029ff41c5f160066c627c3abaa6a32b1a0456d26693282ba9",
     "src/pipy_harness/native/durable/generation_transport.py": "c5b5a45f8e1dd33c248c7bf1820d1b845cd2720106fa96c96ae82a5d0ba1f21f",
-    "src/pipy_harness/native/durable/inspection.py": "26d82bd575032d220a89f397f50c51ea3cec3634e924c58293c4e517770efec6",
+    "src/pipy_harness/native/durable/inspection.py": "f87a3d786739ac7d96f03db1d9b25505be6c425fe86132a50373529da0d1b73f",
     "src/pipy_harness/native/durable/inspection_read.py": "74d751ab0d8e7c29f12eed63379514dfdc7013b240b5896c5f1b52ffb43ce5ff",
     "src/pipy_harness/native/durable/inspection_support.py": "f26df3d3cdb3b64a3dffc5edc627b85585f7b363f381d56d897f27a0cd91d10b",
     "src/pipy_harness/native/durable/inspection_values.py": "139e60a75145af6bbf64b605f32cd487da3b50241c94370af9f0ea3a0be2cdb6",
@@ -175,7 +175,7 @@
     "src/pipy_harness/native/durable/resolution_read.py": "089c247ff4752f112db2fee52748855b58a01fb33df77ec71f895fc93eee2339",
     "src/pipy_harness/native/durable/resolution_values.py": "f1a704e21e5b2b31e8963e4ab2621fe3c32041ba3c30d3a39372644f1b181b52",
     "src/pipy_harness/native/durable/restart_policy.py": "2073a9abd6ad97f21cf6efc937e0721727f1034f48872bcd2e9e48f1db7ca951",
-    "src/pipy_harness/native/durable/scheduler.py": "c57f401986d698d9f307262cab6a07616b7292a84d320569ffc117add0fe0cdb",
+    "src/pipy_harness/native/durable/scheduler.py": "4f6ed12cfa5c9826e02867b4f6d6ee42a5cee4de04bbd9bec005f45e246d0a30",
     "src/pipy_harness/native/durable/session.py": "7584a3132b52a5053d00147c08344f7bf7b2acf87a237ca8fbee764e3b88a2a0",
     "src/pipy_harness/native/durable/session_core.py": "5800eea7138182d5b65e306984af553ce9d27f068ece384c02904b091ab14e28",
     "src/pipy_harness/native/durable/sqlite.py": "bfed03d3f19b6a2cd88e090e34898ddbe2a18cd276b26c22a2f361f3018a8daa",

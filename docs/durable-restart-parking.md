@@ -17,9 +17,10 @@ task checkpoint.
 
 `create_durable_product_session` and `open_durable_product_session` accept
 `restart_limit=5`. The private `TaskScheduler` and inspection APIs accept the
-same keyword. Each owner captures one immutable policy; it is not stored in the
-header or database. A fresh owner can raise the limit or pass `math.inf` to
-disable parking. Live reconfiguration remains unsupported.
+same keyword. The policy is not stored in the header or database. A fresh owner
+can raise the limit or pass `math.inf` to disable parking. Public Product owners
+keep their constructor policy for their lifetime; they expose no live update.
+The private scheduler can publish a new immutable policy as described below.
 
 Raw Python policy values must be exact builtin numbers representable as finite
 binary64. Values at least one are floored. Invalid values, bools, subclasses,
@@ -42,6 +43,36 @@ more specific hold reason applies. Passive store inspection describes its own
 explicit/default policy, not the configuration of an unrelated live owner.
 It performs no recovery or dispatch and exposes no task payload. Public resume
 returns held when parked work prevents continuation.
+
+## Private owner-local publication (DE14b2)
+
+After opening a healthy private scheduler, `set_restart_limit(value)` and
+`await aset_restart_limit(value)` return whether its normalized limit changed.
+An exact `RestartPolicy` copies its limit; other inputs use the same constructor
+rules above. Publication uses the existing Session line and owner condition,
+without a Storage commit, counter reset, notification, enable or invocation.
+
+Use `scheduler.resume()` to request a new pass after raising the limit. A paused
+owner stays paused; an independently triggered pass or an already enabled drain
+can observe the policy at its next reservation. Lowering a limit does not revoke
+an admitted invocation. Each reservation pass, retry transaction and same-owner
+inspection uses one policy snapshot. `scheduler.inspect_task` and
+`await scheduler.ainspect_task` observe that owner; standalone inspection still
+uses its own explicit/default limit. A fresh owner does not recover an earlier
+owner's unpersisted policy.
+
+The setter requires completed open/recovery. A cancelled `aopen` waiter does not
+cancel recovery; eligibility follows actual open publication. Failed, closed,
+not-yet-opened and reentrant calls retain their bounded refusal. The synchronous
+setter cannot block an event-loop thread. Async cancellation joins the actual
+line job and does not promise rollback: publication may already have happened.
+A repeated value then returns false on the same still-live owner. Close retains
+physical ownership until accepted work retires.
+
+This private API is not exposed through Product, SDK or CLI. Updating a Product's
+internal scheduler is unsupported: its public admission and inspection continue
+to use its immutable constructor policy. The [bounded contract](specs/2026-10-28-de14b2-live-restart-policy-plan.md)
+keeps public live settings, listeners and registry handover separate.
 
 ## Reset the same task, then resume explicitly
 
@@ -102,6 +133,7 @@ records its new streak. There is no cumulative restart audit. Reset never
 authorizes an old unsafe invocation or repairs historical blocked authority.
 
 The [implementation contract](specs/2026-10-28-de14a-restart-parking-plan.md)
-keeps live settings, definition migration, orphan/cleanup and abort budgets for
-DE14b and later ownership work. General cancellation/graph behavior, provider
+keeps public live settings, registry handover, orphan/cleanup and abort budgets
+for remaining DE14b and later ownership work. Generic cold migration is supplied
+by [DE14b1](durable-task-migration.md). General cancellation/graph behavior, provider
 attempt backoff, and whole DE14/DE13/P21 parity remain open.

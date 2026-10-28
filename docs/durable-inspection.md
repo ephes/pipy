@@ -175,12 +175,16 @@ resume never replaces the existing operator-new-key authorization contract.
 
 ## Bounded restart parking (DE14a)
 
-[Restart parking and same-task reset](durable-restart-parking.md) add an immutable
-per-owner default-five ceiling and allowlisted inspection metadata. Public reset
+[Restart parking and same-task reset](durable-restart-parking.md) add a
+default-five host ceiling and allowlisted inspection metadata. Public reset
 requires existing profile/selection/ownership admission and does not dispatch;
 explicit resume remains separate. It is distinct from new-attempt authorization.
 Operational parking can delay valid receipt settlement without rewriting it.
-Live settings and broader migration/ownership behavior remain deferred.
+Public live settings and broader migration/ownership behavior remain deferred.
+The private DE14b2 setter publishes a new owner policy; same-owner inspection
+captures it on the Session line together with definition/failure metadata.
+Standalone inspection retains its explicit/default policy and never guesses a
+live owner setting. The report still has exactly 17 fields.
 
 
 ## Cold generic migration metadata (DE14b1)

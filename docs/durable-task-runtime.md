@@ -61,7 +61,8 @@ transaction; terminal state drops memos and restarts.
 Unknown/incompatible definitions, abort-marked work and waiting/sleeping/
 completing records remain inspectable and durable. Unsupported ownership joins
 must refuse before running a phase or committing a terminal outcome. [Cold generic migration](durable-task-migration.md) is supplied by DE14b1;
-live definition replacement and broader restart policy remain DE14b; ownership/waits/completing DE15;
+private owner-local policy publication is supplied by DE14b2. Live definition
+replacement and public live settings remain DE14b; ownership/waits/completing DE15;
 cancellation DE16; hooks DE22; reload DE23; rich codecs DE06b. These retained
 boundaries do not remove any original DE05 acceptance cell.
 
@@ -92,6 +93,11 @@ explicitly to enable execution; repeated calls do not create another invocation.
 values. Close the Session, which owns the scheduler lifetime. Sync waiting
 methods refuse event-loop threads. A scheduler opens once; reopening storage
 uses a fresh Session and scheduler.
+
+After open, private `set_restart_limit(value)` / `await aset_restart_limit(value)`
+publish a policy without durable writes, counter reset, wake or enable. Each
+reservation, retry and owner inspection uses one snapshot on the Session line.
+Explicit `resume()` requests a pass; see [publication and lifecycle semantics](durable-restart-parking.md#private-owner-local-publication-de14b2).
 
 A phase receives `(current_task, runtime, context)`. `await runtime.commit(change)`
 passes a scoped `TaskTx` and detached latest running record to `change`. Return

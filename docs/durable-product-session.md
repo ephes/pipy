@@ -228,4 +228,6 @@ per-owner default-five ceiling and allowlisted inspection metadata. Public reset
 requires existing profile/selection/ownership admission and does not dispatch;
 explicit resume remains separate. It is distinct from new-attempt authorization.
 Operational parking can delay valid receipt settlement without rewriting it.
-Live settings and broader migration/ownership behavior remain deferred.
+Product live settings and broader migration/ownership behavior remain deferred.
+The private scheduler setter is not a Product API; calling it through an internal
+scheduler is unsupported and does not change the Product constructor policy.

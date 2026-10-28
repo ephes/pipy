@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Allow an opened private durable scheduler to publish its restart limit on the
+  existing Session line. Reservation, retry and owner inspection capture one
+  immutable policy per decision. Publication writes no durable state, resets no
+  counters and does not wake or enable work; explicit resume requests a pass.
+  Async cancellation joins the accepted job without promising rollback. Product,
+  SDK and CLI retain their immutable constructor policy and expose no live setter.
+
 - Add cold reservation-time migration for generic private durable tasks. Newer
   captured definitions can transform detached input/checkpoint atomically with
   reservation; ordinary failure is remembered per owner and does not starve
@@ -24,8 +31,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   interrupted receipt reports null for the missing observation. All durable CLI
   commands accept `--restart-limit` with documented finite binary64 parsing.
   New-attempt authorization and historical adjudication remain separate. Live
-  configuration, migration/abort budgets and full Pi public retry parity remain
-  deferred.
+  Product configuration, migration/abort budgets and full Pi public retry parity
+  remain deferred.
 
 - Add explicit native historical-tool adjudication through the durable SDK and
   CLI. A validated blocked attempt can commit an uncertain interruption without

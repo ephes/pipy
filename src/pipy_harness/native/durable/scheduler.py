@@ -21,7 +21,7 @@ from .documents import Doc, DocFamily, Token
 from .inspection_values import InspectionSupport
 from .records import OMITTED, EntryRecord, TaskRecord, safe_integer
 from .restart_policy import RestartPolicy
-from .session import SessionClosedError
+from .session import SessionClosedError, SessionFailed
 from .session_core import AsyncTx, CommitPublication, Session, SyncTx
 from .storage import ConversationQuery, EntryQuery, StorageWrite, TaskQuery
 from .task_values import identity, json_equal
@@ -699,6 +699,51 @@ class TaskScheduler:
         if not opened:
             raise RuntimeError("Open the scheduler before retry")
 
+    def _publish_restart_policy(self, policy: RestartPolicy) -> bool:
+        def publish() -> bool:
+            with self._guard:
+                failure = self._owner._failure
+                closed = self._owner._line_sealed or self._host_done
+                # _opening is a sticky admission marker, including after success.
+                opened = self._opened
+                previous = self._restart_policy
+                changed = (
+                    failure is None
+                    and not closed
+                    and opened
+                    and previous.limit != policy.limit
+                )
+                if changed:
+                    self._restart_policy = policy
+            # Neither exception construction nor displaced references belong
+            # under the shared metadata condition.
+            del previous
+            if failure is not None:
+                raise SessionFailed(failure) from failure
+            if closed:
+                raise SessionClosedError()
+            if not opened:
+                raise RuntimeError("Open the scheduler before setting restart limit")
+            return changed
+
+        # Host metadata publication is serialized with reads and transactions,
+        # but is neither a read-only public job nor a durable commit.
+        return self._session._on_line_sync("set_restart_limit", publish)
+
+    def set_restart_limit(self, value: object) -> bool:
+        """Publish host policy only; explicit resume requests another pass."""
+        self._session._refuse_reentry("set_restart_limit")
+        _off_loop("set_restart_limit", "aset_restart_limit")
+        return self._publish_restart_policy(RestartPolicy(value))
+
+    async def aset_restart_limit(self, value: object) -> bool:
+        """Publish without waking work; cancellation joins the actual line job."""
+        from .generation_transport import owned_call
+
+        self._session._refuse_reentry("aset_restart_limit")
+        policy = RestartPolicy(value)
+        return await owned_call(lambda: self._publish_restart_policy(policy))
+
     async def aretry(self, task_id: int) -> bool:
         """Clear a parked task's current streak, then enable after success."""
         self._session._refuse_reentry("aretry")
@@ -708,10 +753,12 @@ class TaskScheduler:
         async def retry_owned() -> bool:
             async def change(tx: AsyncTx) -> bool:
                 self._retry_ready()
+                with self._guard:
+                    policy = self._restart_policy
                 record = await tx.task(task_id)
                 if record is None:
                     raise ValueError("Unknown task")
-                cleared = self._restart_policy.cleared(cast(Tree, record.to_tree()))
+                cleared = policy.cleared(cast(Tree, record.to_tree()))
                 if cleared is not None:
                     tx.set_task(cleared)
                 return cleared is not None
@@ -854,6 +901,8 @@ class TaskScheduler:
 
         async def change(tx: AsyncTx) -> None:
             nonlocal tentative
+            with self._guard:
+                policy = self._restart_policy
             rows, conversations = await _tasks(tx), await _conversations(tx)
             from .tool_graph import capture_entries
 
@@ -865,7 +914,7 @@ class TaskScheduler:
             rows = await self._reconciled(tx, rows, graph_entries, conversations)
             for row in rows:
                 candidate = await self._candidate(
-                    tx, row, rows, conversations, graph_entries
+                    tx, row, rows, conversations, graph_entries, policy
                 )
                 if candidate is None:
                     continue
@@ -943,12 +992,13 @@ class TaskScheduler:
         rows: list[Tree],
         conversations: list[Tree],
         graph_entries: dict[int, EntryRecord],
+        policy: RestartPolicy,
     ) -> tuple[Task[Any, Any, Any], Tree] | None:
         if (
             row["state"]["status"] != "pending"
             or row["abortRequested"]
             or row.get("abandonOnRestart")
-            or self._restart_policy.parked(row)
+            or policy.parked(row)
         ):
             return None
         from .tool_values import blocked_record

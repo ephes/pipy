@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "phase": "restart-policy-live-v1",
+  "cases": [
+    {
+      "id": "raise-finite",
+      "initial": 5,
+      "count": 5,
+      "update": 6,
+      "fresh": 5,
+      "async_setter": false
+    },
+    {
+      "id": "raise-unlimited",
+      "initial": 5,
+      "count": 1e+100,
+      "update": "Infinity",
+      "fresh": 5,
+      "async_setter": true
+    },
+    {
+      "id": "lower-before-admission",
+      "initial": 6,
+      "count": 5,
+      "update": 5,
+      "fresh": 6,
+      "async_setter": false
+    },
+    {
+      "id": "same-finite-remains-parked",
+      "initial": 5,
+      "count": 5,
+      "update": 5,
+      "fresh": 6,
+      "async_setter": true
+    },
+    {
+      "id": "same-unlimited",
+      "initial": "Infinity",
+      "count": 1e+100,
+      "update": "Infinity",
+      "fresh": 5,
+      "async_setter": false
+    }
+  ]
+}
