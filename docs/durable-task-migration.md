@@ -1,10 +1,11 @@
 # Cold task-definition migration (DE14b1)
 
 The private native scheduler can migrate a generic task when a fresh owner has a
-newer captured definition. Its catalog stays immutable for that owner. Close the
-old owner and construct a fresh one to restore missing code or replace a failing
-definition. This does not install a live registry or migrate generation/model-tool
-authority; those records keep their existing version, catalog and receipt fences.
+newer captured definition. Each catalog generation is immutable. A fresh owner
+can restore missing code; the private idle controls below can publish a generic
+definition on an existing owner. Neither path installs a public live registry or
+migrates generation/model-tool authority; those records keep their existing
+version, catalog and receipt fences.
 
 ## Definition and reservation
 
@@ -29,7 +30,7 @@ streak; it is not task-state progress. A JSON checkpoint with no handler can sti
 produce the existing subsequent phase fault.
 
 An ordinary callback/validation failure leaves that generic task unchanged and is
-remembered only for the captured definition in this owner. The same transaction
+remembered for the source/captured definition binding in this owner. The same transaction
 continues scanning later candidates and preserves legitimate earlier kernel
 reconciliation. No unrelated wake is required to run eligible work behind the
 failed task. Repeated resume, inspect, notifications and same-task reset do not
@@ -70,6 +71,43 @@ See the [adopted contract](specs/2026-10-28-de14b1-cold-task-migration-plan.md) 
 A bounded `task-migration-cold-v1` reference child follows the prior 25 phases.
 Native detached callback inputs are an explicit difference from the pinned Pi
 callsite; output ownership and committed state are compared without inventing
-public API parity. Registry replacement/handover, live settings, public retry
+public API parity. Public registry replacement, active handover, live settings, public retry
 enable, abort/orphan/ownership completion and model/tool migration remain separate
 work. No DE14, DE13/P21 or whole parity row is closed by this increment.
+
+
+## Private idle definition publication (DE14b3)
+
+An opened `TaskScheduler` has `install_definition(task)` and
+`remove_definition(name)`, plus `ainstall_definition` and `aremove_definition`.
+The boolean acknowledges whether its immutable generation changed. New names
+append; replacing a name preserves its position. The exact built-in names
+`pi.generation`, `pi.tool` and `pi.compaction` refuse these controls. Constructor
+registration remains separate and grants no generic built-in migration authority.
+
+A publication uses the Session line and actual owner condition. Both an admitted
+drain and an active invocation cause a busy `RuntimeError`; inspecting or pausing
+at an earlier time is not admission authority. Enabled publication is best-effort:
+a previous wake may already have admitted a pass. Successful installation,
+including the identical-source false ACK, requests the existing wake only when
+enabled. Changed removal does likewise; absent removal returns false without a
+wake after normal health/open/activity checks. A paused owner stays paused.
+
+The original Task object identifies its captured declaration. Unrelated updates
+reuse captured bindings. Removing and reinstalling the same failed source keeps
+its failure memo; a distinct Task object may attempt migration again. Reflection
+that changes a known source is rejected against its early detached capture;
+construct a new Task for an intentional declaration change. Installed bindings
+and live single-task failure memos are the only retained identity authorities.
+Terminal publication, replacement of a memo and owner retirement release unused
+references outside the metadata condition.
+
+Publication invokes no task code and writes no durable state, receipt, header or
+counter. Async cancellation joins accepted line work and does not promise to
+undo publication. Owner inspection and each reservation use one generation;
+previously returned support/inspection snapshots remain stable. Resolution reads
+current support inside its committing job, after saved-winner and metadata gates.
+The full native DTO remains 17 fields and the Pi common projection remains nine.
+These controls are not exposed by Product, the public SDK or CLI. See the
+[contract](specs/de14b3-definition-publication.md) and
+[development evidence](evidence/de14b3-definition-publication.md).

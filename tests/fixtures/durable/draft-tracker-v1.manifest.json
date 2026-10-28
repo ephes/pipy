@@ -18,7 +18,7 @@
     "scripts/durable_draft_tracker_comparison.py": "eaa23ef87b442714c031018a3b36ff89ebcc769fda9f53f9c67b346d60d9df44",
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
     "scripts/durable_reference/cases/draft-tracker.mts": "7da47ef95cf5fd143a512f6ca1c0042a1cdee79978b2b15fb9f1195feff618bc",
-    "scripts/durable_reference_acceptance.py": "7a8747cb11a559f5995c0e78c417ef9b7b3b3379b876935368720506bfadc482",
+    "scripts/durable_reference_acceptance.py": "9bff68f6396ccc95047a44bc2747cfa8bfa755a7da70d5310e8ff898f7289f8d",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",

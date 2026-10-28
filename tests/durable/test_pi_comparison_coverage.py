@@ -970,12 +970,33 @@ def test_live_restart_policy_child_preserves_public_and_parent_boundaries():
     child = rows["DE14b2"]
     assert child["current"]["kind"] == "bounded-native"
     assert child["current"]["cases"] == ["restart-policy-live-v1"]
-    assert child["status"] == rows["DE14b"]["status"] == "IN_PROGRESS"
+    assert child["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert rows["DE14"]["status"] == "IN_PROGRESS"
     assert "no-wake explicit resume" in child["future"]
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )
     rows["DE14b"]["current"]["cases"] = ["restart-policy-live-v1"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_idle_definition_publication_child_keeps_active_handover_and_parents_open():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    child = rows["DE14b3"]
+    assert child["current"]["kind"] == "bounded-native"
+    assert child["current"]["cases"] == ["task-definition-publication-idle-v1"]
+    assert child["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
+    assert rows["DE14"]["status"] == "IN_PROGRESS"
+    assert rows["DE14b"]["current"]["cases"] == []
+    assert "Product catalogs, listeners, active handover" in child["future"]
+    assert all(
+        row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
+    )
+    rows["DE14b"]["current"]["cases"] = child["current"]["cases"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

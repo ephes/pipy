@@ -51,6 +51,7 @@ CHILDREN = {
     "DE14a",
     "DE14b1",
     "DE14b2",
+    "DE14b3",
     "DE14b",
     "DE13c2",
     "DE13c1",
@@ -302,6 +303,7 @@ BOUNDED_NATIVE = {
     "DE14a",
     "DE14b1",
     "DE14b2",
+    "DE14b3",
     "DE13c2",
     "DE13c1",
     "DE13b",
@@ -337,6 +339,7 @@ DE_EVIDENCE = {
     "DE14b": "de14b1-cold-task-migration",
     "DE14b1": "de14b1-cold-task-migration",
     "DE14b2": "de14b2-live-restart-policy",
+    "DE14b3": "de14b3-idle-definition-publication",
     "DE13c2": "de13c2-explicit-historical-adjudication",
     "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
@@ -443,6 +446,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE14a": ["restart-parking-v1"],
         "DE14b1": ["task-migration-cold-v1"],
         "DE14b2": ["restart-policy-live-v1"],
+        "DE14b3": ["task-definition-publication-idle-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -496,6 +500,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE14a": "docs/durable-restart-parking.md",
         "DE14b1": "docs/durable-task-migration.md",
         "DE14b2": "docs/durable-restart-parking.md",
+        "DE14b3": "docs/specs/de14b3-definition-publication.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -679,6 +684,11 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"restart-parking-v1"} if key == "DE14a" else set())
                 | ({"task-migration-cold-v1"} if key == "DE14b1" else set())
                 | ({"restart-policy-live-v1"} if key == "DE14b2" else set())
+                | (
+                    {"task-definition-publication-idle-v1"}
+                    if key == "DE14b3"
+                    else set()
+                )
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

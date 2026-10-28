@@ -103,7 +103,7 @@ The owner requested the full [native durable execution plan](specs/2026-10-19-du
 on 2026-10-19, against clean Pi durable 1.3.0 at
 `2ec55d808d455b1a64a2bf7888198207a096120a`; see the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
-**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`.**
+**Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`; DE14b2 owner-local restart-policy publication landed at `be63fcd1`.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
 successful in all ten jobs. DE01b1 landed at `7acf5f7`, independently reviewed
@@ -1026,7 +1026,7 @@ above is unchanged. The codec lane landed at
 `caf4d34e`, with Opus5.5 HIGH R2 unscoped CLEAN, a green local full check,
 two fresh reference chains and verified push. DE06b now supplies the
 [canonical runtime integration](durable-canonical-codec.md#checkpoint-and-reconstruction-apis);
-cumulative DE06 is complete and DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
+cumulative DE06 is complete and DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`; DE14b2 owner-local restart-policy publication landed at `be63fcd1`. The [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de06a-delivery-and-de03d1-repaired-integration-2026-10-22)
 records the completed gates and current D1 integration boundary.
 
 ## Additive streaming line scanner (DE32a)
@@ -1093,7 +1093,7 @@ recovery. Unknown safety defaults unsafe; annotations are unverified hints.
 Captured slots control both dispatch and next-request result order. An unsafe
 interrupted call blocks later work in its round; unrelated conversations remain
 independent. Actual tool/finalizer exit precedes backend and path-lock release.
-[DE09 completed projection](durable-completed-projection.md) supplies bounded private observers; DE10 supplies private inspection/recovery resolution; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`. Full graph, unsafe continuation,
+[DE09 completed projection](durable-completed-projection.md) supplies bounded private observers; DE10 supplies private inspection/recovery resolution; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`; DE14b2 owner-local restart-policy publication landed at `be63fcd1`. Full graph, unsafe continuation,
 extensions/modes and history/retention retain DE13/15/24/25/27/28/30 ownership;
 all43 P rows remain OPEN. The Pi successor-task/native same-parent distinction
 is an explicit full-graph compatibility obligation, not whole-graph parity.
@@ -1111,7 +1111,7 @@ effects and caller-owned deduplication. This is a private foundation; the [DE11 
 is opt-in and [CLI activation](durable-headless.md) is opt-in through DE12.
 
 [DE10 inspection/recovery](durable-inspection.md) supplies pure metadata reads and
-closed scheduler-owned new-attempt authorization. DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`. Derive terminate-hold explanations from retained committed
+closed scheduler-owned new-attempt authorization. DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`; DE14b2 owner-local restart-policy publication landed at `be63fcd1`. Derive terminate-hold explanations from retained committed
 control; do not call provider/tool/preparer/resolver merely to inspect. Full
 DE28 watches/events, DE26 partials, DE20/27 context and DE15/28 exposed graph
 compatibility remain open, as does DE27/28 quadratic saved request-history debt.
@@ -1264,7 +1264,8 @@ reconciliation. It landed at `2d3c7c0cda15c19be9333eba500f1220ba3c4fd3` after
 source-bound code/advisory verification and full, six-platform, reference and
 resource acceptance. Earlier development checks remain distinct epochs.
 
-DE14b still owns live registry/replacement/handover, public live policy, full public Pi
+DE14b3 supplies bounded private idle definition publication. Remaining DE14b owns
+public registries and active handover, public live policy, full public Pi
 retry-enable and broader fault/orphan/abort completion with DE15/16/23. Generic
 migration grants no model/tool authority, opaque-format repair or parent closure.
 
@@ -1280,6 +1281,26 @@ resume requests a pass. Actual open/health/close and physical cancellation joins
 remain authoritative. Product/SDK/CLI live configuration is not exposed.
 
 The [evidence](evidence/2026-10-28-de14b2-live-restart-policy.md) separates plan,
-development and final acceptance. Registry publication, active handover, public
+development and final acceptance. This bounded child landed at
+`be63fcd142b754a400dc5e60a22d0725afff0e0f` after source-bound whole-code, full-suite,
+six-runtime, reference and qualified resource acceptance. Active handover, public
 settings/retry-enable parity and broader orphan/abort/ownership work remain open;
 this child does not close DE14, DE14b, DE13 or any whole parity row.
+
+
+## DE14b3 idle generic definition publication
+
+The [bounded contract](specs/de14b3-definition-publication.md) adds private
+synchronous/asynchronous install/remove controls on the actual Session line.
+One immutable generation joins source/captured bindings, definitions and
+callback-free inspection support. Publication refuses actual admitted activity;
+retained source identity prevents unchanged reinstallation from retrying failed
+migration. Enabled accepted installs request the existing wake; paused owners
+stay paused, and absent removal does not wake. Publication itself writes no
+durable state. Resolution reads support inside its committing change after the
+saved-winner and metadata gates. The [evidence](evidence/de14b3-definition-publication.md)
+keeps development and final acceptance separate.
+
+Product live catalogs, extension registries/listeners, active checkpoint handover,
+late-runtime fencing, public Pi retry enable and broader orphan/abort/ownership
+work remain later DE14/DE15/DE16/DE23 obligations. No whole parent row closes.

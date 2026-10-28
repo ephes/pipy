@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "phase": "task-definition-publication-idle-v1",
+  "cases": [
+    {
+      "id": "missing-install"
+    },
+    {
+      "id": "enabled-failure-cache"
+    },
+    {
+      "id": "failed-remove-readd-and-overwrite"
+    },
+    {
+      "id": "order-and-snapshot"
+    },
+    {
+      "id": "absent-remove"
+    }
+  ]
+}

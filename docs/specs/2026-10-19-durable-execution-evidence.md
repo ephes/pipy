@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14/DE14b/DE14b2 IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -195,7 +195,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE14a | Bounded restart parking and same-task reset | LANDED | Delivered `48fd187`; source-bound acceptance and qualified historical checks [below](#de14a-bounded-restart-parking) |
 | DE14b | Remaining restart/migration/orphan policy | IN_PROGRESS | Cold generic migration is DE14b1; live registry/settings/handover and broader ownership/abort budgets remain deferred |
 | DE14b1 | Generic cold task migration and inspection | LANDED | [Bounded implementation and acceptance](#de14b1-cold-task-migration); no parent closure |
-| DE14b2 | Owner-local restart-policy publication | IN_PROGRESS | [Bounded private implementation](#de14b2-live-restart-policy); no Product setting or parent closure |
+| DE14b2 | Owner-local restart-policy publication | LANDED | [Bounded private implementation](#de14b2-live-restart-policy); no Product setting or parent closure |
+| DE14b3 | Idle generic definition publication | LANDED | [Bounded private implementation](#de14b3-idle-definition-publication); no Product registry or active handover |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9115,3 +9116,19 @@ and condition ownership, one captured policy per decision, and no durable write
 or implicit wake. Product configuration remains immutable. The
 [development and acceptance record](../evidence/2026-10-28-de14b2-live-restart-policy.md)
 keeps each actual source epoch and incomplete gate explicit.
+
+DE14b2 landed at `be63fcd142b754a400dc5e60a22d0725afff0e0f` with independent
+whole-code CLEAN and source-bound full, six-runtime, two27 reference and finite
+resource acceptance. The resource observer optimization and original failed
+epochs are explicitly qualified in the linked evidence; no earlier proof is
+rebound to a later source.
+
+## DE14b3 idle definition publication
+
+The [adopted contract](de14b3-definition-publication.md) fixes retained source
+identity, one generation for all readers, actual idle admission and existing
+Session-line ownership. The contained plan result remains advisory ISSUES with
+zero Critical/Warning; executable witnesses own its two remaining suggestions.
+The [development evidence](../evidence/de14b3-definition-publication.md) retains
+actual checks and source epochs. This private control adds no Product registry,
+listeners, active handover, model/tool migration or whole-parent closure.

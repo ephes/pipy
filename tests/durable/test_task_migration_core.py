@@ -292,7 +292,8 @@ def test_failure_cache_terminal_eviction_and_disposal_leave_metadata_guard(rig):
             pops.append(
                 (
                     key,
-                    value is scheduler._definitions[identity("eviction")],
+                    value
+                    is scheduler._definition_generation.bindings[identity("eviction")],
                     scheduler._guard._is_owned(),
                 )
             )
@@ -301,12 +302,12 @@ def test_failure_cache_terminal_eviction_and_disposal_leave_metadata_guard(rig):
         def __del__(self):
             drops.append(("cache", scheduler._guard._is_owned()))
 
-    # Instrument only reference release, keeping the actual captured Task and
+    # Instrument only reference release, keeping the actual retained definition binding and
     # real publication/terminal eviction path. The observer adds no authority.
     with scheduler._guard:
         assert (
             scheduler._migration_failures[task_id]
-            is scheduler._definitions[identity("eviction")]
+            is scheduler._definition_generation.bindings[identity("eviction")]
         )
         scheduler._migration_failures = ObservedCache(scheduler._migration_failures)
 

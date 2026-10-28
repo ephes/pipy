@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private idle durable-task definition installation and removal. One immutable
+  generation keeps captured handlers and inspection support coherent; retained
+  source identity preserves migration-failure memory across unchanged reinstall.
+  Actual admitted scheduler activity refuses publication. Accepted installation
+  can wake an enabled owner, while paused owners remain paused. Publication itself
+  performs no migration or durable write. Built-in authority, saved retry winners,
+  Product catalogs and active handover remain outside this private control.
+
 - Allow an opened private durable scheduler to publish its restart limit on the
   existing Session line. Reservation, retry and owner inspection capture one
   immutable policy per decision. Publication writes no durable state, resets no

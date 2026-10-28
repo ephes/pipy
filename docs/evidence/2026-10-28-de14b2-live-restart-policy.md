@@ -70,6 +70,15 @@ branches keep completion waits. All five cases and 13 mutants remain. Corrected
 source and manifest bindings require their own authorized execution; neither the
 failed reference epoch nor the earlier whole-code preparation is rebound.
 
-Final current-source focused/full, six-runtime, resource, reference, docs and
-independent whole-code acceptance remain required. No Product live setting,
+Delivered at `be63fcd142b754a400dc5e60a22d0725afff0e0f` after independent whole-code
+CLEAN, exact-source final checks, 20,254 full-suite passes plus the same 20 known
+skips, all six runtimes with 2,764 focused passes each, and two fresh cumulative
+27-phase reference chains. Resource acceptance retains three actual passing
+cases, 105 census rows and three joined overlaps with unchanged finite limits.
+The observer was narrowly optimized to ignore non-return events after its
+disabled check; original failed candidate/baseline diagnostics and the original
+controller metadata-guard failure remain separate immutable evidence. The
+corrected artifact-only audit qualifies the derivative instead of claiming
+original observer byte identity. All earlier paragraphs describe their actual
+historical source epochs, not final-source rebinding. No Product live setting,
 registry handover, parent DE14/DE14b or whole parity closure is asserted.

@@ -4999,4 +4999,19 @@ open, health and close ownership govern admission; accepted async work remains
 joined through cancellation. No new lifecycle flag or settings registry exists.
 Public Product/SDK/CLI policy remains immutable and has no setter. See the
 [bounded contract](specs/2026-10-28-de14b2-live-restart-policy-plan.md); generic
-registry publication, active handover and broader ownership remain separate.
+private idle publication is supplied by DE14b3, while active handover and broader
+ownership remain separate.
+
+
+## Idle generic definition publication (DE14b3)
+
+Private install/remove controls publish one immutable definition/support generation
+on the existing Session line and owner condition. Captured source identity is
+retained only by installed bindings and live migration-failure memos; replacing
+unrelated definitions cannot retry a failed source. Actual drain/invocation
+admission prevents publication during work. Readers capture one generation for
+reservation, owner inspection and resolution's committing change; saved nonce
+winners retain their early return. Publication does not mutate durable records or
+enable a paused owner. See the [bounded contract](specs/de14b3-definition-publication.md)
+for exact identity, health, wake and cancellation rules. Product catalogs,
+listeners, active handover and broader ownership remain separate obligations.

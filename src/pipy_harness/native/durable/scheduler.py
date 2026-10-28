@@ -17,15 +17,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .codec import OwnedJson
+from .definition_generation import (
+    DefinitionBinding,
+    DefinitionGeneration,
+    publication_name,
+)
 from .documents import Doc, DocFamily, Token
-from .inspection_values import InspectionSupport
 from .records import OMITTED, EntryRecord, TaskRecord, safe_integer
 from .restart_policy import RestartPolicy
 from .session import SessionClosedError, SessionFailed
 from .session_core import AsyncTx, CommitPublication, Session, SyncTx
 from .storage import ConversationQuery, EntryQuery, StorageWrite, TaskQuery
 from .task_values import identity, json_equal
-from .tasks import Task, capture, migrate
+from .tasks import Task, migrate
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
@@ -478,22 +482,15 @@ class TaskScheduler:
         *,
         restart_limit: object = 5,
     ) -> None:
-        definitions_by_name: dict[bytes, Task[Any, Any, Any]] = {}
-        for raw in definitions:
-            definition = capture(raw)
-            key = identity(definition.name)
-            if key in definitions_by_name:
-                raise ValueError("Duplicate task definition UTF-16 identity")
-            definitions_by_name[key] = definition
+        generation = DefinitionGeneration(
+            DefinitionBinding.own(raw) for raw in definitions
+        )
         self._restart_policy = RestartPolicy(restart_limit)
         self._session = session
         self._owner = session._owner
         self._guard = self._owner._cond
-        self._definitions = definitions_by_name
-        self._inspection_support = InspectionSupport(
-            tuple(definitions_by_name.values())
-        )
-        self._migration_failures: dict[int, Task[Any, Any, Any]] = {}
+        self._definition_generation = generation
+        self._migration_failures: dict[int, DefinitionBinding] = {}
         self._index: dict[int, TaskRecord] = {}
         self._invocation: _Invocation | None = None
         self._stopped: set[int] = set()
@@ -744,6 +741,39 @@ class TaskScheduler:
         policy = RestartPolicy(value)
         return await owned_call(lambda: self._publish_restart_policy(policy))
 
+    def install_definition(self, task: Task[Any, Any, Any]) -> bool:
+        from .definition_publication import publish
+
+        self._session._refuse_reentry("install_definition")
+        _off_loop("install_definition", "ainstall_definition")
+        binding = DefinitionBinding.own(task)
+        key = publication_name(binding.captured.name)
+        return publish(self, key, binding)
+
+    async def ainstall_definition(self, task: Task[Any, Any, Any]) -> bool:
+        from .definition_publication import publish
+        from .generation_transport import owned_call
+
+        self._session._refuse_reentry("ainstall_definition")
+        binding = DefinitionBinding.own(task)
+        key = publication_name(binding.captured.name)
+        return await owned_call(lambda: publish(self, key, binding))
+
+    def remove_definition(self, name: str) -> bool:
+        from .definition_publication import publish
+
+        self._session._refuse_reentry("remove_definition")
+        _off_loop("remove_definition", "aremove_definition")
+        return publish(self, publication_name(name), None)
+
+    async def aremove_definition(self, name: str) -> bool:
+        from .definition_publication import publish
+        from .generation_transport import owned_call
+
+        self._session._refuse_reentry("aremove_definition")
+        key = publication_name(name)
+        return await owned_call(lambda: publish(self, key, None))
+
     async def aretry(self, task_id: int) -> bool:
         """Clear a parked task's current streak, then enable after success."""
         self._session._refuse_reentry("aretry")
@@ -903,18 +933,21 @@ class TaskScheduler:
             nonlocal tentative
             with self._guard:
                 policy = self._restart_policy
+                generation = self._definition_generation
             rows, conversations = await _tasks(tx), await _conversations(tx)
             from .tool_graph import capture_entries
 
             graph_entries = (
                 await capture_entries(tx, rows)
-                if self._tool_execution_enabled()
+                if self._tool_execution_enabled(generation)
                 else {}
             )
-            rows = await self._reconciled(tx, rows, graph_entries, conversations)
+            rows = await self._reconciled(
+                tx, rows, graph_entries, conversations, generation
+            )
             for row in rows:
                 candidate = await self._candidate(
-                    tx, row, rows, conversations, graph_entries, policy
+                    tx, row, rows, conversations, graph_entries, policy, generation
                 )
                 if candidate is None:
                     continue
@@ -966,19 +999,24 @@ class TaskScheduler:
         rows: list[Tree],
         graph_entries: dict[int, EntryRecord],
         conversations: list[Tree],
+        generation: DefinitionGeneration,
     ) -> list[Tree]:
-        if not self._tool_execution_enabled():
+        if not self._tool_execution_enabled(generation):
             return rows
         from .tool_graph import reconcile
 
         return await reconcile(tx, rows, graph_entries, conversations)
 
-    def _tool_execution_enabled(self) -> bool:
+    def _tool_execution_enabled(
+        self, generation: DefinitionGeneration | None = None
+    ) -> bool:
         from .generation_tasks import TOOL_NAME, TOOL_VERSION
 
         key = identity(TOOL_NAME)
-        with self._guard:
-            definition = self._definitions.get(key)
+        if generation is None:
+            with self._guard:
+                generation = self._definition_generation
+        definition = generation.definitions.get(key)
         return (
             definition is not None
             and definition.version == TOOL_VERSION
@@ -993,6 +1031,7 @@ class TaskScheduler:
         conversations: list[Tree],
         graph_entries: dict[int, EntryRecord],
         policy: RestartPolicy,
+        generation: DefinitionGeneration,
     ) -> tuple[Task[Any, Any, Any], Tree] | None:
         if (
             row["state"]["status"] != "pending"
@@ -1005,34 +1044,39 @@ class TaskScheduler:
 
         if blocked_record(row):
             return None
-        definition = self._fitting_definition(row)
-        if definition is None:
+        binding = self._fitting_definition(row, generation)
+        if binding is None:
             return None
         if _model_tool(row) or _owned(row, rows, conversations):
             from .tool_graph import model_call
 
             if await model_call(tx, row, rows, conversations, graph_entries) is None:
                 return None
-        return self._fit(row, definition)
+        return self._fit(row, binding)
 
-    def _fitting_definition(self, row: Tree) -> Task[Any, Any, Any] | None:
+    def _fitting_definition(
+        self, row: Tree, generation: DefinitionGeneration
+    ) -> DefinitionBinding | None:
         from .generation_tasks import GENERATION_NAME, TOOL_NAME
 
         key = identity(row["kind"])
-        with self._guard:
-            definition = self._definitions.get(key)
-        if definition is None or definition.version < row["version"]:
+        binding = generation.bindings.get(key)
+        if binding is None:
+            return None
+        definition = binding.captured
+        if definition.version < row["version"]:
             return None
         if definition.version != row["version"] and (
             row["kind"] in (GENERATION_NAME, TOOL_NAME) or definition.migrate is None
         ):
             # Preserve refusal before acquiring an irrelevant model graph.
             return None
-        return definition
+        return binding
 
     def _fit(
-        self, row: Tree, definition: Task[Any, Any, Any]
+        self, row: Tree, binding: DefinitionBinding
     ) -> tuple[Task[Any, Any, Any], Tree] | None:
+        definition = binding.captured
         if definition.version == row["version"]:
             return definition, row
         from .generation_tasks import GENERATION_NAME, TOOL_NAME
@@ -1043,7 +1087,7 @@ class TaskScheduler:
         with self._guard:
             if self._owner._line_sealed or not self._enabled:
                 return None
-            failed = self._migration_failures.get(row["id"]) is definition
+            failed = self._migration_failures.get(row["id"]) is binding
         if failed:
             return None
         try:
@@ -1056,7 +1100,7 @@ class TaskScheduler:
             return definition, migrated
         with self._guard:
             previous = self._migration_failures.get(row["id"])
-            self._migration_failures[row["id"]] = definition
+            self._migration_failures[row["id"]] = binding
         del previous
         # _reserve continues this same pass, preserving legitimate reconciliation
         # writes and allowing later eligible work without an external wake.

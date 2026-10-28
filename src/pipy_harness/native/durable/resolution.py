@@ -68,8 +68,8 @@ def _metadata(
 
 def _support(scheduler: TaskScheduler) -> InspectionSupport:
     with scheduler._guard:
-        definitions = tuple(scheduler._definitions.values())
-    return InspectionSupport(definitions)
+        generation = scheduler._definition_generation
+    return generation.support
 
 
 def resolution_target(scheduler: TaskScheduler, task_id: int) -> ResolutionTarget:
@@ -168,7 +168,6 @@ def resolve(
 ) -> ResolutionResult:
     proposal = _inputs(scheduler, target, nonce, new_request)
     _metadata(scheduler)
-    support = _support(scheduler)
     expected = target._facts
     cid = target.conversation_id
 
@@ -182,6 +181,7 @@ def resolve(
         facts = capture_facts(storage, target.task_id)
         if OwnedJson(facts) != expected:
             raise ResolutionError("stale")
+        support = _support(scheduler)
         if proposal["new_request"] is None:
             parent, round_value = tool_retry(storage, facts, support)
             _metadata(scheduler, (target.task_id, parent["id"]))

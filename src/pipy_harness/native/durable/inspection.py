@@ -300,15 +300,16 @@ def _inspect_owned_task(
         key = identity(row["kind"])
         with scheduler._guard:
             policy = scheduler._restart_policy
-            definition = scheduler._definitions.get(key)
+            generation = scheduler._definition_generation
+            binding = generation.bindings.get(key)
             failed = (
-                definition is not None
-                and scheduler._migration_failures.get(task_id) is definition
+                binding is not None
+                and scheduler._migration_failures.get(task_id) is binding
             )
         return _capture(
             storage,
             row,
-            scheduler._inspection_support,
+            generation.support,
             policy,
             migration_failed=failed,
         )
