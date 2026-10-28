@@ -86,7 +86,8 @@ provider/material guards or authorize replay.
 ## Output, signals and physical lifetime
 
 For start/resume, `--format text` prints the final completed assistant text;
-`--format json` emits the completed envelope. Inspect, authorize-retry and adjudicate-interrupted always
+`--format json` emits the completed envelope. Inspect, authorize-retry,
+adjudicate-interrupted and retry-task always
 emit their closed JSON report, including when `--format text` is supplied.
 JSON run format version2
 emits `pipy-durable-output`: committed completed messages/rounds, saved usage,
@@ -96,7 +97,8 @@ receipt payloads and structured-content absence versus null. Normal [tool detail
 with an explicit details_state, and optional finite nested evidence without
 changing the original value. Historical canonical v1 unknown presence remains
 unknown; this is DE13a normal-value support, not interrupted-error continuation.
-Inspect/authorize-retry formats are unchanged. Requests/settings/private auth
+Inspection adds allowlisted restart count, limit and derived parking fields;
+existing authorization reports are unchanged. Requests/settings/private auth
 material/operator audit and arbitrary error strings never appear in output.
 JSON emission adds no nesting cutoff to otherwise admitted OwnedJson values.
 This full-content output is product data, not a metadata-only workflow event.
@@ -134,6 +136,29 @@ blanket byte-preservation or lock-bypass claim follows. Missing/pre-lock refusal
 retain their no-creation contract. See [storage](session-storage.md) and
 [inspection](durable-inspection.md).
 
+## Restart parking
+
+All six durable commands accept `--restart-limit`, defaulting to `5` for that
+owner. Use exact `Infinity` to disable parking. A finite JSON-number argument is
+parsed as binary64 and floored when at least one; invalid numeric syntax and
+overflow refuse. This intentionally rounds `9007199254740993` to
+`9007199254740992`, whereas that nonexact raw Python integer defaults to five
+through the SDK. Limits are not persisted or changed live.
+
+```bash
+pipy durable retry-task --store ./run.sqlite --workspace . \
+  --provider openai-codex --model gpt-6.1-sol --no-tools \
+  --target-task 8 --restart-limit 5 --format json
+```
+
+The command returns a bounded reset ACK and closes without dispatch. Explicitly
+resume afterward with the matching profile and, for a successor generation,
+the existing `--task`/`--resolution-nonce` selection. Those options never select
+the reset target. A cold surviving running task first needs recovery through
+resume; it cannot be reset before its restart is counted. See
+[restart parking](durable-restart-parking.md) for valid-receipt parking, unknown
+post-reset counters and deferred live reconfiguration/public Pi retry parity.
+
 ## Evidence and remaining scope
 
 Native CLI tests use real subprocess SIGKILL at admission, provider in-flight/
@@ -161,7 +186,7 @@ and never reruns effects. All mutant bodies live under `mutants/`; all process
 receipts/streams under `processes/`; producer/recipe files remain immutable.
 
 Original DE12/Milestone A acceptance and all43 whole OPEN parity rows remain.
-DE14–16 graph/version/cleanup, DE17 retries, DE18/19 queues, DE20 context,
+DE14b–16 graph/version/cleanup, DE17 retries, DE18/19 queues, DE20 context,
 DE24/25/30 nested/extensions/full controls, DE26 streaming, DE27/28 history/
 views and DE27/28/41 publication budgets, and DE41–44 broader adoption/defaults
 retain their owners. Pi successor-generation versus native same-parent graph

@@ -78,6 +78,22 @@ class DurableAdmission:
 
 
 @dataclass(frozen=True, slots=True)
+class DurableTaskRetry:
+    """Current counter-reset ACK; neither a new attempt nor dispatch authority."""
+
+    task_id: int
+    reset: bool
+
+    def __post_init__(self) -> None:
+        product_task_id(self.task_id)
+        if type(self.reset) is not bool:
+            raise DurableProductError("invalid_request")
+
+    def to_tree(self) -> dict[str, int | bool]:
+        return {"task_id": self.task_id, "reset": self.reset}
+
+
+@dataclass(frozen=True, slots=True)
 class DurableAdjudication:
     """A committed decision acknowledgement, not a completion result."""
 

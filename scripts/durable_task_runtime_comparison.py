@@ -54,8 +54,14 @@ CLOSURE = (
         "scripts/durable_task_runtime_comparison.py",
         "scripts/durable_reference/cases/task-runtime.mts",
         "tests/durable/test_task_runtime.py",
+        "tests/durable/test_restart_policy_runtime.py",
+        "tests/durable/test_restart_parking_sqlite.py",
+        "tests/durable/adjudication_sdk_support.py",
+        "tests/durable/test_restart_retained_progress.py",
         "tests/durable/test_task_runtime_comparison.py",
         "docs/durable-task-runtime.md",
+        "docs/durable-restart-parking.md",
+        "docs/specs/2026-10-28-de14a-restart-parking-plan.md",
     }
 )
 CASES = ("counter", "recovery", "no-progress", "throws", "terminal-late", "close")

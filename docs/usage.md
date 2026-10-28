@@ -486,3 +486,14 @@ countdown replaces the working loader. Actual retry admission restores the
 compaction loader or "Summarizing branch" loader. Escape cancels through the
 existing auxiliary operation; failed retries show only generic status and do not
 add ordinary assistant Error rows. Summary content and usage remain private.
+
+
+### Reset a parked durable task
+
+Use `pipy durable retry-task --target-task ID` with the existing store, workspace
+and matching provider/model options to clear the current restart streak without
+invocation. Follow it with explicit `pipy durable resume`. For a selected retry
+successor, retain `--task` and `--resolution-nonce` separately from the target.
+All six durable commands accept `--restart-limit` (default 5, exact `Infinity`
+disables parking for that owner). See [restart parking](durable-restart-parking.md)
+for cold-running refusal, numeric parsing and saved-receipt behavior.

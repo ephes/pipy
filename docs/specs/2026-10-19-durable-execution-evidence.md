@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14/DE14a IN_PROGRESS, DE14b OPEN; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -186,12 +186,14 @@ that coverage here. A local validation result is not a landed slice.
 | DE10 | Compatibility, inspect and recovery resolutions | LANDED | [Inspection and operator acceptance](#de10-inspection-and-operator-resolution-acceptance); independent CLEAN/full/platform/docs/fresh-chain gates required before commit/push |
 | DE11 | Opt-in Python product session | LANDED | Bounded async factory/admission/resume/reopen acceptance below; no whole P closure |
 | DE12 | Opt-in headless CLI recovery | LANDED | [Native CLI/real cuts, wire/live and declared reference boundary](#de12-opt-in-headless-cli-acceptance); full parity OPEN |
-| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a/b delivered; C1 bounded execute continuation delivered; C2 explicit historical adjudication active; full P21 remains OPEN |
+| DE13 | Unsafe top-level interrupted-error continuation | IN_PROGRESS | DE13a/b delivered; C1 bounded execute continuation delivered; C2 explicit historical adjudication delivered; full P21 remains OPEN |
 | DE13a | Normal generic details ABI prerequisite | LANDED | [Normal details acceptance](#de13a-normal-details-abi-acceptance); external final gates required |
 | DE13b | Retained reporting and ordinary failed-child continuation | LANDED | Delivered at `a069a8a8`; [bounded reporting acceptance](#de13b-retained-reporting-acceptance) |
 | DE13c1 | Intact recovered execute and interrupted continuation | LANDED | `5897353`; [delivered validation](#de13c1-delivery-and-c2-boundary-2026-10-27); historical blocked migration remains C2 |
-| DE13c2 | Explicit historical blocked adjudication | IN_PROGRESS | Bounded same-attempt operation, actual receipt/audit bindings and public continuation; final gates pending |
-| DE14 | Full task recovery and definition migration | OPEN | None; all gates OPEN |
+| DE13c2 | Explicit historical blocked adjudication | LANDED | Delivered `06823ad`; whole-code/full/six-platform/resource/two24phase-chain acceptance; unsupported authority remains open |
+| DE14 | Full task recovery and definition migration | IN_PROGRESS | None; all gates OPEN |
+| DE14a | Bounded restart parking and same-task reset | IN_PROGRESS | Implemented bounded policy; source-bound delivery acceptance and historical checks [below](#de14a-bounded-restart-parking) |
+| DE14b | Remaining restart/migration/orphan policy | OPEN | Live setting updates, migration and broader ownership/abort budgets remain deferred |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -8982,21 +8984,51 @@ accepted. Earlier failed full/platform/comparison epochs remain historical.
 
 ## DE13c2 explicit historical adjudication
 
-C2 implements the [explicit historical contract](2026-10-27-de13c2-explicit-historical-adjudication-plan.md).
-Its plan reviews remained ISSUES; accepted profile/lifecycle, error-code and
-state-specific nonce repairs are executable targets for whole-C2 CODE review.
-Preliminary tests distinguish genuine reporting holds from typed policy controls.
-Archived DE12/B kernel fixtures prove historical producer origins but contain no
-product header; public joins require fresh genuine old public SDK stores, never
-a fabricated header. Current C2 focused results are not a final source freeze,
-full validation, review acceptance or delivery. All parent DE13/P21 and broader
-parity obligations remain open pending their actual remaining implementations.
+C2 landed at `06823adb62cedd8ebcde587af5365f6eaff82630`, tree
+`7c839014e4e52274e54d9038cd040af0a4a62681`. Its plan reviews remained ISSUES;
+accepted profile/lifecycle, error and state-specific nonce repairs were checked
+by actual whole CODE plus contained repair review, with final CLEAN accepted.
+Final validation: 19,958 passing full tests and 20 known skips, all 2,327 focused
+IDs on six runtimes, isolated finite resource proof and two fresh 24-phase
+comparison chains with 54 available fresh API attestations. Root independently
+verified the delivered 4,225 files/modes, clean main and remote commit.
 
-The first whole-C2 CODE review reported a pre-existing public resume/close
-inspection-error leak accepted by the new cleanup test, an unpinned first-winner
-order in the retry/adjudication test, and missing usage documentation. Repair
-keeps translation at public resume for both original and coalesced callers,
-requires only the public closed error in post-ACK cleanup, and observes actual
-first control admission before offering the competing operation. The original
-review and interrupted validation epoch remain historical; new focused and
-final source-bound gates are required before delivery.
+Genuine archived DE12/B public stores were joined without fabricated headers;
+earlier kernel fixtures remain producer-origin evidence only. Actual fault/
+no-progress/reblock ACK replay, receipt/audit identity, revision-aware no-write
+oracles, ordered competing controls, and original/coalesced public resume-close
+translation are covered. Earlier failed/partial epochs remain immutable and
+are not rebound to delivery. These results do not close unsupported historical
+intent/receipt authority or whole DE13/P21/parity obligations.
+
+## DE14a bounded restart parking
+
+The [adopted finite contract](2026-10-28-de14a-restart-parking-plan.md) adds
+immutable per-owner default-five parking, same-task counter reset and truthful
+metadata on existing scheduler/Session authority. The initial `3b6fe330`
+candidate checks were development evidence: actual repeated SQLite
+SIGKILL/healthy-close controls, Memory/SQLite reset
+rollback/ACK-loss/cancel/close barriers and real retained details ACK distinguish
+current task-state streak from document chatter. Public reset remains noninvoking
+and explicitly differs from Pi retry-enable; no full parity claim follows.
+
+The initial PLAN review was ISSUES 0C/3W/3S; the contained verification was
+ISSUES 0C/0W/1S and the loop converged without a CLEAN claim. Root adopted the
+last CLI binary64-rounding clarification as an explicit test/documentation
+requirement. Whole-code acceptance targets include cold-running refusal,
+discarded streak/null new receipt, wider operational versus cause-counter
+domains, exact numeric and CLI syntax, reused errors and opened-owner precommit
+ownership. Final heavy gates had not run at that initial candidate stage. DE14b
+and all remaining parent obligations stay open; no new source-proof or review
+result is inferred from the C2 delivery.
+
+The first whole CODE review found an unadapted inspection comparison consumer:
+the genuine operator report now has 17 fields, while its closed allowlist still
+expected 14. The existing operator relation reproduced that failure before the
+consumer repair. Its contract now includes all three restart fields and pins
+the terminal default-policy observation to null count, exact integer limit five
+and false parked status. Missing, mistyped, altered and extra private metadata
+are rejected; the existing operator, receipt, usage and callback assertions
+remain intact. The inspection comparison module is included in the focused
+selection. Each candidate's checks remain bound to its own source; intermediate
+passes do not establish final acceptance for a later source epoch.

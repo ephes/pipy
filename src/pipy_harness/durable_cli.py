@@ -68,13 +68,18 @@ def build_profile(command: DurableCommand) -> DurableProviderProfile:
 def inspect_metadata(command: DurableCommand) -> dict[str, Any]:
     path = str(command.store.absolute())
     if command.task_id is not None:
-        value = inspect_store_task(path, command.task_id)
+        value = inspect_store_task(
+            path, command.task_id, restart_limit=command.restart_limit
+        )
         return {"tasks": [] if value is None else [value.to_tree()]}
     cursor = None
     tasks: list[dict[str, Any]] = []
     while True:
         page = inspect_store(
-            path, conversation_id=command.conversation_id, cursor=cursor
+            path,
+            conversation_id=command.conversation_id,
+            cursor=cursor,
+            restart_limit=command.restart_limit,
         )
         tasks.extend(t.to_tree() for t in page.tasks)
         cursor = page.next
@@ -117,11 +122,19 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
     if command.action == "start":
         assert profile is not None and content is not None
         offered = create_durable_product_session(
-            command.store, workspace=command.workspace, profile=profile, tools=tools
+            command.store,
+            workspace=command.workspace,
+            profile=profile,
+            tools=tools,
+            restart_limit=command.restart_limit,
         )
     else:
         offered = open_durable_product_session(
-            command.store, workspace=command.workspace, profile=profile, tools=tools
+            command.store,
+            workspace=command.workspace,
+            profile=profile,
+            tools=tools,
+            restart_limit=command.restart_limit,
         )
     owner.factory = owner.accept(offered)
     owner.product = await owner.stage(owner.factory)
@@ -129,7 +142,7 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
     if command.action == "start":
         assert content is not None
         await owner.stage(owner.accept(product.submit(content)))
-    if command.action in ("authorize-retry", "adjudicate-interrupted"):
+    if command.action in ("authorize-retry", "adjudicate-interrupted", "retry-task"):
         output = await _operator(command, owner, product)
         code = 0
     else:
@@ -149,6 +162,7 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
     if command.format == "text" and command.action not in (
         "authorize-retry",
         "adjudicate-interrupted",
+        "retry-task",
     ):
         text = final_text(result) + "\n" if code == 0 else ""
     if text:
@@ -163,6 +177,24 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
 async def _operator(
     command: DurableCommand, owner: CommandOwner, product: DurableProductSession
 ) -> dict[str, Any]:
+    if command.action == "retry-task":
+        assert command.target_task_id is not None
+        selection = (
+            DurableRunSelection(command.task_id, command.nonce)
+            if command.task_id is not None and command.nonce is not None
+            else None
+        )
+        reset = await owner.stage(
+            owner.accept(
+                product.retry_task(command.target_task_id, selection=selection)
+            )
+        )
+        return {
+            "format": "pipy-durable-output",
+            "version": 1,
+            "operation": command.action,
+            **reset.to_tree(),
+        }
     assert command.task_id is not None and command.nonce is not None
     payload: dict[str, Any]
     if command.action == "adjudicate-interrupted":

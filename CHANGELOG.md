@@ -8,6 +8,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Park durable tasks at a default five consecutive restarts without task-state
+  progress. Expose the current count, effective host limit and parked status;
+  fresh owners can choose a higher limit or Infinity. Public `retry_task` and
+  `durable retry-task` reset the same task without invoking it, followed by an
+  explicit resume. Saved receipts remain unchanged and can also be parked;
+  resetting deliberately discards the current streak, so a subsequently created
+  interrupted receipt reports null for the missing observation. All durable CLI
+  commands accept `--restart-limit` with documented finite binary64 parsing.
+  New-attempt authorization and historical adjudication remain separate. Live
+  configuration, migration/abort budgets and full Pi public retry parity remain
+  deferred.
+
 - Add explicit native historical-tool adjudication through the durable SDK and
   CLI. A validated blocked attempt can commit an uncertain interruption without
   invoking it, or preserve its actual saved receipt. The separate private audit
@@ -24,7 +36,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   noninvoking resume before scheduler writes, and subsequent requests retain
   only saved, unchanged current capabilities in saved order. Historical blocked
   work and opaque receipts remain held for explicit repair; no automatic blocked
-  migration or new restart-limit policy is introduced.
+  migration is introduced by that recovery path; restart parking is a separate
+  host policy.
 
 - Add retained output, explicit details-prefix acknowledgements and typed
   diagnostics to opt-in durable tool execution. One owned flusher and bounded

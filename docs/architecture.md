@@ -1061,8 +1061,14 @@ owner and its condition also guards scheduler metadata. Scoped runtime commits
 reuse `session_core`'s driver and settlement; an exclusive close stage performs
 the healthy running-to-pending rewrite. `task_values` contains task-specific
 structural comparison and UTF-16 lookup, without changing document equality.
-See [the runtime contract](durable-task-runtime.md). This package remains outside
-the shipped AgentLoop/CLI/TUI execution path; later durable adoption owns that
+The immutable `restart_policy` leaf supplies the same per-owner ceiling to
+reservation and inspection. Parking is derived from existing task records;
+same-task reset uses the existing Session commit line and adds no stored policy
+or audit. Public reset stays noninvoking until explicit selected resume, while
+private scheduler retry enables after successful commit. See
+[restart parking](durable-restart-parking.md) and
+[the runtime contract](durable-task-runtime.md). This package remains outside
+the default AgentLoop/CLI/TUI execution path; later durable adoption owns that
 transition and there is no second product storage authority.
 
 

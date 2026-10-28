@@ -24,6 +24,7 @@ from .inspection_values import (
     TaskInspection,
 )
 from .records import RecordError, TaskId, safe_integer
+from .restart_policy import RestartPolicy
 from .session import SessionClosedError, SessionFailed
 from .session_core import Session
 from .storage import Cursor, Storage, TaskQuery
@@ -105,7 +106,10 @@ def _hold(storage: Storage, row: Tree) -> str | None:
 
 
 def _capture(
-    storage: Storage, row: Tree, support: InspectionSupport | None
+    storage: Storage,
+    row: Tree,
+    support: InspectionSupport | None,
+    policy: RestartPolicy,
 ) -> TaskInspection:
     state = row["state"]
     dependencies = tuple(state.get("on", ()))
@@ -122,6 +126,9 @@ def _capture(
         "unknown",
         dependencies[:128],
         len(dependencies),
+        restart_count=row.get("restarts"),
+        restart_limit=policy.limit,
+        restart_parked=policy.parked(row),
     )
     if state["status"] in ("terminal", "completing"):
         # Do not decode an arbitrary outcome result or consult current code.
@@ -137,7 +144,12 @@ def _capture(
     shown = phase if type(phase) is str and phase in PHASES else "unknown"
     compatibility, reason = _compatibility(row, phase, support)
     result = replace(result, phase=shown, compatibility=compatibility, reason=reason)
-    return _native_details(storage, row, raw, phase, result, support)
+    result = _native_details(storage, row, raw, phase, result, support)
+    return (
+        replace(result, reason="restart_limit")
+        if result.restart_parked and result.reason is None
+        else result
+    )
 
 
 def _supported_format(row: Tree, raw: object, phase: object) -> bool:
@@ -225,9 +237,14 @@ def _id(value: object) -> None:
 
 
 def inspect_task(
-    session: Session, task_id: int, *, support: InspectionSupport | None = None
+    session: Session,
+    task_id: int,
+    *,
+    support: InspectionSupport | None = None,
+    restart_limit: object = 5,
 ) -> TaskInspection | None:
     _inputs(session, support)
+    policy = RestartPolicy(restart_limit)
     _id(task_id)
 
     def read() -> TaskInspection | None:
@@ -236,7 +253,7 @@ def inspect_task(
         return (
             None
             if found is None
-            else _capture(storage, cast(Tree, found.to_tree()), support)
+            else _capture(storage, cast(Tree, found.to_tree()), support, policy)
         )
 
     try:
@@ -256,8 +273,10 @@ def inspect_live(
     limit: int = 128,
     cursor: Cursor | None = None,
     support: InspectionSupport | None = None,
+    restart_limit: object = 5,
 ) -> InspectionPage:
     _inputs(session, support)
+    policy = RestartPolicy(restart_limit)
     if conversation_id is not None:
         _id(conversation_id)
     if (
@@ -279,7 +298,7 @@ def inspect_live(
         )
         return InspectionPage(
             tuple(
-                _capture(storage, cast(Tree, row.to_tree()), support)
+                _capture(storage, cast(Tree, row.to_tree()), support, policy)
                 for row in page.items
                 if cast(Tree, row.to_tree())["state"]["status"] != "terminal"
             ),
@@ -309,11 +328,18 @@ class _Read:
 
 
 async def ainspect_task(
-    session: Session, task_id: int, *, support: InspectionSupport | None = None
+    session: Session,
+    task_id: int,
+    *,
+    support: InspectionSupport | None = None,
+    restart_limit: object = 5,
 ) -> TaskInspection | None:
     _inputs(session, support)
+    policy = RestartPolicy(restart_limit)
     session._refuse_reentry("ainspect_task")
-    read = _Read(lambda: inspect_task(session, task_id, support=support))
+    read = _Read(
+        lambda: inspect_task(session, task_id, support=support, restart_limit=policy)
+    )
     return cast(TaskInspection | None, await asyncio.shield(read.work))
 
 
@@ -324,8 +350,10 @@ async def ainspect_live(
     limit: int = 128,
     cursor: Cursor | None = None,
     support: InspectionSupport | None = None,
+    restart_limit: object = 5,
 ) -> InspectionPage:
     _inputs(session, support)
+    policy = RestartPolicy(restart_limit)
     session._refuse_reentry("ainspect_live")
     read = _Read(
         lambda: inspect_live(
@@ -334,6 +362,7 @@ async def ainspect_live(
             limit=limit,
             cursor=cursor,
             support=support,
+            restart_limit=policy,
         )
     )
     return cast(InspectionPage, await asyncio.shield(read.work))
@@ -345,6 +374,7 @@ def inspect_store(
     conversation_id: int | None = None,
     limit: int = 128,
     cursor: Cursor | None = None,
+    restart_limit: object = 5,
 ) -> InspectionPage:
     """Existing-store only, logical read-only; normal close may maintain WAL."""
     if conversation_id is not None:
@@ -359,15 +389,24 @@ def inspect_store(
     return _store_read(
         path,
         lambda session: inspect_live(
-            session, conversation_id=conversation_id, limit=limit, cursor=cursor
+            session,
+            conversation_id=conversation_id,
+            limit=limit,
+            cursor=cursor,
+            restart_limit=restart_limit,
         ),
     )
 
 
-def inspect_store_task(path: object, task_id: int) -> TaskInspection | None:
+def inspect_store_task(
+    path: object, task_id: int, *, restart_limit: object = 5
+) -> TaskInspection | None:
     """Terminal/unsupported metadata needs neither current handlers nor auth."""
     _id(task_id)
-    return _store_read(path, lambda session: inspect_task(session, task_id))
+    return _store_read(
+        path,
+        lambda session: inspect_task(session, task_id, restart_limit=restart_limit),
+    )
 
 
 def _store_read(path: object, read: Callable[[Session], T]) -> T:

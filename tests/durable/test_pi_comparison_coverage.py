@@ -29,8 +29,22 @@ def test_adjudication_has_native_evidence_without_an_invented_reference_case():
     row = next(row for row in value["rows"] if row["id"] == "DE13c2")
     assert row["current"]["kind"] == "bounded-native"
     assert row["current"]["cases"] == []
-    assert row["status"] == "IN_PROGRESS"
+    assert row["status"] == "LANDED"
     row["current"]["cases"] = ["interrupted-tool-continuation-v1"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_restart_child_owns_only_its_bounded_reference_and_keeps_parent_open():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE14a"]["current"]["cases"] == ["restart-parking-v1"]
+    assert rows["DE14a"]["current"]["kind"] == "bounded-native"
+    assert rows["DE14"]["status"] == rows["DE14a"]["status"] == "IN_PROGRESS"
+    assert rows["DE14b"]["status"] == "OPEN"
+    assert rows["DE14b"]["current"]["cases"] == []
+    rows["DE14b"]["current"]["cases"] = ["restart-parking-v1"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)
 
@@ -178,7 +192,7 @@ def test_delivered_b3b_keeps_inherited_family_ownership_separate():
     assert "inherited explicitly" in row["current"]["observables"]
 
 
-@pytest.mark.parametrize("parent", ["DE03", "DE03d", "DE04", "DE06", "DE32"])
+@pytest.mark.parametrize("parent", ["DE03", "DE03d", "DE04", "DE06", "DE14", "DE32"])
 def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
     root = tmp_path / "root"
     path = root / a.LEDGER
@@ -198,6 +212,7 @@ def test_new_parent_status_cannot_land_before_all_children(tmp_path, parent):
         "DE03d": "DE03d2",
         "DE04": "DE04b",
         "DE06": "DE06b",
+        "DE14": "DE14b",
         "DE32": "DE32b",
     }[parent]
     child_index = next(
@@ -811,7 +826,7 @@ def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundarie
     assert "No claim of durable partials" in row["future"]
     assert "all real generation-owned tool admissions" in row["current"]["observables"]
     assert all(
-        rows[key]["status"] == "OPEN" for key in ("DE14", "DE15", "DE17", "DE26")
+        rows[key]["status"] == "OPEN" for key in ("DE14b", "DE15", "DE17", "DE26")
     )
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
@@ -869,7 +884,7 @@ def test_inspection_owns_full_acceptance_and_retains_whole_parity():
     assert rows["DE12"]["status"] == "LANDED"
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE14", "DE15", "DE20", "DE24", "DE28", "DE41")
+        for key in ("DE14b", "DE15", "DE20", "DE24", "DE28", "DE41")
     )
     assert all(
         value["status"] == "OPEN" for key, value in rows.items() if key.startswith("P")

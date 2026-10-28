@@ -25,6 +25,7 @@ PHASES = {
 }
 OUTCOMES = {"completed", "failed", "aborted", "orphaned", "faulted"}
 REASONS = {
+    "restart_limit",
     "abort_requested",
     "definition_missing",
     "stored_version_newer",
@@ -73,6 +74,9 @@ class TaskInspection:
     dependency_count: int = 0
     invocation_ownership: str = "unknown"
     execution_material: str = "not_checked"
+    restart_count: int | float | None = None
+    restart_limit: int | None = 5
+    restart_parked: bool = False
 
     def __post_init__(self) -> None:
         for numeric in (self.task_id, self.conversation_id):
@@ -82,6 +86,7 @@ class TaskInspection:
         if type(self.version) not in (int, float):
             raise InspectionError("invalid_request")
         OwnedJson(self.version)
+        self._restart_fields()
         for value in (
             self.family,
             self.status,
@@ -116,6 +121,19 @@ class TaskInspection:
         for dependency in self.dependencies:
             safe_integer(dependency)
 
+    def _restart_fields(self) -> None:
+        for number in (self.restart_count, self.restart_limit):
+            if number is not None:
+                if type(number) not in (int, float):
+                    raise InspectionError("invalid_request")
+                OwnedJson(number)
+        if (
+            type(self.restart_parked) is not bool
+            or self.restart_limit is not None
+            and (type(self.restart_limit) is not int or self.restart_limit < 1)
+        ):
+            raise InspectionError("invalid_request")
+
     def to_tree(self) -> Tree:
         # This allowlist is also the human/JSON operator boundary. Never asdict
         # internal captures, TaskRecords or callback-bearing definitions.
@@ -134,6 +152,9 @@ class TaskInspection:
             "dependency_count": self.dependency_count,
             "invocation_ownership": self.invocation_ownership,
             "execution_material": self.execution_material,
+            "restart_count": self.restart_count,
+            "restart_limit": self.restart_limit,
+            "restart_parked": self.restart_parked,
         }
 
 

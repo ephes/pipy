@@ -106,10 +106,11 @@ export them. The existing fact1, fact2 and canonical formats remain unchanged.
 
 ## Scope and remaining work
 
-C1 landed at `5897353`. This explicit operation is the bounded C2 migration;
-unsupported intent-less/opaque historical authority remains owned by later DE13
-repair. DE14 restart policy, P15/P16, nested DE24, broader ownership/retention and
-whole DE13/P21 parity remain open. The
+C1 landed at `5897353`; this bounded C2 operation landed at `06823ad`.
+Unsupported intent-less/opaque historical authority remains owned by later DE13
+repair. DE14a restart parking is a separate active increment; broader DE14
+policy, P15/P16, nested DE24, ownership/retention and whole DE13/P21 parity
+remain open. The
 [implementation contract](specs/2026-10-27-de13c2-explicit-historical-adjudication-plan.md)
 pins actual historical producers, transaction races and replay witnesses; a
 contract alone is not runtime or review acceptance.

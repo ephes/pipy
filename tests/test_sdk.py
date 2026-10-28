@@ -26,6 +26,7 @@ def test_sdk_exports_expected_surface() -> None:
         "DurableProviderProfile",
         "DurableAdmission",
         "DurableAdjudication",
+        "DurableTaskRetry",
         "DurableRunSelection",
         "DurableRunResult",
         "DurableProductError",

@@ -90,6 +90,9 @@ REPORT_FIELDS = {
     "dependency_count",
     "invocation_ownership",
     "execution_material",
+    "restart_count",
+    "restart_limit",
+    "restart_parked",
 }
 MUTANTS = (
     "payload",
@@ -266,6 +269,20 @@ def protocol(raw, d):
     return raw
 
 
+def _default_report(report):
+    """This terminal operator fixture uses the default immutable host policy."""
+    return (
+        type(report) is dict
+        and report.keys() == REPORT_FIELDS
+        and report["execution_material"] == "not_checked"
+        and report["invocation_ownership"] == "unknown"
+        and report["restart_count"] is None
+        and type(report["restart_limit"]) is int
+        and report["restart_limit"] == 5
+        and report["restart_parked"] is False
+    )
+
+
 def valid(raw, tools, d):
     protocol(raw, d)
     old, replaced = raw["source"], raw["old_row"]
@@ -303,9 +320,7 @@ def valid(raw, tools, d):
             raw["audit"]["new_task_id"] == new["id"],
             raw["before"] == raw["after_resolution"] == raw["after_reopen"],
             raw["stale_code"] == "stale",
-            raw["report"].keys() == REPORT_FIELDS,
-            raw["report"].get("execution_material") == "not_checked",
-            raw["report"].get("invocation_ownership") == "unknown",
+            _default_report(raw["report"]),
             _effects(raw),
             _acknowledged(raw),
             _usage(raw, tools, d),

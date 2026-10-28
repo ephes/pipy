@@ -4964,3 +4964,15 @@ bindings and can acknowledge a decision after later fault/abort without claiming
 completion. Retry remains a separate NEW-attempt operation. Unsupported historical
 authority remains held; the canonical codec, fact formats, normal runtime and
 whole parity obligations are unchanged.
+
+## Bounded restart parking (DE14a)
+
+One immutable [host restart policy](durable-restart-parking.md) is shared by
+scheduler reservation and product inspection. The default ceiling is five;
+parking is derived from the existing numeric task record and adds no stored
+state, header setting or audit. It also delays valid-receipt settlement without
+changing the winner. Changed task checkpoints reset the streak; acknowledged
+document-only progress does not. Public same-task reset commits on the existing
+Session line and remains noninvoking until explicit selected resume. Private
+scheduler retry enables only after successful commit. Live policy changes,
+definition migration and full public Pi retry-enable parity remain DE14b work.

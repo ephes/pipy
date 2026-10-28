@@ -48,6 +48,8 @@ VERIFICATION = {
 }
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
+    "DE14a",
+    "DE14b",
     "DE13c2",
     "DE13c1",
     "DE13b",
@@ -254,6 +256,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
         set(statuses) == ALL_IDS - {"DE01", "DE01b3"}, "Incomplete ledger statuses", c
     )
     for parent, children in [
+        ("DE14", ["DE14a", "DE14b"]),
         ("DE01b3", ["DE01b3a", "DE01b3b"]),
         ("DE02a2", ["DE02a2a", "DE02a2b"]),
         ("DE02b2", ["DE02b2a", "DE02b2b"]),
@@ -294,6 +297,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 
 BOUNDED_NATIVE = {
+    "DE14a",
     "DE13c2",
     "DE13c1",
     "DE13b",
@@ -325,6 +329,8 @@ BOUNDED_NATIVE = {
     "DE04a",
 }
 DE_EVIDENCE = {
+    "DE14a": "de14a-bounded-restart-parking",
+    "DE14b": "de14a-bounded-restart-parking",
     "DE13c2": "de13c2-explicit-historical-adjudication",
     "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
@@ -428,6 +434,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13a": ["normal-details-v1"],
         "DE13b": ["retained-tool-reporting-v1"],
         "DE13c1": ["interrupted-tool-continuation-v1"],
+        "DE14a": ["restart-parking-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -478,6 +485,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13b": "docs/durable-tools.md",
         "DE13c1": "docs/durable-tools.md",
         "DE13c2": "docs/durable-adjudication.md",
+        "DE14a": "docs/durable-restart-parking.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -658,6 +666,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"normal-details-v1"} if key == "DE13a" else set())
                 | ({"retained-tool-reporting-v1"} if key == "DE13b" else set())
                 | ({"interrupted-tool-continuation-v1"} if key == "DE13c1" else set())
+                | ({"restart-parking-v1"} if key == "DE14a" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

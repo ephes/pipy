@@ -163,10 +163,21 @@ acceptance remain DE12. Broader parity obligations remain OPEN.
 
 Inspection shares the finite noninvoking execute/receipt classifier used by
 execution and public resume. It does not invoke ports, construct providers or
-create documents. A valid receipt settles without consulting later restart
-metadata; without a receipt, actual current source counters must be exact
+create documents. After operational restart parking admits dispatch, a valid
+receipt settles without consulting later restart metadata as new receipt
+evidence; without a receipt, actual current source counters must be exact
 nonnegative safe integers or absent. The new interrupted cause adds no inspection
 reason or waiter enum. Historical blocked records keep their existing reasons,
 and every receipt on blocked work remains `receipt_held_needs_repair`, including
 an older runtime's blocked/intent-None round trip. C2 owns migration; automatic
 resume never replaces the existing operator-new-key authorization contract.
+
+
+## Bounded restart parking (DE14a)
+
+[Restart parking and same-task reset](durable-restart-parking.md) add an immutable
+per-owner default-five ceiling and allowlisted inspection metadata. Public reset
+requires existing profile/selection/ownership admission and does not dispatch;
+explicit resume remains separate. It is distinct from new-attempt authorization.
+Operational parking can delay valid receipt settlement without rewriting it.
+Live settings and broader migration/ownership behavior remain deferred.

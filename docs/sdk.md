@@ -93,6 +93,18 @@ resumes. Fresh matching-profile admission and profile-free same-nonce replay hav
 different authority. An existing retry selector remains required for subsequent
 resume of a successor root. Opaque or unverifiable historical records stay held.
 
+The factory keyword `restart_limit` captures an immutable host policy, defaulting
+to five surviving-process restarts. Inspection exposes `restart_count`,
+`restart_limit` and `restart_parked`; the unlimited policy reports a null limit.
+`retry_task(task_id, selection=...)` clears a parked task's current streak and
+returns `DurableTaskRetry(task_id, reset)`. It does not invoke or enable work:
+call the existing selected `resume()` explicitly afterward. A cold surviving
+running task must first pass recovery; reset refuses it without writes.
+Unlike `authorize_retry`, this operation neither creates a successor nor takes
+a nonce. See [restart parking](durable-restart-parking.md) for numeric admission,
+receipt precedence, the reset's deliberate loss of the current streak, and the
+remaining difference from Pi's public retry-enable behavior.
+
 The default request template has an empty system prompt and loads no workspace
 context or files automatically, even when the fixed native built-ins are
 advertised. It is a bare model/tool session, not the normal coding-session

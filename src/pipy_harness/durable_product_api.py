@@ -54,6 +54,7 @@ from .native.durable.product_values import (
     DurableProviderProfile,
     DurableRunResult,
     DurableRunSelection,
+    DurableTaskRetry,
     UnsupportedDurableCapability,
     product_task_id,
 )
@@ -62,6 +63,7 @@ from .native.durable.records import TaskId
 from .native.durable.recovery_catalog import HEADER, RecoveryCatalog
 from .native.durable.resolution import GENERATION_ADMISSION, _winner
 from .native.durable.resolution_values import ResolutionError, ResolutionResult
+from .native.durable.restart_policy import RestartPolicy
 from .native.durable.scheduler import TaskScheduler
 from .native.durable.session import SessionClosedError
 from .native.durable.session_core import Session, SyncTx
@@ -185,7 +187,9 @@ class DurableProductSession:
         profile: DurableProviderProfile | None,
         tool: _Tool,
         selection: DurableRunSelection | None,
+        restart_limit: object = 5,
     ) -> None:
+        self._restart_policy = RestartPolicy(restart_limit)
         self._session, self._path, self._workspace = session, path, workspace
         self._tool_driver = tool
         self._profile, self._tool, self._selection = (
@@ -338,8 +342,14 @@ class DurableProductSession:
                 limit=limit,
                 cursor=cursor,
                 support=self._support(),
+                restart_limit=self._restart_policy,
             )
-        row = await ainspect_task(self._session, task_id, support=self._support())
+        row = await ainspect_task(
+            self._session,
+            task_id,
+            support=self._support(),
+            restart_limit=self._restart_policy,
+        )
         if row is not None and row.conversation_id != value["conversation"]:
             raise DurableProductError("incompatible")
         return row
@@ -376,6 +386,7 @@ class DurableProductSession:
                             replace(self._tool_driver, catalog=catalog)
                         ),
                     ),
+                    restart_limit=self._restart_policy,
                 )
             )
             self._catalog = catalog
@@ -545,11 +556,16 @@ class DurableProductSession:
         while True:
             wake.clear()
             metadata = await ainspect_task(
-                self._session, root["id"], support=self._support()
+                self._session,
+                root["id"],
+                support=self._support(),
+                restart_limit=self._restart_policy,
             )
             if metadata is None:
                 raise DurableProductError("incompatible")
-            held = metadata.reason is not None and metadata.status != "terminal"
+            held = (
+                metadata.reason is not None or metadata.restart_parked
+            ) and metadata.status != "terminal"
             if not held and metadata.status != "terminal":
                 cursor = None
                 while True:
@@ -558,8 +574,12 @@ class DurableProductSession:
                         conversation_id=value["conversation"],
                         cursor=cursor,
                         support=self._support(),
+                        restart_limit=self._restart_policy,
                     )
-                    held = any(row.reason is not None for row in page.tasks)
+                    held = any(
+                        row.reason is not None or row.restart_parked
+                        for row in page.tasks
+                    )
                     if held or page.next is None:
                         break
                     cursor = page.next
@@ -567,7 +587,10 @@ class DurableProductSession:
                     # The hold may have committed after the first parent read.
                     # Preserve the parent's own derived reason, not a child's.
                     metadata = await ainspect_task(
-                        self._session, root["id"], support=self._support()
+                        self._session,
+                        root["id"],
+                        support=self._support(),
+                        restart_limit=self._restart_policy,
                     )
                     if metadata is None:
                         raise DurableProductError("incompatible")
@@ -589,6 +612,76 @@ class DurableProductSession:
             finally:
                 changed.cancel()
                 await asyncio.gather(changed, return_exceptions=True)
+
+    def _reset_target(
+        self, task_id: int, selection: DurableRunSelection | None
+    ) -> Tree:
+        value, root = self._selected(selection)
+        if self._profile is None:
+            raise DurableProductError("profile_required")
+        if list(self._profile._selection) != value["selection"]:
+            raise DurableProductError("incompatible")
+        catalog = self._preflight(root, value)
+        if not catalog.unchanged or (
+            self._scheduler is not None and self._catalog != catalog
+        ):
+            raise DurableProductError("incompatible")
+        if task_id == root["id"]:
+            row = root
+        else:
+            storage = self._session._owner.storage
+            rows = tasks(storage)
+            doc, _, _, _ = round_facts(storage, root, rows)
+            if task_id not in doc["value"]["tools"]:
+                raise DurableProductError("incompatible")
+            row = next((item for item in rows if item["id"] == task_id), {})
+            if not row or row.get("owner") != root["id"]:
+                raise DurableProductError("incompatible")
+        if row["state"]["status"] == "running":
+            # A surviving reservation has not yet acquired its recovery count.
+            raise DurableProductError("unavailable")
+        return row
+
+    async def retry_task(
+        self,
+        task_id: int,
+        *,
+        selection: DurableRunSelection | None = None,
+        **unsupported: object,
+    ) -> DurableTaskRetry:
+        """Reset only the current parked streak; explicit resume is separate."""
+        from .native.durable.adjudication import metadata
+
+        _options(unsupported)
+        self._check("durable_retry_task")
+        task_id = product_task_id(task_id)
+        selection = self._selection if selection is None else selection
+        if selection is not None and type(selection) is not DurableRunSelection:
+            raise DurableProductError("invalid_request")
+
+        def change(tx: SyncTx) -> DurableTaskRetry:
+            metadata(self._scheduler)
+            try:
+                row = self._reset_target(task_id, selection)
+            except (ValueError, TypeError, KeyError, IndexError) as error:
+                if isinstance(error, DurableProductError):
+                    raise
+                raise DurableProductError("incompatible") from None
+            cleared = self._restart_policy.cleared(row)
+            if cleared is not None:
+                tx.set_task(cleared)
+            return DurableTaskRetry(task_id, cleared is not None)
+
+        async def reset() -> DurableTaskRetry:
+            try:
+                metadata(self._scheduler, drained=False)
+                if self._scheduler is not None:
+                    await self._scheduler.apause()
+                return await owned_call(lambda: self._session.commit(change))
+            except ResolutionError as error:
+                raise DurableProductError(error.code) from None
+
+        return await self._owned(reset)
 
     async def adjudicate_interrupted(
         self, task_id: int, *, nonce: str, **unsupported: object
@@ -816,6 +909,7 @@ async def create_durable_product_session(
     profile: DurableProviderProfile,
     request_template: AgentProviderRequestSnapshot | None = None,
     tools: Mapping[str, ToolRegistration] | None = None,
+    restart_limit: object = 5,
     **unsupported: object,
 ) -> DurableProductSession:
     _options(unsupported)
@@ -849,7 +943,9 @@ async def create_durable_product_session(
     session = await _acquire(
         lambda: open_sqlite_storage(str(path), mode="create", durability="full"), setup
     )
-    return DurableProductSession(session, path, workspace, profile, tool, None)
+    return DurableProductSession(
+        session, path, workspace, profile, tool, None, restart_limit
+    )
 
 
 async def open_durable_product_session(
@@ -859,6 +955,7 @@ async def open_durable_product_session(
     profile: DurableProviderProfile | None = None,
     tools: Mapping[str, ToolRegistration] | None = None,
     selection: DurableRunSelection | None = None,
+    restart_limit: object = 5,
     **unsupported: object,
 ) -> DurableProductSession:
     _options(unsupported)
@@ -891,6 +988,8 @@ async def open_durable_product_session(
         ),
         setup,
     )
-    product = DurableProductSession(session, path, workspace, profile, tool, selection)
+    product = DurableProductSession(
+        session, path, workspace, profile, tool, selection, restart_limit
+    )
     product._initial_admitted = initial[0]
     return product

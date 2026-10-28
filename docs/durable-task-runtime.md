@@ -61,7 +61,7 @@ transaction; terminal state drops memos and restarts.
 Unknown/incompatible definitions, abort-marked work and waiting/sleeping/
 completing records remain inspectable and durable. Unsupported ownership joins
 must refuse before running a phase or committing a terminal outcome. Full
-definition migration/restart policy is DE14; ownership/waits/completing DE15;
+definition migration and broader restart policy remain DE14b; ownership/waits/completing DE15;
 cancellation DE16; hooks DE22; reload DE23; rich codecs DE06b. These retained
 boundaries do not remove any original DE05 acceptance cell.
 
@@ -152,3 +152,13 @@ on explicit resume, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
+
+
+## Bounded restart parking (DE14a)
+
+[Restart parking and same-task reset](durable-restart-parking.md) add an immutable
+per-owner default-five ceiling and allowlisted inspection metadata. Public reset
+requires existing profile/selection/ownership admission and does not dispatch;
+explicit resume remains separate. It is distinct from new-attempt authorization.
+Operational parking can delay valid receipt settlement without rewriting it.
+Live settings and broader migration/ownership behavior remain deferred.

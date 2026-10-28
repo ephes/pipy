@@ -123,6 +123,9 @@ def test_actual_metadata_allowlist_no_writes_or_task_code(monkeypatch):
             "dependency_count": 0,
             "invocation_ownership": "unknown",
             "execution_material": "not_checked",
+            "restart_count": None,
+            "restart_limit": 5,
+            "restart_parked": False,
         }
         assert PRIVATE not in json.dumps(body)
         assert inspect_live(session, support=support).tasks == (report,)

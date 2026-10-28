@@ -1,6 +1,7 @@
 """Actual native inspection and schema-valid common semantic controls."""
 
 import asyncio
+import copy
 import importlib.util
 from pathlib import Path
 
@@ -60,7 +61,44 @@ def native_policy(tmp_path_factory):
 
 
 def test_actual_native_only_operator_relations(native_policy):
+    report = native_policy["report"]
+    assert len(report) == 17
+    assert report["restart_count"] is None
+    assert type(report["restart_limit"]) is int and report["restart_limit"] == 5
+    assert report["restart_parked"] is False
     assert m.policy.valid(native_policy, m.canonical.canonical, m.d)
+
+
+@pytest.mark.parametrize("field", ("restart_count", "restart_limit", "restart_parked"))
+def test_native_operator_report_requires_restart_metadata(native_policy, field):
+    mutant = copy.deepcopy(native_policy)
+    del mutant["report"][field]
+    assert not m.policy.valid(mutant, m.canonical.canonical, m.d)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("restart_count", 0),
+        ("restart_count", False),
+        ("restart_count", "0"),
+        ("restart_limit", True),
+        ("restart_limit", 5.0),
+        ("restart_limit", None),
+        ("restart_limit", 6),
+        ("restart_parked", 0),
+        ("restart_parked", None),
+        ("restart_parked", True),
+        ("restart_parked", "false"),
+        ("private_payload", "must-not-escape"),
+    ),
+)
+def test_native_operator_report_refuses_corrupt_or_extra_metadata(
+    native_policy, field, value
+):
+    mutant = copy.deepcopy(native_policy)
+    mutant["report"][field] = value
+    assert not m.policy.valid(mutant, m.canonical.canonical, m.d)
 
 
 @pytest.mark.parametrize("name", m.policy.MUTANTS)

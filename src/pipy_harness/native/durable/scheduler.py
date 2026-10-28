@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .codec import OwnedJson
 from .documents import Doc, DocFamily, Token
-from .records import OMITTED, EntryRecord, TaskRecord
+from .records import OMITTED, EntryRecord, TaskRecord, safe_integer
+from .restart_policy import RestartPolicy
 from .session import SessionClosedError
 from .session_core import AsyncTx, CommitPublication, Session, SyncTx
 from .storage import ConversationQuery, EntryQuery, StorageWrite, TaskQuery
@@ -469,7 +470,11 @@ class TaskScheduler:
     """One private execution owner; open recovers, explicit resume dispatches."""
 
     def __init__(
-        self, session: Session, definitions: Iterable[Task[Any, Any, Any]]
+        self,
+        session: Session,
+        definitions: Iterable[Task[Any, Any, Any]],
+        *,
+        restart_limit: object = 5,
     ) -> None:
         definitions_by_name: dict[bytes, Task[Any, Any, Any]] = {}
         for raw in definitions:
@@ -478,6 +483,7 @@ class TaskScheduler:
             if key in definitions_by_name:
                 raise ValueError("Duplicate task definition UTF-16 identity")
             definitions_by_name[key] = definition
+        self._restart_policy = RestartPolicy(restart_limit)
         self._session = session
         self._owner = session._owner
         self._guard = self._owner._cond
@@ -672,6 +678,61 @@ class TaskScheduler:
         waiting.add_done_callback(_observed)
         await asyncio.shield(waiting)
 
+    def _retry_ready(self) -> None:
+        with self._guard:
+            closed = (
+                self._owner._line_sealed
+                or self._owner._failure is not None
+                or self._host_done
+            )
+            opened = self._opened
+        if closed:
+            raise SessionClosedError()
+        if not opened:
+            raise RuntimeError("Open the scheduler before retry")
+
+    async def aretry(self, task_id: int) -> bool:
+        """Clear a parked task's current streak, then enable after success."""
+        self._session._refuse_reentry("aretry")
+        safe_integer(task_id)
+        self._retry_ready()
+
+        async def retry_owned() -> bool:
+            async def change(tx: AsyncTx) -> bool:
+                self._retry_ready()
+                record = await tx.task(task_id)
+                if record is None:
+                    raise ValueError("Unknown task")
+                cleared = self._restart_policy.cleared(cast(Tree, record.to_tree()))
+                if cleared is not None:
+                    tx.set_task(cleared)
+                return cleared is not None
+
+            changed: bool = await self._session.acommit(change)
+            with self._guard:
+                if (
+                    not self._owner._line_sealed
+                    and self._owner._failure is None
+                    and not self._host_done
+                ):
+                    self._enabled = True
+            self._notify()
+            return changed
+
+        work = retry_owned()
+        try:
+            future = asyncio.run_coroutine_threadsafe(work, self._loop)
+        except BaseException:
+            work.close()
+            raise
+        waiting = asyncio.wrap_future(future)
+        waiting.add_done_callback(_observed)
+        return await asyncio.shield(waiting)
+
+    def retry(self, task_id: int) -> bool:
+        _off_loop("retry", "aretry")
+        return asyncio.run(self.aretry(task_id))
+
     def inspect(self) -> tuple[TaskRecord, ...]:
         """One immutable committed revision; record trees detach on access."""
         with self._guard:
@@ -856,6 +917,7 @@ class TaskScheduler:
             row["state"]["status"] != "pending"
             or row["abortRequested"]
             or row.get("abandonOnRestart")
+            or self._restart_policy.parked(row)
         ):
             return None
         from .tool_values import blocked_record

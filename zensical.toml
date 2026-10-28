@@ -35,6 +35,7 @@ nav = [
     {"Opt-in durable Python session" = "durable-product-session.md"},
     {"Opt-in durable headless CLI" = "durable-headless.md"},
     {"Historical tool adjudication" = "durable-adjudication.md"},
+    {"Restart parking and reset" = "durable-restart-parking.md"},
     {"Tool details and presence" = "tool-details.md"},
   ]},
   {"Reference and internals" = [

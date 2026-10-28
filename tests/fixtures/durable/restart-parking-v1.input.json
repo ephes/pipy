@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "phase": "restart-parking-v1",
+  "cases": [
+    {
+      "id": "default-five",
+      "limit": "default",
+      "count": 4,
+      "running": true,
+      "action": "retry"
+    },
+    {
+      "id": "explicit-two",
+      "limit": 2,
+      "count": 1,
+      "running": true,
+      "action": "retry"
+    },
+    {
+      "id": "checkpoint-progress",
+      "limit": 5,
+      "count": 1,
+      "running": true,
+      "action": "progress"
+    },
+    {
+      "id": "equal-memo-document-chatter",
+      "limit": 5,
+      "count": 1,
+      "running": true,
+      "action": "chatter"
+    },
+    {
+      "id": "healthy-close",
+      "limit": 5,
+      "count": 1,
+      "running": true,
+      "action": "hold"
+    },
+    {
+      "id": "successful-noop-enables",
+      "limit": 5,
+      "count": null,
+      "running": false,
+      "action": "noop"
+    },
+    {
+      "id": "fresh-higher-unlimited",
+      "limit": 5,
+      "count": 5,
+      "running": false,
+      "action": "fresh"
+    }
+  ]
+}
