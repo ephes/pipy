@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add cold reservation-time migration for generic private durable tasks. Newer
+  captured definitions can transform detached input/checkpoint atomically with
+  reservation; ordinary failure is remembered per owner and does not starve
+  later eligible tasks. Owner inspection distinguishes required from failed
+  migration without exposing callbacks or payloads. Built-in model/tool migration,
+  live registry handover and full recovery parity remain outside this increment.
+
 - Park durable tasks at a default five consecutive restarts without task-state
   progress. Expose the current count, effective host limit and parked status;
   fresh owners can choose a higher limit or Infinity. Public `retry_task` and

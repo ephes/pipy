@@ -12,7 +12,7 @@ import inspect
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import CoroutineType, MappingProxyType
-from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar, cast
 
 from .codec import OwnedJson
 from .execution_support import ExecutionSupport
@@ -26,6 +26,7 @@ TResult = TypeVar("TResult")
 PhaseHandler: TypeAlias = Callable[
     [dict[str, Any], "TaskRuntime", "TaskContext"], Awaitable[None]
 ]
+MigrationHandler: TypeAlias = Callable[[Any, Any, int | float], object]
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -38,6 +39,7 @@ class Task(Generic[TInput, TCheckpoint, TResult]):
     phases: Mapping[str, PhaseHandler]
     abort: PhaseHandler
     support: ExecutionSupport | None = field(default=None, kw_only=True, repr=False)
+    migrate: MigrationHandler | None = field(default=None, kw_only=True, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.name) is not str:
@@ -47,6 +49,8 @@ class Task(Generic[TInput, TCheckpoint, TResult]):
         OwnedJson(self.version)
         if not callable(self.initial) or not callable(self.abort):
             raise TypeError("Task initial and abort handlers must be callable")
+        if self.migrate is not None and not callable(self.migrate):
+            raise TypeError("Task migration handler must be callable")
         if type(self.phases) not in (dict, MappingProxyType):
             raise TypeError("Task phases must be a plain dictionary")
         phases = dict(self.phases)
@@ -71,9 +75,10 @@ def define_task(
     abort: PhaseHandler,
     *,
     support: ExecutionSupport | None = None,
+    migrate: MigrationHandler | None = None,
 ) -> Task[TInput, TCheckpoint, Any]:
     """Define a task; creating it persists initial(input), without dispatch."""
-    return Task(name, version, initial, phases, abort, support=support)
+    return Task(name, version, initial, phases, abort, support=support, migrate=migrate)
 
 
 def capture(task: object) -> Task[Any, Any, Any]:
@@ -87,6 +92,7 @@ def capture(task: object) -> Task[Any, Any, Any]:
         task.phases,
         task.abort,
         support=task.support,
+        migrate=task.migrate,
     )
 
 
@@ -101,3 +107,31 @@ def initialize(definition: Task[Any, Any, Any], owned_input: OwnedJson) -> Owned
     # The finite JSON copier uses exact types. It rejects Futures and foreign
     # awaitables without isinstance/__class__, __await__, or cleanup hooks.
     return OwnedJson({"input": input, "checkpoint": checkpoint})
+
+
+def migrate(definition: Task[Any, Any, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """Detach callback arguments and own both outputs before reservation writes."""
+    callback = definition.migrate
+    if callback is None:
+        raise TypeError("Task has no migration handler")
+    arguments = cast(
+        dict[str, Any],
+        OwnedJson(
+            {"input": record["input"], "checkpoint": record["state"]["checkpoint"]}
+        ).thaw(),
+    )
+    result = callback(arguments["input"], arguments["checkpoint"], record["version"])
+    if type(result) is CoroutineType:
+        if inspect.getcoroutinestate(result) == inspect.CORO_CREATED:
+            result.close()
+        raise TypeError("Task migrate() must return synchronous JSON")
+    # Exact JSON ownership rejects foreign awaitables without running hooks.
+    owned = OwnedJson(result).thaw()
+    if type(owned) is not dict or set(owned) != {"input", "checkpoint"}:
+        raise TypeError("Task migrate() must return input and checkpoint")
+    return {
+        **record,
+        "version": definition.version,
+        "input": owned["input"],
+        "state": {**record["state"], "checkpoint": owned["checkpoint"]},
+    }

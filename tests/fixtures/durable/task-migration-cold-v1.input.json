@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "phase": "task-migration-cold-v1",
+  "cases": [
+    {
+      "id": "equal-signed-zero",
+      "stored": -0.0,
+      "current": 0,
+      "mode": "same",
+      "blocked": null,
+      "parked": false
+    },
+    {
+      "id": "fractional-content",
+      "stored": -0.5,
+      "current": 0.25,
+      "mode": "change",
+      "blocked": null,
+      "parked": false
+    },
+    {
+      "id": "version-only",
+      "stored": 1,
+      "current": 2,
+      "mode": "same",
+      "blocked": null,
+      "parked": false
+    },
+    {
+      "id": "missing-definition",
+      "stored": 1,
+      "current": null,
+      "mode": "none",
+      "blocked": "definition_missing",
+      "parked": false
+    },
+    {
+      "id": "stored-newer",
+      "stored": 2,
+      "current": 1,
+      "mode": "change",
+      "blocked": "stored_version_newer",
+      "parked": false
+    },
+    {
+      "id": "missing-migrator",
+      "stored": 1,
+      "current": 2,
+      "mode": "none",
+      "blocked": "migration_failed",
+      "parked": false
+    },
+    {
+      "id": "throw-once",
+      "stored": 1,
+      "current": 2,
+      "mode": "throw",
+      "blocked": "migration_failed",
+      "parked": false
+    },
+    {
+      "id": "invalid-once",
+      "stored": 1,
+      "current": 2,
+      "mode": "invalid",
+      "blocked": "migration_failed",
+      "parked": false
+    },
+    {
+      "id": "parked-migration",
+      "stored": 1,
+      "current": 2,
+      "mode": "change",
+      "blocked": null,
+      "parked": true
+    },
+    {
+      "id": "blocked-zero-current",
+      "stored": -2.0,
+      "current": 0,
+      "mode": "none",
+      "blocked": "migration_failed",
+      "parked": false
+    }
+  ]
+}

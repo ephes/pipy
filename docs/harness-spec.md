@@ -4976,3 +4976,13 @@ document-only progress does not. Public same-task reset commits on the existing
 Session line and remains noninvoking until explicit selected resume. Private
 scheduler retry enables only after successful commit. Live policy changes,
 definition migration and full public Pi retry-enable parity remain DE14b work.
+
+
+## Cold task-definition migration (DE14b1)
+
+Generic cold migration extends the private Task/scheduler boundary; it does not
+introduce a product provider/CLI wrapper or generic public admission. One captured
+catalog and existing Session/condition order own migration, failure observation
+and reservation. Built-in authority and normal codecs remain unchanged. See the
+[bounded contract](specs/2026-10-28-de14b1-cold-task-migration-plan.md); live handover,
+registry subscriptions and broader ownership/reload remain later work.

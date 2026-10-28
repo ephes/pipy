@@ -1654,3 +1654,35 @@ bind the C2 leaves, tests and documentation. Pinned Pi interrupted execution is
 the semantic reference, not a claim that Pi implements native historical audit
 or nonce adjudication. Existing fresh producer/attestation, resource, supported
 runtime and full validation gates still apply to each final source epoch.
+
+## Cold generic task migration (DE14b1)
+
+`task-migration-cold-v1` appends the twenty-sixth cumulative phase after
+`restart-parking-v1`, preserving all earlier phase identities, members, parents
+and immutable Pi pins. Run it with
+`scripts/durable_migration_comparison.py run --acceptance <fresh-parent> --output <new-output>`;
+its separate `attest(output, acceptance)` API validates retained evidence without
+repeating either producer. Compare returns 0 for equality, 1 for a valid semantic
+difference and 2 for malformed input.
+
+Ten generic cases exercise equal signed-zero versions, fractional newer
+versions, version-only migration, missing definitions, stored-newer versions,
+missing migrators, cached ordinary/invalid-result failures, parked reset and a
+blocked zero-valued current definition with a negative stored version. Restore
+selection treats only null as absent, matching Pi's nullish rule; zero remains
+the actual current version.
+Failure cases include a real later eligible task and fresh-owner restoration.
+The fixtures create real tasks and explicitly seed temporary task records; these
+are controlled reservation observations, not physical crash claims. Separate
+native SQLite tests own SIGKILL, transaction rollback, ACK-loss and revision-aware
+silence evidence.
+
+The common projection compares committed generic task behavior and normalizes
+only numeric task-version zero equivalence. Complete raw records preserve signed
+zero spelling, native detached callback arguments versus Pi's stored argument
+references, scheduler reservation order, private retry returns, inspection
+shapes, identifiers and times. The older generic `inspection-v1` reason now maps
+to `migration_failed`; the full native report remains 17 fields and its common
+Pi projection remains nine. No model/tool migration, live registry, public retry
+enable or whole DE14/P07 parity follows from this profile. See
+[cold task migration](durable-task-migration.md) for the native boundary.

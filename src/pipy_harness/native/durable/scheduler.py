@@ -18,17 +18,19 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .codec import OwnedJson
 from .documents import Doc, DocFamily, Token
+from .inspection_values import InspectionSupport
 from .records import OMITTED, EntryRecord, TaskRecord, safe_integer
 from .restart_policy import RestartPolicy
 from .session import SessionClosedError
 from .session_core import AsyncTx, CommitPublication, Session, SyncTx
 from .storage import ConversationQuery, EntryQuery, StorageWrite, TaskQuery
 from .task_values import identity, json_equal
-from .tasks import Task, capture
+from .tasks import Task, capture, migrate
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 
+    from .inspection_values import TaskInspection
     from .resolution_values import ResolutionResult, ResolutionTarget
 
 
@@ -488,6 +490,10 @@ class TaskScheduler:
         self._owner = session._owner
         self._guard = self._owner._cond
         self._definitions = definitions_by_name
+        self._inspection_support = InspectionSupport(
+            tuple(definitions_by_name.values())
+        )
+        self._migration_failures: dict[int, Task[Any, Any, Any]] = {}
         self._index: dict[int, TaskRecord] = {}
         self._invocation: _Invocation | None = None
         self._stopped: set[int] = set()
@@ -556,6 +562,8 @@ class TaskScheduler:
             self._loop.close()
             with self._guard:
                 self._host_done = True
+                failures, self._migration_failures = self._migration_failures, {}
+            del failures
 
     def _notify(self) -> None:
         try:
@@ -738,6 +746,19 @@ class TaskScheduler:
         with self._guard:
             return tuple(self._index[id] for id in sorted(self._index))
 
+    def inspect_task(self, task_id: int) -> TaskInspection | None:
+        """Read committed metadata with this owner's observed migration failures."""
+        from .inspection import _inspect_owned_task
+
+        return _inspect_owned_task(self, task_id)
+
+    async def ainspect_task(self, task_id: int) -> TaskInspection | None:
+        from .inspection import _Read
+
+        self._session._refuse_reentry("ainspect_task")
+        read = _Read(lambda: self.inspect_task(task_id))
+        return cast("TaskInspection | None", await asyncio.shield(read.work))
+
     def resolution_target(self, task_id: int) -> ResolutionTarget:
         """Capture private expected state without recovering or dispatching work."""
         from .resolution import resolution_target
@@ -774,16 +795,25 @@ class TaskScheduler:
 
     def _observe(self, publication: CommitPublication) -> None:
         updates = []
+        retired = []
         for change in publication.changes:
             if type(change) is StorageWrite:
                 tree = change.to_tree()
                 if tree["type"] == "task":
                     updates.append(TaskRecord(tree["value"]))
+        terminal = {
+            row.id
+            for row in updates
+            if cast(Tree, row.to_tree())["state"]["status"] == "terminal"
+        }
         with self._guard:
             old = [self._index.get(r.id) for r in updates]
             for row in updates:
                 self._index[row.id] = row
+                if row.id in terminal:
+                    retired.append(self._migration_failures.pop(row.id, None))
         del old
+        del retired
         self._notify()
 
     async def _service(self) -> None:
@@ -834,11 +864,12 @@ class TaskScheduler:
             )
             rows = await self._reconciled(tx, rows, graph_entries, conversations)
             for row in rows:
-                definition = await self._candidate(
+                candidate = await self._candidate(
                     tx, row, rows, conversations, graph_entries
                 )
-                if definition is None:
+                if candidate is None:
                     continue
+                definition, row = candidate
                 invocation = _Invocation(
                     row["id"],
                     row["conversationId"],
@@ -912,7 +943,7 @@ class TaskScheduler:
         rows: list[Tree],
         conversations: list[Tree],
         graph_entries: dict[int, EntryRecord],
-    ) -> Task[Any, Any, Any] | None:
+    ) -> tuple[Task[Any, Any, Any], Tree] | None:
         if (
             row["state"]["status"] != "pending"
             or row["abortRequested"]
@@ -924,17 +955,62 @@ class TaskScheduler:
 
         if blocked_record(row):
             return None
-        key = identity(row["kind"])
-        with self._guard:
-            definition = self._definitions.get(key)
-        if definition is None or definition.version != row["version"]:
+        definition = self._fitting_definition(row)
+        if definition is None:
             return None
         if _model_tool(row) or _owned(row, rows, conversations):
             from .tool_graph import model_call
 
             if await model_call(tx, row, rows, conversations, graph_entries) is None:
                 return None
+        return self._fit(row, definition)
+
+    def _fitting_definition(self, row: Tree) -> Task[Any, Any, Any] | None:
+        from .generation_tasks import GENERATION_NAME, TOOL_NAME
+
+        key = identity(row["kind"])
+        with self._guard:
+            definition = self._definitions.get(key)
+        if definition is None or definition.version < row["version"]:
+            return None
+        if definition.version != row["version"] and (
+            row["kind"] in (GENERATION_NAME, TOOL_NAME) or definition.migrate is None
+        ):
+            # Preserve refusal before acquiring an irrelevant model graph.
+            return None
         return definition
+
+    def _fit(
+        self, row: Tree, definition: Task[Any, Any, Any]
+    ) -> tuple[Task[Any, Any, Any], Tree] | None:
+        if definition.version == row["version"]:
+            return definition, row
+        from .generation_tasks import GENERATION_NAME, TOOL_NAME
+
+        # Generic migration must never reinterpret a built-in authority frame.
+        if row["kind"] in (GENERATION_NAME, TOOL_NAME) or definition.migrate is None:
+            return None
+        with self._guard:
+            if self._owner._line_sealed or not self._enabled:
+                return None
+            failed = self._migration_failures.get(row["id"]) is definition
+        if failed:
+            return None
+        try:
+            migrated = cast(Tree, TaskRecord(migrate(definition, row)).to_tree())
+        except Exception:  # noqa: BLE001 - trusted callback failure is finite metadata
+            # The exception (and its traceback/payload) is released outside the
+            # metadata condition. No failed candidate mutation has been staged.
+            pass
+        else:
+            return definition, migrated
+        with self._guard:
+            previous = self._migration_failures.get(row["id"])
+            self._migration_failures[row["id"]] = definition
+        del previous
+        # _reserve continues this same pass, preserving legitimate reconciliation
+        # writes and allowing later eligible work without an external wake.
+        return None
 
     def _retire(self, invocation: _Invocation) -> None:
         self._end(invocation)

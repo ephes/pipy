@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14/DE14a IN_PROGRESS, DE14b OPEN; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14/DE14b/DE14b1 IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -192,8 +192,9 @@ that coverage here. A local validation result is not a landed slice.
 | DE13c1 | Intact recovered execute and interrupted continuation | LANDED | `5897353`; [delivered validation](#de13c1-delivery-and-c2-boundary-2026-10-27); historical blocked migration remains C2 |
 | DE13c2 | Explicit historical blocked adjudication | LANDED | Delivered `06823ad`; whole-code/full/six-platform/resource/two24phase-chain acceptance; unsupported authority remains open |
 | DE14 | Full task recovery and definition migration | IN_PROGRESS | None; all gates OPEN |
-| DE14a | Bounded restart parking and same-task reset | IN_PROGRESS | Implemented bounded policy; source-bound delivery acceptance and historical checks [below](#de14a-bounded-restart-parking) |
-| DE14b | Remaining restart/migration/orphan policy | OPEN | Live setting updates, migration and broader ownership/abort budgets remain deferred |
+| DE14a | Bounded restart parking and same-task reset | LANDED | Delivered `48fd187`; source-bound acceptance and qualified historical checks [below](#de14a-bounded-restart-parking) |
+| DE14b | Remaining restart/migration/orphan policy | IN_PROGRESS | Cold generic migration is DE14b1; live registry/settings/handover and broader ownership/abort budgets remain deferred |
+| DE14b1 | Generic cold task migration and inspection | IN_PROGRESS | [Bounded implementation and acceptance](#de14b1-cold-task-migration); no parent closure |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9032,3 +9033,61 @@ are rejected; the existing operator, receipt, usage and callback assertions
 remain intact. The inspection comparison module is included in the focused
 selection. Each candidate's checks remain bound to its own source; intermediate
 passes do not establish final acceptance for a later source epoch.
+
+
+### DE14a delivered acceptance
+
+DE14a landed at `48fd18796b9ec9b34b08c6e93e1d75bacfc37043`, tree
+`cd06b06973a634b9441dc4cecb2fceafc449cbee`, parent `06823ad`. The accepted
+source had 4,242 files. Full validation observed 20,060 passes plus the 20 exact
+known skips (20,080 unique cases); all six focused runtimes observed 2,570 passes.
+Two fresh 25-phase chains and available fresh API boundaries passed. The original
+finite resource probe observed 3 cases/105 rows/3 real overlaps within its encoded
+byte/node bounds; it makes no RSS/WAL/history claim. Independent whole CODE
+acceptance, exact mechanical SDK allowlist repair and final remote/source readback
+were separately bound. Failed/partial earlier epochs remain historical. These
+are delivered DE14a results, not evidence for changed DE14b1 sources.
+
+## DE14b1 cold task migration
+
+The [adopted contract](2026-10-28-de14b1-cold-task-migration-plan.md) and
+[private API documentation](../durable-task-migration.md) specify generic-only
+cold migration. The first valid PLAN review identified two material issues:
+closed inspection reason consumers and same-pass scheduling/reconciliation
+liveness. The repaired contract explicitly changes inspection-v1's generic
+older observation and requires continued scanning after ordinary migration
+failure. Contained PLAN verification was CLEAN; this is not whole CODE acceptance.
+
+Initial local development checks covered actual Memory/SQLite migration, built-in
+refusals, owner versus ordinary inspection, existing runtime and both closed SDK
+guards. The broader 292-case check also included import boundaries and the
+exhaustive AST inventory; mypy covered 1,083 files. Initial lint/type failures
+and their source epochs are retained. Isolated external tests and reference work
+used a complete immutable development snapshot, not changing Main. Its final
+62-case overlay covered actual dual-backend reservation/failure behavior, two
+SQLite SIGKILL cuts and explicitly seeded kernel reconciliation controls. A
+separate bounded reference packet retained 19 native tests, nine genuine pinned
+Pi cases and semantic CLI controls; it did not execute a cumulative chain or a
+fresh child attestation. These observations remain tied to that older snapshot.
+
+Current integration additionally pins synchronous reentry refusal, pause through
+caller-loop teardown and guarded failure-cache eviction/reference disposal.
+An actual early built-in refusal regression (two failing graph-read observations)
+was repaired before migration admission; the focused follow-up passed 34 cases.
+The initial integrated run's four new test-oracle errors are retained separately;
+the corrected core checks passed 22 cases. This does not relabel the failed
+integrated controller or bind worker evidence to newer source. Final current
+focused/full/six-runtime/resource/reference and whole CODE gates remain required.
+No parent parity, live registry, built-in migration or broader ownership result is
+implied by these preliminary observations.
+
+Whole CODE review returned no Critical or Warning and one accepted Suggestion:
+two reference-fixture expressions used truthiness instead of Pi's nullish
+version fallback. The contained repair preserves zero-valued current versions
+and appends a blocked zero-current/negative-stored case without changing native
+runtime authority. Its actual before-fix producer restored version -1 instead
+of 1, and the dedicated regression failed at that observation. The first new
+case setup error from negative-number spelling is retained separately; the
+fixture uses an explicit finite floating stored version without broad numeric
+normalization. The review remains ISSUES/advisory, not a relabelled CLEAN. Root's
+repair verification and final current-source gates determine delivery readiness.

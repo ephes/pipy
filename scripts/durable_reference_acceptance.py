@@ -49,6 +49,7 @@ VERIFICATION = {
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
     "DE14a",
+    "DE14b1",
     "DE14b",
     "DE13c2",
     "DE13c1",
@@ -298,6 +299,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 BOUNDED_NATIVE = {
     "DE14a",
+    "DE14b1",
     "DE13c2",
     "DE13c1",
     "DE13b",
@@ -330,7 +332,8 @@ BOUNDED_NATIVE = {
 }
 DE_EVIDENCE = {
     "DE14a": "de14a-bounded-restart-parking",
-    "DE14b": "de14a-bounded-restart-parking",
+    "DE14b": "de14b1-cold-task-migration",
+    "DE14b1": "de14b1-cold-task-migration",
     "DE13c2": "de13c2-explicit-historical-adjudication",
     "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
@@ -435,6 +438,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13b": ["retained-tool-reporting-v1"],
         "DE13c1": ["interrupted-tool-continuation-v1"],
         "DE14a": ["restart-parking-v1"],
+        "DE14b1": ["task-migration-cold-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -486,6 +490,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13c1": "docs/durable-tools.md",
         "DE13c2": "docs/durable-adjudication.md",
         "DE14a": "docs/durable-restart-parking.md",
+        "DE14b1": "docs/durable-task-migration.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -667,6 +672,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"retained-tool-reporting-v1"} if key == "DE13b" else set())
                 | ({"interrupted-tool-continuation-v1"} if key == "DE13c1" else set())
                 | ({"restart-parking-v1"} if key == "DE14a" else set())
+                | ({"task-migration-cold-v1"} if key == "DE14b1" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

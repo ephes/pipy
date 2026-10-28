@@ -110,3 +110,12 @@ input's path, and all recorded artifact and stream hashes. The real CLI tests
 include the `input` mutant and assert the recipe and malformed input survive
 recording. A real pinned execute-to-attest run must pass before the expensive
 final cumulative chains and full checks.
+
+
+## Migration callback capture
+
+DE14b1 adds keyword-only `migrate=` to the private definition. Capture preserves
+its identity on the immutable per-owner Task, but creation never calls it. Only
+an eligible newer-definition scheduler reservation can transform detached saved
+input/checkpoint. See [cold migration](durable-task-migration.md) for failure,
+inspection, atomicity and generic-only authority boundaries.

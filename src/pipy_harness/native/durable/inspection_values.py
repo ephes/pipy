@@ -30,6 +30,8 @@ REASONS = {
     "definition_missing",
     "stored_version_newer",
     "definition_version_mismatch",
+    "migration_required",
+    "migration_failed",
     "unsupported_phase",
     "unsupported_format",
     "unsupported_graph",
@@ -202,6 +204,7 @@ class InspectionSupport:
                     "name": definition.name,
                     "version": definition.version,
                     "phases": list(definition.phases),
+                    "migrate": definition.migrate is not None,
                     "support": None
                     if definition.support is None
                     else definition.support.to_tree(),

@@ -40,6 +40,7 @@ nav = [
   ]},
   {"Reference and internals" = [
     {"Architecture" = "architecture.md"},
+    {"Cold task migration" = "durable-task-migration.md"},
     {"Extension runtime" = "extension-runtime.md"},
     {"Provider capabilities and evidence" = "provider-capabilities.md"},
     {"Pi Parity" = "pi-parity.md"},

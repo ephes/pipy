@@ -1192,3 +1192,12 @@ receipt, nonce or cumulative audit. A later interrupted receipt records a
 missing current streak as null/unknown. Existing receipt payloads and historical
 attempt evidence remain unchanged. Operational ceilings apply before dispatch,
 including receipt settlement; decision-only C2 replay remains separately valid.
+
+
+## Cold generic task migration
+
+Generic task migration uses the existing Session transaction and TaskRecord ABI.
+Validated version/input/checkpoint replacement commits together with reservation;
+memos and restart streak are preserved. Failure memory is volatile per owner, not
+a document or archive format. Same-pass legitimate reconciliation can commit even
+when an earlier generic migration fails. See [task migration](durable-task-migration.md).

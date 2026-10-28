@@ -41,8 +41,9 @@ def test_restart_child_owns_only_its_bounded_reference_and_keeps_parent_open():
     rows = {row["id"]: row for row in value["rows"]}
     assert rows["DE14a"]["current"]["cases"] == ["restart-parking-v1"]
     assert rows["DE14a"]["current"]["kind"] == "bounded-native"
-    assert rows["DE14"]["status"] == rows["DE14a"]["status"] == "IN_PROGRESS"
-    assert rows["DE14b"]["status"] == "OPEN"
+    assert rows["DE14"]["status"] == "IN_PROGRESS"
+    assert rows["DE14a"]["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert rows["DE14b"]["current"]["cases"] == []
     rows["DE14b"]["current"]["cases"] = ["restart-parking-v1"]
     with pytest.raises(o.EvidenceError):
@@ -823,11 +824,10 @@ def test_generation_owns_bounded_actual_evidence_and_retains_successor_boundarie
     assert row["current"]["cases"] == ["generation-b-v1"]
     assert row["evidence"][0] == a.LEDGER + "#de07-generation-acceptance"
     assert "Assistant+tool admissions atomic" in row["future"]
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert "No claim of durable partials" in row["future"]
     assert "all real generation-owned tool admissions" in row["current"]["observables"]
-    assert all(
-        rows[key]["status"] == "OPEN" for key in ("DE14b", "DE15", "DE17", "DE26")
-    )
+    assert all(rows[key]["status"] == "OPEN" for key in ("DE15", "DE17", "DE26"))
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )
@@ -882,9 +882,10 @@ def test_inspection_owns_full_acceptance_and_retains_whole_parity():
     assert "metadata only" in row["current"]["observables"]
     assert rows["DE11"]["status"] == "LANDED"
     assert rows["DE12"]["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert all(
         rows[key]["status"] == "OPEN"
-        for key in ("DE14b", "DE15", "DE20", "DE24", "DE28", "DE41")
+        for key in ("DE15", "DE20", "DE24", "DE28", "DE41")
     )
     assert all(
         value["status"] == "OPEN" for key, value in rows.items() if key.startswith("P")
@@ -904,6 +905,7 @@ def test_product_session_preserves_original_acceptance_and_whole_parity():
     )
     assert "no accepted unpersisted input" in row["future"]
     assert rows["DE12"]["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )
@@ -942,3 +944,19 @@ def test_normal_details_child_does_not_close_parent_unsafe_continuation():
     assert all(
         row["status"] == "OPEN" for key, row in rows.items() if key.startswith("P")
     )
+
+
+def test_cold_migration_child_does_not_own_live_registry_or_parent_parity():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    child = rows["DE14b1"]
+    assert child["current"]["kind"] == "bounded-native"
+    assert child["current"]["cases"] == ["task-migration-cold-v1"]
+    assert child["status"] == rows["DE14b"]["status"] == "IN_PROGRESS"
+    assert rows["DE14"]["status"] == "IN_PROGRESS"
+    assert rows["DE14b"]["current"]["cases"] == []
+    assert "Built-in migration, live registry/handover" in child["future"]
+    rows["DE14b"]["current"]["cases"] = ["task-migration-cold-v1"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)

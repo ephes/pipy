@@ -60,8 +60,8 @@ transaction; terminal state drops memos and restarts.
 
 Unknown/incompatible definitions, abort-marked work and waiting/sleeping/
 completing records remain inspectable and durable. Unsupported ownership joins
-must refuse before running a phase or committing a terminal outcome. Full
-definition migration and broader restart policy remain DE14b; ownership/waits/completing DE15;
+must refuse before running a phase or committing a terminal outcome. [Cold generic migration](durable-task-migration.md) is supplied by DE14b1;
+live definition replacement and broader restart policy remain DE14b; ownership/waits/completing DE15;
 cancellation DE16; hooks DE22; reload DE23; rich codecs DE06b. These retained
 boundaries do not remove any original DE05 acceptance cell.
 
@@ -118,8 +118,10 @@ The [acceptance ledger](specs/2026-10-19-durable-execution-evidence.md#de05b-run
 maps the original DE05 cells to actual native process/race tests and the pinned
 reference comparison. All43 parity rows remain OPEN. The bounded scheduler scans
 all current tasks; live-graph indexing/retention and performance ownership remain
-DE27/28. It has no migration, park/retry, full task ownership, sleep, abort-handler,
-tool execution or product activation claim. DE07 supplies the bounded provider
+DE27/28. The original DE05b evidence made no migration, park/retry, full task ownership,
+sleep, abort-handler, tool execution or product activation claim. Later
+[restart parking](durable-restart-parking.md) and
+[cold generic migration](durable-task-migration.md) have separate bounded contracts. DE07 supplies the bounded provider
 phase lifetime and real tool admission described in the generation contract;
 [DE08](durable-tools.md) supplies the direct owned model-tool leaf and exact
 matching-parent allSettled wake; general waits/graphs remain DE15.

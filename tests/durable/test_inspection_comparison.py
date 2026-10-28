@@ -31,7 +31,7 @@ def test_actual_inspection_versions_and_zero_code(native_run):
         None,
         "definition_missing",
         "stored_version_newer",
-        "definition_version_mismatch",
+        "migration_failed",
         None,
     ]
     assert value["code_runs_delta"] == value["extra_live"] == 0

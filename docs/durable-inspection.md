@@ -181,3 +181,21 @@ requires existing profile/selection/ownership admission and does not dispatch;
 explicit resume remains separate. It is distinct from new-attempt authorization.
 Operational parking can delay valid receipt settlement without rewriting it.
 Live settings and broader migration/ownership behavior remain deferred.
+
+
+## Cold generic migration metadata (DE14b1)
+
+[Generic migration](durable-task-migration.md) retains the exact 17-field report.
+For current-newer generic definitions, absent migrators report
+`unsupported/migration_failed`; present migrators report
+`unknown/migration_required` until an owner actually observes failure. The
+private scheduler's `inspect_task`/`ainspect_task` includes that owner's guarded
+failure snapshot. Ordinary callback-free support carries only presence and cannot
+fabricate observed history. No inspection calls a migrator.
+
+`definition_version_mismatch` remains for incompatible built-in newer definitions;
+model/tool frames are never admitted to generic migration. Missing/stored-newer,
+terminal/completing and native authority precedence remain unchanged. The
+inspection-v1 generic older-row comparison changes deliberately to
+`migration_failed`, preserving its separate nine-field common projection and all
+privacy/read-only controls.

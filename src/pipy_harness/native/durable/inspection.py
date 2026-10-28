@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from .checkpoint_codec import decode_checkpoint
 from .generation_tasks import (
@@ -30,6 +30,9 @@ from .session_core import Session
 from .storage import Cursor, Storage, TaskQuery
 from .tool_execution import RECEIPT_DOC
 from .tool_values import checkpoint
+
+if TYPE_CHECKING:
+    from .scheduler import TaskScheduler
 
 Tree = dict[str, Any]
 T = TypeVar("T")
@@ -64,7 +67,10 @@ def _known_frame(row: Tree, phase: object) -> None:
 
 
 def _compatibility(
-    row: Tree, raw_phase: object, support: InspectionSupport | None
+    row: Tree,
+    raw_phase: object,
+    support: InspectionSupport | None,
+    migration_failed: bool,
 ) -> tuple[str, str | None]:
     if support is None:
         return "unknown", None
@@ -72,9 +78,13 @@ def _compatibility(
     if definition is None:
         return "unsupported", "definition_missing"
     if definition["version"] != row["version"]:
-        return "unsupported", "stored_version_newer" if definition["version"] < row[
-            "version"
-        ] else "definition_version_mismatch"
+        if definition["version"] < row["version"]:
+            return "unsupported", "stored_version_newer"
+        if row["kind"] in (GENERATION_NAME, TOOL_NAME):
+            return "unsupported", "definition_version_mismatch"
+        if migration_failed or not definition["migrate"]:
+            return "unsupported", "migration_failed"
+        return "unknown", "migration_required"
     if type(raw_phase) is not str:
         return "unsupported", "unsupported_phase"
     # Blocked is a deliberately nondispatchable frame, not a missing callback.
@@ -110,6 +120,8 @@ def _capture(
     row: Tree,
     support: InspectionSupport | None,
     policy: RestartPolicy,
+    *,
+    migration_failed: bool = False,
 ) -> TaskInspection:
     state = row["state"]
     dependencies = tuple(state.get("on", ()))
@@ -142,7 +154,7 @@ def _capture(
     raw = state.get("checkpoint")
     phase = raw.get("phase") if type(raw) is dict else None
     shown = phase if type(phase) is str and phase in PHASES else "unknown"
-    compatibility, reason = _compatibility(row, phase, support)
+    compatibility, reason = _compatibility(row, phase, support, migration_failed)
     result = replace(result, phase=shown, compatibility=compatibility, reason=reason)
     result = _native_details(storage, row, raw, phase, result, support)
     return (
@@ -263,6 +275,48 @@ def inspect_task(
     except InspectionError:
         raise
     except Exception:  # noqa: BLE001 - raw private failures never enter operator output
+        raise InspectionError() from None
+
+
+def _inspect_owned_task(
+    scheduler: TaskScheduler, task_id: int
+) -> TaskInspection | None:
+    """Private owner context: acquire the Session line before its metadata guard."""
+    _id(task_id)
+    session = scheduler._session
+
+    def read() -> TaskInspection | None:
+        storage = session._owner.storage
+        found = storage.task(TaskId(task_id))
+        if found is None:
+            return None
+        row = cast(Tree, found.to_tree())
+        if row["state"]["status"] in ("terminal", "completing"):
+            return _capture(storage, row, None, scheduler._restart_policy)
+        from .task_values import identity
+
+        key = identity(row["kind"])
+        with scheduler._guard:
+            definition = scheduler._definitions.get(key)
+            failed = (
+                definition is not None
+                and scheduler._migration_failures.get(task_id) is definition
+            )
+        return _capture(
+            storage,
+            row,
+            scheduler._inspection_support,
+            scheduler._restart_policy,
+            migration_failed=failed,
+        )
+
+    try:
+        return session.read_on_line(read)
+    except (SessionClosedError, SessionFailed):
+        raise InspectionError("closed") from None
+    except InspectionError:
+        raise
+    except Exception:  # noqa: BLE001 - same finite boundary as ordinary inspection
         raise InspectionError() from None
 
 

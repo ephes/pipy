@@ -1055,6 +1055,13 @@ verdict that the broader program failed.
 
 ## Private durable task execution
 
+[Cold task migration](durable-task-migration.md) uses this same scheduler and
+Session line. Captured private callbacks transform only eligible generic records;
+validated migration and reservation share one commit. Failure memory and its
+owner-inspection snapshot use the existing condition. Ordinary failure continues
+the same candidate scan without losing legitimate reconciliation. Built-in
+generation/model-tool authority remains outside generic migration.
+
 The internal `native.durable.scheduler` owns one sequential phase invocation on
 an asyncio host. `SessionLifecycle` remains the single seal/drain/backend-close
 owner and its condition also guards scheduler metadata. Scoped runtime commits
