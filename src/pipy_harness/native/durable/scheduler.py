@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 
     from .inspection_values import TaskInspection
+    from .orphan_control import OrphanResult
     from .resolution_values import ResolutionResult, ResolutionTarget
 
 
@@ -773,6 +774,23 @@ class TaskScheduler:
         self._session._refuse_reentry("aremove_definition")
         key = publication_name(name)
         return await owned_call(lambda: publish(self, key, None))
+
+    def orphan_missing_definition(self, task_id: int) -> OrphanResult:
+        """Settle only an unmarked, missing-definition generic strict root leaf."""
+        from .orphan_control import orphan
+
+        self._session._refuse_reentry("orphan_missing_definition")
+        _off_loop("orphan_missing_definition", "aorphan_missing_definition")
+        return orphan(self, safe_integer(task_id))
+
+    async def aorphan_missing_definition(self, task_id: int) -> OrphanResult:
+        """Join the real settlement worker even if this API waiter is cancelled."""
+        from .generation_transport import owned_call
+        from .orphan_control import orphan
+
+        self._session._refuse_reentry("aorphan_missing_definition")
+        owned_id = safe_integer(task_id)
+        return await owned_call(lambda: orphan(self, owned_id))
 
     async def aretry(self, task_id: int) -> bool:
         """Clear a parked task's current streak, then enable after success."""

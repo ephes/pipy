@@ -5015,3 +5015,20 @@ winners retain their early return. Publication does not mutate durable records o
 enable a paused owner. See the [bounded contract](specs/de14b3-definition-publication.md)
 for exact identity, health, wake and cancellation rules. Product catalogs,
 listeners, active handover and broader ownership remain separate obligations.
+
+
+## Explicit generic missing-definition orphaning (DE14b4)
+
+The private scheduler controls `orphan_missing_definition` and
+`aorphan_missing_definition` settle only an unmarked pending generic strict root
+leaf with no current definition. One real Session transaction reads every task
+and conversation page, validates ownership endpoints/cycles, and rejects any
+owned edge or incoming waiter. Actual scheduler activity refuses admission;
+paused owners stay paused. The standard terminal conversion removes live memos
+and restart counts, while existing Tx assembly atomically retires current task
+documents. SQLite current-only revision deletion and Memory current visibility
+retain their existing semantics. No extra wake is added; normal commit publication
+can wake unrelated work on an enabled owner. Generic terminal replay is a stable
+no-op. See the [contract](specs/de14b4-orphan-missing-definition.md) for exact
+health, validation, cancellation, rollback and ACK-loss rules. Product/SDK/CLI,
+reserved `pi.` tasks, general abort and broader ownership remain deferred.

@@ -1000,3 +1000,22 @@ def test_idle_definition_publication_child_keeps_active_handover_and_parents_ope
     rows["DE14b"]["current"]["cases"] = child["current"]["cases"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)
+
+
+def test_missing_definition_orphan_child_keeps_general_abort_and_parents_open():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    child = rows["DE14b4"]
+    assert child["current"]["kind"] == "bounded-native"
+    assert child["current"]["cases"] == ["task-orphan-missing-definition-v1"]
+    assert child["status"] == "IN_PROGRESS"
+    assert rows["DE14b"]["status"] == rows["DE14"]["status"] == "IN_PROGRESS"
+    assert rows["DE14b"]["current"]["cases"] == []
+    assert "public abort, active/cascade/completing" in child["future"]
+    assert all(
+        row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
+    )
+    rows["DE14b"]["current"]["cases"] = child["current"]["cases"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)

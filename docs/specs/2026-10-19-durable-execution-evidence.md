@@ -197,6 +197,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE14b1 | Generic cold task migration and inspection | LANDED | [Bounded implementation and acceptance](#de14b1-cold-task-migration); no parent closure |
 | DE14b2 | Owner-local restart-policy publication | LANDED | [Bounded private implementation](#de14b2-live-restart-policy); no Product setting or parent closure |
 | DE14b3 | Idle generic definition publication | LANDED | [Bounded private implementation](#de14b3-idle-definition-publication); no Product registry or active handover |
+| DE14b4 | Missing-definition generic-root orphan | IN_PROGRESS | [Bounded implementation and source-qualified evidence](#de14b4-missing-definition-orphan); review and delivery remain separately gated |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9132,3 +9133,23 @@ zero Critical/Warning; executable witnesses own its two remaining suggestions.
 The [development evidence](../evidence/de14b3-definition-publication.md) retains
 actual checks and source epochs. This private control adds no Product registry,
 listeners, active handover, model/tool migration or whole-parent closure.
+
+## DE14b4 missing-definition orphan
+
+The private scheduler control implements explicit orphan settlement only for a
+quiescent generic pending root whose definition is absent. A complete typed
+transaction graph rejects any owned task edge, owned/containing conversation,
+malformed graph or incoming waiter; it does not reinterpret the ordinary
+scheduler ownership fence as a transitive query. Standard terminal conversion
+removes live memos/restarts and retires current-only task documents atomically.
+Missing IDs, refusals and generic terminal repeats do not rewrite records.
+
+The [contract](de14b4-orphan-missing-definition.md),
+[test matrix](de14b4-orphan-missing-definition-tests.md) and
+[source-qualified development evidence](../evidence/de14b4-orphan-missing-definition.md)
+separate implementation from later CODE, cumulative reference, full and platform
+acceptance. The Pi profile retains its installed Harness cleanup hook and raw
+records; only the proved immediate marked-to-orphaned ACK is mapped. Public
+abort, active/cascade/completing work, general wait settlement, DE15/16/23 and all
+parent/P obligations remain open. Delivery references belong to the external
+accepted campaign ledger; no future commit or final PASS is asserted here.

@@ -1720,3 +1720,24 @@ listener/registry/handover, physical crash/resource or whole parent parity claim
 The [private implementation contract](specs/2026-10-28-de14b2-live-restart-policy-plan.md)
 and [evidence record](evidence/2026-10-28-de14b2-live-restart-policy.md) distinguish
 source preparation, development execution and final acceptance.
+
+## Missing-definition root orphan (DE14b4)
+
+`task-orphan-missing-definition-v1` extends the definition-publication comparison
+with five bounded cases: Memory warm, SQLite warm, unmarked cold reopen,
+explicit parked metadata control, and terminal repeat after definition install.
+The private native API and real Pi Harness retain complete TaskRecords, ACKs,
+documents, storage batches, callback SQLite rows and backend revisions. The
+common view maps Pi's immediate `marked` ACK to native `orphaned` only when the
+actual terminal missing-task outcome is present; repeated terminal ACKs remain
+unchanged. The parked seed is a typed control, not a physical crash.
+
+The native strict all-page graph/incoming-waiter refusals and lifecycle/error
+surface are separate from Pi's broader abort semantics. The actual Harness
+cleanup hook remains installed: its generic guard returns before presentation
+document access, while terminal and task-document writes still occur. Task
+documents are current-only; SQLite retirement removes their revisions, Memory
+has no numeric history, and unrelated rewindable conversation history remains
+under existing storage policy. No backend policy or public Product abort API is
+added. See the [contract](specs/de14b4-orphan-missing-definition.md) and
+[evidence qualifications](evidence/de14b4-orphan-missing-definition.md).

@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private explicit orphaning for a missing-definition generic pending root
+  leaf. Complete ownership and incoming-waiter checks precede one atomic terminal
+  transition and current task-document retirement. Existing history policies and
+  worker/lease joins remain authoritative; repeated terminal calls write nothing.
+  Public abort, built-in tasks, cascade and active cancellation remain deferred.
+
 - Add private idle durable-task definition installation and removal. One immutable
   generation keeps captured handlers and inspection support coherent; retained
   source identity preserves migration-failure memory across unchanged reinstall.
