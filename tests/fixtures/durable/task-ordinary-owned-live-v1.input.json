@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "phase": "task-ordinary-owned-live-v1",
+  "cases": [
+    {
+      "id": "memory-background-first",
+      "backend": "memory",
+      "cold": false,
+      "first": "Z"
+    },
+    {
+      "id": "sqlite-foreground-first",
+      "backend": "sqlite",
+      "cold": false,
+      "first": "D"
+    },
+    {
+      "id": "sqlite-cold-ended-bridge",
+      "backend": "sqlite",
+      "cold": true,
+      "first": "Z"
+    }
+  ]
+}

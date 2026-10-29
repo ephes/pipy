@@ -56,6 +56,7 @@ CHILDREN = {
     "DE14b5",
     "DE14b6",
     "DE14b7",
+    "DE15a",
     "DE14b",
     "DE13c2",
     "DE13c1",
@@ -312,6 +313,7 @@ BOUNDED_NATIVE = {
     "DE14b5",
     "DE14b6",
     "DE14b7",
+    "DE15a",
     "DE13c2",
     "DE13c1",
     "DE13b",
@@ -352,6 +354,7 @@ DE_EVIDENCE = {
     "DE14b5": "de14b5-older-definition-orphan",
     "DE14b6": "de14b6-observed-failed-migration-orphan",
     "DE14b7": "de14b7-absent-migration-handler-orphan",
+    "DE15a": "de15a-ordinary-owned-live-core",
     "DE13c2": "de13c2-explicit-historical-adjudication",
     "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
@@ -463,6 +466,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE14b5": ["task-orphan-task-too-old-v1"],
         "DE14b6": ["task-orphan-failed-migration-v1"],
         "DE14b7": ["task-orphan-missing-migration-v1"],
+        "DE15a": ["task-ordinary-owned-live-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -521,6 +525,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE14b5": "docs/specs/de14b5-orphan-task-too-old.md",
         "DE14b6": "docs/specs/de14b6-orphan-failed-migration.md",
         "DE14b7": "docs/specs/de14b7-orphan-missing-migration.md",
+        "DE15a": "docs/specs/de15a-ordinary-owned-live.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -713,6 +718,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"task-orphan-task-too-old-v1"} if key == "DE14b5" else set())
                 | ({"task-orphan-failed-migration-v1"} if key == "DE14b6" else set())
                 | ({"task-orphan-missing-migration-v1"} if key == "DE14b7" else set())
+                | ({"task-ordinary-owned-live-v1"} if key == "DE15a" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

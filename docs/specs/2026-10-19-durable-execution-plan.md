@@ -449,6 +449,7 @@ DE13–DE28 close deliberate Milestone A limits. They are required for full pari
 | DE14b6 / DE14b5 | Private explicit migration_failed settlement for a generic pending strict root leaf with a present strictly newer captured definition and an observed failure memo for its exact current Binding. | Preserve shared graph/final admission/terminal and atomic retirement; prove same-owner memo/generation authority, no fitting/callback during action, real paused and retired-enabled lanes, cold reobservation, rollback/ACK-loss and owned joins. Bounded task-orphan-failed-migration-v1 profile; public/general abort, unobserved failure, active/cascade/completing work and all parent parity remain open. |
 | DE14b7 / DE14b6 | Private explicit migration_failed settlement for a generic pending strict root leaf with strictly newer captured code and no migration handler. | Preserve observed-failure authority separately, captured numeric semantics, strict graph/final admission/terminal retirement and owned joins; genuine absent-callback Native/Pi profile. Public/general abort and all parent parity remain open. |
 | DE14b / DE14a | Complete remaining task-definition migration/reload, live policy reconfiguration, missing/newer handling and fault/orphan/abort cleanup. | Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a. |
+| DE15a / delivered DE14b7; bounded DE15 prerequisite | Private coherent SyncTx ordinary-owned-live capture/has query. | Genuine staged authority, complete validated topology and lifecycle gates; graph answers separate from assembly. Existing fences and full DE15 obligations remain unchanged. |
 | DE15 / DE14 | Add immutable task/conversation ownership, durable waiting/completing, candidate-state child admission, allSettled/failFast and wait-cycle detection. | Crash held completion/cascade/final commit; no owner terminal before ordinary work drains; child created in finishing candidate holds/rejects as appropriate; wait cycles reject atomically; background boundaries. Ownership spec. |
 | DE16 / DE15 | Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups. | Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs. |
 | DE17 / DE16 | Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel, timer failures and parked work wake behavior. Integrate native retry/overflow classifiers. | Fake clock early/late/multiple reopen, no busy loop, bounded layered retries, fixed due times, abort asleep/polling, unknown deferred model; host onWake after commit only. Retry/deferred/host settings docs. |
@@ -1017,3 +1018,23 @@ backend retention and lifetime rules remain authoritative. The
 [dated evidence](../evidence/de14b7-orphan-missing-migration.md) separate actual core
 results from later integrated, independent and final validation. Parent criteria
 remain open; general abort and active/cascade/completing work are deferred.
+
+B7 subsequently delivered at `5a9bb4874a158427fb5876670064ce2cc838789f`;
+its historical development and final delivery are separated in the
+[B7 evidence](../evidence/de14b7-orphan-missing-migration.md).
+
+## DE15a bounded read prerequisite
+
+The [ordinary-owned-live contract](de15a-ordinary-owned-live.md) extracts only a
+private transaction-local graph query from DE15. Capture precedes table writes;
+subsequent queries use the same actual SyncTx lifecycle and staged write-kind
+authority. Global graph refusal does not replace outer commit validation or the
+two existing execution/admission fences. The [matrix](de15a-ordinary-owned-live-tests.md)
+and [dated core evidence](../evidence/de15a-ordinary-owned-live.md) govern its
+remaining integration. Full DE15 ownership mutation, waiting/completing, DE14/P07,
+DE15/P09 and all 43 parent criteria remain open.
+
+The 2026-10-29 isolated Broad22 and Reference23/three paired-schedule outcomes
+are recorded separately in [DE15a evidence](../evidence/de15a-ordinary-owned-live.md).
+The additive ordinary-owned-live profile does not expand the work order to
+execution admission, completing, public retry or any parent closure.

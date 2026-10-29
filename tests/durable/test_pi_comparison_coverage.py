@@ -1068,7 +1068,7 @@ def test_missing_migration_child_preserves_observed_authority_and_parent_scope()
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
     child = rows["DE14b7"]
-    assert child["status"] == "IN_PROGRESS"
+    assert child["status"] == "LANDED"
     assert child["current"]["kind"] == "bounded-native"
     assert child["current"]["cases"] == ["task-orphan-missing-migration-v1"]
     assert rows["DE14b6"]["status"] == "LANDED"
@@ -1080,5 +1080,26 @@ def test_missing_migration_child_preserves_observed_authority_and_parent_scope()
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
     child["current"]["cases"] = rows["DE14b6"]["current"]["cases"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_ordinary_owned_live_child_does_not_close_execution_or_parent_parity():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    child = rows["DE15a"]
+    assert child["status"] == "IN_PROGRESS"
+    assert child["current"]["kind"] == "bounded-native"
+    assert child["current"]["cases"] == ["task-ordinary-owned-live-v1"]
+    assert rows["DE14b7"]["status"] == "LANDED"
+    assert rows["DE15"]["status"] == "OPEN"
+    assert rows["DE15"]["current"]["cases"] == []
+    assert rows["DE14"]["status"] == "IN_PROGRESS"
+    assert "SyncTx" in child["contract"]
+    assert all(
+        row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
+    )
+    rows["DE15"]["current"]["cases"] = child["current"]["cases"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

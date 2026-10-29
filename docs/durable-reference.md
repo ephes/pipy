@@ -1799,3 +1799,31 @@ and parent digests refresh when their actual inputs change. The
 from [dated execution evidence](evidence/de14b7-orphan-missing-migration.md).
 Profile registration and acceptance require the integrated source closure; direct
 producer development alone is not a cumulative configuration or attestation gate.
+
+## Ordinary-owned-live oracle boundary (DE15a)
+
+At the 2026-10-29 core checkpoint, the bounded reference profile was a requirement,
+not a registered or executed cumulative phase. Its proposed ancestry follows
+`orphan_missing_migration`; no new manifest/configuration is established by the
+core query or this documentation.
+
+The [contract](specs/de15a-ordinary-owned-live.md) limits the common projection to
+native ownership booleans versus genuine public Pi held-completion/release
+boundaries. The oracle must use Full Harness watch/read/terminal observations,
+not private `#ownedLive` instrumentation or idle/time-based success. Native ended
+intermediates are direct real Tx terminalizations with execution disabled; raw
+outcomes, timestamps, callbacks and lifecycle differences remain visible. Neither
+native completing parity nor unchanged old-profile acceptance follows from this
+future comparison. See the [dated evidence](evidence/de15a-ordinary-owned-live.md).
+
+### Integrated ordinary-owned-live profile
+
+`task-ordinary-owned-live-v1` extends the recipe after `orphan_missing_migration`
+with common profile `ordinary-owned-live-held-completion-common-v1`. Three finite
+schedules retain native direct-Tx versus actual public Pi held/release observations,
+including cold SQLite. Real candidate/global-validation/lifetime tests remain
+native-only. The new closure includes the query, core and both broad files, all
+seven reference files and the three DE15a documents; old32 identities, order,
+immutable Pi pins and parent edges are preserved while necessary digests refresh.
+The dated isolated results are evidence for their own source, not a claim that
+configuration, parent chains or the eventual final source already executed.

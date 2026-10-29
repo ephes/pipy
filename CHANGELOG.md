@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a private transaction-local ordinary-owned-live query. It captures committed
+  ownership before writes and evaluates genuine staged candidates on the same
+  synchronous transaction, traversing ended ordinary intermediates while cutting
+  background subtrees. Graph validation is separate from commit eligibility;
+  existing scheduler and strict orphan admission fences remain unchanged.
+
 - Add private explicit orphaning when a generic pending root leaf has strictly
   newer captured code with no migration handler. Structural eligibility remains
   separate from observed-failure authority; both store the existing

@@ -2,9 +2,9 @@
   "schema_version": 1,
   "phase": "session-guard-b1b-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "974cf9f4642c8f8ae1b101697766a2bcf627fb2e6a0d544aff52bc42f1adbbbb",
-  "a1_manifest_sha256": "12c5ef5f277fdc7af4bdb119448d598847439a93e3b1e526790e01287b98341c",
-  "a2b_manifest_sha256": "bb5090f242cba9d4e43792f0741b1e5d819699592515e2269652211ffeef6ac5",
+  "baseline_manifest_sha256": "9cb3841c98c506dbbecd90b0af8ebc7255413d97f766b9c9990715caa4826661",
+  "a1_manifest_sha256": "4fb5bfca6af7f25acbdfddbcad3a7b3d9b6c3b4f7c3b8a8d6074136e760670d9",
+  "a2b_manifest_sha256": "66c2a85d84a02ebe66c4dea3c7ac401c1bafdfb038b578500643dc9920c78366",
   "scope": "Bounded guard/lifecycle comparison only: pinned SessionImpl GuardedStorage via a driver subclass (guarded getter, recorded report) versus private native SessionLifecycle/GuardedStorage, each over its real Memory backend. Not compared: the Pi window between session.close() and its later line-job guard seal (DE02b2 Session line), report versus outcome publication order for a healthy close failure, Python-only BaseException handling, non-Error JS throw values, Harness safeReport and close listeners. Node closes only through SessionImpl.close; Pi GuardedStorage.close is not close-once, so native facade close-once is the owner's role, not a Pi guard claim. No Session line, Tx, product or P closure.",
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",

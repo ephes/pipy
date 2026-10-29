@@ -84,3 +84,30 @@ These isolated development results precede canonical integration and do not grad
 its later source, execute/attest APIs, cumulative chains, CODE, final platforms or
 delivery. The original dated core checkpoint remains historical. All43 parent
 criteria stay open.
+
+## Final validation and delivery — 2026-10-29
+
+B7 delivered as `5a9bb4874a158427fb5876670064ce2cc838789f`, sole parent
+`8c01b35ed0f98726d6d50ce00877cbc273de13cf`, tree
+`ad61d8c835594c666801b3052cb20ecf442a1cba`. Root independently verified the
+fresh remote/main/HEAD, clean source/index/refs and all 4344 source files and
+committed blob modes. Delivery acceptance is
+`de14b7-root-delivery-acceptance-jbb9rjpn/ACCEPTANCE.json`, SHA256
+`c99e347f47e54b695b8f8e90ca352b757fd6471bb3f5dd5a6dd7a517adc33ca3`.
+
+Independent CODE R1 was CLEAN with no findings. Its attempted offline `uv` test
+lookup failed before Python, so reviewer execution is not QA evidence. Separate
+ordinary full validation passed 20896 tests with 20 exact established skips
+(20916 ordered JUnit IDs), plus whole Ruff/type checks. The original resource
+gate passed its three cases and 105 measurement rows with three real overlaps
+and joined barriers. All six supported platform lanes passed 3406 ordered tests
+each. Two fresh cumulative 32-profile chains and their immediate/post APIs were
+independently accepted. These outcomes belong to the integrated final B7 epoch,
+not retroactively to the earlier isolated development copies.
+
+The failed initial first315 selector-binding epoch remains failed and preserved;
+its corrected run has separate authority. Known-process/import scope and legacy
+unknown UUID/lifecycle fields in final receipts remain qualified, rather than
+being promoted to a complete OS census. No blanket cache exception was needed
+for full validation. The historical development sections above remain unchanged.
+This bounded delivery does not close DE14/P07 or any of the 43 parent criteria.

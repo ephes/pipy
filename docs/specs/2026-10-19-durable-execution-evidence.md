@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 LANDED at `facea5d1`; DE14b6 LANDED at `8c01b35`; DE14b7 core development recorded at the 2026-10-29 checkpoint; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 LANDED at `facea5d1`; DE14b6 LANDED at `8c01b35`; DE14b7 LANDED at `5a9bb487`; DE15a core development recorded at the 2026-10-29 checkpoint; DE15 OPEN; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-29. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -200,7 +200,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE14b4 | Missing-definition generic-root orphan | LANDED | [Bounded implementation and source-qualified evidence](#de14b4-missing-definition-orphan); delivered at `3f5473d`, parent criteria remain open |
 | DE14b5 | Older-definition generic-root orphan | LANDED | [Delivered `facea5d1`](#de14b5-older-definition-orphan); historical development epochs retained |
 | DE14b6 | Observed failed-migration generic-root orphan | LANDED | `8c01b35`; [dated development and delivery](#de14b6-observed-failed-migration-orphan) |
-| DE14b7 | Absent migration-handler generic-root orphan | IN_PROGRESS | [2026-10-29 core checkpoint](#de14b7-absent-migration-handler-orphan); later acceptance in separate receipts |
+| DE14b7 | Absent migration-handler generic-root orphan | LANDED | [Delivered `5a9bb487`](#de14b7-absent-migration-handler-orphan); historical development epochs retained |
+| DE15a | Private ordinary-owned-live query prerequisite | IN_PROGRESS | [2026-10-29 core checkpoint](#de15a-ordinary-owned-live-core); no parent closure |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9212,3 +9213,35 @@ The [evidence](../evidence/de14b7-orphan-missing-migration.md) retains failed to
 and complexity epochs, exact source/provenance qualifications and the authoritative
 Root core receipt. Broad/reference, integrated canonical and final results were
 not yet established at that checkpoint. All parent parity criteria remain open.
+
+B7 subsequently delivered at `5a9bb4874a158427fb5876670064ce2cc838789f`,
+parent `8c01b35ed0f98726d6d50ce00877cbc273de13cf`, tree
+`ad61d8c835594c666801b3052cb20ecf442a1cba`. Root independently accepted the
+remote/clean source and all 4344 source files after final gates; the
+[B7 evidence](../evidence/de14b7-orphan-missing-migration.md) preserves the
+separate actual delivery and historical checkpoint authorities.
+
+## DE15a ordinary-owned-live core
+
+At the 2026-10-29 core checkpoint, the immutable 4346-file candidate passed
+42 new plus 245 retained core cases and 238 affected consumer cases, all with
+zero failures/errors/skips. Ordinary mypy1126, Ruff check and format1252 passed
+on that exact source. The five existing native modules and all 4344 delivered
+B7 files were unchanged. Root accepted only this coherent development epoch in
+`de15a-root-core-acceptance-7xe2_hbr/ACCEPTANCE.json` (SHA256
+`55845deea255a268b1be7b70ea571644c24245d6ba4db8ae4b4c102c3a5df92e`).
+
+The [contract](de15a-ordinary-owned-live.md), [matrix](de15a-ordinary-owned-live-tests.md)
+and [evidence](../evidence/de15a-ordinary-owned-live.md) retain failed development
+qualifications and distinguish Core from pending Broad/Reference/canonical/CODE/
+final acceptance at that checkpoint. The new query classifies actual transaction
+graphs; it does not change existing admission fences or implement completing.
+All DE14/P07, DE15/P09 and all 43 parent criteria remain open.
+
+At a separate 2026-10-29 isolated-overlay checkpoint, DE15a Broad2 passed 22
+cases on Core4346+2 and Reference7 passed 23 module cases on Core4346+7. Three
+native/Pi public held/release schedules produced TTF/TFF/TTF, retaining raw
+lifecycle asymmetries and 15 SQL joins. Root accepted each epoch separately;
+[DE15a evidence](../evidence/de15a-ordinary-owned-live.md) retains exact receipts,
+failed fixture epochs and provenance limits. No final integrated CODE/full/
+platform/resource/chain or parent acceptance is transferred from those results.

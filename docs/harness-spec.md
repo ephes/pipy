@@ -5077,3 +5077,26 @@ manually clears it. Existing terminal-first/reserved ordering, graph, initial/fi
 activity admission, transaction retirement and async worker joins remain shared.
 See the [contract](specs/de14b7-orphan-missing-migration.md) and
 [source-qualified evidence](evidence/de14b7-orphan-missing-migration.md).
+
+## Ordinary-owned-live read prerequisite (DE15a)
+
+Private `OwnedLiveQuery.capture(tx: SyncTx)` captures complete committed ownership
+projections before table writes. `has(task_id)` gates the same transaction's
+lifecycle/thread, joins genuine staged write-kind authority and validates the
+complete effective graph before answering. It traverses terminal ordinary tasks
+and owned conversations, excludes background subtrees, and counts no root itself.
+Only immutable graph fields are retained; typed-row decoding costs are separate
+from the O(V+E) graph work, with no new RSS or payload-retention guarantee.
+
+This classifies ownership, not transaction assembly readiness or execution
+admission. Create candidates can produce a valid graph answer and still fail the
+outer transaction's existing assembly checks. Neither `scheduler._owned` nor the
+strict-root-leaf helper changes. No public SDK, AsyncTx query, completing/wait/
+abort dispatch, persisted index or handover is introduced. See the
+[contract](specs/de15a-ordinary-owned-live.md),
+[matrix](specs/de15a-ordinary-owned-live-tests.md) and
+[dated evidence](evidence/de15a-ordinary-owned-live.md).
+
+The bounded `task-ordinary-owned-live-v1` reference profile retains native direct-Tx
+versus Pi public-completion asymmetries. Its dated development evidence is separate
+from the integrated source and final gates; the query grants no scheduler admission.
