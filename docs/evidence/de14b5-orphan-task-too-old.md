@@ -85,3 +85,16 @@ all native, broad and reference logic remains byte-identical. At this 2026-10-29
 development checkpoint, independent CODE review, final gates and B5 delivery were
 still pending. Their later outcomes belong to separate actual receipts. No future
 PASS count or parent completion is claimed.
+
+## Subsequent delivery — 2026-10-29
+
+B5 was delivered at `facea5d1e40b2bca033237ddcff45de8303621f9`, sole parent
+`3f5473d49b590bee891f4f04b635a643edd1f3c2`, tree
+`1cff0b5ae042d855cc8d7fae399730f6fcf7ff07`. Independent Root receipt
+`de14b5-root-delivery-acceptance-pg_r4vxg/ACCEPTANCE.json` has SHA256
+`70e9413845554df13c5378ee3e3a602229057b3f511885d2888dbb3b7b46cada` and verifies
+all4316 source bytes/modes, clean Main and matching remote. CODE was terminal
+ISSUES with zero Critical/Warning and one Suggestion, subsequently corrected;
+it was not relabelled CLEAN. Actual final full, resource, six-platform and two30
+acceptances preceded delivery. This later fact does not rewrite the historical
+development-source qualifications above or close the parent parity obligations.

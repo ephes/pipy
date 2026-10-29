@@ -1759,3 +1759,22 @@ Full-Harness Pi cases, and 31 expected CLI statuses. This is bounded development
 not a fresh cumulative chain or final platform/resource claim. See
 [B5 requirements](specs/de14b5-orphan-task-too-old-tests.md) and
 [source-qualified evidence](evidence/de14b5-orphan-task-too-old.md).
+
+## Observed failed-migration root orphan profile (DE14b6)
+
+Phase31 `task-orphan-failed-migration-v1` follows phase30 through parent key
+`orphan_task_too_old`. Its common projection is
+`generic-pending-observed-migration-failed-orphan-common-v1`. Real Full Harness
+Pi first observes one migration failure while enabled, then settles the inactive
+target on its actual line; native common success uses real retired-enabled
+admission. Native paused controls are separate, and an uncached Pi abort that
+could invoke migration is outside this projection. Keep the installed outcome
+hook, raw ACKs, records, callback/storage trajectories and backend retention
+qualifications. Map Pi `marked` to native `orphaned` only when the actual terminal
+outcome proves `migration_failed`. Terminal-repeat fixtures await the real
+successor publication drain before applying the existing native admission rule.
+
+Existing30 IDs/order/members/Pi pins/edges remain, with genuine derived digest
+refreshes. The [matrix](specs/de14b6-orphan-failed-migration-tests.md) and
+[evidence](evidence/de14b6-orphan-failed-migration.md) distinguish development from
+subsequent cumulative APIs/chains, CODE and final acceptance.

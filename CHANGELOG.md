@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private explicit orphaning after a genuinely observed migration failure for
+  the current owner's strictly newer captured definition. The action uses the
+  existing atomic terminal/document retirement and lifetime rules without running
+  migration or task callbacks. Inspection-only failures and stale owner/binding
+  observations refuse; public abort remains deferred.
+
 - Add private explicit orphaning when a generic pending root leaf has a present
   captured definition older than its stored version. The action uses the existing
   strict graph, quiescent admission and atomic task-document retirement rules; it

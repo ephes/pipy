@@ -809,6 +809,23 @@ class TaskScheduler:
         owned_id = safe_integer(task_id)
         return await owned_call(lambda: orphan(self, owned_id, "task_too_old"))
 
+    def orphan_failed_migration(self, task_id: int) -> OrphanResult:
+        """Settle a strict root leaf with this owner's current migration failure."""
+        from .orphan_control import orphan
+
+        self._session._refuse_reentry("orphan_failed_migration")
+        _off_loop("orphan_failed_migration", "aorphan_failed_migration")
+        return orphan(self, safe_integer(task_id), "migration_failed")
+
+    async def aorphan_failed_migration(self, task_id: int) -> OrphanResult:
+        """Join the real observed-failure settlement worker through cancellation."""
+        from .generation_transport import owned_call
+        from .orphan_control import orphan
+
+        self._session._refuse_reentry("aorphan_failed_migration")
+        owned_id = safe_integer(task_id)
+        return await owned_call(lambda: orphan(self, owned_id, "migration_failed"))
+
     async def aretry(self, task_id: int) -> bool:
         """Clear a parked task's current streak, then enable after success."""
         self._session._refuse_reentry("aretry")

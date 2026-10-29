@@ -54,6 +54,7 @@ CHILDREN = {
     "DE14b3",
     "DE14b4",
     "DE14b5",
+    "DE14b6",
     "DE14b",
     "DE13c2",
     "DE13c1",
@@ -208,7 +209,7 @@ def plan_rows(root: Path, c: Any) -> tuple[dict[str, list[str]], dict[str, int]]
     locations: dict[str, int] = {}
     for number, line in enumerate((root / PLAN).read_text().splitlines(), 1):
         if not re.match(
-            r"\| (?:DE14b[45]|DE04b1b(?:[12]|3[ab]?)|DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) ",
+            r"\| (?:DE14b[456]|DE04b1b(?:[12]|3[ab]?)|DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) ",
             line,
         ):
             continue
@@ -239,7 +240,7 @@ def ledger_status(root: Path, c: Any) -> dict[str, str]:
     statuses: dict[str, str] = {}
     for line in text.splitlines():
         if not re.match(
-            r"\| (?:DE14b[45]|DE04b1b(?:[12]|3[ab]?)|DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) \|",
+            r"\| (?:DE14b[456]|DE04b1b(?:[12]|3[ab]?)|DE\d\d(?:a(?:1|2[ab]?)?|b(?:[123](?:[ab])?)?|c[12]?|d[12]?)?|P\d\d) \|",
             line,
         ):
             continue
@@ -308,6 +309,7 @@ BOUNDED_NATIVE = {
     "DE14b3",
     "DE14b4",
     "DE14b5",
+    "DE14b6",
     "DE13c2",
     "DE13c1",
     "DE13b",
@@ -346,6 +348,7 @@ DE_EVIDENCE = {
     "DE14b3": "de14b3-idle-definition-publication",
     "DE14b4": "de14b4-missing-definition-orphan",
     "DE14b5": "de14b5-older-definition-orphan",
+    "DE14b6": "de14b6-observed-failed-migration-orphan",
     "DE13c2": "de13c2-explicit-historical-adjudication",
     "DE13c1": "de13c1-implementation-boundary-2026-10-27",
     "DE13b": "de13b-retained-reporting-acceptance",
@@ -455,6 +458,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE14b3": ["task-definition-publication-idle-v1"],
         "DE14b4": ["task-orphan-missing-definition-v1"],
         "DE14b5": ["task-orphan-task-too-old-v1"],
+        "DE14b6": ["task-orphan-failed-migration-v1"],
     }.get(key, cases)
     expected = {
         "cases": cases,
@@ -511,6 +515,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE14b3": "docs/specs/de14b3-definition-publication.md",
         "DE14b4": "docs/specs/de14b4-orphan-missing-definition.md",
         "DE14b5": "docs/specs/de14b5-orphan-task-too-old.md",
+        "DE14b6": "docs/specs/de14b6-orphan-failed-migration.md",
     }
     if key in topics:
         links.append(topics[key])
@@ -701,6 +706,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 )
                 | ({"task-orphan-missing-definition-v1"} if key == "DE14b4" else set())
                 | ({"task-orphan-task-too-old-v1"} if key == "DE14b5" else set())
+                | ({"task-orphan-failed-migration-v1"} if key == "DE14b6" else set())
                 | (
                     {"session-commit-b3-v1", "session-documents-a-v1"}
                     if key == "DE04b1b3a"

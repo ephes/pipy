@@ -446,6 +446,7 @@ DE13–DE28 close deliberate Milestone A limits. They are required for full pari
 | DE14b3 / DE14b2 | Idle private generic definition publication with retained source/captured identity and one immutable definition/support generation on the Session line. | Memory/SQLite revision-sensitive no-write controls, real idle/busy and queued publication/resolution tickets, successful enabled identity-cache preservation, callback release, cancellation/close joins and saved-winner priority. Bounded task-definition-publication-idle-v1 comparison; Product catalogs, listeners, active handover and all parent parity remain open. |
 | DE14b4 / DE14b3 | Private explicit missing-definition orphan settlement for a quiescent generic pending root leaf, with complete typed ownership and incoming-waiter refusal. | Real Memory/SQLite all-page graph and task-document retirement, revision-sensitive refusal/repeat, current-only retention, rollback/ACK-loss, FIFO definition publication and cancellation/close lease controls. Bounded task-orphan-missing-definition-v1 comparison; public abort, active/cascade/completing work, general wait settlement and DE15/16/23 and parent parity remain open. |
 | DE14b5 / DE14b4 | Private explicit task_too_old settlement for a generic pending strict root leaf whose captured definition is present and strictly older than the stored task. | Preserve strict graph/final admission/terminal-first replay and atomic retirement; prove captured-generation ordering, no fitting/migration, warm/cold Memory/SQLite, rollback/ACK-loss and owned cancellation joins. Bounded task-orphan-task-too-old-v1 profile; public abort, other blocked reasons, active/cascade/completing work and all parent parity remain open. |
+| DE14b6 / DE14b5 | Private explicit migration_failed settlement for a generic pending strict root leaf with a present strictly newer captured definition and an observed failure memo for its exact current Binding. | Preserve shared graph/final admission/terminal and atomic retirement; prove same-owner memo/generation authority, no fitting/callback during action, real paused and retired-enabled lanes, cold reobservation, rollback/ACK-loss and owned joins. Bounded task-orphan-failed-migration-v1 profile; public/general abort, unobserved failure, active/cascade/completing work and all parent parity remain open. |
 | DE14b / DE14a | Complete remaining task-definition migration/reload, live policy reconfiguration, missing/newer handling and fault/orphan/abort cleanup. | Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a. |
 | DE15 / DE14 | Add immutable task/conversation ownership, durable waiting/completing, candidate-state child admission, allSettled/failFast and wait-cycle detection. | Crash held completion/cascade/final commit; no owner terminal before ordinary work drains; child created in finishing candidate holds/rejects as appropriate; wait cycles reject atomically; background boundaries. Ownership spec. |
 | DE16 / DE15 | Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups. | Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs. |
@@ -987,3 +988,17 @@ Broad/reference sources are integrated and direct development is source-qualifie
 At the 2026-10-29 development checkpoint, CODE and final gates were still pending;
 later acceptance is recorded in separate receipts. Parent criteria remain open; public abort and other
 blocked reasons are deferred.
+
+## DE14b6 observed failed-migration continuation
+
+B5 delivered at `facea5d1e40b2bca033237ddcff45de8303621f9`. The
+[B6 contract](de14b6-orphan-failed-migration.md) implements private settlement only
+for an actually observed failure of the current owner's strictly newer captured
+Binding. Generation and memo identity are read together under the condition on
+the Session commit line; inspection text or absent migration support is not
+sufficient. Existing cache writers, strict graph, transaction retirement and
+owned lifetime remain unchanged. The [matrix](de14b6-orphan-failed-migration-tests.md)
+and [dated development evidence](../evidence/de14b6-orphan-failed-migration.md)
+separate paused native controls from the actual retired-enabled/Pi enabled-quiescent
+common lane. Later independent CODE and final acceptance use their own receipts.
+Public/general abort, active/cascade/completing work and all parent criteria stay open.

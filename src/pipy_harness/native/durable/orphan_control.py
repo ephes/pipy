@@ -34,7 +34,7 @@ def _admit(scheduler: TaskScheduler) -> None:
 def orphan(
     scheduler: TaskScheduler,
     task_id: int,
-    reason: Literal["missing_task", "task_too_old"],
+    reason: Literal["missing_task", "task_too_old", "migration_failed"],
 ) -> OrphanResult:
     from .scheduler import UnsupportedTaskExecution, _state
 
@@ -49,15 +49,29 @@ def orphan(
         if record["state"]["status"] == "terminal":
             return "terminal"
         require_unmarked_root_leaf(tx, record)
+        observed_failure = False
         with scheduler._guard:
             generation = scheduler._definition_generation
+            if reason == "migration_failed":
+                binding = generation.bindings.get(identity(record["kind"]))
+                observed_failure = (
+                    binding is not None
+                    and binding.captured.version > record["version"]
+                    and scheduler._migration_failures.get(task_id) is binding
+                )
         definition = generation.definitions.get(identity(record["kind"]))
         if reason == "missing_task":
             if definition is not None:
                 raise UnsupportedTaskExecution("Task definition is present")
-        elif definition is None or not definition.version < record["version"]:
+        elif reason == "task_too_old" and (
+            definition is None or not definition.version < record["version"]
+        ):
             raise UnsupportedTaskExecution(
                 "Task definition is not older than the stored task"
+            )
+        elif reason == "migration_failed" and not observed_failure:
+            raise UnsupportedTaskExecution(
+                "Task has no observed failed migration for its current definition"
             )
         candidate = _state(
             record,

@@ -1,7 +1,7 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 IN_PROGRESS at the 2026-10-29 development checkpoint; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
-2026-10-24. This ledger accompanies the
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 LANDED at `facea5d1`; DE14b6 IN_PROGRESS at the 2026-10-29 development checkpoint; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+2026-10-29. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
 index, not an upstream comparison result. The prototypes are experimental
@@ -198,7 +198,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE14b2 | Owner-local restart-policy publication | LANDED | [Bounded private implementation](#de14b2-live-restart-policy); no Product setting or parent closure |
 | DE14b3 | Idle generic definition publication | LANDED | [Bounded private implementation](#de14b3-idle-definition-publication); no Product registry or active handover |
 | DE14b4 | Missing-definition generic-root orphan | LANDED | [Bounded implementation and source-qualified evidence](#de14b4-missing-definition-orphan); delivered at `3f5473d`, parent criteria remain open |
-| DE14b5 | Older-definition generic-root orphan | IN_PROGRESS | [2026-10-29 development checkpoint](#de14b5-older-definition-orphan); later CODE/final/delivery receipts remain separate |
+| DE14b5 | Older-definition generic-root orphan | LANDED | [Delivered `facea5d1`](#de14b5-older-definition-orphan); historical development epochs retained |
+| DE14b6 | Observed failed-migration generic-root orphan | IN_PROGRESS | [2026-10-29 development checkpoint](#de14b6-observed-failed-migration-orphan); separate later acceptance receipts |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9172,3 +9173,22 @@ actual outcomes. See the
 [detailed qualifications](../evidence/de14b5-orphan-task-too-old.md).
 Public abort, other blocked reasons, full DE14/P07 and every parent parity
 criterion remain open.
+
+B5 subsequently delivered at `facea5d1e40b2bca033237ddcff45de8303621f9`, tree
+`1cff0b5ae042d855cc8d7fae399730f6fcf7ff07`. Root independently accepted the normal
+delivery in receipt `de14b5-root-delivery-acceptance-pg_r4vxg/ACCEPTANCE.json`,
+SHA256 `70e9413845554df13c5378ee3e3a602229057b3f511885d2888dbb3b7b46cada`.
+The earlier dated B5 development paragraphs remain historical evidence.
+
+## DE14b6 observed failed-migration orphan
+
+The [contract](de14b6-orphan-failed-migration.md) preserves B4/B5 controls and
+settles only an observed current-owner/current-binding failure with strictly newer
+captured code. At the 2026-10-29 development checkpoint, core38 plus retained163
+passed on the immutable core epoch, with consumer238 separately green. Isolated
+broad27 and reference40/direct five native/five Pi cases plus31 expected CLI exits
+passed on their own documented epochs. Reference integration changes only three
+closure-document literals after that execution; it requires its own integrated
+checks. See [full source qualifications](../evidence/de14b6-orphan-failed-migration.md).
+At this checkpoint CODE and final gates had not executed. Separate actual receipts
+record later acceptance; no whole DE14/P07 or other parent criterion is closed.

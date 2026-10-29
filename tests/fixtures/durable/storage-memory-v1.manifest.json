@@ -2,8 +2,8 @@
   "schema_version": 1,
   "phase": "memory-current-base-a2b-v1",
   "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "48bc9b2eb15a8e57c79be5675844de289ddd64eeb95798b4359d04ee194caf42",
-  "a1_manifest_sha256": "d0150b278d2d1f9b5a76779174d4b4bc49d6db7ba189ee8e307ae7c243a32127",
+  "baseline_manifest_sha256": "d4c353ccca9f64f04479ba391c6bb2892ce19933c4a7b1eab2b2939beab8d986",
+  "a1_manifest_sha256": "5fa0f780b94bdf910d57cd88b2c101478d01fe8e8a0fe33fa2154a95b7b40931",
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
     "scripts/durable_reference/cases/storage-memory.mts": "a0d6cf477c8388f8ad3f73d29e43111b4f5d07f65f2e3ba0bb5540462be878df",

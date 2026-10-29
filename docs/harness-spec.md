@@ -5048,3 +5048,17 @@ the only intended B4 diagnostic change. See the
 [contract](specs/de14b5-orphan-task-too-old.md) and
 [evidence](evidence/de14b5-orphan-task-too-old.md); public controls and broader
 abort/ownership/handover obligations remain deferred.
+
+## Observed failed-migration orphaning (DE14b6)
+
+Private `orphan_failed_migration` / `aorphan_failed_migration` require a genuine
+failure memo for the current owner's exact Binding and a strictly newer captured
+version. Generation and memo are read together under the existing condition on
+the Session line. The operation neither fits code nor invokes task callbacks;
+inspection text/no-migrator support does not confer authority. Existing memo
+lifetime, strict graph, final activity admission, terminal/document conversion and
+owned async joining remain shared with B4/B5. Native-only paused controls and real
+retired-enabled common success are distinct; pinned Pi has no pause API.
+See the [contract](specs/de14b6-orphan-failed-migration.md) and
+[dated evidence](evidence/de14b6-orphan-failed-migration.md). General/public abort,
+active/cascade/completing work and parent parity are outside this bounded control.
