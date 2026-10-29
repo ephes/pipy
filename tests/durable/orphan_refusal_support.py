@@ -15,7 +15,7 @@ from pipy_harness.native.durable.records import ConversationRecord, TaskRecord
 from pipy_harness.native.durable.scheduler import UnsupportedTaskExecution
 from pipy_harness.native.durable.storage import ConversationQuery, Page, TaskQuery
 
-REFUSAL = "Task requires a validated missing-definition root leaf"
+REFUSAL = "Task requires a validated unmarked pending root leaf"
 
 
 def seed_document(rig, task_id):

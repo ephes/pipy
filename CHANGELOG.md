@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private explicit orphaning when a generic pending root leaf has a present
+  captured definition older than its stored version. The action uses the existing
+  strict graph, quiescent admission and atomic task-document retirement rules; it
+  performs no fitting or migration. Missing/equal/newer definitions refuse, and
+  generic terminal repetition writes nothing. Public abort remains deferred.
+
 - Add private explicit orphaning for a missing-definition generic pending root
   leaf. Complete ownership and incoming-waiter checks precede one atomic terminal
   transition and current task-document retirement. Existing history policies and

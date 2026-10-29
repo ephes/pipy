@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "phase": "task-orphan-task-too-old-v1",
+  "cases": [
+    {
+      "id": "memory-warm",
+      "backend": "memory",
+      "cold": false,
+      "parked": false,
+      "install": false
+    },
+    {
+      "id": "sqlite-warm",
+      "backend": "sqlite",
+      "cold": false,
+      "parked": false,
+      "install": false
+    },
+    {
+      "id": "sqlite-cold-unmarked",
+      "backend": "sqlite",
+      "cold": true,
+      "parked": false,
+      "install": false
+    },
+    {
+      "id": "sqlite-parked-control",
+      "backend": "sqlite",
+      "cold": false,
+      "parked": true,
+      "install": false
+    },
+    {
+      "id": "sqlite-terminal-new-definition",
+      "backend": "sqlite",
+      "cold": false,
+      "parked": false,
+      "install": true
+    }
+  ],
+  "definition_versions": {
+    "stored": 2,
+    "available": 1
+  }
+}

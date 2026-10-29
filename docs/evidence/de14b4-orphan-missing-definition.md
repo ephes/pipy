@@ -1,5 +1,17 @@
 # DE14b4 missing-definition orphan evidence
 
+Delivered at `3f5473d49b590bee891f4f04b635a643edd1f3c2`, tree `6cf6bff6`,
+after independent source, review, resource, six-runtime and cumulative-reference
+acceptance. CODE R2 remained terminal advisory rather than CLEAN; both suggestions
+were repaired and checked. Actual full `just check` exited zero with 20,554 passes
+and the exact 20 known skips. Its outer strict dependency-membership guard failed
+on 26 generated Wasmtime caches; independent qualification preserved that failure,
+verified all original dependency bytes/links and the added caches' headers and
+recursive code semantics, and accepted the bounded generated-cache exception.
+It did not claim byte-identical serialized caches or rerun the full suite.
+The development epochs below remain historical; B4 delivery does not close the
+whole DE14/P07 or 43 parent criteria.
+
 This bounded private control follows actual DE14b3 delivery at
 `ad21f13bd103ed39f3326d645d12d8e5f9476307`. Its
 [contract](../specs/de14b4-orphan-missing-definition.md) and
@@ -81,5 +93,6 @@ Suggestions, and converged to terminal advisory status. Its suggestions concern
 confirming that a typed background-child page substitution actually ran and
 recording these evidence epochs. The review is not relabelled CLEAN. Both
 suggestions receive bounded test/evidence corrections and subsequent checks;
-full-suite, six-runtime, resource, cumulative reference and delivery gates remain
-pending. The advisory repair does not change native runtime behavior.
+at that review epoch full-suite, six-runtime, resource, cumulative reference and
+delivery gates were still pending. Their later acceptance is recorded above. The
+advisory repair did not change native runtime behavior.

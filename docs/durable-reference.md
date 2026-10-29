@@ -1741,3 +1741,21 @@ has no numeric history, and unrelated rewindable conversation history remains
 under existing storage policy. No backend policy or public Product abort API is
 added. See the [contract](specs/de14b4-orphan-missing-definition.md) and
 [evidence qualifications](evidence/de14b4-orphan-missing-definition.md).
+
+
+## Older-definition root orphan profile (DE14b5)
+
+The registered `task-orphan-task-too-old-v1` child follows missing-definition phase29
+with parent key `orphan_missing_definition`. It uses genuine stored-v2/available-v1
+paused warm and cold owners and the actual pinned Pi Harness outcome hook.
+Pi's immediate `marked` ACK maps to native `orphaned` only with a retained terminal
+`task_too_old` outcome. Full records, creation callback baseline, documents and
+backend revisions remain raw evidence. Native strict refusals and Python numeric
+domain controls are separate from broader Pi abort behavior. Existing phase IDs,
+ordered members, Pi pins and edges are preserved while necessary derived source
+and parent digests refresh. Direct development on integrated tree `4bc5800d`
+on 2026-10-29 passed the full new reference module (40 cases), five native and five actual
+Full-Harness Pi cases, and 31 expected CLI statuses. This is bounded development,
+not a fresh cumulative chain or final platform/resource claim. See
+[B5 requirements](specs/de14b5-orphan-task-too-old-tests.md) and
+[source-qualified evidence](evidence/de14b5-orphan-task-too-old.md).

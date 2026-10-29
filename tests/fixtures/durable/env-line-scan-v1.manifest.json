@@ -14,7 +14,7 @@
     "scripts/durable_env_line_scan_comparison.py": "6304f5fb6d8feeef812ca77e0694b0169c7fc7811f4052bb2a61214b21150bba",
     "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
     "scripts/durable_reference/cases/env-line-scan.mts": "0b7e75c90d368eb5df97113fdf458148eb9053cac38b93c036416fd52f585f12",
-    "scripts/durable_reference_acceptance.py": "bed418cf415ef21804d37b7982fd6b0d2ac73ec38de2fe43aca7078b5986a7b9",
+    "scripts/durable_reference_acceptance.py": "8d0e440723289dab505c561cfaa0fb917753e367514ab1c1e29e84fc7eadfa71",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "src/pipy_harness/native/durable/env/__init__.py": "e1f995c35d77f403c514bcf602689ba93ff3fb25209fdfafbfb50a4edb7fdb98",
     "src/pipy_harness/native/durable/env/line_scan.py": "94c3422c5982b36d5480cfb69ff76b5de2ada1fdf00d8574af459c9155e29012",

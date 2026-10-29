@@ -1009,7 +1009,7 @@ def test_missing_definition_orphan_child_keeps_general_abort_and_parents_open():
     child = rows["DE14b4"]
     assert child["current"]["kind"] == "bounded-native"
     assert child["current"]["cases"] == ["task-orphan-missing-definition-v1"]
-    assert child["status"] == "IN_PROGRESS"
+    assert child["status"] == "LANDED"
     assert rows["DE14b"]["status"] == rows["DE14"]["status"] == "IN_PROGRESS"
     assert rows["DE14b"]["current"]["cases"] == []
     assert "public abort, active/cascade/completing" in child["future"]
@@ -1017,5 +1017,26 @@ def test_missing_definition_orphan_child_keeps_general_abort_and_parents_open():
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
     rows["DE14b"]["current"]["cases"] = child["current"]["cases"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_older_definition_orphan_child_keeps_missing_control_and_parents_separate():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    child = rows["DE14b5"]
+    assert child["current"]["kind"] == "bounded-native"
+    assert child["current"]["cases"] == ["task-orphan-task-too-old-v1"]
+    assert child["status"] == "IN_PROGRESS"
+    assert rows["DE14b4"]["current"]["cases"] == ["task-orphan-missing-definition-v1"]
+    assert rows["DE14b4"]["status"] == "LANDED"
+    assert rows["DE14b"]["status"] == rows["DE14"]["status"] == "IN_PROGRESS"
+    assert rows["DE14b"]["current"]["cases"] == []
+    assert "no fitting/migration" in child["future"]
+    assert all(
+        row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
+    )
+    child["current"]["cases"] = rows["DE14b4"]["current"]["cases"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

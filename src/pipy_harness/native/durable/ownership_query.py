@@ -1,4 +1,4 @@
-"""Strict, complete ownership evidence for the private missing-definition control.
+"""Strict, complete ownership evidence for private orphan controls.
 
 This deliberately does not replace the scheduler's ordinary live-work query.
 All records belong to one actual Session transaction; nothing is cached here.
@@ -23,7 +23,7 @@ def _refuse() -> None:
     from .scheduler import UnsupportedTaskExecution
 
     raise UnsupportedTaskExecution(
-        "Task requires a validated missing-definition root leaf"
+        "Task requires a validated unmarked pending root leaf"
     )
 
 
@@ -97,8 +97,8 @@ def _acyclic(parents: dict[Node, Node | None]) -> None:
         settled.update(path)
 
 
-def require_missing_root_leaf(tx: SyncTx, record: Tree) -> None:
-    """Prove strict graph eligibility; the caller separately checks code absence."""
+def require_unmarked_root_leaf(tx: SyncTx, record: Tree) -> None:
+    """Prove strict graph eligibility; the caller separately checks its code reason."""
     if (
         record["state"]["status"] != "pending"
         or record["abortRequested"]

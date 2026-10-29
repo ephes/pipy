@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 IN_PROGRESS at the 2026-10-29 development checkpoint; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-24. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -197,7 +197,8 @@ that coverage here. A local validation result is not a landed slice.
 | DE14b1 | Generic cold task migration and inspection | LANDED | [Bounded implementation and acceptance](#de14b1-cold-task-migration); no parent closure |
 | DE14b2 | Owner-local restart-policy publication | LANDED | [Bounded private implementation](#de14b2-live-restart-policy); no Product setting or parent closure |
 | DE14b3 | Idle generic definition publication | LANDED | [Bounded private implementation](#de14b3-idle-definition-publication); no Product registry or active handover |
-| DE14b4 | Missing-definition generic-root orphan | IN_PROGRESS | [Bounded implementation and source-qualified evidence](#de14b4-missing-definition-orphan); review and delivery remain separately gated |
+| DE14b4 | Missing-definition generic-root orphan | LANDED | [Bounded implementation and source-qualified evidence](#de14b4-missing-definition-orphan); delivered at `3f5473d`, parent criteria remain open |
+| DE14b5 | Older-definition generic-root orphan | IN_PROGRESS | [2026-10-29 development checkpoint](#de14b5-older-definition-orphan); later CODE/final/delivery receipts remain separate |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9153,3 +9154,21 @@ records; only the proved immediate marked-to-orphaned ACK is mapped. Public
 abort, active/cascade/completing work, general wait settlement, DE15/16/23 and all
 parent/P obligations remain open. Delivery references belong to the external
 accepted campaign ledger; no future commit or final PASS is asserted here.
+
+
+## DE14b5 older-definition orphan
+
+The [adopted contract](de14b5-orphan-task-too-old.md) builds on B4 delivery
+`3f5473d49b590bee891f4f04b635a643edd1f3c2`. Initial core/retained-authority checks
+passed 163 cases, with a separate 238-case consumer scope. Isolated broad tests
+passed 34 cases on the immutable core snapshot plus the two test files; these
+results are separate epochs, not a current integrated or final-suite claim.
+Integrated reference development on tree `4bc5800d` passed the full new module
+(40 unique cases), five native/five actual Full-Harness Pi cases and 31 expected
+CLI statuses (15 zero, 15 semantic mismatch one, one malformed two). This is not
+final cumulative/full/platform/resource acceptance. At the 2026-10-29 development
+checkpoint, CODE and delivery were still pending; later receipts record their
+actual outcomes. See the
+[detailed qualifications](../evidence/de14b5-orphan-task-too-old.md).
+Public abort, other blocked reasons, full DE14/P07 and every parent parity
+criterion remain open.

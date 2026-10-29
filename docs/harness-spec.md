@@ -5032,3 +5032,19 @@ can wake unrelated work on an enabled owner. Generic terminal replay is a stable
 no-op. See the [contract](specs/de14b4-orphan-missing-definition.md) for exact
 health, validation, cancellation, rollback and ACK-loss rules. Product/SDK/CLI,
 reserved `pi.` tasks, general abort and broader ownership remain deferred.
+
+
+## Explicit older-definition orphaning (DE14b5)
+
+Private `orphan_task_too_old` and `aorphan_task_too_old` reuse the B4 Session
+transaction and strict unmarked root-leaf prerequisite. After lifecycle and
+reserved-kind gates, generic terminal returns before graph or definition lookup.
+For a pending target, a single immutable captured generation must contain a
+strictly lower numeric version. Missing, equal and newer definitions refuse
+without writes; fitting and migration are not eligibility oracles. Final actual
+activity admission, standard terminal conversion, task-document retirement and
+owned async joins remain unchanged. The neutral shared graph-refusal wording is
+the only intended B4 diagnostic change. See the
+[contract](specs/de14b5-orphan-task-too-old.md) and
+[evidence](evidence/de14b5-orphan-task-too-old.md); public controls and broader
+abort/ownership/handover obligations remain deferred.

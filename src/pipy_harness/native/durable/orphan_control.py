@@ -1,10 +1,10 @@
-"""One explicit generic missing-definition settlement on the Session line."""
+"""Explicit generic orphan settlements on the Session line."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from .ownership_query import require_missing_root_leaf
+from .ownership_query import require_unmarked_root_leaf
 from .session import SessionClosedError, SessionFailed
 from .session_core import SyncTx
 from .task_values import identity
@@ -31,7 +31,11 @@ def _admit(scheduler: TaskScheduler) -> None:
         raise RuntimeError("Task scheduler is busy")
 
 
-def orphan(scheduler: TaskScheduler, task_id: int) -> OrphanResult:
+def orphan(
+    scheduler: TaskScheduler,
+    task_id: int,
+    reason: Literal["missing_task", "task_too_old"],
+) -> OrphanResult:
     from .scheduler import UnsupportedTaskExecution, _state
 
     def change(tx: SyncTx) -> OrphanResult:
@@ -44,16 +48,22 @@ def orphan(scheduler: TaskScheduler, task_id: int) -> OrphanResult:
             raise UnsupportedTaskExecution("Built-in tasks cannot be orphaned here")
         if record["state"]["status"] == "terminal":
             return "terminal"
-        require_missing_root_leaf(tx, record)
+        require_unmarked_root_leaf(tx, record)
         with scheduler._guard:
             generation = scheduler._definition_generation
-        if identity(record["kind"]) in generation.definitions:
-            raise UnsupportedTaskExecution("Task definition is present")
+        definition = generation.definitions.get(identity(record["kind"]))
+        if reason == "missing_task":
+            if definition is not None:
+                raise UnsupportedTaskExecution("Task definition is present")
+        elif definition is None or not definition.version < record["version"]:
+            raise UnsupportedTaskExecution(
+                "Task definition is not older than the stored task"
+            )
         candidate = _state(
             record,
             {
                 "status": "terminal",
-                "outcome": {"status": "orphaned", "reason": "missing_task"},
+                "outcome": {"status": "orphaned", "reason": reason},
             },
         )
         # No condition spans I/O or reference disposal. After this admission the

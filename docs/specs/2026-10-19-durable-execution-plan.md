@@ -445,6 +445,7 @@ DE13–DE28 close deliberate Milestone A limits. They are required for full pari
 | DE14b2 / DE14b1 | Owner-local immutable restart-policy publication on the existing Session line and condition; one policy snapshot per reservation, retry and owner inspection. | Memory/SQLite no-write and revision oracles, ordered line admission, actual open-publication window, cancellation/close/lease joins and no-wake explicit resume; unchanged Product/SDK/DTO, receipts, numeric ABI and migration cache. Bounded restart-policy-live-v1 comparison; public settings, registry/handover and parent parity remain open. |
 | DE14b3 / DE14b2 | Idle private generic definition publication with retained source/captured identity and one immutable definition/support generation on the Session line. | Memory/SQLite revision-sensitive no-write controls, real idle/busy and queued publication/resolution tickets, successful enabled identity-cache preservation, callback release, cancellation/close joins and saved-winner priority. Bounded task-definition-publication-idle-v1 comparison; Product catalogs, listeners, active handover and all parent parity remain open. |
 | DE14b4 / DE14b3 | Private explicit missing-definition orphan settlement for a quiescent generic pending root leaf, with complete typed ownership and incoming-waiter refusal. | Real Memory/SQLite all-page graph and task-document retirement, revision-sensitive refusal/repeat, current-only retention, rollback/ACK-loss, FIFO definition publication and cancellation/close lease controls. Bounded task-orphan-missing-definition-v1 comparison; public abort, active/cascade/completing work, general wait settlement and DE15/16/23 and parent parity remain open. |
+| DE14b5 / DE14b4 | Private explicit task_too_old settlement for a generic pending strict root leaf whose captured definition is present and strictly older than the stored task. | Preserve strict graph/final admission/terminal-first replay and atomic retirement; prove captured-generation ordering, no fitting/migration, warm/cold Memory/SQLite, rollback/ACK-loss and owned cancellation joins. Bounded task-orphan-task-too-old-v1 profile; public abort, other blocked reasons, active/cascade/completing work and all parent parity remain open. |
 | DE14b / DE14a | Complete remaining task-definition migration/reload, live policy reconfiguration, missing/newer handling and fault/orphan/abort cleanup. | Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a. |
 | DE15 / DE14 | Add immutable task/conversation ownership, durable waiting/completing, candidate-state child admission, allSettled/failFast and wait-cycle detection. | Crash held completion/cascade/final commit; no owner terminal before ordinary work drains; child created in finishing candidate holds/rejects as appropriate; wait cycles reject atomically; background boundaries. Ownership spec. |
 | DE16 / DE15 | Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups. | Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs. |
@@ -973,3 +974,16 @@ Physical invocation/callback/finalizer ownership and no-throw void streaming
 remain mandatory later tests. This prerequisite does not close P15/P20/P21 or
 any other whole P row. Independent CODE CLEAN and current source-bound full,
 platform, docs and two fresh complete22phase chains still gate delivery.
+
+## DE14b5 bounded older-definition continuation
+
+B4 delivered at `3f5473d49b590bee891f4f04b635a643edd1f3c2`. The
+[B5 contract](de14b5-orphan-task-too-old.md) supplies private explicit orphaning
+only when the captured definition is present and strictly older than the stored
+generic task. It preserves B4 strict graph/final admission, terminal retirement
+and worker joins; fitting and migration are never eligibility oracles. Actual
+core development is source-qualified in the [evidence](../evidence/de14b5-orphan-task-too-old.md).
+Broad/reference sources are integrated and direct development is source-qualified.
+At the 2026-10-29 development checkpoint, CODE and final gates were still pending;
+later acceptance is recorded in separate receipts. Parent criteria remain open; public abort and other
+blocked reasons are deferred.
