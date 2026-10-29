@@ -111,3 +111,10 @@ nor availability of that failed owner's observation is guaranteed or asserted.
 This qualification preserves existing lifecycle semantics rather than adding a
 new retention guarantee. Only this evidence and the matrix, with derived closure
 digests, change after review. Final validation/delivery remain separate receipts.
+
+B6 subsequently delivered at `8c01b35ed0f98726d6d50ce00877cbc273de13cf`, tree
+`8e176773beb1053dc329db12a9f24238281fc9bd`. Root independently accepted normal
+delivery in `de14b6-root-delivery-acceptance-c8rzny2k/ACCEPTANCE.json`, SHA256
+`9bfd00eff79e432ccd6b27c72e9423765f81e4552a61c42ca34a069d3b168bc2`.
+The dated development and advisory CODE qualifications above remain historical;
+CODE was not relabelled CLEAN. No parent parity criterion closes from this delivery.

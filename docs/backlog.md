@@ -1348,3 +1348,17 @@ owned-worker behavior. [Dated development evidence](evidence/de14b6-orphan-faile
 keeps core, isolated broad and reference epochs separate from later independent
 CODE/final/delivery receipts. Public/general abort, active work, wait settlement,
 handover and all43 parent obligations remain open.
+
+## DE14b7 absent-migration orphaning
+
+B6 delivered at `8c01b35ed0f98726d6d50ce00877cbc273de13cf`; its
+[dated evidence](evidence/de14b6-orphan-failed-migration.md) remains historical.
+The [B7 contract](specs/de14b7-orphan-missing-migration.md) adds private
+`orphan_missing_migration` and its async counterpart for a strictly newer captured
+definition whose migration handler is absent. It does not broaden B6's exact
+observed-memo predicate, and stores only the existing `migration_failed` reason.
+Shared strict graph, final admission, document retirement and owned joins remain.
+The [evidence](evidence/de14b7-orphan-missing-migration.md) records the 2026-10-29
+core checkpoint separately from later broad/reference and independent acceptance.
+General/public abort, active/cascade/completing work, wait settlement, handover and
+all DE14/P07/43 parent obligations remain open.

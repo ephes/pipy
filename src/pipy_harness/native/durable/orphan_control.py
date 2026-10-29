@@ -13,6 +13,9 @@ if TYPE_CHECKING:
     from .scheduler import TaskScheduler
 
 OrphanResult = Literal["orphaned", "terminal"]
+OrphanEligibility = Literal[
+    "missing_task", "task_too_old", "migration_failed", "missing_migration"
+]
 
 
 def _admit(scheduler: TaskScheduler) -> None:
@@ -31,12 +34,60 @@ def _admit(scheduler: TaskScheduler) -> None:
         raise RuntimeError("Task scheduler is busy")
 
 
+def _require_eligibility(
+    scheduler: TaskScheduler,
+    task_id: int,
+    record: dict[str, Any],
+    eligibility: OrphanEligibility,
+) -> None:
+    from .scheduler import UnsupportedTaskExecution
+
+    observed_failure = False
+    missing_migration = False
+    with scheduler._guard:
+        generation = scheduler._definition_generation
+        if eligibility == "migration_failed":
+            binding = generation.bindings.get(identity(record["kind"]))
+            observed_failure = (
+                binding is not None
+                and binding.captured.version > record["version"]
+                and scheduler._migration_failures.get(task_id) is binding
+            )
+        elif eligibility == "missing_migration":
+            binding = generation.bindings.get(identity(record["kind"]))
+            missing_migration = (
+                binding is not None
+                and binding.captured.version > record["version"]
+                and binding.captured.migrate is None
+            )
+    definition = generation.definitions.get(identity(record["kind"]))
+    if eligibility == "missing_task":
+        if definition is not None:
+            raise UnsupportedTaskExecution("Task definition is present")
+    elif eligibility == "task_too_old" and (
+        definition is None or not definition.version < record["version"]
+    ):
+        raise UnsupportedTaskExecution(
+            "Task definition is not older than the stored task"
+        )
+    elif eligibility == "migration_failed" and not observed_failure:
+        raise UnsupportedTaskExecution(
+            "Task has no observed failed migration for its current definition"
+        )
+    elif eligibility == "missing_migration" and not missing_migration:
+        raise UnsupportedTaskExecution(
+            "Task has no strictly newer definition without a migration handler"
+        )
+
+
 def orphan(
     scheduler: TaskScheduler,
     task_id: int,
-    reason: Literal["missing_task", "task_too_old", "migration_failed"],
+    eligibility: OrphanEligibility,
 ) -> OrphanResult:
     from .scheduler import UnsupportedTaskExecution, _state
+
+    reason = "migration_failed" if eligibility == "missing_migration" else eligibility
 
     def change(tx: SyncTx) -> OrphanResult:
         _admit(scheduler)
@@ -49,30 +100,7 @@ def orphan(
         if record["state"]["status"] == "terminal":
             return "terminal"
         require_unmarked_root_leaf(tx, record)
-        observed_failure = False
-        with scheduler._guard:
-            generation = scheduler._definition_generation
-            if reason == "migration_failed":
-                binding = generation.bindings.get(identity(record["kind"]))
-                observed_failure = (
-                    binding is not None
-                    and binding.captured.version > record["version"]
-                    and scheduler._migration_failures.get(task_id) is binding
-                )
-        definition = generation.definitions.get(identity(record["kind"]))
-        if reason == "missing_task":
-            if definition is not None:
-                raise UnsupportedTaskExecution("Task definition is present")
-        elif reason == "task_too_old" and (
-            definition is None or not definition.version < record["version"]
-        ):
-            raise UnsupportedTaskExecution(
-                "Task definition is not older than the stored task"
-            )
-        elif reason == "migration_failed" and not observed_failure:
-            raise UnsupportedTaskExecution(
-                "Task has no observed failed migration for its current definition"
-            )
+        _require_eligibility(scheduler, task_id, record, eligibility)
         candidate = _state(
             record,
             {

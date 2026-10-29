@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private explicit orphaning when a generic pending root leaf has strictly
+  newer captured code with no migration handler. Structural eligibility remains
+  separate from observed-failure authority; both store the existing
+  `migration_failed` outcome. The action invokes no fitting or task callback and
+  preserves strict admission, atomic task-document retirement and worker joins.
+  Public/general abort remains deferred.
+
 - Add private explicit orphaning after a genuinely observed migration failure for
   the current owner's strictly newer captured definition. The action uses the
   existing atomic terminal/document retirement and lifetime rules without running

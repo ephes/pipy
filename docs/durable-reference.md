@@ -1778,3 +1778,24 @@ Existing30 IDs/order/members/Pi pins/edges remain, with genuine derived digest
 refreshes. The [matrix](specs/de14b6-orphan-failed-migration-tests.md) and
 [evidence](evidence/de14b6-orphan-failed-migration.md) distinguish development from
 subsequent cumulative APIs/chains, CODE and final acceptance.
+
+## Absent migration-handler root orphan profile (DE14b7)
+
+The bounded `task-orphan-missing-migration-v1` profile follows the observed-failure
+profile through parent key `orphan_failed_migration`; its common projection is
+`generic-pending-missing-migration-orphan-common-v1`. Genuine older pending tasks
+reopen with strictly newer callback-absent code, initially disabled. The real Pi
+Full Harness and installed outcome hook remain in use. Retain its actual
+`missingMigration` report/error and inspection trajectory alongside raw records,
+callbacks, documents and revisions. Pi's private cache transition is source-derived,
+not a measured private-cache census. Native structural eligibility performs no
+migration attempt and does not manufacture B6 failure authority. Map Pi `marked`
+to native `orphaned` only with the immediate terminal `migration_failed` outcome.
+Native strict refusals remain separate from general Pi abort behavior.
+
+Existing31 IDs, ordered members, Pi pins and edge identities are preserved; source
+and parent digests refresh when their actual inputs change. The
+[matrix](specs/de14b7-orphan-missing-migration-tests.md) distinguishes requirements
+from [dated execution evidence](evidence/de14b7-orphan-missing-migration.md).
+Profile registration and acceptance require the integrated source closure; direct
+producer development alone is not a cumulative configuration or attestation gate.

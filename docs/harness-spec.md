@@ -5062,3 +5062,18 @@ retired-enabled common success are distinct; pinned Pi has no pause API.
 See the [contract](specs/de14b6-orphan-failed-migration.md) and
 [dated evidence](evidence/de14b6-orphan-failed-migration.md). General/public abort,
 active/cascade/completing work and parent parity are outside this bounded control.
+
+## Absent migration-handler orphaning (DE14b7)
+
+Private `orphan_missing_migration` / `aorphan_missing_migration` capture the current
+immutable Binding under the existing condition on the Session commit line.
+A strict generic pending root leaf requires captured version greater than the
+stored version and captured `migrate is None`. No memo, inspection text or attempted
+fit supplies that structural authority. The closed internal `missing_migration`
+selector maps to existing persisted `migration_failed`; B6's exact observed-binding
+predicate and refusal remain unchanged. Standard terminal publication removes any
+stale memo under the guard and releases its reference outside it; the action never
+manually clears it. Existing terminal-first/reserved ordering, graph, initial/final
+activity admission, transaction retirement and async worker joins remain shared.
+See the [contract](specs/de14b7-orphan-missing-migration.md) and
+[source-qualified evidence](evidence/de14b7-orphan-missing-migration.md).
