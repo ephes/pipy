@@ -35,6 +35,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.client_identity import ClientIdentity, CustomUserAgent
 from pipy_harness.native.providers.azure_openai_responses import (
     AzureOpenAIHTTPStatusError,
     AzureOpenAIResponsesProvider,
@@ -98,7 +99,10 @@ def _read_tool() -> ToolDefinition:
 
 
 def _tool_history_request(tmp_path: Path) -> ProviderRequest:
+    # This native wire fixture pins a custom UA so full header equality is
+    # independent of the installed version, host platform, and Python runtime.
     return ProviderRequest(
+        identity=ClientIdentity(user_agent=CustomUserAgent("pipy-azure-wire-fixture")),
         system_prompt="You are the pipy native assistant.",
         user_prompt="Read config.toml and summarize it.",
         provider_name="azure-openai",

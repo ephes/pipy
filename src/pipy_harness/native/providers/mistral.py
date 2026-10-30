@@ -143,7 +143,7 @@ class MistralProvider:
         # Apply ``Bearer api_key`` only when no explicit Authorization is present.
         if api_key and not has_explicit_authorization:
             headers["Authorization"] = f"Bearer {api_key}"
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=self.endpoint)
 
         try:
             response = self.http_client.post_json(

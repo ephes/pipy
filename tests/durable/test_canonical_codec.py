@@ -252,7 +252,7 @@ def test_explicit_registry_has_no_unnoticed_new_dto_fields():
         "prompt_guidelines",
         "execution_mode",
     }
-    for cls, schema in c.SCHEMAS_V2.items():
+    for cls, schema in c.SCHEMAS_V3.items():
         if cls is not ToolDefinition:
             assert {f.name for f in fields(cls)} == set(schema)
     assert {type(value) for value in VALUES if type(value) in c.SCHEMAS} == set(
@@ -531,7 +531,7 @@ def malformed_trees():
         None,
         {},
         {"codec_version": True, "nodes": [leaf]},
-        {"codec_version": 3, "nodes": [leaf]},
+        {"codec_version": 4, "nodes": [leaf]},
         {"codec_version": 1, "nodes": []},
         {"codec_version": 1, "nodes": [leaf], "extra": None},
         {"codec_version": 1, "nodes": [{"tag": "unknown", "value": "PRIVATE_PAYLOAD"}]},

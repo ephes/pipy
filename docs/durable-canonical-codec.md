@@ -54,7 +54,7 @@ domains survive. Missing structured content is the canonical
 
 ## Format and validation
 
-The envelope has exactly `codec_version` (known versions 1 and 2) and a nonempty `nodes` array. Node
+The envelope has exactly `codec_version` (known versions 1, 2 and 3) and a nonempty `nodes` array. Node
 zero is the root. Nodes carry closed tags and either scalar values or ordered
 child references. Each reference names a strictly later node and every nonroot
 node has exactly one incoming reference. Unknown versions, tags, fields,
@@ -284,3 +284,27 @@ provider_outcome receipt retains the original request and rich completed
 assistant before atomic entry/usage/tool admission. Terminal entry receipts stay
 readable without current private material. The original request cache fields
 and saved effective defaults retain their distinct representations.
+
+## V3 request identity
+
+[Native client identity](client-identity.md) adds three closed owned DTO tags and
+`ProviderRequest.identity`. Non-None identity, including an explicitly empty
+identity, requires V3; explicitly forcing V1/V2 refuses rather than discarding it.
+Identity-free implicit arenas keep their exact oldest lossless V1/V2 bytes.
+Well-formed explicitly requested nonminimal V3 is accepted; byte-authority
+reencoders retain the observed arena version. V3 inherits V2 details/nested-call
+semantics. Absent keys restore only private UNSET defaults; attribution null and
+explicit empty version/categories remain distinct. Unknown/duplicate keys,
+illegal nulls, invalid modes, foreign tags and future versions fail closed.
+The checkpoint envelope, prepared settings and generation task remain version1;
+provider/material and C1/C2 checks still delegate to the central closed decoder.
+Only saved request overrides persist: no merged host defaults, headers, auth maps
+or callbacks enter the canonical state. No old stored arena is rewritten.
+
+The retained original canonical comparison now labels its common DTO view
+`legacy-v1-dto/absent-native-nesting-and-identity-v2`. At the exact selected
+request-snapshot field only, native `identity=None` may be omitted to match the
+old Pi recipe; an absent key is allowed on its old side. Any non-None identity,
+including an empty carrier, refuses that profile. Full native raw observations
+retain the field and no user-data lookalike is traversed. This neutral legacy
+qualification is not P16 identity parity evidence and changes no case/input/Pi pin.

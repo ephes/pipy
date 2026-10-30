@@ -8,6 +8,41 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private settlement for already-marked ordinary strict root leaves whose
+  definition was removed: an enabled eligible pass below the abort cutoff retires
+  the task as `orphaned/missing_task` without a callback or new attempt. Mark
+  admission and present-version drift holds remain unchanged. Bounded native
+  QA, implementation CODE and one public SQLite pair were accepted on their
+  source epochs; Full, fixture CODE and delivery remain separate. See the
+  [DE16b specification](docs/specs/de16b-marked-missing-definition.md).
+
+- Add private terminal-only ordinary root-leaf abort execution: paused
+  marking, explicitly resumed captured cleanup, real terminal/fault retirement,
+  and existing interrupted-attempt accounting. Nonterminal cleanup and wider
+  abort/cascade/failFast/timer authority remain refused or deferred. See the
+  [DE16a specification](docs/specs/de16a-ordinary-leaf-abort.md) for the supported
+  cleanup boundary and source-qualified validation.
+
+- Add bounded private ordinary allSettled waits through TaskRuntime.commit,
+  preserving checkpoints and rejecting combined wait/ownership cycles before
+  publication. Terminal targets release waits regardless of outcome; generic
+  failFast, timers and abort cascade remain deferred. Private native development
+  checks and the accepted advisory CODE review are recorded with their source
+  epochs in the [DE15c specification](docs/specs/de15c-ordinary-waiting.md).
+
+- Add bounded private ordinary-owned task execution with held completing outcomes
+  and bottom-up terminal document retirement. Generic child commit/memo retains
+  Session authority; effective foreground ancestor cancellation intent refuses
+  further dispatch/writes without inventing abort cascade or completion. General
+  failFast waits, active cancellation and public ownership APIs remain deferred.
+
+- Add owned native client identity to provider requests and durable profiles,
+  including truthful pipy/Python user agents, release 1.4 attribution and OpenCode
+  session routing. Configured headers and request callback deletion retain
+  precedence; Codex provider-owned fields remain protected. Request overrides
+  persist in canonical V3, with exact identity-free V1/V2 compatibility and
+  current host defaults applied only at outbound transport after recovery gates.
+
 - Add a bounded retry-admission reference profile with genuine parked and live
   no-op cases, retaining native Tool-terminal versus Pi generic-running raw
   states at the held callback; no general owned-task or Task-state parity claim.
@@ -15,7 +50,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Target literal Pi durable release1.4.0. Document definitions now require an
   explicit keyword-only checkpoint callback; existing policies keep their behavior.
   Checkpoint fixtures use a new required-policy profile with unsupported missing
-  policy success cases removed. ClientIdentity parity remains a separate open slice.
+  policy success cases removed. Native client identity is described above; broader Models wrapper parity remains open.
 
 - Preserve completed-watch delivery with eager task factories by registering
   owned capture/consumer tasks before their bodies can finish. Cancellation before

@@ -38,6 +38,7 @@ from pipy_harness.native.cancellation import (
     ProviderCancelledError,
     _safe_close,
 )
+from pipy_harness.native.client_identity import format_user_agent
 from pipy_harness.native.http import (
     ProviderHTTPError,
     SsePayloadStream,
@@ -58,7 +59,6 @@ from pipy_harness.native.provider import (
     PreparedProviderCompletion,
     ProviderAttemptAllowance,
     StreamChunkSink,
-    apply_provider_headers,
 )
 from pipy_harness.native.providers.openai_prompt_cache import (
     clamp_openai_prompt_cache_key,
@@ -1152,18 +1152,42 @@ def _codex_completion_configuration(
 ) -> _OpenAICodexCompletionConfiguration:
     codex_session_id = _codex_session_id(request)
     body = _codex_request_body(provider, request, codex_session_id)
-    extension_headers = apply_provider_headers(request, {})
+    extension_headers: dict[str, str | None] = {}
+    if request.provider_header_callback is not None:
+        request.provider_header_callback(extension_headers)
+    # A missing optional owned field is still not hook authority to invent it.
+    owned = {
+        "user-agent",
+        "originator",
+        "authorization",
+        "chatgpt-account-id",
+        "session-id",
+        "x-client-request-id",
+        "openai-beta",
+        "accept",
+        "content-type",
+    }
+    extension_headers = {
+        name: value
+        for name, value in extension_headers.items()
+        if isinstance(name, str) and name.lower() not in owned
+    }
     static = {key.lower(): value for key, value in provider.extra_headers.items()}
     # HTTP field names are case-insensitive on both SSE and WebSocket transports.
     base_headers = {
         key.lower(): (key, value)
         for key, value in {**provider.extra_headers, **extension_headers}.items()
+        if isinstance(key, str) and isinstance(value, str)
     }
     live = {
         "Authorization": f"Bearer {credentials.access_token}",
         "chatgpt-account-id": credentials.account_id,
         "originator": static.get("originator", "pipy"),
-        "User-Agent": static.get("user-agent", "pipy"),
+        "User-Agent": (
+            static["user-agent"]
+            if "user-agent" in static
+            else format_user_agent(request.identity)
+        ),
     }
     base_headers.update({key.lower(): (key, value) for key, value in live.items()})
 

@@ -2008,7 +2008,7 @@
       "end_line": 1069,
       "scope": "embedded JavaScript tool-result iteration",
       "kind": "manual_non_attribute_consumer",
-      "description": "Actual msg.details → appendNestedCalls consumer callsite; propagate/select new typed nested evidence.",
+      "description": "Actual msg.details \u2192 appendNestedCalls consumer callsite; propagate/select new typed nested evidence.",
       "source_sha256": "b10dbdf0f96b523a1ee6f9e4e49dc01f734f8a743364b5bd008488f04f98f49c",
       "excerpt_sha256": "49da2f8662a58f2b852af4ef2f4572cc4c7abddbd3180e277201ebdbbf9a661f",
       "expression": "        for (const call of calls) {\n          const rows = rendered(call.provider_correlation_id);\n          if (rows) appendRenderedTool(rows, call.provider_correlation_id);\n        }\n      }\n      else if (msg.role === \"tool\") {\n        // A result drawn ahead is shown in its call's box.\n        const id = msg.provider_correlation_id;\n        const rows = rendered(id);\n        const box = rows && \"resultHtmlExpanded\" in rows ? renderedBoxes.get(id) : undefined;\n        const target = box || append(\"Tool result\", msg.output_text || \"\", \"tool\");\n        appendNestedCalls(target, msg.details);\n        appendImages(msg.blocks);\n"
@@ -2072,12 +2072,12 @@
     },
     {
       "path": "src/pipy_harness/native/durable/canonical_codec.py",
-      "current_sha256": "208eb52b3d21c406fe4d277a87e9234cf39b52c3ef06453b6cd2f5320bf8ed12",
+      "current_sha256": "4b019e9b2a2a436b58a8e272cb5564cfb2eba96f48ea6fd15aabc7e36f30c759",
       "disposition": "Recorded v1 schema preserved; oldest-lossless v2 presence and finite typed evidence; no global codec flip."
     },
     {
       "path": "src/pipy_harness/native/durable/generation.py",
-      "current_sha256": "74927319018e29fcc3f4ed8098a1f29f8d35c791e12debb5a89c6264036fe567",
+      "current_sha256": "b996ef60c080f0a10037a2e1224b127660c20003363d2d3627dbe330e77ec7ce",
       "disposition": "Existing synthetic unavailable result has explicit mapping details; no change needed.; release1.4 explicit required checkpoint policy declaration, existing details ABI unchanged"
     },
     {

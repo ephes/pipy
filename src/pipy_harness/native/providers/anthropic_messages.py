@@ -530,7 +530,7 @@ class AnthropicProvider:
             betas.append(MID_CONVERSATION_TOOL_CHANGES_BETA)
         if betas and not any(name.lower() == "anthropic-beta" for name in headers):
             headers["anthropic-beta"] = ",".join(betas)
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=self.endpoint)
 
         return self._send(
             request,

@@ -218,7 +218,7 @@ class CloudflareWorkersAIProvider:
         # Apply ``Bearer api_token`` only when no explicit Authorization present.
         if configuration.api_token and not configuration.has_explicit_authorization:
             headers["Authorization"] = f"Bearer {configuration.api_token}"
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=configuration.url)
 
         try:
             response = self.http_client.post_json(

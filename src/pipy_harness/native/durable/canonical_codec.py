@@ -46,6 +46,12 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutionOutcome,
 )
+from pipy_harness.native.client_identity import (
+    _UNSET,
+    ClientAttribution,
+    ClientIdentity,
+    CustomUserAgent,
+)
 from pipy_harness.native.durable.codec import JsonValueError, OwnedJson
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import (
@@ -222,12 +228,35 @@ SCHEMAS_V2 = {
 }
 
 
+SCHEMAS_V3 = {
+    **SCHEMAS_V2,
+    ProviderRequest: {**SCHEMAS_V2[ProviderRequest], "identity": (ClientIdentity, N)},
+    ClientIdentity: {
+        "user_agent": (S, CustomUserAgent),
+        "attribution": (ClientAttribution, N),
+        "version": S,
+    },
+    ClientAttribution: {"name": S, "url": S, "categories": [S]},
+    CustomUserAgent: {"custom": S},
+}
+
+
+class _NeedsV3(Exception):
+    pass
+
+
 class _NeedsV2(Exception):
     pass
 
 
 def _schemas(codec_version: int) -> dict[type[Any], dict[str, Any]]:
-    return SCHEMAS if codec_version == 1 else SCHEMAS_V2
+    if codec_version == 1:
+        return SCHEMAS
+    if codec_version == 2:
+        return SCHEMAS_V2
+    if codec_version == 3:
+        return SCHEMAS_V3
+    _fail()
 
 
 ENUMS: tuple[type[Any], ...] = (
@@ -238,12 +267,12 @@ ENUMS: tuple[type[Any], ...] = (
     AgentCancellationReason,
     ToolDetailsState,
 )
-TAGS: dict[str, type[Any]] = {cls.__name__: cls for cls in (*SCHEMAS_V2, *ENUMS)}
+TAGS: dict[str, type[Any]] = {cls.__name__: cls for cls in (*SCHEMAS_V3, *ENUMS)}
 
 
 def _class(value: object) -> type[Any] | None:
     # Identity checks avoid foreign metaclass __hash__/__eq__ on ingress.
-    return next((cls for cls in (*SCHEMAS_V2, *ENUMS) if type(value) is cls), None)
+    return next((cls for cls in (*SCHEMAS_V3, *ENUMS) if type(value) is cls), None)
 
 
 def _fail() -> NoReturn:
@@ -292,23 +321,40 @@ def _matches_pairs(value: object, *, nullable: bool) -> bool:
     )
 
 
-def _construct(cls: type[Any], values: dict[str, Any], codec_version: int) -> object:
+def _constructor_schema(
+    cls: type[Any], values: dict[str, Any], codec_version: int
+) -> dict[str, Any]:
     schema = _schemas(codec_version)[cls]
     if (
         cls is AgentToolResultMessage
-        and codec_version == 2
+        and codec_version >= 2
         and "nested_call_evidence" in values
         and values["nested_call_evidence"] is None
     ):
         _fail()
     if (
         cls is AgentToolResultMessage
-        and codec_version == 2
+        and codec_version >= 2
         and "nested_call_evidence" not in values
     ):
         schema = {
             key: spec for key, spec in schema.items() if key != "nested_call_evidence"
         }
+    # Only these three V3 carriers have optional keys. Every other DTO stays
+    # closed and exact; omission restores only its private singleton default.
+    if cls is ClientIdentity:
+        if not set(values).issubset(schema):
+            _fail()
+        schema = {key: schema[key] for key in values}
+    elif cls is ClientAttribution:
+        if not {"name", "url"}.issubset(values) or not set(values).issubset(schema):
+            _fail()
+        schema = {key: schema[key] for key in values}
+    return schema
+
+
+def _construct(cls: type[Any], values: dict[str, Any], codec_version: int) -> object:
+    schema = _constructor_schema(cls, values, codec_version)
     if set(values) != set(schema) or not all(
         _matches(value, schema[key]) for key, value in values.items()
     ):
@@ -346,6 +392,8 @@ def _schema_lists(value: object) -> object:
 
 
 def _dto_values(value: object, cls: type[Any], codec_version: int) -> dict[str, object]:
+    if cls is ProviderRequest and value.identity is not None and codec_version < 3:  # type: ignore[attr-defined]
+        raise _NeedsV3
     if cls is ProviderRequest and value.provider_header_callback is not None:  # type: ignore[attr-defined]
         raise CanonicalCodecError("Live provider header callbacks cannot be persisted")
     if cls is ToolDefinition:
@@ -378,6 +426,8 @@ def _dto_values(value: object, cls: type[Any], codec_version: int) -> dict[str, 
                     "Only model-visible tool declarations are supported"
                 )
     values = {name: getattr(value, name) for name in _schemas(codec_version)[cls]}
+    if cls is ClientIdentity or cls is ClientAttribution:
+        values = {name: child for name, child in values.items() if child is not _UNSET}
     return _versioned_values(value, cls, values, codec_version)
 
 
@@ -394,7 +444,7 @@ def _versioned_values(
             raise _NeedsV2
     if (
         cls is AgentToolResultMessage
-        and codec_version == 2
+        and codec_version >= 2
         and values["nested_call_evidence"] is None
     ):
         values.pop("nested_call_evidence")
@@ -462,6 +512,8 @@ def _children(
     if cls is None:
         _fail()
     if cls not in _schemas(codec_version):
+        if cls is ClientIdentity or cls is ClientAttribution or cls is CustomUserAgent:
+            raise _NeedsV3
         raise _NeedsV2
     assert cls is not None
     values = _dto_values(value, cls, codec_version)
@@ -473,15 +525,20 @@ def encode_canonical(
 ) -> dict[str, object]:
     """Choose the oldest lossless arena; saved v1 values retain their bytes."""
     if codec_version is not None and (
-        type(codec_version) is not int or codec_version not in (1, 2)
+        type(codec_version) is not int or codec_version not in (1, 2, 3)
     ):
         _fail()
-    try:
-        return _encode_canonical(value, 1 if codec_version is None else codec_version)
-    except _NeedsV2:
-        if codec_version == 1:
-            raise CanonicalCodecError("Value requires canonical version 2") from None
-        return _encode_canonical(value, 2)
+    selected = 1 if codec_version is None else codec_version
+    while True:
+        try:
+            return _encode_canonical(value, selected)
+        except (_NeedsV2, _NeedsV3) as needed:
+            minimum = 3 if type(needed) is _NeedsV3 else 2
+            if codec_version is not None or selected >= minimum:
+                raise CanonicalCodecError(
+                    f"Value requires canonical version {minimum}"
+                ) from None
+            selected = minimum
 
 
 def _encode_canonical(value: object, codec_version: int) -> dict[str, object]:
@@ -641,6 +698,7 @@ def decode_canonical(tree: object) -> object:
         if type(owned["codec_version"]) is not int or owned["codec_version"] not in (
             1,
             2,
+            3,
         ):
             _fail()
         codec_version = owned["codec_version"]

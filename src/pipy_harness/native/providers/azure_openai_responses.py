@@ -390,7 +390,7 @@ class AzureOpenAIResponsesProvider:
         # is present, so an explicit models.json auth header wins.
         if configuration.api_key and not configuration.has_explicit_auth:
             headers["api-key"] = configuration.api_key
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=configuration.url)
 
         try:
             if self.http_client is None:

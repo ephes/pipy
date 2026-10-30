@@ -370,7 +370,7 @@ class AmazonBedrockProvider:
             if lowered in _BEDROCK_RESERVED_HEADERS or lowered.startswith("x-amz-"):
                 continue
             base_headers[header_name] = header_value
-        base_headers = apply_provider_headers(request, base_headers)
+        base_headers = apply_provider_headers(request, base_headers, target_url=url)
         base_headers = {
             name: value
             for name, value in base_headers.items()

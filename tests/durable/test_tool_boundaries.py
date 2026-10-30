@@ -496,6 +496,19 @@ def test_actual_dispatch_and_runtime_refuse_changed_direct_leaf_without_poisonin
     independent = define_task(
         "independent", 1, lambda _: {"phase": "start"}, {"start": healthy}, abort
     )
+    unavailable_entered = threading.Event()
+
+    async def unavailable_phase(*args):
+        unavailable_entered.set()
+        raise AssertionError("An unavailable descendant must not dispatch")
+
+    unavailable = define_task(
+        "independent.unavailable",
+        1,
+        lambda _: {"phase": "start"},
+        {"start": unavailable_phase},
+        abort,
+    )
     other = session.commit(lambda tx: tx.create_conversation({"kind": "ownerless"})).id
     healthy_id = session.commit(
         lambda tx: tx.create_task(
@@ -504,7 +517,13 @@ def test_actual_dispatch_and_runtime_refuse_changed_direct_leaf_without_poisonin
     )
     scheduler = TaskScheduler(session, [generation, tool, independent])
     changed = guard_drift(
-        session, scheduler, monkeypatch, gate, drift, independent, other
+        session,
+        scheduler,
+        monkeypatch,
+        gate,
+        drift,
+        unavailable if drift == "descendant" else independent,
+        other,
     )
     try:
         run_idle(session, [], scheduler=scheduler)
@@ -523,6 +542,134 @@ def test_actual_dispatch_and_runtime_refuse_changed_direct_leaf_without_poisonin
             for r in rows
             if r["kind"] == "pi.tool" and r["input"]["callId"] == "call:1"
         )["state"]["checkpoint"] == {"phase": "call"}
+        if drift == "descendant":
+            descendants = [r for r in rows if r["kind"] == unavailable.name]
+            assert len(descendants) == 1
+            child = descendants[0]
+            tool_row = next(r for r in rows if r["id"] == child["owner"])
+            assert tool_row["kind"] == "pi.tool"
+            assert tool_row["owner"] == parent
+            assert child["owner"] == tool_row["id"]
+            assert child["conversationId"] == tool_row["conversationId"]
+            assert child["version"] == unavailable.version
+            assert child["state"] == {
+                "status": "pending",
+                "checkpoint": {"phase": "start"},
+            }
+            assert not child["abortRequested"] and not unavailable_entered.is_set()
+    finally:
+        session.close(timeout=10)
+
+
+def test_compatible_descendant_settles_before_reserved_tool_readmission(
+    tmp_path, monkeypatch
+):
+    from pipy_harness.native.durable.tasks import define_task
+
+    isolated(monkeypatch, tmp_path)
+    session = Session(MemoryStorage())
+    calls = []
+    port = KeyedTool("keyed", calls)
+    original_invoke = port.invoke
+
+    def invoke(request, context):
+        def read(tx):
+            descendants = [
+                r.to_tree()
+                for r in scheduler.inspect()
+                if r.to_tree()["kind"] == "compatible.descendant"
+            ]
+            assert len(descendants) == 1
+            child = tx.task(descendants[0]["id"]).to_tree()
+            parent_tool = tx.task(child["owner"]).to_tree()
+            assert child["state"] == {
+                "status": "terminal",
+                "outcome": {"status": "completed", "result": "child-settled"},
+            }
+            assert parent_tool["kind"] == "pi.tool"
+            assert child["conversationId"] == parent_tool["conversationId"]
+            return child["id"]
+
+        # Tool invoke is already owned off-loop; observe the real committed row.
+        assert session.commit(read) > 0
+        return original_invoke(request, context)
+
+    port.invoke = invoke
+    wire = MultiRound((("keyed", "keyed"), ()))
+    generation = definition(tmp_path, wire)
+    tool = define_tool_task(
+        {"keyed": ToolRegistration(port, "fixture.keyed", "1")}, workspace_root=tmp_path
+    )
+    snapshot = snapshot_provider_request(
+        replace(seed(tmp_path).request, available_tools=(port.definition,))
+    )
+    _, _, parent = admit(session, generation, snapshot)
+
+    async def settle_child(record, runtime, context):
+        await runtime.commit(
+            lambda tx, current: {
+                "status": "terminal",
+                "outcome": {"status": "completed", "result": "child-settled"},
+            }
+        )
+
+    async def healthy(record, runtime, context):
+        await runtime.commit(
+            lambda tx, current: {
+                "status": "terminal",
+                "outcome": {"status": "completed", "result": "healthy"},
+            }
+        )
+
+    async def abort(*args):
+        raise AssertionError("must not dispatch abort")
+
+    descendant = define_task(
+        "compatible.descendant",
+        1,
+        lambda _: {"phase": "start"},
+        {"start": settle_child},
+        abort,
+    )
+    independent = define_task(
+        "independent", 1, lambda _: {"phase": "start"}, {"start": healthy}, abort
+    )
+    other = session.commit(lambda tx: tx.create_conversation({"kind": "ownerless"})).id
+    healthy_id = session.commit(
+        lambda tx: tx.create_task(
+            independent, None, ownership={"kind": "conversation"}, conversation_id=other
+        )
+    )
+    scheduler = TaskScheduler(session, [generation, tool, independent, descendant])
+    changed = guard_drift(
+        session, scheduler, monkeypatch, "step", "descendant", descendant, other
+    )
+    try:
+        run_idle(session, [], scheduler=scheduler)
+        assert changed.is_set() and session.failure is None
+        assert len(calls) == 2 and len(wire.calls) == 2
+        rows = [r.to_tree() for r in scheduler.inspect()]
+        child = next(r for r in rows if r["kind"] == descendant.name)
+        parent_tool = next(r for r in rows if r["id"] == child["owner"])
+        assert child["state"]["outcome"] == {
+            "status": "completed",
+            "result": "child-settled",
+        }
+        assert parent_tool["kind"] == "pi.tool" and parent_tool["owner"] == parent
+        assert child["conversationId"] == parent_tool["conversationId"]
+        assert parent_tool["state"]["status"] == "terminal"
+        assert parent_tool["state"]["outcome"]["status"] == "completed"
+        assert (
+            next(r for r in rows if r["id"] == parent)["state"]["status"] == "terminal"
+        )
+        assert (
+            next(r for r in rows if r["id"] == parent)["state"]["outcome"]["status"]
+            == "completed"
+        )
+        assert next(r for r in rows if r["id"] == healthy_id)["state"] == {
+            "status": "terminal",
+            "outcome": {"status": "completed", "result": "healthy"},
+        }
     finally:
         session.close(timeout=10)
 

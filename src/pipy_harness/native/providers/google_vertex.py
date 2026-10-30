@@ -445,7 +445,7 @@ class GoogleVertexProvider:
         # Merged models.json/model headers.
         for header_name, header_value in self.extra_headers.items():
             headers[header_name] = header_value
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=configuration.url)
 
         try:
             response = self.http_client.post_json(

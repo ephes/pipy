@@ -12,9 +12,10 @@ import asyncio
 import concurrent.futures
 import inspect
 import threading
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 from .codec import OwnedJson
 from .definition_generation import (
@@ -23,6 +24,7 @@ from .definition_generation import (
     publication_name,
 )
 from .documents import Doc, DocFamily, Token
+from .ordinary_ownership import _AsyncOwnedLive, _capture_async
 from .records import OMITTED, EntryRecord, TaskRecord, safe_integer
 from .restart_policy import RestartPolicy
 from .session import SessionClosedError, SessionFailed
@@ -81,12 +83,20 @@ class TaskContext:
     signal: TaskSignal
 
 
+@dataclass(frozen=True, slots=True)
+class _Execution:
+    """Constructor-only captured code and mode; registry publication cannot edit it."""
+
+    definition: Task[Any, Any, Any]
+    phases: Mapping[bytes, Callable[..., Awaitable[None]]]
+    mode: Literal["run", "abort"]
+
+
 @dataclass(eq=False, slots=True)
 class _Invocation:
     task_id: int
     conversation_id: int
-    definition: Task[Any, Any, Any]
-    phases: dict[bytes, Callable[..., Awaitable[None]]]
+    execution: _Execution
     context: TaskContext
     ended: bool = False
 
@@ -120,6 +130,47 @@ async def _conversations(tx: AsyncTx) -> list[Tree]:
         cursor = page.next
         if cursor is None:
             return result
+
+
+def _ordinary(record: Tree) -> bool:
+    from .generation_tasks import GENERATION_NAME, TOOL_NAME
+
+    return record["kind"] not in (GENERATION_NAME, TOOL_NAME)
+
+
+async def _ordinary_capture(tx: AsyncTx, rows: list[Tree]) -> _AsyncOwnedLive | None:
+    # Pure reserved-model/tool transactions retain their existing graph gates.
+    # Once ordinary work exists, its consumer validates the whole mixed graph.
+    return await _capture_async(tx) if any(_ordinary(row) for row in rows) else None
+
+
+def _ordinary_wait(
+    current: Tree, state: Tree | None, ownership: _AsyncOwnedLive
+) -> bool:
+    if type(state) is not dict or state.get("status") != "waiting":
+        return False
+    # Preserve exact typed-state validation before inspecting graph semantics.
+    TaskRecord(_state(current, state))
+    if state["policy"] != "allSettled":
+        raise UnsupportedTaskExecution("Ordinary failFast waits require DE16")
+    refusal = ownership.wait_refusal(current["id"], tuple(state["on"]))
+    if refusal is not None:
+        raise UnsupportedTaskExecution(refusal)
+    return True
+
+
+def _execution_ready(row: Tree, ownership: _AsyncOwnedLive | None) -> bool:
+    state = row["state"]
+    if state["status"] == "pending":
+        return True
+    if (
+        state["status"] != "waiting"
+        or not _ordinary(row)
+        or state["policy"] != "allSettled"
+    ):
+        return False
+    assert ownership is not None
+    return ownership.waiting_ready(row["id"])
 
 
 def _model_tool(record: Tree) -> bool:
@@ -280,8 +331,19 @@ class TaskRuntime:
         change: Callable[[TaskTx, Tree], object | Awaitable[object]],
         context: TaskContext | None = None,
     ) -> None:
+        if self._invocation.execution.mode == "abort":
+            from .ordinary_abort import commit
+
+            await commit(self, change)
+            return
+        await self._commit_run(change)
+
+    async def _commit_run(
+        self, change: Callable[[TaskTx, Tree], object | Awaitable[object]]
+    ) -> None:
         async def apply(tx: AsyncTx, current: Tree) -> None:
             tasks, conversations = await _tasks(tx), await _conversations(tx)
+            ownership = await _ordinary_capture(tx, tasks)
             from .tool_graph import capture_entries
 
             graph_entries = await capture_entries(tx, tasks)
@@ -294,14 +356,18 @@ class TaskRuntime:
             staged_tasks = [r.to_tree() for r in tx.staged_tasks()]
             staged_conversations = [r.to_tree() for r in tx.staged_conversations()]
             state = None if value is None else cast(Tree, OwnedJson(value).thaw())
-            waiting = _tool_wait(
-                current,
-                state,
-                tasks,
-                conversations,
-                staged_tasks,
-                staged_conversations,
-                tx.staged_entries(),
+            waiting = (
+                False
+                if _ordinary(current)
+                else _tool_wait(
+                    current,
+                    state,
+                    tasks,
+                    conversations,
+                    staged_tasks,
+                    staged_conversations,
+                    tx.staged_entries(),
+                )
             )
             from .tool_graph import model_call, overlay, reconcile
 
@@ -312,7 +378,12 @@ class TaskRuntime:
                 list((*conversations, *staged_conversations)),
                 graph_entries,
             )
-            if (
+            if _ordinary(current):
+                assert ownership is not None
+                if ownership.refuses(current["id"]):
+                    raise InvocationEnded("Foreground owner cancellation intent")
+                waiting = _ordinary_wait(current, state, ownership)
+            elif (
                 not waiting
                 and supported_leaf is None
                 and _owned(
@@ -341,6 +412,16 @@ class TaskRuntime:
                 raise UnsupportedTaskExecution(
                     "Only running and terminal transitions are supported"
                 )
+            if (
+                _ordinary(current)
+                and ownership is not None
+                and state["status"] == "terminal"
+                and ownership.has(current["id"])
+            ):
+                # Validate the original terminal intent before translating it;
+                # holding must not erase malformed/extra state fields.
+                TaskRecord(_state(current, state))
+                state = {"status": "completing", "outcome": state["outcome"]}
             tx.set_task(
                 _state(current, state, progress=not json_equal(current["state"], state))
             )
@@ -596,6 +677,7 @@ class TaskScheduler:
         async def change(tx: AsyncTx) -> None:
             rows = await _tasks(tx)
             conversations = await _conversations(tx)
+            ownership = await _ordinary_capture(tx, rows)
             from .tool_graph import capture_entries
 
             graph_entries = (
@@ -621,6 +703,7 @@ class TaskScheduler:
                 from .tool_graph import reconcile
 
                 await reconcile(tx, rows, graph_entries, conversations)
+            self._finalize_owned(tx, rows, ownership)
 
         try:
             ignored: object = await self._session.acommit(
@@ -683,6 +766,23 @@ class TaskScheduler:
         waiting = asyncio.wrap_future(future)
         waiting.add_done_callback(_observed)
         await asyncio.shield(waiting)
+
+    async def aabort_leaf(self, task_id: int) -> Literal["marked", "terminal"]:
+        """Mark a paused retired ordinary pending root leaf; never enable work."""
+        from .ordinary_abort import _admit, request
+
+        self._session._refuse_reentry("aabort_leaf")
+        id = safe_integer(task_id)
+        _admit(self)
+        work = request(self, id)
+        try:
+            future = asyncio.run_coroutine_threadsafe(work, self._loop)
+        except BaseException:
+            work.close()
+            raise
+        waiting = asyncio.wrap_future(future)
+        waiting.add_done_callback(_observed)
+        return await asyncio.shield(waiting)
 
     def _retry_ready(self) -> None:
         with self._guard:
@@ -1004,6 +1104,7 @@ class TaskScheduler:
                 policy = self._restart_policy
                 generation = self._definition_generation
             rows, conversations = await _tasks(tx), await _conversations(tx)
+            ownership = await _ordinary_capture(tx, rows)
             from .tool_graph import capture_entries
 
             graph_entries = (
@@ -1012,11 +1113,18 @@ class TaskScheduler:
                 else {}
             )
             rows = await self._reconciled(
-                tx, rows, graph_entries, conversations, generation
+                tx, rows, graph_entries, conversations, generation, ownership
             )
             for row in rows:
                 candidate = await self._candidate(
-                    tx, row, rows, conversations, graph_entries, policy, generation
+                    tx,
+                    row,
+                    rows,
+                    conversations,
+                    graph_entries,
+                    policy,
+                    generation,
+                    ownership,
                 )
                 if candidate is None:
                     continue
@@ -1024,8 +1132,13 @@ class TaskScheduler:
                 invocation = _Invocation(
                     row["id"],
                     row["conversationId"],
-                    definition,
-                    {identity(k): v for k, v in definition.phases.items()},
+                    _Execution(
+                        definition,
+                        MappingProxyType(
+                            {identity(k): v for k, v in definition.phases.items()}
+                        ),
+                        "abort" if row["abortRequested"] else "run",
+                    ),
                     TaskContext(TaskSignal()),
                 )
                 with self._guard:
@@ -1069,12 +1182,45 @@ class TaskScheduler:
         graph_entries: dict[int, EntryRecord],
         conversations: list[Tree],
         generation: DefinitionGeneration,
+        ownership: _AsyncOwnedLive | None,
     ) -> list[Tree]:
-        if not self._tool_execution_enabled(generation):
-            return rows
-        from .tool_graph import reconcile
+        if self._tool_execution_enabled(generation):
+            from .tool_graph import reconcile
 
-        return await reconcile(tx, rows, graph_entries, conversations)
+            rows = await reconcile(tx, rows, graph_entries, conversations)
+        # Generic completing work does not depend on a pi.tool registration.
+        return self._finalize_owned(tx, rows, ownership)
+
+    @staticmethod
+    def _finalize_owned(
+        tx: AsyncTx, rows: list[Tree], ownership: _AsyncOwnedLive | None
+    ) -> list[Tree]:
+        if ownership is None:
+            return rows
+        current = {row["id"]: row for row in rows}
+        current.update((record.id, record.to_tree()) for record in tx.staged_tasks())
+        while True:
+            changed = False
+            for id in sorted(current):
+                row = current[id]
+                if (
+                    _ordinary(row)
+                    and row["state"]["status"] == "completing"
+                    and not ownership.has(id)
+                ):
+                    tx.set_task(
+                        _state(
+                            row,
+                            {"status": "terminal", "outcome": row["state"]["outcome"]},
+                        )
+                    )
+                    current.update(
+                        (record.id, cast(Tree, record.to_tree()))
+                        for record in tx.staged_tasks()
+                    )
+                    changed = True
+            if not changed:
+                return [current[id] for id in sorted(current)]
 
     def _tool_execution_enabled(
         self, generation: DefinitionGeneration | None = None
@@ -1101,9 +1247,14 @@ class TaskScheduler:
         graph_entries: dict[int, EntryRecord],
         policy: RestartPolicy,
         generation: DefinitionGeneration,
+        ownership: _AsyncOwnedLive | None,
     ) -> tuple[Task[Any, Any, Any], Tree] | None:
+        if row["abortRequested"]:
+            from .ordinary_abort import candidate
+
+            return candidate(self, tx, row, ownership, policy, generation)
         if (
-            row["state"]["status"] != "pending"
+            not _execution_ready(row, ownership)
             or row["abortRequested"]
             or row.get("abandonOnRestart")
             or policy.parked(row)
@@ -1116,7 +1267,11 @@ class TaskScheduler:
         binding = self._fitting_definition(row, generation)
         if binding is None:
             return None
-        if _model_tool(row) or _owned(row, rows, conversations):
+        if _ordinary(row):
+            assert ownership is not None
+            if ownership.refuses(row["id"]):
+                return None
+        elif _model_tool(row) or _owned(row, rows, conversations):
             from .tool_graph import model_call
 
             if await model_call(tx, row, rows, conversations, graph_entries) is None:
@@ -1209,14 +1364,16 @@ class TaskScheduler:
             if record is None:
                 raise InvocationEnded("Task no longer exists")
             current = cast(Tree, record.to_tree())
-            if current["state"]["status"] != "running" or current["abortRequested"]:
+            aborting = invocation.execution.mode == "abort"
+            if current["state"]["status"] != "running" or (
+                current["abortRequested"] and not aborting
+            ):
                 raise InvocationEnded("Task is not an unmarked running task")
             rows, conversations = await _tasks(tx), await _conversations(tx)
-            if _model_tool(current) or _owned(current, rows, conversations):
-                from .tool_graph import model_call
-
-                if await model_call(tx, current, rows, conversations) is None:
-                    raise InvocationEnded("Model tool authority ended")
+            ownership = await _ordinary_capture(tx, rows)
+            await self._require_execution_authority(
+                aborting, invocation, current, ownership, tx, rows, conversations
+            )
             value = change(tx, current)
             while inspect.isawaitable(value):
                 value = await value
@@ -1227,6 +1384,31 @@ class TaskScheduler:
             conversation_id=invocation.conversation_id,
             task_id=invocation.task_id,
         )
+
+    async def _require_execution_authority(
+        self,
+        aborting: bool,
+        invocation: _Invocation,
+        current: Tree,
+        ownership: _AsyncOwnedLive | None,
+        tx: AsyncTx,
+        rows: list[Tree],
+        conversations: list[Tree],
+    ) -> None:
+        if aborting:
+            from .ordinary_abort import running
+
+            if not running(invocation, current, ownership):
+                raise InvocationEnded("Abort invocation no longer owns a root leaf")
+        elif _ordinary(current):
+            assert ownership is not None
+            if ownership.refuses(current["id"]):
+                raise InvocationEnded("Foreground owner cancellation intent")
+        elif _model_tool(current) or _owned(current, rows, conversations):
+            from .tool_graph import model_call
+
+            if await model_call(tx, current, rows, conversations) is None:
+                raise InvocationEnded("Model tool authority ended")
 
     async def _step(
         self,
@@ -1248,11 +1430,30 @@ class TaskScheduler:
                 self._end(invocation)
                 return None
             rows, conversations = await _tasks(tx), await _conversations(tx)
+            ownership = await _ordinary_capture(tx, rows)
+            if _ordinary(current):
+                assert ownership is not None
+                if ownership.refuses(current["id"]):
+                    # This precedes BOTH error and no-progress handling: a
+                    # refused call cannot manufacture a fault outcome.
+                    self._end(invocation)
+                    tx.set_task(
+                        _state(
+                            current,
+                            {
+                                "status": "pending",
+                                "checkpoint": current["state"]["checkpoint"],
+                            },
+                        )
+                    )
+                    return None
             from .tool_graph import model_call
 
             if (
-                _model_tool(current) or _owned(current, rows, conversations)
-            ) and await model_call(tx, current, rows, conversations) is None:
+                not _ordinary(current)
+                and (_model_tool(current) or _owned(current, rows, conversations))
+                and await model_call(tx, current, rows, conversations) is None
+            ):
                 self._end(invocation)
                 tx.set_task(
                     _state(
@@ -1278,7 +1479,11 @@ class TaskScheduler:
                     _state(
                         current,
                         {
-                            "status": "terminal",
+                            "status": "completing"
+                            if _ordinary(current)
+                            and ownership is not None
+                            and ownership.has(current["id"])
+                            else "terminal",
                             "outcome": {
                                 "status": "faulted",
                                 "error": {"message": message},
@@ -1300,6 +1505,11 @@ class TaskScheduler:
             return None
 
     async def _run(self, invocation: _Invocation) -> None:
+        if invocation.execution.mode == "abort":
+            from .ordinary_abort import run
+
+            await run(self, invocation)
+            return
         runtime = TaskRuntime(self, invocation)
         current = await self._step(invocation)
         while current is not None:
@@ -1312,7 +1522,7 @@ class TaskScheduler:
             try:
                 phase = checkpoint.get("phase") if type(checkpoint) is dict else None
                 handler = (
-                    invocation.phases.get(identity(phase))
+                    invocation.execution.phases.get(identity(phase))
                     if type(phase) is str
                     else None
                 )

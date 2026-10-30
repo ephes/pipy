@@ -219,7 +219,7 @@ class OpenAIChatCompletionsProvider:
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort
         headers = self._request_headers(request, configuration.api_key)
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=self.endpoint)
 
         try:
             response = self.http_client.post_json(

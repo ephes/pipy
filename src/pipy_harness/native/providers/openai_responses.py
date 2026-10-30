@@ -216,7 +216,7 @@ class OpenAIResponsesProvider:
         headers = self._request_headers(
             request, retention, has_explicit_authorization=has_explicit_authorization
         )
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=self.endpoint)
 
         try:
             if self.http_client is None:

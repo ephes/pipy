@@ -16,6 +16,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.client_identity import format_user_agent
 from pipy_harness.native.providers.google_generative_ai import (
     GoogleGenerativeAIProvider,
     JsonResponse,
@@ -344,7 +345,10 @@ def test_api_key_in_url_not_headers(tmp_path):
     posted = client.requests[0]
     assert "SECRET_KEY_VALUE" in posted["url"]
     assert "gemini-2.0-flash" in posted["url"]
-    assert posted["headers"] == {"Content-Type": "application/json"}
+    assert posted["headers"] == {
+        "User-Agent": format_user_agent(),
+        "Content-Type": "application/json",
+    }
     assert "Authorization" not in posted["headers"]
     # Ensure the request body does not also carry the key.
     body_text = json.dumps(posted["body"], sort_keys=True)

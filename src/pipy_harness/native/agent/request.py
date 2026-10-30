@@ -19,6 +19,7 @@ from pipy_harness.native.agent.messages import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.client_identity import validate_client_identity
 from pipy_harness.native.models import ProviderRequest, ProviderSystemMessage
 from pipy_harness.native.tools.base import ToolDefinition
 
@@ -309,6 +310,7 @@ _CACHE_RETENTION_VALUES = frozenset({"none", "short", "long"})
 
 
 def _validate_provider_request_values(request: ProviderRequest) -> None:
+    validate_client_identity(request.identity)
     for field_name in (
         "system_prompt",
         "user_prompt",

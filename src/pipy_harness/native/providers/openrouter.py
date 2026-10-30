@@ -125,7 +125,7 @@ class OpenRouterChatCompletionsProvider:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        headers = apply_provider_headers(request, headers)
+        headers = apply_provider_headers(request, headers, target_url=self.endpoint)
 
         try:
             response = self.http_client.post_json(

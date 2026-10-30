@@ -7,7 +7,8 @@ provider construction/auth owners. It does not activate a product or CLI path.
 Preparation reads a supported committed conversation cutoff, freezes its exact
 request and advertised tools, and establishes the conversation's durable provider
 session identity before transport. Saved construction semantics and pricing win
-current defaults. Recovery from request uses that committed request; recovery
+current defaults. Identity defaults are the explicit narrow exception described
+below: current host identity fills only omitted saved request fields at transport. Recovery from request uses that committed request; recovery
 from a response receipt performs only settlement. A request interrupted before
 its receipt may have been paid and may be reissued. There is no exactly-once
 provider claim and no durable partial-stream claim.
@@ -169,3 +170,15 @@ on explicit resume, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
+
+## Request identity defaults
+
+The generation driver captures an immutable optional host `identity`. After
+provider/model/material reconstruction, current-frame validation and cancellation
+observation, the outgoing request merges exact Pi Harness attribution, current
+host profile identity, then the saved request override. Only UNSET fields are
+skipped; attribution-null clears and empty values stay explicit. The original
+snapshot remains the receipt/next-round seed. Thus cold current defaults cannot
+replace a saved override or authorize an effect. Saved receipts and C2 matching
+winner/nonce replay remain provider-free. See [native client identity](client-identity.md)
+for V3 compatibility, concrete header precedence and the separate QA boundary.

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.client_identity import identity_headers
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 
 StreamChunkSink = Callable[[str], None]
@@ -72,23 +73,40 @@ class PreparedProviderPort(Protocol):
 def apply_provider_headers(
     request: ProviderRequest,
     headers: Mapping[str, str],
+    *,
+    target_url: str | None = None,
 ) -> dict[str, str]:
-    """Apply one request-local extension header callback to copied headers.
+    """Identity defaults below configured headers, then the request callback.
 
-    ``None`` is the Pi-compatible deletion sentinel. Non-string values cannot
-    cross pipy's HTTP boundary and are dropped defensively. With no callback,
-    this is only a shallow copy of the adapter's existing header mapping.
+    Header names are case-insensitive; winning spelling is retained. ``None``
+    from the callback removes every case variant. Two positional arguments
+    remain sufficient; custom endpoint attribution needs the actual URL.
     """
-
-    mutable_headers: dict[str, str | None] = dict(headers)
+    mutable_headers: dict[str, str | None] = {}
+    mutable_headers.update(
+        identity_headers(
+            request.identity,
+            request.provider_name,
+            target_url=target_url,
+            session_id=request.session_id,
+        )
+    )
+    for name, value in headers.items():
+        for previous in tuple(mutable_headers):
+            if previous.lower() == name.lower():
+                del mutable_headers[previous]
+        mutable_headers[name] = value
     callback = request.provider_header_callback
     if callback is not None:
         callback(mutable_headers)
-    return {
-        name: value
-        for name, value in mutable_headers.items()
-        if isinstance(name, str) and isinstance(value, str)
-    }
+    normalized: dict[str, tuple[str, str]] = {}
+    for name, final_value in mutable_headers.items():
+        if not isinstance(name, str):
+            continue
+        normalized.pop(name.lower(), None)
+        if isinstance(final_value, str):
+            normalized[name.lower()] = (name, final_value)
+    return dict(normalized.values())
 
 
 COPILOT_PROVIDER_NAME = "github-copilot"

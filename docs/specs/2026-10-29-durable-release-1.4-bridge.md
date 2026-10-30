@@ -10,7 +10,7 @@ The current checkpoint input/expected/manifest files are `session-checkpoints-v2
 
 ## Open portable obligations
 
-Release Harness wraps Models with merged ClientIdentity (default Pi attribution, host override, request override last, explicit null attribution clears). Model proxies must forward request options and receivers and retain allowed identity raw facts. Phase34 generic retry callbacks make no model request and do not prove P16; native identity carrier/merge/header work is the next separate slice. No production identity behavior is changed here.
+Release Harness wraps Models with merged ClientIdentity (default Pi attribution, host override, request override last, explicit null attribution clears). Model proxies must forward request options and receivers and retain allowed identity raw facts. Phase34 generic retry callbacks make no model request and do not prove P16. The subsequent bounded [native client-identity slice](../client-identity.md) adds owned carriers, transport merge/header projection and canonical V3 request overrides. Its tests/CODE/runtime gates require their own actual receipts; the release-bridge receipts do not establish them. Broader Models wrapper parity remains open.
 
 CodeMode StoreDoc uses prior `deltasSinceBase >= 64`; RunDoc/JournalDoc use false. This is an open DE35–37/P36–38 obligation with boundary63/64/65, fork/as-of and atomic store/result witnesses, not a global Doc default. Concrete browser IndexedDB remains excluded by host scope; portable storage contracts remain included. Windows Node changes do not imply Windows runtime qualification. All43 parent criteria remain open.
 

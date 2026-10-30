@@ -10,6 +10,7 @@ from typing import Any
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.auth_store import ProviderAuthRequestConfig
 from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.client_identity import ClientIdentity
 from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.provider_construction import ConstructionOptions
 
@@ -161,6 +162,7 @@ class DurableProviderProfile:
         options: ConstructionOptions | None = None,
         pricing: AgentTokenPricing | None = None,
         http_client: JsonHTTPClient | None = None,
+        identity: ClientIdentity | None = None,
     ) -> None:
         try:
             spec, config, environment = own_construction_inputs(spec, config, env)
@@ -188,6 +190,7 @@ class DurableProviderProfile:
                 ),
                 pricing=decode_pricing(encode_pricing(pricing)),
                 http_client=http_client,
+                identity=identity,
             )
         except Exception:  # noqa: BLE001 - never expose construction inputs
             raise UnsupportedDurableCapability from None

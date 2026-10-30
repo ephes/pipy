@@ -3176,6 +3176,9 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     sequencer = ("function:deliver_accepted_staged_batch",)
     reserve = ("class:OrderedDeliveryGate", "function:reserve")
     assert actual == {
+        # This legitimate durable abort callback is unrelated to reload;
+        # the package-wide call inventory remains exhaustive by name.
+        ("abort", "native/durable/ordinary_abort.py", ("function:run",)),
         ("PreparedReloadEffects", sg, ("function:build_prepared_reload_effects",)),
         ("OrderedDeliveryToken", sg, reserve),
         (

@@ -55,14 +55,19 @@ Task progress uses structural JSON equality: object order and numeric zero sign
 do not matter, booleans differ from numbers, arrays remain ordered, and missing
 differs from null. Document OwnedJson equality remains strict. A changed state
 resets restarts; document or memo chatter does not. Memos are first-writer-wins,
-including null. Terminal state, entries and task-document retirement share one
-transaction; terminal state drops memos and restarts.
+including null. Deciding an outcome drops memos and restarts at completing or
+terminal. Only actual terminal state retires task documents atomically with
+entries; a held completing outcome keeps those documents available.
 
-Unknown/incompatible definitions, abort-marked work and waiting/sleeping/
-completing records remain inspectable and durable. Unsupported ownership joins
-must refuse before running a phase or committing a terminal outcome. [Cold generic migration](durable-task-migration.md) is supplied by DE14b1;
+Unknown/incompatible definitions, unsupported abort-marked work and sleeping
+records remain inspectable and durable. The internal DE16a implementation adds
+only the terminal-only ordinary root-leaf abort subset described below. Ordinary allSettled waits are resumable when every named
+target is terminal; generic failFast remains unsupported. Ordinary generic ownership and completing
+outcomes have the bounded [DE15b consumer](specs/de15b-owned-completing.md).
+Reserved model/tool graphs keep their exact existing authority; other unsupported
+joins refuse before a phase or terminal outcome. [Cold generic migration](durable-task-migration.md) is supplied by DE14b1;
 private owner-local policy publication is supplied by DE14b2. Live definition
-replacement and public live settings remain DE14b; ownership/waits/completing DE15;
+replacement and public live settings remain DE14b; full ownership/waits DE15;
 cancellation DE16; hooks DE22; reload DE23; rich codecs DE06b. These retained
 boundaries do not remove any original DE05 acceptance cell.
 
@@ -102,15 +107,17 @@ Explicit `resume()` requests a pass; see [publication and lifecycle semantics](d
 A phase receives `(current_task, runtime, context)`. `await runtime.commit(change)`
 passes a scoped `TaskTx` and detached latest running record to `change`. Return
 `None` for entry/document-only changes, a running checkpoint state for progress,
-or a terminal outcome. DE07 additionally admits its narrowly validated initial
-generation tool wait. `TaskTx.append_entry(draft)`, `doc(token, key=..., seed=...)`
+an ordinary allSettled waiting state, or a terminal outcome. DE07 retains its
+narrowly validated initial generation tool wait. `TaskTx.append_entry(draft)`, `doc(token, key=..., seed=...)`
 and `retire_doc(token, key=...)` use the invocation scopes; there is no raw task
 replacement or foreign-ID mutation through this facade. DE07 adds scoped
 `entry(id)`/`entries()` reads and typed `create_task(task, input)` with the current
 task forced as owner and its conversation forced as scope. A foreign entry read
-refuses. The only new waiting transition is the actual generation receipt plus
-all newly admitted model ToolTasks; unrelated ownership joins and terminal
-live-child bypasses still refuse. See [generation](durable-generation.md).
+refuses. Reserved generation waiting requires the actual generation receipt plus
+all newly admitted model ToolTasks. Ordinary waits use the separate
+[DE15c graph validation](specs/de15c-ordinary-waiting.md). A healthy ordinary
+generic terminal intent holds as completing while ordinary descendants remain;
+final creation under a terminal/completing owner still refuses. See [generation](durable-generation.md).
 `await runtime.memo(name)` returns `OMITTED` when absent; a candidate argument establishes a durable first
 winner. `await context.signal.wait()` cooperates with shutdown. A phase that
 returns without checkpoint progress faults; a committed terminal outcome wins
@@ -130,13 +137,15 @@ sleep, abort-handler, tool execution or product activation claim. Later
 [cold generic migration](durable-task-migration.md) have separate bounded contracts. DE07 supplies the bounded provider
 phase lifetime and real tool admission described in the generation contract;
 [DE08](durable-tools.md) supplies the direct owned model-tool leaf and exact
-matching-parent allSettled wake; general waits/graphs remain DE15.
+matching-parent allSettled wake. DE15c supplies bounded ordinary allSettled waits;
+full waits/graphs remain DE15.
 
 
 The direct model-tool exception is checked at candidate, phase-start and runtime
 commit boundaries, with current token/abort/input/owner/conversation/round-slot
 and prior-result checks. It distinguishes a leaf being owned from a task owning
-live descendants. Terminal live-child refusal stays universal. Graph I/O runs
+live descendants. Its reserved-task authority remains separate from the DE15b
+ordinary completion hold; neither path may publish an early terminal owner. Graph I/O runs
 only on the Session line; the lifecycle condition guards scheduler metadata and
 never wraps callbacks, backend reads, joins or foreign-reference disposal.
 
@@ -171,3 +180,111 @@ plus admission of an owned continuation. Active public resume joins that work;
 new-attempt authorization remains separate.
 Operational parking can delay valid receipt settlement without rewriting it.
 Live settings and broader migration/ownership behavior remain deferred.
+
+## Ordinary generic execution and held completion (DE15b)
+
+The private scheduler dispatches compatible ordinary generic owned tasks and
+permits their actual commit/memo calls through the same guarded invocation and
+Session line. Existing TaskTx.create_task remains the typed creation API: a child
+may be created in a legitimate earlier progress commit; creating owned work and
+finishing its owner in the same final candidate still meets the existing strict
+assembly refusal. No public SDK/CLI query or ownership mutation is added.
+
+A completed terminal intent becomes completing while live ordinary descendants
+remain. Traversal crosses ended ordinary intermediates and owned conversations,
+but excludes background task subtrees. The one-active-phase scheduler retires
+the phase normally so descendants can run. A Session-line fixed point finalizes
+held outcomes bottom-up after children settle, also without any pi.tool definition
+and during metadata-only cold recovery. Open still dispatches no handler.
+
+Effective foreground ancestor cancellation intent blocks fresh ordinary dispatch
+and gated mutation callbacks: nonterminal abortRequested or a held outcome other
+than completed. Every reachable ancestor matters, with background cuts; a
+background owner's own intent still governs its foreground children. No descendant
+abort mark, abort handler, forced signal or fake terminal cleanup is manufactured.
+Failed/marked owners remain held while ordinary descendants remain.
+
+For an already admitted handler, previously admitted off-line work is still owned
+and may finish; this is not a DE16 cancellation barrier. Later commit/memo refuses.
+Before fault/no-progress handling, the phase-step decision preserves its checkpoint
+and restart count in pending, including a propagated InvocationEnded or a swallowed
+refusal followed by a no-progress return. Actual finalizers still join before
+close releases backend/lease ownership. Ordinary allSettled waiting and cycle
+rejection have the bounded DE15c consumer below; failFast, abort cascade and whole
+DE14/DE15/P09/P10 acceptance remain open.
+
+## Ordinary allSettled waiting (DE15c)
+
+An ordinary handler may return a waiting RawTaskState from its existing
+TaskRuntime.commit callback, retaining the exact durable checkpoint and naming
+existing task IDs. The invocation ends normally. Explicit enabled scheduling
+reserves it as running at that checkpoint only when every target is terminal,
+regardless of outcome; completing remains live. Empty lists are ready, duplicate
+IDs do not create additional authority, and a live target lacking code stays live.
+Cold open is metadata-only and preserves waiting checkpoints and restart counts.
+
+The same transaction's immutable capture and genuine staged create/replace
+records determine target existence, readiness and combined wait/ownership cycles.
+Validation performs no backend reads after callback writes. Terminal targets stop
+wait traversal; terminal ownership intermediates still expose live descendants.
+Background subtrees cut ownership, while an explicitly named background task
+retains its own wait edges. Abort-marked historical waiters contribute ownership
+edges without their on edges. Traversal is iterative and evaluates no task code.
+
+Unknown targets and cycles raise UnsupportedTaskExecution before publication;
+malformed states retain RecordError. Generic failFast is refused up front until
+DE16 provides actual cancellation/settlement. Intentional earlier ID allocation
+is distinct from durable table rollback. Existing current-token, Session-line,
+FIFO, close, restart and reserved generation/tool checks remain authoritative.
+Private native development on immutable tree7ec9 passed Primary206 + retained223
+(429 distinct) and independent Broad18, with whole mypy1143, Ruff/format1275 and
+configuration/coverage/strict-doc checks. These results remain qualified to that
+source epoch. Independent CODE R1 was accepted as advisory with 0 Critical,
+0 Warning and 1 wording Suggestion fixed, not CODE CLEAN. The subsequent private
+473→581f integration retained all nine separately corrected upstream test pins.
+Joint 4b088 focused 709 and combined b06 finite 27/whole-quality checks remain
+separate source epochs; they do not rebind 7ec9 or establish a new paired profile.
+Full P09/failFast/DE16 and all 43 parent criteria are not closed. See the
+[bounded specification](specs/de15c-ordinary-waiting.md) for the historical
+checkpoint and integrated source boundary.
+
+## Terminal-only ordinary leaf abort (DE16a)
+
+[DE16a](specs/de16a-ordinary-leaf-abort.md) adds internal `aabort_leaf` marking
+for a paused, retired ordinary pending root leaf. Mark ACK never enables work;
+explicit resume captures immutable abort mode and calls the actual definition's
+abort handler. Supported cleanup ends terminal, throws or returns without an
+outcome; the latter two fault through a genuine transaction. Nonterminal
+progress/wait/sleep/completing and newly owned work refuse before publication.
+Current-token, failed-owner, candidate graph and actual close joins are retained.
+
+First mark removes the previous run counter; repeat marking rechecks exact
+current-definition eligibility and does not reset the abort counter. Actual
+running recovery charges an interrupted attempt, while a pending mark alone
+proves no callback entry. The finite abort cutoff faults before code resolution.
+The private [DE16b successor](specs/de16b-marked-missing-definition.md) settles an
+already-marked eligible pending leaf as `orphaned/missing_task` when the captured
+current generation has no definition. This is a terminal transaction, not an
+invocation: no initial/run/abort/migrate callback or attempt increment occurs.
+Task memos and task-scoped documents retire normally in that transaction.
+Present older/newer definitions still hold indefinitely until exact-version
+restoration; missing code grants no new marking right. Mark admission, complete
+candidate graph, lifecycle/enable gates and cutoff-first ordering remain intact.
+No automatic retry, migration, cascade or public abort authority is added.
+
+Native 0d3 Core/retained523 yielded 522 PASS and one qualified Memory cold-reopen
+skip; dfdb Broad33/migration62 were separate successful runs. The 512a repair
+passed 114 of 115 scoped cases with the same skip and received independent CODE
+R2 CLEAN, preserving advisory R1 separately. Combined b06 finite27 and whole
+quality1151/1283/configuration/docs checks retain their own epoch.
+
+DE16b Core94 on 74f0 yielded 93 PASS and the same qualified Memory skip. Source
+9cc retains those production/Core bytes; its separately executed Broad42, whole
+quality and current34/strict-doc checks passed and implementation CODE R1 was
+CLEAN. Root accepted one public SQLite mark/remove/resume/terminal-retirement
+program per Native/Pi4a08 lane, with initial1/docinitial1/run0/abort0/migrate0
+including Native postclose. It is not a cold-crash, internal-counter or durable
+Pi uninstall-ACK proof. The external fixture review is a separate gate. These
+scoped receipts do not themselves establish a final-source Full or delivery.
+Generic failFast, full DE16 and all 43 parent criteria remain open; physical
+interrupted-abort observations belong to actual Broad cuts, not typed controls.

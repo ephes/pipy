@@ -32,7 +32,11 @@ history. There is no latest-row choice or second active-pointer commit.
 Captured native construction inputs are private and immutable within an
 instance. Unprepared reopen requires an explicit current profile; full private
 target/default/material binding remains the existing first prepare commit.
-Prepared/receipt recovery uses that committed envelope exactly. Provider
+Prepared/receipt recovery uses that committed envelope exactly. The optional profile
+`identity` is host-only default authority: request overrides come from the existing
+`request_template` snapshot and persist in V3; current identity defaults merge only
+into the outbound copy after compatibility checks. They are not provider/material
+or retry authority. See [native client identity](client-identity.md). Provider
 pre-receipt interruption can reissue a possibly paid request. Intact recovered
 unsafe tool intents now use the bounded C1 interrupted continuation below; all
 historical blocked origins remain held by automatic resume. Post-receipt recovery never calls

@@ -289,6 +289,8 @@ _CODING_STATE_ALLOWED_RUNTIME_EXACT = frozenset(
         "pipy_harness.status",
         "pipy_harness.native",
         "pipy_harness.native.cancellation",
+        # Pure owned-carrier validation is loaded by the canonical request layer.
+        "pipy_harness.native.client_identity",
         "pipy_harness.native.coding",
         "pipy_harness.native.models",
         "pipy_harness.native.provider",

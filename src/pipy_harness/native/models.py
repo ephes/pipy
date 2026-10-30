@@ -14,6 +14,7 @@ from pipy_harness.status import HarnessStatus
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent import AgentMessage, AgentSystemMessage
+    from pipy_harness.native.client_identity import ClientIdentity
     from pipy_harness.native.image_attachment import ProviderImageAttachment
     from pipy_harness.native.tools.base import ToolDefinition
 
@@ -200,6 +201,8 @@ class ProviderRequest:
     # declarations are hidden like those of ``hidden_tool_names``; unlike
     # those, the tools stay callable from scripts.
     undeclared_tool_names: tuple[str, ...] = ()
+    # Owned request override; host profile defaults are merged only for transport.
+    identity: ClientIdentity | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

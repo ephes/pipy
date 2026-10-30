@@ -15,6 +15,7 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentUserMessage
+from pipy_harness.native.client_identity import ClientIdentity, CustomUserAgent
 from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
@@ -184,12 +185,17 @@ def test_apply_provider_headers_copies_and_filters_deletions(tmp_path: Path) -> 
         provider_name="stub",
         model_id="stub-model",
         cwd=tmp_path,
+        # Pin complete wire headers independently of host/runtime UA defaults.
+        identity=ClientIdentity(
+            user_agent=CustomUserAgent("pipy-extension-wire-fixture")
+        ),
         provider_header_callback=callback,
     )
 
     assert apply_provider_headers(request, original) == {
         "X-Keep": "yes",
         "X-New": "new",
+        "User-Agent": "pipy-extension-wire-fixture",
     }
     assert original == {"X-Keep": "yes", "X-Delete": "old"}
 

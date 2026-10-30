@@ -87,12 +87,6 @@ def test_exact_generic_inspection_table_never_calls_migration(
 @pytest.mark.parametrize("status", ["terminal", "completing"])
 def test_ended_inspection_does_not_consult_definition_or_migrate(rig, status):
     task_id = rig.create(definition())
-    rig.change(
-        task_id,
-        lambda row: row.update(
-            state={"status": status, "outcome": {"status": "completed", "result": 1}}
-        ),
-    )
     calls = []
 
     def migrate(*_args):
@@ -101,6 +95,12 @@ def test_ended_inspection_does_not_consult_definition_or_migrate(rig, status):
 
     definitions = [definition(version=2, migrate=migrate)]
     own(rig, definitions)
+    rig.change(
+        task_id,
+        lambda row: row.update(
+            state={"status": status, "outcome": {"status": "completed", "result": 1}}
+        ),
+    )
     before = rig.silence()
     for report in report_pair(rig, task_id, definitions):
         assert report.reason is None

@@ -1988,16 +1988,26 @@ mutating the built-in catalog or `models.json`.
 Provider ports that perform their own HTTP call use the public
 `apply_provider_headers(request, headers)` helper from
 `pipy_harness.extensions` at their final mutable-header seam. The helper fires
-the active `before_provider_headers` callback once, works on a copy, and removes
-`None` deletion sentinels before transport. Pipy's built-in adapters already do
-this; delegating ds4 relies on the shared Chat Completions adapter so it does not
-double-fire.
+the active `before_provider_headers` callback once and works on a copy. The
+existing two-positional call remains valid: identity-derived User-Agent and named
+provider attribution are defaults below configured headers. The optional
+keyword-only `target_url: str | None = None` lets a provider supply its actual
+resolved endpoint for custom-host attribution and OpenCode session routing.
+Without it, unknown custom hosts are not inferred. The final overlay removes
+`None` deletion sentinels and duplicate case variants, preserving the winning
+header spelling. Pipy's built-in adapters supply their resolved endpoint;
+delegating ds4 relies on the shared Chat Completions adapter so it does not
+double-fire. See [native client identity](client-identity.md) for owned values,
+precedence and cold request capture.
 
 OpenAI Codex follows Pi's narrower ownership split: the hook sees the
 request-scoped additional-header map, then the adapter derives provider-owned
 Authorization/account and SSE/WebSocket protocol headers afterward. Custom
 additions reach both transports and are reused across retry/fallback, but a hook
 cannot inspect, override, or delete those later provider-owned Codex fields.
+This includes final UA/originator: configured UA wins case-insensitively, otherwise
+the native identity UA is used; originator is configured or native `pipy`, not
+attribution.name.
 
 ## Dynamic CLI Flags
 

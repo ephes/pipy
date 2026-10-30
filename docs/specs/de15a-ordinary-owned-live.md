@@ -196,3 +196,13 @@ callback, time and lifecycle differences remain lane-specific. Candidate and
 invalid-graph controls remain native-only. Registration closes the actual query,
 core/broad/reference support and document sources, without changing old profile
 IDs, member order, Pi pins or parent edges. Configuration is not runtime acceptance.
+
+## Later DE15b private scheduler consumer
+
+DE15a's SyncTx-only capture/has API and its original reference profile remain
+unchanged in scope. The later [bounded DE15b implementation](de15b-owned-completing.md)
+uses an awaited genuine AsyncTx capture sharing pure Page/projection/graph and
+candidate validation, without coercing AsyncTx into SyncTx or changing the read
+query into admission authority. Only that scheduler consumer applies ancestor
+cancellation refusal and healthy owned/completing execution. The existing strict
+orphan and model/tool fences remain distinct; no DE15a runtime result is rebound.

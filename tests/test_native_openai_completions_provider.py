@@ -16,6 +16,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.client_identity import format_user_agent
 from pipy_harness.native.providers.openai_completions import (
     JsonResponse,
     OpenAIChatCompletionsProvider,
@@ -178,6 +179,7 @@ def test_extension_header_callback_adds_overrides_and_deletes(tmp_path: Path) ->
     assert result.status is HarnessStatus.SUCCEEDED
     assert callback_calls == 1
     assert client.requests[0]["headers"] == {
+        "User-Agent": format_user_agent(),
         "Content-Type": "application/json",
         "X-Existing": "overridden",
         "Authorization": "Bearer sk-test",

@@ -18,6 +18,7 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
+from pipy_harness.native.client_identity import ClientIdentity, CustomUserAgent
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
     extension_reserved_tool_names,
@@ -217,6 +218,10 @@ def test_factory_builds_a_working_provider_port(tmp_path: Path) -> None:
         provider_name="myprov",
         model_id="myprov/big",
         cwd=workspace,
+        # Pin complete wire headers independently of host/runtime UA defaults.
+        identity=ClientIdentity(
+            user_agent=CustomUserAgent("pipy-extension-wire-fixture")
+        ),
         provider_header_callback=mutate,
     )
     result = port.complete(request)
@@ -226,6 +231,7 @@ def test_factory_builds_a_working_provider_port(tmp_path: Path) -> None:
     assert getattr(port, "headers") == {
         "X-Provider": "mutated",
         "X-Added": "yes",
+        "User-Agent": "pipy-extension-wire-fixture",
     }
 
 

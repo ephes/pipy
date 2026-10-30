@@ -38,6 +38,10 @@ _REQUEST_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.messages.AgentToolCall",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
         "pipy_harness.native.agent.messages.AgentUserMessage",
+        # Pure carrier validation is part of the request ownership boundary;
+        # provider construction and transport imports remain forbidden.
+        "pipy_harness.native.client_identity",
+        "pipy_harness.native.client_identity.validate_client_identity",
         "pipy_harness.native.models",
         "pipy_harness.native.models.ProviderRequest",
         "pipy_harness.native.models.ProviderSystemMessage",

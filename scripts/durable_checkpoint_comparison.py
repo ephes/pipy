@@ -154,7 +154,7 @@ MUTANTS = (
     "partial",
 )
 NUMBER_PROFILE = "finite-binary64-live-v1/persisted-json-zero-v1"
-DTO_PROFILE = "legacy-v1-dto/absent-native-nesting-v1"
+DTO_PROFILE = "legacy-v1-dto/absent-native-nesting-and-identity-v2"
 
 
 def _legacy_dto_fields(observed):
@@ -164,7 +164,14 @@ def _legacy_dto_fields(observed):
         if type(payload) is not dict:
             continue
         if payload.get("$type") == "AgentProviderRequestSnapshot":
-            messages = payload["fields"]["request"]["fields"]["messages"]["$tuple"]
+            request_fields = payload["fields"]["request"]["fields"]
+            if "identity" in request_fields:
+                d.require(
+                    request_fields["identity"] is None,
+                    "Native identity is outside the legacy canonical common profile",
+                )
+                del request_fields["identity"]
+            messages = request_fields["messages"]["$tuple"]
             results = [
                 message["fields"]
                 for message in messages

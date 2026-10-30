@@ -1409,3 +1409,122 @@ Broad/reference, integrated CODE and final acceptance use separate receipts.
 The accepted PLAN gate was terminal advisory, not CLEAN; its sole stale-header
 suggestion was removed before implementation. This paragraph makes no runtime
 PASS or full campaign closure claim.
+
+## DE15b ordinary-owned execution and completing
+
+The [bounded consumer](specs/de15b-owned-completing.md) implements ordinary
+generic dispatch, commit/memo and healthy completing release on the existing
+Session line and shared typed graph. Effective foreground ancestor cancellation
+intent refuses further ordinary execution; it is not abort cascade. Joint 4b088
+focused 709 and its metadata/docs checks were accepted; the later 3339 migration62
+and 4456/b06 reserved-lineage27 checks retain separate epochs. Ordinary allSettled
+and cycle validation are supplied by DE15c; generic failFast, wider cancellation
+and full DE15/DE16 remain open. No parent criterion is closed.
+
+## DE15c ordinary allSettled waits (private development, 2026-10-30)
+
+### Historical source-only checkpoint
+
+The [bounded waiting consumer](specs/de15c-ordinary-waiting.md) extends the private
+DE15b source with real TaskRuntime.commit ingress, exact candidate wait/ownership
+cycle checks, and terminal-target readiness. It preserves the original SyncTx
+query and reserved tool authority. Core and independent Broad tests are authored;
+this dated checkpoint claims no execution or QA outcome. The adopted design had
+one independent CLEAN planning review. Code review, actual candidate checks,
+integration and delivered/API refresh remain separate authorities.
+
+### Current validated native checkpoint
+
+On immutable tree `7ec9ca0c10bc16c303080d8ec6f5782f5ac00568`, Primary206 and
+retained223 passed (429 distinct), alongside independent Broad18: 429+18 distinct
+tests with no failures, errors or skips. Whole mypy1143, Ruff/format1275 and
+configuration/recipe/coverage/strict-doc checks passed on that epoch. The current
+docs-only sync preserves that source qualification and all older QA epochs.
+
+Independent CODE R1 reported 0 Critical/0 Warning/1 Suggestion. Its stale Broad
+wording was fixed without executable changes; Root accepted terminal advisory,
+not CODE CLEAN. The private 473→581f integration is complete on the delivered
+ac65 base and retains all nine separately corrected upstream test pins. Its
+configuration checks do not establish new paired Pi execution or parent
+acceptance; the 447 bodies remain evidence for 7ec9.
+Generic failFast and sibling cancellation/settlement remain DE15/DE16 work; full
+P09 is not closed. No new public wait/query API, timers, abort cascade or
+parent-criterion closure is added. All 43 parent criteria stay open.
+
+## P16 bounded native client identity (historical source checkpoint)
+
+[Native identity](client-identity.md) owns exact immutable request/profile values,
+fieldwise outbound defaults, provider headers and canonical V3 overrides. Its
+private source slice retains all provider/material/C1/C2 and old V1/V2 byte
+fences. Genuine fake-transport/capture/cold-retry tests are authored; ordinary
+quality, independent CODE review and actual runtime qualification remain pending.
+Historical release 1.4 checkpoint/no-model retry proofs are not P16 evidence.
+Broader Models proxy parity and all43 Durable parent criteria remain OPEN.
+
+
+## Combined DE15b/c, P16 and DE16a source boundary
+
+The combined b06 source joins reviewed DE15b/c production, P16 identity and the
+bounded DE16a abort implementation on delivered Main ac65/tree 581f. The private
+473→581f release-pin reconciliation is complete; all nine corrected literal 4a08
+upstream test pins, parent paths, labels and ordered memberships are retained.
+
+Evidence remains source-qualified: DE15c 447/7ec9 and advisory CODE 3950 are
+historical; P16 CODE R1 was CLEAN on 16835 production, with 2182 focused passes on
+c406 and a separate 32-case identity-function pairing. The accepted standalone
+e75 Full is not a combined-source Full. Joint 4b088 passed709 focused cases and
+metadata/docs; 3339 passed the 62-case migration module. The production-neutral
+reserved-lineage fixture/spec repair passed 27 on 4456 and received its own CLEAN
+CODE gate. Combined b06 passed 27 with whole mypy 1151/Ruff/format 1283 and current 34
+configuration/coverage/strict-doc checks. These scopes are not summed. Earlier
+failed Full epochs remain failed and separately qualified. Broader Models, full
+P09/P16/DE15/DE16 and all 43 parent criteria remain OPEN.
+
+## DE16a terminal-only ordinary root-leaf abort
+
+The bounded [abort prerequisite](specs/de16a-ordinary-leaf-abort.md) implements
+real paused mark/resume/callback/fault/cleanup behavior after ordinary allSettled
+and cycle validation. Native 0d3 finite 523 produced 522 PASS and one qualified
+Memory cold-reopen skip; dfdb Broad33 and migration62 are separate successful
+epochs. Advisory CODE R1 reported 0C/0W/2S; the 512a repairs received 114 PASS plus the
+same Memory skip in 115 scoped cases, then independent CODE R2 CLEAN. Neither
+review rewrites the plan's documentary ISSUES 0C/1W disposition or CODE 3950.
+
+First mark removes the prior run budget; repeated mark rechecks exact code and
+preserves abort attempts. The b06 DE16a missing/drift hold is refined only by
+DE16b below: present version drift still holds without counter growth until
+exact restoration, and finite exhaustion faults before definition resolution.
+No generic failFast, active/cascading/public abort, blocked-abort migration,
+sleeping/timers, full P09/DE16 or parent criterion closes. All nine corrected
+literal release test pins remain held; all 43 parent criteria remain OPEN.
+
+## DE16b already-marked missing-definition settlement
+
+The [bounded DE16b contract](specs/de16b-marked-missing-definition.md) adds one
+decision to the actual enabled reservation pass: an already-marked ordinary
+pending strict root leaf below the finite cutoff becomes terminal
+`orphaned/missing_task` if its captured current generation lacks a definition.
+It uses normal atomic task/memo/document retirement without an invocation or
+callback. Missing code still refuses a new or repeated nonterminal mark.
+Present older/newer versions hold; exact restoration before the decision admits
+the genuine abort, while restoration after terminal settlement cannot revive it.
+Strict graph, state, Session FIFO/lifetime, enabled admission and cutoff-first
+fences are unchanged, retaining the 512a shape guard/regressions and release pins.
+
+Core's actual 94 cases on 74f0 produced 93 PASS and the existing qualified Memory
+cold-reopen skip, with the SQLite counterpart passing. A later Broad-only repair
+preserved all production/Core bytes. On 9cc, fresh whole Broad collection/start/
+JUnit matched with 42 PASS; whole mypy 1151/Ruff/format 1283 and current34
+configuration/coverage/strict docs passed. Independent implementation CODE R1 was
+CLEAN on 9cc, accepted by Root; it is not the separate P1 fixture's CODE gate.
+The earlier Broad revision-equality failure remains a failed epoch. These
+results are not summed or relabeled as a current-source 136-case execution.
+
+Root also accepted one public SQLite program per Native/Pi lane against literal
+4a08: mark/remove/resume/terminal task-document retirement, with initial1,
+docinitial1 and run0/abort0/migrate0 including Native's postclose check. This
+bounded pair is not cold-crash evidence, an internal-hook/atomic-DB counter or a
+durable Pi uninstall-ACK guarantee. The external fixture review is a separate
+gate. These scoped receipts do not themselves establish a final-source Full or
+Main integration/delivery. Broader DE14/DE15/DE16/P09/P10 criteria remain open;
+no new canonical profile, phase, public abort or parent closure is added.

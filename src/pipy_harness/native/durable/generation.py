@@ -54,6 +54,12 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.auth_store import ProviderAuthRequestConfig
 from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.client_identity import (
+    HARNESS_IDENTITY,
+    ClientIdentity,
+    merge_client_identity,
+    validate_client_identity,
+)
 from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.providers.mistral_wire import MISTRAL_CONVERSATIONS_API
@@ -337,6 +343,7 @@ class _Generation:
     options: ConstructionOptions
     pricing: AgentTokenPricing | None
     http_client: JsonHTTPClient | None
+    identity: ClientIdentity | None
     catalog: RecoveryCatalog | None = None
 
     async def prepare(
@@ -422,7 +429,15 @@ class _Generation:
         await runtime.commit(lambda tx, current: _current(current, frame))
         if context.signal.cancelled:
             return
-        outcome, buffered = await execute_provider(provider, snapshot.request, context)
+        outgoing = replace(
+            snapshot.request,
+            identity=merge_client_identity(
+                HARNESS_IDENTITY,
+                self.identity,
+                snapshot.request.identity,
+            ),
+        )
+        outcome, buffered = await execute_provider(provider, outgoing, context)
         if context.signal.cancelled:
             return
         _outcome_api(outcome, saved)
@@ -611,6 +626,7 @@ def _capture_generation(
     options: ConstructionOptions | None = None,
     pricing: AgentTokenPricing | None = None,
     http_client: JsonHTTPClient | None = None,
+    identity: ClientIdentity | None = None,
 ) -> _Generation:
     """Fixed native construction; input is an encoded request snapshot seed.
 
@@ -619,6 +635,7 @@ def _capture_generation(
     controls and extension factories have no admitted input surface here.
     """
     spec, config, environment = own_construction_inputs(spec, config, env)
+    validate_client_identity(identity)
     driver = _Generation(
         spec,
         auth_path,
@@ -629,6 +646,7 @@ def _capture_generation(
         decode_options(encode_options(options or ConstructionOptions())),
         decode_pricing(encode_pricing(pricing)),
         http_client,
+        identity,
     )
     return driver
 
@@ -671,6 +689,7 @@ def define_generation(
     options: ConstructionOptions | None = None,
     pricing: AgentTokenPricing | None = None,
     http_client: JsonHTTPClient | None = None,
+    identity: ClientIdentity | None = None,
 ) -> Task[Any, Any, Any]:
     """Capture ordinary native construction without a product catalog binding."""
     return _generation_definition(
@@ -684,5 +703,6 @@ def define_generation(
             options=options,
             pricing=pricing,
             http_client=http_client,
+            identity=identity,
         )
     )

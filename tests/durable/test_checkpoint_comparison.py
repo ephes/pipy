@@ -207,6 +207,17 @@ def test_common_legacy_dto_profile_preserves_full_raw_native_fields(native_run):
         )
     assert len(evidence_fields) == 12
     assert {kind for kind, _key in evidence_fields} == {"AgentToolResultMessage"}
+    identities = []
+    for row in raw["cases"]:
+        value = m.v.decode(row["observed"])
+        for frame in [*value["phases"], value["result"], value["reopened"]]:
+            payload = frame.get("payload")
+            if (
+                type(payload) is dict
+                and payload.get("$type") == "AgentProviderRequestSnapshot"
+            ):
+                identities.append(payload["fields"]["request"]["fields"]["identity"])
+    assert identities and all(value is None for value in identities)
     assert raw == before
     assert projected == native_run[0]
 
@@ -231,7 +242,11 @@ def test_common_profile_never_scans_generic_user_details_for_dto_lookalikes(
     value = m.v.decode(row["observed"])
     lookalike = {
         "$type": "AgentToolResultMessage",
-        "fields": {"nested_call_evidence": None, "details": [None, False, 0]},
+        "fields": {
+            "nested_call_evidence": None,
+            "identity": {"$type": "ClientIdentity", "fields": {}},
+            "details": [None, False, 0],
+        },
     }
     for frame in [*value["phases"], value["result"], value["reopened"]]:
         frame["payload"]["fields"]["result"]["fields"]["details"] = lookalike
@@ -243,3 +258,24 @@ def test_common_profile_never_scans_generic_user_details_for_dto_lookalikes(
         frame["payload"]["fields"]["result"]["fields"]["details"] == lookalike
         for frame in [*actual["phases"], actual["result"], actual["reopened"]]
     )
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        False,
+        "foreign",
+        {"$type": "ClientIdentity", "fields": {}},
+        {"$type": "ClientIdentity", "fields": {"version": ""}},
+    ],
+)
+def test_legacy_common_profile_refuses_every_nonNone_identity(native_run, identity):
+    raw = _raw_native_projection(native_run)
+    row = next(row for row in raw["cases"] if row["id"] == "request")
+    value = m.v.decode(row["observed"])
+    value["result"]["payload"]["fields"]["request"]["fields"]["identity"] = identity
+    row["observed"] = m.v.encode(value)
+    before = copy.deepcopy(raw)
+    with pytest.raises(m.o.EvidenceError, match="identity is outside the legacy"):
+        m.common_profile(raw)
+    assert raw == before

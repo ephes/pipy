@@ -585,7 +585,7 @@ def test_unsupported_records_preserved_without_dispatch(rig):
                 "status": "waiting",
                 "checkpoint": {"phase": "start"},
                 "on": [],
-                "policy": "allSettled",
+                "policy": "failFast",
             },
             {"status": "sleeping", "checkpoint": {"phase": "start"}, "until": 0},
             {"status": "completing", "outcome": {"status": "completed", "result": 1}},
@@ -605,10 +605,12 @@ def test_unsupported_records_preserved_without_dispatch(rig):
                 row["version"] = 2
             elif index == 5:
                 row["abortRequested"] = True
+                row["abortReason"] = "restart"
             tx.set_task(row)
 
         session.commit(seed)
         rows.append(store.task(id))
+    commits_before_open = len(store.commits)
     scheduler = TaskScheduler(session, [definition])
     scheduler.open()
     drained = threading.Event()
@@ -624,7 +626,21 @@ def test_unsupported_records_preserved_without_dispatch(rig):
     scheduler.resume()
     assert drained.wait(5)
     assert calls == []
-    assert scheduler.inspect() == tuple(rows)
+    actual = scheduler.inspect()
+    assert actual[:2] == tuple(rows[:2]) and actual[3:] == tuple(rows[3:])
+    held = rows[2].to_tree()
+    terminal = actual[2].to_tree()
+    assert type(terminal["endedAt"]) in (int, float)
+    assert terminal == {
+        **held,
+        "state": {"status": "terminal", "outcome": held["state"]["outcome"]},
+        "endedAt": terminal["endedAt"],
+    }
+    assert [
+        write.to_tree()
+        for batch in store.commits[commits_before_open:]
+        for write in batch
+    ] == [{"type": "task", "value": terminal}]
 
 
 def test_unknown_phase_and_memo_only_no_progress_fault(rig):
@@ -662,38 +678,71 @@ def test_unknown_phase_and_memo_only_no_progress_fault(rig):
 
 def test_live_owned_child_prevents_terminal_parent(rig):
     session, store = rig
-    reached, release, stopped = threading.Event(), threading.Event(), threading.Event()
+    reached, release = threading.Event(), threading.Event()
+    child_entered, child_release, completed = (threading.Event() for _ in range(3))
 
     async def parent(task, runtime, context):
         reached.set()
-        await asyncio.to_thread(release.wait)
-        try:
-            await runtime.commit(
-                lambda tx, current: {
-                    "status": "terminal",
-                    "outcome": {"status": "completed", "result": None},
-                }
-            )
-        finally:
-            stopped.set()
+        assert await asyncio.to_thread(release.wait, 5)
+        await runtime.commit(
+            lambda tx, current: {
+                "status": "terminal",
+                "outcome": {"status": "completed", "result": None},
+            }
+        )
+
+    async def child_phase(task, runtime, context):
+        child_entered.set()
+        assert await asyncio.to_thread(child_release.wait, 5)
+        await runtime.commit(
+            lambda tx, current: {
+                "status": "terminal",
+                "outcome": {"status": "completed", "result": None},
+            }
+        )
 
     definition = define_task(
         "parent", 1, lambda _: {"phase": "start"}, {"start": parent}, abort
     )
+    child = define_task(
+        "child", 1, lambda _: {"phase": "start"}, {"start": child_phase}, abort
+    )
     id = create(session, definition)
-    scheduler = TaskScheduler(session, [definition])
+
+    def observe(commit):
+        for change in commit.changes:
+            tree = change.to_tree()
+            if (
+                tree["type"] == "task"
+                and tree["value"]["id"] == id
+                and tree["value"]["state"]["status"] == "terminal"
+            ):
+                completed.set()
+
+    unsubscribe = session.subscribe_commits(observe)
+    scheduler = TaskScheduler(session, [definition, child])
     scheduler.open()
     scheduler.resume()
-    assert reached.wait(5)
-    child = define_task("child", 1, lambda _: {"phase": "later"}, {}, abort)
-    session.commit(
-        lambda tx: tx.create_task(child, None, ownership={"kind": "task", "taskId": id})
-    )
-    release.set()
-    assert stopped.wait(5)
+    try:
+        assert reached.wait(5)
+        session.commit(
+            lambda tx: tx.create_task(
+                child, None, ownership={"kind": "task", "taskId": id}
+            )
+        )
+        release.set()
+        assert child_entered.wait(5)
+        held = session.read_on_line(lambda: store.task(id).to_tree())
+        assert held["state"]["status"] == "completing" and not completed.is_set()
+        child_release.set()
+        assert completed.wait(5)
+    finally:
+        release.set()
+        child_release.set()
     session.close(timeout=5)
+    unsubscribe()
     row = next(r.to_tree() for r in store.latest if r.id == id)
-    assert row["state"]["status"] == "pending"
+    assert row["state"]["status"] == "terminal"
 
 
 def test_cancelled_close_waiter_cannot_cancel_invocation_cleanup(rig):
