@@ -305,6 +305,7 @@ async def native_case(id: str, inner: Any, config: Any) -> Any:  # noqa: C901 - 
             init,
             history="latest" if scope == "conversation" else None,
             fork="initial" if scope == "conversation" else None,
+            checkpoint_when=lambda _value, _ops, _info: False,
         )
 
     S, C, T = make(), make("conversation"), make("task")

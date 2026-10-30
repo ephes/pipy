@@ -43,7 +43,7 @@ session.subscribeCommits(publication => {
   steps.push({ op: "commit.publication", value: publication });
 });
 const Counter = defineDoc<{ count: number; items: string[] }>({
-  kind: "fixture.counter", version: 1, scope: "session", history: "rewindable",
+  checkpointWhen: () => false, kind: "fixture.counter", version: 1, scope: "session", history: "rewindable",
   fork: "asOf", initial: () => ({ count: 0, items: [] }),
 });
 try {

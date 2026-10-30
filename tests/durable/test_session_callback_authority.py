@@ -62,8 +62,20 @@ def test_cold_initializer_recognizes_driving_task_and_independent_task_queues():
             )
             return {"n": 0}
 
-        spec = define_doc("authority.initial", 1, "session", initial)
-        other = define_doc("authority.missing", 1, "session", dict)
+        spec = define_doc(
+            "authority.initial",
+            1,
+            "session",
+            initial,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
+        other = define_doc(
+            "authority.missing",
+            1,
+            "session",
+            dict,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         try:
             async with asyncio.timeout(WAIT):
                 await session.acommit(lambda tx: tx.doc(spec))
@@ -127,7 +139,13 @@ def test_task_factory_failure_after_backend_submission_drains_before_leaving(con
         session = Session(store)
         gate = store.hold("find_document")
         error = BaseException("factory control") if control else ValueError("factory")
-        spec = define_doc("factory.failure", 1, "session", dict)
+        spec = define_doc(
+            "factory.failure",
+            1,
+            "session",
+            dict,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         loop = asyncio.get_running_loop()
 
         def factory(_loop, body, **_kwargs):
@@ -173,7 +191,13 @@ def test_settlement_identity_precedes_publication_even_with_eager_factory(eager)
     async def run():
         loop = asyncio.get_running_loop()
         session = Session(MemoryStorage())
-        spec = define_doc("factory.eager", 1, "session", lambda: {"n": 0})
+        spec = define_doc(
+            "factory.eager",
+            1,
+            "session",
+            lambda: {"n": 0},
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         seen = []
 
         def listener(_publication):
@@ -202,7 +226,13 @@ def test_settlement_factory_failure_aborts_prepared_views_and_recovers():
         loop = asyncio.get_running_loop()
         store = Store(MemoryStorage())
         session = Session(store)
-        spec = define_doc("factory.prepared", 1, "session", lambda: {"n": 0})
+        spec = define_doc(
+            "factory.prepared",
+            1,
+            "session",
+            lambda: {"n": 0},
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         escaped = []
         error = ValueError("settlement factory")
 
@@ -260,7 +290,13 @@ def test_actual_policy_reentry_authority_has_no_inherited_child_authority(
         session = Session(store)
         events, children, actors = [], [], []
         old = None
-        other = define_doc("policy.missing", 1, "session", dict)
+        other = define_doc(
+            "policy.missing",
+            1,
+            "session",
+            dict,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
 
         def policy(_value, _ops, _info):
             if witness is not None:
@@ -467,7 +503,13 @@ def test_caught_factory_error_cannot_admit_while_submitted_io_is_pending():
         store = Store(MemoryStorage())
         session = Session(store)
         gate = store.hold("find_document")
-        spec = define_doc("caught.factory", 1, "session", dict)
+        spec = define_doc(
+            "caught.factory",
+            1,
+            "session",
+            dict,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         error = ValueError("helper factory")
         caught = []
 

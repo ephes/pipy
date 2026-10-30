@@ -32,7 +32,13 @@ def task_documents(rig, task_id, count, calls):
         calls.append(("initial", seed))
         return {"saved": seed}
 
-    family = define_doc_family("orphan.target.documents", 1, "task", initial)
+    family = define_doc_family(
+        "orphan.target.documents",
+        1,
+        "task",
+        initial,
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
 
     def create(tx):
         for number in range(count):
@@ -50,6 +56,7 @@ def unrelated_history(rig):
         lambda: {"saved": 1},
         history="rewindable",
         fork="initial",
+        checkpoint_when=lambda _value, _ops, _info: False,
     )
     rig.session.commit(lambda tx: tx.doc(token, conversation_id=rig.conversation))
 

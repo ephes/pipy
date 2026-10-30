@@ -1,15 +1,15 @@
 # Pinned durable reference verification
 
-The verification tools execute Pi durable **1.3.0**, commit
-`2ec55d808d455b1a64a2bf7888198207a096120a`, tree
-`b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. DE01a introduced actual Session,
+The verification tools execute Pi durable **release1.4.0**, commit
+`4a080252f06caf63a525d7873c5d94d3c23887e0`, tree
+`56ea45bfd3ef589feaddfaf504cfc08d838d812b`. DE01a introduced actual Session,
 MemoryStorage and document execution; landed DE01b1 added real faux-provider/tool
 and context-head scenarios. Landed DE01b2 added SQLite recovery, durable abort and two
 exported Node environment scenarios. These verify reference reproducibility and the oracle.
-The full Python durable Storage/Session comparison adapter is **OPEN**, as are all
-P01–P43 rows. The separate DE02a1 value/record comparison below now imports native
+The full campaign remains **OPEN**, as do all P01–P43 parent rows; bounded
+native Storage/Session and Product slices have landed. The separate DE02a1 value/record comparison below now imports native
 value DTOs; the six-family DE01 scripts remain verification-only. Product code
-never imports a reference runner, and no native durable runtime is integrated.
+never imports a reference runner. Earlier dated1.3 evidence is historical, not a release1.4 rerun. See the [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md).
 
 ## Reproduction
 
@@ -442,9 +442,9 @@ child alone can complete DE03 or any P row.
 
 The `Durable pinned reference acceptance` job runs on every main push, pull
 request and manual CI dispatch, alongside the existing ten jobs. It anonymously
-fetches only commit `2ec55d808d455b1a64a2bf7888198207a096120a` from
+fetches only commit `4a080252f06caf63a525d7873c5d94d3c23887e0` from
 `https://github.com/earendil-works/pi.git` into a private new Git repository and
-checks tree `b51be844ffaf57e96d06a58d3f45ee90c6ba7401`. The official Linux x64
+checks tree `56ea45bfd3ef589feaddfaf504cfc08d838d812b`. The official Linux x64
 Node26.12.0 archive is checked against SHA256
 `fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded`
 and the versioned official SHASUMS file; bundled npm must be11.20.0. No upstream
@@ -1827,3 +1827,27 @@ seven reference files and the three DE15a documents; old32 identities, order,
 immutable Pi pins and parent edges are preserved while necessary digests refresh.
 The dated isolated results are evidence for their own source, not a claim that
 configuration, parent chains or the eventual final source already executed.
+
+## Product same-task retry reference boundary
+
+The bounded `task-product-retry-enable-v1` comparison follows `ordinary_owned_live`
+as phase34 and retains real Pi FullHarness retry admission.
+Pi `waitForTask` and `waitForIdle` themselves enable scheduling, so they cannot
+prove retry enablement: observe retry's void ACK and an actually held callback
+plus public task state before those waits, then use waits only after release.
+Genuine parked work requires an observed running cut/reopen and recovery, not a
+seeded counter. Native Product exposes a reset/admission ACK and owns continuation;
+its selected-profile authority and physical close are native-specific raw facts.
+No new comparison PASS follows from source authoring or earlier DE15a evidence.
+The DE15a read-only query was delivered at `2da6ee7`; its graph oracle remains
+separate from this Product continuation change and still grants no dispatch.
+
+Its two cases cover genuine SQLite parking/cut/reopen and live no-op admission.
+The common projection is `bounded-retry-admission-owned-progress-common-v1`.
+The native Tool target is terminal at its held follow-up provider, while the Pi
+generic target is still running; the native Product continuation remains pending.
+This difference stays in raw records rather than forcing a second tool effect or
+claiming Task-state parity. Core/Broad/reference results in the
+[dated ledger](specs/2026-10-19-durable-execution-evidence.md#de14a1-product-retry-continuation)
+belong to their own source epochs. Configuration and receipt attestation must
+validate the actual new leaf and cumulative source closure.

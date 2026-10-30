@@ -16,9 +16,9 @@ const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,
 const clone=(x:any)=>structuredClone(x);
 const errorValue=(error:any)=>({name:error.name,message:error.message,stack:error.stack});
 function inspectionValue(inspection:any){return {...inspection,tasks:inspection.tasks.map((entry:any)=>({...entry,state:entry.state.error===undefined?clone(entry.state):{...entry.state,error:errorValue(entry.state.error)}}))};}
-const NOTE=defineDoc({kind:'fixture.orphan.missing-migration.note',version:1,scope:'task',initial:()=>({n:0})});
-const CACHED=defineDoc({kind:'fixture.orphan.missing-migration.cached',version:1,scope:'task',initial:()=>({n:0})});
-const OTHER=defineDoc({kind:'fixture.orphan.missing-migration.unrelated',version:1,scope:'conversation',history:'rewindable',fork:'current',initial:()=>({n:0})});
+const NOTE=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.missing-migration.note',version:1,scope:'task',initial:()=>({n:0})});
+const CACHED=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.missing-migration.cached',version:1,scope:'task',initial:()=>({n:0})});
+const OTHER=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.missing-migration.unrelated',version:1,scope:'conversation',history:'rewindable',fork:'current',initial:()=>({n:0})});
 function sqlSnapshot(path:string){
  const db=new DatabaseSync(path,{readOnly:true});
  try{db.exec('PRAGMA query_only=ON; BEGIN');const result:any={};

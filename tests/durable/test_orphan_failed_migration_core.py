@@ -76,7 +76,13 @@ def test_paused_failure_settles_standard_terminal_and_retires_task_doc(
     rig, monkeypatch
 ):
     task_id, _, scheduler, _, calls, _ = failed(rig, monkeypatch)
-    doc = define_doc("failed-doc", 1, "task", lambda: {"value": 1})
+    doc = define_doc(
+        "failed-doc",
+        1,
+        "task",
+        lambda: {"value": 1},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
 
     def prepare(tx):
         tx.doc(doc, task_id=task_id)["value"] = 2

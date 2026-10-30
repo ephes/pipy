@@ -101,7 +101,7 @@ for(const scenario of input.scenarios){
  const effects=backend.effects,steps:any[]=[];let current:string|undefined,end:any,observed:any[]|undefined;
  const once=(table:Map<string,any>,name:string)=>{let d=table.get(name);if(d===undefined){d=deferred();table.set(name,d);}return d;};
  const tokens=new Map<string,any>();
- for(const [name,spec] of Object.entries<any>(input.docs))tokens.set(name,defineDoc({kind:spec.kind,version:spec.version,scope:spec.scope,...(spec.scope==="conversation"?{history:spec.history,fork:spec.fork}:{}),initial:()=>{effects.push({e:"init",doc:name});return structuredClone(spec.initial);}} as any));
+ for(const [name,spec] of Object.entries<any>(input.docs))tokens.set(name,defineDoc({checkpointWhen:()=>false,kind:spec.kind,version:spec.version,scope:spec.scope,...(spec.scope==="conversation"?{history:spec.history,fork:spec.fork}:{}),initial:()=>{effects.push({e:"init",doc:name});return structuredClone(spec.initial);}} as any));
  const owner=(doc:string,conversation:any)=>[tokens.get(doc),...(conversation===undefined?[]:[conversation])];
  const value=(v:any):any=>{if(Array.isArray(v))return v.map(value);if(v!==null&&typeof v==="object"){if(Object.hasOwn(v,"$local")||Object.hasOwn(v,"$bind"))return binds.get(v.$local??v.$bind);return Object.fromEntries(Object.entries(v).map(([k,x])=>[k,value(x)]));}return v;};
  const track=(h:string,p:Promise<any>,extra:any={})=>{const item:any={promise:p,settled:false,...extra};p.then(v=>{item.settled=true;item.ok=true;item.value=v;},e=>{item.settled=true;item.ok=false;item.error=e;});handles.set(h,item);return item;};
@@ -197,5 +197,5 @@ for(const scenario of input.scenarios){
 const save=(name:string,value:any)=>writeFileSync(resolve(outputPath,name),JSON.stringify(value,null,2)+"\n");
 assert.ok(facts.every(x=>x.sweeps===0&&x.delta));
 save("observed.json",{schema_version:1,phase:input.phase,backend:"node",scenarios});
-save("reference-context.json",{schema_version:1,phase:input.phase,scenarios:scenarios.length,driver:{base:Object.getPrototypeOf(SessionDriver).name,own_members:Object.getOwnPropertyNames(SessionDriver.prototype).sort(),close_route:"SessionImpl.close",checkpoint_when:"absent",task_definition:"structural-stub",sweeps:facts.reduce((n,x)=>n+x.sweeps,0),delta_document_changes:facts.reduce((n,x)=>n+x.changes,0)}});
+save("reference-context.json",{schema_version:1,phase:input.phase,scenarios:scenarios.length,driver:{base:Object.getPrototypeOf(SessionDriver).name,own_members:Object.getOwnPropertyNames(SessionDriver.prototype).sort(),close_route:"SessionImpl.close",checkpoint_when:"explicit-false",task_definition:"structural-stub",sweeps:facts.reduce((n,x)=>n+x.sweeps,0),delta_document_changes:facts.reduce((n,x)=>n+x.changes,0)}});
 save("session-raw.json",{schema_version:1,errors:raw});save("resolutions.json",resolutions);

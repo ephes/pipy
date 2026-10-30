@@ -100,8 +100,8 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 ## Current queue
 
 The owner requested the full [native durable execution plan](specs/2026-10-19-durable-execution-plan.md)
-on 2026-10-19, against clean Pi durable 1.3.0 at
-`2ec55d808d455b1a64a2bf7888198207a096120a`; see the
+on2026-10-19, initially against Pi durable1.3.0. On2026-10-29 the owner changed the target to literal release1.4.0 at
+`4a080252f06caf63a525d7873c5d94d3c23887e0`; see the [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md) and the
 [published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
 **Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`; DE14b2 owner-local restart-policy publication landed at `be63fcd1`. DE14b3 private idle definition publication landed at `ad21f13`. DE14b4 explicit missing-definition orphaning landed at `3f5473d`. DE14b5 explicit older-definition orphaning landed at `facea5d1`. DE14b6 observed-failure orphaning landed at `8c01b35`; DE14b7 absent-handler orphaning landed at `5a9bb487`.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
@@ -1241,8 +1241,8 @@ ownership/retention remain open.
 The implementation follows the [bounded restart contract](specs/2026-10-28-de14a-restart-parking-plan.md)
 and [operator usage](durable-restart-parking.md): default-five derived parking,
 an initially captured owner limit, same-task reset on the Session line and truthful
-inspection. Private scheduler retry enables after success; public reset is
-admission-only and requires explicit selected resume. Valid receipts have no
+inspection. DE14a originally kept public reset separate from selected resume;
+the later Product continuation slice now admits owned work after the reset ACK. Valid receipts have no
 operational ceiling bypass; their winner bytes remain unchanged. Clearing the
 current streak intentionally loses that observation for a later new receipt.
 Existing C1/C2 authority and numeric record ABI remain unchanged. Delivered at
@@ -1383,3 +1383,29 @@ Reference7 passed 23 module cases plus three paired native/Pi schedules. The
 [evidence](evidence/de15a-ordinary-owned-live.md) preserves their exact epochs and
 fixture failures; canonical integration and subsequent gates require their own
 receipts. This remains a read-only prerequisite, not owned execution or DE15 closure.
+
+## Product same-task retry continuation
+
+The private ordinary-owned-live prerequisite was delivered as DE15a at
+`2da6ee7a5fa4b67e4693f4fd523bd7d47a7a6345`. It does not replace scheduler
+ownership or strict orphan fences and does not close DE15 or any parent parity
+criterion. Its dated development records remain historical.
+
+The next bounded Product change admits owned selected-run continuation after a
+real same-task reset/admission ACK. Public resume joins active same-selection
+work, with an owned pre-ACK handoff that waits for actual cleanup before its
+own-authority fallback. A new retry refuses active same-selection work rather
+than queueing another reset. A healthy settled public resume performs fresh
+preflight. C1/C2/nonce/receipt/catalog and conservative live-work fences remain
+unchanged; no general owned-task execution, public abort, completing/cascade,
+live restart-limit settings or persistent operation state is added.
+
+[Product lifetime and errors](durable-product-session.md#retry-continuation-and-close-errors) defines the fixed `continuation_failed`
+post-ACK latch, physical close precedence and body-error preservation.
+[Same-task retry](durable-restart-parking.md) defines unchanged ACK fields and the one-shot CLI result.
+At the 2026-10-29 implementation checkpoint, private Core/affected checks and
+ordinary whole quality are being established on exact source epochs; independent
+Broad/reference, integrated CODE and final acceptance use separate receipts.
+The accepted PLAN gate was terminal advisory, not CLEAN; its sole stale-header
+suggestion was removed before implementation. This paragraph makes no runtime
+PASS or full campaign closure claim.

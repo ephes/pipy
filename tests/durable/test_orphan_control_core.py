@@ -26,7 +26,13 @@ def declaration(name="missing"):
 def test_orphan_uses_standard_terminal_and_document_retirement(rig):
     session, store = rig
     task_id = create(session, declaration())
-    doc = define_doc("orphan-doc", 1, "task", lambda: {"value": 1})
+    doc = define_doc(
+        "orphan-doc",
+        1,
+        "task",
+        lambda: {"value": 1},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
 
     def prepare(tx):
         tx.doc(doc, task_id=task_id)["value"] = 2

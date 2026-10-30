@@ -102,6 +102,7 @@ def test_guarded_reader_refuses_foreign_newer_or_unsupported_context(
             lambda: {"rounds": {}},
             "latest",
             "initial",
+            checkpoint_when=lambda _value, _ops, _info: False,
         )
         session.commit(
             lambda tx: tx.doc(newer, conversation_id=cid).update({"rounds": {}})

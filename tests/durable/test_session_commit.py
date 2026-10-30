@@ -424,7 +424,14 @@ class Rig:
             self.inits[kind] = self.inits.get(kind, 0) + 1
             return copy.deepcopy(value)
 
-        return self.M.tx.Doc(kind, 1, scope, initial, **semantics)
+        return self.M.tx.Doc(
+            kind,
+            1,
+            scope,
+            initial,
+            **semantics,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
 
     def __enter__(self) -> Rig:
         return self

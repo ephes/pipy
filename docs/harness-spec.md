@@ -1,5 +1,7 @@
 # Coding-Agent Harness Spec
 
+Current durable target (owner decision2026-10-29): literal Pi release1.4.0, `4a080252f06caf63a525d7873c5d94d3c23887e0`. The [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md) records the required-policy/profile migration and open ClientIdentity/CodeMode obligations. Earlier dated1.3 evidence below remains historical; no final release outcomes are inferred.
+
 Status: stable design rationale and behavioral invariants for the pipy
 harness. For current implementation state and parity status see
 [architecture.md](architecture.md) and [pi-parity.md](pi-parity.md).
@@ -4973,10 +4975,10 @@ parking is derived from the existing numeric task record and adds no stored
 state, header setting or audit. It also delays valid-receipt settlement without
 changing the winner. Changed task checkpoints reset the streak; acknowledged
 document-only progress does not. Public same-task reset commits on the existing
-Session line and remains noninvoking until explicit selected resume. Private
-scheduler retry enables only after successful commit. Generic cold migration is
-supplied by DE14b1; public live settings and full Pi retry-enable parity remain
-DE14b work.
+Session line; its later Product continuation layer admits owned selected work
+after successful reset/admission. Private scheduler retry enables only after
+successful commit. Generic cold migration is supplied by DE14b1; public live
+settings and broader task parity remain DE14b work.
 
 
 ## Cold task-definition migration (DE14b1)
@@ -5100,3 +5102,29 @@ abort dispatch, persisted index or handover is introduced. See the
 The bounded `task-ordinary-owned-live-v1` reference profile retains native direct-Tx
 versus Pi public-completion asymmetries. Its dated development evidence is separate
 from the integrated source and final gates; the query grants no scheduler admission.
+
+## Product same-task retry continuation
+
+The private ordinary-owned-live prerequisite was delivered as DE15a at
+`2da6ee7a5fa4b67e4693f4fd523bd7d47a7a6345`. It does not replace scheduler
+ownership or strict orphan fences and does not close DE15 or any parent parity
+criterion. Its dated development records remain historical.
+
+The next bounded Product change admits owned selected-run continuation after a
+real same-task reset/admission ACK. Public resume joins active same-selection
+work, with an owned pre-ACK handoff that waits for actual cleanup before its
+own-authority fallback. A new retry refuses active same-selection work rather
+than queueing another reset. A healthy settled public resume performs fresh
+preflight. C1/C2/nonce/receipt/catalog and conservative live-work fences remain
+unchanged; no general owned-task execution, public abort, completing/cascade,
+live restart-limit settings or persistent operation state is added.
+
+[Product lifetime and errors](durable-product-session.md#retry-continuation-and-close-errors) defines the fixed `continuation_failed`
+post-ACK latch, physical close precedence and body-error preservation.
+[Same-task retry](durable-restart-parking.md) defines unchanged ACK fields and the one-shot CLI result.
+At the 2026-10-29 implementation checkpoint, private Core/affected checks and
+ordinary whole quality are being established on exact source epochs; independent
+Broad/reference, integrated CODE and final acceptance use separate receipts.
+The accepted PLAN gate was terminal advisory, not CLEAN; its sole stale-header
+suggestion was removed before implementation. This paragraph makes no runtime
+PASS or full campaign closure claim.

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "phase": "memory-current-base-a2b-v1",
-  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "9cb3841c98c506dbbecd90b0af8ebc7255413d97f766b9c9990715caa4826661",
-  "a1_manifest_sha256": "4fb5bfca6af7f25acbdfddbcad3a7b3d9b6c3b4f7c3b8a8d6074136e760670d9",
+  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+  "baseline_manifest_sha256": "4b5114fe6a373054c1ccaa762d400893a274b4ad18b32b7374294f4f59b7bf0a",
+  "a1_manifest_sha256": "a9ce5f0e758fbd7968bc8db00355994f262576a66474777ffdf31a8b1bc3ef5a",
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
     "scripts/durable_reference/cases/storage-memory.mts": "a0d6cf477c8388f8ad3f73d29e43111b4f5d07f65f2e3ba0bb5540462be878df",
@@ -30,6 +30,6 @@
     "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
     "packages/durable/src/testing/storage-conformance.ts": "fa543ea2f7271ac1f23bc16eb0d1f69ba55b52d0f3a2865dd68d0ee34258392e",
     "packages/durable/src/testing/types.ts": "7de2ad01a01b0448215b9b1e891d01e5cb9c9197cc3b36c558223ea3917c8dab",
-    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d"
+    "packages/durable/src/types.ts": "eaa3a8a523bfdc00c15ec46454cbc121d9eeb1b8e176a02d9f75cc6fe982342b"
   }
 }

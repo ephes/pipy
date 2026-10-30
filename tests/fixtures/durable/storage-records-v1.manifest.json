@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "phase": "values-records-a1",
-  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "9cb3841c98c506dbbecd90b0af8ebc7255413d97f766b9c9990715caa4826661",
+  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+  "baseline_manifest_sha256": "4b5114fe6a373054c1ccaa762d400893a274b4ad18b32b7374294f4f59b7bf0a",
   "closure": {
     "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
     "scripts/durable_storage_comparison.py": "209674ac88437d413d00945beb0f3d1e83875e65cf986e24ff70baa71e96be96",
@@ -20,6 +20,6 @@
   "reference_sources": {
     "packages/chord/src/json.ts": "d3a115dde2afa8e79c987b0fb188ec0bdba03939192859a20198a23b2892bb60",
     "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
-    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d"
+    "packages/durable/src/types.ts": "eaa3a8a523bfdc00c15ec46454cbc121d9eeb1b8e176a02d9f75cc6fe982342b"
   }
 }

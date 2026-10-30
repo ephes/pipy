@@ -194,21 +194,35 @@ class CompletedWatch:
         if not self._ready:
             return
         if requested > self._captured and self._capture_task is None:
-            self._capture_task = self._spawn(self._produce(requested))
+            self._capture_task = self._spawn(lambda: self._produce(requested))
         if (
             self._listener is not None
             and self._pending is not None
             and self._consumer_task is None
         ):
-            self._consumer_task = self._spawn(self._consume())
+            self._consumer_task = self._spawn(self._consume)
 
-    def _spawn(self, body: Coroutine[Any, Any, None]) -> asyncio.Task[None] | None:
+    def _spawn(
+        self, body: Callable[[], Coroutine[Any, Any, None]]
+    ) -> asyncio.Task[None] | None:
+        gate: asyncio.Future[None] = self._loop.create_future()
+
+        async def registered() -> None:
+            await gate
+            await body()
+
+        wrapper = registered()
         try:
-            return self._loop.create_task(body)
+            work = self._loop.create_task(wrapper)
         except Exception:  # noqa: BLE001 - failed task handoff must not leak a coroutine/subscription
-            body.close()
+            wrapper.close()
             self._end("loop_closed")
             return None
+        # The body is created only after the gate. Eager execution cannot
+        # finish before _kick installs its task; pre-start cancellation owns
+        # no unawaited inner coroutine.
+        gate.set_result(None)
+        return work
 
     async def _produce(self, target: int) -> None:
         try:

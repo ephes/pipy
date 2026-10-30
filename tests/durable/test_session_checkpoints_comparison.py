@@ -1,7 +1,8 @@
 """Closed checkpoint producers and actual native three-backend execution.
 
-The compressed expected fixture contains actual pinned Pi bytes. It is never
-made from, or relabelled from, a native trace.
+The v2 expected fixture is an explicitly filtered historical Pi oracle: only
+release-supported explicit-policy cases remain, with a new profile label. It
+is not a fresh release-1.4 execution and is never made from a native trace.
 """
 
 from __future__ import annotations

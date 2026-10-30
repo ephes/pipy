@@ -53,6 +53,7 @@ class DurableProductError(ValueError):
             "not_supported",
             "receipt_held_needs_repair",
             "retained_control",
+            "continuation_failed",
         }
         self.code = code if type(code) is str and code in allowed else "unavailable"
         super().__init__("Durable product unavailable: " + self.code)
@@ -79,7 +80,7 @@ class DurableAdmission:
 
 @dataclass(frozen=True, slots=True)
 class DurableTaskRetry:
-    """Current counter-reset ACK; neither a new attempt nor dispatch authority."""
+    """Reset/admission ACK; neither a new attempt nor a completion result."""
 
     task_id: int
     reset: bool

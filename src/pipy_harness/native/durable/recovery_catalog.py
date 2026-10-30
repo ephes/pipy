@@ -15,7 +15,13 @@ from .execution_support import ExecutionSupport
 from .tool_values import _model_declaration, declaration, refuse
 
 Tree = dict[str, Any]
-HEADER: Doc[Tree] = define_doc("pipy.product.binding", 1, "session", lambda: {})
+HEADER: Doc[Tree] = define_doc(
+    "pipy.product.binding",
+    1,
+    "session",
+    lambda: {},
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
 
 
 def _identity(header: object) -> Tree:

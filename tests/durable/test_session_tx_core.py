@@ -282,7 +282,14 @@ class Rig:
             self.inits[kind] = self.inits.get(kind, 0) + 1
             return copy.deepcopy(value)
 
-        return self.T.Doc(kind, extra.pop("version", 1), scope, initial, **semantics)
+        return self.T.Doc(
+            kind,
+            extra.pop("version", 1),
+            scope,
+            initial,
+            **semantics,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
 
     def live(self, conversation: int) -> Any:
         """Pi ``setupLive``: a live document with items ["a", "b"]."""
@@ -1499,11 +1506,23 @@ def _docs363(T: types.ModuleType) -> None:
 def _docs380(T: types.ModuleType) -> None:
     with Rig(T) as rig:
         conversation = rig.conversation()
-        dated = T.Doc("test.date", 1, "session", lambda: {"at": object()})
+        dated = T.Doc(
+            "test.date",
+            1,
+            "session",
+            lambda: {"at": object()},
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         mints, commits = rig.store.count("mint_id"), len(rig.store.commits)
         with pytest.raises(JsonValueError):
             rig.commit(lambda tx: tx.doc(dated))
-        listed = T.Doc("test.list", 1, "session", lambda: [1])
+        listed = T.Doc(
+            "test.list",
+            1,
+            "session",
+            lambda: [1],
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         with pytest.raises(JsonValueError):
             rig.commit(lambda tx: tx.doc(listed))
         assert rig.store.count("mint_id") == mints
@@ -1992,22 +2011,66 @@ def _raw_doc_exact(T: types.ModuleType) -> None:
     # is built, so the hook never runs under the cache lock (first, so that a
     # regression shows the reported deadlock shape).
     for field, value in (("scope", Evil("session")), ("kind", Evil("k"))):
-        tampered = T.Doc("k", 1, "session", init)
+        tampered = T.Doc(
+            "k", 1, "session", init, checkpoint_when=lambda _value, _ops, _info: False
+        )
         object.__setattr__(tampered, field, value)
         worker = Worker("cache-peek", partial(cache.peek, tampered))
         worker.thread.start()
         worker.join()
         assert type(worker.error) is TypeError, worker.error
     for build in (
-        lambda: T.Doc(Evil("k"), 1, "session", init),
-        lambda: T.Doc("k", Version(1), "session", init),
-        lambda: T.Doc("k", 1, Evil("session"), init),
-        lambda: T.Doc("k", 1, "conversation", init, Evil("latest"), "initial"),
-        lambda: T.Doc("k", 1, "conversation", init, "latest", Evil("initial")),
+        lambda: T.Doc(
+            Evil("k"),
+            1,
+            "session",
+            init,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        ),
+        lambda: T.Doc(
+            "k",
+            Version(1),
+            "session",
+            init,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        ),
+        lambda: T.Doc(
+            "k",
+            1,
+            Evil("session"),
+            init,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        ),
+        lambda: T.Doc(
+            "k",
+            1,
+            "conversation",
+            init,
+            Evil("latest"),
+            "initial",
+            checkpoint_when=lambda _value, _ops, _info: False,
+        ),
+        lambda: T.Doc(
+            "k",
+            1,
+            "conversation",
+            init,
+            "latest",
+            Evil("initial"),
+            checkpoint_when=lambda _value, _ops, _info: False,
+        ),
     ):
         with pytest.raises(TypeError):
             build()
-    spec = T.Doc("k", 1, "conversation", init, "rewindable", "asOf")
+    spec = T.Doc(
+        "k",
+        1,
+        "conversation",
+        init,
+        "rewindable",
+        "asOf",
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     assert all(type(v) is str for v in (spec.scope, spec.history, spec.fork))
     assert calls == []
 
@@ -2015,13 +2078,31 @@ def _raw_doc_exact(T: types.ModuleType) -> None:
 @scenario("raw-doc-spec-validation")
 def _raw_doc(T: types.ModuleType) -> None:
     init = dict
-    assert T.Doc("t", 1, "task", init).scope == "task"
+    assert (
+        T.Doc(
+            "t", 1, "task", init, checkpoint_when=lambda _value, _ops, _info: False
+        ).scope
+        == "task"
+    )
     for bad in (0, -1, 1.0, True, 2**53):
         with pytest.raises(TypeError, match="positive integer"):
-            T.Doc("t", bad, "session", init)
+            T.Doc(
+                "t",
+                bad,
+                "session",
+                init,
+                checkpoint_when=lambda _value, _ops, _info: False,
+            )
     for extra in ({"history": "latest"}, {"fork": "initial"}):
         with pytest.raises(TypeError):
-            T.Doc("t", 1, "session", init, **extra)
+            T.Doc(
+                "t",
+                1,
+                "session",
+                init,
+                **extra,
+                checkpoint_when=lambda _value, _ops, _info: False,
+            )
     for semantics in (
         {},
         {"history": "latest", "fork": "asOf"},
@@ -2029,17 +2110,45 @@ def _raw_doc(T: types.ModuleType) -> None:
         {"history": "other", "fork": "initial"},
     ):
         with pytest.raises(TypeError):
-            T.Doc("t", 1, "conversation", init, **semantics)
+            T.Doc(
+                "t",
+                1,
+                "conversation",
+                init,
+                **semantics,
+                checkpoint_when=lambda _value, _ops, _info: False,
+            )
     with pytest.raises(TypeError):
-        T.Doc("t", 1, "session", None)
+        T.Doc(
+            "t", 1, "session", None, checkpoint_when=lambda _value, _ops, _info: False
+        )
     with pytest.raises(TypeError):
-        T.Doc(b"t", 1, "session", init)
-    spec = T.Doc("t", 1, "conversation", init, history="rewindable", fork="asOf")
+        T.Doc(
+            b"t", 1, "session", init, checkpoint_when=lambda _value, _ops, _info: False
+        )
+    spec = T.Doc(
+        "t",
+        1,
+        "conversation",
+        init,
+        history="rewindable",
+        fork="asOf",
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     cache = T._DocumentCache()
     with pytest.raises(TypeError, match="requires a conversation ID"):
         cache.peek(spec)
     with pytest.raises(TypeError, match="session-scoped"):
-        cache.peek(T.Doc("t", 1, "session", init), 1)
+        cache.peek(
+            T.Doc(
+                "t",
+                1,
+                "session",
+                init,
+                checkpoint_when=lambda _value, _ops, _info: False,
+            ),
+            1,
+        )
 
 
 # -- pytest entry points ------------------------------------------------------------------

@@ -90,7 +90,13 @@ def rig(tmp_path):
 
 
 def raw():
-    return Doc("sqlite.session", 1, "session", lambda: {"items": []})
+    return Doc(
+        "sqlite.session",
+        1,
+        "session",
+        lambda: {"items": []},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
 
 
 async def mixed(tx, spec, value):
@@ -511,7 +517,16 @@ say("drained")
 def test_loaded_delta_counts_survive_fresh_sessions_and_independent_documents(
     tmp_path, mode
 ):
-    specs = (raw(), Doc("other", 1, "session", lambda: {"items": []}))
+    specs = (
+        raw(),
+        Doc(
+            "other",
+            1,
+            "session",
+            lambda: {"items": []},
+            checkpoint_when=lambda _value, _ops, _info: False,
+        ),
+    )
     old_values = []
     with rig(tmp_path) as r:
 

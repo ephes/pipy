@@ -273,7 +273,13 @@ def test_initializer_failures_abort_documents_without_mint_or_foreign_cleanup(
         return await tx.create_conversation({"kind": "ownerless"})
 
     conversation = commit(mode, rig, seed)
-    spec = define_doc("rollback", 1, "session", lambda: {"n": 0})
+    spec = define_doc(
+        "rollback",
+        1,
+        "session",
+        lambda: {"n": 0},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     before = rig.store.calls.count("mint")
 
     async def change(tx):

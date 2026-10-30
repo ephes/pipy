@@ -19,7 +19,13 @@ REFUSAL = "Task requires a validated unmarked pending root leaf"
 
 
 def seed_document(rig, task_id):
-    token = define_doc("orphan.refusal.evidence", 1, "task", lambda: {"n": 0})
+    token = define_doc(
+        "orphan.refusal.evidence",
+        1,
+        "task",
+        lambda: {"n": 0},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     rig.session.commit(lambda tx: tx.doc(token, task_id=task_id))
 
     def update(tx):

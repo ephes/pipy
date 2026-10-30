@@ -38,8 +38,10 @@ for(const recipe of input.cases){
  // The faux transport estimates tokens and replaces supplied usage. Use the
  // pinned generation tests' fixed stream seam so token/cost observations come
  // from this declared response, with cost calculated by actual pi-ai above.
+ const requestIdentities:any[]=[];
  const models=new Proxy(baseModels,{get(target,property){
    if(property==='streamSimple') return (_model:any,transcript:any,options:any)=>{
+   requestIdentities.push(structuredClone(options?.identity??null));
      const final=(async()=>{
        const tasks=await harness.commit((tx:any)=>tx.scanTasks({},100),ctx);
        const generation=tasks.items.find((task:any)=>task.kind==='pi.generation');
@@ -88,7 +90,7 @@ for(const recipe of input.cases){
  await reopened.close(ctx);assert.equal((await reopened.closed).reason,'closed');
  observed.retained_calls=requests.length;
  const lifecycle={resumed_after_terminal:observed.resumed_after_terminal,retained_terminal:observed.retained_terminal,close_reason:observed.close_reason,retained_calls:observed.retained_calls};
- raw.push({id:recipe.id,publication,requests,provider,ledger,lifecycle});
+ raw.push({id:recipe.id,requestIdentities,publication,requests,provider,ledger,lifecycle});
  cases.push({id:recipe.id,observed:encode(observed)});
 }
 writeFileSync(out+'/observed.json',JSON.stringify({schema_version:1,phase:input.phase,cases}));

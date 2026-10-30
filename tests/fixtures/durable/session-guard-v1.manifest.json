@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "phase": "session-guard-b1b-v1",
-  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-  "baseline_manifest_sha256": "9cb3841c98c506dbbecd90b0af8ebc7255413d97f766b9c9990715caa4826661",
-  "a1_manifest_sha256": "4fb5bfca6af7f25acbdfddbcad3a7b3d9b6c3b4f7c3b8a8d6074136e760670d9",
-  "a2b_manifest_sha256": "66c2a85d84a02ebe66c4dea3c7ac401c1bafdfb038b578500643dc9920c78366",
+  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+  "baseline_manifest_sha256": "4b5114fe6a373054c1ccaa762d400893a274b4ad18b32b7374294f4f59b7bf0a",
+  "a1_manifest_sha256": "a9ce5f0e758fbd7968bc8db00355994f262576a66474777ffdf31a8b1bc3ef5a",
+  "a2b_manifest_sha256": "03040f7c0420f12addf47883fae80cb3725ab05b0279bcdb111fb3989da8e697",
   "scope": "Bounded guard/lifecycle comparison only: pinned SessionImpl GuardedStorage via a driver subclass (guarded getter, recorded report) versus private native SessionLifecycle/GuardedStorage, each over its real Memory backend. Not compared: the Pi window between session.close() and its later line-job guard seal (DE02b2 Session line), report versus outcome publication order for a healthy close failure, Python-only BaseException handling, non-Error JS throw values, Harness safeReport and close listeners. Node closes only through SessionImpl.close; Pi GuardedStorage.close is not close-once, so native facade close-once is the owner's role, not a Pi guard claim. No Session line, Tx, product or P closure.",
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
@@ -18,7 +18,7 @@
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
-    "src/pipy_harness/native/durable/documents.py": "1c84708f8c37771f34b3a2c545e77f80841548eb02f5c9062294ec972a7946c6",
+    "src/pipy_harness/native/durable/documents.py": "ea34524e611d1fbb4e19f5bc5d77624e98f8311a67f03acf9afb0e2242960d80",
     "src/pipy_harness/native/durable/memory.py": "848199f98481a47d3f68c78b5910a0d6d43531eccc23d038001a3a4aaaad24cc",
     "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
     "src/pipy_harness/native/durable/session.py": "7584a3132b52a5053d00147c08344f7bf7b2acf87a237ca8fbee764e3b88a2a0",
@@ -40,7 +40,7 @@
     "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
     "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
     "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
-    "packages/durable/src/types.ts": "df65ff8a51bfc9439f38035ab1efda4f375a96840d6f7f14782b037e033b4f4d"
+    "packages/durable/src/types.ts": "eaa3a8a523bfdc00c15ec46454cbc121d9eeb1b8e176a02d9f75cc6fe982342b"
   },
   "upstream_tests": {
     "packages/durable/test/harness-storage-failure.test.ts": "3d188ed3d18367cf0b66a627072a96f2a482b50c6574fe1dfadbe53551180d2f",

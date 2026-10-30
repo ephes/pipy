@@ -84,10 +84,28 @@ from .tasks import Task, define_task
 
 Tree = dict[str, Any]
 PROVIDER_DOC: Doc[Tree] = define_doc(
-    "pi.provider", 1, "conversation", lambda: {"sessionId": None}, "latest", "initial"
+    "pi.provider",
+    1,
+    "conversation",
+    lambda: {"sessionId": None},
+    "latest",
+    "initial",
+    checkpoint_when=lambda _value, _ops, _info: False,
 )
-RECEIPT_DOC: Doc[Tree] = define_doc("pi.generation.receipt", 1, "task", dict)
-ROUND_DOC: Doc[Tree] = define_doc("pi.generation.round", 1, "task", dict)
+RECEIPT_DOC: Doc[Tree] = define_doc(
+    "pi.generation.receipt",
+    1,
+    "task",
+    dict,
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
+ROUND_DOC: Doc[Tree] = define_doc(
+    "pi.generation.round",
+    1,
+    "task",
+    dict,
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
 USAGE_DOC: Doc[Tree] = define_doc(
     "pi.usage",
     1,
@@ -95,6 +113,7 @@ USAGE_DOC: Doc[Tree] = define_doc(
     lambda: {"models": {}, "tools": {}, "settlements": {}},
     "latest",
     "initial",
+    checkpoint_when=lambda _value, _ops, _info: False,
 )
 
 

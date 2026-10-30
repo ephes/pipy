@@ -1,6 +1,6 @@
 """Private typed current-document tokens and owned logical addresses.
 
-Adapted from Pi durable documents.ts at 2ec55d808d455b1a64a2bf7888198207a096120a,
+Adapted from Pi durable documents.ts at 4a080252f06caf63a525d7873c5d94d3c23887e0,
 MIT Copyright (c) 2025 Mario Zechner; see UPSTREAM-LICENSE.txt. Python uses
 explicit owner/key keywords and exact built-ins rather than TS overloads.
 """
@@ -8,7 +8,7 @@ explicit owner/key keywords and exact built-ins rather than TS overloads.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, Literal, TypeAlias, TypeVar
 
 from .codec import OwnedJson
@@ -56,8 +56,8 @@ def _fields(
     scoped = _choice(scope, ("session", "conversation", "task"), "scope")
     if not callable(initial):
         raise TypeError(f"Document {kind} requires an initial factory")
-    if checkpoint_when is not None and not callable(checkpoint_when):
-        raise TypeError("Document checkpoint_when must be callable or None")
+    if not callable(checkpoint_when):
+        raise TypeError("Document checkpoint_when must be callable")
     if scoped != "conversation":
         if history is not None or fork is not None:
             raise TypeError("Only conversation documents have history/fork policies")
@@ -80,7 +80,7 @@ class Doc(Generic[V]):
     initial: Callable[[], V]
     history: Literal["latest", "rewindable"] | None = None
     fork: Literal["current", "initial", "asOf"] | None = None
-    checkpoint_when: CheckpointWhen | None = None
+    checkpoint_when: CheckpointWhen = field(kw_only=True)
 
     def __post_init__(self) -> None:
         scope, history, fork = _fields(
@@ -107,7 +107,7 @@ class DocFamily(Generic[S, V]):
     initial: Callable[[S], V]
     history: Literal["latest", "rewindable"] | None = None
     fork: Literal["current", "initial", "asOf"] | None = None
-    checkpoint_when: CheckpointWhen | None = None
+    checkpoint_when: CheckpointWhen = field(kw_only=True)
 
     def __post_init__(self) -> None:
         scope, history, fork = _fields(
@@ -134,9 +134,12 @@ def define_doc(
     initial: Callable[[], V],
     history: Literal["latest", "rewindable"] | None = None,
     fork: Literal["current", "initial", "asOf"] | None = None,
-    checkpoint_when: CheckpointWhen | None = None,
+    *,
+    checkpoint_when: CheckpointWhen,
 ) -> Doc[V]:
-    return Doc(kind, version, scope, initial, history, fork, checkpoint_when)
+    return Doc(
+        kind, version, scope, initial, history, fork, checkpoint_when=checkpoint_when
+    )
 
 
 def define_doc_family(
@@ -146,9 +149,12 @@ def define_doc_family(
     initial: Callable[[S], V],
     history: Literal["latest", "rewindable"] | None = None,
     fork: Literal["current", "initial", "asOf"] | None = None,
-    checkpoint_when: CheckpointWhen | None = None,
+    *,
+    checkpoint_when: CheckpointWhen,
 ) -> DocFamily[S, V]:
-    return DocFamily(kind, version, scope, initial, history, fork, checkpoint_when)
+    return DocFamily(
+        kind, version, scope, initial, history, fork, checkpoint_when=checkpoint_when
+    )
 
 
 def address_key(value: dict[str, Any]) -> Key:

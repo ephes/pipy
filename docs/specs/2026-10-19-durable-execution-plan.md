@@ -13,9 +13,8 @@ implementation slice still requires its own independent CLEAN review.
 
 ## 1. Goal, reference and scope
 
-Deliver **full useful Python execution parity with Pi durable 1.3.0** at
-`2ec55d808d455b1a64a2bf7888198207a096120a`, through native pipy. That local
-pi-mono checkout was clean when inspected on 2026-10-19. The
+Deliver **full useful Python execution parity with Pi durable release1.4.0** at
+`4a080252f06caf63a525d7873c5d94d3c23887e0`, through native pipy (owner decision2026-10-29). This is the literal release, not postrelease HEAD. The [release delta](2026-10-29-durable-release-1.4-bridge.md) preserves earlier1.3 evidence and records required checkpoint policies, open P16 ClientIdentity and future CodeMode Store64 obligations. The original
 [upstream audit](2026-10-19-durable-upstream-audit.md) inventories its published
 surfaces, source locations and tests, including telemetry and host capabilities.
 The target is the durable package and the provider/codemode/environment behavior
@@ -441,6 +440,7 @@ DE13–DE28 close deliberate Milestone A limits. They are required for full pari
 | DE13c2 / DE13c1 | Explicit noninvoking adjudication of supported historical blocked model-tool attempts, preserving actual receipt first winners and separate private nonce audit. | Genuine DE12/B public-store joins, exact absent/default-empty/valid/opaque evidence, atomic target/receipt/audit and operator races, fixed SDK/CLI errors, auth-free decision replay across settlement/abort/fault/reblock, full revision no-write oracles and privacy. Existing24 comparison phases remain cumulative with no invented Pi adjudication API. Whole-code/full/platform/resource gates and unsupported-authority DE13/P21 ownership remain explicit. |
 | DE14 / DE13 | Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection. | Reference recovery cases and upgrade fixtures; close does not increment, repeated crash does, document chatter does not reset; abort blocked becomes orphaned, missing code alone never settles. State-machine/migration docs. |
 | DE14a / DE13c2 | Immutable host restart ceiling, derived parking and same-task counter reset on the existing Session line, with truthful inspection and noninvoking public ACK. | Actual default5/explicitlimit crash cuts, healthy close, structural progress versus retained-doc chatter, valid-receipt parking and reset-null new cause, private enable versus public explicit selected resume, numeric API/CLI distinction, cold-running refusal, serialized reset/close/cancel/commit faults and full unchanged authority/privacy controls. Pinned generic reference comparison plus final focused/full/platform/resource/CODE gates; live policy and full public Pi retry parity remain open. |
+| DE14a1 / delivered DE15a; DE14a authority retained | Public selected Product retry reset/admission ACK with owned continuation and physical close. | Active same-selection resume join, pre-ACK owned handoff, continuation_failed close precedence and retry-task result after cleanup; genuine parked/live-noop reference with raw lane asymmetries. Existing recovery/receipt/catalog/C1/C2 and conservative fences remain; no general owned executor or parent parity closure. |
 | DE14b1 / DE14a | Generic cold-owner definition compatibility and atomic reservation-time migration; callback-free and same-owner inspection. | Real Memory/SQLite migration, failure-once and same-pass later-task/reconciliation liveness; no-write isolated failure, deep/Unicode/alias and numeric versions, real rollback/ACK-loss/close/cancel/lease controls; updated inspection-v1 semantics and bounded task-migration-cold-v1 reference. Built-in migration, live registry/handover and parent recovery obligations stay open. |
 | DE14b2 / DE14b1 | Owner-local immutable restart-policy publication on the existing Session line and condition; one policy snapshot per reservation, retry and owner inspection. | Memory/SQLite no-write and revision oracles, ordered line admission, actual open-publication window, cancellation/close/lease joins and no-wake explicit resume; unchanged Product/SDK/DTO, receipts, numeric ABI and migration cache. Bounded restart-policy-live-v1 comparison; public settings, registry/handover and parent parity remain open. |
 | DE14b3 / DE14b2 | Idle private generic definition publication with retained source/captured identity and one immutable definition/support generation on the Session line. | Memory/SQLite revision-sensitive no-write controls, real idle/busy and queued publication/resolution tickets, successful enabled identity-cache preservation, callback release, cancellation/close joins and saved-winner priority. Bounded task-definition-publication-idle-v1 comparison; Product catalogs, listeners, active handover and all parent parity remain open. |
@@ -1038,3 +1038,29 @@ The 2026-10-29 isolated Broad22 and Reference23/three paired-schedule outcomes
 are recorded separately in [DE15a evidence](../evidence/de15a-ordinary-owned-live.md).
 The additive ordinary-owned-live profile does not expand the work order to
 execution admission, completing, public retry or any parent closure.
+
+## Product same-task retry continuation
+
+The private ordinary-owned-live prerequisite was delivered as DE15a at
+`2da6ee7a5fa4b67e4693f4fd523bd7d47a7a6345`. It does not replace scheduler
+ownership or strict orphan fences and does not close DE15 or any parent parity
+criterion. Its dated development records remain historical.
+
+The next bounded Product change admits owned selected-run continuation after a
+real same-task reset/admission ACK. Public resume joins active same-selection
+work, with an owned pre-ACK handoff that waits for actual cleanup before its
+own-authority fallback. A new retry refuses active same-selection work rather
+than queueing another reset. A healthy settled public resume performs fresh
+preflight. C1/C2/nonce/receipt/catalog and conservative live-work fences remain
+unchanged; no general owned-task execution, public abort, completing/cascade,
+live restart-limit settings or persistent operation state is added.
+
+[Product lifetime and errors](../durable-product-session.md#retry-continuation-and-close-errors) defines the fixed `continuation_failed`
+post-ACK latch, physical close precedence and body-error preservation.
+[Same-task retry](../durable-restart-parking.md) defines unchanged ACK fields and the one-shot CLI result.
+At the 2026-10-29 implementation checkpoint, private Core/affected checks and
+ordinary whole quality are being established on exact source epochs; independent
+Broad/reference, integrated CODE and final acceptance use separate receipts.
+The accepted PLAN gate was terminal advisory, not CLEAN; its sole stale-header
+suggestion was removed before implementation. This paragraph makes no runtime
+PASS or full campaign closure claim.

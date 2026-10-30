@@ -8,6 +8,27 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add a bounded retry-admission reference profile with genuine parked and live
+  no-op cases, retaining native Tool-terminal versus Pi generic-running raw
+  states at the held callback; no general owned-task or Task-state parity claim.
+
+- Target literal Pi durable release1.4.0. Document definitions now require an
+  explicit keyword-only checkpoint callback; existing policies keep their behavior.
+  Checkpoint fixtures use a new required-policy profile with unsupported missing
+  policy success cases removed. ClientIdentity parity remains a separate open slice.
+
+- Preserve completed-watch delivery with eager task factories by registering
+  owned capture/consumer tasks before their bodies can finish. Cancellation before
+  first execution and factory refusal create no unowned inner coroutine.
+
+- Make same-task Product retry acknowledge reset and admission of an owned
+  continuation. Active resume joins it; retry during active same-selection work
+  refuses busy. The one-shot retry command waits for its exact result and physical
+  close before emitting the reset report plus run result. Post-ACK continuation
+  errors use the fixed `continuation_failed` code; close still joins ownership
+  and preserves native cleanup-error priority. No new-attempt or receipt authority
+  changes, public operation tokens or live restart-policy controls are added.
+
 - Add a private transaction-local ordinary-owned-live query. It captures committed
   ownership before writes and evaluates genuine staged candidates on the same
   synchronous transaction, traversing ended ordinary intermediates while cutting
@@ -64,13 +85,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - Park durable tasks at a default five consecutive restarts without task-state
   progress. Expose the current count, effective host limit and parked status;
   fresh owners can choose a higher limit or Infinity. Public `retry_task` and
-  `durable retry-task` reset the same task without invoking it, followed by an
-  explicit resume. Saved receipts remain unchanged and can also be parked;
+  `durable retry-task` reset the same task and admit owned continuation. Saved receipts remain unchanged and can also be parked;
   resetting deliberately discards the current streak, so a subsequently created
   interrupted receipt reports null for the missing observation. All durable CLI
   commands accept `--restart-limit` with documented finite binary64 parsing.
   New-attempt authorization and historical adjudication remain separate. Live
-  Product configuration, migration/abort budgets and full Pi public retry parity
+  Product configuration, migration/abort budgets and broader task/ownership parity
   remain deferred.
 
 - Add explicit native historical-tool adjudication through the durable SDK and

@@ -1,26 +1,26 @@
 {
   "schema_version": 3,
   "reference": {
-    "commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
-    "tree": "b51be844ffaf57e96d06a58d3f45ee90c6ba7401",
+    "commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+    "tree": "56ea45bfd3ef589feaddfaf504cfc08d838d812b",
     "package": "@earendil-works/pi-durable",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "source_sha256": {
-      "package-lock.json": "5c7ef167a17240e02139c123442bf909391646fcf7beffd3aa12e486ef4e9647",
+      "package-lock.json": "34fc1e9c534291db36d63ffb9dad6c962fdc5bc49afd6d802d381ae5844003a3",
       "LICENSE": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
-      "packages/durable/package.json": "9ae60b37c0da6c819f88e41622835ab0ee3221fd5b96b5c3975958d7aa54a4bd",
+      "packages/durable/package.json": "c100d039aa3ca0d952f49f118d7eb22ddec04d85e5eb28193f2838e8f7584ae7",
       "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
       "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
-      "packages/durable/src/documents.ts": "7b5e6b95c6dbb13b27dfea7778e383f6501d8038eb49936ff68bb64329b33d42",
+      "packages/durable/src/documents.ts": "f968de48d8322f59cc6b45e7fbf769110623e68552ea3b1df7cbcdde2f9648c8",
       "packages/durable/src/testing/storage-conformance.ts": "fa543ea2f7271ac1f23bc16eb0d1f69ba55b52d0f3a2865dd68d0ee34258392e",
       "packages/coding-agent/src/experimental/source-resolver.ts": "c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6",
-      "packages/durable/src/harness/harness.ts": "e2b53e7a88d547ac388a3d7368fea8e75e78046af8b34c110c266174d82590e8",
-      "packages/durable/src/harness/tool.ts": "775971bc5b39b6fcde883da1b72ce1b022ec168e6686765aa89fba4566a5fbab",
+      "packages/durable/src/harness/harness.ts": "57f9236cfca96a08fb62f6243fb29798384a148b8b7200abde43daa0df989de1",
+      "packages/durable/src/harness/tool.ts": "e1417cf44bcf8c75e0978e2ed31e1e87f7c36871113eec535db16d0fc621c9a9",
       "packages/ai/src/providers/faux.ts": "aeaa8df95399776587ad0cfccccd3b498891a20c5c5846f935e04d9d09dd84a1",
-      "packages/durable/test/harness-tools.test.ts": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a",
+      "packages/durable/test/harness-tools.test.ts": "fb5e0ebdb9c5d3ba167a2c8ad35fc67b1539d1d00be096f843b76094813103d7",
       "packages/durable/src/harness/context.ts": "c392e698d7f84a1fc4909c0b40964d74625edbe7b56dc1dfea28588dde47d635",
       "packages/durable/test/harness-context.test.ts": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5",
-      "packages/durable/docs/spec.md": "dd1c2fcfd5a4d3aa4e176fa5ad072f2f97c0daf84aa84f215dcf01b1d582ac81",
+      "packages/durable/docs/spec.md": "affd388e00b8404dec28fb49973e9b4fc79ba5dc7b23c646b95e15bfb6d417fd",
       "packages/durable/test/task-support.ts": "24b8647f113ef59d8df37441754cd2c65c957889d3f561357d9d47b682ec0ac7",
       "packages/durable/test/harness-sleep.test.ts": "39c3b3227b675b069e536451244a8236506fe328f96e643487b70114ba735ad8",
       "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
@@ -32,8 +32,8 @@
       "packages/durable/test/harness-tools-recovery.test.ts": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7",
       "packages/durable/src/harness/scheduler.ts": "77e4f0f71c099308cf7ead442c9a1335b5156a1a1194315cd41f2aa06ef4a1ab",
       "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
-      "packages/durable/test/harness-tasks.test.ts": "289f7cd084dc619201e816063abb1a1ae0bdf114d7a32a18370761986fbedccf",
-      "packages/durable/src/env/node.ts": "8da3592f9d0d99ce0e97faaab2ae123dd8070270ece12036d5a6a10c69ea422b",
+      "packages/durable/test/harness-tasks.test.ts": "1d3c0dcda8e00c0c852ebc59e85860b6eee0b02aca058100c3d16c11ae19620f",
+      "packages/durable/src/env/node.ts": "3ec850effbc184cc1b789d955f862b0c78639a29469035e124445bf168a6d56c",
       "packages/durable/src/env/index.ts": "6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff",
       "packages/durable/src/testing/env-conformance.ts": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e",
       "packages/durable/src/testing/storage-benchmark.ts": "8dae25ae6eb39d5e7fccc10df0258efb89c6a6d3ff9cef134eb4cb42385f89a5",
@@ -49,7 +49,7 @@
   "adapters": {
     "scripts/durable_pi_reference.mts": {
       "destination": "durable_pi_reference.mts",
-      "sha256": "2a50c2d7fb2e72f590ae5e8a82046d828a6812799e7fd925e706c30a0ad49cfd"
+      "sha256": "11801cac1cb3199051ad50f1f880548fea90e1efec73b852ce2c6885f00158f9"
     },
     "scripts/durable_reference/contract.mts": {
       "destination": "durable_reference/contract.mts",
@@ -81,8 +81,8 @@
     }
   },
   "comparison": {
-    "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
-    "scripts/durable_reference_acceptance.py": "7700d9f693b42d14a8809cab0d3b818a3c9adb38a6426981bf8d8eeacd3ee6b2",
+    "scripts/durable_pi_comparison.py": "b1c2ab50b568929b67edf90245565e946585c1bf293ba290e0252005054bb6a8",
+    "scripts/durable_reference_acceptance.py": "42da3589636ac2500b1b7638ceac435bcf12ed2df80d360614cfb8c5a4708118",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12"
   },
   "cases": [
@@ -135,12 +135,12 @@
         {
           "path": "packages/durable/test/harness-tools.test.ts",
           "name": "runs input, tool call, tool result, and answer, and settles the input",
-          "sha256": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a"
+          "sha256": "fb5e0ebdb9c5d3ba167a2c8ad35fc67b1539d1d00be096f843b76094813103d7"
         },
         {
           "path": "packages/durable/test/harness-tools.test.ts",
           "name": "uses explicit null details instead of the last reported value",
-          "sha256": "abe39a71c49c07d525d0c2a0aa817e52e267c0c60a45f5f520868adca394f77a"
+          "sha256": "fb5e0ebdb9c5d3ba167a2c8ad35fc67b1539d1d00be096f843b76094813103d7"
         }
       ]
     },
@@ -228,7 +228,7 @@
         {
           "path": "packages/durable/test/harness-tasks.test.ts",
           "name": "rejects the run's commits and memo writes after the mark, and settles through a fresh abort invocation",
-          "sha256": "289f7cd084dc619201e816063abb1a1ae0bdf114d7a32a18370761986fbedccf"
+          "sha256": "1d3c0dcda8e00c0c852ebc59e85860b6eee0b02aca058100c3d16c11ae19620f"
         }
       ]
     },
@@ -272,7 +272,7 @@
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
     "tests/durable/test_pi_comparison_acceptance.py": "8d5f023679ee9901eba929971f57798be84524369beb60840bf71264d0ee97be",
     "tests/durable/test_pi_comparison_cases.py": "0a0d536846424e613ee1f7d98d5ce7169a6d360a2c93f4bb65939099e9cff83b",
-    "tests/durable/test_pi_comparison_coverage.py": "a85867521fdd86bf436ae0bed4599889cb68e99ab91cf5116ff9f28a1041a90e",
+    "tests/durable/test_pi_comparison_coverage.py": "afb6757af2a9cdf1c31e74bae943a15a7c7cdd4789dd749544a2c49e1a1d208c",
     "tests/durable/test_reference_artifacts.py": "d2920eed7a3c2135bb58e4eb4b295f7a51798b84396f659bda0cd29f5ebe6dac",
     "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
   },
@@ -331,6 +331,6 @@
   ],
   "coverage": {
     "path": "coverage.json",
-    "sha256": "414310d20c0449a2dcdae82c73ef1e4b0741c062f0a88f8fef2f40109a19c1c8"
+    "sha256": "ee5aae55b7d49fd5c65bc0d6c1e3376596629a7d1ebc9aec10528d38f6112819"
   }
 }

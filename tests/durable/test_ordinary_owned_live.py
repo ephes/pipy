@@ -475,7 +475,13 @@ def test_real_outer_commit_failure_and_ack_loss_recapture_only_after_reopen(
 
 @pytest.mark.parametrize("rig", ["sqlite"], indirect=True)
 def test_full_sql_oracle_detects_restored_document_with_revision_only_delta(rig):
-    token = define_doc("ordinary.query.oracle", 1, "session", lambda: {"n": 1})
+    token = define_doc(
+        "ordinary.query.oracle",
+        1,
+        "session",
+        lambda: {"n": 1},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     rig.session.commit(lambda tx: tx.doc(token))
     before = sqlite_rows(rig.path)
 

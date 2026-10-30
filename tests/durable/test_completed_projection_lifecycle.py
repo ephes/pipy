@@ -374,17 +374,20 @@ def test_partial_registration_and_failed_task_handoff_cleanup(monkeypatch):
         watch.start(consume)
         loop = asyncio.get_running_loop()
         real = loop.create_task
+        refusals = []
 
         def refused(body, *args, **kwargs):
-            if body.cr_code.co_name == "_produce":
+            if body.cr_code.co_qualname == "CompletedWatch._spawn.<locals>.registered":
+                refusals.append(body.cr_code.co_qualname)
                 raise RuntimeError("synthetic private task factory")
             return real(body, *args, **kwargs)
 
         with monkeypatch.context() as patch:
             patch.setattr(loop, "create_task", refused)
             with pytest.raises(ProjectionClosed) as caught:
-                await watch.drain()
+                await asyncio.wait_for(watch.drain(), 5)
             assert caught.value.reason == "loop_closed"
+            assert refusals == ["CompletedWatch._spawn.<locals>.registered"]
         assert (
             not session._commit_listeners.copy() and not session._close_listeners.copy()
         )

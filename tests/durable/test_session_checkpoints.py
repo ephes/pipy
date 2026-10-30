@@ -63,7 +63,7 @@ def test_policy_prior_counts_base_reset_actual_unload_and_exact_publication(
         (lambda _seed: {"n": 0}) if family else (lambda: {"n": 0}),
         "latest" if scope == "conversation" else None,
         "initial" if scope == "conversation" else None,
-        policy,
+        checkpoint_when=policy,
     )
     options = address(scope, **({"key": ""} if family else {}))
 

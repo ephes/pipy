@@ -420,3 +420,81 @@ def test_actual_early_unavailable_entry_is_hidden_behind_held_owned_slot(
     finally:
         release.set()
         session.close(timeout=10)
+
+
+def test_eager_listener_delivers_two_real_sqlite_drains(tmp_path, monkeypatch):
+    isolate(tmp_path, monkeypatch)
+    session = Session(store_at(tmp_path, "sqlite"))
+    cid = session.commit(lambda tx: tx.create_conversation({"kind": "ownerless"})).id
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        previous = loop.get_task_factory()
+        seen = []
+        watch = await observe_completed(session, cid)
+
+        async def listener(snapshot):
+            seen.append(snapshot.revision)
+
+        try:
+            # Python 3.11 retains the ordinary-factory regression; 3.12+ uses
+            # the real global eager factory through both capture and delivery.
+            loop.set_task_factory(getattr(asyncio, "eager_task_factory", previous))
+            watch.start(listener)
+            first = await asyncio.wait_for(watch.drain(), 5)
+            second = await asyncio.wait_for(watch.drain(), 5)
+            assert seen == [first.revision, second.revision]
+            assert second.revision > first.revision
+        finally:
+            loop.set_task_factory(previous)
+            watch.stop()
+            await watch.wait_closed()
+            await session.aclose()
+
+    try:
+        asyncio.run(run())
+    finally:
+        session.close(timeout=5)
+
+
+def test_lazy_watch_body_is_not_created_before_cancel_or_factory_refusal(tmp_path):
+    session = Session(store_at(tmp_path, "sqlite"))
+    cid = session.commit(lambda tx: tx.create_conversation({"kind": "ownerless"})).id
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        previous = loop.get_task_factory()
+        watch = await observe_completed(session, cid)
+        created = []
+
+        async def body():
+            pytest.fail("Unadmitted body executed")
+
+        def factory():
+            created.append(True)
+            return body()
+
+        def refused(loop, coroutine, **kwargs):
+            raise RuntimeError("labelled factory refusal")
+
+        try:
+            loop.set_task_factory(None)
+            work = watch._spawn(factory)
+            assert work is not None
+            work.cancel()  # No wrapper first step, therefore no inner coroutine.
+            with pytest.raises(asyncio.CancelledError):
+                await work
+            assert not created
+            loop.set_task_factory(refused)
+            assert watch._spawn(factory) is None
+            assert not created
+        finally:
+            loop.set_task_factory(previous)
+            watch.stop()
+            await watch.wait_closed()
+            await session.aclose()
+
+    try:
+        asyncio.run(run())
+    finally:
+        session.close(timeout=5)

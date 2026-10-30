@@ -1,4 +1,4 @@
-"""Actual cold SQLite public controls; same-task reset does not execute work."""
+"""Actual cold SQLite controls; retry owns execution after its admission ACK."""
 
 import asyncio
 import os
@@ -32,7 +32,7 @@ def private_environment(tmp_path, monkeypatch):
         os.environ.update(previous)
 
 
-def test_cold_running_reset_requires_recovery_then_explicit_resume(tmp_path):
+def test_cold_running_retry_requires_recovery_then_admits_continuation(tmp_path):
     start_cut(tmp_path, "progress-after")
     typed = typed_counter(tmp_path, 4)
     before = counts(tmp_path)
@@ -58,22 +58,46 @@ def test_cold_running_reset_requires_recovery_then_explicit_resume(tmp_path):
             parked_row = child_row(tmp_path)
             assert parked_row["state"]["status"] == "pending"
             assert counts(tmp_path) == before
-            reset = await product.retry_task(typed["id"])
+            resets = []
+
+            def reset_commit(commit):
+                for change in commit.changes:
+                    if not hasattr(change, "to_tree"):
+                        continue
+                    tree = change.to_tree()
+                    if (
+                        tree["type"] == "task"
+                        and tree["value"]["id"] == typed["id"]
+                        and "restarts" not in tree["value"]
+                        and not resets
+                    ):
+                        resets.append(tree["value"])
+
+            unsubscribe = product._session.subscribe_commits(reset_commit)
+            try:
+                reset = await product.retry_task(typed["id"])
+            finally:
+                unsubscribe()
             assert reset.to_tree() == {"task_id": typed["id"], "reset": True}
             expected = dict(parked_row)
             del expected["restarts"]
-            assert child_row(tmp_path) == expected
-            graph = snapshot(tmp_path)
-            assert (await product.retry_task(typed["id"])).to_tree() == {
-                "task_id": typed["id"],
-                "reset": False,
-            }
-            assert snapshot(tmp_path) == graph
-            assert counts(tmp_path) == before
+            # The reset transaction is separate from legitimate later progress.
+            assert resets == [expected]
             result = await product.resume()
             assert (
                 result.status == "terminal" and result.inspection.outcome == "completed"
             )
+            graph = snapshot(tmp_path)
+            # The completed child's retired round is no longer reset authority.
+            with pytest.raises(DurableProductError, match="incompatible"):
+                await product.retry_task(typed["id"])
+            assert snapshot(tmp_path) == graph
+            assert (await product.retry_task(result.task_id)).to_tree() == {
+                "task_id": result.task_id,
+                "reset": False,
+            }
+            await asyncio.shield(product._current.task)
+            assert snapshot(tmp_path) == graph
         finally:
             await product.close()
 
@@ -91,7 +115,7 @@ def test_cold_running_reset_requires_recovery_then_explicit_resume(tmp_path):
     authfree_repeated_terminal(tmp_path)
 
 
-def test_distinct_cli_processes_reset_ack_is_not_resume(tmp_path):
+def test_distinct_cli_retry_waits_for_exact_run_and_emits_ack_with_result(tmp_path):
     from restart_reset_sdk_support import cli
 
     start_cut(tmp_path, "effect")
@@ -107,19 +131,25 @@ def test_distinct_cli_processes_reset_ack_is_not_resume(tmp_path):
     assert counts(tmp_path) == before
     code, value, error = cli(tmp_path, "reset", "retry-task", target=target)
     assert code == 0 and not error
-    assert value == {
+    assert {key: item for key, item in value.items() if key != "run"} == {
         "format": "pipy-durable-output",
         "version": 1,
         "operation": "retry-task",
         "task_id": target,
         "reset": True,
     }
+    assert value["run"]["status"] == "terminal"
     assert "restarts" not in child_row(tmp_path)
-    assert counts(tmp_path) == before
+    assert_terminal_once(tmp_path, before)
+    completed_counts = counts(tmp_path)
+    root = value["run"]["task_id"]
     graph = snapshot(tmp_path)
-    code, value, _ = cli(tmp_path, "duplicate", "retry-task", target=target)
+    code, value, error = cli(tmp_path, "retired-child", "retry-task", target=target)
+    assert code == 1 and value is None and "incompatible" in error
+    assert snapshot(tmp_path) == graph and counts(tmp_path) == completed_counts
+    code, value, _ = cli(tmp_path, "duplicate", "retry-task", target=root)
     assert code == 0 and value["reset"] is False
-    assert snapshot(tmp_path) == graph and counts(tmp_path) == before
+    assert snapshot(tmp_path) == graph and counts(tmp_path) == completed_counts
     code, value, _ = cli(tmp_path, "explicit-resume", "resume")
     assert code == 0 and value["status"] == "terminal"
     assert_terminal_once(tmp_path, before)
@@ -152,7 +182,6 @@ def test_saved_receipt_parks_but_reset_preserves_first_winner(tmp_path, count):
             assert counts(tmp_path) == before
             assert raw(tmp_path)["documents"]["pi.tool.receipt"][-1] == receipt
             assert (await product.retry_task(target)).reset
-            assert counts(tmp_path) == before
             result = await product.resume()
             assert (
                 result.status == "terminal" and result.inspection.outcome == "completed"
@@ -216,7 +245,8 @@ def test_selected_root_child_and_invalid_target_fences(tmp_path):
                 "task_id": root,
                 "reset": False,
             }
-            assert snapshot(tmp_path) == graph
+            assert (await asyncio.shield(product._current.task)).status == "held"
+            graph = snapshot(tmp_path)
             for target, options, expected in (
                 (True, {}, "invalid_request"),
                 (-1, {}, "invalid_request"),
@@ -237,7 +267,7 @@ def test_selected_root_child_and_invalid_target_fences(tmp_path):
                 assert refused.value.code == expected
                 assert snapshot(tmp_path) == graph and counts(tmp_path) == before
             assert (await product.retry_task(row["id"])).reset
-            assert counts(tmp_path) == before
+            assert (await product.resume()).status == "terminal"
         finally:
             await product.close()
 
@@ -306,7 +336,7 @@ def test_reset_cancelled_waiter_and_close_keep_real_commit_and_path_owned(tmp_pa
             assert callback_exited.is_set()
             with pytest.raises(DurableProductError) as refused:
                 await queued
-            assert refused.value.code == "closed"
+            assert refused.value.code == "busy"
             await asyncio.to_thread(
                 independent_opener,
                 tmp_path / "session.sqlite",
@@ -321,9 +351,7 @@ def test_reset_cancelled_waiter_and_close_keep_real_commit_and_path_owned(tmp_pa
 
         reopened = await open_product(tmp_path)
         try:
-            graph = snapshot(tmp_path)
             assert not (await reopened.retry_task(target)).reset
-            assert snapshot(tmp_path) == graph and counts(tmp_path) == before
             result = await reopened.resume()
             assert result.status == "terminal"
         finally:

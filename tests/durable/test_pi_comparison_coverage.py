@@ -1089,7 +1089,7 @@ def test_ordinary_owned_live_child_does_not_close_execution_or_parent_parity():
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
     child = rows["DE15a"]
-    assert child["status"] == "IN_PROGRESS"
+    assert child["status"] == "LANDED"
     assert child["current"]["kind"] == "bounded-native"
     assert child["current"]["cases"] == ["task-ordinary-owned-live-v1"]
     assert rows["DE14b7"]["status"] == "LANDED"
@@ -1101,5 +1101,19 @@ def test_ordinary_owned_live_child_does_not_close_execution_or_parent_parity():
         row["status"] == "OPEN" for row in value["rows"] if row["id"].startswith("P")
     )
     rows["DE15"]["current"]["cases"] = child["current"]["cases"]
+    with pytest.raises(o.EvidenceError):
+        a.coverage(value, o.ROOT, o.contract)
+
+
+def test_product_retry_child_retains_historical_reset_and_parent_boundaries():
+    value = o.load(o.FIXTURES / "coverage.json")
+    a.coverage(value, o.ROOT, o.contract)
+    rows = {row["id"]: row for row in value["rows"]}
+    assert rows["DE14a1"]["current"]["cases"] == ["task-product-retry-enable-v1"]
+    assert rows["DE14a1"]["status"] == "IN_PROGRESS"
+    assert rows["DE14a"]["current"]["cases"] == ["restart-parking-v1"]
+    assert rows["DE14a"]["status"] == rows["DE15a"]["status"] == "LANDED"
+    assert rows["DE14"]["status"] == rows["DE14b"]["status"] == "IN_PROGRESS"
+    rows["DE14a1"]["current"]["cases"] = rows["DE14a"]["current"]["cases"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

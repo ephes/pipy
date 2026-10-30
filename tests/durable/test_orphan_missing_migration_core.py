@@ -51,7 +51,13 @@ def test_unobserved_absence_settles_without_fitting_and_retires_task_doc(
     calls = []
     target = rig.create(declaration(1, calls))
     scheduler = owner(rig, [declaration(2, calls)])
-    token = define_doc("missing-migrator-doc", 1, "task", lambda: {"value": 1})
+    token = define_doc(
+        "missing-migrator-doc",
+        1,
+        "task",
+        lambda: {"value": 1},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
 
     def prepare(tx):
         tx.doc(token, task_id=target)["value"] = 2

@@ -71,7 +71,13 @@ def test_unload_after_ack_adoption_publication_and_cancelled_queue_detaches(back
     async def run():
         store = Store(backend.new())
         session = Session(store)
-        spec = define_doc("unload.ordered", 1, "session", lambda: {"n": 0})
+        spec = define_doc(
+            "unload.ordered",
+            1,
+            "session",
+            lambda: {"n": 0},
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         events = []
 
         async def edit(tx):
@@ -190,7 +196,13 @@ def test_unload_failed_owner_retains_first_cause_and_rejects_before_job(backend)
 async def unload_witness(session_type, inner, reached):
     store = Store(inner)
     session = session_type(store)
-    spec = define_doc("mutant.unload", 1, "session", lambda: {"n": 0})
+    spec = define_doc(
+        "mutant.unload",
+        1,
+        "session",
+        lambda: {"n": 0},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     gate, started = asyncio.Event(), asyncio.Event()
     tasks = []
 

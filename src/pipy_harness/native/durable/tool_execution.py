@@ -52,7 +52,13 @@ from .tool_values import (
 )
 
 Tree = dict[str, Any]
-RECEIPT_DOC: Doc[Tree] = define_doc("pi.tool.receipt", 1, "task", dict)
+RECEIPT_DOC: Doc[Tree] = define_doc(
+    "pi.tool.receipt",
+    1,
+    "task",
+    dict,
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
 PROGRESS_DOC: Doc[Tree] = define_doc(
     "pi.tool.progress",
     1,

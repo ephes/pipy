@@ -20,7 +20,14 @@ from pipy_harness.native.durable.records import OMITTED
 def test_immutable_typed_tokens_and_exact_resolution(family, scope):
     factory = define_doc_family if family else define_doc
     kwargs = {"history": "latest", "fork": "initial"} if scope == "conversation" else {}
-    spec = factory("kind", 1, scope, dict, **kwargs)
+    spec = factory(
+        "kind",
+        1,
+        scope,
+        dict,
+        **kwargs,
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     assert type(spec) is (DocFamily if family else Doc)
     with pytest.raises(dataclasses.FrozenInstanceError):
         spec.version = 2
@@ -38,7 +45,13 @@ def test_immutable_typed_tokens_and_exact_resolution(family, scope):
 @pytest.mark.parametrize("version", [True, 0, -1, 1.0, 2**53])
 def test_definition_version_requires_exact_positive_safe_integer(factory, version):
     with pytest.raises(TypeError):
-        factory("k", version, "session", dict)
+        factory(
+            "k",
+            version,
+            "session",
+            dict,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
 
 
 @pytest.mark.parametrize("factory", [define_doc, define_doc_family])
@@ -46,7 +59,14 @@ def test_definition_version_requires_exact_positive_safe_integer(factory, versio
 def test_nonconversation_policies_are_rejected(factory, scope):
     for extra in ({"history": "latest"}, {"fork": "initial"}):
         with pytest.raises(TypeError):
-            factory("k", 1, scope, dict, **extra)
+            factory(
+                "k",
+                1,
+                scope,
+                dict,
+                **extra,
+                checkpoint_when=lambda _value, _ops, _info: False,
+            )
 
 
 def test_all_foreign_address_components_are_rejected_without_hooks():
@@ -72,18 +92,41 @@ def test_all_foreign_address_components_are_rejected_without_hooks():
         )
         for factory in (define_doc, define_doc_family):
             with pytest.raises(TypeError):
-                factory(Text("kind"), 1, scope, dict, **kwargs)
+                factory(
+                    Text("kind"),
+                    1,
+                    scope,
+                    dict,
+                    **kwargs,
+                    checkpoint_when=lambda _value, _ops, _info: False,
+                )
             with pytest.raises(TypeError):
-                factory("kind", 1, Text(scope), dict, **kwargs)
-    single = define_doc("k", 1, "session", dict)
-    family = define_doc_family("k", 1, "session", dict)
+                factory(
+                    "kind",
+                    1,
+                    Text(scope),
+                    dict,
+                    **kwargs,
+                    checkpoint_when=lambda _value, _ops, _info: False,
+                )
+    single = define_doc(
+        "k", 1, "session", dict, checkpoint_when=lambda _value, _ops, _info: False
+    )
+    family = define_doc_family(
+        "k", 1, "session", dict, checkpoint_when=lambda _value, _ops, _info: False
+    )
     for options in ({"key": Text("key")}, {"key": object()}, {"key": OMITTED}):
         with pytest.raises(TypeError):
             resolve(family, **options)
     with pytest.raises(TypeError):
         resolve(single, key="")
     with pytest.raises(TypeError):
-        resolve(define_doc("t", 1, "task", dict), task_id=Number(7))
+        resolve(
+            define_doc(
+                "t", 1, "task", dict, checkpoint_when=lambda _value, _ops, _info: False
+            ),
+            task_id=Number(7),
+        )
     with pytest.raises(TypeError):
         resolve(single, task_id=7)
     object.__setattr__(single, "kind", Text("tampered"))
@@ -93,15 +136,27 @@ def test_all_foreign_address_components_are_rejected_without_hooks():
 
 
 def test_family_keys_and_kinds_have_exact_utf16_identity():
-    one = define_doc_family("\U0001f600", 1, "session", dict)
-    two = define_doc_family("\ud83d\ude00", 1, "session", dict)
+    one = define_doc_family(
+        "\U0001f600",
+        1,
+        "session",
+        dict,
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
+    two = define_doc_family(
+        "\ud83d\ude00",
+        1,
+        "session",
+        dict,
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     assert resolve(one, key="\U0001f600")[0] == resolve(two, key="\ud83d\ude00")[0]
     assert resolve(one, key="")[0] != resolve(one, key="\ud800")[0]
 
 
 @pytest.mark.parametrize("factory", [define_doc, define_doc_family])
 @pytest.mark.parametrize("scope", ["session", "conversation", "task"])
-def test_checkpoint_policy_ingress_identity_positional_and_tampered_resolve(
+def test_checkpoint_policy_ingress_identity_keyword_and_tampered_resolve(
     factory, scope
 ):
     calls = []
@@ -121,16 +176,17 @@ def test_checkpoint_policy_ingress_identity_positional_and_tampered_resolve(
 
     policy = Policy()
     history, fork = ("latest", "initial") if scope == "conversation" else (None, None)
-    spec = factory("k", 1, scope, dict, history, fork, policy)
+    spec = factory("k", 1, scope, dict, history, fork, checkpoint_when=policy)
     assert spec.checkpoint_when is policy
     options = {} if scope == "session" else {scope + "_id": 7}
     if factory is define_doc_family:
         options["key"] = ""
     resolve(spec, **options)
-    assert factory("k", 1, scope, dict, history, fork).checkpoint_when is None
-    for invalid in (False, 1, Foreign()):
+    with pytest.raises(TypeError, match="checkpoint_when"):
+        factory("k", 1, scope, dict, history, fork)
+    for invalid in (None, False, 1, Foreign()):
         with pytest.raises(TypeError, match="checkpoint_when"):
-            factory("k", 1, scope, dict, history, fork, invalid)
+            factory("k", 1, scope, dict, history, fork, checkpoint_when=invalid)
         object.__setattr__(spec, "checkpoint_when", invalid)
         with pytest.raises(TypeError, match="checkpoint_when"):
             resolve(spec, **options)
@@ -138,3 +194,20 @@ def test_checkpoint_policy_ingress_identity_positional_and_tampered_resolve(
     info = CheckpointInfo(4)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.deltas_since_base = 5
+
+
+@pytest.mark.parametrize("factory", [Doc, DocFamily, define_doc, define_doc_family])
+def test_checkpoint_policy_is_required_keyword_only(factory):
+    def policy(_value, _ops, _info):
+        return False
+
+    with pytest.raises(TypeError, match="checkpoint_when"):
+        factory("required", 1, "session", dict)
+    with pytest.raises(TypeError, match="checkpoint_when"):
+        factory("required", 1, "session", dict, checkpoint_when=None)
+    with pytest.raises(TypeError):
+        factory("required", 1, "session", dict, None, None, policy)
+    assert (
+        factory("required", 1, "session", dict, checkpoint_when=policy).checkpoint_when
+        is policy
+    )

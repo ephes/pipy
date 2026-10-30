@@ -362,8 +362,22 @@ def test_runtime_documents_use_invocation_scope_for_acquire_and_retire(rig, scop
 
     session, store = rig
     policy = {"history": "latest", "fork": "current"} if scope == "conversation" else {}
-    singleton = define_doc("runtime.single", 1, scope, lambda: {"n": 0}, **policy)
-    family = define_doc_family("runtime.family", 1, scope, lambda seed: seed, **policy)
+    singleton = define_doc(
+        "runtime.single",
+        1,
+        scope,
+        lambda: {"n": 0},
+        **policy,
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
+    family = define_doc_family(
+        "runtime.family",
+        1,
+        scope,
+        lambda seed: seed,
+        **policy,
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     acquired, retired, release = threading.Event(), threading.Event(), threading.Event()
 
     async def phase(task, runtime, context):
@@ -440,7 +454,13 @@ def test_atomic_terminal_entry_and_all_task_document_retirements(rig):
     def seed(tx):
         for index in range(132):
             tx.doc(
-                define_doc("unknown." + str(index), 1, "task", lambda: {"x": 1}),
+                define_doc(
+                    "unknown." + str(index),
+                    1,
+                    "task",
+                    lambda: {"x": 1},
+                    checkpoint_when=lambda _value, _ops, _info: False,
+                ),
                 task_id=id,
             )
 

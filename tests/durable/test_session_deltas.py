@@ -1,4 +1,4 @@
-"""Actual default-policy Draft/Tx delta joins on Memory, SQLite and reopen.
+"""Actual explicit-policy Draft/Tx delta joins on Memory, SQLite and reopen.
 
 These tests exercise the existing Python methods, not translated primitives.
 The persisted replay is authoritative; strict OwnedJson equality retains native
@@ -620,7 +620,7 @@ def test_untouched_nested_signed_zero_and_order_survive_other_edits(rig, accesse
     r.mode.run(run)
 
 
-@pytest.mark.parametrize("policy", [None, False, True])
+@pytest.mark.parametrize("policy", [False, True])
 @pytest.mark.parametrize("zero", [0.0, -0.0], ids=["positive", "negative"])
 @pytest.mark.parametrize("variant", ["simple", "accessed", "untouched"])
 @pytest.mark.parametrize("dirty", [False, True], ids=["empty", "unrelated-edit"])
@@ -647,7 +647,7 @@ def test_checkpoint_signed_zero_uses_exact_persisted_replay(
         1,
         "session",
         lambda: initial,
-        checkpoint_when=None if policy is None else choose,
+        checkpoint_when=choose,
     )
 
     async def edit(tx):
@@ -673,12 +673,9 @@ def test_checkpoint_signed_zero_uses_exact_persisted_replay(
             assert r.store.commits[-1][0].to_tree()["content"]["kind"] == (
                 "base" if policy is True else "delta"
             )
-            if policy is not None:
-                assert (
-                    len(seen) == 1
-                    and seen[0][0] is current.value
-                    and seen[0][1] is pub.ops
-                )
+            assert (
+                len(seen) == 1 and seen[0][0] is current.value and seen[0][1] is pub.ops
+            )
         else:
             assert len(r.store.commits) == before and current is old and seen == []
         if r.mode.sync:

@@ -2077,8 +2077,8 @@
     },
     {
       "path": "src/pipy_harness/native/durable/generation.py",
-      "current_sha256": "079d6ecdce033004224930c55d2ec579c8595ffb3017ab7b741a11da42b110c3",
-      "disposition": "Existing synthetic unavailable result has explicit mapping details; no change needed."
+      "current_sha256": "74927319018e29fcc3f4ed8098a1f29f8d35c791e12debb5a89c6264036fe567",
+      "disposition": "Existing synthetic unavailable result has explicit mapping details; no change needed.; release1.4 explicit required checkpoint policy declaration, existing details ABI unchanged"
     },
     {
       "path": "src/pipy_harness/native/durable/tool_graph.py",

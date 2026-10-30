@@ -107,7 +107,13 @@ def test_enabled_idle_owner_does_not_wake_on_setter(rig, monkeypatch):
 
 def test_sqlite_oracle_detects_revision_only_write(tmp_path):
     rig = Rig("sqlite", tmp_path)
-    doc = define_doc("live.policy.oracle", 1, "session", lambda: {"stable": True})
+    doc = define_doc(
+        "live.policy.oracle",
+        1,
+        "session",
+        lambda: {"stable": True},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     try:
         rig.session.commit(lambda tx: tx.doc(doc))
         before = rig.snapshot()

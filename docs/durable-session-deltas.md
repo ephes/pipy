@@ -4,7 +4,7 @@ The private `native/durable/tx.py` joins the delivered
 [draft Tracker](durable-draft-tracker.md) to actual Session transactions and
 [current-delta Storage](durable-current-deltas.md). A new document writes one
 base. An ordinary loaded document writes a delta when its normalized operations
-are nonempty and its optional [checkpoint policy](durable-session-checkpoints.md)
+are nonempty and its required [checkpoint policy](durable-session-checkpoints.md)
 does not select a base. This changes
 the private durable Session; it does not make durable execution the product
 runtime default or close any P row.

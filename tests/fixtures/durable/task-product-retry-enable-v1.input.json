@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "phase": "task-product-retry-enable-v1",
+  "cases": [
+    {"id": "genuine-parked-sqlite", "parked": true, "restart_limit": 1},
+    {"id": "live-noop-sqlite", "parked": false, "restart_limit": 1}
+  ]
+}

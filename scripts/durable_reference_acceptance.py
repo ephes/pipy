@@ -49,6 +49,7 @@ VERIFICATION = {
 PLAN = "docs/specs/2026-10-19-durable-execution-plan.md"
 CHILDREN = {
     "DE14a",
+    "DE14a1",
     "DE14b1",
     "DE14b2",
     "DE14b3",
@@ -306,6 +307,7 @@ def de_source_anchor(key: str, locations: dict[str, int]) -> str:
 
 BOUNDED_NATIVE = {
     "DE14a",
+    "DE14a1",
     "DE14b1",
     "DE14b2",
     "DE14b3",
@@ -346,6 +348,7 @@ BOUNDED_NATIVE = {
 }
 DE_EVIDENCE = {
     "DE14a": "de14a-bounded-restart-parking",
+    "DE14a1": "de14a1-product-retry-continuation",
     "DE14b": "de14b1-cold-task-migration",
     "DE14b1": "de14b1-cold-task-migration",
     "DE14b2": "de14b2-live-restart-policy",
@@ -459,6 +462,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13b": ["retained-tool-reporting-v1"],
         "DE13c1": ["interrupted-tool-continuation-v1"],
         "DE14a": ["restart-parking-v1"],
+        "DE14a1": ["task-product-retry-enable-v1"],
         "DE14b1": ["task-migration-cold-v1"],
         "DE14b2": ["restart-policy-live-v1"],
         "DE14b3": ["task-definition-publication-idle-v1"],
@@ -518,6 +522,7 @@ def de_current(row: Any, c: Any) -> None:
         "DE13c1": "docs/durable-tools.md",
         "DE13c2": "docs/durable-adjudication.md",
         "DE14a": "docs/durable-restart-parking.md",
+        "DE14a1": "docs/durable-restart-parking.md",
         "DE14b1": "docs/durable-task-migration.md",
         "DE14b2": "docs/durable-restart-parking.md",
         "DE14b3": "docs/specs/de14b3-definition-publication.md",
@@ -707,6 +712,7 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"retained-tool-reporting-v1"} if key == "DE13b" else set())
                 | ({"interrupted-tool-continuation-v1"} if key == "DE13c1" else set())
                 | ({"restart-parking-v1"} if key == "DE14a" else set())
+                | ({"task-product-retry-enable-v1"} if key == "DE14a1" else set())
                 | ({"task-migration-cold-v1"} if key == "DE14b1" else set())
                 | ({"restart-policy-live-v1"} if key == "DE14b2" else set())
                 | (

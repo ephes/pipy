@@ -47,6 +47,7 @@ AUDIT: DocFamily[None, Tree] = define_doc_family(
     lambda _: {},
     "latest",
     "initial",
+    checkpoint_when=lambda _value, _ops, _info: False,
 )
 
 

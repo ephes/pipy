@@ -178,10 +178,10 @@ def test_resume_close_translates_actual_inspection_error_for_coalesced_waiters(
             monkeypatch.setattr(product_api, "ainspect_task", held_inspection)
             first = asyncio.create_task(product.resume())
             await asyncio.wait_for(entered.wait(), 5)
-            owned = product._resume_work
+            owned = product._current
             second = asyncio.create_task(product.resume())
             await asyncio.sleep(0)
-            assert product._resume_work is owned and not second.done()
+            assert product._current is owned and not second.done()
             closing = asyncio.create_task(product.close())
             await asyncio.wait_for(product._session.await_closed(), 5)
             assert not closing.done()  # The real control lease is still held.

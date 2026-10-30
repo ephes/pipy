@@ -74,46 +74,59 @@ internal scheduler is unsupported: its public admission and inspection continue
 to use its immutable constructor policy. The [bounded contract](specs/2026-10-28-de14b2-live-restart-policy-plan.md)
 keeps public live settings, listeners and registry handover separate.
 
-## Reset the same task, then resume explicitly
+## Reset and admit the same task
 
 ```python
 ack = await product.retry_task(task_id, selection=selection)
 assert ack.task_id == task_id
-# ack.reset says whether this operation removed the current count.
+# reset describes only removal of the current parked streak.
+# The Product already owns continuation; resume joins it while active.
 result = await product.resume(selection)
 ```
 
-The public reset is noninvoking. It requires the matching profile, catalog,
-workspace, header and selected-run ownership. It removes only the current
-parked task's restart count; task ID, checkpoint, input, memos, receipts and
-audits remain unchanged. It creates neither a new tool attempt nor a nonce.
-A repeated reset normally acknowledges `reset=false`; after a later crash a
-new reset can remove the newly accumulated streak. This is not a durable
-historical idempotency promise.
+The ACK follows the real reset transaction and final run admission. It is not
+callback completion. Matching profile, catalog, workspace, header and selected-run
+ownership remain required. Reset changes only the current parked task's restart
+count; continuation can subsequently advance its state. It creates no new attempt
+or nonce and leaves existing receipt authority intact. A live no-op reset also
+admits continuation. A terminal selected root acknowledges without constructing a
+scheduler, after the same final health/close check.
+
+An active same-selection run makes another retry refuse `busy`; a different
+selection refuses `selection_required`. Resume joins an active admitted retry.
+Before successful ACK, resume instead uses one owned handoff: if retry admission
+refuses, it waits for that operation's actual cleanup before trying its own run
+admission. It never inherits a retry-target-only refusal as resume authority.
+Handoff errors remain pending until all attached owners retire; later callers
+coalesce rather than start overlapping work. After healthy settlement a new
+public resume performs a fresh run/preflight, not a cached result lookup.
 
 ```sh
 pipy durable retry-task --store run.sqlite --workspace . \
   --provider openai --model MODEL --target-task 123 --format json
-pipy durable resume --store run.sqlite --workspace . \
-  --provider openai --model MODEL --format json
 ```
 
 For a retry-successor selection, add the existing `--task` and
-`--resolution-nonce` pair to both commands. `--target-task` alone identifies the
-counter-reset target. `authorize-retry` still authorizes a separate NEW attempt
-and retains its existing receipt fences and nonce semantics.
+`--resolution-nonce` pair. `--target-task` identifies only the reset target.
+The command waits for its exact admitted continuation and physical close, then
+emits a version1 operator envelope with the unchanged reset ACK fields and a
+version2 `run` result. Completed work exits0, held work exits3, and failed work
+exits1. `authorize-retry` still authorizes a separate NEW attempt.
 
 A surviving stored running task has not yet acquired its crash-recovery count.
-A cold reset refuses `unavailable` without writes; explicitly resume first.
-For example, running count four becomes pending count five and held on resume;
-reset then removes the count, and a further explicit resume continues. No
-implicit recovery occurs during reset. Unknown/foreign/incompatible targets,
-wrong loops, reentry and closed owners keep their existing bounded error codes.
+A cold retry refuses `unavailable` without writes; explicit resume must first
+recover it. No implicit recovery occurs during reset. A lost reset COMMIT ACK
+never authorizes dispatch or compensation. Repeated resets are not a durable
+historical idempotency guarantee: a later crash can accumulate a new streak.
 
-The private scheduler's `retry`/`aretry` requires an opened healthy owner. It
-clears only parked live work and enables scheduling after a successful call,
-including a no-op. Public product reset deliberately does not enable; full Pi
-public retry-enable parity remains open.
+Canceling an SDK waiter leaves accepted work owned. A continuation exception
+after successful ACK, including cleanup failure, latches the fixed
+`continuation_failed` code until close; terminal failed/held values do not.
+A positively identified own-close stop is separate. Subsequent mutations and
+standalone close report the latch after physical retirement. See
+[Product lifetime and errors](durable-product-session.md#retry-continuation-and-close-errors).
+Private scheduler retry still requires an opened healthy owner; Product admission
+does not expose arbitrary scheduler tasks or live policy settings.
 
 ## Receipts and uncertainty
 

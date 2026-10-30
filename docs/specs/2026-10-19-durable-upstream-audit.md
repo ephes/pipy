@@ -1,5 +1,7 @@
 # Durable execution upstream audit
 
+Current durable target (owner decision2026-10-29): literal Pi release1.4.0, `4a080252f06caf63a525d7873c5d94d3c23887e0`. The [release bridge](2026-10-29-durable-release-1.4-bridge.md) records the required-policy/profile migration and open ClientIdentity/CodeMode obligations. Earlier dated1.3 evidence below remains historical; no final release outcomes are inferred.
+
 Audit date: 2026-10-19. This is a source audit for the
 [implementation plan](2026-10-19-durable-execution-plan.md), not a claim that
 pipy already implements the audited behavior.

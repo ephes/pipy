@@ -23,8 +23,20 @@ values = import_module("durable_reference.orphan_failed_migration_values")
 previous = import_module("definition_publication_reference_support")
 origins = previous.origins
 sqlite_snapshot = previous.sqlite_snapshot
-NOTE = define_doc(values.DOC_KINDS[0], 1, "task", lambda: {"n": 0})
-CACHED = define_doc(values.DOC_KINDS[1], 1, "task", lambda: {"n": 0})
+NOTE = define_doc(
+    values.DOC_KINDS[0],
+    1,
+    "task",
+    lambda: {"n": 0},
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
+CACHED = define_doc(
+    values.DOC_KINDS[1],
+    1,
+    "task",
+    lambda: {"n": 0},
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
 OTHER = define_doc(
     "fixture.orphan.failed-migration.unrelated",
     1,
@@ -32,6 +44,7 @@ OTHER = define_doc(
     lambda: {"n": 0},
     history="rewindable",
     fork="current",
+    checkpoint_when=lambda _value, _ops, _info: False,
 )
 
 

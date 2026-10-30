@@ -293,15 +293,16 @@ def profile_case(recipe, output, mode):
     async def opening(*args, **kwargs):
         product = await original(*args, **kwargs)
         before.append(await product._read(lambda: product_tables(product)))
-        close = product.close
+        close_outcome = product._close_outcome
 
         async def closing():
             try:
                 final.append(await product._read(lambda: product_tables(product)))
             finally:
-                await close()
+                outcome = await close_outcome()
+            return outcome
 
-        product.close = closing
+        product._close_outcome = closing
         return product
 
     durable_cli.open_durable_product_session = opening

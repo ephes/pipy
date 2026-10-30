@@ -110,8 +110,25 @@ class CommandOwner:
                     self.io_work = None
 
     def accept(self, offered: Coroutine[Any, Any, T]) -> asyncio.Task[T]:
-        task = asyncio.create_task(offered)
+        gate = asyncio.get_running_loop().create_future()
+
+        async def gated() -> T:
+            try:
+                await gate
+            except BaseException:
+                offered.close()
+                raise
+            return await offered
+
+        wrapper = gated()
+        try:
+            task = asyncio.create_task(wrapper)
+        except BaseException:
+            wrapper.close()
+            offered.close()
+            raise
         self.work.append(task)
+        gate.set_result(None)
         return task
 
     async def stage(self, work: asyncio.Task[T]) -> T:
@@ -127,7 +144,7 @@ class CommandOwner:
             notification.cancel()
             await asyncio.gather(notification, return_exceptions=True)
 
-    async def cleanup(self) -> None:
+    async def cleanup(self, *, body_failed: bool = False) -> None:
         self.stopping = True
         work = self.io_work
         if work is not None:
@@ -141,11 +158,16 @@ class CommandOwner:
                 pass
         try:
             if self.product is not None:
-                await self.product.close()
+                outcome = await self.product._close_outcome()
+                outcome.raise_error(body_failed=body_failed)
         finally:
             # Close precedes joining resume/control waiters: it seals the
             # Session and waits actual workers without taking their control lock.
-            await asyncio.gather(*self.work, return_exceptions=True)
+            current = asyncio.current_task()
+            await asyncio.gather(
+                *(work for work in self.work if work is not current),
+                return_exceptions=True,
+            )
 
 
 def stdin_fd() -> int:

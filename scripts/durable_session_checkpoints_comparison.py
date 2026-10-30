@@ -60,10 +60,10 @@ from pipy_harness.native.durable.storage import (  # noqa: E402
 from pipy_harness.native.durable.tx import DraftRevoked, RawDocumentChange  # noqa: E402
 
 PHASE = "session-checkpoints-j-v1"
-PROFILE = "binary64-utf16-ordered-v1"
+PROFILE = "binary64-utf16-ordered-required-policy-v2"
 BACKENDS = ("memory", "sqlite", "reopen")
 CASES = (
-    *("counts-" + policy for policy in ("absent", "false", "true", "count>=2")),
+    *("counts-" + policy for policy in ("false", "true", "count>=2")),
     *(
         "scope-" + scope + "-" + family
         for scope in ("conversation", "task")
@@ -79,15 +79,15 @@ CASES = (
     "creation-final-zero",
     *(
         "zero-" + "-".join((policy, zero, variant, dirty))
-        for policy in ("absent", "false", "true")
+        for policy in ("false", "true")
         for zero in ("positive", "negative")
         for variant in ("simple", "accessed", "untouched")
         for dirty in ("empty", "dirty")
     ),
 )
-INPUT = ROOT / "tests/fixtures/durable/session-checkpoints-v1.input.json"
-EXPECTED = ROOT / "tests/fixtures/durable/session-checkpoints-v1.expected.json"
-MANIFEST = ROOT / "tests/fixtures/durable/session-checkpoints-v1.manifest.json"
+INPUT = ROOT / "tests/fixtures/durable/session-checkpoints-v2.input.json"
+EXPECTED = ROOT / "tests/fixtures/durable/session-checkpoints-v2.expected.json"
+MANIFEST = ROOT / "tests/fixtures/durable/session-checkpoints-v2.manifest.json"
 DRIVER = ROOT / "scripts/durable_reference/cases/session-checkpoints.mts"
 DESTINATION = "session-checkpoints-j.mts"
 SOURCES = a.SOURCES | d.SOURCES
@@ -156,7 +156,7 @@ def recipe() -> Any:
         "checkpoint profile",
     )
     d.require(
-        type(value["cases"]) is list and len(value["cases"]) == 52,
+        type(value["cases"]) is list and len(value["cases"]) == len(CASES),
         "checkpoint recipe count",
     )
     d.require(
@@ -175,7 +175,7 @@ def recipe() -> Any:
         )
         seen.add(row["id"])
         d.require(
-            row["policy"] in ("absent", "false", "true", "count>=2")
+            row["policy"] in ("false", "true", "count>=2")
             and row["scope"] in ("session", "conversation", "task")
             and type(row["family"]) is bool,
             "checkpoint policy/scope",
@@ -391,7 +391,7 @@ async def native_case(row: Any, inner: Any, path: Path, backend: str) -> Any:  #
             initial,
             "latest" if row["scope"] == "conversation" else None,
             "initial" if row["scope"] == "conversation" else None,
-            None if row["policy"] == "absent" else policy,
+            checkpoint_when=policy,
         )
 
     spec = make("checkpoint." + row["id"])
@@ -1553,8 +1553,8 @@ def attest(folder: Path, acceptance: Path, sqlite: Path) -> Any:
         "native_mode": "async",
         "product_integration": False,
         "full_document_parity": False,
-        "reference_cases": dict.fromkeys(BACKENDS, 52),
-        "native_cases": dict.fromkeys(BACKENDS, 52),
+        "reference_cases": dict.fromkeys(BACKENDS, len(CASES)),
+        "native_cases": dict.fromkeys(BACKENDS, len(CASES)),
     }
     for key, wanted in expected.items():
         d.require(d.same(value[key], wanted), "Checkpoint result drift: " + key)

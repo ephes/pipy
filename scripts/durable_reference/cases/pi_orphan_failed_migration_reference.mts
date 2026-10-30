@@ -14,9 +14,9 @@ const {createModels}=await import('@earendil-works/pi-ai');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-failed-migration-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-parked-control","backend":"sqlite","cold":false,"parked":true,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}],"definition_versions":{"stored":1,"available":2}});
 const clone=(x:any)=>structuredClone(x);
-const NOTE=defineDoc({kind:'fixture.orphan.failed-migration.note',version:1,scope:'task',initial:()=>({n:0})});
-const CACHED=defineDoc({kind:'fixture.orphan.failed-migration.cached',version:1,scope:'task',initial:()=>({n:0})});
-const OTHER=defineDoc({kind:'fixture.orphan.failed-migration.unrelated',version:1,scope:'conversation',history:'rewindable',fork:'current',initial:()=>({n:0})});
+const NOTE=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.note',version:1,scope:'task',initial:()=>({n:0})});
+const CACHED=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.cached',version:1,scope:'task',initial:()=>({n:0})});
+const OTHER=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.unrelated',version:1,scope:'conversation',history:'rewindable',fork:'current',initial:()=>({n:0})});
 function sqlSnapshot(path:string){
  const db=new DatabaseSync(path,{readOnly:true});
  try{db.exec('PRAGMA query_only=ON; BEGIN');const result:any={};

@@ -73,6 +73,7 @@ MODULES = (canonical.MODULES - {"packages/durable/src/storage/memory.ts"}) | {
     "packages/durable/src/storage/sqlite/storage.ts",
 }
 SOURCES = canonical.SOURCES | {
+    "packages/ai/src/utils/identity.ts",
     "packages/ai/src/api/openai-codex-responses.ts",
     "packages/ai/src/api/azure-openai-config.ts",
     "packages/ai/src/api/openai-responses.ts",

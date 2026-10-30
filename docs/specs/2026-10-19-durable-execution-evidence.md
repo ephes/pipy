@@ -1,6 +1,8 @@
 # Native durable execution evidence ledger
 
-Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 LANDED at `facea5d1`; DE14b6 LANDED at `8c01b35`; DE14b7 LANDED at `5a9bb487`; DE15a core development recorded at the 2026-10-29 checkpoint; DE15 OPEN; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
+Current durable target (owner decision2026-10-29): literal Pi release1.4.0, `4a080252f06caf63a525d7873c5d94d3c23887e0`. The [release bridge](2026-10-29-durable-release-1.4-bridge.md) records the required-policy/profile migration and open ClientIdentity/CodeMode obligations. Earlier dated1.3 evidence below remains historical; no final release outcomes are inferred.
+
+Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 LANDED at `facea5d1`; DE14b6 LANDED at `8c01b35`; DE14b7 LANDED at `5a9bb487`; DE15a LANDED at `2da6ee7`; DE15 OPEN; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-29. This ledger accompanies the
 [work order](2026-10-19-durable-execution-plan.md) and
 [pinned upstream audit](2026-10-19-durable-upstream-audit.md). It is an acceptance
@@ -193,6 +195,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE13c2 | Explicit historical blocked adjudication | LANDED | Delivered `06823ad`; whole-code/full/six-platform/resource/two24phase-chain acceptance; unsupported authority remains open |
 | DE14 | Full task recovery and definition migration | IN_PROGRESS | None; all gates OPEN |
 | DE14a | Bounded restart parking and same-task reset | LANDED | Delivered `48fd187`; source-bound acceptance and qualified historical checks [below](#de14a-bounded-restart-parking) |
+| DE14a1 | Selected Product retry continuation | IN_PROGRESS | [2026-10-29 development epochs](#de14a1-product-retry-continuation); no final or parent closure |
 | DE14b | Remaining restart/migration/orphan policy | IN_PROGRESS | Cold generic migration is DE14b1; live registry/settings/handover and broader ownership/abort budgets remain deferred |
 | DE14b1 | Generic cold task migration and inspection | LANDED | [Bounded implementation and acceptance](#de14b1-cold-task-migration); no parent closure |
 | DE14b2 | Owner-local restart-policy publication | LANDED | [Bounded private implementation](#de14b2-live-restart-policy); no Product setting or parent closure |
@@ -201,7 +204,7 @@ that coverage here. A local validation result is not a landed slice.
 | DE14b5 | Older-definition generic-root orphan | LANDED | [Delivered `facea5d1`](#de14b5-older-definition-orphan); historical development epochs retained |
 | DE14b6 | Observed failed-migration generic-root orphan | LANDED | `8c01b35`; [dated development and delivery](#de14b6-observed-failed-migration-orphan) |
 | DE14b7 | Absent migration-handler generic-root orphan | LANDED | [Delivered `5a9bb487`](#de14b7-absent-migration-handler-orphan); historical development epochs retained |
-| DE15a | Private ordinary-owned-live query prerequisite | IN_PROGRESS | [2026-10-29 core checkpoint](#de15a-ordinary-owned-live-core); no parent closure |
+| DE15a | Private ordinary-owned-live query prerequisite | LANDED | [2026-10-29 core checkpoint](#de15a-ordinary-owned-live-core); no parent closure |
 | DE15 | Ownership, waiting and completing | OPEN | None; all gates OPEN |
 | DE16 | Durable cancellation and close | OPEN | None; all gates OPEN |
 | DE17 | Sleep, retry, deferred poll and wake | OPEN | None; all gates OPEN |
@@ -9245,3 +9248,40 @@ lifecycle asymmetries and 15 SQL joins. Root accepted each epoch separately;
 [DE15a evidence](../evidence/de15a-ordinary-owned-live.md) retains exact receipts,
 failed fixture epochs and provenance limits. No final integrated CODE/full/
 platform/resource/chain or parent acceptance is transferred from those results.
+
+## DE15a delivery and Product retry implementation checkpoint
+
+DE15a was delivered at `2da6ee7a5fa4b67e4693f4fd523bd7d47a7a6345`, sole parent
+`5a9bb487`, tree `d041a8466429d18687374c9ac718aa64dfacad5e`. The coordinator's
+independent delivery receipt joins remote, source bytes/modes and committed
+blobs; earlier dated Core/Broad/reference development paragraphs retain their
+original epochs. The bounded read prerequisite does not close DE15/DE14 or any
+of the 43 parent criteria.
+
+At the 2026-10-29 Product retry implementation checkpoint, the accepted A-prime
+PLAN ended with a valid terminal advisory (0 Critical, 0 Warning, 1 Suggestion).
+Its stale-header suggestion was removed; this was not a CLEAN verdict. Product
+reset/admission ACK, continuation ownership, pre-ACK resume handoff and physical
+close reporting are now described in the Product/restart/headless guides.
+Early ordinary-quality and focused-test receipts identify exact private source
+epochs, including preserved style/fixture failures. No Broad/reference, CODE,
+final gate or delivery result for this later Product change is asserted here.
+
+## DE14a1 Product retry continuation
+
+At the 2026-10-29 integration checkpoint, Root accepted three separate
+development epochs: bby Core/affected158 (zero failures/errors/skips) with whole
+mypy1132 and Ruff/format1261; isolated Broad8 on fftx; and isolated Reference15
+plus two real Native/Pi cases and thirteen expected CLI outcomes on fftx.
+The reference continuation reused its actual Native/module receipts after a
+private artifact-projector path correction; it did not replay them or transfer
+their PASS to bby. The earlier style, fixture, eager-watch and owner-stopped
+epochs remain preserved outside git. These are development receipts, not
+CODE, full/platform/resource/cumulative-chain or delivery acceptance.
+
+The common oracle proves reset/admission and held progress, not equal raw Task
+states: at the held follow-up provider the native Tool target is already
+terminal while its Product operation is pending; Pi's generic target is running.
+Full records, callback history and the ACK/void difference remain raw. The new
+phase follows ordinary_owned_live; no old profile predicate or parent obligation
+is replaced. See [the reference boundary](../durable-reference.md#product-same-task-retry-reference-boundary).

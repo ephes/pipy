@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
+  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "sources": {
     "package.json": "251d6944a533e034e5a28570cb460966916e6b10c29c398dc61cea11dcd21790",
     "packages/chord/src/delta/apply-immutable-trusted.ts": "b3c1849d8792d1d8848bcd2df564ea131c54722a0ad16b5f76ecc398ab22efed",
@@ -16,9 +16,9 @@
   "closure": {
     "docs/durable-draft-tracker.md": "5906cc3937e308405202a681d0bd167c6ed3d15d8ab1d7c4bc18aab761f997d4",
     "scripts/durable_draft_tracker_comparison.py": "eaa23ef87b442714c031018a3b36ff89ebcc769fda9f53f9c67b346d60d9df44",
-    "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
+    "scripts/durable_pi_comparison.py": "b1c2ab50b568929b67edf90245565e946585c1bf293ba290e0252005054bb6a8",
     "scripts/durable_reference/cases/draft-tracker.mts": "7da47ef95cf5fd143a512f6ca1c0042a1cdee79978b2b15fb9f1195feff618bc",
-    "scripts/durable_reference_acceptance.py": "7700d9f693b42d14a8809cab0d3b818a3c9adb38a6426981bf8d8eeacd3ee6b2",
+    "scripts/durable_reference_acceptance.py": "42da3589636ac2500b1b7638ceac435bcf12ed2df80d360614cfb8c5a4708118",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",

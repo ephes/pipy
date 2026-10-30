@@ -35,7 +35,13 @@ if TYPE_CHECKING:
 
 Tree = dict[str, Any]
 AUDIT: DocFamily[None, Tree] = define_doc_family(
-    "pipy.operator.resolution", 1, "conversation", lambda _: {}, "latest", "initial"
+    "pipy.operator.resolution",
+    1,
+    "conversation",
+    lambda _: {},
+    "latest",
+    "initial",
+    checkpoint_when=lambda _value, _ops, _info: False,
 )
 
 

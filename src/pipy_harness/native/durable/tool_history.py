@@ -22,8 +22,15 @@ ORDER_DOC: Doc[Tree] = define_doc(
     lambda: {"rounds": {}},
     "latest",
     "initial",
+    checkpoint_when=lambda _value, _ops, _info: False,
 )
-PREPARE_DOC: Doc[Tree] = define_doc("pi.generation.next", 1, "task", dict)
+PREPARE_DOC: Doc[Tree] = define_doc(
+    "pi.generation.next",
+    1,
+    "task",
+    dict,
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
 
 
 def _round_ids(

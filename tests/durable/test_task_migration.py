@@ -540,7 +540,13 @@ def test_deep_unicode_owned_arguments_and_result_aliases_stay_detached(rig):
 def test_sqlite_silence_oracle_detects_restored_payload_revisions(rig):
     from pipy_harness.native.durable.documents import define_doc
 
-    doc = define_doc("migration.oracle", 1, "session", lambda: {"stable": True})
+    doc = define_doc(
+        "migration.oracle",
+        1,
+        "session",
+        lambda: {"stable": True},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
     rig.session.commit(lambda tx: tx.doc(doc))
     before = rig.snapshot()
 

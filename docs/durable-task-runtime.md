@@ -156,7 +156,7 @@ observer writer, general retry/migration or graph engine is introduced.
 
 The opt-in [DE11 async product session](durable-product-session.md) now composes
 this existing native authority. It admits one input atomically, executes only
-on explicit resume, and closes through actual Session ownership. Python
+on explicit resume or admitted same-task retry, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
@@ -165,8 +165,9 @@ acceptance remain DE12. Broader parity obligations remain OPEN.
 ## Bounded restart parking (DE14a)
 
 [Restart parking and same-task reset](durable-restart-parking.md) add an immutable
-per-owner default-five ceiling and allowlisted inspection metadata. Public reset
-requires existing profile/selection/ownership admission and does not dispatch;
-explicit resume remains separate. It is distinct from new-attempt authorization.
+per-owner default-five ceiling and allowlisted inspection metadata. Public retry
+requires existing profile/selection/ownership admission and acknowledges reset
+plus admission of an owned continuation. Active public resume joins that work;
+new-attempt authorization remains separate.
 Operational parking can delay valid receipt settlement without rewriting it.
 Live settings and broader migration/ownership behavior remain deferred.

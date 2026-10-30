@@ -134,10 +134,16 @@ def token(
             scope,
             initial or (lambda seed: {"seed": seed, "hits": 0}),
             **options,
+            checkpoint_when=lambda _value, _ops, _info: False,
         )
         if family
         else define_doc(
-            kind, version, scope, initial or (lambda: {"lines": []}), **options
+            kind,
+            version,
+            scope,
+            initial or (lambda: {"lines": []}),
+            **options,
+            checkpoint_when=lambda _value, _ops, _info: False,
         )
     )
 

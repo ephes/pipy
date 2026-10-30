@@ -36,8 +36,10 @@ for(const recipe of input.cases){
  let harness:any,conversation:any;const requests:any[]=[],publications:any[]=[];
  const faux=fauxProvider({api:'openai-completions',provider:'openai',models:[{id:'gpt-test',cost:{input:1,output:2,cacheRead:3,cacheWrite:4}}]});
  const baseModels=createModels();baseModels.setProvider(faux.provider);
+ const requestIdentities:any[]=[];
  const models=new Proxy(baseModels,{get(target,property){
   if(property==='streamSimple')return(_model:any,transcript:any,options:any)=>{
+   requestIdentities.push(structuredClone(options?.identity??null));
    const final=(async()=>{
     const tasks=await harness.commit((tx:any)=>tx.scanTasks({},100),ctx);
     const parent=tasks.items.find((task:any)=>task.kind==='pi.generation'&&task.state.status==='running'&&task.state.checkpoint.phase==='request');
@@ -109,7 +111,7 @@ for(const recipe of input.cases){
    usage_once:usageMatches(entries.filter((entry:any)=>entry.kind==='pi.assistant').map((entry:any)=>entry.model[0].usage),ledger.models['openai/gpt-test']),
    parent_after_results:results.length===recipe.names.length,cutoff:requests.every((request:any)=>request.cutoff===request.latest),retained_terminal:lifecycle.retained_terminal};
  }
- raw.push({id:recipe.id,tasks,entries,requests,effects,ledger,publications,lifecycle,profile:closed?'closed-round':'replay-prefix-only'});
+ raw.push({id:recipe.id,requestIdentities,tasks,entries,requests,effects,ledger,publications,lifecycle,profile:closed?'closed-round':'replay-prefix-only'});
  cases.push({id:recipe.id,observed:encode(observed)});
 }
 writeFileSync(out+'/observed.json',JSON.stringify({schema_version:1,phase:input.phase,cases}));

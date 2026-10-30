@@ -18,19 +18,19 @@ notes = define_doc(
 )
 ```
 
-`Doc`, `DocFamily`, `define_doc` and `define_doc_family` accept optional
-`checkpoint_when` after their existing positional `history` and `fork`
-arguments. It must be callable or `None`; address resolution rechecks that
+`Doc`, `DocFamily`, `define_doc` and `define_doc_family` require keyword-only
+`checkpoint_when`, preserving positional `history` and `fork` arguments.
+It must be callable; omission and `None` are rejected. address resolution rechecks that
 ingress before a transaction memo hit. Acquisition captures the callable once.
 A bound method keeps its normal Python receiver.
 
 The callback receives the exact immutable `OwnedJson` candidate, exact immutable
 normalized operations, and frozen `CheckpointInfo(deltas_since_base)`. The count
 belongs to the prior committed incarnation. Returning exact `True` writes a
-base and resets the count to zero; exact `False`, or an absent policy, writes a
+base and resets the count to zero; an explicit exact `False` writes a
 delta and increments the count. An ordinary checkpoint publication still carries
 the original operations. A root replacement operation is a delta under the
-default policy.
+explicit false policy.
 
 Every draft is prepared and revoked before the first policy runs, including
 nested and detached views and suspended iterators. Owner checks, task replacement
@@ -150,3 +150,5 @@ JavaScript array-index own-key ordering profile. The command returns 0 for the
 declared comparison, 1 for a schema-valid semantic mismatch and 2 for invalid
 evidence. These captures complement the deterministic native lifecycle, authority,
 failure and SQLite tests; they do not claim product integration or full parity.
+
+Release1.4 requires the callback declaration. The [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md) records the v2 case migration and historical-subset unit oracle; current release runtime evidence remains separate.

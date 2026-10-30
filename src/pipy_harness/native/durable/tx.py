@@ -1533,8 +1533,10 @@ class _TxCore:
         """All preparation and validation finished; no lock surrounds policy."""
         for plan in plans:
             policy, loaded, prepared = plan.checkpoint_when, plan.loaded, plan.prepared
-            if policy is None or loaded is None or plan.content is None:
+            if loaded is None or plan.content is None:
                 continue
+            if policy is None:
+                raise TypeError("Loaded document requires checkpoint_when")
             assert prepared is not None
             selected = policy(
                 prepared.value, prepared.ops, CheckpointInfo(loaded.deltas_since_base)

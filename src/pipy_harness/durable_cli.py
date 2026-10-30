@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 from pipy_harness.native.agent.messages import AgentUserMessage
@@ -87,32 +88,79 @@ def inspect_metadata(command: DurableCommand) -> dict[str, Any]:
             return {"tasks": tasks}
 
 
-async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None) -> int:
-    owner.check()
-    if command.action == "inspect":
-        value = await owner.stage(
-            owner.accept(owned_call(lambda: inspect_metadata(command)))
-        )
-        envelope = {
-            "format": "pipy-durable-output",
-            "version": 1,
-            "operation": "inspect",
-            **value,
-        }
-        await owner.stage(
-            owner.accept(
-                write_output(
-                    json_output(envelope),
-                    owner,
-                )
+@dataclass(frozen=True, slots=True)
+class _RetryReport:
+    text: str
+    code: int
+
+
+async def _retry_report(
+    command: DurableCommand, owner: CommandOwner, product: DurableProductSession
+) -> _RetryReport:
+    assert command.target_task_id is not None
+    selection = (
+        DurableRunSelection(command.task_id, command.nonce)
+        if command.task_id is not None and command.nonce is not None
+        else None
+    )
+    operation = product._retry_operation(command.target_task_id, selection)
+    assert operation.ack is not None
+    reset = await asyncio.shield(operation.ack)
+    result = await asyncio.shield(operation.task)
+    value = {
+        "format": "pipy-durable-output",
+        "version": 1,
+        "operation": "retry-task",
+        **reset.to_tree(),
+        "run": run_output(result),
+    }
+    code = (
+        0
+        if result.status == "terminal" and result.inspection.outcome == "completed"
+        else (3 if result.status == "held" else 1)
+    )
+    return _RetryReport(json_output(value), code)
+
+
+async def _inspect(command: DurableCommand, owner: CommandOwner) -> int:
+    value = await owner.stage(
+        owner.accept(owned_call(lambda: inspect_metadata(command)))
+    )
+    envelope = {
+        "format": "pipy-durable-output",
+        "version": 1,
+        "operation": "inspect",
+        **value,
+    }
+    await owner.stage(
+        owner.accept(
+            write_output(
+                json_output(envelope),
+                owner,
             )
         )
-        return 0
-    assert command.workspace is not None
+    )
+    return 0
+
+
+async def _content(
+    command: DurableCommand, owner: CommandOwner, fd: int | None
+) -> str | None:
     content = command.prompt
     if fd is not None:
         content = await read_input(fd, owner, AgentUserMessage.CONTENT_MAX_LENGTH * 4)
         input_message(content)
+    return content
+
+
+async def _execute(
+    command: DurableCommand, owner: CommandOwner, fd: int | None
+) -> int | _RetryReport:
+    owner.check()
+    if command.action == "inspect":
+        return await _inspect(command, owner)
+    assert command.workspace is not None
+    content = await _content(command, owner, fd)
     owner.check()
     profile = None if command.provider is None else build_profile(command)
     owner.check()
@@ -142,7 +190,9 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
     if command.action == "start":
         assert content is not None
         await owner.stage(owner.accept(product.submit(content)))
-    if command.action in ("authorize-retry", "adjudicate-interrupted", "retry-task"):
+    if command.action == "retry-task":
+        return await owner.stage(owner.accept(_retry_report(command, owner, product)))
+    if command.action in ("authorize-retry", "adjudicate-interrupted"):
         output = await _operator(command, owner, product)
         code = 0
     else:
@@ -177,24 +227,6 @@ async def _execute(command: DurableCommand, owner: CommandOwner, fd: int | None)
 async def _operator(
     command: DurableCommand, owner: CommandOwner, product: DurableProductSession
 ) -> dict[str, Any]:
-    if command.action == "retry-task":
-        assert command.target_task_id is not None
-        selection = (
-            DurableRunSelection(command.task_id, command.nonce)
-            if command.task_id is not None and command.nonce is not None
-            else None
-        )
-        reset = await owner.stage(
-            owner.accept(
-                product.retry_task(command.target_task_id, selection=selection)
-            )
-        )
-        return {
-            "format": "pipy-durable-output",
-            "version": 1,
-            "operation": command.action,
-            **reset.to_tree(),
-        }
     assert command.task_id is not None and command.nonce is not None
     payload: dict[str, Any]
     if command.action == "adjudicate-interrupted":
@@ -217,17 +249,43 @@ async def _operator(
     }
 
 
+async def _finish(owner: CommandOwner, *, body_failed: bool) -> None:
+    cleanup = owner.accept(owner.cleanup(body_failed=body_failed))
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            continue
+    cleanup.result()
+
+
 async def _run(command: DurableCommand, owner: CommandOwner, fd: int | None) -> int:
+    result: int | _RetryReport = 1
     try:
-        return await _execute(command, owner, fd)
-    finally:
-        cleanup = asyncio.create_task(owner.cleanup())
-        while not cleanup.done():
-            try:
-                await asyncio.shield(cleanup)
-            except asyncio.CancelledError:
-                continue
-        cleanup.result()
+        result = await _execute(command, owner, fd)
+    except BaseException:
+        await _finish(owner, body_failed=True)
+        raise
+    code = result.code if isinstance(result, _RetryReport) else result
+    await _finish(owner, body_failed=code == 1)
+    if isinstance(result, _RetryReport):
+        # Only retry-task defers output until Product retirement. A fresh
+        # existing CommandOwner owns JUST this flush; it cannot acquire a
+        # Product or resurrect the stopped execution owner's stage admission.
+        output_owner = CommandOwner(owner.signals)
+        try:
+            await output_owner.stage(
+                output_owner.accept(write_output(result.text, output_owner))
+            )
+        finally:
+            await _finish(output_owner, body_failed=True)
+        if code:
+            sys.stderr.write(
+                "Durable command unavailable: "
+                + ("held" if code == 3 else "failed")
+                + "\n"
+            )
+    return code
 
 
 def _drive(

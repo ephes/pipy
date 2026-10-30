@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reference_commit": "2ec55d808d455b1a64a2bf7888198207a096120a",
+  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "sources": {
     "package.json": "251d6944a533e034e5a28570cb460966916e6b10c29c398dc61cea11dcd21790",
     "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981",
@@ -22,18 +22,18 @@
     "packages/durable/src/storage/sqlite/schema.ts": "a5247f752df8707d98b63a3f8e292124ae09afa50b731935e3c2d4864370b1be",
     "packages/durable/src/storage/sqlite/storage.ts": "6778529dada8ac79d54328f7e8924d14a2a25bf33befc186c078482d27e8fe4a",
     "packages/durable/test/sqlite-storage.test.ts": "e91b7e4e234d01e7a048d06f612c61323c8ccbadb3e9df44352dd9326514502c",
-    "packages/telemetry/src/index.ts": "c54ed3262607285c5175334474f950d059df67a9e7c4e6a266ee17420bd226c3",
-    "packages/telemetry/src/memory.ts": "892838095aff6fed3c45242cf2e1564ddacaa5fdcb707c41a9f5bbeb8fae0060",
-    "packages/telemetry/src/metrics.ts": "1484df646a5bb741edc4be082c528601ef9f273fc8e637d6fd4cfce766f958fe",
-    "packages/telemetry/src/noop.ts": "be81dad85a384d48b2b56c85ab509bf6f8424a927ac81508b37f6b011fb0db14"
+    "packages/telemetry/src/index.ts": "97839ea4755527f472303ffd512ff94c0ccd9497716f725a0039eb7fc0a9a310",
+    "packages/telemetry/src/memory.ts": "a6fe141791a800b50cdf17834803a203e1925f7b5a8afaaa0331dc8517164656",
+    "packages/telemetry/src/metrics.ts": "4a7ca7009322e63e12dff530b8850e97e0539f109ac41d90f635b1102103e4f1",
+    "packages/telemetry/src/noop.ts": "77eec443152d4ca9898ded124b1b2e75fb8f31bc01e3e74bfcb0306158e0853d"
   },
   "closure": {
     "docs/durable-current-deltas.md": "b9a3dc44086073ec3e4186093ca746ab2ba061b788d8f7276f0300a6a7eabb40",
     "scripts/durable_current_deltas_comparison.py": "934b1d6c9ab2bb3f5f22d7d4d1b1350f115de5b0dbe037f46aaec9658a590ef9",
     "scripts/durable_delta_ops_comparison.py": "fc6c3d0fe5b2204a6bd3a522424584d2528105e0e920aa6405459d3c84d226d1",
-    "scripts/durable_pi_comparison.py": "121ebdc760198fa89d4402d77f674c4274e32ce0da6bd72f9b34637753be29aa",
+    "scripts/durable_pi_comparison.py": "b1c2ab50b568929b67edf90245565e946585c1bf293ba290e0252005054bb6a8",
     "scripts/durable_reference/cases/storage-current-deltas.mts": "6273a79a76c436c31edea0a7c54432ede3a0f04ef684637ab9c97e488f7a245b",
-    "scripts/durable_reference_acceptance.py": "7700d9f693b42d14a8809cab0d3b818a3c9adb38a6426981bf8d8eeacd3ee6b2",
+    "scripts/durable_reference_acceptance.py": "42da3589636ac2500b1b7638ceac435bcf12ed2df80d360614cfb8c5a4708118",
     "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",

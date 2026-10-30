@@ -151,13 +151,20 @@ pipy durable retry-task --store ./run.sqlite --workspace . \
   --target-task 8 --restart-limit 5 --format json
 ```
 
-The command returns a bounded reset ACK and closes without dispatch. Explicitly
-resume afterward with the matching profile and, for a successor generation,
-the existing `--task`/`--resolution-nonce` selection. Those options never select
-the reset target. A cold surviving running task first needs recovery through
-resume; it cannot be reset before its restart is counted. See
-[restart parking](durable-restart-parking.md) for valid-receipt parking, unknown
-post-reset counters and deferred live reconfiguration/public Pi retry parity.
+The command acknowledges reset/admission internally, owns its exact continuation,
+and waits for selected terminal/held result plus physical cleanup before writing
+its report. Its version1 operator envelope includes `task_id`, `reset` and a
+version2 `run` result; `--format text` still emits this JSON envelope. A matching
+profile and any existing `--task`/`--resolution-nonce` selection remain required.
+Those options never select the reset target. A cold surviving running task first
+needs explicit resume recovery; retry does not recover it implicitly.
+
+Only `retry-task` delays its result output this way. A latched
+`continuation_failed` forbids would-be success/held output. Cleanup does not mask
+an already failing body or signal with the duplicate latch, while an actual
+native cleanup failure retains fatal priority. Other commands retain their
+existing output timing. See [restart parking](durable-restart-parking.md) and
+[Product close errors](durable-product-session.md#retry-continuation-and-close-errors).
 
 ## Evidence and remaining scope
 

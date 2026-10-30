@@ -765,7 +765,15 @@ def _docs(value: Any) -> None:
         keys = {"kind", "version", "scope", "initial"}
         shape(doc, keys | ({"history", "fork"} if owned else set()), "document spec")
         history, fork = doc.get("history"), doc.get("fork")
-        REAL.tx.Doc(doc["kind"], doc["version"], doc["scope"], dict, history, fork)
+        REAL.tx.Doc(
+            doc["kind"],
+            doc["version"],
+            doc["scope"],
+            dict,
+            history,
+            fork,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
         require(type(doc["initial"]) is dict, "Document initial must be an object")
         _literal(doc["initial"])
 
@@ -1412,7 +1420,14 @@ class _Run:
 
         semantics = {k: item[k] for k in ("history", "fork") if k in item}
         kind, version, scope = item["kind"], item["version"], item["scope"]
-        return self.M.tx.Doc(kind, version, scope, factory, **semantics)
+        return self.M.tx.Doc(
+            kind,
+            version,
+            scope,
+            factory,
+            **semantics,
+            checkpoint_when=lambda _value, _ops, _info: False,
+        )
 
     def event(self, table: str, name: str) -> Any:
         if (table, name) not in self.events:
@@ -2204,7 +2219,7 @@ CONTEXT_DRIVER = {
     "base": "SessionImpl",
     "own_members": ["constructor", "guarded", "report"],
     "close_route": "SessionImpl.close",
-    "checkpoint_when": "absent",
+    "checkpoint_when": "explicit-false",
     "task_definition": "structural-stub",
     "sweeps": 0,
 }

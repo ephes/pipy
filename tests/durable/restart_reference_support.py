@@ -14,7 +14,13 @@ from pipy_harness.native.durable.session_core import Session
 from pipy_harness.native.durable.sqlite import open_sqlite_storage
 from pipy_harness.native.durable.tasks import define_task
 
-NOTE = define_doc("fixture.restart.note", 1, "task", lambda: {"writes": 0})
+NOTE = define_doc(
+    "fixture.restart.note",
+    1,
+    "task",
+    lambda: {"writes": 0},
+    checkpoint_when=lambda _value, _ops, _info: False,
+)
 
 
 def origins(root):

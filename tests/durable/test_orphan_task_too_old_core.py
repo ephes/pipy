@@ -47,7 +47,13 @@ def test_older_settlement_uses_terminal_abi_and_retires_documents(rig, monkeypat
     calls = []
     task_id = create(session, declaration(2, calls))
     available = declaration(1, calls)
-    doc = define_doc("older-doc", 1, "task", lambda: {"value": 1})
+    doc = define_doc(
+        "older-doc",
+        1,
+        "task",
+        lambda: {"value": 1},
+        checkpoint_when=lambda _value, _ops, _info: False,
+    )
 
     def prepare(tx):
         tx.doc(doc, task_id=task_id)["value"] = 2

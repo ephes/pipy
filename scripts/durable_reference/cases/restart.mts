@@ -22,7 +22,7 @@ for(const recipe of input.cases){
  let mode='complete',ready!:()=>void,finish!:()=>void;
  let reached=new Promise<void>(r=>ready=r),done=new Promise<void>(r=>finish=r);
  const calls:any[]=[],closed:string[]=[],observedPolicies:any[]=[];
- const Note=defineDoc({kind:'fixture.restart.note',version:1,scope:'task',initial:()=>({writes:0})});
+ const Note=defineDoc({checkpointWhen:()=>false,kind:'fixture.restart.note',version:1,scope:'task',initial:()=>({writes:0})});
  function waitSignal(signal:AbortSignal){return new Promise<void>(resolve=>{if(signal.aborted)resolve();else signal.addEventListener('abort',()=>resolve(),{once:true});});}
  async function phase(task:any,runtime:any,context:any){
   calls.push({phase:task.state.checkpoint.phase,count:count(task)});

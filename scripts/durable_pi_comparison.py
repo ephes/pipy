@@ -23,8 +23,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests/fixtures/durable"
 DRIVER = ROOT / "scripts/durable_pi_reference.mts"
-PIN = "2ec55d808d455b1a64a2bf7888198207a096120a"
-TREE = "b51be844ffaf57e96d06a58d3f45ee90c6ba7401"
+PIN = "4a080252f06caf63a525d7873c5d94d3c23887e0"
+TREE = "56ea45bfd3ef589feaddfaf504cfc08d838d812b"
 RESOLVER = "packages/coding-agent/src/experimental/source-resolver.ts"
 SAFE_INTEGER = 2**53 - 1
 # npm 11.20 copies these four already-extraneous pinned lock records into
@@ -192,7 +192,7 @@ def manifest(fixtures: Path = FIXTURES, driver: Path = DRIVER) -> dict[str, Any]
         PIN,
         TREE,
         "@earendil-works/pi-durable",
-        "1.3.0",
+        "1.4.0",
     ):
         raise EvidenceError("Reference identity drift")
     sources = ref["source_sha256"]
@@ -537,7 +537,7 @@ def install_reference(
     dump(output / "source-sha256.json", originals)
     verify_sources(snapshot, config["reference"]["source_sha256"])
     package = load(snapshot / "packages/durable/package.json")
-    if (package["name"], package["version"]) != ("@earendil-works/pi-durable", "1.3.0"):
+    if (package["name"], package["version"]) != ("@earendil-works/pi-durable", "1.4.0"):
         raise EvidenceError("Pinned package metadata drift")
     execute(
         ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
