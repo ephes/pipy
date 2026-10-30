@@ -1,4 +1,4 @@
-"""Private terminal-only ordinary leaf aborts on the existing Session line.
+"""Private cooperative ordinary leaf aborts on the existing Session line.
 
 Literal Pi durable 1.4 scheduler.ts542–573, 1521–1554, 1858–1935 and
 2390–2397 supply the mark, interrupted-attempt and callback rules. This bounded
@@ -8,6 +8,8 @@ nonterminal cleanup.
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import inspect
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -40,64 +42,186 @@ def _record(row: Tree, status: str, requested: bool) -> bool:
     )
 
 
-def _admit(scheduler: TaskScheduler) -> None:
+def ready(scheduler: TaskScheduler) -> tuple[BaseException | None, bool, bool]:
+    """Read only while the caller owns the scheduler/Session condition."""
+    return (
+        scheduler._owner._failure,
+        scheduler._owner._line_sealed or scheduler._host_done,
+        scheduler._opened,
+    )
+
+
+def _healthy(scheduler: TaskScheduler) -> None:
     with scheduler._guard:
-        failure = scheduler._owner._failure
-        closed = scheduler._owner._line_sealed or scheduler._host_done
-        opened = scheduler._opened
-        busy = (
-            scheduler._enabled
-            or scheduler._draining
-            or scheduler._invocation is not None
+        failure, closed, _opened = ready(scheduler)
+    if failure is not None:
+        raise SessionFailed(failure) from failure
+    if closed:
+        raise SessionClosedError()
+
+
+def _admission(scheduler: TaskScheduler, row: Tree) -> _Invocation | None:
+    # This final guarded snapshot is the shared admission/capture step. The
+    # already-owned Session transaction retains its admitted-commit semantics
+    # if close begins after it. No arbitrary callback runs in this condition.
+    with scheduler._guard:
+        failure, closed, opened = ready(scheduler)
+        invocation = scheduler._invocation
+        same = (
+            invocation is not None
+            and invocation.task_id == row["id"]
+            and invocation.execution.mode == "run"
         )
+        busy = scheduler._enabled or scheduler._draining or invocation is not None
+        generation = scheduler._definition_generation
     if failure is not None:
         raise SessionFailed(failure) from failure
     if closed:
         raise SessionClosedError()
     if not opened:
         raise RuntimeError("Open the scheduler before marking an abort")
-    if busy:
+    if busy and not same:
         raise RuntimeError("Pause and retire the scheduler before marking an abort")
+    if row["state"]["status"] != "terminal":
+        from .scheduler import UnsupportedTaskExecution
 
-
-async def request(
-    scheduler: TaskScheduler, task_id: int
-) -> Literal["marked", "terminal"]:
-    from .scheduler import UnsupportedTaskExecution
-
-    async def change(tx: AsyncTx) -> Literal["marked", "terminal"]:
-        _admit(scheduler)
-        record = await tx.task(task_id)
-        if record is None:
-            raise ValueError("Unknown task")
-        row = cast(Tree, record.to_tree())
-        if row["state"]["status"] == "terminal":
-            _admit(scheduler)
-            return "terminal"
-        ownership = await _capture_async(tx)
-        if not _record(
-            row, "pending", row["abortRequested"]
-        ) or not ownership.root_leaf(task_id):
-            raise UnsupportedTaskExecution(
-                "Abort requires an ordinary pending root leaf"
-            )
-        with scheduler._guard:
-            generation = scheduler._definition_generation
         definition = generation.definitions.get(identity(row["kind"]))
         if definition is None or definition.version != row["version"]:
             raise UnsupportedTaskExecution(
                 "Abort requires the current exact definition"
             )
-        # This check applies to repeated marks as well; drift cannot reset the
-        # counter or borrow the old definition's eligibility.
-        _admit(scheduler)
+    return invocation if same else None
+
+
+async def _mark(
+    scheduler: TaskScheduler, task_id: int
+) -> tuple[str, _Invocation | None]:
+    from .scheduler import UnsupportedTaskExecution
+
+    async def change(tx: AsyncTx) -> tuple[str, _Invocation | None]:
+        record = await tx.task(task_id)
+        if record is None:
+            raise ValueError("Unknown task")
+        row = cast(Tree, record.to_tree())
+        if row["state"]["status"] == "terminal":
+            _admission(scheduler, row)
+            return "terminal", None
+        ownership = await _capture_async(tx)
+        status = row["state"]["status"]
+        if not (
+            (_record(row, "pending", row["abortRequested"]))
+            or _record(row, "running", row["abortRequested"])
+        ) or not ownership.root_leaf(task_id):
+            raise UnsupportedTaskExecution(
+                "Abort requires an ordinary strict root leaf"
+            )
+        invocation = _admission(scheduler, row)
+        if status == "running" and invocation is None:
+            raise UnsupportedTaskExecution("Running abort requires its actual run slot")
+        if invocation is not None and status == "pending" and not row["abortRequested"]:
+            raise UnsupportedTaskExecution(
+                "Only a marked handoff may join its run slot"
+            )
         if not row["abortRequested"]:
             marked = {**row, "abortRequested": True}
             marked.pop("restarts", None)
             tx.set_task(marked)
-        return "marked"
+        return "marked", invocation
 
     return await scheduler._session.acommit(change)
+
+
+async def _retirement(
+    scheduler: TaskScheduler,
+    invocation: _Invocation,
+    closed: concurrent.futures.Future[None],
+) -> None:
+    from .scheduler import _observed
+
+    physical = asyncio.wrap_future(invocation.retired)
+    close_wake = asyncio.wrap_future(closed)
+    physical.add_done_callback(_observed)
+    observers = (asyncio.shield(physical), asyncio.shield(close_wake))
+    try:
+        await asyncio.wait(observers, return_when=asyncio.FIRST_COMPLETED)
+        _healthy(scheduler)
+        await observers[0]
+        _healthy(scheduler)
+    except asyncio.CancelledError:
+        # A genuine escaping run CancelledError is a native failure, not an
+        # observer cancellation. C7 requires first-failure priority here.
+        _healthy(scheduler)
+        raise
+    finally:
+        for observer in observers:
+            observer.cancel()  # shield only: never cancel either owned Future
+
+
+async def request(
+    scheduler: TaskScheduler, task_id: int
+) -> Literal["marked", "terminal"]:
+    closed: concurrent.futures.Future[None] = concurrent.futures.Future()
+    # Atomic usability/registration; close takes each listener only once.
+    unsubscribe = scheduler._session.subscribe_close(lambda: closed.set_result(None))
+    try:
+        result, invocation = await _mark(scheduler, task_id)
+        if invocation is not None:
+            await _retirement(scheduler, invocation, closed)
+        _healthy(scheduler)
+        return cast(Literal["marked", "terminal"], result)
+    except asyncio.CancelledError:
+        _healthy(scheduler)
+        raise
+    finally:
+        unsubscribe()
+
+
+async def handoff(scheduler: TaskScheduler, invocation: _Invocation) -> None:
+    """Drain-only physical retirement; logical ended is intentionally allowed."""
+    from .scheduler import _state
+
+    if invocation.execution.mode != "run":
+        return
+    with scheduler._guard:
+        failure, closed, _opened = ready(scheduler)
+        indexed = scheduler._index.get(invocation.task_id)
+    if failure is not None:
+        raise SessionFailed(failure) from failure
+    if closed:
+        return  # Healthy close rewrites stopped rows only after service join.
+    if indexed is None or not _record(cast(Tree, indexed.to_tree()), "running", True):
+        return
+
+    async def change(tx: AsyncTx) -> None:
+        record = await tx.task(invocation.task_id)
+        with scheduler._guard:
+            same = scheduler._invocation is invocation
+        if not same:
+            raise RuntimeError("Run handoff lost its physical slot")
+        if record is None:
+            return
+        row = cast(Tree, record.to_tree())
+        if not _record(row, "running", True):
+            return
+        # Capture validates the whole graph, but a legitimate late child does
+        # not grant abort authority: pending candidate rechecks strict leaf.
+        await _capture_async(tx)
+        tx.set_task(
+            _state(row, {"status": "pending", "checkpoint": row["state"]["checkpoint"]})
+        )
+
+    try:
+        settlement: Awaitable[None] = scheduler._session.acommit(change)
+        await settlement
+    except SessionClosedError:
+        _healthy_close(scheduler)
+
+
+def _healthy_close(scheduler: TaskScheduler) -> None:
+    with scheduler._guard:
+        failure = scheduler._owner._failure
+    if failure is not None:
+        raise SessionFailed(failure) from failure
 
 
 def candidate(

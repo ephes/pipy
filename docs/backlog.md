@@ -1528,3 +1528,29 @@ durable Pi uninstall-ACK guarantee. The external fixture review is a separate
 gate. These scoped receipts do not themselves establish a final-source Full or
 Main integration/delivery. Broader DE14/DE15/DE16/P09/P10 criteria remain open;
 no new canonical profile, phase, public abort or parent closure is added.
+
+
+## DE16c active ordinary strict root-leaf cancellation
+
+The private [DE16c source](specs/de16c-active-ordinary-leaf-abort.md) extends only
+internal same-run strict-leaf marking. It signals from committed publication,
+fences later runtime writes, and joins actual callback/finally plus the durable
+pending handoff before releasing that physical slot. Same-slot ended and
+pending-adoption repeats share one completion Future. Native failure/healthy
+close authority and the backend lease join remain intact; no observer can cancel
+the owned work. Source authoring is not QA, review, Full or delivery evidence.
+
+The adopted plan remains R2 advisory 0C/0W/1S, not CLEAN. Root accepted focused
+QA on immutable 1f50 (`a9fee928`): mypy 1155/Ruff/format 1287; exact Core
+collection/start/JUnit 166 = 165 PASS plus the existing Memory cold
+skip with SQLite counterpart PASS; Broad 51 PASS; current34/strict docs passed.
+The actual finite C7 runtime cases are evidence, not a review-verdict upgrade.
+Four new cuts plus eleven retained cuts and fourteen OPENER records are bounded
+physical witnesses, not exhaustive, exactly-once, atomic-counter or all-platform
+proof. Earlier DE16a/b receipts stay qualified to their original sources; this
+docs successor holds all 1f50 executable/test/support bytes.
+
+At this status checkpoint CODE, public Pi comparison, Full and Main delivery
+remain open. This bounded prerequisite does not close DE16 or its DE17
+dependency: owned cascade, public abort, failFast, abandonment and timers remain
+deferred; all parent criteria remain open.

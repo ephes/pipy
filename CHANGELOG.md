@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Add private active ordinary strict root-leaf cancellation with committed
+  cooperative signalling, post-mark runtime fences and real callback/finally
+  retirement joining. Same-run repeats preserve one physical completion; existing
+  pending abort, version, cutoff, graph and close/lease gates remain. This is not
+  a public abort/cascade or Full/parity completion claim. See the
+  [DE16c specification](docs/specs/de16c-active-ordinary-leaf-abort.md).
+
 - Add private settlement for already-marked ordinary strict root leaves whose
   definition was removed: an enabled eligible pass below the abort cutoff retires
   the task as `orphaned/missing_task` without a callback or new attempt. Mark

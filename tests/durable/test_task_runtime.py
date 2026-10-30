@@ -220,8 +220,8 @@ def test_close_owns_tentative_reservation_before_ack_even_with_held_listener(rig
     store.commit = commit
     real_retire = scheduler._retire
 
-    def retire(invocation):
-        real_retire(invocation)
+    def retire(invocation, failure=None):
+        real_retire(invocation, failure)
         retired.set()
 
     scheduler._retire = retire

@@ -13,7 +13,7 @@ import concurrent.futures
 import inspect
 import threading
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
@@ -99,6 +99,9 @@ class _Invocation:
     execution: _Execution
     context: TaskContext
     ended: bool = False
+    retired: concurrent.futures.Future[None] = field(
+        default_factory=concurrent.futures.Future
+    )
 
 
 def _state(record: Tree, state: Tree, *, progress: bool = False) -> Tree:
@@ -768,21 +771,46 @@ class TaskScheduler:
         await asyncio.shield(waiting)
 
     async def aabort_leaf(self, task_id: int) -> Literal["marked", "terminal"]:
-        """Mark a paused retired ordinary pending root leaf; never enable work."""
-        from .ordinary_abort import _admit, request
+        """Mark an eligible leaf and join the exact active run's real unwind."""
+        from .ordinary_abort import ready, request
 
         self._session._refuse_reentry("aabort_leaf")
+        if asyncio.get_running_loop() is self._loop:
+            raise RuntimeError("Cannot abort a leaf from its phase host")
         id = safe_integer(task_id)
-        _admit(self)
         work = request(self, id)
+        future = None
+        submitted = False
         try:
-            future = asyncio.run_coroutine_threadsafe(work, self._loop)
-        except BaseException:
-            work.close()
-            raise
+            # Close seals under this same condition. Enqueue only schedules;
+            # dispose an unsubmitted coroutine outside the condition.
+            with self._guard:
+                failure, closed, opened = ready(self)
+                if failure is None and not closed and opened:
+                    future = asyncio.run_coroutine_threadsafe(work, self._loop)
+                    submitted = True
+            if failure is not None:
+                raise SessionFailed(failure) from failure
+            if closed:
+                raise SessionClosedError()
+            if not opened:
+                raise RuntimeError("Open the scheduler before marking an abort")
+        finally:
+            if not submitted:
+                work.close()
+        assert future is not None
         waiting = asyncio.wrap_future(future)
         waiting.add_done_callback(_observed)
-        return await asyncio.shield(waiting)
+        try:
+            return await asyncio.shield(waiting)
+        except asyncio.CancelledError:
+            # A failed run may itself escape with CancelledError. Authoritative
+            # native failure wins over the caller-cancellation interpretation.
+            with self._guard:
+                failure = self._owner._failure
+            if failure is not None:
+                raise SessionFailed(failure) from failure
+            raise
 
     def _retry_ready(self) -> None:
         with self._guard:
@@ -1052,7 +1080,32 @@ class TaskScheduler:
             for row in updates
             if cast(Tree, row.to_tree())["state"]["status"] == "terminal"
         }
+        from .ordinary_abort import _record
+
+        ordinary_marks = {
+            row.id
+            for row in updates
+            if _record(cast(Tree, row.to_tree()), "running", True)
+        }
         with self._guard:
+            invocation = self._invocation
+            signal = (
+                invocation
+                if invocation is not None
+                and invocation.execution.mode == "run"
+                and any(
+                    row.id == invocation.task_id
+                    and row.id in ordinary_marks
+                    and (
+                        row.id not in self._index
+                        or not cast(Tree, self._index[row.id].to_tree())[
+                            "abortRequested"
+                        ]
+                    )
+                    for row in updates
+                )
+                else None
+            )
             old = [self._index.get(r.id) for r in updates]
             for row in updates:
                 self._index[row.id] = row
@@ -1060,7 +1113,23 @@ class TaskScheduler:
                     retired.append(self._migration_failures.pop(row.id, None))
         del old
         del retired
+        if signal is not None:
+            try:
+                self._loop.call_soon_threadsafe(self._signal_mark, signal)
+            except RuntimeError:
+                with self._guard:
+                    closing = self._owner._line_sealed
+                if not closing:
+                    raise
         self._notify()
+
+    def _signal_mark(self, invocation: _Invocation) -> None:
+        with self._guard:
+            current = (
+                self._invocation is invocation and invocation.execution.mode == "run"
+            )
+        if current:
+            invocation.context.signal._signal()
 
     async def _service(self) -> None:
         try:
@@ -1090,10 +1159,22 @@ class TaskScheduler:
             invocation = await self._reserve()
             if invocation is None:
                 return
+            failure = None
             try:
                 await self._run(invocation)
+                from .ordinary_abort import handoff
+
+                await handoff(self, invocation)
+            except BaseException as error:  # noqa: BLE001 - retain physical run failure
+                failure = error
+                self._session.fail(error)
+                raise
             finally:
-                self._retire(invocation)
+                with self._guard:
+                    authoritative = self._owner._failure
+                self._retire(
+                    invocation, authoritative if authoritative is not None else failure
+                )
 
     async def _reserve(self) -> _Invocation | None:
         tentative: _Invocation | None = None
@@ -1170,7 +1251,7 @@ class TaskScheduler:
             return tentative
         except BaseException as error:
             if tentative is not None:
-                self._retire(tentative)
+                self._retire(tentative, error)
             if type(error) is SessionClosedError and self._session.failure is None:
                 return None
             raise
@@ -1330,7 +1411,9 @@ class TaskScheduler:
         # writes and allowing later eligible work without an external wake.
         return None
 
-    def _retire(self, invocation: _Invocation) -> None:
+    def _retire(
+        self, invocation: _Invocation, failure: BaseException | None = None
+    ) -> None:
         self._end(invocation)
         invocation.context.signal._signal()
         with self._guard:
@@ -1338,6 +1421,12 @@ class TaskScheduler:
             if old is invocation:
                 self._invocation = None
         del old
+        # Only the host's drain/reservation-failure owner reaches this point;
+        # physical completion and its callbacks are outside the metadata lock.
+        if failure is None:
+            invocation.retired.set_result(None)
+        else:
+            invocation.retired.set_exception(failure)
 
     def _end(self, invocation: _Invocation) -> None:
         with self._guard:

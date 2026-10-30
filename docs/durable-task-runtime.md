@@ -288,3 +288,34 @@ Pi uninstall-ACK proof. The external fixture review is a separate gate. These
 scoped receipts do not themselves establish a final-source Full or delivery.
 Generic failFast, full DE16 and all 43 parent criteria remain open; physical
 interrupted-abort observations belong to actual Broad cuts, not typed controls.
+
+
+## Active ordinary strict root-leaf cancellation (DE16c)
+
+The private [DE16c extension](specs/de16c-active-ordinary-leaf-abort.md) adds only
+the exact currently owned ordinary run-mode root leaf to internal `aabort_leaf`.
+Committed mark publication signals the cooperative context; the request joins
+real run/finally unwind and a drain-owned pending handoff before slot retirement.
+Logical `ended` and physical completion are separate, including same-slot
+pending-handoff repeats. All strict graph/code/version/restart gates and the
+DE16a/b pending candidate remain authoritative. Cancellation does not cancel
+owned settlement or cleanup; authoritative native failure wins, including an
+escaping run CancelledError. Healthy close can end the request with
+SessionClosedError while retaining the real cleanup/lease join.
+
+Root accepted focused QA on immutable 1f50 (receipt `a9fee928`): whole mypy
+1155/Ruff/format 1287, Core 166 collection/start/JUnit with 165 PASS and one
+existing Memory cold skip (SQLite counterpart PASS), Broad 51 PASS,
+and current34 configuration/recipe/coverage plus strict docs. Four new active
+cuts, eleven retained cuts and fourteen real OPENER records preserve actual
+barriers, process exits and separately captured SQL/callback observations.
+These are bounded witnesses, not exhaustive, exactly-once, atomic-counter or
+all-platform guarantees. Executable/test/support bytes are held by this docs
+successor; the runtime receipts remain qualified to 1f50.
+
+PLAN R2 remains advisory 0C/0W/1S, not CLEAN; actual C7 runtime cases do not
+upgrade it or supply independent CODE. At this status checkpoint CODE, public
+Pi comparison, Full and Main delivery remain open. Native's extra pending
+transaction, running-versus-pending cut accounting and healthy-close request
+outcome remain raw differences from Pi 4a08. Public abort, owned cascades,
+generic failFast, timers and full DE16/P10/parent acceptance remain open.

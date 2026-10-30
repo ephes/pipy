@@ -25,6 +25,9 @@ d, b, o, v = a.d, a.b, a.o, a.v
 # actual imported module identity is stable without rerunning product effects.
 from pipy_harness.native.durable.generation import ROUND_DOC  # noqa: E402,F401
 from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
+
+# Runtime retirement loads this pure dependency; fresh attestation needs it too.
+from pipy_harness.native.durable.ordinary_abort import handoff  # noqa: E402,F401
 from pipy_harness.native.durable.scheduler import TaskScheduler  # noqa: E402
 from pipy_harness.native.durable.session_core import Session  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402

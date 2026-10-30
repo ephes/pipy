@@ -3,12 +3,12 @@
   "phase": "task-orphan-task-too-old-v1",
   "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "parents": {
-    "orphan_missing_definition": "82567e764afc3fcaf3065bf152c0738e2be77f97648f6d16eec95b6a48ff1dbf"
+    "orphan_missing_definition": "96b7136eeeb7647ec452cc494610ff5ff06ee07ebd1c6f7afb7be21eb1ea19af"
   },
   "closure": {
-    "CHANGELOG.md": "1e8beab45f8d6c138cfe2322727a833d48bf599ca4aaf69af004cac2d8b1ba1c",
+    "CHANGELOG.md": "6c6976e1477a9d36e06f9746d6532b8fe66f2f9163930ee753d055da9eff6622",
     "docs/architecture.md": "81f6d51f0c1caff3a0068acd77ed0f1c1bb2437d468ae018a163803fdd02b8f3",
-    "docs/backlog.md": "38040f3f897442a0c95edcc900008e9efdaeac20739782d151d9f0fb777432ae",
+    "docs/backlog.md": "9fcc28d5b2989cb04b1b795d3bd489e18a35b9997bd80c4f62a7aaa443e745b5",
     "docs/durable-adjudication.md": "631472cd6d6ffd6d9a7d890a2973dc0dba78fc68d0c5e2454b6dfe2cef2dad96",
     "docs/durable-canonical-codec.md": "7314fd01a459312411babaddec592d44400b6383b36f3fe71bce9b97a968a1dd",
     "docs/durable-completed-projection.md": "a57f2dc3d217a85467b1504fe255c330ae44f1acab2f1b32991fc3b71b53e9cb",
@@ -20,7 +20,7 @@
     "docs/durable-restart-parking.md": "216f8ec084f843e1196e1651ffdb0b6d5d0629be980cbcf311094f675786a618",
     "docs/durable-session-deltas.md": "1f2ba6f3dabb1466b05e0a742261e29b002e3ca4b0585567732e55bbc20bc1ed",
     "docs/durable-task-migration.md": "10cc62b1e235be5dc5322f6dc2a2cc39e3ef33282e97458e7de1dec25b324984",
-    "docs/durable-task-runtime.md": "0f6cf99c9894743936475faba9976a9b040fce26bc6a84bbe2f17e20d6da274f",
+    "docs/durable-task-runtime.md": "959392243dfe840109b2251414044f5bb828122dc387eab368c2a5724fcc67de",
     "docs/durable-tools.md": "2538d99f821be47ff516e9b1568ebf90b4b564fafa68903160e21b14aa512a18",
     "docs/evidence/2026-10-28-de14b2-live-restart-policy.md": "bf52efd58771c920f0517a5b6bc609417b56bee56a78e735212bcd127baa7baa",
     "docs/evidence/de14b3-definition-publication.md": "8728c98e034a584f0cc6f55983e1c82ce13632af04b7f2b27687905e2fe641d3",
@@ -119,7 +119,7 @@
     "scripts/durable_sqlite_comparison.py": "fcdd8e9de9e7584c885faf7c6e4206e35abacd1e4dd8657db48b0e62972697e3",
     "scripts/durable_sqlite_workload.py": "2407f5f41ef73886417951a82b5d26930b5edf9fefe5103e594dc26bd75c009b",
     "scripts/durable_storage_comparison.py": "209674ac88437d413d00945beb0f3d1e83875e65cf986e24ff70baa71e96be96",
-    "scripts/durable_task_runtime_comparison.py": "7448661227a3a95e0909c787baa9ecb3ae7f271c702e40807c7a3b9a3f8a53eb",
+    "scripts/durable_task_runtime_comparison.py": "d56afa95d473459f4226933fdc80dd1d9eba93aed9e34980ed752f93e3840a51",
     "scripts/durable_tool_comparison.py": "621e55a236705a1e751dd3da33fd451c22501610dc718a89872c4dc3c9365e04",
     "src/pipy_harness/__init__.py": "ff3006a9d027a519dc914038b2bf1d3fba6278748319563bf52eff27ff9f9ac9",
     "src/pipy_harness/adapters/__init__.py": "1b4a2a45d0941bfb5925b00ce99295a699dac76ed8a2c13df0b4fca4cd717c38",
@@ -273,7 +273,7 @@
     "src/pipy_harness/native/durable/resolution_read.py": "089c247ff4752f112db2fee52748855b58a01fb33df77ec71f895fc93eee2339",
     "src/pipy_harness/native/durable/resolution_values.py": "f1a704e21e5b2b31e8963e4ab2621fe3c32041ba3c30d3a39372644f1b181b52",
     "src/pipy_harness/native/durable/restart_policy.py": "2073a9abd6ad97f21cf6efc937e0721727f1034f48872bcd2e9e48f1db7ca951",
-    "src/pipy_harness/native/durable/scheduler.py": "7d4aaa35309fc813ba329c98e0b5eda0aaf4567357a702d602e2ad6601d189aa",
+    "src/pipy_harness/native/durable/scheduler.py": "230b125e631696e4fd0e5710a749fcb01ba818eaa55b7b3698ec552e3a0d8d44",
     "src/pipy_harness/native/durable/session.py": "7584a3132b52a5053d00147c08344f7bf7b2acf87a237ca8fbee764e3b88a2a0",
     "src/pipy_harness/native/durable/session_core.py": "5800eea7138182d5b65e306984af553ce9d27f068ece384c02904b091ab14e28",
     "src/pipy_harness/native/durable/sqlite.py": "bfed03d3f19b6a2cd88e090e34898ddbe2a18cd276b26c22a2f361f3018a8daa",
@@ -679,7 +679,7 @@
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
     "tests/durable/test_task_migration.py": "818938fcb605c206cee766b05d47e901e856481dbde6f86ec326827a07d695b2",
     "tests/durable/test_task_migration_core.py": "62e920f6a7d24c1437ee4028e51cbf13784bd44c2838adab432773ab831525c6",
-    "tests/durable/test_task_runtime.py": "6432c181f08294aafd207542b362eff69dd0c81cdf556a44682b465ab9ce37ba",
+    "tests/durable/test_task_runtime.py": "dc5adc53e45b935f2a3bbf82676e1edc7dbf5590070ad153087efb1d0c5ecaa2",
     "tests/durable/test_task_runtime_comparison.py": "bd03858cc20c3e1d150936d8bc42a8229d6db142af9efe5b10c5f4cc5a585c34",
     "tests/durable/test_task_runtime_sqlite.py": "65e2c5605b3cdc1a486fb034dcf8a76d594f458c59f082bda2af4385a68e5880",
     "tests/durable/test_tool_adjudication.py": "517353a485e0706cf6173d6db5ddb94515dc076608dab39182773f4bfb70092d",
@@ -775,7 +775,7 @@
     "tests/durable/test_owned_completing.py": "e865c3400f0efe5d67811f5bd9bd774ee28923ae1c11a6823923e8cd98fdc136",
     "tests/durable/owned_completing_support.py": "999cb716f20a178d4c8ceb05162878250f16e2fc75651e26f03003381675ebd4",
     "docs/specs/de15b-owned-completing.md": "c6fafdcb744b218933507268cfd58c60c933875665b13ce89e9a19fb5e63fc76",
-    "src/pipy_harness/native/durable/ordinary_abort.py": "a859929ba7f0dfb14d3248c1c2e8074f610f47dfe3f71c67ae3dbbe8d12347d8"
+    "src/pipy_harness/native/durable/ordinary_abort.py": "8f080489a749a4c257bb7390fd8da5cdb06d5d9e957ea04c83af215bef08bf8f"
   },
   "reference_sources": {
     "packages/agent/src/types.ts": "2e116ef60fdaca4e26be5a1ace8d8b47f545d648d365de60b8c9f9d1ba629ee4",

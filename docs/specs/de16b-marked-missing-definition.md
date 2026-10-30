@@ -11,7 +11,7 @@ All nine corrected release test pins remain held.
 Core512a's 115-case QA and scoped CODE R2 remain prior DE16a evidence.
 
 DE16b Core's actual 94 collection/start/JUnit cases on 74f0 produced 93 PASS and one
-existing persistent-Memory cold-reopen skip, with SQLite counterpart PASS.
+existing Memory cold-reopen skip, with SQLite counterpart PASS.
 The subsequent Broad-only revision-oracle repair preserved every production and
 Core-test byte. On 9cc, fresh Broad collection/start/JUnit matched exactly 42 PASS;
 whole mypy 1151/Ruff/format 1283 and current 34 configuration/coverage/strict docs passed
@@ -106,3 +106,22 @@ waits from passive observations; it does not measure an internal hook counter. N
 is added here. Active interruption, owned cascade, sibling failFast, other
 blocked-abort reasons, abandonment execution, sleeping/timers and public abort
 remain deferred.
+
+
+## Active-run successor
+
+[DE16c](de16c-active-ordinary-leaf-abort.md) separately extends internal marking
+to the exact occupied ordinary run-mode strict leaf and joins its actual
+physical unwind. The paused/retired admission statements above describe this
+source checkpoint's original slice; its candidate, terminal-only cleanup,
+cutoff/missing/version rules and source-qualified receipts remain unchanged.
+Root accepted the separate 1f50 focused runtime epoch (`a9fee928`): mypy
+1155/Ruff/format 1287, Core 166 = 165 PASS plus the known Memory cold
+skip with SQLite counterpart PASS, Broad 51 PASS, current34 and strict docs.
+Its four new cuts plus eleven retained cuts and fourteen OPENER records are
+bounded observations, without exhaustive, exactly-once, atomic-counter or
+all-platform authority. The DE16c PLAN remains advisory, not CLEAN; its actual
+C7 runtime tests are not independent review. At this status checkpoint CODE,
+public Pi comparison, Full and Main delivery remain open. No owned cascade,
+generic failFast, public abort or parent closure is added; older receipts keep
+their own source qualification.
