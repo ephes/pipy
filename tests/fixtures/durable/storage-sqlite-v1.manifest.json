@@ -3,11 +3,11 @@
   "phase": "storage-sqlite-d2-v1",
   "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "parents": {
-    "baseline": "4b5114fe6a373054c1ccaa762d400893a274b4ad18b32b7374294f4f59b7bf0a",
-    "a1": "a9ce5f0e758fbd7968bc8db00355994f262576a66474777ffdf31a8b1bc3ef5a",
-    "a2b": "03040f7c0420f12addf47883fae80cb3725ab05b0279bcdb111fb3989da8e697",
-    "b1b": "9667655d7b13a4906b1b1b9c3e7396edf3f5e6f4517bfe8d6c8cee65ce576a9d",
-    "b3": "c38072caefcf0a444793fa2570c686f6c29fdb90498ed295ce4f477afa19b782"
+    "baseline": "98d2e864ed41b64689ad9a0862d154fb1d6b9b96a305d1d3259f86bcb42edeed",
+    "a1": "454ae350834c263a012e1798970cc07766d27fb7666dee5eaaa022d912429231",
+    "a2b": "3f85b350fc0e7ddba3abb254a360d3774b2c3cf26a5ebf0d3540e55100925814",
+    "b1b": "444d63cab4ac512abb8b637cfd2aa240cf88f0b81e9c8c1fe8016b7f2d4f9566",
+    "b3": "a3afc310efbddad0d1fc3b312e5990d946c4796c1078c18a81d46eb6f2b5c689"
   },
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
@@ -57,7 +57,7 @@
     "tests/durable/test_sqlite_ownership.py": "5191e8f91f2868854988fb96677ada7ee18b2c37d6d05800bf4629bc4dc7e741",
     "tests/durable/test_sqlite_schema.py": "9c11dbfcf8c9d73fa2d31821d476d8e25628c48a53e3ccf4f8b02d1bb85526ee",
     "tests/durable/test_sqlite_storage.py": "324b76f7c564bc098589535bffe836eae594b3daf69dcac0b7a5a1fa71bfe659",
-    "tests/durable/test_sqlite_workload.py": "a085fc69ec73952ab63adc9bbd34170d90eb08b7571e7e1a61dfc21b84adb1f7",
+    "tests/durable/test_sqlite_workload.py": "121f489bbb675df25a469f5cb8945529fcd95cb46f17edfc6cc4f03031a44c9c",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
     "tests/fixtures/durable/session-commit-v1.input.json": "81d7af6ecc06804a35876bf69f4485d903fef02338481b2325ffa80472a9c9aa",
     "tests/fixtures/durable/session-guard-v1.input.json": "e8c76be43003eab55b12a0982bd7d5af631e4c7f5d1087f8807663f2744f4442",

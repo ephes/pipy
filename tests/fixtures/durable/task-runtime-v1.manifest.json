@@ -3,13 +3,13 @@
   "phase": "task-runtime-b-v1",
   "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "parents": {
-    "documents": "3f4e9fbdacb68a1e814d09f390d7064964a7de9970c4eb7d3d55c6c00529b47c"
+    "documents": "a7b57485f65cc3bbbe8d5b37c27b1887b5a8613604b78698b02118ae7e8e5424"
   },
   "closure": {
     "docs/durable-restart-parking.md": "216f8ec084f843e1196e1651ffdb0b6d5d0629be980cbcf311094f675786a618",
     "docs/durable-session-deltas.md": "1f2ba6f3dabb1466b05e0a742261e29b002e3ca4b0585567732e55bbc20bc1ed",
     "docs/durable-task-migration.md": "10cc62b1e235be5dc5322f6dc2a2cc39e3ef33282e97458e7de1dec25b324984",
-    "docs/durable-task-runtime.md": "959392243dfe840109b2251414044f5bb828122dc387eab368c2a5724fcc67de",
+    "docs/durable-task-runtime.md": "eebd305f8590ddb5edcc39ba604b8a05c440e4423e0ad158e0985d2c24fe9f72",
     "docs/specs/2026-10-28-de14a-restart-parking-plan.md": "318fcb43e983a7f5743e7b6fcc0e1ab2ded9df7103adfc170fda13d71beb5afd",
     "docs/specs/2026-10-28-de14b1-cold-task-migration-plan.md": "5b9282111b95044922f46c37e96518bc80b2fb4218a29c9b3f75b490878bd06d",
     "scripts/durable_documents_comparison.py": "0d0db3884156f51c261c4f4ca2039ab52076dc9eb0cbc0cf1e5b22389f6549dd",
@@ -141,7 +141,7 @@
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/adjudication.py": "bd2382ba0709e1ca9b90d4e7d9c508d6a9212c1621a1bac0a697ea87e3aa4afa",
     "src/pipy_harness/native/durable/adjudication_policy.py": "f97c76119377498ea1a597b4953443feeb22ee185bf4dd257783ef1396cbcac1",
-    "src/pipy_harness/native/durable/canonical_codec.py": "4b019e9b2a2a436b58a8e272cb5564cfb2eba96f48ea6fd15aabc7e36f30c759",
+    "src/pipy_harness/native/durable/canonical_codec.py": "8870dc10954247e359db29933a255d98cf1d60b12e63add7c9331b5fa441d724",
     "src/pipy_harness/native/durable/checkpoint_codec.py": "da66033a7b1f2784f594ef5ed1739fffe3b0af18cb0256cb9e07e1a6fe15b333",
     "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/completed_projection.py": "352361ece460973b7e0f80d01bb37c89075256f3eb6ebbf41f696d871217da9b",
@@ -487,7 +487,7 @@
     "tests/durable/test_sqlite_ownership.py": "5191e8f91f2868854988fb96677ada7ee18b2c37d6d05800bf4629bc4dc7e741",
     "tests/durable/test_sqlite_schema.py": "9c11dbfcf8c9d73fa2d31821d476d8e25628c48a53e3ccf4f8b02d1bb85526ee",
     "tests/durable/test_sqlite_storage.py": "324b76f7c564bc098589535bffe836eae594b3daf69dcac0b7a5a1fa71bfe659",
-    "tests/durable/test_sqlite_workload.py": "a085fc69ec73952ab63adc9bbd34170d90eb08b7571e7e1a61dfc21b84adb1f7",
+    "tests/durable/test_sqlite_workload.py": "121f489bbb675df25a469f5cb8945529fcd95cb46f17edfc6cc4f03031a44c9c",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
     "tests/durable/test_task_migration.py": "818938fcb605c206cee766b05d47e901e856481dbde6f86ec326827a07d695b2",
     "tests/durable/test_task_migration_core.py": "62e920f6a7d24c1437ee4028e51cbf13784bd44c2838adab432773ab831525c6",
@@ -518,7 +518,7 @@
     "tests/durable/test_owned_completing.py": "e865c3400f0efe5d67811f5bd9bd774ee28923ae1c11a6823923e8cd98fdc136",
     "tests/durable/owned_completing_support.py": "999cb716f20a178d4c8ceb05162878250f16e2fc75651e26f03003381675ebd4",
     "docs/specs/de15b-owned-completing.md": "c6fafdcb744b218933507268cfd58c60c933875665b13ce89e9a19fb5e63fc76",
-    "src/pipy_harness/native/durable/ordinary_abort.py": "8f080489a749a4c257bb7390fd8da5cdb06d5d9e957ea04c83af215bef08bf8f"
+    "src/pipy_harness/native/durable/ordinary_abort.py": "ecd211a8ae18d0129d371eea83ef06adfad02600d81f74514a87ca0c27e0434d"
   },
   "reference_sources": {
     "packages/durable/src/session/transaction.ts": "c6e432ba7198f8a5b611c9c6d754d58edcdfb3b70e2a96ade36be3abe8d719cb",

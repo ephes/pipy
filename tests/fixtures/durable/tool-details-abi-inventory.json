@@ -2072,7 +2072,7 @@
     },
     {
       "path": "src/pipy_harness/native/durable/canonical_codec.py",
-      "current_sha256": "4b019e9b2a2a436b58a8e272cb5564cfb2eba96f48ea6fd15aabc7e36f30c759",
+      "current_sha256": "8870dc10954247e359db29933a255d98cf1d60b12e63add7c9331b5fa441d724",
       "disposition": "Recorded v1 schema preserved; oldest-lossless v2 presence and finite typed evidence; no global codec flip."
     },
     {

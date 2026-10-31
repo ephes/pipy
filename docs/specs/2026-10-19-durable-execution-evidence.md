@@ -8854,7 +8854,12 @@ classes and the canonical saved next ProviderRequest. Normal provider transport
 omits local details. Exact old-v1 fixture bytes were captured with the delivered
 old encoder; new canonical v2 is selected only when v1 would lose information.
 Known v1 declaration/header/request/receipt facts retain their recorded identity;
-outer receipt v1 and rich inner arena compose independently. Actual deep finite
+outer receipt v1 and rich inner arena compose independently.
+The public retained-details functional scenario uses a 60-second outer async
+hang guard for its 1,500-level case and 20 seconds for the other presence cases.
+That guard spans create, first resume, saved-request readback, reopen, second
+resume and the actual CLI, with every depth, value, ACK and call-count check
+retained. It defines no product latency target or per-resume performance limit. Actual deep finite
 JSON has no new global cap. Hooks, normal nested/codemode execution, JSONL/import,
 SDK/automation, tool rows/renderers and exported HTML preserve generic values.
 Finite typed nested evidence uses only the nonmapping branch and never duplicates

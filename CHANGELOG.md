@@ -6,7 +6,36 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ## [Unreleased]
 
+### Changed
+
+- Give the 1,500-level retained-details functional test a bounded 60-second
+  guard for its complete create, resume, readback, reopen and CLI scenario.
+  Other presence cases retain 20 seconds; all value and lifecycle checks remain.
+- Avoid allocating full owned JSON snapshots for canonical object-key validation.
+  Preserve exact string and UTF-16 key identity checks, canonical wire formats,
+  payload validation and immutable value ownership.
+- Partition CI's complete Python 3.11/3.14/3.15 suites into 16 whole-module shards
+  each, with exact-once source/run-bound coverage gates retaining the existing
+  three full-test check names. Existing job/test deadlines, auxiliary checks and
+  unfiltered local checks remain. Actual complete pilot results are required
+  before accepting a workflow change; shard count is not a capacity guarantee.
+- Qualify the two eager-factory lifecycle variants as inapplicable on Python
+  3.11, following existing test capability policy. Default-factory and supported
+  eager assertions remain unchanged. This is test portability, not a Product
+  runtime fix or a claim that all Python 3.11 compatibility is verified.
+
+
 ### Added
+
+- Extend private ordinary strict root-leaf abort marking to genuinely retired,
+  paused allSettled WAITING tasks. Keep their saved wait until real abort
+  reservation; outgoing wait targets stay unmarked and un-signalled. Existing
+  busy/physical-retirement, graph, version, cutoff and cleanup gates remain.
+  Focused validation and one finite public SQLite program per lane completed on
+  their 2026-10-30 source epochs; Native pause and Pi close/reopen schedules remain
+  unpaired. Implementation review, final Full and verified delivery are separate
+  required gates. This is not a public abort/cascade or full P10 claim. See the
+  [DE16d specification](docs/specs/de16d-retired-waiting-leaf-abort.md).
 
 - Add private active ordinary strict root-leaf cancellation with committed
   cooperative signalling, post-mark runtime fences and real callback/finally

@@ -59,14 +59,16 @@ jobs:
       - name: Build documentation
         run: just docs-build
 
-  test:
-    name: Full tests (Python ${{ matrix.python-version }})
+  test-shards:
+    name: Test shard (Python ${{ matrix.python-version }}, ${{ matrix.shard }}/16)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      max-parallel: 8
       matrix:
         python-version: ["3.11", "3.14", "3.15"]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
@@ -99,8 +101,73 @@ jobs:
         env:
           EXPECTED_PYTHON: ${{ matrix.python-version }}
         run: uv run python -c 'import os, sys; assert ".".join(map(str, sys.version_info[:2])) == os.environ["EXPECTED_PYTHON"], sys.version'
-      - name: Run full test suite
-        run: just test
+      - name: Run whole-module CI partition
+        shell: bash
+        run: |
+          out="${{ runner.temp }}/ci-shard-${{ matrix.python-version }}-${{ matrix.shard }}"
+          mkdir -p "$out"
+          uv run python -m pytest -c pyproject.toml --rootdir . -p scripts.ci_shard \
+            --ci-shard-count 16 --ci-shard-index "${{ matrix.shard }}" \
+            --ci-shard-output "$out" \
+            --ci-shard-run-id "${{ github.run_id }}" \
+            --ci-shard-run-attempt "${{ github.run_attempt }}" \
+            --ci-shard-source-sha "${{ github.sha }}" \
+            --junitxml="$out/junit.xml" -vv --tb=long -rA \
+            2> "$out/stderr.log" | tee "$out/stdout.log"
+      - name: Show retained pytest diagnostics
+        if: always()
+        shell: bash
+        run: |
+          stderr="${{ runner.temp }}/ci-shard-${{ matrix.python-version }}-${{ matrix.shard }}/stderr.log"
+          if [[ -f "$stderr" ]]; then cat "$stderr" >&2; fi
+      - name: Retain shard evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2; node24
+        with:
+          name: ci-shard-${{ github.run_attempt }}-py${{ matrix.python-version }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/ci-shard-${{ matrix.python-version }}-${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 14
+
+  test:
+    # Preserve the three existing required-check names; shard jobs have new names.
+    name: Full tests (Python ${{ matrix.python-version }})
+    needs: test-shards
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14", "3.15"]
+    steps:
+      - name: Check out the same source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Download this version and attempt only
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2; node24
+        with:
+          pattern: ci-shard-${{ github.run_attempt }}-py${{ matrix.python-version }}-*
+          path: ${{ runner.temp }}/ci-shard-results
+          merge-multiple: false
+      - name: Require complete exact-once coverage
+        run: |
+          python scripts/ci_shard_aggregate.py "${{ runner.temp }}/ci-shard-results" \
+            --count 16 --python-version "${{ matrix.python-version }}" \
+            --run-id "${{ github.run_id }}" --run-attempt "${{ github.run_attempt }}" \
+            --source-sha "${{ github.sha }}"
+      - name: Require successful shard jobs and artifact upload
+        if: always()
+        # Conservative matrix-wide failure guard also catches failures after
+        # pytest wrote its receipt, for example a failed artifact upload.
+        env:
+          SHARD_JOBS_RESULT: ${{ needs.test-shards.result }}
+        run: test "$SHARD_JOBS_RESULT" = success
 
   real-pty:
     name: Real PTY (${{ matrix.platform }}, Python ${{ matrix.python-version }})

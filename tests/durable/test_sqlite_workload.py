@@ -6,6 +6,8 @@ import copy
 import importlib.util
 import math
 import os
+import selectors
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -218,12 +220,57 @@ def test_missing_ready_event_reaps_actual_child_on_startup_failure(
     def invalid_command(command, **kwargs):
         command = list(command)
         command[4] = "invalid-mode"
-        return original(command, **kwargs)
+        process = original(command, **kwargs)
+        try:
+            # Invalid argparse writes only stderr. Observe stdout readability
+            # without consuming or reaping, so launch owns the real EOF branch.
+            with selectors.DefaultSelector() as ready:
+                ready.register(process.stdout, selectors.EVENT_READ)
+                assert ready.select(timeout=10), "Invalid child did not finish startup"
+            return process
+        except BaseException:
+            # Until communicate reaps, this leader still pins its process group.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=10)
+            finally:
+                for stream in (process.stdin, process.stdout, process.stderr):
+                    stream.close()
+            raise
 
     monkeypatch.setattr(w.subprocess, "Popen", invalid_command)
     with pytest.raises(w.Invalid, match="before readiness"):
         w.launch("clean", folder)
     report = w.load(folder / "process.json")
+    assert report["leader_reaped"] and report["returncode"] != 0
+    with pytest.raises(ProcessLookupError):
+        os.killpg(report["group"], 0)
+
+
+def test_missing_ready_event_reaps_actual_child_on_readiness_deadline(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setitem(w.SPEC["limits"], "child_seconds", 1)
+    monkeypatch.setattr(w, "configuration", lambda: w.SPEC)
+    folder = tmp_path / "no-readiness-child"
+    original = subprocess.Popen
+
+    def no_readiness(command, **kwargs):
+        # This real child keeps stdout open without a readiness event. The
+        # launcher owns its one-second deadline, termination and physical join.
+        return original(
+            [command[0], "-I", "-S", "-c", "import signal; signal.pause()"],
+            **kwargs,
+        )
+
+    monkeypatch.setattr(w.subprocess, "Popen", no_readiness)
+    with pytest.raises(w.Invalid, match="^Child readiness deadline$"):
+        w.launch("clean", folder)
+    report = w.load(folder / "process.json")
+    assert report["event"] is None
     assert report["leader_reaped"] and report["returncode"] != 0
     with pytest.raises(ProcessLookupError):
         os.killpg(report["group"], 0)

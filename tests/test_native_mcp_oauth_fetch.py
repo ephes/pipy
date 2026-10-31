@@ -332,6 +332,16 @@ def _encoded(encoding: str, body: bytes, status: int = 200) -> Reply:
         # Several gzip members are one body.
         ("gzip", gzip.compress(_DOCUMENT[:9]) + gzip.compress(_DOCUMENT[9:])),
     ],
+    ids=[
+        "gzip",
+        "x-gzip",
+        "gzip-mixed-case",
+        "deflate-zlib",
+        "deflate-raw",
+        "deflate-then-gzip",
+        "gzip-then-deflate",
+        "gzip-multiple-members",
+    ],
 )
 def test_a_compressed_answer_is_decoded(
     server: FakeOAuthServer, encoding: str, body: bytes

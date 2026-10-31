@@ -138,6 +138,16 @@ _DOCUMENT = b'{"jsonrpc": "2.0", "id": 1, "result": {}}'
         ("gzip", gzip.compress(_DOCUMENT) + b"\x00garbage"),
         ("deflate", zlib.compress(_DOCUMENT) + b"garbage"),
     ],
+    ids=[
+        "gzip",
+        "x-gzip",
+        "deflate-zlib",
+        "deflate-raw",
+        "deflate-then-gzip",
+        "gzip-multiple-members",
+        "gzip-trailing-garbage",
+        "deflate-trailing-garbage",
+    ],
 )
 def test_a_compressed_body_is_decoded(
     serve: Callable[..., _Server], encoding: str, body: bytes

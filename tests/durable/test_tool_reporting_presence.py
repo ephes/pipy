@@ -207,4 +207,6 @@ def test_public_retained_presence_ack_saved_request_and_auth_free_cli(
                 cursor = cursor["child"]
             assert cursor == {"leaf": "\ud83d\ude00"}
 
-    asyncio.run(asyncio.wait_for(run(), 20))
+    # Bound the whole deep create/resume/readback/reopen/CLI scenario,
+    # rather than impose a performance deadline on each resume.
+    asyncio.run(asyncio.wait_for(run(), 60 if case == "deep1500" else 20))

@@ -186,7 +186,11 @@ just loc           # slopscope line-count summary
 Check formatting with `uv run ruff format --check .`; apply it with
 `uv run ruff format .` (or `just format`). `just loc` uses a frozen uv overlay
 with pre-release resolution; `SLOPSCOPE_SPEC` selects a package or local checkout.
-CI runs full tests on Python 3.11, 3.14, and 3.15, plus real-PTY checks on Linux
+CI partitions the full Python 3.11, 3.14, and 3.15 suites into whole-module shards
+and retains the three `Full tests (Python X)` aggregate check names. Missing or
+incomplete coverage fails those checks; local `just check` stays unfiltered.
+See [Contributing](CONTRIBUTING.md) for coverage qualifications and pilot gates.
+CI also runs real-PTY checks on Linux
 and macOS and runtime-required codemode probes on Linux. The documentation is
 built locally and in CI. [Read the Docs configuration](.readthedocs.yaml) uses
 Zensical and locked documentation dependencies to publish
