@@ -3,13 +3,13 @@
   "phase": "task-runtime-b-v1",
   "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "parents": {
-    "documents": "3f4e9fbdacb68a1e814d09f390d7064964a7de9970c4eb7d3d55c6c00529b47c"
+    "documents": "26db59db3e4c40d5a9374c43952d1b13cd2a5c76aba80be7073be5d93a0e1350"
   },
   "closure": {
     "docs/durable-restart-parking.md": "216f8ec084f843e1196e1651ffdb0b6d5d0629be980cbcf311094f675786a618",
     "docs/durable-session-deltas.md": "1f2ba6f3dabb1466b05e0a742261e29b002e3ca4b0585567732e55bbc20bc1ed",
     "docs/durable-task-migration.md": "10cc62b1e235be5dc5322f6dc2a2cc39e3ef33282e97458e7de1dec25b324984",
-    "docs/durable-task-runtime.md": "959392243dfe840109b2251414044f5bb828122dc387eab368c2a5724fcc67de",
+    "docs/durable-task-runtime.md": "eebd305f8590ddb5edcc39ba604b8a05c440e4423e0ad158e0985d2c24fe9f72",
     "docs/specs/2026-10-28-de14a-restart-parking-plan.md": "318fcb43e983a7f5743e7b6fcc0e1ab2ded9df7103adfc170fda13d71beb5afd",
     "docs/specs/2026-10-28-de14b1-cold-task-migration-plan.md": "5b9282111b95044922f46c37e96518bc80b2fb4218a29c9b3f75b490878bd06d",
     "scripts/durable_documents_comparison.py": "0d0db3884156f51c261c4f4ca2039ab52076dc9eb0cbc0cf1e5b22389f6549dd",
@@ -518,7 +518,7 @@
     "tests/durable/test_owned_completing.py": "e865c3400f0efe5d67811f5bd9bd774ee28923ae1c11a6823923e8cd98fdc136",
     "tests/durable/owned_completing_support.py": "999cb716f20a178d4c8ceb05162878250f16e2fc75651e26f03003381675ebd4",
     "docs/specs/de15b-owned-completing.md": "c6fafdcb744b218933507268cfd58c60c933875665b13ce89e9a19fb5e63fc76",
-    "src/pipy_harness/native/durable/ordinary_abort.py": "8f080489a749a4c257bb7390fd8da5cdb06d5d9e957ea04c83af215bef08bf8f"
+    "src/pipy_harness/native/durable/ordinary_abort.py": "ecd211a8ae18d0129d371eea83ef06adfad02600d81f74514a87ca0c27e0434d"
   },
   "reference_sources": {
     "packages/durable/src/session/transaction.ts": "c6e432ba7198f8a5b611c9c6d754d58edcdfb3b70e2a96ade36be3abe8d719cb",

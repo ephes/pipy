@@ -487,7 +487,7 @@ def test_failure_wakes_request_before_cleanup_but_not_lease_close(rig, monkeypat
         "running-no-slot",
         "restart",
         "abandon",
-        "waiting",
+        "waiting-failFast",
         "sleeping",
         "completing",
         "child",
@@ -516,11 +516,12 @@ def test_existing_strict_negative_boundaries_without_publication(
     else:
         states = {
             "running-no-slot": {"status": "running", "checkpoint": CHECKPOINT},
-            "waiting": {
+            # Retired allSettled waits are covered by the genuine WAITING tests.
+            "waiting-failFast": {
                 "status": "waiting",
                 "checkpoint": CHECKPOINT,
                 "on": [],
-                "policy": "allSettled",
+                "policy": "failFast",
             },
             "sleeping": {"status": "sleeping", "checkpoint": CHECKPOINT, "until": 0},
             "completing": {"status": "completing", "outcome": DONE["outcome"]},
@@ -578,6 +579,9 @@ def test_admitted_mark_settlement_survives_cancelled_request_waiter(active):
 def test_completion_exists_before_fast_callback_and_has_one_retirement(
     rig, monkeypatch, factory
 ):
+    if factory == "eager" and not hasattr(asyncio, "eager_task_factory"):
+        pytest.skip("Python 3.11 has no eager task factory")
+
     async def fast(_row, runtime, _context):
         assert not runtime._invocation.retired.done()
         await runtime.commit(lambda _tx, _current: DONE)

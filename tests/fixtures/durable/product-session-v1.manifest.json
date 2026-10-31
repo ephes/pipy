@@ -3,12 +3,12 @@
   "phase": "product-session-v1",
   "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "parents": {
-    "inspection": "78e4db240a0949b25665f5836ff9950b2e0b6f6e1b98b8ac7fb1788c37a9e9e0"
+    "inspection": "5fb124b379d83c09d736f4dffd33ab138af930d475b34f28f34e81470e645c07"
   },
   "closure": {
-    "CHANGELOG.md": "6c6976e1477a9d36e06f9746d6532b8fe66f2f9163930ee753d055da9eff6622",
+    "CHANGELOG.md": "82711ad40a1437412324f1c60e4bed5fef22f94863dd88c6a780db7de9c382c2",
     "docs/architecture.md": "81f6d51f0c1caff3a0068acd77ed0f1c1bb2437d468ae018a163803fdd02b8f3",
-    "docs/backlog.md": "9fcc28d5b2989cb04b1b795d3bd489e18a35b9997bd80c4f62a7aaa443e745b5",
+    "docs/backlog.md": "c1ae2755e9544ee658c381c9caa15ba40a383458bfcca89372374ec037a78bf8",
     "docs/durable-adjudication.md": "631472cd6d6ffd6d9a7d890a2973dc0dba78fc68d0c5e2454b6dfe2cef2dad96",
     "docs/durable-canonical-codec.md": "7314fd01a459312411babaddec592d44400b6383b36f3fe71bce9b97a968a1dd",
     "docs/durable-completed-projection.md": "a57f2dc3d217a85467b1504fe255c330ae44f1acab2f1b32991fc3b71b53e9cb",
@@ -19,7 +19,7 @@
     "docs/durable-restart-parking.md": "216f8ec084f843e1196e1651ffdb0b6d5d0629be980cbcf311094f675786a618",
     "docs/durable-session-deltas.md": "1f2ba6f3dabb1466b05e0a742261e29b002e3ca4b0585567732e55bbc20bc1ed",
     "docs/durable-task-migration.md": "10cc62b1e235be5dc5322f6dc2a2cc39e3ef33282e97458e7de1dec25b324984",
-    "docs/durable-task-runtime.md": "959392243dfe840109b2251414044f5bb828122dc387eab368c2a5724fcc67de",
+    "docs/durable-task-runtime.md": "eebd305f8590ddb5edcc39ba604b8a05c440e4423e0ad158e0985d2c24fe9f72",
     "docs/durable-tools.md": "2538d99f821be47ff516e9b1568ebf90b4b564fafa68903160e21b14aa512a18",
     "docs/harness-spec.md": "46c7a61cccfe52af3e847f2c7c2f084fbf3b0e35505d8d6dfd41b5650d52457b",
     "docs/providers.md": "756e1e761090792b27a0f95b38fbc2f26cd6fde5c51e3112a708798f81eeebff",
@@ -633,7 +633,7 @@
     "tests/durable/test_owned_completing.py": "e865c3400f0efe5d67811f5bd9bd774ee28923ae1c11a6823923e8cd98fdc136",
     "tests/durable/owned_completing_support.py": "999cb716f20a178d4c8ceb05162878250f16e2fc75651e26f03003381675ebd4",
     "docs/specs/de15b-owned-completing.md": "c6fafdcb744b218933507268cfd58c60c933875665b13ce89e9a19fb5e63fc76",
-    "src/pipy_harness/native/durable/ordinary_abort.py": "8f080489a749a4c257bb7390fd8da5cdb06d5d9e957ea04c83af215bef08bf8f"
+    "src/pipy_harness/native/durable/ordinary_abort.py": "ecd211a8ae18d0129d371eea83ef06adfad02600d81f74514a87ca0c27e0434d"
   },
   "reference_sources": {
     "packages/ai/src/api/anthropic-messages.ts": "1121bf549d81337d6d69ef63dff25bb0f6ca80ba6fa6b726b765ddfcf9d7ca02",
