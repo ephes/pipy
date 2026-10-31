@@ -1554,3 +1554,41 @@ At this status checkpoint CODE, public Pi comparison, Full and Main delivery
 remain open. This bounded prerequisite does not close DE16 or its DE17
 dependency: owned cascade, public abort, failFast, abandonment and timers remain
 deferred; all parent criteria remain open.
+
+
+## DE16d retired allSettled WAITING leaf cancellation
+
+The private [DE16d source](specs/de16d-retired-waiting-leaf-abort.md) extends
+`aabort_leaf` only to a genuine ordinary allSettled WAITING strict root leaf
+after actual invocation retirement and `apause` acknowledgement. Marking retains
+its checkpoint/on fields; explicit resumed abort scheduling ignores outgoing
+wait dependencies without marking or signalling their targets. A WAITING row
+whose original callback/finally still owns a slot remains refused by the existing
+pause/retire fence. Busy/enabled admission and the DE16a/b/c rules are unchanged.
+
+The finite native witness creates pending U behind an absent installed definition,
+then genuinely runs T waiting on U and W waiting on T. Real retirement joins and
+pause ACK precede W's mark/abort; later U installation proves independent U/T
+progress. This registry-fenced sequential schedule is not Pi active-target
+concurrency parity. The independent PLAN R1 was CLEAN. Focused `ceb93206708a`
+validation passed: Core 290 (289 passed, one memory-only cold-reopen skip with a
+passing SQLite counterpart), Broad 77 passed, whole mypy/Ruff/formatting,
+current34 checks and strict docs. Its 18 physical cuts and 22 lease-opener checks
+retain their process/ordering limits; the frozen profile's stale derived PTH hash
+is qualified against exact actual/declared content in the receipt. This combined
+source retains those production/test bytes and C6639's pure attestation import
+fix; prior runs are not relabelled as executions of the combined tree.
+On 2026-10-30 one public SQLite U/T/W program per lane completed on Native
+`bd2c024decb2` and literal Pi 1.4.0: eight shared assertion summaries and separate
+phase counts agreed, and a pure reread rejected a changed counter without producer
+replay. Native pause and Pi close/reopen schedules remain explicitly unpaired.
+The first failed Pi observation fixture and its corrected watch/read ownership
+remain separate evidence; see the specification's dated public receipt.
+Implementation CODE review, final Full and verified Main delivery are separately
+required gates, not conclusions of these bounded receipts. DE16c and earlier
+failed evidence retain their original epochs.
+
+Before final Full/delivery this stacked source must reconcile against actual
+DE16c delivery; a DE16c Full-induced base change requires stopping and reassessing
+this delta. This proof grants no parent closure. Owned cascade/COMPLETING and failFast remain later
+DE16 work; sleeping/polling remains DE17, public SDK/RPC remains separate.

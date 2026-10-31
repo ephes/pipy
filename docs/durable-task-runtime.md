@@ -319,3 +319,43 @@ Pi comparison, Full and Main delivery remain open. Native's extra pending
 transaction, running-versus-pending cut accounting and healthy-close request
 outcome remain raw differences from Pi 4a08. Public abort, owned cascades,
 generic failFast, timers and full DE16/P10/parent acceptance remain open.
+
+
+## Retired ordinary allSettled WAITING leaf abort (DE16d)
+
+The private [DE16d extension](specs/de16d-retired-waiting-leaf-abort.md) permits
+existing `aabort_leaf` to mark an ordinary allSettled WAITING strict root leaf
+only when disabled, physically retired and quiescent after `apause` ACK. No new
+API or global readiness rule is supplied. A committed WAITING state alone does
+not prove retirement: held callback/finally still refuses the request.
+
+The mark keeps WAITING/checkpoint/on/policy until actual resumed abort reservation.
+The existing graph excludes a marked task's outgoing wait dependencies, but still
+refuses any incoming waiter, ownership or child edge. Its on targets are not
+owned abort work and receive no mark/signal/forced outcome. First-mark/repeat,
+cutoff-before-missing, version hold/restoration, terminal-only cleanup, first
+failure and actual close/lease joins retain DE16a/b/c authority. Active-handler
+settlement racing a globally paused request is not a reachable Native witness;
+actual Session read/publication FIFO and later genuine target progress remain
+distinct from Pi's concurrent schedule.
+
+Focused source `ceb93206708a` completed whole mypy/Ruff/formatting, Core 290
+(289 passed and one memory-only cold-reopen skip with the SQLite case passed),
+Broad 77 passed, current34 checks and strict docs. The receipt retains 18 physical
+cuts and 22 independent lease-opener checks, including their process/ordering
+limits and the frozen profile's stale derived PTH hash qualification: actual PTH
+bytes equal the declared startup content. This combined source holds those
+production/test bytes and selects C6639's pure comparison-attestation import fix;
+the prior focused run does not certify execution of the combined tree.
+On 2026-10-30 one public SQLite U/T/W program per lane completed on that
+`bd2c024decb2` runtime and literal Pi 1.4.0. The comparison matched eight shared
+program-assertion summaries and separate phase counts (`T_run=1`, `W_run=1`,
+`W_abort=1`, `U_run=1`, `T_finish=1`); a pure reread rejected an altered counter
+with no producer replay. The first Pi observer failure remains separate from the
+successful fixture-only watch/read correction. See the specification's dated
+public receipt for the actual evidence and observation limits.
+Native `apause` and Pi public close/reopen schedules are unpaired; raw DTOs, SQL,
+events and independent Pi lease behavior are not equated. Independent CODE review,
+final Full and verified Main delivery are separately required gates. Delivered-base
+reconciliation and broader DE16/P10/DE17 dependencies retain their own criteria;
+these bounded receipts do not grant parent acceptance.

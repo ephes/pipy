@@ -42,6 +42,10 @@ def _record(row: Tree, status: str, requested: bool) -> bool:
     )
 
 
+def _waiting(row: Tree, requested: bool) -> bool:
+    return _record(row, "waiting", requested) and row["state"]["policy"] == "allSettled"
+
+
 def ready(scheduler: TaskScheduler) -> tuple[BaseException | None, bool, bool]:
     """Read only while the caller owns the scheduler/Session condition."""
     return (
@@ -111,11 +115,14 @@ async def _mark(
         if not (
             (_record(row, "pending", row["abortRequested"]))
             or _record(row, "running", row["abortRequested"])
+            or _waiting(row, row["abortRequested"])
         ) or not ownership.root_leaf(task_id):
             raise UnsupportedTaskExecution(
                 "Abort requires an ordinary strict root leaf"
             )
         invocation = _admission(scheduler, row)
+        if status == "waiting" and invocation is not None:
+            raise RuntimeError("Pause and retire the scheduler before marking an abort")
         if status == "running" and invocation is None:
             raise UnsupportedTaskExecution("Running abort requires its actual run slot")
         if invocation is not None and status == "pending" and not row["abortRequested"]:
@@ -236,7 +243,7 @@ def candidate(
 
     if (
         ownership is None
-        or not _record(row, "pending", True)
+        or not (_record(row, "pending", True) or _waiting(row, True))
         or not ownership.root_leaf(row["id"])
     ):
         return None

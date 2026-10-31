@@ -23,6 +23,62 @@ root. Full-suite CI covers Python 3.11, 3.14, and 3.15; real-PTY jobs cover
 Linux and macOS on 3.14 and 3.15, and runtime-required codemode probes cover Linux
 on both versions. Lint, formatting, types, and docs run on Python 3.14.
 
+Full-suite CI collects the complete inventory in each of 16 whole-module shards
+per Python version, with at most eight shard jobs running concurrently. Module
+paths use SHA256 modulo 16; the parent command is exactly `uv run python -m
+pytest -c pyproject.toml --rootdir . -p scripts.ci_shard` from the repository root
+with the workflow's explicit run, attempt, source and shard arguments. Builtin
+config/root options are explicit because pytest resolves them before loading
+parent plugins; an external output directory must not select ancestor settings.
+The plugin rejects a root or configuration outside the repository cwd. Do not use a bare `pytest` entry point
+for that namespace plugin, or export sharding options through `PYTEST_PLUGINS`,
+`PYTEST_ADDOPTS`, or a shared `conftest.py`: child pytest commands must stay
+unfiltered. Local `just test` and `just check` also remain unfiltered.
+
+The three aggregate checks retain the names `Full tests (Python 3.11)`,
+`Full tests (Python 3.14)` and `Full tests (Python 3.15)`. Each verifies the same
+complete ordered inventory, exact partition/started/terminal/JUnit identities,
+source SHA and run attempt, and identical well-formed pytest root/configuration
+identities across shards of a version. They fail on missing, duplicate, incomplete or
+failed evidence. A failed shard-job matrix (including upload failure) also
+conservatively fails all three checks after their own validation. Empty shards
+are configuration errors, not normalized pytest exit 5. Ordinary skip, xfail
+and strict-XPASS semantics and their reasons are retained; skipped work is never
+reported as passed. Retained pytest stderr is also shown in a separate always-run
+diagnostics step, preserving the original pytest/pipeline exit status. Auxiliary
+runtime checks remain required independently.
+
+Python 3.11 lacks `asyncio.eager_task_factory`. Only the two newly guarded
+memory/SQLite eager lifecycle variants are capability-inapplicable there; their
+default variants and all real eager assertions on supported versions remain.
+Existing optional `getattr` factory tests in completed projections and Product
+retry continuation retain ordinary-factory coverage on 3.11, not eager proof.
+These two known applicability skips are not an exhaustive 3.11 audit. The tail
+unseen in the earlier cancelled CI runs remains unknown; diagnose any newly
+exposed failure independently rather than expanding a blanket skip exception.
+
+The job limit stays 30 minutes, with all existing test/subprocess deadlines.
+Sixteen shards are a capacity choice, not a throughput guarantee: the historical
+Mac 3.15 proxy had module-hash loads about 89–439 seconds (4.9x imbalance).
+A rough 2.5–3x Linux what-if puts its hottest shard at 1,098–1,318 seconds;
+adding the observed 40–60 seconds of combined setup/collection leaves roughly
+7–11 minutes before new upload/other overhead. This is a scenario, not measured
+Linux per-module timing or a safe-margin claim. Across 48 jobs it suggests about
+8.1–9.9 runner-hours before upload/aggregate/auxiliary work, or an ideal-utilization
+61–74 minute wall-time lower envelope at eight slots; queueing and imbalance can
+increase it. Upload overhead and actual capacity require pilot evidence.
+
+For CI workflow changes, use a reviewed short-lived candidate branch and
+`workflow_dispatch` at its exact commit before Main acceptance (branch push alone
+is not a pilot: the push trigger is Main-only). Require all 48 shards under the
+unchanged limit, all three exact check names and all auxiliary results. Inspect
+actual branch protection/rules and required contexts; preserving job names does
+not itself configure server enforcement. Do not relax administration settings.
+On failure or timeout, retain logs/JUnit/inventory, stop and diagnose the actual
+case or hot shard. Repartitioning needs a reviewed source delta; no blind rerun,
+cap increase, dropped version or skipped slow test supplies acceptance. Fresh
+independent code review must verify these conditions before candidate commit.
+
 To check a second interpreter without replacing the normal `.venv`:
 
 ```sh

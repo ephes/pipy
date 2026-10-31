@@ -484,6 +484,17 @@ def _leaf(value: object) -> dict[str, object] | None:
     return None
 
 
+def _validate_key_identities(keys: list[str]) -> None:
+    # These callers already require exact strings. A key-only JSON object has
+    # no payload to own; retain its exact-key collapse and UTF-16 collision rule.
+    identities: set[bytes] = set()
+    for key in dict.fromkeys(keys):
+        units = key.encode("utf-16-be", "surrogatepass")
+        if units in identities:
+            raise JsonValueError("JSON object keys need distinct UTF-16 identities")
+        identities.add(units)
+
+
 def _children(
     value: object, codec_version: int
 ) -> tuple[str, list[object], list[str] | None]:
@@ -502,7 +513,7 @@ def _children(
         keys = [key for key, _ in pairs]
         if any(type(key) is not str for key in keys):
             _fail()
-        OwnedJson(dict.fromkeys(keys))
+        _validate_key_identities(keys)
         return (
             "mapping",
             [child for _, child in pairs],
@@ -672,10 +683,10 @@ def _decode_node(
     if len(set(keys)) != len(keys):
         _fail()
     values = dict(zip(keys, children, strict=True))
-    OwnedJson(dict.fromkeys(keys))
+    _validate_key_identities(keys)
     if tag == "mapping":
         keys = [bytes.fromhex(key).decode("utf-8", "surrogatepass") for key in keys]
-        OwnedJson(dict.fromkeys(keys))
+        _validate_key_identities(keys)
         if any(
             key.encode("utf-8", "surrogatepass").hex() != old
             for key, old in zip(keys, values, strict=True)

@@ -259,8 +259,9 @@ def test_an_rpc_session_signalled_during_a_run_aborts_it_drops_the_queue_and_clo
 def test_a_print_run_that_is_signalled_closes_its_server(
     workspace: _Workspace,
 ) -> None:
+    # Keep print alive until the signal; MCP connects in the background.
     pipy = subprocess.Popen(  # noqa: S603
-        [*_PIPY, "-p", "hello"],
+        [*_PIPY, "-p", "BLOCK and wait"],
         cwd=workspace.cwd,
         env=workspace.env,
         stdin=subprocess.DEVNULL,

@@ -3,7 +3,7 @@
   "phase": "task-creation-a-v1",
   "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
   "parents": {
-    "documents": "3f4e9fbdacb68a1e814d09f390d7064964a7de9970c4eb7d3d55c6c00529b47c"
+    "documents": "a7b57485f65cc3bbbe8d5b37c27b1887b5a8613604b78698b02118ae7e8e5424"
   },
   "closure": {
     "docs/durable-session-deltas.md": "1f2ba6f3dabb1466b05e0a742261e29b002e3ca4b0585567732e55bbc20bc1ed",
@@ -63,7 +63,7 @@
     "tests/durable/test_sqlite_ownership.py": "5191e8f91f2868854988fb96677ada7ee18b2c37d6d05800bf4629bc4dc7e741",
     "tests/durable/test_sqlite_schema.py": "9c11dbfcf8c9d73fa2d31821d476d8e25628c48a53e3ccf4f8b02d1bb85526ee",
     "tests/durable/test_sqlite_storage.py": "324b76f7c564bc098589535bffe836eae594b3daf69dcac0b7a5a1fa71bfe659",
-    "tests/durable/test_sqlite_workload.py": "a085fc69ec73952ab63adc9bbd34170d90eb08b7571e7e1a61dfc21b84adb1f7",
+    "tests/durable/test_sqlite_workload.py": "121f489bbb675df25a469f5cb8945529fcd95cb46f17edfc6cc4f03031a44c9c",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
     "tests/durable/test_task_creation.py": "38de68e49c92a23d641467bdd12416b936e367275240f1ddd34974272a96d40d",
     "tests/durable/test_task_creation_comparison.py": "5b51f21ad8f4d63af1cc001a1f4f1fdd494cfb86012c19d8eafb7eee8c26da5a",
