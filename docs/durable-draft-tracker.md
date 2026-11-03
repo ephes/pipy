@@ -103,7 +103,7 @@ python scripts/durable_draft_tracker_comparison.py run \
   --output /absolute/path/to/new-output
 ```
 
-Use the pinned Node 26.12.0/npm 11.20.0 toolchain on `PATH`. The driver snapshots
+Use the pinned Node 26.13.0/npm 11.20.0 toolchain on `PATH`. The driver snapshots
 only manifest-listed files using `git show` at
 `2ec55d808d455b1a64a2bf7888198207a096120a`, performs no dependency install, checks
 the actually loaded Node module set and this checkout's native import paths,

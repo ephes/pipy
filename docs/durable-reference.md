@@ -12,16 +12,21 @@ value DTOs; the six-family DE01 scripts remain verification-only. Product code
 never imports a reference runner. Earlier dated1.3 evidence is historical, not a release1.4 rerun. See the [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md).
 
 On 2026-11-03 the owner moved the campaign target to literal release 1.5.0,
-commit `f9a26365568127461c47a07a37dcb42c140a3ac5`. These tools keep executing
-release 1.4.0 until bridge slice R15-1 re-pins the reference, its runtime,
-manifests and drivers; see the [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md).
+commit `f9a26365568127461c47a07a37dcb42c140a3ac5`. Bridge sub-slice R15-1a moved
+the runtime pin from Node v26.12.0 to v26.13.0 (npm stays 11.20.0) on the same
+release 1.4.0 reference. These tools keep executing release 1.4.0 until R15-1b
+re-pins the reference, its manifests and drivers; see the
+[1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md).
 
 ## Reproduction
 
-Use a POSIX host with Git, tar, **Node v26.12.0, npm 11.20.0**, supported Python,
+Use a POSIX host with Git, tar, **Node v26.13.0, npm 11.20.0**, supported Python,
 registry access and a local Git checkout root containing the exact pinned
 commit. These runtime versions are deliberately stricter than upstream's Node
->=22.19.0 minimum. No provider credentials, login, paid model or CLI wrapper is
+>=22.19.0 minimum; `RUNTIME` in `scripts/durable_reference_contract.py` is the
+one pin that the runner and every comparison phase check. Native producers
+attest only repository sources under `src/`, `tests/` and `scripts/` as their
+imports, so a virtual environment inside the checkout is not producer source. No provider credentials, login, paid model or CLI wrapper is
 used. Run with normal caller HOME; the runner creates a private synthetic child
 HOME/cache/npm configuration and does not propagate provider or Node injection
 variables.
@@ -38,7 +43,7 @@ uv run python scripts/durable_pi_comparison.py compare \
   "$scratch/reference/harness-round-v1/trace.json"
 ```
 
-The standalone codec regression uses the pinned Node v26.12.0 and imports the
+The standalone codec regression uses the pinned Node v26.13.0 and imports the
 actual MTS encoder. It verifies dense undefined/null/literal-marker distinctions
 and rejects sparse arrays. Ordinary pytest does not launch Node or require a
 host Node version. DE01b3's mandatory reference CI must explicitly run this
@@ -450,9 +455,11 @@ request and manual CI dispatch, alongside the existing ten jobs. It anonymously
 fetches only commit `4a080252f06caf63a525d7873c5d94d3c23887e0` from
 `https://github.com/earendil-works/pi.git` into a private new Git repository and
 checks tree `56ea45bfd3ef589feaddfaf504cfc08d838d812b`. The official Linux x64
-Node26.12.0 archive is checked against SHA256
-`fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded`
-and the versioned official SHASUMS file; bundled npm must be11.20.0. No upstream
+Node26.13.0 archive is checked against SHA256
+`d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997`
+(`RUNTIME_ARCHIVE_SHA256` in the reference contract, which the evidence
+collector also checks) and the versioned official SHASUMS file; bundled npm
+must be11.20.0. No upstream
 working tree, credentials, provider or mutable dependency cache participates.
 The uploader action's separate Node24 runtime does not select the reference Node.
 
@@ -736,7 +743,7 @@ Each run needs a new output and absent caller destination in the private snapsho
 and binds the complete original parent acceptance execution/hash. Two new parent
 bootstraps with their own a1/table executions form final local evidence. Copying
 or replaying an old bundle is not a fresh execution. Exact archive, original
-lock/dependency/source/module hashes and Node26.12.0/npm11.20.0 are verified using
+lock/dependency/source/module hashes and Node26.13.0/npm11.20.0 are verified using
 the existing fail-closed bootstrap; no upstream writes/providers/user data occur.
 `storage-memory-v1.manifest.json` closes the native implementation, two test
 files, caller, input and all a1 helper artifacts, plus exact five pinned source
@@ -996,7 +1003,7 @@ replacing an in-flight exception) stay equal by design.
 test file, this script, the driver, the input and the comparison tests, pins six
 reference sources and the two upstream test files, and states the scope above.
 Hash direction is code/tests/coverage → baseline → a1 → a2b → b1b. The run copies
-the driver to `snapshot/session-guard.mts`, checks Node26.12.0/npm11.20.0 and
+the driver to `snapshot/session-guard.mts`, checks Node26.13.0/npm11.20.0 and
 module and dependency provenance, and records `fresh_reference_bootstrap: false`,
 `session_line`, `tx` and `full_session_parity` all false. Adapted upstream test
 support keeps MIT Copyright(c)2025 Mario Zechner and the full

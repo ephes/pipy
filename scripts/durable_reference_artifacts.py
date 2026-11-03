@@ -226,8 +226,7 @@ def wrapper(root: Path, identity: dict[str, Any]) -> dict[str, Any]:
         require(
             type(archive["bytes"]) is int
             and archive["bytes"] > 0
-            and archive["sha256"]
-            == "fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded",
+            and archive["sha256"] == o.contract.RUNTIME_ARCHIVE_SHA256,
             "Node archive identity drift",
         )
     else:
@@ -458,7 +457,7 @@ def exclusions(output: Path, job: dict[str, Any]) -> list[dict[str, Any]]:
     if job["node_archive"] is not None:
         rows.append(
             {
-                "path": "runtime/node-v26.12.0-linux-x64.tar.xz",
+                "path": f"runtime/node-{o.contract.RUNTIME['node']}-linux-x64.tar.xz",
                 **job["node_archive"],
                 "uploaded": False,
                 "reason": "runtime archive",

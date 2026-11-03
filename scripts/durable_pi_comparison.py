@@ -205,7 +205,7 @@ def manifest(fixtures: Path = FIXTURES, driver: Path = DRIVER) -> dict[str, Any]
         contract.safe_path(path)
         contract.digest(digest)
     runtime = contract.shape(value["runtime"], {"node", "npm"}, "runtime")
-    if runtime != {"node": "v26.12.0", "npm": "11.20.0"}:
+    if runtime != contract.RUNTIME:
         raise EvidenceError("Runtime identity drift")
     for case in value["cases"]:
         for test in case["upstream_tests"]:

@@ -31,7 +31,13 @@ def origins(root):
         filename = getattr(module, "__file__", None)
         if filename is not None:
             p = Path(filename).resolve()
-            if p.is_relative_to(root) and p.suffix == ".py":
+            # Repository sources only: an interpreter environment inside the
+            # checkout (an in-repo .venv) is not part of the producer closure.
+            if (
+                p.is_relative_to(root)
+                and p.suffix == ".py"
+                and p.relative_to(root).parts[0] in {"src", "tests", "scripts"}
+            ):
                 result[str(p.relative_to(root))] = hashlib.sha256(
                     p.read_bytes()
                 ).hexdigest()

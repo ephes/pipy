@@ -9301,9 +9301,18 @@ The bridge slices are tracked here rather than in the slice status table above,
 which holds only DE rows:
 
 - R15-0, the bridge and its plan, ledger, backlog and topic-doc amendments, is
-  docs only. Its review result and pushed commit are recorded by the next bridge
-  slice, as earlier slices recorded their predecessors.
-- R15-1 reference re-pin: OPEN.
+  docs only. It was delivered at `b9e7d8550436df593152a24ceda61a3238f5dc5f`,
+  remote main verified. Codex gpt-6.1-sol HIGH round 1 found no Critical and two
+  Warning issues, both repaired; round 2 was CLEAN. `just check`: 21330 passed,
+  21 skipped and 2 failed in 3367 s. Both failures,
+  `tests/test_native_fuzzy.py::test_matches_pi_under_node` and
+  `tests/test_native_system_prompt_pi_pinned.py::test_fixture_is_current_with_pi`,
+  come from the local pi-mono checkout at `7dc38ff0e`, whose installed
+  dependencies lag its sources; they are outside the durable campaign.
+- R15-1 reference re-pin: IN_PROGRESS, in two commits (see the bridge).
+  R15-1a, the runtime re-pin, is recorded
+  [below](#r15-1a-runtime-re-pin-2026-11-03); R15-1b, the release 1.5.0 pin, is
+  OPEN.
 - R15-2 restart-limit endings instead of parking and retry: OPEN.
 - R15-3 batch Storage commit: OPEN.
 - R15-4 watch, report and observer shapes: OPEN.
@@ -9317,3 +9326,38 @@ R15-0: Homebrew Node on the development host moved to v26.13.0 on 2026-11-01,
 and the runner accepts only v26.12.0, so it stops with "Runtime version drift:
 node" (exit 2), also on unmodified `d2919cc8`. R15-1 re-pins the runtime with
 the reference. All 43 P rows remain OPEN.
+
+### R15-1a runtime re-pin (2026-11-03)
+
+The runner, its CI job and every comparison phase accept Node v26.13.0 with npm
+11.20.0 instead of v26.12.0. `RUNTIME` in `scripts/durable_reference_contract.py`
+is the one pin; the runner checks the main manifest's `runtime` against it, and
+the phases that checked their own literals now read it. The CI job fetches the
+official `node-v26.13.0-linux-x64.tar.xz`, SHA256
+`d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997`, the entry in
+the release's `SHASUMS256.txt`; that release bundles npm 11.20.0. The contract
+holds that digest too (`RUNTIME_ARCHIVE_SHA256`): the evidence collector checks
+the hosted job's archive against it, and a test checks that the CI job carries
+the same literal. The reference
+stays release 1.4.0 (`4a080252`), and no driver, oracle value, fixture or Pi
+source pin changes.
+
+The fresh chain also found a pre-existing host dependency. The restart family's
+native import attestation (`origins()` in `tests/durable/restart_reference_support.py`,
+shared by the restart, migration, live-policy, definition-publication and orphan
+phases) recorded every loaded module below the checkout. With the virtual
+environment inside the checkout, as `uv` creates it, it recorded third-party
+modules such as `idna` and `partial_json_parser`, so those phases refused with
+"unlisted/drifted actual import" (exit 2). Earlier receipts came from isolated
+source trees whose environment lay outside the checkout. The helper now records
+only repository sources under `src/`, `tests/` and `scripts/`, as the Product
+retry helper already did.
+
+Receipts on the development host (macOS, Python 3.15.1), on the final R15-1a
+code before the documentation digests of this entry: a fresh baseline acceptance
+(execution `61fcc240-9080-49cb-944f-95dc7c3d06bb`, `acceptance.json` SHA256
+`87c9f2a3038c0d7a48ca23bb5e1f2e66380e2b5eace26fb67051ef3adb721f54`, runtime
+v26.13.0/11.20.0, reference 1.4.0) and all 33 comparison phases after it exited
+0, 34 commands in 799 s. The confirming chain on the committed bytes, and this
+slice's review result and pushed commit, are recorded by R15-1b. No P row
+closes; all 43 remain OPEN.

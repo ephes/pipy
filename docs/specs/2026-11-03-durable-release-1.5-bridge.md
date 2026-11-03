@@ -38,7 +38,7 @@ removed behavior, and a later switch would rework more of it.
 
 - Earlier dated 1.3 and 1.4 receipts stay historical, bound to their own
   sources and pins. None is rebound to 1.5, and no 1.5 result is claimed here.
-- Until R15-1 lands, the reference runner, its manifests, fixtures and every
+- Until R15-1b lands, the reference runner, its manifests, fixtures and every
   comparison phase keep executing release 1.4.0, and native behavior keeps its
   1.4 shape. The topic docs keep describing that delivered behavior.
 - The obligations of the 1.4 bridge carry over unchanged. `documents.ts` is
@@ -289,6 +289,22 @@ result changes.
 - Gates: a fresh baseline acceptance and a complete fresh chain on 1.5, the
   manifest cascade, `durable-reference.md` and the evidence ledger. No P row
   closes.
+
+R15-1 lands as two reviewed commits; together they carry the whole acceptance
+above:
+
+- **R15-1a, runtime re-pin.** The runner, the CI job and every comparison phase
+  accept Node v26.13.0 with npm 11.20.0, the official release of 2026-10-28 and
+  the Homebrew Node on the development host since 2026-11-01. One `RUNTIME`
+  constant in the reference contract replaces the literals that the phases
+  checked separately. The reference stays release 1.4.0, so a fresh 1.4 chain
+  shows what the new runtime alone changes before the release pin moves.
+- **R15-1b, release pin.** The remaining items above: commit, tree and package
+  version, the manifests and the dependency closure, the drivers, the expected
+  traces from actual 1.5 runs and the disposition of every phase, with a fresh
+  baseline and complete chain on 1.5. Every phase checks the one reference
+  commit of the baseline acceptance, so the release pin cannot be split by
+  comparison family.
 
 ### R15-2: restart-limit endings instead of parking and retry
 

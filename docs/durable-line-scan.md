@@ -42,7 +42,7 @@ PYTHONPATH=src python scripts/durable_env_line_scan_comparison.py \
   --pi-source /Users/jochen/src/pi-mono --output /absolute/new/private/output
 ```
 
-Use Node26.12.0/npm11.20.0 on PATH. The command uses read-only `git show` to
+Use Node26.13.0/npm11.20.0 on PATH. The command uses read-only `git show` to
 construct a new minimal private snapshot of seven hash-pinned source/config/test
 files, preloads the pinned source resolver and executes the actual scanner and
 decoder. The driver refuses unexpected loaded modules; no registry dependency

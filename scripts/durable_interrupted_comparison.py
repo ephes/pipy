@@ -227,7 +227,7 @@ def producer_attest(output, acceptance):
     d.require(
         runtime["pid"] == reference["pid"]
         and runtime["cwd"] == str(snapshot)
-        and runtime["version"] == "v26.12.0"
+        and runtime["version"] == o.contract.RUNTIME["node"]
         and runtime["argv"][1:]
         == [str(snapshot / "interrupted.mts"), str(output / "input.json"), str(output)],
         "Interrupted actual pinned runtime",

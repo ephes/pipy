@@ -349,7 +349,7 @@ def _private_execute_fixture(folder, variant):
             for key in ("HOME", "TMPDIR", "npm_config_cache"):
                 (Path(env[key]) / label).write_text("private fixture")
             if label.endswith("-version"):
-                return (b"v26.12.0\n" if command[0] == "node" else b"11.20.0\n"), b"", 0
+                return m.o.contract.RUNTIME[command[0]].encode() + b"\n", b"", 0
             m.d.dump(output / "observed.json", m.d.load(folder / "reference.json"))
             m.d.dump(output / "raw.json", {"fixture": True})
             m.d.dump(output / "resolutions.json", [])

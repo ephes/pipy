@@ -448,9 +448,7 @@ def test_workflow_is_mandatory_and_keeps_one_fresh_bootstrap_and_failure_upload(
     assert 'run("codec", ["node"' in execute
     assert "GIT_CONFIG_NOSYSTEM" in execute and '"credential.helper="' in execute
     assert (
-        "SHASUMS256.txt" in execute
-        and "fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded"
-        in execute
+        "SHASUMS256.txt" in execute and s.o.contract.RUNTIME_ARCHIVE_SHA256 in execute
     )
     assert "o.child_env(root)" in execute and "sys.executable" in execute
     upload = next(

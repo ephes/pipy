@@ -141,7 +141,7 @@ def report():
             "cpu_model": "test",
             "cpu_count": 1,
             "total_ram_bytes": 1024,
-            "node": "v26.12.0",
+            "node": c.RUNTIME["node"],
         },
         "limits": {
             "memory_retained": "uncollected",

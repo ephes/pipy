@@ -235,7 +235,7 @@ jobs:
           source = root / "upstream"
           node = root / "node"
           node.mkdir(mode=0o700)
-          archive = node / "node-v26.12.0-linux-x64.tar.xz"
+          archive = node / "node-v26.13.0-linux-x64.tar.xz"
           base = o.child_env(root)
           # Explicit minimal child env: no inherited provider/GitHub tokens or Node hooks.
           base.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", GIT_TERMINAL_PROMPT="0")
@@ -253,16 +253,16 @@ jobs:
           run("source-fetch", ["git", "-C", str(source), "-c", "credential.helper=", "-c", "http.extraHeader=", "fetch", "--no-tags", "--depth=1", "https://github.com/earendil-works/pi.git", o.PIN], 180)
           assert run("source-ref", ["git", "-C", str(source), "rev-parse", "FETCH_HEAD^{commit}"]) == o.PIN
           assert run("source-tree", ["git", "-C", str(source), "rev-parse", o.PIN + "^{tree}"]) == o.TREE
-          run("node-download", ["curl", "--fail", "--location", "--max-time", "180", "https://nodejs.org/dist/v26.12.0/" + archive.name, "--output", str(archive)], 200)
-          run("node-shasums", ["curl", "--fail", "--location", "--max-time", "60", "https://nodejs.org/dist/v26.12.0/SHASUMS256.txt", "--output", str(evidence / "node-shasums.txt")])
-          checksum = "fd47865ecd6391ebb431fc815e01b9135bf83ded5cf373247e9331e196b7aded"
+          run("node-download", ["curl", "--fail", "--location", "--max-time", "180", "https://nodejs.org/dist/v26.13.0/" + archive.name, "--output", str(archive)], 200)
+          run("node-shasums", ["curl", "--fail", "--location", "--max-time", "60", "https://nodejs.org/dist/v26.13.0/SHASUMS256.txt", "--output", str(evidence / "node-shasums.txt")])
+          checksum = "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997"
           assert checksum + "  " + archive.name in (evidence / "node-shasums.txt").read_text().splitlines()
           assert hashlib.sha256(archive.read_bytes()).hexdigest() == checksum
           job["node_archive"] = {"bytes": archive.stat().st_size, "sha256": checksum}
           o.dump(evidence / "job.json", job)
           run("node-extract", ["tar", "-xJf", str(archive), "-C", str(node)])
-          base["PATH"] = str(node / "node-v26.12.0-linux-x64/bin") + os.pathsep + base["PATH"]
-          assert run("node-version", ["node", "--version"]) == "v26.12.0"
+          base["PATH"] = str(node / "node-v26.13.0-linux-x64/bin") + os.pathsep + base["PATH"]
+          assert run("node-version", ["node", "--version"]) == "v26.13.0"
           assert run("npm-version", ["npm", "--version"]) == "11.20.0"
           run("codec", ["node", str(workspace / "tests/durable/test_reference_codec.mts")])
           # Exactly ONE fresh bootstrap. No preceding reference invocation/replay.

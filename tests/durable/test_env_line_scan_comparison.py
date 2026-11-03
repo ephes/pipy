@@ -109,10 +109,8 @@ def test_relative_output_keeps_requested_entry(monkeypatch, tmp_path):
 
     def execute(command, cwd, output, label, env, timeout):
         assert cwd.is_absolute() and output == tmp_path / "relative-output"
-        if label == "node-version":
-            return b"v26.12.0"
-        if label == "npm-version":
-            return b"11.20.0"
+        if label in ("node-version", "npm-version"):
+            return m.o.contract.RUNTIME[label.split("-")[0]].encode()
         if label == "source-0":
             assert command == ["git", "-C", str(source), "show", m.o.PIN + ":pinned.ts"]
             return b"closed-source"
@@ -184,10 +182,8 @@ def test_duplicate_response_keys_are_invalid2(monkeypatch, tmp_path, duplicate):
     monkeypatch.setattr(m, "recipes", lambda: [recipe])
 
     def execute(command, cwd, output, label, env, timeout):
-        if label == "node-version":
-            return b"v26.12.0"
-        if label == "npm-version":
-            return b"11.20.0"
+        if label in ("node-version", "npm-version"):
+            return m.o.contract.RUNTIME[label.split("-")[0]].encode()
         assert label == "node-scanner"
         loaded = [
             (cwd / name).as_uri()

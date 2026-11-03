@@ -14,6 +14,13 @@ class EvidenceError(ValueError):
 
 
 UNDEFINED = object()
+# The one accepted reference runtime. Upstream needs Node >=22.19.0; the runner
+# is deliberately stricter and every phase checks this exact pair.
+RUNTIME = {"node": "v26.13.0", "npm": "11.20.0"}
+# SHA256 of the official node-<RUNTIME node>-linux-x64.tar.xz that the CI job fetches.
+RUNTIME_ARCHIVE_SHA256 = (
+    "d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997"
+)
 CASES = {
     "kernel-memory-v1": (1, "finite-json-v1", None),
     "harness-round-v1": (2, "harness-identity-v1", "harness.settled"),

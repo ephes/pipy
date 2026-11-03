@@ -43,7 +43,7 @@
     }
   },
   "runtime": {
-    "node": "v26.12.0",
+    "node": "v26.13.0",
     "npm": "11.20.0"
   },
   "adapters": {
@@ -81,9 +81,9 @@
     }
   },
   "comparison": {
-    "scripts/durable_pi_comparison.py": "b1c2ab50b568929b67edf90245565e946585c1bf293ba290e0252005054bb6a8",
-    "scripts/durable_reference_acceptance.py": "42da3589636ac2500b1b7638ceac435bcf12ed2df80d360614cfb8c5a4708118",
-    "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12"
+    "scripts/durable_pi_comparison.py": "919b52d684d4b6d8c1cb8db10267b6c6b3a62900a05d63a83eb85dc9ae9ad2ba",
+    "scripts/durable_reference_acceptance.py": "d454f04f655623998335c0903115f3b9318fe52f395f9eac9968f617f593adb1",
+    "scripts/durable_reference_contract.py": "7ae9659989a490a50e9a5a124e8f8c16de96097c4f6d053b97b027ec81ba86c0"
   },
   "cases": [
     {
@@ -267,13 +267,13 @@
   "python_adapter": "OPEN",
   "parity_rows": "OPEN",
   "verification": {
-    ".github/workflows/ci.yml": "f697826dd370c553a07832b2a2cf6806e8a05f9489ba38049343823c88a234e7",
-    "scripts/durable_reference_artifacts.py": "9f1d1dbbb0ed40474a998311b68c7dd71444bb5e86d20e64963d37d277ec322b",
+    ".github/workflows/ci.yml": "388b0aa32ad709d47a322b70a62121558a483e82aa0c69638f54b671ffa63c34",
+    "scripts/durable_reference_artifacts.py": "3121dcebde8d0f1583374af31528b5ea2a9772a8d6013025356a45dfce2d516c",
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
-    "tests/durable/test_pi_comparison_acceptance.py": "8d5f023679ee9901eba929971f57798be84524369beb60840bf71264d0ee97be",
-    "tests/durable/test_pi_comparison_cases.py": "0a0d536846424e613ee1f7d98d5ce7169a6d360a2c93f4bb65939099e9cff83b",
+    "tests/durable/test_pi_comparison_acceptance.py": "5e28e50d0670be6d2c89b574d725d0397bf2ae855330d4d7e667d3bb605bec35",
+    "tests/durable/test_pi_comparison_cases.py": "89f1d576c8037509b92d47f70af3a8337132955976aa12f86aec600b02d88b3f",
     "tests/durable/test_pi_comparison_coverage.py": "afb6757af2a9cdf1c31e74bae943a15a7c7cdd4789dd749544a2c49e1a1d208c",
-    "tests/durable/test_reference_artifacts.py": "d2920eed7a3c2135bb58e4eb4b295f7a51798b84396f659bda0cd29f5ebe6dac",
+    "tests/durable/test_reference_artifacts.py": "3df037784bdd361b5b616f79cf0332b3ecfc106eb03a79115b6f92c6a6ece6bc",
     "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
   },
   "workload": {

@@ -989,7 +989,7 @@ def workload(value: Any, c: Any) -> Any:
             "Missing hardware identity",
             c,
         )
-    require(hardware["node"] == "v26.12.0", "Workload runtime drift", c)
+    require(hardware["node"] == c.RUNTIME["node"], "Workload runtime drift", c)
     for key in ("cpu_count", "total_ram_bytes"):
         number(hardware[key], c, True)
         require(hardware[key] > 0, "Missing hardware count", c)

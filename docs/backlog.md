@@ -1569,7 +1569,8 @@ commit per slice:
    (docs only).
 2. R15-1: re-pin the reference runner, its Node runtime, the dependency closure,
    the manifests and the drivers to 1.5, with a recorded disposition for every
-   comparison phase.
+   comparison phase. It lands in two commits: R15-1a re-pins the Node runtime
+   (v26.13.0, npm 11.20.0) on the 1.4 reference, and R15-1b pins release 1.5.0.
 3. R15-2: remove restart parking and same-task retry (`retry_task`,
    `pipy durable retry-task`) and end restart-limited tasks visibly with
    `restart_limit`.
@@ -1588,6 +1589,10 @@ and preferably at a milestone or bridge boundary.
 Earlier 1.3 and 1.4 receipts stay historical, and all 43 parent criteria remain
 OPEN.
 
-The pinned 1.4 reference chain cannot start on the current development host:
-Homebrew Node moved to v26.13.0 on 2026-11-01, and the runner accepts only
-v26.12.0. R15-1 re-pins the runtime with the reference.
+R15-1a moved the runtime pin from Node v26.12.0 to v26.13.0 (npm stays
+11.20.0), so the complete 1.4 chain runs fresh on the development host again.
+One `RUNTIME` constant in the reference contract now holds the pin for every
+phase. The same slice stopped the restart family's native import attestation
+from counting an interpreter environment inside the checkout (an in-repo
+`.venv`) as producer source; its comparisons then refused on third-party
+modules such as `idna`. The reference stays release 1.4.0 until R15-1b.

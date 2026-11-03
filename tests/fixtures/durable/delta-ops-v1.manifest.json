@@ -13,17 +13,17 @@
     "packages/chord/test/delta.test.ts": "de120d2970e8ddf4628321917b48018d523963506bc31df6b06cc78a9fa343c1"
   },
   "closure": {
-    "scripts/durable_delta_ops_comparison.py": "fc6c3d0fe5b2204a6bd3a522424584d2528105e0e920aa6405459d3c84d226d1",
-    "scripts/durable_pi_comparison.py": "b1c2ab50b568929b67edf90245565e946585c1bf293ba290e0252005054bb6a8",
+    "scripts/durable_delta_ops_comparison.py": "09434de996fa0f3e63d268f10cd0e3e3fabe1a4558e73df51705b348404e6c50",
+    "scripts/durable_pi_comparison.py": "919b52d684d4b6d8c1cb8db10267b6c6b3a62900a05d63a83eb85dc9ae9ad2ba",
     "scripts/durable_reference/cases/delta-ops.mts": "38c6b490748adcc1621de0c5daeea2dbc256ebd68895be54fe414cf5887b8b1e",
-    "scripts/durable_reference_acceptance.py": "42da3589636ac2500b1b7638ceac435bcf12ed2df80d360614cfb8c5a4708118",
-    "scripts/durable_reference_contract.py": "05536a6a103874e3065300bf9bfedd73024403ff8780eedcbaccc08d03b59e12",
+    "scripts/durable_reference_acceptance.py": "d454f04f655623998335c0903115f3b9318fe52f395f9eac9968f617f593adb1",
+    "scripts/durable_reference_contract.py": "7ae9659989a490a50e9a5a124e8f8c16de96097c4f6d053b97b027ec81ba86c0",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/delta_ops.py": "730afea25c0991237e6f42e6c6087d02b1f173ce3d980c8bee2a4f5feadc73f5",
     "tests/durable/test_delta_ops.py": "810d00adc49d7b079f790e08567accfb0c10915b74ec85974d1fbb8cebce0923",
-    "tests/durable/test_delta_ops_comparison.py": "4cd7f036b9ebf1a5a3ac70c3a4e8dea543681656ab432edd0f7784e78066d908",
+    "tests/durable/test_delta_ops_comparison.py": "4f565eec99d60499912d70728257c975b45934335cac79bb95f1b114dde0d602",
     "tests/fixtures/durable/delta-ops-v1.input.json": "84d503dda1b66584960b3f0821b41f274a09a02c83dbafbb80963d23aa2a8b8c"
   }
 }

@@ -643,6 +643,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The [pinned durable reference runner](docs/durable-reference.md), its CI job
+  and every comparison phase now require Node v26.13.0 with npm 11.20.0 instead
+  of v26.12.0; one runtime pin in the reference contract replaces the literals
+  the phases checked separately. The reference itself stays Pi durable release
+  1.4.0 until the release 1.5 re-pin. The native import attestation of the
+  restart comparison family now counts only repository sources, so a virtual
+  environment inside the checkout no longer makes those comparisons refuse.
+
 - Codex GPT-6.1 Sol now uses a 500K context window, matching Pi `5712b134e`;
   its 128K output limit and other Sol rows are unchanged.
 - `just catalog-drift` now requires a manifest timestamp from the last seven

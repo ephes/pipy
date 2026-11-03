@@ -54,7 +54,7 @@ A final scalar/list root is valid for this general JSON primitive. Future
 ## Pinned comparison
 
 ```sh
-PATH=/path/to/node26.12.0/bin:$PATH PYTHONPATH=src python \
+PATH=/path/to/node26.13.0/bin:$PATH PYTHONPATH=src python \
   scripts/durable_delta_ops_comparison.py run \
   --pi-source /absolute/pi-mono-checkout --output /new/private/output
 PYTHONPATH=src python scripts/durable_delta_ops_comparison.py compare \
@@ -64,7 +64,7 @@ PYTHONPATH=src python scripts/durable_delta_ops_comparison.py compare \
 `run` uses only read-only `git show` at
 `2ec55d808d455b1a64a2bf7888198207a096120a`, copying a closed source snapshot.
 It executes actual pinned `applyImmutable` and `JsonRevisionValidator` with
-Node26.12.0/npm11.20.0. Driver load hooks refuse any dependency outside the six
+Node26.13.0/npm11.20.0. Driver load hooks refuse any dependency outside the six
 closed source modules. The index's actual transitive tracker/diff/json/trusted
 imports are hash-bound even though the driver never invokes tracking. No npm
 installation or package bootstrap is performed; this is actual source evidence,

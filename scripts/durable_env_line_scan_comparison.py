@@ -202,7 +202,7 @@ def run(source: Path, output: Path) -> int:
     def execute(command: list[str], label: str) -> bytes:
         return o.run(command, snapshot, output, label, env, timeout=120)
 
-    for binary, version in [("node", "v26.12.0"), ("npm", "11.20.0")]:
+    for binary, version in o.contract.RUNTIME.items():
         if (
             execute([binary, "--version"], binary + "-version").decode().strip()
             != version

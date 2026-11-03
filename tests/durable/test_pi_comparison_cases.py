@@ -400,8 +400,8 @@ def test_reference_refuses_coordinated_manifest_golden_drift(tmp_path, monkeypat
         values = {
             "ref": oracle.PIN,
             "tree": oracle.TREE,
-            "node-version": "v26.12.0",
-            "npm-version": "11.20.0",
+            "node-version": oracle.contract.RUNTIME["node"],
+            "npm-version": oracle.contract.RUNTIME["npm"],
         }
         assert label in values
         return values[label].encode()

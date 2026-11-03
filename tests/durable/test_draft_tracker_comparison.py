@@ -161,10 +161,8 @@ def simulated_node_producer(tmp_path, monkeypatch):
 
     def execute(_command, _cwd, _output, label, _env, *, timeout):
         assert timeout == 120
-        if label == "node-version":
-            return b"v26.12.0"
-        if label == "npm-version":
-            return b"11.20.0"
+        if label in ("node-version", "npm-version"):
+            return m.o.contract.RUNTIME[label.split("-")[0]].encode()
         assert label == "node-delta"
         return json.dumps(response).encode()
 
@@ -396,10 +394,8 @@ def test_pinned_source_byte_drift_refuses_private_snapshot(monkeypatch, tmp_path
     output = tmp_path / "output"
 
     def execute(command, cwd, output, label, env, timeout):
-        if label == "node-version":
-            return b"v26.12.0"
-        if label == "npm-version":
-            return b"11.20.0"
+        if label in ("node-version", "npm-version"):
+            return m.o.contract.RUNTIME[label.split("-")[0]].encode()
         assert label.startswith("source-")
         return b"mutated pinned source"
 

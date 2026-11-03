@@ -81,7 +81,7 @@ is made.
 ## Pinned direct-storage comparison
 
 ```sh
-PATH=/path/to/node26.12.0/bin:$PATH PYTHONPATH=src python \
+PATH=/path/to/node26.13.0/bin:$PATH PYTHONPATH=src python \
   scripts/durable_current_deltas_comparison.py run \
   --pi-source /absolute/pi-mono-checkout --output /new/private/output
 PYTHONPATH=src python scripts/durable_current_deltas_comparison.py compare \
@@ -90,7 +90,7 @@ PYTHONPATH=src python scripts/durable_current_deltas_comparison.py compare \
 
 The driver executes actual pinned Memory, SQLite and SQLite-close/reopen storage
 from read-only `git show` at `2ec55d808d455b1a64a2bf7888198207a096120a`, using
-Node26.12.0/npm11.20.0. It copies a closed source snapshot and binds loaded
+Node26.13.0/npm11.20.0. It copies a closed source snapshot and binds loaded
 modules, native source, inputs and test support by hashes. Each process uses
 private output-local HOME/TMP/npm paths and bounded process-group execution and
 reaping. No dependency installation occurs. This is direct supplied-operation
