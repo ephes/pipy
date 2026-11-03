@@ -1,5 +1,11 @@
 # Durable restart parking (DE14a)
 
+Pi durable release 1.5.0, the campaign target since 2026-11-03, removed restart
+parking and `retryTask()`: a task cut off at the restart limit now ends visibly
+instead. This page describes the delivered 1.4-aligned behavior. Bridge slice
+R15-2 replaces parking, `retry_task` and `pipy durable retry-task` with those
+endings; see the [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md#r15-2-restart-limit-endings-instead-of-parking-and-retry).
+
 The native scheduler parks a recovered task after five consecutive restarts
 without a structurally changed task checkpoint. Parking prevents the next
 reservation; it does not rewrite the checkpoint or produce a result. Opening a

@@ -11,6 +11,11 @@ native Storage/Session and Product slices have landed. The separate DE02a1 value
 value DTOs; the six-family DE01 scripts remain verification-only. Product code
 never imports a reference runner. Earlier dated1.3 evidence is historical, not a release1.4 rerun. See the [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md).
 
+On 2026-11-03 the owner moved the campaign target to literal release 1.5.0,
+commit `f9a26365568127461c47a07a37dcb42c140a3ac5`. These tools keep executing
+release 1.4.0 until bridge slice R15-1 re-pins the reference, its runtime,
+manifests and drivers; see the [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md).
+
 ## Reproduction
 
 Use a POSIX host with Git, tar, **Node v26.12.0, npm 11.20.0**, supported Python,

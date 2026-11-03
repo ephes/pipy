@@ -1103,11 +1103,11 @@
       "owners": [
         "DE14"
       ],
-      "contract": "Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection.",
+      "contract": "Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry (release 1.5: restart-limit endings replace parked retry, bridge R15-2), task fault/orphan cleanup and inspection.",
       "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:441 (DE14 contract)",
       "plan_cells": [
         "DE14 / DE13",
-        "Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection.",
+        "Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry (release 1.5: restart-limit endings replace parked retry, bridge R15-2), task fault/orphan cleanup and inspection.",
         "Reference recovery cases and upgrade fixtures; close does not increment, repeated crash does, document chatter does not reset; abort blocked becomes orphaned, missing code alone never settles. State-machine/migration docs."
       ],
       "current": {
@@ -1115,7 +1115,7 @@
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE14: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry, task fault/orphan cleanup and inspection."
+        "observables": "DE14: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Complete task migration/definition absence/newer refusal, progress-based restart limits, parked retry (release 1.5: restart-limit endings replace parked retry, bridge R15-2), task fault/orphan cleanup and inspection."
       },
       "future": "Reference recovery cases and upgrade fixtures; close does not increment, repeated crash does, document chatter does not reset; abort blocked becomes orphaned, missing code alone never settles. State-machine/migration docs.",
       "status": "IN_PROGRESS",
@@ -1140,7 +1140,7 @@
       "plan_cells": [
         "DE14a / DE13c2",
         "Immutable host restart ceiling, derived parking and same-task counter reset on the existing Session line, with truthful inspection and noninvoking public ACK.",
-        "Actual default5/explicitlimit crash cuts, healthy close, structural progress versus retained-doc chatter, valid-receipt parking and reset-null new cause, private enable versus public explicit selected resume, numeric API/CLI distinction, cold-running refusal, serialized reset/close/cancel/commit faults and full unchanged authority/privacy controls. Pinned generic reference comparison plus final focused/full/platform/resource/CODE gates; live policy and full public Pi retry parity remain open."
+        "Actual default5/explicitlimit crash cuts, healthy close, structural progress versus retained-doc chatter, valid-receipt parking and reset-null new cause, private enable versus public explicit selected resume, numeric API/CLI distinction, cold-running refusal, serialized reset/close/cancel/commit faults and full unchanged authority/privacy controls. Pinned generic reference comparison plus final focused/full/platform/resource/CODE gates; live policy and full public Pi retry parity remain open. Release 1.5: parking and reset are superseded; R15-2 replaces them with restart-limit endings, and these receipts stay historical."
       ],
       "current": {
         "kind": "bounded-native",
@@ -1158,7 +1158,7 @@
         "oracles": [],
         "observables": "None; current evidence and future acceptance are stated separately."
       },
-      "future": "Actual default5/explicitlimit crash cuts, healthy close, structural progress versus retained-doc chatter, valid-receipt parking and reset-null new cause, private enable versus public explicit selected resume, numeric API/CLI distinction, cold-running refusal, serialized reset/close/cancel/commit faults and full unchanged authority/privacy controls. Pinned generic reference comparison plus final focused/full/platform/resource/CODE gates; live policy and full public Pi retry parity remain open.",
+      "future": "Actual default5/explicitlimit crash cuts, healthy close, structural progress versus retained-doc chatter, valid-receipt parking and reset-null new cause, private enable versus public explicit selected resume, numeric API/CLI distinction, cold-running refusal, serialized reset/close/cancel/commit faults and full unchanged authority/privacy controls. Pinned generic reference comparison plus final focused/full/platform/resource/CODE gates; live policy and full public Pi retry parity remain open. Release 1.5: parking and reset are superseded; R15-2 replaces them with restart-limit endings, and these receipts stay historical.",
       "status": "LANDED",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de14a-bounded-restart-parking",
@@ -1176,7 +1176,7 @@
       "plan_cells": [
         "DE14a1 / delivered DE15a; DE14a authority retained",
         "Public selected Product retry reset/admission ACK with owned continuation and physical close.",
-        "Active same-selection resume join, pre-ACK owned handoff, continuation_failed close precedence and retry-task result after cleanup; genuine parked/live-noop reference with raw lane asymmetries. Existing recovery/receipt/catalog/C1/C2 and conservative fences remain; no general owned executor or parent parity closure."
+        "Active same-selection resume join, pre-ACK owned handoff, continuation_failed close precedence and retry-task result after cleanup; genuine parked/live-noop reference with raw lane asymmetries. Existing recovery/receipt/catalog/C1/C2 and conservative fences remain; no general owned executor or parent parity closure. Release 1.5 removed `retryTask`; R15-2 removes this Product retry, and these receipts stay historical."
       ],
       "current": {
         "kind": "bounded-native",
@@ -1194,7 +1194,7 @@
         "oracles": [],
         "observables": "None; current evidence and future acceptance are stated separately."
       },
-      "future": "Active same-selection resume join, pre-ACK owned handoff, continuation_failed close precedence and retry-task result after cleanup; genuine parked/live-noop reference with raw lane asymmetries. Existing recovery/receipt/catalog/C1/C2 and conservative fences remain; no general owned executor or parent parity closure.",
+      "future": "Active same-selection resume join, pre-ACK owned handoff, continuation_failed close precedence and retry-task result after cleanup; genuine parked/live-noop reference with raw lane asymmetries. Existing recovery/receipt/catalog/C1/C2 and conservative fences remain; no general owned executor or parent parity closure. Release 1.5 removed `retryTask`; R15-2 removes this Product retry, and these receipts stay historical.",
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de14a1-product-retry-continuation",
@@ -1500,7 +1500,7 @@
       "plan_cells": [
         "DE14b / DE14a",
         "Complete remaining task-definition migration/reload, live policy reconfiguration, missing/newer handling and fault/orphan/abort cleanup.",
-        "Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a."
+        "Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity (removed at release 1.5: a limit raised before the next reservation lets a task run, and R15-2 owns the endings) and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a."
       ],
       "current": {
         "kind": "source-only",
@@ -1516,7 +1516,7 @@
         "oracles": [],
         "observables": "None; current evidence and future acceptance are stated separately."
       },
-      "future": "Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a.",
+      "future": "Explicit current definition/version authority, upgrade and missing-code fixtures, abort-budget and orphan rules, live higher/lower-limit wake ownership, public Pi retry-enable parity (removed at release 1.5: a limit raised before the next reservation lets a task run, and R15-2 owns the endings) and remaining DE14/P06/P07 acceptance; no unproved authority or parent closure inferred from DE14a.",
       "status": "IN_PROGRESS",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-evidence.md#de14b1-cold-task-migration",
@@ -1565,7 +1565,7 @@
       "plan_cells": [
         "DE16 / DE15",
         "Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups.",
-        "Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs."
+        "Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs. Release 1.5: invocation gates, job-start cancellation and close with a commit in flight follow deviation D1; the group-commit schedule test is declared, and its line-held counterpart asserts that the queued handle operation rejects with nothing admitted (bridge D1)."
       ],
       "current": {
         "kind": "source-only",
@@ -1574,7 +1574,7 @@
         "oracles": [],
         "observables": "DE16: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Complete durable cancellation/abort handlers, invocation gates, bottom-up cleanup, wait cancellation, close/admitted commit ordering, restart abandonment and process groups."
       },
-      "future": "Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs.",
+      "future": "Barrier races abort vs result/new child/close/registry; no post-mark run writes; foreground cleanup joins before lock release; noncooperative tool isolated or explicit blocker. Kill parent while subprocess alive and verify no unowned mutation claim. Cancellation docs. Release 1.5: invocation gates, job-start cancellation and close with a commit in flight follow deviation D1; the group-commit schedule test is declared, and its line-held counterpart asserts that the queued handle operation rejects with nothing admitted (bridge D1).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1592,21 +1592,21 @@
       "owners": [
         "DE17"
       ],
-      "contract": "Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel, timer failures and parked work wake behavior. Integrate native retry/overflow classifiers.",
+      "contract": "Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel and timer failures (parked work wake behavior dropped: release 1.5 removed parking). Charge a request or deferred poll in flight at host death as a failed attempt instead of resending it (release 1.5). Integrate native retry/overflow classifiers.",
       "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:455 (DE17 contract)",
       "plan_cells": [
         "DE17 / DE16",
-        "Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel, timer failures and parked work wake behavior. Integrate native retry/overflow classifiers.",
-        "Fake clock early/late/multiple reopen, no busy loop, bounded layered retries, fixed due times, abort asleep/polling, unknown deferred model; host onWake after commit only. Retry/deferred/host settings docs."
+        "Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel and timer failures (parked work wake behavior dropped: release 1.5 removed parking). Charge a request or deferred poll in flight at host death as a failed attempt instead of resending it (release 1.5). Integrate native retry/overflow classifiers.",
+        "Fake clock early/late/multiple reopen, no busy loop, bounded layered retries, fixed due times, abort asleep/polling, unknown deferred model; host onWake after commit only. Retry/deferred/host settings docs. Release 1.5 in-flight charge: aborted partial, retry backoff, an `interrupted` run end without a retry left, a close still resends, a charged poll polls the same response even when the replacement clock is behind, a run that ends cancels it, and restartLimit bounds a charge that keeps being cut off (bridge U04)."
       ],
       "current": {
         "kind": "source-only",
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE17: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel, timer failures and parked work wake behavior. Integrate native retry/overflow classifiers."
+        "observables": "DE17: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Add sleeping/wake host port, persisted generation retry backoff, deferred poll/cancel and timer failures (parked work wake behavior dropped: release 1.5 removed parking). Charge a request or deferred poll in flight at host death as a failed attempt instead of resending it (release 1.5). Integrate native retry/overflow classifiers."
       },
-      "future": "Fake clock early/late/multiple reopen, no busy loop, bounded layered retries, fixed due times, abort asleep/polling, unknown deferred model; host onWake after commit only. Retry/deferred/host settings docs.",
+      "future": "Fake clock early/late/multiple reopen, no busy loop, bounded layered retries, fixed due times, abort asleep/polling, unknown deferred model; host onWake after commit only. Retry/deferred/host settings docs. Release 1.5 in-flight charge: aborted partial, retry backoff, an `interrupted` run end without a retry left, a close still resends, a charged poll polls the same response even when the replacement clock is behind, a run that ends cancels it, and restartLimit bounds a charge that keeps being cut off (bridge U04).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1629,7 +1629,7 @@
       "plan_cells": [
         "DE18 / DE17",
         "Durable input/write submissions, request-ID scope/dedupe, settlement objects and withdraw/status/wait APIs. Adapt `coding/session_controller.py` admission boundary without dual queue ownership.",
-        "Competing duplicate submit plus commit-ack loss yields one record/run; type conflict rejects; exactly one done/unanswered settlement, cancelled waiter leaves shared work. Submission API/docs."
+        "Competing duplicate submit plus commit-ack loss yields one record/run; type conflict rejects; exactly one done/unanswered settlement, cancelled waiter leaves shared work. Submission API/docs. Release 1.5: continue submissions (idle only, `nothing_to_answer`), `whenIdle: reject` and admission inside the caller's commit before its first table write (bridge U38–U40)."
       ],
       "current": {
         "kind": "source-only",
@@ -1638,7 +1638,7 @@
         "oracles": [],
         "observables": "DE18: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Durable input/write submissions, request-ID scope/dedupe, settlement objects and withdraw/status/wait APIs. Adapt `coding/session_controller.py` admission boundary without dual queue ownership."
       },
-      "future": "Competing duplicate submit plus commit-ack loss yields one record/run; type conflict rejects; exactly one done/unanswered settlement, cancelled waiter leaves shared work. Submission API/docs.",
+      "future": "Competing duplicate submit plus commit-ack loss yields one record/run; type conflict rejects; exactly one done/unanswered settlement, cancelled waiter leaves shared work. Submission API/docs. Release 1.5: continue submissions (idle only, `nothing_to_answer`), `whenIdle: reject` and admission inside the caller's commit before its first table write (bridge U38–U40).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1661,7 +1661,7 @@
       "plan_cells": [
         "DE19 / DE18",
         "Durable inbox, steer/follow-up modes, deterministic postTools/final boundaries, passive writes, failed-run policy and abort queue behavior.",
-        "Reference ordered traces for all/one, failure keep/continue/withdraw, new input after failure, queued reset/display-only write, crash boundary and concurrent queue/cancel. Queue settings/CLI semantics docs."
+        "Reference ordered traces for all/one, failure keep/continue/withdraw, new input after failure, queued reset/display-only write, crash boundary and concurrent queue/cancel. Queue settings/CLI semantics docs. Release 1.5: the run-failure record and its reasons under `afterFailedRun`, continue after a failure, the handoff postTools boundary and the after-run final boundary (bridge U33, U41, U43, U44)."
       ],
       "current": {
         "kind": "source-only",
@@ -1670,7 +1670,7 @@
         "oracles": [],
         "observables": "DE19: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Durable inbox, steer/follow-up modes, deterministic postTools/final boundaries, passive writes, failed-run policy and abort queue behavior."
       },
-      "future": "Reference ordered traces for all/one, failure keep/continue/withdraw, new input after failure, queued reset/display-only write, crash boundary and concurrent queue/cancel. Queue settings/CLI semantics docs.",
+      "future": "Reference ordered traces for all/one, failure keep/continue/withdraw, new input after failure, queued reset/display-only write, crash boundary and concurrent queue/cancel. Queue settings/CLI semantics docs. Release 1.5: the run-failure record and its reasons under `afterFailedRun`, continue after a failure, the handoff postTools boundary and the after-run final boundary (bridge U33, U41, U43, U44).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1693,7 +1693,7 @@
       "plan_cells": [
         "DE20 / DE19",
         "Complete entry/context head/edit/contribution derivation, system named sections/tool deltas, missing-tool-result synthesis and historical cutoff reads.",
-        "Context fixtures with interleaved user/tool entries, resets and edits; system/tool baseline matches reference; malformed correlations fail before provider. Reuse existing cross-provider projection tests. Transcript/system docs."
+        "Context fixtures with interleaved user/tool entries, resets and edits; system/tool baseline matches reference; malformed correlations fail before provider. Reuse existing cross-provider projection tests. Transcript/system docs. Release 1.5: raw-history entry reads for tasks and hooks, stable across compaction (bridge U48)."
       ],
       "current": {
         "kind": "source-only",
@@ -1702,7 +1702,7 @@
         "oracles": [],
         "observables": "DE20: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Complete entry/context head/edit/contribution derivation, system named sections/tool deltas, missing-tool-result synthesis and historical cutoff reads."
       },
-      "future": "Context fixtures with interleaved user/tool entries, resets and edits; system/tool baseline matches reference; malformed correlations fail before provider. Reuse existing cross-provider projection tests. Transcript/system docs.",
+      "future": "Context fixtures with interleaved user/tool entries, resets and edits; system/tool baseline matches reference; malformed correlations fail before provider. Reuse existing cross-provider projection tests. Transcript/system docs. Release 1.5: raw-history entry reads for tasks and hooks, stable across compaction (bridge U48).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1757,7 +1757,7 @@
       "plan_cells": [
         "DE22 / DE21",
         "Implement explicit durable hook composition and first-writer memos; adapt supported native extension hooks, classify unsupported effects.",
-        "Crash hook before consuming commit, first-writer race, throw/report/block composition, cancel propagates; side-effect fixture demonstrates documented replay rather than fake exactly-once; unadapted hook never silently runs in durable recovery. Extension replay guide."
+        "Crash hook before consuming commit, first-writer race, throw/report/block composition, cancel propagates; side-effect fixture demonstrates documented replay rather than fake exactly-once; unadapted hook never silently runs in durable recovery. Extension replay guide. Release 1.5: `beforeProviderRequest`, `afterRun` run-end tasks (busy after the answer) and `afterTool` on every result a tool task writes (bridge U43, U45, U47)."
       ],
       "current": {
         "kind": "source-only",
@@ -1766,7 +1766,7 @@
         "oracles": [],
         "observables": "DE22: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Implement explicit durable hook composition and first-writer memos; adapt supported native extension hooks, classify unsupported effects."
       },
-      "future": "Crash hook before consuming commit, first-writer race, throw/report/block composition, cancel propagates; side-effect fixture demonstrates documented replay rather than fake exactly-once; unadapted hook never silently runs in durable recovery. Extension replay guide.",
+      "future": "Crash hook before consuming commit, first-writer race, throw/report/block composition, cancel propagates; side-effect fixture demonstrates documented replay rather than fake exactly-once; unadapted hook never silently runs in durable recovery. Extension replay guide. Release 1.5: `beforeProviderRequest`, `afterRun` run-end tasks (busy after the answer) and `afterTool` on every result a tool task writes (bridge U43, U45, U47).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1821,7 +1821,7 @@
       "plan_cells": [
         "DE24 / DE23",
         "General tool repair/schema/final-arg checkpoints, nested keyed admissions/results and structured output/diagnostics/control mapping, native extension/MCP adapters.",
-        "BeforeTool not rerun on execute recovery; key name/args divergence before effect; stored/current safe intersection; replay result/error schema; unsafe nested intent/effect interruption yields a stored interrupted error to the caller with no reexecution, repeated resume preserves effect counts and continuation; nested controls do not affect parent, nested usage once. Tool extension/MCP docs."
+        "BeforeTool not rerun on execute recovery; key name/args divergence before effect; stored/current safe intersection; replay result/error schema; unsafe nested intent/effect interruption yields a stored interrupted error to the caller with no reexecution, repeated resume preserves effect counts and continuation; nested controls do not affect parent, nested usage once. Tool extension/MCP docs. Release 1.5: pi-schema validation and coercion, hook-converted Harness results and nested restart counting (bridge U06, U45, U49)."
       ],
       "current": {
         "kind": "source-only",
@@ -1830,7 +1830,7 @@
         "oracles": [],
         "observables": "DE24: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: General tool repair/schema/final-arg checkpoints, nested keyed admissions/results and structured output/diagnostics/control mapping, native extension/MCP adapters."
       },
-      "future": "BeforeTool not rerun on execute recovery; key name/args divergence before effect; stored/current safe intersection; replay result/error schema; unsafe nested intent/effect interruption yields a stored interrupted error to the caller with no reexecution, repeated resume preserves effect counts and continuation; nested controls do not affect parent, nested usage once. Tool extension/MCP docs.",
+      "future": "BeforeTool not rerun on execute recovery; key name/args divergence before effect; stored/current safe intersection; replay result/error schema; unsafe nested intent/effect interruption yields a stored interrupted error to the caller with no reexecution, repeated resume preserves effect counts and continuation; nested controls do not affect parent, nested usage once. Tool extension/MCP docs. Release 1.5: pi-schema validation and coercion, hook-converted Harness results and nested restart counting (bridge U06, U45, U49).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1853,7 +1853,7 @@
       "plan_cells": [
         "DE25 / DE24",
         "Complete concurrent/sequential tool-round scheduler and executionMode override, nested abandonment, addTools/terminate/handoff controls and round settlement.",
-        "Out-of-order completions retain call-order view; any sequential declaration serializes; abort prevents pending launch; kill mid-round never repeats committed effects, fail/return-error ownership differs. Tool-round docs."
+        "Out-of-order completions retain call-order view; any sequential declaration serializes; abort prevents pending launch; kill mid-round never repeats committed effects, fail/return-error ownership differs. Tool-round docs. Release 1.5: unoffered calls as flagged `pi.tool` tasks (`pi.tool` version 3 and `pi.generation` version 2, migrating stored native version 2 and 1 records), `maxTurns`/`turn_limit`, a handoff that continues the run and controls in call order (bridge U42, U44, U46)."
       ],
       "current": {
         "kind": "source-only",
@@ -1862,7 +1862,7 @@
         "oracles": [],
         "observables": "DE25: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Complete concurrent/sequential tool-round scheduler and executionMode override, nested abandonment, addTools/terminate/handoff controls and round settlement."
       },
-      "future": "Out-of-order completions retain call-order view; any sequential declaration serializes; abort prevents pending launch; kill mid-round never repeats committed effects, fail/return-error ownership differs. Tool-round docs.",
+      "future": "Out-of-order completions retain call-order view; any sequential declaration serializes; abort prevents pending launch; kill mid-round never repeats committed effects, fail/return-error ownership differs. Tool-round docs. Release 1.5: unoffered calls as flagged `pi.tool` tasks (`pi.tool` version 3 and `pi.generation` version 2, migrating stored native version 2 and 1 records), `maxTurns`/`turn_limit`, a handoff that continues the run and controls in call order (bridge U42, U44, U46).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1885,7 +1885,7 @@
       "plan_cells": [
         "DE26 / DE25",
         "Committed streaming partials and tool output/details/diagnostics/usage throttling, flush and bounded live slots. Integrate canonical event/partial adapters behind commit projection.",
-        "Kill each throttle/flush/terminal boundary; aborted partial retained before provider reissue; no stale partial after result; slow observer/backpressure and callback failure; exact cache/usage counts. Streaming/output docs."
+        "Kill each throttle/flush/terminal boundary; aborted partial retained before provider reissue; no stale partial after result; slow observer/backpressure and callback failure; exact cache/usage counts. Streaming/output docs. Release 1.5: deferred progress commits (`persistWithinMs`; stored by the next `pi.live` reader, at the deadline, at close or at unload; a crash loses up to the window plus the line and I/O delay, which the held line of D1 can lengthen), deferred slot `running` and attempt presentation, and bounded per-partial cost (bridge U20, U21, U58)."
       ],
       "current": {
         "kind": "source-only",
@@ -1894,7 +1894,7 @@
         "oracles": [],
         "observables": "DE26: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Committed streaming partials and tool output/details/diagnostics/usage throttling, flush and bounded live slots. Integrate canonical event/partial adapters behind commit projection."
       },
-      "future": "Kill each throttle/flush/terminal boundary; aborted partial retained before provider reissue; no stale partial after result; slow observer/backpressure and callback failure; exact cache/usage counts. Streaming/output docs.",
+      "future": "Kill each throttle/flush/terminal boundary; aborted partial retained before provider reissue; no stale partial after result; slow observer/backpressure and callback failure; exact cache/usage counts. Streaming/output docs. Release 1.5: deferred progress commits (`persistWithinMs`; stored by the next `pi.live` reader, at the deadline, at close or at unload; a crash loses up to the window plus the line and I/O delay, which the held line of D1 can lengthen), deferred slot `running` and attempt presentation, and bounded per-partial cost (bridge U20, U21, U58).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1944,21 +1944,21 @@
       "owners": [
         "DE28"
       ],
-      "contract": "Document/conversation views, watch baseline+subscription, event streams and live task graph as convergent adapters to committed state.",
+      "contract": "Document/conversation views, watch baseline+subscription, event streams (removed at release 1.5) and live task graph as convergent adapters to committed state.",
       "source_anchor": "docs/specs/2026-10-19-durable-execution-plan.md:466 (DE28 contract)",
       "plan_cells": [
         "DE28 / DE27",
-        "Document/conversation views, watch baseline+subscription, event streams and live task graph as convergent adapters to committed state.",
-        "Atomic aggregate baseline under concurrent commit, reconnect/coalescing/end reasons, listener isolation, blocked/sleeping/completing graph, no missed committed baseline or mixed revisions. Python observation/task inspection docs."
+        "Document/conversation views, watch baseline+subscription, event streams (removed at release 1.5) and live task graph as convergent adapters to committed state.",
+        "Atomic aggregate baseline under concurrent commit, reconnect/coalescing/end reasons, listener isolation, blocked/sleeping/completing graph, no missed committed baseline or mixed revisions. Python observation/task inspection docs. Release 1.5: tagged watch calls and ends, address-following document watches, folded delivery, synchronous observers, windowed conversation views and the client transcript, without the removed state getters (bridge U25–U32)."
       ],
       "current": {
         "kind": "source-only",
         "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "DE28: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Document/conversation views, watch baseline+subscription, event streams and live task graph as convergent adapters to committed state."
+        "observables": "DE28: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Document/conversation views, watch baseline+subscription, event streams (removed at release 1.5) and live task graph as convergent adapters to committed state."
       },
-      "future": "Atomic aggregate baseline under concurrent commit, reconnect/coalescing/end reasons, listener isolation, blocked/sleeping/completing graph, no missed committed baseline or mixed revisions. Python observation/task inspection docs.",
+      "future": "Atomic aggregate baseline under concurrent commit, reconnect/coalescing/end reasons, listener isolation, blocked/sleeping/completing graph, no missed committed baseline or mixed revisions. Python observation/task inspection docs. Release 1.5: tagged watch calls and ends, address-following document watches, folded delivery, synchronous observers, windowed conversation views and the client transcript, without the removed state getters (bridge U25–U32).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -1981,7 +1981,7 @@
       "plan_cells": [
         "DE29 / DE28",
         "Durable manual/background/blocking compaction tasks, pinned summarizer request, retry/usage/failure and stale summary submissions; reuse native compaction policy/extract pure selection.",
-        "Compare range fixtures including system/thinking/large tool messages; crash summary before/after placement, competing newer cut makes old summary stale; threshold/overflow/decline/cancel and ownership behavior. `compaction.md`, settings."
+        "Compare range fixtures including system/thinking/large tool messages; crash summary before/after placement, competing newer cut makes old summary stale; threshold/overflow/decline/cancel and ownership behavior. `compaction.md`, settings. Release 1.5: restart-limit failure into `compactionFailure`, the `trigger` field and summary placement while a run waits for after-run tasks (bridge U01, U51)."
       ],
       "current": {
         "kind": "source-only",
@@ -1990,7 +1990,7 @@
         "oracles": [],
         "observables": "DE29: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Durable manual/background/blocking compaction tasks, pinned summarizer request, retry/usage/failure and stale summary submissions; reuse native compaction policy/extract pure selection."
       },
-      "future": "Compare range fixtures including system/thinking/large tool messages; crash summary before/after placement, competing newer cut makes old summary stale; threshold/overflow/decline/cancel and ownership behavior. `compaction.md`, settings.",
+      "future": "Compare range fixtures including system/thinking/large tool messages; crash summary before/after placement, competing newer cut makes old summary stale; threshold/overflow/decline/cancel and ownership behavior. `compaction.md`, settings. Release 1.5: restart-limit failure into `compactionFailure`, the `trigger` field and summary placement while a run waits for after-run tasks (bridge U01, U51).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2175,7 +2175,7 @@
       "plan_cells": [
         "DE33 / DE32",
         "Close built-in read/write/edit/bash/available PowerShell semantics, per-file mutation ordering, bounded rich results and optional Python image processor parity.",
-        "Upstream read differential fixtures, edit conflicts and file queue crash; damaged/EXIF/oversized images, MIME/byte limits, decode and recovered attachment fidelity; no general write marked safe. Tool/image docs."
+        "Upstream read differential fixtures, edit conflicts and file queue crash; damaged/EXIF/oversized images, MIME/byte limits, decode and recovered attachment fidelity; no general write marked safe. Tool/image docs. Release 1.5: `read` structured output for text and images (bridge U53)."
       ],
       "current": {
         "kind": "source-only",
@@ -2184,7 +2184,7 @@
         "oracles": [],
         "observables": "DE33: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Close built-in read/write/edit/bash/available PowerShell semantics, per-file mutation ordering, bounded rich results and optional Python image processor parity."
       },
-      "future": "Upstream read differential fixtures, edit conflicts and file queue crash; damaged/EXIF/oversized images, MIME/byte limits, decode and recovered attachment fidelity; no general write marked safe. Tool/image docs.",
+      "future": "Upstream read differential fixtures, edit conflicts and file queue crash; damaged/EXIF/oversized images, MIME/byte limits, decode and recovered attachment fidelity; no general write marked safe. Tool/image docs. Release 1.5: `read` structured output for text and images (bridge U53).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2207,7 +2207,7 @@
       "plan_cells": [
         "DE34 / DE33",
         "Tool-search extension/activation and codemode discovery/namespace/schema snapshots; adapt existing `coding/codemode_discovery.py` and extension/MCP exposure.",
-        "BM25/filter/limit/deferred activation reference fixtures; discovery resumes from start snapshot after registry drift; hidden internal tools never leak to search. Discovery/codemode docs."
+        "BM25/filter/limit/deferred activation reference fixtures; discovery resumes from start snapshot after registry drift; hidden internal tools never leak to search. Discovery/codemode docs. Release 1.5 ranking and Unicode tokenization fixtures (bridge U54)."
       ],
       "current": {
         "kind": "source-only",
@@ -2216,7 +2216,7 @@
         "oracles": [],
         "observables": "DE34: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Tool-search extension/activation and codemode discovery/namespace/schema snapshots; adapt existing `coding/codemode_discovery.py` and extension/MCP exposure."
       },
-      "future": "BM25/filter/limit/deferred activation reference fixtures; discovery resumes from start snapshot after registry drift; hidden internal tools never leak to search. Discovery/codemode docs.",
+      "future": "BM25/filter/limit/deferred activation reference fixtures; discovery resumes from start snapshot after registry drift; hidden internal tools never leak to search. Discovery/codemode docs. Release 1.5 ranking and Unicode tokenization fixtures (bridge U54).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2367,7 +2367,7 @@
       "plan_cells": [
         "DE39 / DE38",
         "Content-free telemetry schema/report/trace/metric adapters and host callback error containment, optional exporter integration using current telemetry architecture.",
-        "Compare submit-root/phase/entry/replay/report traces and active task gauges at terminal/close/reopen; secret/prompt/tool-output sentinel absence; throwing exporter cannot alter correctness. Observability docs."
+        "Compare submit-root/phase/entry/replay/report traces and active task gauges at terminal/close/reopen; secret/prompt/tool-output sentinel absence; throwing exporter cannot alter correctness. Observability docs. Release 1.5: tagged reports with `storage_failed`, `task_interrupted` and `telemetry` host errors, without `task_parked`, and contained telemetry adapter failures (bridge U03, U34–U36)."
       ],
       "current": {
         "kind": "source-only",
@@ -2376,7 +2376,7 @@
         "oracles": [],
         "observables": "DE39: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Content-free telemetry schema/report/trace/metric adapters and host callback error containment, optional exporter integration using current telemetry architecture."
       },
-      "future": "Compare submit-root/phase/entry/replay/report traces and active task gauges at terminal/close/reopen; secret/prompt/tool-output sentinel absence; throwing exporter cannot alter correctness. Observability docs.",
+      "future": "Compare submit-root/phase/entry/replay/report traces and active task gauges at terminal/close/reopen; secret/prompt/tool-output sentinel absence; throwing exporter cannot alter correctness. Observability docs. Release 1.5: tagged reports with `storage_failed`, `task_interrupted` and `telemetry` host errors, without `task_parked`, and contained telemetry adapter failures (bridge U03, U34–U36).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2399,7 +2399,7 @@
       "plan_cells": [
         "DE40 / DE39",
         "Portable JSONL storage alternative with main markers, sidecars, torn-tail recovery, detach, reclamation and explicit fsync guarantees; same storage port, never dual writer.",
-        "Run entire storage conformance plus sidecar/marker/flush/rename/unlink crash cuts, missing confirmed data corruption, failed reclamation and stale descriptors. Compare memory/SQLite/JSONL outcomes. Storage backend docs."
+        "Run entire storage conformance plus sidecar/marker/flush/rename/unlink crash cuts, missing confirmed data corruption, failed reclamation and stale descriptors. Compare memory/SQLite/JSONL outcomes. Storage backend docs. Release 1.5: a batch commit call appends all sidecars, then all markers in one write (bridge U07)."
       ],
       "current": {
         "kind": "source-only",
@@ -2408,7 +2408,7 @@
         "oracles": [],
         "observables": "DE40: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Portable JSONL storage alternative with main markers, sidecars, torn-tail recovery, detach, reclamation and explicit fsync guarantees; same storage port, never dual writer."
       },
-      "future": "Run entire storage conformance plus sidecar/marker/flush/rename/unlink crash cuts, missing confirmed data corruption, failed reclamation and stale descriptors. Compare memory/SQLite/JSONL outcomes. Storage backend docs.",
+      "future": "Run entire storage conformance plus sidecar/marker/flush/rename/unlink crash cuts, missing confirmed data corruption, failed reclamation and stale descriptors. Compare memory/SQLite/JSONL outcomes. Storage backend docs. Release 1.5: a batch commit call appends all sidecars, then all markers in one write (bridge U07).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2495,7 +2495,7 @@
       "plan_cells": [
         "DE43 / DE42",
         "Native JSON/RPC and public SDK parity for submission/status/watch/recovery/task/queue/tree controls with existing protocol compatibility.",
-        "RPC disconnect/reconnect under active work, stable sequence keys, abort/retry/compaction/config while running, bash and nested output, SDK same store then TUI reopen; standard automation comparison gate stays green. SDK/RPC docs."
+        "RPC disconnect/reconnect under active work, stable sequence keys, abort/retry/compaction/config while running, bash and nested output, SDK same store then TUI reopen; standard automation comparison gate stays green. SDK/RPC docs. Release 1.5: a read-only viewer open (bridge U56)."
       ],
       "current": {
         "kind": "source-only",
@@ -2504,7 +2504,7 @@
         "oracles": [],
         "observables": "DE43: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Native JSON/RPC and public SDK parity for submission/status/watch/recovery/task/queue/tree controls with existing protocol compatibility."
       },
-      "future": "RPC disconnect/reconnect under active work, stable sequence keys, abort/retry/compaction/config while running, bash and nested output, SDK same store then TUI reopen; standard automation comparison gate stays green. SDK/RPC docs.",
+      "future": "RPC disconnect/reconnect under active work, stable sequence keys, abort/retry/compaction/config while running, bash and nested output, SDK same store then TUI reopen; standard automation comparison gate stays green. SDK/RPC docs. Release 1.5: a read-only viewer open (bridge U56).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2559,7 +2559,7 @@
       "plan_cells": [
         "DE45 / DE44",
         "Independent end-to-end acceptance audit, final comparison matrix/evidence and release readiness. Fix discoveries only in scoped follow-up slices with their own checks/review/commit/push.",
-        "Every P row has passing comparison/test/review/commit evidence; compare all included exported surface groups, subprocess crash matrix, provider wire families, real WASI, cross-mode migration and bounded performance; no open correctness or required-parity rows. Final independent Opus review and main CI/ref confirmation."
+        "Every P row has passing comparison/test/review/commit evidence; compare all included exported surface groups, subprocess crash matrix, provider wire families, real WASI, cross-mode migration and bounded performance; no open correctness or required-parity rows. Final independent Opus review and main CI/ref confirmation. Revisit deviation D1, the line-held Session instead of group commit, with measured throughput (1.5 bridge)."
       ],
       "current": {
         "kind": "source-only",
@@ -2568,7 +2568,7 @@
         "oracles": [],
         "observables": "DE45: no own executed implementation/test/crash evidence. Only the exact slice contract at source_anchor is available; required future behavior: Independent end-to-end acceptance audit, final comparison matrix/evidence and release readiness. Fix discoveries only in scoped follow-up slices with their own checks/review/commit/push."
       },
-      "future": "Every P row has passing comparison/test/review/commit evidence; compare all included exported surface groups, subprocess crash matrix, provider wire families, real WASI, cross-mode migration and bounded performance; no open correctness or required-parity rows. Final independent Opus review and main CI/ref confirmation.",
+      "future": "Every P row has passing comparison/test/review/commit evidence; compare all included exported surface groups, subprocess crash matrix, provider wire families, real WASI, cross-mode migration and bounded performance; no open correctness or required-parity rows. Final independent Opus review and main CI/ref confirmation. Revisit deviation D1, the line-held Session instead of group commit, with measured throughput (1.5 bridge).",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#5-delivery-order-and-reviewable-slices"
@@ -2588,12 +2588,12 @@
         "DE03",
         "DE04"
       ],
-      "contract": "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning",
-      "source_anchor": "spec §§1,4,10; `session/transaction.ts`; `session-tables`, `session-states`, `harness-storage-failure`",
+      "contract": "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning; release 1.5: batch `Storage.commit` outcomes, refusals and durability receipts, under the line-held deviation D1 (bridge U07, U08, U13)",
+      "source_anchor": "spec §§1,4,10; `session/transaction.ts`; `session-tables`, `session-states` (removed at 1.5), `session-adoption`, `harness-storage-failure`",
       "plan_cells": [
         "P01",
-        "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning",
-        "spec §§1,4,10; `session/transaction.ts`; `session-tables`, `session-states`, `harness-storage-failure`",
+        "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning; release 1.5: batch `Storage.commit` outcomes, refusals and durability receipts, under the line-held deviation D1 (bridge U07, U08, U13)",
+        "spec §§1,4,10; `session/transaction.ts`; `session-tables`, `session-states` (removed at 1.5), `session-adoption`, `harness-storage-failure`",
         "DE02–04"
       ],
       "current": {
@@ -2605,7 +2605,7 @@
         "oracles": [],
         "observables": "minimal actual MemoryStorage session/document commit, rollback, detached historical value and close"
       },
-      "future": "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning",
+      "future": "Atomic commit/adoption, immutable IDs/entries, detached values, revoked drafts, read-after-write and storage-error poisoning; release 1.5: batch `Storage.commit` outcomes, refusals and durability receipts, under the line-held deviation D1 (bridge U07, U08, U13)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -2664,11 +2664,11 @@
         "DE02",
         "DE40"
       ],
-      "contract": "Memory and portable JSONL equivalent semantics; torn/unconfirmed tails, confirmed corruption, marker-before-publication/reclamation, explicit fsync limits",
+      "contract": "Memory and portable JSONL equivalent semantics; torn/unconfirmed tails, confirmed corruption, marker-before-publication/reclamation, explicit fsync limits; release 1.5: batch commit calls, with JSONL appending all sidecars and then all markers in one write (bridge U07)",
       "source_anchor": "`storage/{memory,jsonl}/*`; `memory-storage`, `jsonl-storage`, testing conformance",
       "plan_cells": [
         "P03",
-        "Memory and portable JSONL equivalent semantics; torn/unconfirmed tails, confirmed corruption, marker-before-publication/reclamation, explicit fsync limits",
+        "Memory and portable JSONL equivalent semantics; torn/unconfirmed tails, confirmed corruption, marker-before-publication/reclamation, explicit fsync limits; release 1.5: batch commit calls, with JSONL appending all sidecars and then all markers in one write (bridge U07)",
         "`storage/{memory,jsonl}/*`; `memory-storage`, `jsonl-storage`, testing conformance",
         "DE02, DE40"
       ],
@@ -2679,7 +2679,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Memory and portable JSONL equivalent semantics; torn/unconfirmed tails, confirmed corruption, marker-before-publication/reclamation, explicit fsync limits",
+      "future": "Memory and portable JSONL equivalent semantics; torn/unconfirmed tails, confirmed corruption, marker-before-publication/reclamation, explicit fsync limits; release 1.5: batch commit calls, with JSONL appending all sidecars and then all markers in one write (bridge U07)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -2812,12 +2812,12 @@
         "DE14",
         "DE23"
       ],
-      "contract": "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry, abort orphan vs abort result",
-      "source_anchor": "spec §5.4; `harness-blocked`, `harness-registry`, `harness-inspect`",
+      "contract": "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry (release 1.5: visible restart-limit endings replace park/retry, bridge U01–U03), abort orphan vs abort result",
+      "source_anchor": "spec §5.4; `harness-blocked`, `harness-registry`, `harness-inspect`, `harness-restart-failure`",
       "plan_cells": [
         "P07",
-        "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry, abort orphan vs abort result",
-        "spec §5.4; `harness-blocked`, `harness-registry`, `harness-inspect`",
+        "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry (release 1.5: visible restart-limit endings replace park/retry, bridge U01–U03), abort orphan vs abort result",
+        "spec §5.4; `harness-blocked`, `harness-registry`, `harness-inspect`, `harness-restart-failure`",
         "DE14, DE23"
       ],
       "current": {
@@ -2827,7 +2827,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry, abort orphan vs abort result",
+      "future": "Definition migrations/reload, blocked missing/newer/failed, restart counting/park/retry (release 1.5: visible restart-limit endings replace park/retry, bridge U01–U03), abort orphan vs abort result",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -2915,11 +2915,11 @@
       "owners": [
         "DE16"
       ],
-      "contract": "Abort mark before signal/join; bottom-up handlers, close distinct from abort, no post-end runtime writes or post-abort run commit",
+      "contract": "Abort mark before signal/join; bottom-up handlers, close distinct from abort, no post-end runtime writes or post-abort run commit; release 1.5: invocation gates, job-start cancellation and close with a commit in flight under deviation D1 (bridge U14, U17)",
       "source_anchor": "`harness-cancellation-barrier`, `harness-lifecycle`, `harness-structured`",
       "plan_cells": [
         "P10",
-        "Abort mark before signal/join; bottom-up handlers, close distinct from abort, no post-end runtime writes or post-abort run commit",
+        "Abort mark before signal/join; bottom-up handlers, close distinct from abort, no post-end runtime writes or post-abort run commit; release 1.5: invocation gates, job-start cancellation and close with a commit in flight under deviation D1 (bridge U14, U17)",
         "`harness-cancellation-barrier`, `harness-lifecycle`, `harness-structured`",
         "DE16"
       ],
@@ -2934,7 +2934,7 @@
         ],
         "observables": "actual durable abort mark, refused late memo/commit, callback not entered and fresh abort outcome"
       },
-      "future": "Abort mark before signal/join; bottom-up handlers, close distinct from abort, no post-end runtime writes or post-abort run commit",
+      "future": "Abort mark before signal/join; bottom-up handlers, close distinct from abort, no post-end runtime writes or post-abort run commit; release 1.5: invocation gates, job-start cancellation and close with a commit in flight under deviation D1 (bridge U14, U17)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -2953,12 +2953,12 @@
       "owners": [
         "DE18"
       ],
-      "contract": "Submission input/write admission, request-ID dedupe/type conflict, status/wait/withdraw and stable answer/unanswered settlement",
-      "source_anchor": "`harness/submissions.ts`; `harness-submissions`, `harness-input-entries`",
+      "contract": "Submission input/write admission, request-ID dedupe/type conflict, status/wait/withdraw and stable answer/unanswered settlement; release 1.5: continue submissions, `whenIdle: reject` and admission inside the caller's commit (bridge U38–U40)",
+      "source_anchor": "`harness/submissions.ts`; `harness-submissions`, `harness-input-entries`, `harness-continue`, `harness-submit-in-commit`",
       "plan_cells": [
         "P11",
-        "Submission input/write admission, request-ID dedupe/type conflict, status/wait/withdraw and stable answer/unanswered settlement",
-        "`harness/submissions.ts`; `harness-submissions`, `harness-input-entries`",
+        "Submission input/write admission, request-ID dedupe/type conflict, status/wait/withdraw and stable answer/unanswered settlement; release 1.5: continue submissions, `whenIdle: reject` and admission inside the caller's commit (bridge U38–U40)",
+        "`harness/submissions.ts`; `harness-submissions`, `harness-input-entries`, `harness-continue`, `harness-submit-in-commit`",
         "DE18"
       ],
       "current": {
@@ -2972,7 +2972,7 @@
         ],
         "observables": "one faux rich/null tool round with histories, canonical message fields, provider requests and usage"
       },
-      "future": "Submission input/write admission, request-ID dedupe/type conflict, status/wait/withdraw and stable answer/unanswered settlement",
+      "future": "Submission input/write admission, request-ID dedupe/type conflict, status/wait/withdraw and stable answer/unanswered settlement; release 1.5: continue submissions, `whenIdle: reject` and admission inside the caller's commit (bridge U38–U40)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -2992,11 +2992,11 @@
         "DE19",
         "DE30"
       ],
-      "contract": "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads",
+      "contract": "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads; release 1.5: a handoff applies the postTools boundary in the new context, and after-run tasks defer the final boundary (bridge U43, U44)",
       "source_anchor": "spec §6; `harness-inbox`, `harness-input-entries`",
       "plan_cells": [
         "P12",
-        "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads",
+        "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads; release 1.5: a handoff applies the postTools boundary in the new context, and after-run tasks defer the final boundary (bridge U43, U44)",
         "spec §6; `harness-inbox`, `harness-input-entries`",
         "DE19, DE30"
       ],
@@ -3007,7 +3007,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads",
+      "future": "Inbox deterministic ID order, reject/steer/follow-up, all/one modes, postTools/final selection, passive writes/reset/stale heads; release 1.5: a handoff applies the postTools boundary in the new context, and after-run tasks defer the final boundary (bridge U43, U44)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3026,12 +3026,12 @@
       "owners": [
         "DE19"
       ],
-      "contract": "Failed-run keep/continue/withdraw; abort preserves writes, settles each placed input exactly once",
-      "source_anchor": "`harness-failed-run-inbox`, `harness-submissions`",
+      "contract": "Failed-run keep/continue/withdraw; abort preserves writes, settles each placed input exactly once; release 1.5: the run-failure record and its new reasons, with `afterFailedRun` for them (bridge U33, U41)",
+      "source_anchor": "`harness-failed-run-inbox`, `harness-submissions`, `harness-run-failure`",
       "plan_cells": [
         "P13",
-        "Failed-run keep/continue/withdraw; abort preserves writes, settles each placed input exactly once",
-        "`harness-failed-run-inbox`, `harness-submissions`",
+        "Failed-run keep/continue/withdraw; abort preserves writes, settles each placed input exactly once; release 1.5: the run-failure record and its new reasons, with `afterFailedRun` for them (bridge U33, U41)",
+        "`harness-failed-run-inbox`, `harness-submissions`, `harness-run-failure`",
         "DE19"
       ],
       "current": {
@@ -3041,7 +3041,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Failed-run keep/continue/withdraw; abort preserves writes, settles each placed input exactly once",
+      "future": "Failed-run keep/continue/withdraw; abort preserves writes, settles each placed input exactly once; release 1.5: the run-failure record and its new reasons, with `afterFailedRun` for them (bridge U33, U41)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3061,12 +3061,12 @@
         "DE20",
         "DE30"
       ],
-      "contract": "Entry/context at point, heads/edits/contributions, tool ordering/missing result synthesis, named system baseline/deltas and tool visibility",
-      "source_anchor": "`harness/{context,prompt}.ts`; `harness-context`, `harness-prompt`",
+      "contract": "Entry/context at point, heads/edits/contributions, tool ordering/missing result synthesis, named system baseline/deltas and tool visibility; release 1.5: raw-history entry reads for tasks and hooks (bridge U48)",
+      "source_anchor": "`harness/{context,prompt}.ts`; `harness-context`, `harness-prompt`, `harness-hook-reads`",
       "plan_cells": [
         "P14",
-        "Entry/context at point, heads/edits/contributions, tool ordering/missing result synthesis, named system baseline/deltas and tool visibility",
-        "`harness/{context,prompt}.ts`; `harness-context`, `harness-prompt`",
+        "Entry/context at point, heads/edits/contributions, tool ordering/missing result synthesis, named system baseline/deltas and tool visibility; release 1.5: raw-history entry reads for tasks and hooks (bridge U48)",
+        "`harness/{context,prompt}.ts`; `harness-context`, `harness-prompt`, `harness-hook-reads`",
         "DE20, DE30"
       ],
       "current": {
@@ -3080,7 +3080,7 @@
         ],
         "observables": "recorded reset/summary/head selection with full history and selected context views"
       },
-      "future": "Entry/context at point, heads/edits/contributions, tool ordering/missing result synthesis, named system baseline/deltas and tool visibility",
+      "future": "Entry/context at point, heads/edits/contributions, tool ordering/missing result synthesis, named system baseline/deltas and tool visibility; release 1.5: raw-history entry reads for tasks and hooks (bridge U48)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3103,11 +3103,11 @@
         "DE24",
         "DE33"
       ],
-      "contract": "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps",
+      "contract": "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps; release 1.5: the requested thinking level on stored answers (bridge U50)",
       "source_anchor": "`entries.ts`, `harness/{generation,tool}.ts`; `harness-generation`, `harness-structured-output`",
       "plan_cells": [
         "P15",
-        "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps",
+        "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps; release 1.5: the requested thinking level on stored answers (bridge U50)",
         "`entries.ts`, `harness/{generation,tool}.ts`; `harness-generation`, `harness-structured-output`",
         "DE06–08, DE24, DE33"
       ],
@@ -3122,7 +3122,7 @@
         ],
         "observables": "one faux rich/null tool round with histories, canonical message fields, provider requests and usage"
       },
-      "future": "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps",
+      "future": "Exact canonical ordered rich blocks: text/thinking/redaction/signatures/images/raw args, correlation IDs, details/structured result/diagnostics/controls and timestamps; release 1.5: the requested thinking level on stored answers (bridge U50)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3180,12 +3180,12 @@
         "DE17",
         "DE26"
       ],
-      "contract": "Completed provider result reuse; interrupted partial -> aborted entry before reissue; deferred handle poll/cancel and no silent duplicate paid claim",
-      "source_anchor": "`harness-generation-recovery`, `harness-generation`",
+      "contract": "Completed provider result reuse; interrupted partial -> aborted entry before reissue (release 1.5: after host death the in-flight request or poll is charged as a failed attempt instead, ending `interrupted` without a retry left, while a close still reissues; bridge U04); deferred handle poll/cancel and no silent duplicate paid claim",
+      "source_anchor": "`harness-generation-recovery`, `harness-generation`, `harness-restart-failure`",
       "plan_cells": [
         "P17",
-        "Completed provider result reuse; interrupted partial -> aborted entry before reissue; deferred handle poll/cancel and no silent duplicate paid claim",
-        "`harness-generation-recovery`, `harness-generation`",
+        "Completed provider result reuse; interrupted partial -> aborted entry before reissue (release 1.5: after host death the in-flight request or poll is charged as a failed attempt instead, ending `interrupted` without a retry left, while a close still reissues; bridge U04); deferred handle poll/cancel and no silent duplicate paid claim",
+        "`harness-generation-recovery`, `harness-generation`, `harness-restart-failure`",
         "DE07, DE17, DE26"
       ],
       "current": {
@@ -3195,7 +3195,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Completed provider result reuse; interrupted partial -> aborted entry before reissue; deferred handle poll/cancel and no silent duplicate paid claim",
+      "future": "Completed provider result reuse; interrupted partial -> aborted entry before reissue (release 1.5: after host death the in-flight request or poll is charged as a failed attempt instead, ending `interrupted` without a retry left, while a close still reissues; bridge U04); deferred handle poll/cancel and no silent duplicate paid claim",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3254,11 +3254,11 @@
         "DE30",
         "DE31"
       ],
-      "contract": "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger",
+      "contract": "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger; release 1.5: no usage for an attempt whose stream crashed before its first deferred store, and provider-reported totals (bridge U20, U61)",
       "source_anchor": "`harness/usage.ts`; generation/compaction/tools tests",
       "plan_cells": [
         "P19",
-        "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger",
+        "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger; release 1.5: no usage for an attempt whose stream crashed before its first deferred store, and provider-reported totals (bridge U20, U61)",
         "`harness/usage.ts`; generation/compaction/tools tests",
         "DE06, DE07, DE26, DE29–31"
       ],
@@ -3273,7 +3273,7 @@
         ],
         "observables": "one faux rich/null tool round with histories, canonical message fields, provider requests and usage"
       },
-      "future": "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger",
+      "future": "Usage/cache read/write/1h/reasoning/cost fidelity; failed/partial/compaction/tool spend committed once, per-model/tools/session sums and zero child-fork ledger; release 1.5: no usage for an attempt whose stream crashed before its first deferred store, and provider-reported totals (bridge U20, U61)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3294,11 +3294,11 @@
         "DE21",
         "DE24"
       ],
-      "contract": "Tool offered-at-request and currently callable checks, repair + schema before/after hook, stored final args, stored/current replay intersection",
+      "contract": "Tool offered-at-request and currently callable checks, repair + schema before/after hook, stored final args, stored/current replay intersection; release 1.5: calls to tools not offered become flagged `pi.tool` tasks that settle `tool_unavailable`, with pi-schema validation (bridge U46, U49)",
       "source_anchor": "`harness/tool.ts`; `harness-callers`, `harness-tools-recovery`",
       "plan_cells": [
         "P20",
-        "Tool offered-at-request and currently callable checks, repair + schema before/after hook, stored final args, stored/current replay intersection",
+        "Tool offered-at-request and currently callable checks, repair + schema before/after hook, stored final args, stored/current replay intersection; release 1.5: calls to tools not offered become flagged `pi.tool` tasks that settle `tool_unavailable`, with pi-schema validation (bridge U46, U49)",
         "`harness/tool.ts`; `harness-callers`, `harness-tools-recovery`",
         "DE08, DE21, DE24"
       ],
@@ -3313,7 +3313,7 @@
         ],
         "observables": "cooperative SQLite close/reopen four stored/current policies, actual effects1/2/1/1 and unsafe interrupted-error continuation; no process-death claim"
       },
-      "future": "Tool offered-at-request and currently callable checks, repair + schema before/after hook, stored final args, stored/current replay intersection",
+      "future": "Tool offered-at-request and currently callable checks, repair + schema before/after hook, stored final args, stored/current replay intersection; release 1.5: calls to tools not offered become flagged `pi.tool` tasks that settle `tool_unavailable`, with pi-schema validation (bridge U46, U49)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3335,11 +3335,11 @@
         "DE24",
         "DE31"
       ],
-      "contract": "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools",
+      "contract": "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools; release 1.5: a `restart_limit` error result at the restart limit (bridge U01)",
       "source_anchor": "spec §8.4; `harness-tools-recovery`, `harness-ownership`",
       "plan_cells": [
         "P21",
-        "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools",
+        "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools; release 1.5: a `restart_limit` error result at the restart limit (bridge U01)",
         "spec §8.4; `harness-tools-recovery`, `harness-ownership`",
         "DE13, DE16, DE24, DE31"
       ],
@@ -3354,7 +3354,7 @@
         ],
         "observables": "cooperative SQLite close/reopen four stored/current policies, actual effects1/2/1/1 and unsafe interrupted-error continuation; no process-death claim"
       },
-      "future": "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools",
+      "future": "Unsafe interrupted model-issued tool -> uncertain error result and **continued run**, no reexecution; nested equivalent once keyed calls exist; cleanup/terminal holds for owned children and missing tools; release 1.5: a `restart_limit` error result at the restart limit (bridge U01)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3374,12 +3374,12 @@
         "DE25",
         "DE30"
       ],
-      "contract": "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort",
-      "source_anchor": "spec §§8.4–8.5; `harness-tools`",
+      "contract": "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort; release 1.5: a handoff continues the run in the new context, `maxTurns` ends a run `turn_limit`, and controls apply in call order, unoffered calls included (bridge U42, U44, U46)",
+      "source_anchor": "spec §§8.4–8.5; `harness-tools`, `harness-turn-limit`",
       "plan_cells": [
         "P22",
-        "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort",
-        "spec §§8.4–8.5; `harness-tools`",
+        "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort; release 1.5: a handoff continues the run in the new context, `maxTurns` ends a run `turn_limit`, and controls apply in call order, unoffered calls included (bridge U42, U44, U46)",
+        "spec §§8.4–8.5; `harness-tools`, `harness-turn-limit`",
         "DE25, DE30"
       ],
       "current": {
@@ -3389,7 +3389,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort",
+      "future": "Sequential/parallel rounds, declaration execution mode, call-order result view, addTools, all-terminate/any-handoff and no unstarted call after abort; release 1.5: a handoff continues the run in the new context, `maxTurns` ends a run `turn_limit`, and controls apply in call order, unoffered calls included (bridge U42, U44, U46)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3409,11 +3409,11 @@
         "DE24",
         "DE25"
       ],
-      "contract": "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart",
+      "contract": "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart; release 1.5: a crash counts the caller and its nested calls, and the caller's `restart_limit` result is what the model sees (bridge U06)",
       "source_anchor": "spec §7.3; `harness-nested-tools`, `harness-nested-tools-restart`",
       "plan_cells": [
         "P23",
-        "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart",
+        "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart; release 1.5: a crash counts the caller and its nested calls, and the caller's `restart_limit` result is what the model sees (bridge U06)",
         "spec §7.3; `harness-nested-tools`, `harness-nested-tools-restart`",
         "DE24, DE25"
       ],
@@ -3424,7 +3424,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart",
+      "future": "Nested keyed identity/result reuse, schema/error mapping and interrupted-error continuation without reexecution, output suppression/control exclusion, progress, usage, cancellation and abandonment on restart; release 1.5: a crash counts the caller and its nested calls, and the caller's `restart_limit` result is what the model sees (bridge U06)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3478,12 +3478,12 @@
       "owners": [
         "DE22"
       ],
-      "contract": "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects",
-      "source_anchor": "spec §7.2; generation/tools/compaction tests",
+      "contract": "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects; release 1.5: `beforeProviderRequest`, `afterRun` run-end tasks and `afterTool` on every result a tool task writes (bridge U43, U45, U47)",
+      "source_anchor": "spec §7.2; generation/tools/compaction tests; `harness-after-run`, `harness-tool-hooks`",
       "plan_cells": [
         "P25",
-        "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects",
-        "spec §7.2; generation/tools/compaction tests",
+        "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects; release 1.5: `beforeProviderRequest`, `afterRun` run-end tasks and `afterTool` on every result a tool task writes (bridge U43, U45, U47)",
+        "spec §7.2; generation/tools/compaction tests; `harness-after-run`, `harness-tool-hooks`",
         "DE22"
       ],
       "current": {
@@ -3493,7 +3493,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects",
+      "future": "Hook composition, per-hook failures, replay-before-commit and first-writer memo decisions; no implicit exactly-once side effects; release 1.5: `beforeProviderRequest`, `afterRun` run-end tasks and `afterTool` on every result a tool task writes (bridge U43, U45, U47)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3514,11 +3514,11 @@
         "DE32"
       ],
       "contract": "Resource/config/code reload with in-flight snapshots and supported task/doc version transitions",
-      "source_anchor": "spec §7.5; `harness-registry`, examples/31",
+      "source_anchor": "spec §7.5; `harness-registry`, examples/31 (30 at 1.5)",
       "plan_cells": [
         "P26",
         "Resource/config/code reload with in-flight snapshots and supported task/doc version transitions",
-        "spec §7.5; `harness-registry`, examples/31",
+        "spec §7.5; `harness-registry`, examples/31 (30 at 1.5)",
         "DE23, DE32"
       ],
       "current": {
@@ -3549,12 +3549,12 @@
         "DE32",
         "DE33"
       ],
-      "contract": "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills",
-      "source_anchor": "`harness/live.ts`; `harness-live-deltas`, `harness-tools`, `tools.test.ts`",
+      "contract": "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills; release 1.5: deferred progress commits, stored with the next `pi.live` reader or at the `persistWithinMs` deadline (bridge U20, U21)",
+      "source_anchor": "`harness/live.ts`; `harness-live-deltas`, `harness-tools`, `tools.test.ts`, `harness-deferred-progress`, `session-deferred-commits`",
       "plan_cells": [
         "P27",
-        "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills",
-        "`harness/live.ts`; `harness-live-deltas`, `harness-tools`, `tools.test.ts`",
+        "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills; release 1.5: deferred progress commits, stored with the next `pi.live` reader or at the `persistWithinMs` deadline (bridge U20, U21)",
+        "`harness/live.ts`; `harness-live-deltas`, `harness-tools`, `tools.test.ts`, `harness-deferred-progress`, `session-deferred-commits`",
         "DE26, DE32–33"
       ],
       "current": {
@@ -3568,7 +3568,7 @@
         ],
         "observables": "cooperative SQLite close/reopen four stored/current policies, actual effects1/2/1/1 and unsafe interrupted-error continuation; no process-death claim"
       },
-      "future": "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills",
+      "future": "Committed partial/tool-output/details/diagnostics/usage progress, throttle/flush settlement, bounded output/spills; release 1.5: deferred progress commits, stored with the next `pi.live` reader or at the `persistWithinMs` deadline (bridge U20, U21)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3588,12 +3588,12 @@
         "DE09",
         "DE28"
       ],
-      "contract": "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics",
-      "source_anchor": "spec §9; `session-watches`, `harness-view`, `harness-events`",
+      "contract": "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics (removed at 1.5); release 1.5: tagged watch calls and ends, address-following document watches, folded delivery, synchronous observers and windowed conversation views with a client transcript (bridge U25–U32)",
+      "source_anchor": "spec §9; `session-watches`, `harness-view`, `harness-events` (removed at 1.5), `harness-observers`, `conversation-transcript`",
       "plan_cells": [
         "P28",
-        "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics",
-        "spec §9; `session-watches`, `harness-view`, `harness-events`",
+        "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics (removed at 1.5); release 1.5: tagged watch calls and ends, address-following document watches, folded delivery, synchronous observers and windowed conversation views with a client transcript (bridge U25–U32)",
+        "spec §9; `session-watches`, `harness-view`, `harness-events` (removed at 1.5), `harness-observers`, `conversation-transcript`",
         "DE09, DE28"
       ],
       "current": {
@@ -3605,7 +3605,7 @@
         "oracles": [],
         "observables": "Private native completed snapshots on the existing guarded Session line: atomic baseline+registration, actual persisted EntryLookup commit sequences, real owned-slot completed prefix and committed closed-round order, full canonical message/provider/tool outcome fidelity, actual terminal records and committed usage without an accumulator. Automatic callback before drain, independent commit readback, Memory/SQLite/reopen, listener isolation/coalescing, truthful capture/delivery barriers, reentry and foreign/newer/context fences, actual SIGKILL after COMMIT/before callback and ambiguous caller acknowledgement with independently counted effects, before/ack/adoption faults, canceled acquisition/read/close and actual consumer-loop teardown with independent-process SQLite lock refusal until real ticket exit. Genuine pinned Harness Conversation.watch and exported watchEvents fake-provider/tool fixture compare only logical completed facts/usage and bounded attachment observations; raw exact Pi/native data retained. No durable replay cursor or exactly-once arbitrary callback claim. Product activation DE11/12, full watch/100-frame/event/partial/context semantics DE20/26/27/28, unsafe continuation DE13, graph difference DE15/28 and quadratic request-history debt DE27/28 remain. Independent CLEAN/full/platform/docs/two fresh18phase chains gate delivery; all43 whole P rows stay OPEN."
       },
-      "future": "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics",
+      "future": "Atomic baseline+subscription, convergent document/conversation views, listener isolation/end reasons, experimental event stream snapshot/change semantics (removed at 1.5); release 1.5: tagged watch calls and ends, address-following document watches, folded delivery, synchronous observers and windowed conversation views with a client transcript (bridge U25–U32)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3661,11 +3661,11 @@
       "owners": [
         "DE29"
       ],
-      "contract": "Manual/background/blocking compaction; immutable selected request, retry/usage, range invariants, stale summary placement, failure/cancellation",
+      "contract": "Manual/background/blocking compaction; immutable selected request, retry/usage, range invariants, stale summary placement, failure/cancellation; release 1.5: restart-limit failure into `compactionFailure` and the `trigger` field (bridge U01, U51)",
       "source_anchor": "`harness/compaction.ts`; `harness-compaction`",
       "plan_cells": [
         "P30",
-        "Manual/background/blocking compaction; immutable selected request, retry/usage, range invariants, stale summary placement, failure/cancellation",
+        "Manual/background/blocking compaction; immutable selected request, retry/usage, range invariants, stale summary placement, failure/cancellation; release 1.5: restart-limit failure into `compactionFailure` and the `trigger` field (bridge U01, U51)",
         "`harness/compaction.ts`; `harness-compaction`",
         "DE29"
       ],
@@ -3676,7 +3676,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Manual/background/blocking compaction; immutable selected request, retry/usage, range invariants, stale summary placement, failure/cancellation",
+      "future": "Manual/background/blocking compaction; immutable selected request, retry/usage, range invariants, stale summary placement, failure/cancellation; release 1.5: restart-limit failure into `compactionFailure` and the `trigger` field (bridge U01, U51)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3731,11 +3731,11 @@
         "DE31"
       ],
       "contract": "Per-conversation agents/environments and foreground/background subagent interaction, parent cancellation, completed child conversations remain usable",
-      "source_anchor": "examples/22–24,29; `harness-ownership`, `harness-conversations`",
+      "source_anchor": "examples/22–24,29 (21–23,28 at 1.5); `harness-ownership`, `harness-conversations`",
       "plan_cells": [
         "P32",
         "Per-conversation agents/environments and foreground/background subagent interaction, parent cancellation, completed child conversations remain usable",
-        "examples/22–24,29; `harness-ownership`, `harness-conversations`",
+        "examples/22–24,29 (21–23,28 at 1.5); `harness-ownership`, `harness-conversations`",
         "DE31"
       ],
       "current": {
@@ -3800,11 +3800,11 @@
       "owners": [
         "DE33"
       ],
-      "contract": "Read/write/edit/bash/PowerShell results, mutation queue, image validation/orientation/limits and structured output",
+      "contract": "Read/write/edit/bash/PowerShell results, mutation queue, image validation/orientation/limits and structured output; release 1.5: `read` declares text-or-image structured output (bridge U53)",
       "source_anchor": "`tools/*`, `images/*`; `tools*`, `images-wasm-module`",
       "plan_cells": [
         "P34",
-        "Read/write/edit/bash/PowerShell results, mutation queue, image validation/orientation/limits and structured output",
+        "Read/write/edit/bash/PowerShell results, mutation queue, image validation/orientation/limits and structured output; release 1.5: `read` declares text-or-image structured output (bridge U53)",
         "`tools/*`, `images/*`; `tools*`, `images-wasm-module`",
         "DE33"
       ],
@@ -3815,7 +3815,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Read/write/edit/bash/PowerShell results, mutation queue, image validation/orientation/limits and structured output",
+      "future": "Read/write/edit/bash/PowerShell results, mutation queue, image validation/orientation/limits and structured output; release 1.5: `read` declares text-or-image structured output (bridge U53)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -3834,12 +3834,12 @@
       "owners": [
         "DE34"
       ],
-      "contract": "Deferred tool search and activation, BM25/namespaces, caller filtering and stable discovery schema snapshot",
-      "source_anchor": "`tool-search/*`, `codemode/describe.ts`; `tool-search`, `codemode-describe`",
+      "contract": "Deferred tool search and activation, BM25/namespaces, caller filtering and stable discovery schema snapshot; release 1.5: ranking with a separate name field and Unicode tokenization (bridge U54)",
+      "source_anchor": "`tool-search/*`, `codemode/describe.ts`; `tool-search`, `codemode-describe`, `search`",
       "plan_cells": [
         "P35",
-        "Deferred tool search and activation, BM25/namespaces, caller filtering and stable discovery schema snapshot",
-        "`tool-search/*`, `codemode/describe.ts`; `tool-search`, `codemode-describe`",
+        "Deferred tool search and activation, BM25/namespaces, caller filtering and stable discovery schema snapshot; release 1.5: ranking with a separate name field and Unicode tokenization (bridge U54)",
+        "`tool-search/*`, `codemode/describe.ts`; `tool-search`, `codemode-describe`, `search`",
         "DE34"
       ],
       "current": {
@@ -3849,7 +3849,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Deferred tool search and activation, BM25/namespaces, caller filtering and stable discovery schema snapshot",
+      "future": "Deferred tool search and activation, BM25/namespaces, caller filtering and stable discovery schema snapshot; release 1.5: ranking with a separate name field and Unicode tokenization (bridge U54)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -4007,11 +4007,11 @@
       "owners": [
         "DE39"
       ],
-      "contract": "Content-free submit/phase telemetry, reports and host error vocabulary, trace relationships, replay events and metric lifetime",
+      "contract": "Content-free submit/phase telemetry, reports and host error vocabulary, trace relationships, replay events and metric lifetime; release 1.5: the tagged `Report` vocabulary with `storage_failed`, `task_interrupted` and `telemetry` host errors, without `task_parked` (bridge U03, U34–U36)",
       "source_anchor": "`harness/telemetry.ts`; `harness-telemetry`, `harness-telemetry-options`, `harness-reports`",
       "plan_cells": [
         "P40",
-        "Content-free submit/phase telemetry, reports and host error vocabulary, trace relationships, replay events and metric lifetime",
+        "Content-free submit/phase telemetry, reports and host error vocabulary, trace relationships, replay events and metric lifetime; release 1.5: the tagged `Report` vocabulary with `storage_failed`, `task_interrupted` and `telemetry` host errors, without `task_parked` (bridge U03, U34–U36)",
         "`harness/telemetry.ts`; `harness-telemetry`, `harness-telemetry-options`, `harness-reports`",
         "DE39"
       ],
@@ -4022,7 +4022,7 @@
         "oracles": [],
         "observables": "No executed native durable comparison for this row; source/contract ownership only. DE00 prototype import is bounded historical experiment evidence."
       },
-      "future": "Content-free submit/phase telemetry, reports and host error vocabulary, trace relationships, replay events and metric lifetime",
+      "future": "Content-free submit/phase telemetry, reports and host error vocabulary, trace relationships, replay events and metric lifetime; release 1.5: the tagged `Report` vocabulary with `storage_failed`, `task_interrupted` and `telemetry` host errors, without `task_parked` (bridge U03, U34–U36)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",
@@ -4090,12 +4090,12 @@
         "DE43",
         "DE44"
       ],
-      "contract": "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers",
-      "source_anchor": "current `session-storage.md`, `session-tree.md`; spec storage failures",
+      "contract": "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers; release 1.5: a read-only viewer open (bridge U56)",
+      "source_anchor": "current `session-storage.md`, `session-tree.md`; spec storage failures; `harness-read-only`",
       "plan_cells": [
         "P42",
-        "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers",
-        "current `session-storage.md`, `session-tree.md`; spec storage failures",
+        "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers; release 1.5: a read-only viewer open (bridge U56)",
+        "current `session-storage.md`, `session-tree.md`; spec storage failures; `harness-read-only`",
         "DE10–12, DE40–44"
       ],
       "current": {
@@ -4107,7 +4107,7 @@
         "oracles": [],
         "observables": "Bounded DE11 public async Python single-input factory/reopen/resume/close over one native SQLite/Session authority with private DTO and real process/fault/lifetime controls. Genuine pinned common admission/completion comparison only; full CLI/TUI/RPC, queued input, streams, abort, compaction/tree, export/import/migration/default adoption remain with original future owners. Whole row stays OPEN."
       },
-      "future": "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers",
+      "future": "Private product data lifecycle, safe inspection, immutable workflow archive, explicit export/import/migration/default adoption; no dual writers; release 1.5: a read-only viewer open (bridge U56)",
       "status": "OPEN",
       "evidence": [
         "docs/specs/2026-10-19-durable-execution-plan.md#4-traceable-parity-matrix",

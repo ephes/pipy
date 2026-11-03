@@ -102,7 +102,9 @@ Pipy paths are relative to `src/pipy_harness/native/` unless they start with
 The owner requested the full [native durable execution plan](specs/2026-10-19-durable-execution-plan.md)
 on2026-10-19, initially against Pi durable1.3.0. On2026-10-29 the owner changed the target to literal release1.4.0 at
 `4a080252f06caf63a525d7873c5d94d3c23887e0`; see the [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md) and the
-[published-surface audit](specs/2026-10-19-durable-upstream-audit.md).
+[published-surface audit](specs/2026-10-19-durable-upstream-audit.md). On 2026-11-03 the owner moved the target to literal
+release 1.5.0 at `f9a26365568127461c47a07a37dcb42c140a3ac5`; the [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md)
+orders the bridge slices R15-1 to R15-4 before the DE16 remainder (see [below](#release-15-bridge-2026-11-03)).
 **Execution is authorized; DE01a, R1 and DE01b1–DE01b3b landed; DE02 landed (DE02a1, DE02a2a, DE02a2b, DE02b1a, DE02b1b, DE02b2a, DE02b2b and DE02b3); DE03 is split a→b→c→d, DE03a and DE03b landed, and DE03c is split c1→c2 with DE03c delivered and DE03d split d1→d2, d1+d2 and cumulative DE03d/DE03 landed at `2dba6008`. DE32a landed at `52ecc1fc`; DE32 is IN_PROGRESS and DE32b OPEN. DE04a landed at `e6c1239d`; DE04b1a landed at `6e3b838f`; S (DE04b1b2) landed at `8c8f30d7` with supplied current deltas/schema2 and verified gates; T (DE04b1b1) landed at `71cb8c91`; DE04b/DE04b1b/J are complete through the checkpoint/unload join. Owner policy266 selects the persisted value; default-delta DE04b1b3a landed at `33d39457` and checkpoint/unload DE04b1b3b completes cumulative DE04 acceptance. DE05 is complete through typed-creation DE05a and the DE05b runtime/recovery/lifecycle join. DE06a/DE06b and cumulative DE06 are complete; DE07 native generation supplies the bounded request/receipt/settlement and admission join; DE08 supplies private tool execution/receipt recovery, DE09 completed-message projection and DE10 private inspection/operator retry; DE11 supplies the opt-in async Python product session; DE12 supplies the opt-in headless CLI and bounded live acceptance; DE13a supplies the bounded normal-details ABI prerequisite; DE13b retained reporting and ordinary error continuation landed at `a069a8a`; DE13c1 recovered-execute interruption landed at `5897353`; bounded explicit historical adjudication landed at `06823ad`; DE14a bounded restart parking and same-task reset landed at `48fd187`; DE14b1 bounded generic cold migration landed at `2d3c7c0`; DE14b2 owner-local restart-policy publication landed at `be63fcd1`. DE14b3 private idle definition publication landed at `ad21f13`. DE14b4 explicit missing-definition orphaning landed at `3f5473d`. DE14b5 explicit older-definition orphaning landed at `facea5d1`. DE14b6 observed-failure orphaning landed at `8c01b35`; DE14b7 absent-handler orphaning landed at `5a9bb487`.**
 DE01a landed at `97d623f`; its failed initial CI is historical. R1 landed at
 `35142ec` with audited [CI 39255373624](https://github.com/ephes/pipy/actions/runs/39255373624)
@@ -1554,3 +1556,38 @@ At this status checkpoint CODE, public Pi comparison, Full and Main delivery
 remain open. This bounded prerequisite does not close DE16 or its DE17
 dependency: owned cascade, public abort, failFast, abandonment and timers remain
 deferred; all parent criteria remain open.
+
+## Release 1.5 bridge (2026-11-03)
+
+The owner moved the durable target to literal Pi release 1.5.0, commit
+`f9a26365568127461c47a07a37dcb42c140a3ac5`. The
+[1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md) assigns every
+change since release 1.4.0 an owner. Work proceeds in this order, one reviewed
+commit per slice:
+
+1. R15-0: the bridge and its plan, ledger, backlog and topic-doc amendments
+   (docs only).
+2. R15-1: re-pin the reference runner, its Node runtime, the dependency closure,
+   the manifests and the drivers to 1.5, with a recorded disposition for every
+   comparison phase.
+3. R15-2: remove restart parking and same-task retry (`retry_task`,
+   `pipy durable retry-task`) and end restart-limited tasks visibly with
+   `restart_limit`.
+4. R15-3: batch `Storage.commit` with refusals and durability receipts on
+   Memory and SQLite.
+5. R15-4: tagged watch, report and observer shapes for the delivered surfaces.
+6. Then the DE16 remainder resumes: cascade, public abort, failFast, wait
+   cancellation, close ordering, restart abandonment and process groups.
+
+DE16a, DE16b and DE16c are delivered on main (latest `d2919cc8`). The native
+Session line stays held through storage instead of adopting upstream group
+commit (deviation D1, performance-only, revisited at DE45). DE17 now owns the
+1.5 charge for a model request in flight at host death. A later upstream
+release is adopted only by owner decision, at a slice boundary at the earliest
+and preferably at a milestone or bridge boundary.
+Earlier 1.3 and 1.4 receipts stay historical, and all 43 parent criteria remain
+OPEN.
+
+The pinned 1.4 reference chain cannot start on the current development host:
+Homebrew Node moved to v26.13.0 on 2026-11-01, and the runner accepts only
+v26.12.0. R15-1 re-pins the runtime with the reference.

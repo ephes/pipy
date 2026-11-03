@@ -1,6 +1,6 @@
 # Coding-Agent Harness Spec
 
-Current durable target (owner decision2026-10-29): literal Pi release1.4.0, `4a080252f06caf63a525d7873c5d94d3c23887e0`. The [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md) records the required-policy/profile migration and open ClientIdentity/CodeMode obligations. Earlier dated1.3 evidence below remains historical; no final release outcomes are inferred.
+Current durable target (owner decision 2026-11-03): literal Pi release 1.5.0, `f9a26365568127461c47a07a37dcb42c140a3ac5`. The [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md) inventories every change since release 1.4.0 and records deviation D1: the native Session line stays held through storage instead of adopting upstream group commit. The previous target, literal release 1.4.0 (`4a080252f06caf63a525d7873c5d94d3c23887e0`, owner decision 2026-10-29), is recorded in the [1.4 bridge](specs/2026-10-29-durable-release-1.4-bridge.md), whose required-policy/profile migration and open ClientIdentity/CodeMode obligations carry over. Earlier dated 1.3 and 1.4 evidence below remains historical; no final release outcomes are inferred.
 
 Status: stable design rationale and behavioral invariants for the pipy
 harness. For current implementation state and parity status see
@@ -141,7 +141,11 @@ sync `commit()` and an async `acommit()` drive the one b2a core. Settlement
 follows Pi's `#runCommit` order: health then cancel view at the grant, the
 callback, health again, then seal, pending check and drain, prepare, the guarded
 commit, adoption (an adoption failure fails the Session and rejects the durable
-commit) and synchronous publication, all before the line is left. Internal
+commit) and synchronous publication, all before the line is left. Release 1.5
+keeps this order as [deviation D1](specs/2026-11-03-durable-release-1.5-bridge.md#deviation-d1-the-session-line-stays-held-through-storage):
+upstream group commit lets later jobs run while a commit is stored, and the
+held line is the legal 1.5 interleaving in which each storage call settles and
+publishes before the next job starts. Internal
 commit listeners run first and a throw fails the Session while the durable
 commit still resolves; host commit and close listeners are contained and
 reported. Close seals the line, runs close listeners once, and seals the guard

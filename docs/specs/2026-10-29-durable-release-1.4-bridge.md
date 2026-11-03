@@ -1,5 +1,9 @@
 # Durable release 1.4 bridge
 
+Since the owner decision of 2026-11-03 the current target is literal release
+1.5.0; see the [1.5 bridge](2026-11-03-durable-release-1.5-bridge.md). This page
+stays the record of the 1.4 retarget, and its obligations carry over.
+
 The target is literal release `v1.4.0`, commit `4a080252f06caf63a525d7873c5d94d3c23887e0`, not postrelease HEAD. Public retryTask and its reset-then-resume semantics remain present. Existing dated 1.3 delivery and development evidence remains historical.
 
 ## Required document policy

@@ -1,6 +1,6 @@
 # Native durable execution evidence ledger
 
-Current durable target (owner decision2026-10-29): literal Pi release1.4.0, `4a080252f06caf63a525d7873c5d94d3c23887e0`. The [release bridge](2026-10-29-durable-release-1.4-bridge.md) records the required-policy/profile migration and open ClientIdentity/CodeMode obligations. Earlier dated1.3 evidence below remains historical; no final release outcomes are inferred.
+Current durable target (owner decision 2026-11-03): literal Pi release 1.5.0, `f9a26365568127461c47a07a37dcb42c140a3ac5`; see the [1.5 bridge](2026-11-03-durable-release-1.5-bridge.md) and [its ledger entry](#release-15-retarget-2026-11-03). The previous target, literal release 1.4.0 (`4a080252f06caf63a525d7873c5d94d3c23887e0`, owner decision 2026-10-29), is recorded in the [1.4 bridge](2026-10-29-durable-release-1.4-bridge.md), whose required-policy/profile migration and open ClientIdentity/CodeMode obligations carry over. Earlier dated 1.3 and 1.4 evidence below remains historical; no final release outcomes are inferred.
 
 Status: **DE00, DE01 (DE01a, R1, DE01b1–DE01b3b) and DE02 (DE02a1 through DE02b3) landed; DE03a/b/c/d1/d2 and cumulative DE03d/DE03 LANDED; DE04a, DE04b1a, DE04b1b2 and DE04b1b1 LANDED; DE04/DE04b/DE04b1b/DE04b1b3 LANDED, DE04b1b3a and DE04b1b3b LANDED; DE05/DE05a/DE05b LANDED (owner policy266 resolved: persisted value); DE32a LANDED, DE32 IN_PROGRESS, DE32b OPEN; DE06/DE06a/DE06b LANDED; DE07/DE08/DE09/DE10/DE11/DE12 LANDED; DE13a normal ABI prerequisite delivered; DE13b retained reporting delivered; DE13c1 interrupted continuation delivered at `5897353`; DE13c2 explicit adjudication LANDED at `06823ad`; DE14a LANDED at `48fd187`; DE14b1 LANDED at `2d3c7c0`; DE14b2 LANDED at `be63fcd1`; DE14b3 bounded private implementation LANDED; DE14b4 LANDED at `3f5473d`; DE14b5 LANDED at `facea5d1`; DE14b6 LANDED at `8c01b35`; DE14b7 LANDED at `5a9bb487`; DE15a LANDED at `2da6ee7`; DE15 OPEN; DE14/DE14b IN_PROGRESS; DE13 IN_PROGRESS; all parity rows OPEN**,
 2026-10-29. This ledger accompanies the
@@ -9285,3 +9285,35 @@ terminal while its Product operation is pending; Pi's generic target is running.
 Full records, callback history and the ACK/void difference remain raw. The new
 phase follows ordinary_owned_live; no old profile predicate or parent obligation
 is replaced. See [the reference boundary](../durable-reference.md#product-same-task-retry-reference-boundary).
+
+## Release 1.5 retarget (2026-11-03)
+
+The owner moved the target to literal Pi release 1.5.0, commit
+`f9a26365568127461c47a07a37dcb42c140a3ac5`; the
+[1.5 bridge](2026-11-03-durable-release-1.5-bridge.md) classifies every change
+since release 1.4.0 and records deviation D1. Every receipt above stays bound to
+its own source, release pin and date: the dated 1.3 evidence and the 1.4
+receipts through DE16c (`d2919cc8`) are historical, and none is rebound to 1.5.
+No 1.5 comparison has run. The reference runner, manifests and fixtures pin
+release 1.4.0 until R15-1.
+
+The bridge slices are tracked here rather than in the slice status table above,
+which holds only DE rows:
+
+- R15-0, the bridge and its plan, ledger, backlog and topic-doc amendments, is
+  docs only. Its review result and pushed commit are recorded by the next bridge
+  slice, as earlier slices recorded their predecessors.
+- R15-1 reference re-pin: OPEN.
+- R15-2 restart-limit endings instead of parking and retry: OPEN.
+- R15-3 batch Storage commit: OPEN.
+- R15-4 watch, report and observer shapes: OPEN.
+- The DE16 remainder resumes after R15-4; DE16 stays OPEN.
+
+R15-0 changes no producer, runtime, driver, oracle value or validation
+predicate. The coverage index mirrors the amended plan rows, and the fixture
+manifests carry new digests only for the edited documents and for the parent
+manifests that follow from them. The pinned reference chain could not run for
+R15-0: Homebrew Node on the development host moved to v26.13.0 on 2026-11-01,
+and the runner accepts only v26.12.0, so it stops with "Runtime version drift:
+node" (exit 2), also on unmodified `d2919cc8`. R15-1 re-pins the runtime with
+the reference. All 43 P rows remain OPEN.

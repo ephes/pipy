@@ -8,6 +8,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Retarget the native durable execution campaign to literal Pi durable release
+  1.5.0 (`f9a26365`). Only the plan changes: runtime behavior, the pinned
+  reference runner and its comparison fixtures stay on release 1.4.0 until the
+  bridge slices re-pin and port them. The
+  [release 1.5 bridge](docs/specs/2026-11-03-durable-release-1.5-bridge.md)
+  assigns every upstream change an owner, schedules the removal of restart
+  parking and same-task retry, and records that the native Session line stays
+  held through storage instead of adopting upstream group commit.
+
 - Add private active ordinary strict root-leaf cancellation with committed
   cooperative signalling, post-mark runtime fences and real callback/finally
   retirement joining. Same-run repeats preserve one physical completion; existing
