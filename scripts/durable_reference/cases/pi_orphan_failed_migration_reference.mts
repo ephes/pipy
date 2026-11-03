@@ -12,7 +12,7 @@ const {MemoryStorage}=await import('./packages/durable/src/storage/memory.ts');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
 const {createModels}=await import('@earendil-works/pi-ai');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
-const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-failed-migration-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-parked-control","backend":"sqlite","cold":false,"parked":true,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}],"definition_versions":{"stored":1,"available":2}});
+const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-failed-migration-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}],"definition_versions":{"stored":1,"available":2}});
 const clone=(x:any)=>structuredClone(x);
 const NOTE=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.note',version:1,scope:'task',initial:()=>({n:0})});
 const CACHED=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.cached',version:1,scope:'task',initial:()=>({n:0})});
@@ -46,10 +46,10 @@ for(const c of recipe.cases){
   const registry=createRegistry();registry.install(defineExtension({name:'fixture.orphan.failed-migration.extension',tasks:[availableTask]}));let h:any,storage:any,taskId:any,cid:any;
   async function owner(){
    const inner=c.backend==='memory'?new MemoryStorage():await openNodeSqliteStorage(path);
-   storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key);if(typeof value!=='function')return value;return async(...args:any[])=>{const before=key==='commit'?clone(args[0]):undefined;const result=await value.apply(target,args);if(key==='commit')batches.push({seq:result,writes:before});if(key==='mintId')minted.push(result);return result;};}});
+   storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key);if(typeof value!=='function')return value;return async(...args:any[])=>{if(key==='commit'){/* Release 1.5 batches: one recorded commit per stored batch. */const [list,receive,context]=args;const before=clone(list),seqs:any[]=[];const result=await value.call(target,list,(index:number,seq:any)=>{seqs[index]=seq;receive(index,seq);},context);for(let index=0;index<result.stored;index++)batches.push({seq:seqs[index],writes:before[index]});return result;}const result=await value.apply(target,args);if(key==='mintId')minted.push(result);return result;};}});
    h=await Harness.open(storage,{models:createModels(),registry,settings:{restartLimit:5},now:()=>1000},ctx);owners.add(h);
   }
-  async function end(){await h.close(ctx);closed.push((await h.closed).reason);owners.delete(h);}
+  async function end(){await h.close(ctx);closed.push((await h.closed).kind);owners.delete(h);}
   async function snapshot(label:string,ACK:any=null){
    const row=await h.readOnLine(async()=>({label,record:clone(await storage.task(taskId,ctx)),documents:{target:await documents(storage,{kind:'task',taskId}),conversation:await documents(storage,{kind:'conversation',conversationId:cid})},counts:clone(counts),callback_rows:ledger(),backend:c.backend==='sqlite'?sqlSnapshot(path):{kind:'memory-current-only',commit_batches:clone(batches),minted:clone(minted)},batch_count:batches.length,mint_count:minted.length,ACK}));
    assert.ok(row.record);steps.push(row);return row;
@@ -66,10 +66,10 @@ for(const c of recipe.cases){
   // the failure pass boundary for this fresh inactive target, never whole-graph idle.
   async function reservationLine(){await new Promise<void>((resolve,reject)=>queueMicrotask(()=>{h.readOnLine(async()=>{assert.equal(counts.migrate,1);assert.equal(counts.handler,0);assert.equal(counts.abort,0);}).then(resolve,reject);}));}
   h.resume();await reservationLine();await snapshot('observed-failure');
-  if(c.parked){await h.commit(async(tx:any)=>{const record=await tx.task(taskId);assert.ok(record);tx.setTask({...record,restarts:5,memos:{'fixture.memo':{kept:true}}});},ctx);await snapshot('seeded-restarts');}
+  // Release 1.5 removed parking; the parked control case is retired (R15-1b).
+  assert.equal(c.parked,false);
   const before=await snapshot('before-action'),inspection=await h.inspect(ctx);assert.notEqual(inspection.scheduling,'paused');
   const policy_observation={configured_limit:5,derived_parked:(before.record.restarts??0)>=5,inspection};
-  if(c.parked){assert.equal(before.record.restarts,5);assert.equal(policy_observation.derived_parked,true);}
   const definition_observation=await h.readOnLine(async()=>{const record=await storage.task(taskId,ctx);assert.ok(record);const captured:any=registry.snapshot().task(record.kind);assert.ok(captured);assert.equal(counts.migrate,1);return {available_version:captured.definition.version,stored_version:record.version,strictly_newer:captured.definition.version>record.version};});
   assert.deepEqual(definition_observation,{available_version:recipe.definition_versions.available,stored_version:recipe.definition_versions.stored,strictly_newer:true});
   const ACK=await h.abortTask(taskId,ctx);await snapshot('orphan',ACK);

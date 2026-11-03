@@ -63,14 +63,12 @@ PHASE = "completed-projection-b-v1"
 MANIFEST = o.FIXTURES / "completed-projection-v1.manifest.json"
 DRIVER = ROOT / "scripts/durable_reference/cases/completed.mts"
 DESTINATION = "completed.mts"
-MODULES = canonical.MODULES | {"packages/durable/src/harness/events.ts"}
+MODULES = canonical.MODULES | {"packages/durable/src/harness/view.ts"}
 SOURCES = canonical.SOURCES | {
     "packages/durable/src/index.ts",
     "packages/durable/src/types.ts",
     "packages/durable/src/harness/view.ts",
-    "packages/durable/src/harness/events.ts",
-    "packages/durable/src/session/observation.ts",
-    "packages/durable/test/harness-events.test.ts",
+    "packages/chord/src/watch.ts",
     "packages/durable/test/harness-view.test.ts",
     "packages/durable/test/session-watches.test.ts",
 }

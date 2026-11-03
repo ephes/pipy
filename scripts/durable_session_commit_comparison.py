@@ -67,6 +67,8 @@ PHASE = "session-commit-b3-v1"
 INPUT = ROOT / "tests/fixtures/durable/session-commit-v1.input.json"
 MANIFEST = ROOT / "tests/fixtures/durable/session-commit-v1.manifest.json"
 DRIVER = ROOT / "scripts/durable_reference/cases/session-commit.mts"
+# Release 1.5 scenarios whose native result has not caught up (bridge R15-1b).
+DIVERGENCES = ROOT / "tests/fixtures/durable/session-commit-v1.divergences.json"
 DESTINATION = "session-commit.mts"
 MODULES = [
     "packages/durable/src/session/session.ts",
@@ -101,6 +103,7 @@ CLOSURE = g.CLOSURE | {
     "scripts/durable_session_commit_comparison.py",
     "scripts/durable_reference/cases/session-commit.mts",
     "tests/fixtures/durable/session-commit-v1.input.json",
+    "tests/fixtures/durable/session-commit-v1.divergences.json",
     "tests/durable/test_session_commit_comparison.py",
 }
 SCENARIOS = tuple(
@@ -963,7 +966,7 @@ def _effect(effect: Any, ctx: dict[str, Any]) -> None:
             _change(change)
 
 
-REPORTS = {"session_failed", "listener_error"}
+REPORTS = {"session_failed", "storage_failed", "listener_error"}
 
 
 def _step(step: Any, spec: Any, ctx: dict[str, Any], python: bool) -> None:
@@ -1066,15 +1069,57 @@ def projection(value: Any, mode: str) -> Any:
     return result
 
 
-def comparison(expected: Any, actual: Any) -> int:
+def declared() -> Any:
+    """Closed release 1.5 scenario divergences, each owned by a bridge row.
+
+    A declared scenario compares only as the exact pair of whole projected
+    scenarios that the actual 1.5 run and the native run produced (by SHA256);
+    any other value of it on either side is a mismatch.
+    """
+    value = load(DIVERGENCES)
+    shape(value, {"schema_version", "phase", "divergences"}, "declared divergences")
+    require(
+        value["schema_version"] == 1 and value["phase"] == PHASE,
+        "Declared divergence identity",
+    )
+    rows = o.contract.array(value["divergences"], "declared divergences")
+    for row in rows:
+        require(
+            type(row) is dict
+            and type(row.get("path")) is list
+            and len(row["path"]) == 2,
+            "Declared path",
+        )
+        mode, scenario = row["path"]
+        require(mode in MODES and scenario in SCENARIOS, "Declared scenario")
+    return o.contract.declared_validate(
+        tuple({**row, "path": tuple(row["path"])} for row in rows)
+    )
+
+
+def comparison(expected: Any, actual: Any, used: set[str] | None = None) -> int:
     """Node or native traces; two native traces must share one mode."""
     trace(expected)
     trace(actual)
     named = {t["mode"] for t in (expected, actual) if t["backend"] == "python"}
     require(len(named) <= 1, "Native mode drift")
     modes = sorted(named) or list(MODES)
-    same = all(projection(expected, x) == projection(actual, x) for x in modes)
-    return 0 if same else 1
+    rows = declared()
+    for x in modes:
+        left, right = projection(expected, x), projection(actual, x)
+        if [s["id"] for s in left["scenarios"]] != [
+            s["id"] for s in right["scenarios"]
+        ]:
+            return 1
+        masked = o.contract.declared_mask(
+            {x: {s["id"]: s for s in left.pop("scenarios")}},
+            {x: {s["id"]: s for s in right.pop("scenarios")}},
+            rows,
+            used,
+        )
+        if left != right or masked[0] != masked[1]:
+            return 1
+    return 0
 
 
 # -- native driver ------------------------------------------------------------------
@@ -2413,11 +2458,13 @@ def execute(parent: Path, output: Path) -> int:
     parent, output = parent.resolve(strict=True), output.resolve()
     raw, acceptance, parent_sha, modules, env = _reference(parent, output, config, base)
     products = _native(output, env)
-    codes = {}
+    codes, used = {}, set()
     for mode, product in products.items():
         dump(output / f"observed-projected-{mode}.json", projection(raw, mode))
         dump(output / f"native-projected-{mode}.json", projection(product, mode))
-        codes[mode] = comparison(raw, product)
+        codes[mode] = comparison(raw, product, used)
+    if not max(codes.values()):
+        o.contract.declared_require(declared(), used)
     mutants = execute_mutants(output, raw, env)
     o.acceptance.attest_reference(o, parent / "reference", base, o.FIXTURES)
     v.artifacts.attest(parent, o.FIXTURES)

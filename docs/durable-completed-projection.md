@@ -167,11 +167,12 @@ read, provider, tool and finalizer lifetime.
 
 The source-closed `completed-projection-v1.manifest.json` is parented by the
 existing tool phase. `scripts/durable_completed_comparison.py` executes pinned
-Pi `Harness`, `Conversation.watch` and exported `watchEvents` with only a fixed
-provider stream and synthetic tool boundary. The common projection compares
+Pi `Harness` and `Conversation.watch` with only a fixed provider stream and
+synthetic tool boundary. Release 1.5 removed `watchEvents()`, so automatic
+delivery and reconnect are observed through the conversation watch alone. The common projection compares
 logical completed roles/results, actual usage/ledger totals, automatic delivery,
 independent commit readback, listener isolation, same-store reconnect identity,
-stop observation and unchanged effect counts. Pi's raw views/events/task graph
+stop observation and unchanged effect counts. Pi's raw views/task graph
 and exact native canonical facts remain separately retained. It does not claim
 full structural view ordering, Pi's 100-frame buffer, event-stream/partial parity
 or provider/finalizer lifetime parity. Pi successor-generation tasks versus the

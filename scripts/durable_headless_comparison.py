@@ -245,11 +245,40 @@ def profile_protocol(value):
     return value
 
 
-def profile_check(value):
+# Release 1.5 (bridge U04, owner DE17): the reference charges the prepared attempt
+# that was in flight at host death instead of resending it, so its request API and
+# session never show; native still refuses the prepared target before any request.
+DECLARED = o.contract.declared_validate(
+    (
+        {
+            "id": "headless-p16-prepared-model-api-unsent",
+            "owner": "DE17",
+            "bridge": "U04",
+            "reason": "the reference sends no request for the charged prepared attempt",
+            "path": ("prepared-current", "model"),
+            "reference_sha256": "91705fd70d4ded10a6966f73c18ba784458427a8668e9c89a4221801b3b396de",
+            "native_sha256": "844d55057867d82fdc7efb66602152cc8c84f813a34e833289aaaa11969c1608",
+        },
+        {
+            "id": "headless-p16-prepared-session-unsent",
+            "owner": "DE17",
+            "bridge": "U04",
+            "reason": "the reference sends no request for the charged prepared attempt",
+            "path": ("prepared-current", "session_consistent"),
+            "reference_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+            "native_sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b",
+        },
+    )
+)
+
+
+def profile_check(value, used=None):
     value = profile_protocol(value)
     try:
         return int(
-            not profiles.policy_valid(value["reference"], value["native"], parent)
+            not profiles.policy_valid(
+                value["reference"], value["native"], parent, DECLARED, used
+            )
         )
     except o.EvidenceError:
         # A well-shaped measured record violating an identity/retention relation
@@ -516,11 +545,13 @@ def execute(acceptance, output):
         "native": native_profile_records(output),
     }
     d.dump(output / "profile-policy.json", policy)
+    used = set()
     d.require(
         compare(d.load(output / "observed.json"), actual) == 0
-        and profile_check(policy) == 0,
+        and profile_check(policy, used) == 0,
         "Headless common/profile relation mismatch",
     )
+    o.contract.declared_require(DECLARED, used)
     controls(output, actual, policy, env)
     producer_attest(output, acceptance)
     configuration()

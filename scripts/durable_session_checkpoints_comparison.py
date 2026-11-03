@@ -988,7 +988,7 @@ def expected_native(reference: Any) -> Any:  # noqa: C901 - closed projection pa
     expected = copy.deepcopy(reference)
     expected["producer"] = "native"
     for lane in expected["backends"]:
-        lane["runtime"] = runtime_contract(False)
+        lane["runtime"] = runtime_contract(False, lane["backend"])
         for row in lane["cases"]:
             zero = row["id"].startswith("zero-") or row["id"] == "creation-final-zero"
             previous = ["null"]
@@ -1055,7 +1055,7 @@ def zero_difference(left: Any, right: Any, path: tuple[str, ...]) -> bool:
 def reference_consistent(value: Any) -> bool:  # noqa: C901 - closed provenance and zero checks
     """Projection never masks arbitrary reference values or unused mirror fields."""
     for lane in value["backends"]:
-        if not d.same(lane["runtime"], runtime_contract(True)):
+        if not d.same(lane["runtime"], runtime_contract(True, lane["backend"])):
             return False
         for row in lane["cases"]:
             zero = row["id"].startswith("zero-") or row["id"] == "creation-final-zero"
@@ -1143,7 +1143,12 @@ def runtime_shape(value: Any) -> None:
     t.valid_profile(value["promise"]["value"])
 
 
-def runtime_contract(reference: bool) -> Any:
+def runtime_contract(reference: bool, backend: str) -> Any:
+    # Release 1.5 group commit: on SQLite the reference starts the child commit a
+    # checkpoint callback queued while the parent's storage call is in flight, so
+    # before the parent's publication. Native holds its line through storage
+    # (bridge deviation D1), so its child always follows the publication.
+    child_after_publication = not reference or backend == "memory"
     return {
         "promise": {
             "refused": not reference,
@@ -1151,7 +1156,10 @@ def runtime_contract(reference: bool) -> Any:
             "content_kind": "base" if reference else None,
             "value": t.profile({"n": 1 if reference else 0}),
         },
-        "nested": {"same_task_refused": not reference, "child_after_publication": True},
+        "nested": {
+            "same_task_refused": not reference,
+            "child_after_publication": child_after_publication,
+        },
         "closed_unload_fulfilled": reference,
     }
 

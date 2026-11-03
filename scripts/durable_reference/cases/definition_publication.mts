@@ -53,7 +53,7 @@ for(const c of recipe.cases){
   const failing=['enabled-failure-cache','failed-remove-readd-and-overwrite'].includes(c.id);
   if(c.id!=='missing-install'){install(main);if(c.id==='order-and-snapshot'){install(left);install(right);}}
   async function owner(){const opened=await Harness.open(await openNodeSqliteStorage(path),{models:createModels(),registry,now:()=>1000},ctx);owners.add(opened);return opened;}
-  async function end(){await h.close(ctx);closed.push((await h.closed).reason);owners.delete(h);}
+  async function end(){await h.close(ctx);closed.push((await h.closed).kind);owners.delete(h);}
   h=await owner();const conversation=await h.createConversation({ownership:{kind:'ownerless'}},ctx);taskId=await h.commit((tx:any)=>tx.createTask(main,{fixture:c.id},{ownership:{kind:'conversation'},conversationId:conversation.id}),ctx);const created=clone(await h.getTask(taskId,ctx));
   if(failing){await end();install(a);h=await owner();}
   const old=registry.snapshot(),old_snapshot=snapshotData(old),steps:any[]=[];

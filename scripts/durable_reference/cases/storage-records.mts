@@ -20,6 +20,7 @@ registerHooks({resolve(specifier,context,nextResolve){
 }});
 const {copyJson,isJsonValue}=await import("./packages/chord/src/json.ts");
 const {MemoryStorage}=await import("./packages/durable/src/storage/memory.ts");
+const {commitWrites}=await import("./packages/durable/src/testing/commit-writes.ts");
 const {BACKGROUND_CONTEXT:context}=await import("@earendil-works/chord/context");
 function string(hex:string):string{
  const bytes=Buffer.from(hex,"hex");let result="";
@@ -73,7 +74,7 @@ try{
   }
   return {type:record.kind,value};
  });
- seq=await storage.commit(writes,context);
+ seq=await commitWrites(storage,writes,context);
  for(const record of input.records){
   const expected=decode(record.value);let observed:any;
   switch(record.kind){

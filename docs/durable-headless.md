@@ -185,7 +185,10 @@ tool order/effect counts, saved usage and unchanged terminal reuse. Exact raw
 observations remain retained. Pi looks up the current model again at request;
 native protected prepared-target refusal is a separately checked policy
 difference (`pi-current-model-vs-native-prepared-target-refusal-v1`), not raw
-target/API equivalence or whole-P16 closure. Generated IDs normalize only by
+target/API equivalence or whole-P16 closure. Release 1.5 charges the prepared
+attempt that was in flight at host death instead of resending it, so the
+reference sends no request for that case; its model API and session facts are
+declared divergences owned by DE17 (bridge U04). Generated IDs normalize only by
 actual within-side correlation. Schema-valid CLI0/1 controls and malformed CLI2
 bodies remain distinct, and every pure API attester runs in its own fresh
 process, imports explicit pure lazy roots, rejects loaded-unlisted/source drift

@@ -7,38 +7,6 @@ import copy
 PHASE = "restart-policy-live-v1"
 CASES = [
     {
-        "id": "raise-finite",
-        "initial": 5,
-        "count": 5,
-        "update": 6,
-        "fresh": 5,
-        "async_setter": False,
-    },
-    {
-        "id": "raise-unlimited",
-        "initial": 5,
-        "count": 1e100,
-        "update": "Infinity",
-        "fresh": 5,
-        "async_setter": True,
-    },
-    {
-        "id": "lower-before-admission",
-        "initial": 6,
-        "count": 5,
-        "update": 5,
-        "fresh": 6,
-        "async_setter": False,
-    },
-    {
-        "id": "same-finite-remains-parked",
-        "initial": 5,
-        "count": 5,
-        "update": 5,
-        "fresh": 6,
-        "async_setter": True,
-    },
-    {
         "id": "same-unlimited",
         "initial": "Infinity",
         "count": 1e100,
@@ -50,6 +18,32 @@ CASES = [
 IDS = tuple(row["id"] for row in CASES)
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 SCOPE = {
+    "retired_cases": [
+        {
+            "id": "raise-finite",
+            "retired_by": "R15-1b",
+            "successor": "R15-2",
+            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
+        },
+        {
+            "id": "raise-unlimited",
+            "retired_by": "R15-1b",
+            "successor": "R15-2",
+            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
+        },
+        {
+            "id": "lower-before-admission",
+            "retired_by": "R15-1b",
+            "successor": "R15-2",
+            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
+        },
+        {
+            "id": "same-finite-remains-parked",
+            "retired_by": "R15-1b",
+            "successor": "R15-2",
+            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
+        },
+    ],
     "common": "generic-current-owner-live-budget-read-on-later-explicit-resume-no-task-counter-reset",
     "controls": "actual-created-pending-task-explicit-counter-seed; native reservation observer; Pi parked first-resume FIFO Session-line observer, not graph idle; no physical SIGKILL",
     "reference_update": "actual mutable HarnessOptions.settings host object, then explicit Harness.resume; no Pi setter API",
@@ -245,7 +239,8 @@ def successful(value, d, v):
 
 def mutate(value, name, v):
     changed = copy.deepcopy(value)
-    index = 2 if name in {"calls_after_resume", "after_resume"} else 0
+    # The one remaining case after the release 1.5 retirement (R15-1b).
+    index = 0
     x = v.decode(changed["cases"][index]["observed"])
     if name in {
         "calls_at_open",

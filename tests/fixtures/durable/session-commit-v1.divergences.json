@@ -1,0 +1,678 @@
+{
+  "schema_version": 1,
+  "phase": "session-commit-b3-v1",
+  "divergences": [
+    {
+      "id": "b3-async-atomic-before-ack",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "async",
+        "atomic-before-ack"
+      ],
+      "reference_sha256": "1c9ffe4a3377f1de40df0fcdf2aefcf6a1b01fcf30dde6298e58bfc1b21fa4cc",
+      "native_sha256": "b4da8852c5c917e6cd43f2d15815bc189b6ac7a48aaefd3e3dee1d16bc0089df"
+    },
+    {
+      "id": "b3-async-after-ack-applied",
+      "owner": "R15-3",
+      "bridge": "U08",
+      "reason": "Pi publishes a commit Storage stored before its call rejected; native fails the Session without publishing it",
+      "path": [
+        "async",
+        "after-ack-applied"
+      ],
+      "reference_sha256": "0cb4a624c5ba3b8f6f2f175cf918c4eb20338bc624f73ed91b0a63c1035d0762",
+      "native_sha256": "90b6514bd8cba1b9230dcdacd60b3663c6c4461b9e644455ddea7dbec99d147c"
+    },
+    {
+      "id": "b3-async-h291-request-error-commit",
+      "owner": "R15-4, DE27/DE28/DE45",
+      "bridge": "U34, U18",
+      "reason": "Pi reports storage_failed and serves records from its Session cache; native reports session_failed and reads Storage",
+      "path": [
+        "async",
+        "h291-request-error-commit"
+      ],
+      "reference_sha256": "2ccfdf0c91b976a37c7fcecc49f422bb2e555ab64d0f55a6af31d8c6e7bb723a",
+      "native_sha256": "de109d745c32ccda953f0e6b7d1403efa0f1362dd370b9b36af72e23a8cb0c0f"
+    },
+    {
+      "id": "b3-async-ingress-no-alias",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "ingress-no-alias"
+      ],
+      "reference_sha256": "3e2b86814492ab7b7c8cbdb9b9abbfb58e21585b17d4f8428ee8a741c7b5a5f9",
+      "native_sha256": "52c7ac99f54e9feb0927a84aacac3c5b42ea5f0a9e4f1170cab003389ba3dd67"
+    },
+    {
+      "id": "b3-async-ingress-pending-nested-copy",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "ingress-pending-nested-copy"
+      ],
+      "reference_sha256": "3786a8177708e145a4db92c42e22fab9b73c95a962fb4c9f9566c2104ea7af79",
+      "native_sha256": "bf6eec856fe6668f922d8fca4157d254be009360dfc33f5fbf9b52a408dbb02d"
+    },
+    {
+      "id": "b3-async-tb82-121-read-after-write",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "tb82-121-read-after-write"
+      ],
+      "reference_sha256": "48a0ae146ed5f199bc9335d271052335896b19cbbea8d6313d7c6e7858be14f2",
+      "native_sha256": "da87e31e22e0750b85fa0cb32c8f983472c08c18025e60f3716db5488f2ec406"
+    },
+    {
+      "id": "b3-async-tb188-213-final-owner",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "tb188-213-final-owner"
+      ],
+      "reference_sha256": "a3f4a412a2997a6ed68fe0e6695ac7d81468d24b98ee71ae511340730b9eb800",
+      "native_sha256": "f1a0fc3e99871b287a97679e7f81e1f358f2b7ce385425c20479faa7016941f3"
+    },
+    {
+      "id": "b3-async-d78-120-137-create-change-identity",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d78-120-137-create-change-identity"
+      ],
+      "reference_sha256": "9acc9e35b59550c4c956ef3c61bfb92f19abbf00eab3007f35a00115e5aded5a",
+      "native_sha256": "f301560055178cd9b33efffc179d2a70ed621d9a2ad3f86199b604b8cbe1f064"
+    },
+    {
+      "id": "b3-async-d158-copy-per-placement",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d158-copy-per-placement"
+      ],
+      "reference_sha256": "d9aebf570c16e7a8dd014a3203cdfcf21575e3ba32fa9469ca1c458dc71f4792",
+      "native_sha256": "c64bce057efa9101dd2f5d6fdae9a1f15fa9d92f5dc826a9efda79c90a7455f1"
+    },
+    {
+      "id": "b3-async-d174-empty-batch",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d174-empty-batch"
+      ],
+      "reference_sha256": "dc1cad2a1d5fe40af3bce48542161ba665fc619ebbb23ce87d0f87531f7829eb",
+      "native_sha256": "2ceb676cedb94a1332729c5427ea589b93a6053609feed10ac375c9555c72a07"
+    },
+    {
+      "id": "b3-async-d207-escaped-returned-draft",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d207-escaped-returned-draft"
+      ],
+      "reference_sha256": "0a0a2d3efe77e41de7d703729d08add601b93c8a7258f48f0f8f0b4f10e65b70",
+      "native_sha256": "ff27892b97dc2f0f0dda5adc11ce1620fdd58bdb6068bfbe3e6e8123db541738"
+    },
+    {
+      "id": "b3-async-d228-callback-failure-aborts",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d228-callback-failure-aborts"
+      ],
+      "reference_sha256": "735537647971df5f586910c672fde8e61717c75666061e20c97f36a27a3c0a01",
+      "native_sha256": "cc235c2ad9dd236dce4f6a1e799387d6fe1c2d79b15aee074a3259daa7e7c87c"
+    },
+    {
+      "id": "b3-async-d250-memoized-duplicate",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d250-memoized-duplicate"
+      ],
+      "reference_sha256": "a2598f85e15b81093c484e15c8d9e9e58e021afdecb1912e2a2d1669f7d618d8",
+      "native_sha256": "584fdb647b50f6af86b31ac69d7ea1b4cab3b57c95f42ff788fc5fb71a908c24"
+    },
+    {
+      "id": "b3-async-d459-old-revision-held-commit",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d459-old-revision-held-commit"
+      ],
+      "reference_sha256": "f4e6342937558a8dc36025af559c165921ac4cc9c7ae03b2d91840d4f1077607",
+      "native_sha256": "bc5c764659e508748cf0ad78ef8dadc25d8bd4c8572810a4b5fcbbb0db441574"
+    },
+    {
+      "id": "b3-async-d405-assembly-rollback",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d405-assembly-rollback"
+      ],
+      "reference_sha256": "7a36617a5b0f691e65a8c9311a4da1a49d802c0babdbb6316ab7db2a70c27346",
+      "native_sha256": "94936735b5b109a33f3600adc896a397d667d7f00ab4a37c8166b93f72e93e87"
+    },
+    {
+      "id": "b3-async-d479-retire-recreate",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d479-retire-recreate"
+      ],
+      "reference_sha256": "666a710ec937d288e929348dc3962c14ab9be18916aaa77e269adc9030a662d2",
+      "native_sha256": "4116613a63561c992e324e80c4ad5e27e0b5a526df9aaa396a7b5ffa320f38b9"
+    },
+    {
+      "id": "b3-async-queued-view-cancel",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "queued-view-cancel"
+      ],
+      "reference_sha256": "d2f1039a10a8bd5509870acf58eea212d82321f9dbb0e38253ccdafe3245edd0",
+      "native_sha256": "082cecbb7483660036767b647721e01b4a56cebd36930ac03adc664ee621fb73"
+    },
+    {
+      "id": "b3-async-view-cancel-in-callback-ignored",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "view-cancel-in-callback-ignored"
+      ],
+      "reference_sha256": "bb067643a125f792fab4ba4b84496e4f58ae1a4524a4cbe8db61ba7422377ea2",
+      "native_sha256": "346d097807f8f19f49e4549712708327f5e7695565c4438520259ccf91c3aa15"
+    },
+    {
+      "id": "b3-async-view-cancel-during-held-commit",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "view-cancel-during-held-commit"
+      ],
+      "reference_sha256": "e984a5a0d1c11dea27a46a80bd98cccac12c8d14856bf2ece2cf4d12b7d37372",
+      "native_sha256": "5a4a7e1bf52eabfe11b3e1888657e88bc9cbf4c2e51bd60b18e00b198b6ee4d4"
+    },
+    {
+      "id": "b3-async-cancelled-tx-read-exempt",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "cancelled-tx-read-exempt"
+      ],
+      "reference_sha256": "0bdde01ac9494679be7e62000087c8ea4bc959d341c0997d3aa854851beddfeb",
+      "native_sha256": "5bd38f47062d79e9812ef90c509d6ec1f94f06556cc174291f155e7675bf946f"
+    },
+    {
+      "id": "b3-async-h276-caught-read-then-write",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "async",
+        "h276-caught-read-then-write"
+      ],
+      "reference_sha256": "92c70697910b1b4b15dc34afe6748e6db135b18785b634cdd9de027e35c68a7f",
+      "native_sha256": "d562deb6ba156f1bb6237186c55c9aaefd21277c7eb1aa96b3ceb1535ff79a47"
+    },
+    {
+      "id": "b3-async-h276-caught-read-then-return",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "async",
+        "h276-caught-read-then-return"
+      ],
+      "reference_sha256": "00988112b1050ec351b935d194750b6a54899a5753069cb59dcde9be03e893ac",
+      "native_sha256": "38269716afa54e9d81fe57005a3d149d3b5429b739aa2e8a57f9da5cf3476553"
+    },
+    {
+      "id": "b3-async-late-read-discard",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "async",
+        "late-read-discard"
+      ],
+      "reference_sha256": "b3e07b58a6635229a1ac29ae1df09f5f3649fa8fd55f6760e0b68e6d9868e388",
+      "native_sha256": "1c4463d8eea76a65841fc65529b2e0da4531cfa26f386bbeb7052cf4c0fb2614"
+    },
+    {
+      "id": "b3-async-failure-rejects-queued",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "async",
+        "failure-rejects-queued"
+      ],
+      "reference_sha256": "2deccf3ca324c59ccdcd96445d5d6c5d33b98b0ec6d70c4da1a3b13daf5a9042",
+      "native_sha256": "92245ddeacedf2aa169951e2ed63603c70daaf6656142016b30837ee4c1916fc"
+    },
+    {
+      "id": "b3-async-commit-before-adopt-publish",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "commit-before-adopt-publish"
+      ],
+      "reference_sha256": "dd61b1fa7fefb14817e060528c1ce681ba4f32fa0cd558954812b4a375f30503",
+      "native_sha256": "7f18ed91359730f9bd6f16cdc72d09f9275993241b7330fcf0bd3c4d93ae88ec"
+    },
+    {
+      "id": "b3-async-h328-internal-listener-poisons",
+      "owner": "R15-4",
+      "bridge": "U16",
+      "reason": "Pi fails the Session for a throwing own observer only after the host observers got the commit",
+      "path": [
+        "async",
+        "h328-internal-listener-poisons"
+      ],
+      "reference_sha256": "24cd0300afc6046c3178bdcade30812ab89166d8c5d38afab2a9673e3f68a358",
+      "native_sha256": "5a358babe34cfeb23af5f5382bb255124140569555f9f05e55f53b2eed824e7d"
+    },
+    {
+      "id": "b3-async-d632-admitted-before-close",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "d632-admitted-before-close"
+      ],
+      "reference_sha256": "62b7688c921edd4d05bdd805939e59d3768127ece9662a4fa80f0727b3f7da94",
+      "native_sha256": "078103c124eea605964effe3e1bd9b4d28fa6243973f76666f183f6cc9c20aa8"
+    },
+    {
+      "id": "b3-async-busy-line-guard-window",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "async",
+        "busy-line-guard-window"
+      ],
+      "reference_sha256": "39459ea3d9c3311faab514a53b45d794d54f411c22a1e952885ad595241cc5de",
+      "native_sha256": "e807683c92b9ce9df26e3bb7308cdd822d46ca7b5c4b6db8279b8cbed1e87ac4"
+    },
+    {
+      "id": "b3-async-fail-under-held-line",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "async",
+        "fail-under-held-line"
+      ],
+      "reference_sha256": "897e1d1a3b1c751bc469ed7c07d53193833d72ce25659a7d4b1a1b952ec0c0c3",
+      "native_sha256": "d3dd2b0013746c12a61b8330882c58f51e03fb8cb3e88ae9faaa718cd9f23350"
+    },
+    {
+      "id": "b3-sync-atomic-before-ack",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync",
+        "atomic-before-ack"
+      ],
+      "reference_sha256": "1c9ffe4a3377f1de40df0fcdf2aefcf6a1b01fcf30dde6298e58bfc1b21fa4cc",
+      "native_sha256": "b4da8852c5c917e6cd43f2d15815bc189b6ac7a48aaefd3e3dee1d16bc0089df"
+    },
+    {
+      "id": "b3-sync-after-ack-applied",
+      "owner": "R15-3",
+      "bridge": "U08",
+      "reason": "Pi publishes a commit Storage stored before its call rejected; native fails the Session without publishing it",
+      "path": [
+        "sync",
+        "after-ack-applied"
+      ],
+      "reference_sha256": "0cb4a624c5ba3b8f6f2f175cf918c4eb20338bc624f73ed91b0a63c1035d0762",
+      "native_sha256": "90b6514bd8cba1b9230dcdacd60b3663c6c4461b9e644455ddea7dbec99d147c"
+    },
+    {
+      "id": "b3-sync-h291-request-error-commit",
+      "owner": "R15-4, DE27/DE28/DE45",
+      "bridge": "U34, U18",
+      "reason": "Pi reports storage_failed and serves records from its Session cache; native reports session_failed and reads Storage",
+      "path": [
+        "sync",
+        "h291-request-error-commit"
+      ],
+      "reference_sha256": "2ccfdf0c91b976a37c7fcecc49f422bb2e555ab64d0f55a6af31d8c6e7bb723a",
+      "native_sha256": "de109d745c32ccda953f0e6b7d1403efa0f1362dd370b9b36af72e23a8cb0c0f"
+    },
+    {
+      "id": "b3-sync-ingress-no-alias",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "ingress-no-alias"
+      ],
+      "reference_sha256": "3e2b86814492ab7b7c8cbdb9b9abbfb58e21585b17d4f8428ee8a741c7b5a5f9",
+      "native_sha256": "52c7ac99f54e9feb0927a84aacac3c5b42ea5f0a9e4f1170cab003389ba3dd67"
+    },
+    {
+      "id": "b3-sync-tb82-121-read-after-write",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "tb82-121-read-after-write"
+      ],
+      "reference_sha256": "48a0ae146ed5f199bc9335d271052335896b19cbbea8d6313d7c6e7858be14f2",
+      "native_sha256": "da87e31e22e0750b85fa0cb32c8f983472c08c18025e60f3716db5488f2ec406"
+    },
+    {
+      "id": "b3-sync-tb188-213-final-owner",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "tb188-213-final-owner"
+      ],
+      "reference_sha256": "a3f4a412a2997a6ed68fe0e6695ac7d81468d24b98ee71ae511340730b9eb800",
+      "native_sha256": "f1a0fc3e99871b287a97679e7f81e1f358f2b7ce385425c20479faa7016941f3"
+    },
+    {
+      "id": "b3-sync-d78-120-137-create-change-identity",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d78-120-137-create-change-identity"
+      ],
+      "reference_sha256": "9acc9e35b59550c4c956ef3c61bfb92f19abbf00eab3007f35a00115e5aded5a",
+      "native_sha256": "f301560055178cd9b33efffc179d2a70ed621d9a2ad3f86199b604b8cbe1f064"
+    },
+    {
+      "id": "b3-sync-d158-copy-per-placement",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d158-copy-per-placement"
+      ],
+      "reference_sha256": "d9aebf570c16e7a8dd014a3203cdfcf21575e3ba32fa9469ca1c458dc71f4792",
+      "native_sha256": "c64bce057efa9101dd2f5d6fdae9a1f15fa9d92f5dc826a9efda79c90a7455f1"
+    },
+    {
+      "id": "b3-sync-d174-empty-batch",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d174-empty-batch"
+      ],
+      "reference_sha256": "dc1cad2a1d5fe40af3bce48542161ba665fc619ebbb23ce87d0f87531f7829eb",
+      "native_sha256": "2ceb676cedb94a1332729c5427ea589b93a6053609feed10ac375c9555c72a07"
+    },
+    {
+      "id": "b3-sync-d207-escaped-returned-draft",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d207-escaped-returned-draft"
+      ],
+      "reference_sha256": "0a0a2d3efe77e41de7d703729d08add601b93c8a7258f48f0f8f0b4f10e65b70",
+      "native_sha256": "ff27892b97dc2f0f0dda5adc11ce1620fdd58bdb6068bfbe3e6e8123db541738"
+    },
+    {
+      "id": "b3-sync-d228-callback-failure-aborts",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d228-callback-failure-aborts"
+      ],
+      "reference_sha256": "735537647971df5f586910c672fde8e61717c75666061e20c97f36a27a3c0a01",
+      "native_sha256": "cc235c2ad9dd236dce4f6a1e799387d6fe1c2d79b15aee074a3259daa7e7c87c"
+    },
+    {
+      "id": "b3-sync-d459-old-revision-held-commit",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d459-old-revision-held-commit"
+      ],
+      "reference_sha256": "f4e6342937558a8dc36025af559c165921ac4cc9c7ae03b2d91840d4f1077607",
+      "native_sha256": "bc5c764659e508748cf0ad78ef8dadc25d8bd4c8572810a4b5fcbbb0db441574"
+    },
+    {
+      "id": "b3-sync-d405-assembly-rollback",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d405-assembly-rollback"
+      ],
+      "reference_sha256": "7a36617a5b0f691e65a8c9311a4da1a49d802c0babdbb6316ab7db2a70c27346",
+      "native_sha256": "94936735b5b109a33f3600adc896a397d667d7f00ab4a37c8166b93f72e93e87"
+    },
+    {
+      "id": "b3-sync-d479-retire-recreate",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d479-retire-recreate"
+      ],
+      "reference_sha256": "666a710ec937d288e929348dc3962c14ab9be18916aaa77e269adc9030a662d2",
+      "native_sha256": "4116613a63561c992e324e80c4ad5e27e0b5a526df9aaa396a7b5ffa320f38b9"
+    },
+    {
+      "id": "b3-sync-queued-view-cancel",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "queued-view-cancel"
+      ],
+      "reference_sha256": "d2f1039a10a8bd5509870acf58eea212d82321f9dbb0e38253ccdafe3245edd0",
+      "native_sha256": "082cecbb7483660036767b647721e01b4a56cebd36930ac03adc664ee621fb73"
+    },
+    {
+      "id": "b3-sync-view-cancel-in-callback-ignored",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "view-cancel-in-callback-ignored"
+      ],
+      "reference_sha256": "bb067643a125f792fab4ba4b84496e4f58ae1a4524a4cbe8db61ba7422377ea2",
+      "native_sha256": "346d097807f8f19f49e4549712708327f5e7695565c4438520259ccf91c3aa15"
+    },
+    {
+      "id": "b3-sync-view-cancel-during-held-commit",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "view-cancel-during-held-commit"
+      ],
+      "reference_sha256": "e984a5a0d1c11dea27a46a80bd98cccac12c8d14856bf2ece2cf4d12b7d37372",
+      "native_sha256": "5a4a7e1bf52eabfe11b3e1888657e88bc9cbf4c2e51bd60b18e00b198b6ee4d4"
+    },
+    {
+      "id": "b3-sync-cancelled-tx-read-exempt",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "cancelled-tx-read-exempt"
+      ],
+      "reference_sha256": "0bdde01ac9494679be7e62000087c8ea4bc959d341c0997d3aa854851beddfeb",
+      "native_sha256": "5bd38f47062d79e9812ef90c509d6ec1f94f06556cc174291f155e7675bf946f"
+    },
+    {
+      "id": "b3-sync-h276-caught-read-then-write",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync",
+        "h276-caught-read-then-write"
+      ],
+      "reference_sha256": "92c70697910b1b4b15dc34afe6748e6db135b18785b634cdd9de027e35c68a7f",
+      "native_sha256": "d562deb6ba156f1bb6237186c55c9aaefd21277c7eb1aa96b3ceb1535ff79a47"
+    },
+    {
+      "id": "b3-sync-h276-caught-read-then-return",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync",
+        "h276-caught-read-then-return"
+      ],
+      "reference_sha256": "00988112b1050ec351b935d194750b6a54899a5753069cb59dcde9be03e893ac",
+      "native_sha256": "38269716afa54e9d81fe57005a3d149d3b5429b739aa2e8a57f9da5cf3476553"
+    },
+    {
+      "id": "b3-sync-late-read-discard",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync",
+        "late-read-discard"
+      ],
+      "reference_sha256": "b3e07b58a6635229a1ac29ae1df09f5f3649fa8fd55f6760e0b68e6d9868e388",
+      "native_sha256": "1c4463d8eea76a65841fc65529b2e0da4531cfa26f386bbeb7052cf4c0fb2614"
+    },
+    {
+      "id": "b3-sync-failure-rejects-queued",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync",
+        "failure-rejects-queued"
+      ],
+      "reference_sha256": "2deccf3ca324c59ccdcd96445d5d6c5d33b98b0ec6d70c4da1a3b13daf5a9042",
+      "native_sha256": "92245ddeacedf2aa169951e2ed63603c70daaf6656142016b30837ee4c1916fc"
+    },
+    {
+      "id": "b3-sync-commit-before-adopt-publish",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "commit-before-adopt-publish"
+      ],
+      "reference_sha256": "dd61b1fa7fefb14817e060528c1ce681ba4f32fa0cd558954812b4a375f30503",
+      "native_sha256": "7f18ed91359730f9bd6f16cdc72d09f9275993241b7330fcf0bd3c4d93ae88ec"
+    },
+    {
+      "id": "b3-sync-h328-internal-listener-poisons",
+      "owner": "R15-4",
+      "bridge": "U16",
+      "reason": "Pi fails the Session for a throwing own observer only after the host observers got the commit",
+      "path": [
+        "sync",
+        "h328-internal-listener-poisons"
+      ],
+      "reference_sha256": "24cd0300afc6046c3178bdcade30812ab89166d8c5d38afab2a9673e3f68a358",
+      "native_sha256": "5a358babe34cfeb23af5f5382bb255124140569555f9f05e55f53b2eed824e7d"
+    },
+    {
+      "id": "b3-sync-d632-admitted-before-close",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "d632-admitted-before-close"
+      ],
+      "reference_sha256": "62b7688c921edd4d05bdd805939e59d3768127ece9662a4fa80f0727b3f7da94",
+      "native_sha256": "078103c124eea605964effe3e1bd9b4d28fa6243973f76666f183f6cc9c20aa8"
+    },
+    {
+      "id": "b3-sync-busy-line-guard-window",
+      "owner": "DE27/DE28/DE45",
+      "bridge": "U18",
+      "reason": "Pi serves records from its Session cache where native reads Storage",
+      "path": [
+        "sync",
+        "busy-line-guard-window"
+      ],
+      "reference_sha256": "39459ea3d9c3311faab514a53b45d794d54f411c22a1e952885ad595241cc5de",
+      "native_sha256": "e807683c92b9ce9df26e3bb7308cdd822d46ca7b5c4b6db8279b8cbed1e87ac4"
+    },
+    {
+      "id": "b3-sync-fail-under-held-line",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync",
+        "fail-under-held-line"
+      ],
+      "reference_sha256": "897e1d1a3b1c751bc469ed7c07d53193833d72ce25659a7d4b1a1b952ec0c0c3",
+      "native_sha256": "d3dd2b0013746c12a61b8330882c58f51e03fb8cb3e88ae9faaa718cd9f23350"
+    }
+  ]
+}

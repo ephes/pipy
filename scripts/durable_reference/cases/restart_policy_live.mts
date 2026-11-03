@@ -29,7 +29,7 @@ for(const recipe of input.cases){
    settings={restartLimit:number(limit)};
    const opened=await Harness.open(storage as any,{models:createModels(),registry,settings,now:()=>1000},ctx);owners.add(opened);return opened;
   }
-  async function end(h:any){await h.close(ctx);closed.push((await h.closed).reason);owners.delete(h);assert.ok(last);return clone(last);}
+  async function end(h:any){await h.close(ctx);closed.push((await h.closed).kind);owners.delete(h);assert.ok(last);return clone(last);}
   async function parked(h:any){const inspection=await h.inspect(ctx);const info=inspection.tasks.find((t:any)=>t.record.id===taskId);return info?.state.kind==='blocked'&&info.state.reason==='restart_limit';}
   let h=await owner(recipe.initial);const conversation=await h.createConversation({ownership:{kind:'ownerless'}},ctx);
   taskId=await h.commit((tx:any)=>tx.createTask(token,{fixture:recipe.id},{ownership:{kind:'conversation'},conversationId:conversation.id}),ctx);

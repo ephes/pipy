@@ -46,6 +46,8 @@ PHASE = "session-guard-b1b-v1"
 INPUT = ROOT / "tests/fixtures/durable/session-guard-v1.input.json"
 MANIFEST = ROOT / "tests/fixtures/durable/session-guard-v1.manifest.json"
 DRIVER = ROOT / "scripts/durable_reference/cases/session-guard.mts"
+# Release 1.5 scenarios whose native result has not caught up (bridge R15-1b).
+DIVERGENCES = ROOT / "tests/fixtures/durable/session-guard-v1.divergences.json"
 DESTINATION = "session-guard.mts"
 MODULES = [
     "packages/durable/src/session/session.ts",
@@ -68,6 +70,7 @@ CLOSURE = m.CLOSURE | {
     "scripts/durable_session_guard_comparison.py",
     "scripts/durable_reference/cases/session-guard.mts",
     "tests/fixtures/durable/session-guard-v1.input.json",
+    "tests/fixtures/durable/session-guard-v1.divergences.json",
     "tests/durable/test_session_guard_comparison.py",
 }
 SCENARIOS = (
@@ -101,7 +104,6 @@ SCENARIOS = (
 )
 MUTANTS = (
     "role-exemption-flip",
-    "commit-exempt",
     "cancel-exemption-lost",
     "late-read-success-leak",
     "late-error-replaces",
@@ -119,6 +121,11 @@ MUTANTS = (
     "reentrant-report-admitted",
     "cause-split",
 )
+# Withdrawn at release 1.5.0 (bridge R15-1b): a guard-only commit failure no
+# longer reports the reference Session (U07, U08), so an unreported commit failure
+# is no mutant. Successor R15-3; the native guard tests keep the behavior.
+RETIRED = ({"id": "commit-exempt", "kind": "mutant", "successor": "R15-3"},)
+assert not {row["id"] for row in RETIRED} & {*SCENARIOS, *MUTANTS}
 READS = {
     "conversation",
     "task",
@@ -490,8 +497,11 @@ def _end(value: Any, kinds: dict[str, str], python: bool) -> None:
         _ref(value["error"], kinds)
     else:
         shape(value, {"reason"}, "end")
+        # "open": a release 1.5 reference Session that a guard-only failure leaves open.
         require(
-            value["reason"] == "closed" or (python and value["reason"] == "unsettled"),
+            value["reason"] == "closed"
+            or (python and value["reason"] == "unsettled")
+            or (not python and value["reason"] == "open"),
             "Unknown end reason",
         )
 
@@ -642,8 +652,44 @@ def projection(value: Any) -> Any:
     return result
 
 
-def comparison(expected: Any, actual: Any) -> int:
-    return 0 if projection(expected) == projection(actual) else 1
+def declared() -> Any:
+    """Closed release 1.5 scenario divergences, each owned by a bridge row.
+
+    A declared scenario compares only as the exact pair of whole projected
+    scenarios that the actual 1.5 run and the native run produced (by SHA256);
+    any other value of it on either side is a mismatch.
+    """
+    value = load(DIVERGENCES)
+    shape(value, {"schema_version", "phase", "divergences"}, "declared divergences")
+    require(
+        value["schema_version"] == 1 and value["phase"] == PHASE,
+        "Declared divergence identity",
+    )
+    rows = o.contract.array(value["divergences"], "declared divergences")
+    for row in rows:
+        require(
+            type(row) is dict
+            and type(row.get("path")) is list
+            and len(row["path"]) == 1,
+            "Declared path",
+        )
+        require(row["path"][0] in SCENARIOS, "Declared scenario")
+    return o.contract.declared_validate(
+        tuple({**row, "path": tuple(row["path"])} for row in rows)
+    )
+
+
+def comparison(expected: Any, actual: Any, used: set[str] | None = None) -> int:
+    left, right = projection(expected), projection(actual)
+    if [s["id"] for s in left["scenarios"]] != [s["id"] for s in right["scenarios"]]:
+        return 1
+    masked = o.contract.declared_mask(
+        {s["id"]: s for s in left.pop("scenarios")},
+        {s["id"]: s for s in right.pop("scenarios")},
+        declared(),
+        used,
+    )
+    return 0 if left == right and masked[0] == masked[1] else 1
 
 
 # -- native driver ----------------------------------------------------------------
@@ -1298,7 +1344,6 @@ def _reentrant_report_admitted(value: Any) -> None:
 
 MUTATIONS = {
     "role-exemption-flip": _add_report("roles-request-error", "r-scan_entries", "R1"),
-    "commit-exempt": _unreported("commit-request-error-fatal"),
     "cancel-exemption-lost": _add_report("roles-cancelled-error", "c-task", "E1"),
     "late-read-success-leak": _outcome_of(
         "pi132-late-read-success",
@@ -1584,7 +1629,10 @@ def execute(parent: Path, output: Path) -> int:
     dump(output / "native-context.json", witness)
     dump(output / "observed-projected.json", projection(raw))
     dump(output / "native-projected.json", projection(product))
-    code = comparison(raw, product)
+    used: set[str] = set()
+    code = comparison(raw, product, used)
+    if not code:
+        o.contract.declared_require(declared(), used)
     mutants = execute_mutants(output, raw, env)
     o.acceptance.attest_reference(o, parent / "reference", base, o.FIXTURES)
     v.artifacts.attest(parent, o.FIXTURES)

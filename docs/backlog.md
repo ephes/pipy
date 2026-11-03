@@ -1595,4 +1595,12 @@ One `RUNTIME` constant in the reference contract now holds the pin for every
 phase. The same slice stopped the restart family's native import attestation
 from counting an interpreter environment inside the checkout (an in-repo
 `.venv`) as producer source; its comparisons then refused on third-party
-modules such as `idna`. The reference stays release 1.4.0 until R15-1b.
+modules such as `idna`.
+
+R15-1b pinned release 1.5.0 in the runner and every manifest, moved the drivers
+to the 1.5 API and replaced every expected capture that 1.5 changes from an
+actual 1.5 run. Every comparison phase has a recorded
+[disposition](durable-reference.md#release-15-dispositions-r15-1b): the restart
+parking and Product retry phases and the parked cases of four more phases are
+withdrawn to R15-2, and the remaining differences are declared divergences owned
+by R15-3, R15-4, DE17, DE25 and DE27/DE28/DE45. R15-2 is next.

@@ -27,7 +27,7 @@
                     ],
                     [
                       "cwd",
-                      "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader"
+                      "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader"
                     ],
                     [
                       "calls",
@@ -162,7 +162,7 @@
                                           ],
                                           [
                                             "path",
-                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                            "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader/data.txt"
                                           ],
                                           [
                                             "kind",
@@ -174,7 +174,7 @@
                                           ],
                                           [
                                             "mtimeMs",
-                                            1792422928521.16
+                                            1793733113038.2686
                                           ]
                                         ]
                                       }
@@ -479,7 +479,7 @@
                                           ],
                                           [
                                             "path",
-                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                            "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader/data.txt"
                                           ]
                                         ]
                                       }
@@ -542,7 +542,7 @@
                                           ],
                                           [
                                             "path",
-                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                            "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader/data.txt"
                                           ]
                                         ]
                                       }
@@ -605,7 +605,7 @@
                                           ],
                                           [
                                             "path",
-                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                            "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader/data.txt"
                                           ]
                                         ]
                                       }
@@ -728,7 +728,7 @@
                                           ],
                                           [
                                             "path",
-                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                            "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader/data.txt"
                                           ]
                                         ]
                                       }
@@ -788,7 +788,7 @@
                                           ],
                                           [
                                             "path",
-                                            "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/binary-reader/data.txt"
+                                            "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/binary-reader/data.txt"
                                           ]
                                         ]
                                       }
@@ -828,7 +828,7 @@
                     ],
                     [
                       "cwd",
-                      "/tmp/pipy-de01b2-vs2swa2c/env-conformance-v1-1792422928372653000/literal-argv"
+                      "/private/tmp/claude-501/-Users-jochen-projects-pipy/3ee124b0-eae5-4f50-8cc9-ba06da5aeac2/scratchpad/r15-1/ref15-1/env-conformance-v1/literal-argv"
                     ],
                     [
                       "calls",

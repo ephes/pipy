@@ -15,6 +15,7 @@ registerHooks({resolve(specifier,context,nextResolve){const result=nextResolve(s
 const {SessionImpl}=await import("./packages/durable/src/session/session.ts");
 const {SessionFailed,StorageRequestError,ReadAfterWrite}=await import("./packages/durable/src/errors.ts");
 const {MemoryStorage}=await import("./packages/durable/src/storage/memory.ts");
+const {commitWrites}=await import("./packages/durable/src/testing/commit-writes.ts");
 const {defineDoc}=await import("./packages/durable/src/documents.ts");
 const {BACKGROUND_CONTEXT,withCancel}=await import("@earendil-works/chord/context");
 function hex(s:string){const b=Buffer.alloc(s.length*2);for(let i=0;i<s.length;i++)b.writeUInt16BE(s.charCodeAt(i),i*2);return b.toString("hex");}
@@ -54,7 +55,7 @@ class ControlledBackend {
  memory=new MemoryStorage();effects:any[]=[];admitted:any[]=[];queues=new Map<string,any[]>();closeDirective:any;
  abort:(job:string)=>void;
  constructor(abort:(job:string)=>void){this.abort=abort;}
- call(op:string,args:any,fn:()=>Promise<any>):Promise<any>{
+ call(op:string,args:any,fn:()=>Promise<any>,shown:(value:any)=>any=value=>value):Promise<any>{
   const d=this.queues.get(op)?.shift(),gate=d?.gate??null;
   this.effects.push({e:"call",op,gate,args:encode(args)});
   return (async()=>{try{
@@ -63,10 +64,14 @@ class ControlledBackend {
    if(d?.kind==="throw_before"||d?.kind==="abort_then_throw")throw d.error;
    const value=await fn();
    if(d?.kind==="throw_after")throw d.error;
-   this.effects.push({e:"return",op,gate,status:"fulfilled",value:encode(value)});return value;
+   let visible:any;try{visible=shown(value);}catch(error){this.effects.push({e:"return",op,gate,status:"rejected",error:ref(error)});return value;}
+   this.effects.push({e:"return",op,gate,status:"fulfilled",value:encode(visible)});return value;
   }catch(error){this.effects.push({e:"return",op,gate,status:"rejected",error:ref(error)});throw error;}})();
  }
- commit(writes:any,ctx:any){this.admitted.push(...writes);return this.call("commit",{writes},()=>this.memory.commit(writes,ctx));}
+ // Release 1.5 batches. Each recipe commit is its own one-batch storage call (deviation D1), shown as 1.4
+ // showed a commit: its receipt's seq, or its refusal as a rejection.
+ commit(batches:any,receive:any,ctx:any){assert.equal(batches.length,1,"Grouped storage call");const writes=batches[0];this.admitted.push(...writes);let seq:any;
+  return this.call("commit",{writes},()=>this.memory.commit(batches,(index:number,stored:any)=>{seq=stored;receive(index,stored);},ctx),(result:any)=>{if(result.stored===0)throw result.refused;assert.equal(result.stored,1);return seq;});}
  mintId(){return this.call("mint",{},()=>this.memory.mintId());}
  conversation(id:any,ctx:any){return this.call("conversation",{id},()=>this.memory.conversation(id,ctx));}
  scanConversations(q:any,l:any,c:any,ctx:any){return this.call("scan_conversations",scanArgs(q,l,c),()=>this.memory.scanConversations(q,l,c,ctx));}
@@ -88,7 +93,8 @@ class ControlledBackend {
 }
 function invoke(s:any,op:string,a:any,ctx:any):Promise<any>{switch(op){case "mint":return s.mintId();case "conversation":return s.conversation(a.id,ctx);case "task":return s.task(a.id,ctx);case "submission":return s.submission(a.id,ctx);case "entry":return s.entry(a.id,ctx);case "scan_entries":return s.scanEntries(a.query,a.limit,a.cursor,ctx);case "find_document":return s.findDocument(a.address,a.at??"current",ctx);case "document":return s.document(a.id,a.at??"current",ctx);default:throw Error("Unknown storage operation");}}
 function change(c:any):any{
- if(c.type==="document"){const base={type:"document",record:encode(c.record),conversation:encode(c.conversationId),ops:encode(c.ops)};if(c.value===null){assert.equal(c.version,undefined);return {...base,retired:true};}return {...base,version:encode(c.version),value:encode(c.value)};}
+ // Release 1.5 tags document changes. A retirement carries no operations; the common shape keeps the empty list 1.4 published.
+ if(c.type==="document"){const base={type:"document",record:encode(c.record),conversation:encode(c.conversationId)};if(c.kind==="retire"){assert.ok(!("ops" in c)&&!("value" in c));return {...base,ops:encode([]),retired:true};}assert.equal(c.kind,"change");return {...base,ops:encode(c.ops),version:encode(c.version),value:encode(c.value)};}
  assert.ok(["conversation","entry","task","submission"].includes(c.type));return {type:c.type,value:encode(c.value)};
 }
 function walk(value:any,path:any[],draft=true):any{let node=value;for(const key of path)node=node[key];if(draft&&node!==null&&typeof node==="object")drafts.add(node);return node;}
@@ -139,15 +145,16 @@ for(const scenario of input.scenarios){
  const program=async(name:string,job:string,tx:any)=>{current=job;for(const op of input.programs[name]){if(Object.hasOwn(op,"return"))return result(op.return);await exec(op,tx);}return undefined;};
  const start=(step:any)=>{let ctx=BACKGROUND_CONTEXT;if(step.context==="cancellable"){const c=withCancel(BACKGROUND_CONTEXT);ctx=c.context;cancels.set(step.job,()=>{c.cancel();reasons.add(c.context.abortSignal!.reason);});}
   let p:Promise<any>;try{p=driver.commit((tx:any)=>program(step.program,step.job,tx),ctx);}catch(e){p=Promise.reject(e);}track(step.job,p);};
- driver.onReport=(error,info)=>{effects.push({e:"report",error:ref(error),type:info?.type??"listener_error",failure_visible:driver.failure!==undefined});};
+ driver.onReport=(error,info)=>{effects.push({e:"report",error:ref(error),type:info?.kind??"listener_error",failure_visible:driver.failure!==undefined});};
  const subscribe=(l:any)=>{
   const act=()=>{if(l.action==="throw")throw errors.get(l.error);if(l.action==="reject")return Promise.reject(errors.get(l.error));return undefined;};
   if(l.kind==="close"){listeners.set(l.id,driver.subscribeClose(()=>{effects.push({e:"close-listener",listener:l.id});return act();}));return;}
   const fn=(publication:any)=>{effects.push({e:"publish",listener:l.id,seq:encode(publication.seq),changes:publication.changes.map(change),handle_settled:current!==undefined&&handles.get(current)?.settled===true});
-   if(l.bind!==undefined)binds.set(l.bind,publication.changes.find((c:any)=>c.type==="document"&&c.value!==null)?.value);
+   if(l.bind!==undefined)binds.set(l.bind,publication.changes.find((c:any)=>c.type==="document"&&c.kind==="change")?.value);
    if(l.hit!==undefined)snapshot(l.hit.doc,l.hit.conversation).then(v=>binds.set(l.hit.bind,v),e=>{driverErrors.push(e);});
    return act();};
-  listeners.set(l.id,l.kind==="internal"?driver.observeCommits(fn):driver.subscribeCommits(fn));
+  if(l.kind==="internal")listeners.set(l.id,driver.followCommits(fn));
+  else{const observation=driver.observeCommits({advance:fn,end:()=>{}});listeners.set(l.id,()=>observation.detach());}
  };
  for(const l of scenario.listeners??[])if(l.deferred!==true)subscribe(l);
  try{
@@ -174,13 +181,13 @@ for(const scenario of input.scenarios){
    case "snapshot":{const h=step.handle??"#"+step.id;track(h,snapshot(step.doc,step.conversation),{bind:step.bind});if(step.handle===undefined)record.outcome=await settle(h);break;}
    case "guard_read":{const h="#"+step.id;let p:Promise<any>;try{p=invoke(driver.guarded,step.call.op,step.call.args,BACKGROUND_CONTEXT);}catch(e){p=Promise.reject(e);}track(h,p);record.outcome=await settle(h);break;}
    case "raw_read":try{record.outcome={status:"fulfilled",value:encode(await invoke(backend.memory,step.call.op,step.call.args,BACKGROUND_CONTEXT))};}catch(e){rawError(scenario.id,step.id,e);record.outcome={status:"rejected",error:ref(e)};}break;
-   case "raw_commit":record.outcome={status:"fulfilled",value:encode(await backend.memory.commit(step.writes,BACKGROUND_CONTEXT))};break;
+   case "raw_commit":record.outcome={status:"fulfilled",value:encode(await commitWrites(backend.memory,step.writes,BACKGROUND_CONTEXT))};break;
    case "identity":record.outcome={status:"fulfilled",value:["bool",binds.get(step.a)===binds.get(step.b)]};break;
    case "inspect":record.outcome={status:"fulfilled",value:encode(binds.get(step.bind))};break;
    case "use":try{await exec(step.action,step.tx===undefined?undefined:binds.get(step.tx));record.outcome={status:"fulfilled",value:["undefined"]};}catch(e){rawError(scenario.id,step.id,e);record.outcome={status:"rejected",error:ref(e)};}break;
    case "subscribe":subscribe(scenario.listeners.find((l:any)=>l.id===step.listener));break;
    case "unsubscribe":listeners.get(step.listener)!();break;
-   case "await_end":{const value:any=await deadline(driver.closed,scenario.id+":end");await drain();observed=effects.map(x=>({...x}));end=value.reason==="closed"?{reason:"closed"}:{reason:"failed",error:ref(value.error)};break;}
+   case "await_end":{const value:any=await deadline(driver.closed,scenario.id+":end");await drain();observed=effects.map(x=>({...x}));end=value.kind==="closed"?{reason:"closed"}:{reason:"failed",error:ref(value.error)};break;}
    default:throw Error("Unknown recipe step");}
    steps.push(record);}
  }finally{

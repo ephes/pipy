@@ -8,7 +8,7 @@ import { createRegistry } from "../../packages/durable/src/harness/registry.ts";
 import { defineExtension } from "../../packages/durable/src/harness/define.ts";
 import { defineTask } from "../../packages/durable/src/tasks.ts";
 import { MemoryStorage } from "../../packages/durable/src/storage/memory.ts";
-import { deferred, aborted, errorValue } from "../contract.mts";
+import { deferred, aborted, errorValue, reportValue } from "../contract.mts";
 export async function run(input: any) {
   const reached = deferred(), events: any[] = [], publications: any[] = [], late: any[] = [], reports: any[] = [];
   let runRuntime: any, callbackEntered = false, memoRead: any, abortInvocations = 0, freshRuntime: any, abortCurrent: any;
@@ -35,18 +35,18 @@ export async function run(input: any) {
   });
   const registry = createRegistry(); registry.install(defineExtension({ name: "fixture.tasks", tasks: [task] }));
   const harness = await Harness.open(new MemoryStorage(), { models: createModels(), registry,
-    now: () => input.clock_epoch_ms, onReport: error => reports.push(errorValue(error)) }, context);
+    now: () => input.clock_epoch_ms, onReport: report => reports.push(reportValue(report)) }, context);
   let observed: any;
   try {
     const root = await harness.root(context);
     const id = await root.commit(tx => tx.createTask(task, null, { ownership: { kind: "conversation" } }), context);
     const admitted = await harness.getTask(id, context);
-    const unsubscribe = harness.subscribeCommits(publication => {
+    const observation = harness.observeCommits({ advance: publication => {
       for (const change of publication.changes) if (change.type === "task" && change.value.id === id && change.value.abortRequested) {
         publications.push(structuredClone(publication));
         if (publications.length === 1) events.push("host.durable-mark-publication");
       }
-    });
+    }, end: () => {} });
     try {
       harness.resume(); await reached.promise;
       const running = await harness.getTask(id, context);
@@ -59,7 +59,7 @@ export async function run(input: any) {
       assert.equal(memoRead, 1); assert.deepEqual(final.state.outcome, { status: "aborted", reason: "mark" });
       assert.equal(publications.length > 0, true); assert.equal(late.length, 2);
       assert.ok(late.every(item => item.status === "rejected"));
-    } finally { unsubscribe(); }
+    } finally { observation.detach(); }
   } finally { await harness.close(context); }
   return { ...observed, close: await harness.closed };
 }

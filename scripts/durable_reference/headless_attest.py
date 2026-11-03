@@ -406,6 +406,18 @@ def reference_profile(m, folder, snapshot, case, outer):
     reader_value(m, capture["independent"], argv, snapshot, outer["pid"])
 
 
+def catalog_estimate(usage):
+    """Release 1.5 Usage.cost may carry totalFromProvider: false and absent both
+    mean a catalog estimate, as the driver's estimate() treats them."""
+    cost = usage.get("cost")
+    if type(cost) is not dict or cost.get("totalFromProvider") is not False:
+        return usage
+    return {
+        **usage,
+        "cost": {k: x for k, x in cost.items() if k != "totalFromProvider"},
+    }
+
+
 def reference_projection(m, raw):
     messages = [
         e["model"][0]
@@ -437,7 +449,7 @@ def reference_projection(m, raw):
         + results
         + [x for x in assistants if x is not caller]
     )
-    usage = raw["ledger"]["models"]["openai/gpt-test"]
+    usage = catalog_estimate(raw["ledger"]["models"]["openai/gpt-test"])
     tasks = [x for x in raw["tasks"] if x["kind"] in ("pi.generation", "pi.tool")]
     content = users[0]["content"]
     return {
@@ -465,6 +477,6 @@ def reference_projection(m, raw):
         and raw["repeated"]["status"] == "done",
         "usage": usage,
         "usage_once": m.parent.tools.usage_matches(
-            [a["usage"] for a in assistants], usage
+            [catalog_estimate(a["usage"]) for a in assistants], usage
         ),
     }

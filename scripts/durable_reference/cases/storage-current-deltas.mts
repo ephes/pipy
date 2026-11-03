@@ -28,6 +28,7 @@ registerHooks({
  }
 });
 const {MemoryStorage} = await import("./packages/durable/src/storage/memory.ts");
+const {commitWrites} = await import("./packages/durable/src/testing/commit-writes.ts");
 const {openNodeSqliteStorage} = await import("./packages/durable/src/storage/sqlite/node.ts");
 const {BACKGROUND_CONTEXT: context} = await import("./packages/chord/src/context/index.ts");
 function profile(value: any): any {
@@ -52,7 +53,7 @@ for (const backend of ["memory", "sqlite", "reopen"]) {
    for (const writes of recipe.writes) {
     try {
      let seq;
-     try {seq=await store.commit(writes,context);}
+     try {seq=await commitWrites(store,writes,context);}
      finally {if(backend==="reopen"){await store.close(context);store=await openNodeSqliteStorage(path);}}
      const document=await store.document(2,"current",context);
      steps.push({seq,document:profile(document)});

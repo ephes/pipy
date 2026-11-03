@@ -36,9 +36,9 @@ for(const recipe of input.cases){
    const registry=createRegistry();registry.install(defineExtension({name:'fixture.migration.extension',tasks:[following,...(version===null?[]:[definition(version,mode,tag)])]}));
    const inner=await openNodeSqliteStorage(path);
    const storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key,target);if(typeof value!=='function')return value;return async(...args:any[])=>{if(key==='close'&&taskId!==null)last=clone(await target.task(taskId,ctx));return value.apply(target,args);};}});
-   const opened=await Harness.open(storage as any,{models:createModels(),registry,now:()=>1000,onReport:(error:any,info:any)=>reports.push(clone({error,info}))},ctx);owners.add(opened);return opened;
+   const opened=await Harness.open(storage as any,{models:createModels(),registry,now:()=>1000,onReport:({error,...info}:any)=>reports.push(clone({error,info}))},ctx);owners.add(opened);return opened;
   }
-  async function end(h:any){await h.close(ctx);closed.push((await h.closed).reason);owners.delete(h);assert.ok(last);return clone(last);}
+  async function end(h:any){await h.close(ctx);closed.push((await h.closed).kind);owners.delete(h);assert.ok(last);return clone(last);}
   async function record(h:any){return clone(await h.getTask(taskId,ctx));}
   async function inspection(h:any){const report=await h.inspect(ctx);return clone({report,selected:report.tasks.find((t:any)=>t.record.id===taskId)??null});}
   function reason(info:any){return info.selected?.state.kind==='blocked'?reasons[info.selected.state.reason]??info.selected.state.reason:null;}
@@ -51,7 +51,8 @@ for(const recipe of input.cases){
   const seeded=await record(h);await end(h);closed.length=0;
   h=await owner(recipe.current,recipe.mode,'first');const after_open=await record(h),inspection_open=await inspection(h),calls_at_open=calls.length+handlers.length+second.length;
   const parked_at_open=inspection_open.selected?.state.kind==='blocked'&&inspection_open.selected.state.reason==='restart_limit';
-  if(recipe.parked){assert.ok(parked_at_open);await h.retryTask(taskId,ctx);}else h.resume();
+  // Release 1.5 removed parking and retryTask; the parked case is retired (R15-1b).
+  assert.equal(recipe.parked,false);h.resume();
   const blocked=recipe.blocked!==null;let after_attempt:any,inspection_attempt:any,before_restore_calls:number,repeated_calls:number,blocked_unchanged:boolean,version:any;
   if(blocked){
    await until(async()=>reason(await inspection(h))===recipe.blocked);

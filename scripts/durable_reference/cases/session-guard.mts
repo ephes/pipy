@@ -14,13 +14,14 @@ registerHooks({resolve(specifier,context,nextResolve){const result=nextResolve(s
 const {SessionImpl}=await import("./packages/durable/src/session/session.ts");
 const {SessionFailed,StorageRequestError}=await import("./packages/durable/src/errors.ts");
 const {MemoryStorage}=await import("./packages/durable/src/storage/memory.ts");
+const {commitWrites}=await import("./packages/durable/src/testing/commit-writes.ts");
 const {BACKGROUND_CONTEXT,withCancel}=await import("@earendil-works/chord/context");
 function string(hex:string){let s="";const b=Buffer.from(hex,"hex");for(let i=0;i<b.length;i+=2)s+=String.fromCharCode(b.readUInt16BE(i));return s;}
 function hex(s:string){const b=Buffer.alloc(s.length*2);for(let i=0;i<s.length;i++)b.writeUInt16BE(s.charCodeAt(i),i*2);return b.toString("hex");}
 function decode(v:any):any{switch(v[0]){case "null":return null;case "bool":return v[1];case "string":return string(v[1]);case "number":return Buffer.from(v[1],"hex").readDoubleBE();case "array":return v[1].map(decode);case "object":return Object.fromEntries(v[1].map(([k,x]:any)=>[string(k),decode(x)]));default:throw Error("Invalid transport");}}
 function encode(v:any):any{if(v===undefined)return ["undefined"];if(v===null)return ["null"];if(typeof v==="boolean")return ["bool",v];if(typeof v==="string")return ["string",hex(v)];if(typeof v==="number"){assert.ok(Number.isFinite(v));const b=Buffer.alloc(8);b.writeDoubleBE(v);return ["number",b.toString("hex")];}if(Array.isArray(v))return ["array",v.map(encode)];assert.ok(Object.getPrototypeOf(v)===Object.prototype||Object.getPrototypeOf(v)===null);return ["object",Object.keys(v).map(k=>[hex(k),encode(v[k])]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0)];}
 const input=JSON.parse(readFileSync(inputPath,"utf8"));assert.equal(input.schema_version,1);assert.equal(input.phase,"session-guard-b1b-v1");
-const WAIT_MS=10000;
+const WAIT_MS=10000,OPEN_MS=2000;
 function deferred(){let resolve:any;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};}
 function deadline<T>(p:Promise<T>,label:string):Promise<T>{let timer:any;return Promise.race([p,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("Driver deadline: "+label)),WAIT_MS);})]).finally(()=>clearTimeout(timer));}
 const drain=()=>new Promise(r=>setImmediate(r));
@@ -60,7 +61,8 @@ class ControlledBackend {
    const value=await fn();this.effects.push({e:"return",h,status:"fulfilled"});return value;
   }catch(error){rejected(error);throw error;}})();
  }
- commit(writes:any,ctx:any){return this.call("commit",{writes},()=>this.memory.commit(writes,ctx));}
+ // Release 1.5 batches: every recipe commit is one batch, recorded as its writes.
+ commit(batches:any,receive:any,ctx:any){assert.equal(batches.length,1);return this.call("commit",{writes:batches[0]},()=>this.memory.commit(batches,receive,ctx));}
  mintId(){return this.call("mint",{},()=>this.memory.mintId());}
  conversation(id:any,ctx:any){return this.call("conversation",{id},()=>this.memory.conversation(id,ctx));}
  scanConversations(q:any,l:any,c:any,ctx:any){return this.call("scan_conversations",scanArgs(q,l,c),()=>this.memory.scanConversations(q,l,c,ctx));}
@@ -80,7 +82,7 @@ class ControlledBackend {
   await this.memory.close(ctx);if(d?.kind==="throw")throw d.error;this.effects.push({e:"close-exit",status:"fulfilled"});
  }catch(error){this.effects.push({e:"close-exit",status:"rejected",error:ref(error)});throw error;}})();}
 }
-function invoke(s:any,op:string,a:any,ctx:any):Promise<any>{switch(op){case "mint":return s.mintId();case "commit":return s.commit(a.writes,ctx);case "conversation":return s.conversation(a.id,ctx);case "task":return s.task(a.id,ctx);case "submission":return s.submission(a.id,ctx);case "request":return s.submissionByRequest(a.conversation_id,a.request_id,ctx);case "entry":return a.conversation_id===undefined?s.entry(a.id,ctx):s.entry(a.conversation_id,a.id,ctx);case "head":return s.findLatestHeadMarker(a.conversation_id,a.bound,ctx);case "scan_conversations":return s.scanConversations(a.query,a.limit,a.cursor,ctx);case "scan_entries":return s.scanEntries(a.query,a.limit,a.cursor,ctx);case "scan_tasks":return s.scanTasks(a.query,a.limit,a.cursor,ctx);case "scan_submissions":return s.scanSubmissions(a.query,a.limit,a.cursor,ctx);case "document":return s.document(a.id,a.at??"current",ctx);case "find_document":return s.findDocument(a.address,a.at??"current",ctx);case "scan_documents":return s.scanDocuments(a.query,a.limit,a.cursor,ctx);default:throw Error("Unknown guarded operation");}}
+function invoke(s:any,op:string,a:any,ctx:any):Promise<any>{switch(op){case "mint":return s.mintId();case "commit":return commitWrites(s,a.writes,ctx);case "conversation":return s.conversation(a.id,ctx);case "task":return s.task(a.id,ctx);case "submission":return s.submission(a.id,ctx);case "request":return s.submissionByRequest(a.conversation_id,a.request_id,ctx);case "entry":return a.conversation_id===undefined?s.entry(a.id,ctx):s.entry(a.conversation_id,a.id,ctx);case "head":return s.findLatestHeadMarker(a.conversation_id,a.bound,ctx);case "scan_conversations":return s.scanConversations(a.query,a.limit,a.cursor,ctx);case "scan_entries":return s.scanEntries(a.query,a.limit,a.cursor,ctx);case "scan_tasks":return s.scanTasks(a.query,a.limit,a.cursor,ctx);case "scan_submissions":return s.scanSubmissions(a.query,a.limit,a.cursor,ctx);case "document":return s.document(a.id,a.at??"current",ctx);case "find_document":return s.findDocument(a.address,a.at??"current",ctx);case "scan_documents":return s.scanDocuments(a.query,a.limit,a.cursor,ctx);default:throw Error("Unknown guarded operation");}}
 const facts:any[]=[];
 const scenarios:any[]=[];
 for(const scenario of input.scenarios){
@@ -94,7 +96,7 @@ for(const scenario of input.scenarios){
  const outcome=(h:string,item:any)=>{if(item.ok)return {status:"fulfilled",value:encode(item.value)};rawError(scenario.id,h,item.error);return {status:"rejected",error:ref(item.error,item.signal)};};
  const settle=async(h:string)=>{const item=handles.get(h);assert.ok(item);await deadline(item.promise.then(()=>{},()=>{}),scenario.id+":"+h);await drain();if(item.ok)cache.set(h,item.value);return outcome(h,item);};
  const rp=scenario.report_probe;
- driver.onReport=(error,info)=>{backend.effects.push({e:"report",error:ref(error),type:info?.type??null,failure_visible:driver.failure!==undefined});
+ driver.onReport=(error,info)=>{backend.effects.push({e:"report",error:ref(error),type:info?.kind??null,failure_visible:driver.failure!==undefined});
   if(rp!==undefined&&!handles.has(rp)){const previous=ambient;ambient=rp;let p:Promise<any>;try{p=driver.guarded.task(1,BACKGROUND_CONTEXT);}catch(e){p=Promise.reject(e);}finally{ambient=previous;}track(rp,p);}};
  const start=(step:any)=>{const a=decode(step.call.args);if(a.cursor_ref!==undefined){assert.ok(cache.has(a.cursor_ref));a.cursor=cache.get(a.cursor_ref).next;delete a.cursor_ref;}
   let ctx=BACKGROUND_CONTEXT;if(step.facade!=="default"){const c=withCancel(BACKGROUND_CONTEXT);ctx=c.context;cancels.set(step.handle,()=>c.cancel());if(step.facade==="cancelled")c.cancel();}
@@ -117,9 +119,11 @@ for(const scenario of input.scenarios){
    case "await_close_entered":await deadline(backend.closeDirective.entered.promise,step.id);record.reached=true;break;
    case "release_close":backend.closeDirective.release.resolve();break;
    case "observe":{await drain();const count=(e:string)=>backend.effects.filter(x=>x.e===e).length;
-    record.state={failure:driver.failure===undefined?null:ref(driver.failure.error),close_entered:count("close-enter"),close_exited:count("close-exit"),reports:count("report"),end:closedValue===undefined?null:closedValue.reason==="closed"?{reason:"closed"}:{reason:"failed",error:ref(closedValue.error)},pending:[...handles].filter(([h,x])=>h!==rp&&!x.settled).map(([h])=>h).sort()};break;}
+    record.state={failure:driver.failure===undefined?null:ref(driver.failure.error),close_entered:count("close-enter"),close_exited:count("close-exit"),reports:count("report"),end:closedValue===undefined?null:closedValue.kind==="closed"?{reason:"closed"}:{reason:"failed",error:ref(closedValue.error)},pending:[...handles].filter(([h,x])=>h!==rp&&!x.settled).map(([h])=>h).sort()};break;}
    case "raw_read":{const a=decode(step.call.args);try{record.outcome={status:"fulfilled",value:encode(await invoke(backend.memory,step.call.op,a,BACKGROUND_CONTEXT))};}catch(e){rawError(scenario.id,step.id,e);record.outcome={status:"rejected",error:ref(e)};}break;}
-   case "await_end":{const value:any=await deadline(driver.closed,scenario.id+":end");await drain();effects=backend.effects.map(x=>({...x}));end=value.reason==="closed"?{reason:"closed"}:{reason:"failed",error:ref(value.error)};break;}
+   // Release 1.5 guards leave a commit's outcome to the Session writer, so a guard-only failure may leave the
+   // Session open; the trace records that as end "open" after a bounded wait instead of failing the driver.
+   case "await_end":{const value:any=await Promise.race([driver.closed,new Promise(r=>setTimeout(()=>r(null),OPEN_MS))]);await drain();effects=backend.effects.map(x=>({...x}));end=value===null?{reason:"open"}:value.kind==="closed"?{reason:"closed"}:{reason:"failed",error:ref(value.error)};break;}
    default:throw Error("Unknown recipe step");}
    steps.push(record);}
  }finally{

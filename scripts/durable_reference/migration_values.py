@@ -72,14 +72,6 @@ CASES = [
         "parked": False,
     },
     {
-        "id": "parked-migration",
-        "stored": 1,
-        "current": 2,
-        "mode": "change",
-        "blocked": None,
-        "parked": True,
-    },
-    {
         "id": "blocked-zero-current",
         "stored": -2.0,
         "current": 0,
@@ -91,6 +83,14 @@ CASES = [
 IDS = tuple(c["id"] for c in CASES)
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 SCOPE = {
+    "retired_cases": [
+        {
+            "id": "parked-migration",
+            "retired_by": "R15-1b",
+            "successor": "R15-2",
+            "reason": "release 1.5.0 removed restart parking and Harness.retryTask() (bridge U01)",
+        },
+    ],
     "common": "actual-created-generic-task-cold-owner-version-fit-migration-failure-cache-second-candidate-fresh-owner",
     "controls": "explicit-Session-task-row-checkpoint-memo-restart-seeds-in-private-SQLite; NOT physical-crash or tool-receipt authority",
     "public_difference": "native-private-fixed-catalog-retry-is-not-Pi-live-registry-or-public-global-enable; no Product migration API parity",

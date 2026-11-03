@@ -1443,7 +1443,7 @@
               "type": "object",
               "entries": [
                 [
-                  "reason",
+                  "kind",
                   "closed"
                 ]
               ]

@@ -418,10 +418,49 @@ def trace(value):
     return value
 
 
-def compare(expected, actual):
+# Release 1.5 Session record cache (bridge U18): Pi reads the committed result back
+# from its cache with the negative zero the tool details carry, where native reads
+# Storage, whose JSON form keeps no negative zero. Only these three leaves differ.
+_CACHED_ZERO = {
+    "request": (
+        *("result", "payload", "fields", "request", "fields", "messages", "$tuple"),
+        *(2, "fields", "details", "deep", 0, "zero"),
+    ),
+    "tool-missing": (
+        *("result", "payload", "fields", "result", "fields", "details", "deep"),
+        *(0, "zero"),
+    ),
+    "tool-null": (
+        *("result", "payload", "fields", "result", "fields", "details", "deep"),
+        *(0, "zero"),
+    ),
+}
+DECLARED = o.contract.declared_validate(
+    tuple(
+        {
+            "id": "canonical-" + case + "-cached-negative-zero",
+            "owner": "DE27/DE28/DE45",
+            "bridge": "U18",
+            "reason": "Pi reads the committed result back from its Session cache",
+            "path": (case, *path),
+            "reference_sha256": o.contract.declared_digest(-0.0),
+            "native_sha256": o.contract.declared_digest(0),
+        }
+        for case, path in _CACHED_ZERO.items()
+    )
+)
+
+
+def compare(expected, actual, used=None):
     trace(expected)
     trace(actual)
-    return int(not d.same(expected, actual))
+    left, right = o.contract.declared_mask(
+        {row["id"]: v.decode(row["observed"]) for row in expected["cases"]},
+        {row["id"]: v.decode(row["observed"]) for row in actual["cases"]},
+        DECLARED,
+        used,
+    )
+    return int(not d.same(left, right))
 
 
 def mutate(actual, name):
@@ -577,7 +616,10 @@ def execute(acceptance, output):
     actual = asyncio.run(native(output / "stores"))
     imports = native_modules()
     d.dump(output / "native.json", actual)
-    status = compare(expected, actual)
+    used = set()
+    status = compare(expected, actual, used)
+    if not status:
+        o.contract.declared_require(DECLARED, used)
     controls = []
     for name in MUTANTS:
         path = mutants / (name + ".json")

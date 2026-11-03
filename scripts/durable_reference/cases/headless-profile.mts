@@ -69,8 +69,12 @@ async function worker(){
  }});
  const raw=await openNodeSqliteStorage(path);let captured=false;
  const storage=new Proxy(raw,{get(object,property){
-  if(property==='commit')return async(writes:any[],context:any)=>{
-   const seq=await object.commit(writes,context);
+  // Release 1.5 batches: inspect each stored batch, after the storage call made it durable.
+  if(property==='commit')return async(batches:any[][],receive:any,context:any)=>{
+   const seqs:any[]=[];
+   const result=await object.commit(batches,(index:number,stored:any)=>{seqs[index]=stored;receive(index,stored);},context);
+   for(const [index,writes] of batches.slice(0,result.stored).entries()){
+   const seq=seqs[index];
    const task=writes.find(w=>w.type==='task'&&w.value.kind==='pi.generation'&&
     (recipe.cut==='prepare'?w.value.state.status==='pending'&&w.value.state.checkpoint.phase==='prepare':w.value.state.status==='running'&&w.value.state.checkpoint.phase==='request'))?.value;
    if(mode==='capture'&&task!==undefined&&!captured){
@@ -83,7 +87,7 @@ async function worker(){
      independent:{argv,cwd:root,pid:observed.pid,status:observed.status,stdout:observed.stdout,stderr:observed.stderr,observed:JSON.parse(observed.stdout)},
      runtime:{pid:process.pid,argv:process.argv,execArgv:process.execArgv,executable:process.execPath,version:process.version,sqlite:process.versions.sqlite,cwd:root},resolutions});
     process.kill(process.pid,'SIGKILL');await new Promise(()=>{});
-   }return seq;
+   }}return result;
   };const value=Reflect.get(object,property,object);return typeof value==='function'?value.bind(object):value;
  }});
  const harness=await Harness.open(storage,{models,registry:createRegistry(),now:()=>1000,
@@ -100,7 +104,7 @@ async function worker(){
  const conversation=await harness.conversation(selected.conversationId,ctx);const watch=await conversation.watch(ctx);
  const final=structuredClone(watch.value);await watch.stop();
  const provider=await harness.snapshot(ProviderDoc,selected.conversationId,ctx),usage=await harness.snapshot(UsageDoc,selected.conversationId,ctx);
- await harness.close(ctx);assert.equal((await harness.closed).reason,'closed');
+ await harness.close(ctx);assert.equal((await harness.closed).kind,'closed');
  stored(out+'/profile-records/'+id+'-resume.json',{before,after,lookups,requests,provider,usage,final,
   runtime:{pid:process.pid,argv:process.argv,execArgv:process.execArgv,executable:process.execPath,version:process.version,sqlite:process.versions.sqlite,cwd:root},resolutions});
 }

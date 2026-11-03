@@ -39,15 +39,22 @@ def test_restart_child_owns_only_its_bounded_reference_and_keeps_parent_open():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
-    assert rows["DE14a"]["current"]["cases"] == ["restart-parking-v1"]
+    # Release 1.5.0 retired the restart-parking-v1 phase (bridge R15-1b,
+    # successor R15-2); DE14a keeps its landed native evidence.
+    assert rows["DE14a"]["current"]["cases"] == []
+    assert a.RETIRED["restart-parking-v1"]["successor"] == "R15-2"
+    assert "restart-parking-v1" in rows["DE14a"]["current"]["observables"]
     assert rows["DE14a"]["current"]["kind"] == "bounded-native"
     assert rows["DE14"]["status"] == "IN_PROGRESS"
     assert rows["DE14a"]["status"] == "LANDED"
     assert rows["DE14b"]["status"] == "IN_PROGRESS"
     assert rows["DE14b"]["current"]["cases"] == []
-    rows["DE14b"]["current"]["cases"] = ["restart-parking-v1"]
-    with pytest.raises(o.EvidenceError):
-        a.coverage(value, o.ROOT, o.contract)
+    # A retired phase is no current evidence for any row.
+    for name in ("DE14a", "DE14b"):
+        rows[name]["current"]["cases"] = ["restart-parking-v1"]
+        with pytest.raises(o.EvidenceError):
+            a.coverage(value, o.ROOT, o.contract)
+        rows[name]["current"]["cases"] = []
 
 
 @pytest.mark.parametrize(
@@ -1109,11 +1116,14 @@ def test_product_retry_child_retains_historical_reset_and_parent_boundaries():
     value = o.load(o.FIXTURES / "coverage.json")
     a.coverage(value, o.ROOT, o.contract)
     rows = {row["id"]: row for row in value["rows"]}
-    assert rows["DE14a1"]["current"]["cases"] == ["task-product-retry-enable-v1"]
+    # Release 1.5.0 retired task-product-retry-enable-v1 (bridge R15-1b,
+    # successor R15-2); its receipts stay historical.
+    assert rows["DE14a1"]["current"]["cases"] == []
+    assert a.RETIRED["task-product-retry-enable-v1"]["successor"] == "R15-2"
+    assert "task-product-retry-enable-v1" in rows["DE14a1"]["current"]["observables"]
     assert rows["DE14a1"]["status"] == "IN_PROGRESS"
-    assert rows["DE14a"]["current"]["cases"] == ["restart-parking-v1"]
     assert rows["DE14a"]["status"] == rows["DE15a"]["status"] == "LANDED"
     assert rows["DE14"]["status"] == rows["DE14b"]["status"] == "IN_PROGRESS"
-    rows["DE14a1"]["current"]["cases"] = rows["DE14a"]["current"]["cases"]
+    rows["DE14a1"]["current"]["cases"] = ["task-product-retry-enable-v1"]
     with pytest.raises(o.EvidenceError):
         a.coverage(value, o.ROOT, o.contract)

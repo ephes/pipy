@@ -71,10 +71,10 @@ for(const c of recipe.cases){
  const registry=createRegistry();registry.install(defineExtension({name:'fixture.ordinary-owned-live.extension',tasks:[task]}));
  let h:any,storage:any,ids:any;
  async function open(){const inner=c.backend==='memory'?new MemoryStorage():await openNodeSqliteStorage(path);
-  storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key);if(typeof value!=='function')return value;return async(...args:any[])=>{const before=key==='commit'?clone(args[0]):undefined;const result=await value.apply(target,args);if(key==='commit')batches.push({seq:result,writes:before});if(key==='mintId')minted.push(result);return result;};}});
-  h=await Harness.open(storage,{models:createModels(),registry,onReport:(error:any,info:any)=>reports.push({error:{name:error.name,message:error.message,stack:error.stack},info:clone(info)})},ctx);owners.add(h);
+  storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key);if(typeof value!=='function')return value;return async(...args:any[])=>{if(key==='commit'){/* Release 1.5 batches: one recorded commit per stored batch. */const [list,receive,context]=args;const before=clone(list),seqs:any[]=[];const result=await value.call(target,list,(index:number,seq:any)=>{seqs[index]=seq;receive(index,seq);},context);for(let index=0;index<result.stored;index++)batches.push({seq:seqs[index],writes:before[index]});return result;}const result=await value.apply(target,args);if(key==='mintId')minted.push(result);return result;};}});
+  h=await Harness.open(storage,{models:createModels(),registry,onReport:({error,...info}:any)=>reports.push({error:{name:error.name,message:error.message,stack:error.stack},info:clone(info)})},ctx);owners.add(h);
  }
- async function end(){await h.close(ctx);const reason=(await h.closed).reason;closed.push(reason);owners.delete(h);return reason;}
+ async function end(){await h.close(ctx);const reason=(await h.closed).kind;closed.push(reason);owners.delete(h);return reason;}
  async function snapshot(){return h.commit(async()=>{const tasks=await scan(storage.scanTasks.bind(storage),{}),conversations=await scan(storage.scanConversations.bind(storage),{}),documents:any[]=[];
   for(const conversation of conversations){for(const record of await scan(storage.scanDocuments.bind(storage),{scope:{kind:'conversation',conversationId:conversation.id},at:'current'}))documents.push({record,materialized:clone(await storage.document(record.id,'current',ctx))});}
   return {tasks,conversations,documents};},ctx);}
@@ -89,7 +89,7 @@ for(const c of recipe.cases){
   ids.D=await owned.commit((tx:any)=>tx.createTask(task,{name:'D'},{ownership:{kind:'conversation'}}),ctx);
   h.resume();await need(starts,'D').promise;
   const held=deferred(),watch=await h.watchTaskGraph(ctx);watches.add(watch);const watch_initial=clone(watch.value);
-  watch.start(async(value:any)=>{const actual=clone(value);frames.push(actual);const state=actual.tasks[String(ids.P)]?.state;if(state?.status==='completing'&&state.outcome==='completed')held.resolve(actual);});
+  watch.start(async(call:any)=>{/* Release 1.5 watch calls carry the value. */assert.equal(call.kind,'value');const actual=clone(call.value);frames.push(actual);const state=actual.tasks[String(ids.P)]?.state;if(state?.status==='completing'&&state.outcome==='completed')held.resolve(actual);});
   need(gates,'P').resolve();await need(acks,'P').promise;const held_frame=await held.promise;
   const steps=[await step('held')];assert.equal((await h.getTask(ids.P,ctx)).state.status,'completing');
   await release(c.first);

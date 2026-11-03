@@ -15,12 +15,15 @@ const {createRegistry}=await import('./packages/durable/src/harness/registry.ts'
 const {defineExtension,defineTool}=await import('./packages/durable/src/harness/define.ts');
 const {ProviderDoc}=await import('./packages/durable/src/harness/provider.ts');
 const {UsageDoc}=await import('./packages/durable/src/harness/usage.ts');
-const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost,Type}=await import('@earendil-works/pi-ai');
+const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost}=await import('@earendil-works/pi-ai');
+const {obj}=await import('@earendil-works/pi-schema');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
 const input=JSON.parse(readFileSync(inputPath,'utf8'));assert.equal(input.phase,'generation-b-v1');
 function hex(s:string){const b=Buffer.alloc(s.length*2);for(let i=0;i<s.length;i++)b.writeUInt16BE(s.charCodeAt(i),i*2);return b.toString('hex');}
 function encode(v:any):any{if(v===null)return ['null'];if(typeof v==='boolean')return ['bool',v];if(typeof v==='string')return ['string',hex(v)];if(typeof v==='number'){assert.ok(Number.isFinite(v));const b=Buffer.alloc(8);b.writeDoubleBE(v);return ['number',b.toString('hex')];}if(Array.isArray(v))return ['array',v.map(encode)];assert.ok(v!==undefined&&Object.getPrototypeOf(v)===Object.prototype);return ['object',Object.keys(v).map(k=>[hex(k),encode(v[k])]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0)];}
+// Release 1.5 Usage.cost may carry totalFromProvider: false and absent both mean a catalog estimate.
+function estimate(u:any){if(u?.cost?.totalFromProvider!==false)return u;const {totalFromProvider:_,...cost}=u.cost;return {...u,cost};}
 const cases:any[]=[],raw:any[]=[];
 mkdirSync(out+'/stores/pi',{recursive:true,mode:0o700});
 for(const recipe of input.cases){
@@ -28,7 +31,7 @@ for(const recipe of input.cases){
  const faux=fauxProvider({api:'openai-completions',provider:'openai',models:[{id:'gpt-test',cost:{input:1,output:2,cacheRead:3,cacheWrite:4}}],tokenSize:{min:1000,max:1000}});
  const baseModels=createModels();baseModels.setProvider(faux.provider);
  const registry=createRegistry();
- registry.install(defineExtension({name:'fixture.generation',tools:[defineTool({name:'read',description:'Read',parameters:Type.Object({}),execute:async()=>{await new Promise(resolve=>setTimeout(resolve,100));return {output:[{type:'text',text:'later'}]};}})]}));
+ registry.install(defineExtension({name:'fixture.generation',tools:[defineTool({name:'read',description:'Read',parameters:obj({}),execute:async()=>{await new Promise(resolve=>setTimeout(resolve,100));return {output:[{type:'text',text:'later'}]};}})]}));
  let harness:any;const requests:any[]=[];
  let admittedResolve:any;const admitted=new Promise(resolve=>{admittedResolve=resolve;});let publication:any;
  const usage:any={input:16,output:10,cacheRead:4,cacheWrite:0,totalTokens:30,reasoning:3,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
@@ -56,11 +59,11 @@ for(const recipe of input.cases){
  }});
  harness=await Harness.open(await openNodeSqliteStorage(path),{models,registry,now:()=>1000,settings:{retry:{enabled:false},compaction:{enabled:false}}},ctx);
  const before_calls=requests.length;
- harness.subscribeCommits((value:any)=>{
+ harness.observeCommits({advance:(value:any)=>{
    if(!publication && value.changes.some((change:any)=>change.type==='entry'&&change.value.kind==='pi.assistant')){
      publication=structuredClone(value);admittedResolve();
    }
- });
+ },end:()=>{}});
  const conversation=await harness.root(ctx,{agent:{model:{provider:'openai',modelId:'gpt-test'}}});
  harness.resume();await conversation.submit({type:'input',content:'input'},ctx);
  await admitted;
@@ -75,11 +78,11 @@ for(const recipe of input.cases){
  const observed:any={before_calls,request_calls:requests.length,
    provider:{provider:assistant.provider,model:assistant.model,api:assistant.api,session:typeof provider.sessionId==='string'&&provider.sessionId.length>0&&provider.sessionId===requests[0].sessionId,cutoff:requests[0].cutoff===requests[0].latest},
    assistant:{text:assistant.content.filter((block:any)=>block.type==='text').map((block:any)=>block.text).join(''),calls:assistant.content.filter((block:any)=>block.type==='toolCall').map((call:any)=>({id:call.id,name:call.name,arguments:call.arguments}))},
-   usage:assistant.usage,ledger_usage:ledger.models['openai/gpt-test'],
+   usage:estimate(assistant.usage),ledger_usage:estimate(ledger.models['openai/gpt-test']),
    admission:{waiting:parent.state.status==='waiting',children:children.map((child:any)=>({kind:child.kind,version:child.version,owner:child.owner===parent.id,conversation:child.conversationId===conversation.id,assistant:child.input.assistant===answer.id,callId:child.input.callId})),unavailable:unavailable.map((result:any)=>({callId:result.toolCallId,isError:result.isError}))},
    publication:changes.some((change:any)=>change.type==='entry'&&change.value.id===answer.id)&&children.every((child:any)=>changes.some((change:any)=>change.type==='task'&&change.value.id===child.id)),
-   usage_once:JSON.stringify(encode(ledger.models['openai/gpt-test']))===JSON.stringify(encode(assistant.usage))};
- await harness.close(ctx);observed.close_reason=(await harness.closed).reason;
+   usage_once:JSON.stringify(encode(estimate(ledger.models['openai/gpt-test'])))===JSON.stringify(encode(estimate(assistant.usage)))};
+ await harness.close(ctx);observed.close_reason=(await harness.closed).kind;
  const reopened=await Harness.open(await openNodeSqliteStorage(path),{models,registry,now:()=>1000},ctx);
  observed.resumed_after_terminal=!recipe.tools;observed.retained_terminal=null;
  if(!recipe.tools){
@@ -87,7 +90,7 @@ for(const recipe of input.cases){
    const retained=await reopened.getTask(parent.id,ctx);
    observed.retained_terminal=JSON.stringify(encode(retained.state))===JSON.stringify(encode(parent.state));
  }
- await reopened.close(ctx);assert.equal((await reopened.closed).reason,'closed');
+ await reopened.close(ctx);assert.equal((await reopened.closed).kind,'closed');
  observed.retained_calls=requests.length;
  const lifecycle={resumed_after_terminal:observed.resumed_after_terminal,retained_terminal:observed.retained_terminal,close_reason:observed.close_reason,retained_calls:observed.retained_calls};
  raw.push({id:recipe.id,requestIdentities,publication,requests,provider,ledger,lifecycle});

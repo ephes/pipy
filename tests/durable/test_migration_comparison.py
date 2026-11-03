@@ -57,12 +57,13 @@ def test_actual_cold_migration_and_failure_cache(native_run):
         and row["before_restore_calls"] == row["repeated_calls"] == 1
         for row in failures
     )
-    assert (
-        next(row for row in rows if row["id"] == "parked-migration")[
-            "private_retry_return"
-        ]
-        is True
-    )
+    # Release 1.5.0 removed parking and retry; the parked case is a retirement
+    # record (successor R15-2) and native tests keep the parked behavior.
+    assert "parked-migration" not in {row["id"] for row in rows}
+    assert [
+        (row["id"], row["retired_by"], row["successor"])
+        for row in m.values.SCOPE["retired_cases"]
+    ] == [("parked-migration", "R15-1b", "R15-2")]
 
 
 def test_blocked_zero_current_restores_above_actual_current_definition(native_run):

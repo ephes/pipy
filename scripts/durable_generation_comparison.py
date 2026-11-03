@@ -576,10 +576,34 @@ def trace(value):
     return value
 
 
-def compare(expected, actual):
+# Release 1.5 unoffered tool calls (bridge U46): Pi gives the call that the request
+# did not offer its own pi.tool task, version 3 like the others, which settles
+# tool_unavailable; native still writes that result itself and admits version 2.
+DECLARED = o.contract.declared_validate(
+    (
+        {
+            "id": "generation-tools-unoffered-call-task",
+            "owner": "DE25",
+            "bridge": "U46",
+            "reason": "Pi admits a pi.tool v3 task for the unoffered call",
+            "path": ("tools", "admission"),
+            "reference_sha256": "47d7ee25c15f2b175bf89ad972bd3bab58c1afd1d478a94ebe01b6dc141be4d8",
+            "native_sha256": "0e3516543477896d0c00a6d369f7f595fb7175a795624d592de0851aa38a183e",
+        },
+    )
+)
+
+
+def compare(expected, actual, used=None):
     trace(expected)
     trace(actual)
-    return int(not d.same(expected, actual))
+    left, right = o.contract.declared_mask(
+        {row["id"]: v.decode(row["observed"]) for row in expected["cases"]},
+        {row["id"]: v.decode(row["observed"]) for row in actual["cases"]},
+        DECLARED,
+        used,
+    )
+    return int(not d.same(left, right))
 
 
 def mutate(actual, name):
@@ -738,7 +762,10 @@ def execute(acceptance, output):
     actual = asyncio.run(native(output / "stores"))
     imports = native_modules()
     d.dump(output / "native.json", actual)
-    status = compare(expected, actual)
+    used = set()
+    status = compare(expected, actual, used)
+    if not status:
+        o.contract.declared_require(DECLARED, used)
     controls = []
     for name in MUTANTS:
         path = mutants / (name + ".json")

@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
-import durable_restart_comparison as parent  # noqa:E402
+import durable_interrupted_comparison as parent  # noqa:E402
 from durable_reference import migration_values as values  # noqa:E402
 
 d, o, v, proc = parent.d, parent.o, parent.v, parent.proc
@@ -24,7 +24,13 @@ MANIFEST = o.FIXTURES / (PHASE + ".manifest.json")
 INPUT = o.FIXTURES / (PHASE + ".input.json")
 DRIVER = ROOT / "scripts/durable_reference/cases/migration.mts"
 NATIVE = ROOT / "scripts/durable_reference/migration_native.py"
-SOURCES = parent.SOURCES | {"packages/durable/test/harness-tasks-recovery.test.ts"}
+# Release 1.5 removed restart parking, so restart-parking-v1 is retired (R15-1b) and
+# this phase follows the interrupted phase directly. It keeps the restart sources and
+# native restart-policy files that its producers and fixtures still use.
+SOURCES = parent.SOURCES | {
+    "packages/durable/test/harness-blocked.test.ts",
+    "packages/durable/test/harness-tasks-recovery.test.ts",
+}
 # Required actual runtime roots of THIS generic-task driver, not inherited provider calls.
 # All resolutions, including additional dependencies, are still verified and retained.
 MODULES = {
@@ -39,6 +45,10 @@ MODULES = {
     "packages/durable/src/documents.ts",
 }
 CLOSURE = parent.CLOSURE | {
+    "tests/durable/restart_reference_support.py",
+    "src/pipy_harness/native/durable/restart_policy.py",
+    "tests/durable/test_restart_policy_runtime.py",
+    "docs/specs/2026-10-28-de14a-restart-parking-plan.md",
     "scripts/durable_migration_comparison.py",
     "scripts/durable_reference/migration_values.py",
     "scripts/durable_reference/migration_native.py",
@@ -80,7 +90,7 @@ def configuration():
         "Migration manifest identity",
     )
     d.require(
-        config["parents"] == {"restart": o.sha(parent.MANIFEST)},
+        config["parents"] == {"interrupted": o.sha(parent.MANIFEST)},
         "Migration parent drift",
     )
     for key, names in (("closure", CLOSURE), ("reference_sources", SOURCES)):

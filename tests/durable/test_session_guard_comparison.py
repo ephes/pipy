@@ -115,9 +115,16 @@ def test_native_recipe_is_complete_meaningful_and_deterministic_20x():
     assert step(m, r["admission-after-fail-vs-closed"], "probe", "later")["outcome"][
         "error"
     ] == failed("E1")
+    # Release 1.5.0: a fatal read, not a guard-only commit failure, reports.
+    recipe = {s["id"]: s for s in m.load(m.INPUT)["scenarios"]}["reentrant-report"]
+    calls = [s["call"]["op"] for s in recipe["steps"] if s["op"] == "call"]
+    assert calls == ["commit", "task"]
     assert step(m, r["reentrant-report"], "settle", "reporter")["outcome"][
         "error"
     ] == failed("E1")
+    assert [(row["id"], row["kind"], row["successor"]) for row in m.RETIRED] == [
+        ("commit-exempt", "mutant", "R15-3")
+    ]
     healthy = r["pi192-healthy-close-failure"]
     assert healthy["end"] == {
         "reason": "failed",
@@ -390,6 +397,21 @@ def test_closed_guard_manifest_fails_before_runtime_or_output(
     assert not (tmp_path / "output").exists()
 
 
+def test_release_15_declarations_pin_the_current_native_scenarios():
+    # Each declared b1b divergence names its native scenario exactly as the native
+    # recipe projects it now, so native drift fails here before any Pi run.
+    m = module()
+    raw, _ = m.native(m.load(m.INPUT))
+    native = {s["id"]: s for s in m.projection(raw)["scenarios"]}
+    rows = m.declared()
+    assert len(rows) == 17
+    assert {row["owner"] for row in rows} == {"R15-3", "R15-4"}
+    for row in rows:
+        (scenario,) = row["path"]
+        digest = m.o.contract.declared_digest(native[scenario])
+        assert digest == row["native_sha256"], row["id"]
+
+
 def test_current_guard_manifest_is_closed_and_cascades():
     m = module()
     config = m.configuration()
@@ -409,6 +431,7 @@ def test_current_guard_manifest_is_closed_and_cascades():
         "context-drift",
         "raw-drift",
         "node-backend",
+        "stale-declared",
     ],
 )
 def test_run_controller_classifies_and_attests_0_1_2_without_host_node(
@@ -416,6 +439,10 @@ def test_run_controller_classifies_and_attests_0_1_2_without_host_node(
 ):
     # Unit-only bootstrap/child replacements, NOT an actual pinned execution.
     m = module()
+    if mutation != "stale-declared":
+        # The unit reference is the native trace, which no 1.5 declaration
+        # describes; "stale-declared" keeps them and must be refused.
+        monkeypatch.setattr(m, "declared", lambda: ())
     parent = tmp_path / "parent"
     attestations = _unit_bootstrap(m, monkeypatch, parent)
     original = m.native
@@ -457,6 +484,7 @@ UNIT_DIAGNOSTICS = {
     "context-drift": "Guard reference context drift",
     "raw-drift": "raw guard error",
     "node-backend": "Reference trace backend drift",
+    "stale-declared": "Stale declared divergence: b1b-",
 }
 
 

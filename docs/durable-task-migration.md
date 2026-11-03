@@ -68,7 +68,10 @@ change together. The nine-field common comparison remains separate from the
 
 See the [adopted contract](specs/2026-10-28-de14b1-cold-task-migration-plan.md) and
 [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de14b1-cold-task-migration).
-A bounded `task-migration-cold-v1` reference child follows the prior 25 phases.
+A bounded `task-migration-cold-v1` reference child followed the prior 25 phases.
+At release 1.5 it follows `interrupted-tool-continuation-v1`, and its
+parked-reset case is withdrawn with successor R15-2, because 1.5 removed parking
+and `retryTask()`.
 Native detached callback inputs are an explicit difference from the pinned Pi
 callsite; output ownership and committed state are compared without inventing
 public API parity. Public registry replacement, active handover, live settings, public retry

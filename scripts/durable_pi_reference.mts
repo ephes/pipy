@@ -39,8 +39,11 @@ const { BACKGROUND_CONTEXT: context } = await import("@earendil-works/chord/cont
 const steps: object[] = [];
 const storage = new MemoryStorage();
 const session = createSession(storage, { now: () => input.clock_epoch_ms });
-session.subscribeCommits(publication => {
-  steps.push({ op: "commit.publication", value: publication });
+session.observeCommits({
+  advance: publication => { steps.push({ op: "commit.publication", value: publication }); },
+  // The actual end the observer gets at close, with an explicit Error DTO.
+  end: end => { steps.push({ op: "commit.end", value: "error" in end ? { kind: end.kind,
+    error: end.error instanceof Error ? { name: end.error.name, message: end.error.message } : end.error } : end }); },
 });
 const Counter = defineDoc<{ count: number; items: string[] }>({
   checkpointWhen: () => false, kind: "fixture.counter", version: 1, scope: "session", history: "rewindable",

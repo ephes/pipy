@@ -38,9 +38,11 @@ removed behavior, and a later switch would rework more of it.
 
 - Earlier dated 1.3 and 1.4 receipts stay historical, bound to their own
   sources and pins. None is rebound to 1.5, and no 1.5 result is claimed here.
-- Until R15-1b lands, the reference runner, its manifests, fixtures and every
-  comparison phase keep executing release 1.4.0, and native behavior keeps its
-  1.4 shape. The topic docs keep describing that delivered behavior.
+- Since R15-1b the reference runner, its manifests, fixtures and every
+  comparison phase execute release 1.5.0. Native behavior keeps its 1.4 shape
+  until the bridge slices port it; where a comparison shows the difference, a
+  declared divergence names its owner. The topic docs keep describing the
+  delivered native behavior.
 - The obligations of the 1.4 bridge carry over unchanged. `documents.ts` is
   identical at both releases, so the required `checkpointWhen` policy and its
   checkpoint profile stand. pi-ai `utils/identity.ts` and the Harness model
@@ -305,6 +307,36 @@ above:
   baseline and complete chain on 1.5. Every phase checks the one reference
   commit of the baseline acceptance, so the release pin cannot be split by
   comparison family.
+
+R15-1b recorded these dispositions; the
+[reference guide](../durable-reference.md#release-15-dispositions-r15-1b) lists
+every phase:
+
+- Twenty phases pass under their declared projection, and the session-checkpoint
+  contract expects the 1.5 group-commit order on the SQLite reference
+  (deviation D1).
+- `completed-projection-b-v1` is re-derived over the conversation watch alone
+  (U32), and the session-guard scenario `reentrant-report` reaches its report
+  through a fatal read instead of a guard-only commit failure (U07, U08).
+- Withdrawn with successor R15-2, because 1.5 removed restart parking,
+  `retryTask()` and the `restart_limit` blocked reason (U01): the phases
+  `restart-parking-v1` and `task-product-retry-enable-v1`, whose manifests are
+  closed retirement records that the baseline acceptance checks; the
+  `parked-migration` case of `task-migration-cold-v1`, which now follows
+  `interrupted-tool-continuation-v1`; four of the five cases of
+  `restart-policy-live-v1`; and the parked control of
+  `task-orphan-missing-definition-v1` and of `task-orphan-failed-migration-v1`.
+  The remaining cases of these four phases pass, and the parked controls of
+  `task-orphan-task-too-old-v1` and `task-orphan-missing-migration-v1` still
+  pass. Withdrawn with successor
+  R15-3: the guard mutant `commit-exempt`, since 1.5 does not report a
+  guard-only commit failure. Native tests keep the withdrawn behavior.
+- Declared divergences, each pinned to the exact value on both sides and failing
+  the run once it no longer matches: `session-guard-b1b-v1` (R15-4 for U34,
+  R15-3 for U07 and U08), `session-commit-b3-v1` (DE27/DE28/DE45 for U18, R15-4
+  for U34 and U16, R15-3 for U08), `session-documents-a-v1` and
+  `canonical-checkpoint-b-v1` (U18), `generation-b-v1` (DE25, U46) and
+  `headless-cli-v1` (DE17, U04). Each is an open item of its owner.
 
 ### R15-2: restart-limit endings instead of parking and retry
 

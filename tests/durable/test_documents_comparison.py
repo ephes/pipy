@@ -24,7 +24,7 @@ assert spec and spec.loader
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 RAW_BYTES = 2_428_093
-RAW_SHA = "e592dcf85c2e5a1329436e0f1f62936eb8cfce60cca242eac89b552c315608fd"
+RAW_SHA = "8e3082d83bcea61ee0ac93689a6402ebc6546d1c067114b85c4a29b81fc7b3ef"
 
 
 def captured():
@@ -58,9 +58,35 @@ def paired(tmp_path_factory):
     actual, raw = asyncio.run(
         m.native(tmp_path_factory.mktemp("typed-documents") / "stores")
     )
-    assert m.comparison(reference, actual) == 0
+    used = set()
+    assert m.comparison(reference, actual, used=used) == 0
+    m.o.contract.declared_require(m.DECLARED, used)
     assert len(raw) == 3
     return reference, actual
+
+
+def _with_count(trace, case, key, value):
+    changed = copy.deepcopy(trace)
+    row = next(row for row in changed["cases"] if row["id"] == case)
+    profile = m.v.decode(row["profile"])
+    profile["counts"][key] = value
+    row["profile"] = m.v.encode(profile)
+    return changed
+
+
+@pytest.mark.parametrize(("case", "key"), [("A1", "conversation"), ("C2", "task")])
+def test_release_15_cache_read_counts_mask_only_the_declared_pair(paired, case, key):
+    # The actual 1.5 capture reads one record from Pi's Session cache (bridge U18).
+    expected, actual = paired
+    row = next(row for row in expected["cases"] if row["id"] == case)
+    assert m.v.decode(row["profile"])["counts"][key] == 1
+    # Any other reference count is an ordinary mismatch.
+    assert m.comparison(_with_count(expected, case, key, 3), actual) == 1
+    # Pi agreeing with native again leaves the declaration stale.
+    used = set()
+    assert m.comparison(_with_count(expected, case, key, 2), actual, used=used) == 0
+    with pytest.raises(m.o.EvidenceError, match="Stale declared divergence"):
+        m.o.contract.declared_require(m.DECLARED, used)
 
 
 def cli(tmp_path, expected, actual):

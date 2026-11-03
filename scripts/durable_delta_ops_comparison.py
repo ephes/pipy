@@ -36,6 +36,7 @@ MODULES = {
     "packages/chord/src/delta/tracker.ts",
     "packages/chord/src/delta/apply-immutable-trusted.ts",
     "packages/chord/src/delta/revision-validator.ts",
+    "packages/chord/src/delta/pending.ts",
 }
 SOURCES = MODULES | {
     "package.json",

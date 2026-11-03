@@ -151,6 +151,10 @@
                                                     ]
                                                   ]
                                                 }
+                                              ],
+                                              [
+                                                "additionalProperties",
+                                                false
                                               ]
                                             ]
                                           }
@@ -258,7 +262,7 @@
                                   "entries": [
                                     [
                                       "input",
-                                      35
+                                      0
                                     ],
                                     [
                                       "output",
@@ -270,11 +274,11 @@
                                     ],
                                     [
                                       "cacheWrite",
-                                      35
+                                      42
                                     ],
                                     [
                                       "totalTokens",
-                                      75
+                                      47
                                     ],
                                     [
                                       "cost",
@@ -314,6 +318,10 @@
                               [
                                 "timestamp",
                                 1700000000000
+                              ],
+                              [
+                                "thinkingLevel",
+                                "off"
                               ]
                             ]
                           }
@@ -392,7 +400,7 @@
                               ],
                               [
                                 "durationMs",
-                                1
+                                0
                               ],
                               [
                                 "timestamp",
@@ -491,7 +499,7 @@
                                   "entries": [
                                     [
                                       "input",
-                                      14
+                                      0
                                     ],
                                     [
                                       "output",
@@ -499,7 +507,7 @@
                                     ],
                                     [
                                       "cacheRead",
-                                      35
+                                      42
                                     ],
                                     [
                                       "cacheWrite",
@@ -507,7 +515,7 @@
                                     ],
                                     [
                                       "totalTokens",
-                                      64
+                                      57
                                     ],
                                     [
                                       "cost",
@@ -547,6 +555,10 @@
                               [
                                 "timestamp",
                                 1700000000000
+                              ],
+                              [
+                                "thinkingLevel",
+                                "off"
                               ]
                             ]
                           }
@@ -596,7 +608,7 @@
                     ],
                     [
                       "version",
-                      1
+                      2
                     ],
                     [
                       "input",
@@ -676,7 +688,7 @@
                     ],
                     [
                       "version",
-                      2
+                      3
                     ],
                     [
                       "input",
@@ -777,7 +789,7 @@
                     ],
                     [
                       "version",
-                      1
+                      2
                     ],
                     [
                       "input",
@@ -928,6 +940,10 @@
                                                     ]
                                                   ]
                                                 }
+                                              ],
+                                              [
+                                                "additionalProperties",
+                                                false
                                               ]
                                             ]
                                           }
@@ -965,7 +981,7 @@
                     ],
                     [
                       "sessionId",
-                      "01a15455-150f-7177-ad2d-0ed777a3031c"
+                      "01a1a2d3-2f67-748f-8a55-b0e480661503"
                     ],
                     [
                       "cacheRetention",
@@ -1038,6 +1054,10 @@
                                                     ]
                                                   ]
                                                 }
+                                              ],
+                                              [
+                                                "additionalProperties",
+                                                false
                                               ]
                                             ]
                                           }
@@ -1133,7 +1153,7 @@
                                   "entries": [
                                     [
                                       "input",
-                                      35
+                                      0
                                     ],
                                     [
                                       "output",
@@ -1145,11 +1165,11 @@
                                     ],
                                     [
                                       "cacheWrite",
-                                      35
+                                      42
                                     ],
                                     [
                                       "totalTokens",
-                                      75
+                                      47
                                     ],
                                     [
                                       "cost",
@@ -1189,6 +1209,10 @@
                               [
                                 "timestamp",
                                 1700000000000
+                              ],
+                              [
+                                "thinkingLevel",
+                                "off"
                               ]
                             ]
                           },
@@ -1238,7 +1262,7 @@
                               ],
                               [
                                 "durationMs",
-                                1
+                                0
                               ],
                               [
                                 "timestamp",
@@ -1251,7 +1275,7 @@
                     ],
                     [
                       "sessionId",
-                      "01a15455-150f-7177-ad2d-0ed777a3031c"
+                      "01a1a2d3-2f67-748f-8a55-b0e480661503"
                     ],
                     [
                       "cacheRetention",
@@ -1271,7 +1295,7 @@
               "entries": [
                 [
                   "sessionId",
-                  "01a15455-150f-7177-ad2d-0ed777a3031c"
+                  "01a1a2d3-2f67-748f-8a55-b0e480661503"
                 ]
               ]
             }
@@ -1293,7 +1317,7 @@
                           "entries": [
                             [
                               "input",
-                              49
+                              0
                             ],
                             [
                               "output",
@@ -1301,15 +1325,15 @@
                             ],
                             [
                               "cacheRead",
-                              35
+                              42
                             ],
                             [
                               "cacheWrite",
-                              49
+                              56
                             ],
                             [
                               "totalTokens",
-                              139
+                              104
                             ],
                             [
                               "cost",
@@ -1372,7 +1396,7 @@
                           "entries": [
                             [
                               "input",
-                              49
+                              0
                             ],
                             [
                               "output",
@@ -1380,15 +1404,15 @@
                             ],
                             [
                               "cacheRead",
-                              35
+                              42
                             ],
                             [
                               "cacheWrite",
-                              49
+                              56
                             ],
                             [
                               "totalTokens",
-                              139
+                              104
                             ],
                             [
                               "cost",
@@ -1477,7 +1501,7 @@
               "type": "object",
               "entries": [
                 [
-                  "reason",
+                  "kind",
                   "closed"
                 ]
               ]

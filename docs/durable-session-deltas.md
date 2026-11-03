@@ -114,9 +114,13 @@ The Session-commit schema/CLI test fixture remains relabelled native test data,
 not Node evidence. Actual pinned source executions are still required by its gate.
 
 The new `session-documents-deltas-v1.expected.json` is a compressed capture of
-actual pinned Node execution of the migrated 24-recipe document driver. Its raw
-size is 2,428,093 bytes and raw SHA-256 is
-`e592dcf85c2e5a1329436e0f1f62936eb8cfce60cca242eac89b552c315608fd`.
+actual pinned Node execution of the migrated 24-recipe document driver. R15-1b
+re-captured it from the release 1.5.0 run: its raw size is 2,428,093 bytes and
+raw SHA-256 is
+`8e3082d83bcea61ee0ac93689a6402ebc6546d1c067114b85c4a29b81fc7b3ef` (the 1.4
+capture was `e592dcf85c2e5a1329436e0f1f62936eb8cfce60cca242eac89b552c315608fd`).
+Two of its Storage read counts are lower than native's because Pi serves those
+records from its Session cache; they are declared divergences (bridge U18).
 The original `session-documents-v1.expected.json` remains byte-for-byte historical
 A evidence with the old forced-base adaptation. The new capture used a verified
 pinned source/dependency closure with reused dependencies; it does not substitute

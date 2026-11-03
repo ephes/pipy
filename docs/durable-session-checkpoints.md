@@ -121,8 +121,14 @@ the prior durable state.
 `SessionImpl` with Memory, SQLite and reopen, and actual native Session with all
 three backends. Its closed phase is `session-checkpoints-j-v1`. The expected
 fixture stores LZMA-compressed bytes from actual Pi execution, with a bounded
-decompressor and an exact raw size/SHA-256 check. The earlier historical
-full-base document fixture and the delivered default-delta fixture remain intact.
+decompressor and an exact raw size/SHA-256 check; R15-1b re-captured it from
+the actual release 1.5.0 run. The earlier historical full-base document fixture
+and the delivered default-delta fixture remain intact. At release 1.5 the SQLite
+reference starts a child commit that a checkpoint callback queued while the
+parent's storage call is in flight, before the parent's publication (group
+commit); native holds its Session line through storage and starts it after
+([deviation D1](specs/2026-11-03-durable-release-1.5-bridge.md#deviation-d1-the-session-line-stays-held-through-storage)).
+The runtime contract states this per backend.
 
 The capture records 52 recipes per backend, including both zero directions,
 simple and nested access, genuinely untouched nested containers, unrelated edits,

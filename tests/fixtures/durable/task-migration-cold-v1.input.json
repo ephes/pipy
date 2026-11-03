@@ -67,14 +67,6 @@
       "parked": false
     },
     {
-      "id": "parked-migration",
-      "stored": 1,
-      "current": 2,
-      "mode": "change",
-      "blocked": null,
-      "parked": true
-    },
-    {
       "id": "blocked-zero-current",
       "stored": -2.0,
       "current": 0,

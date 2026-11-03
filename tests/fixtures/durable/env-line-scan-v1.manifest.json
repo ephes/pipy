@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+  "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "sources": {
-    "package.json": "251d6944a533e034e5a28570cb460966916e6b10c29c398dc61cea11dcd21790",
+    "package.json": "68ae3efd35d534ee791d0c3c9a0ca59984806bd7754dce9823decc8ab053f2f7",
     "packages/coding-agent/src/experimental/source-resolver.ts": "c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6",
     "packages/durable/src/env/decode.ts": "3db30eae71f612b015b95e83b28d64b5330498a517119b5a01e210666cb5b032",
-    "packages/durable/src/env/index.ts": "6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff",
+    "packages/durable/src/env/index.ts": "b7a2a551648ec08f0f3a87cf9cb74df1ace2522a86c95b1a8982efd6ff60822c",
     "packages/durable/src/env/line-scan.ts": "eb60f69745262ffd55b1054fc3d63247a5aed95ff502332d093945345b244603",
     "packages/durable/test/env-line-scan.test.ts": "177b8fd52d5392bb4de4a81fe54e49c583a34d3e25a4b7d57b2a31a063fdb5e8",
-    "tsconfig.json": "86e5067d9c3cb765ab0d1dd2d33d6c175e4adb242c42fa2a835c18a62a897f1a"
+    "tsconfig.json": "d412113387c1503a6372bb9911cc314e6b5242f56aa1abdb1a089bb0f050e46f"
   },
   "closure": {
     "scripts/durable_env_line_scan_comparison.py": "041ffa47da41820e1628063d77a2c8ef3889c29d2fe853f7b5d1b2dced90590e",
-    "scripts/durable_pi_comparison.py": "919b52d684d4b6d8c1cb8db10267b6c6b3a62900a05d63a83eb85dc9ae9ad2ba",
+    "scripts/durable_pi_comparison.py": "dff7851979a327a2d8d853984923e092875a462ebbf81a65ab6940ae81fc39b7",
     "scripts/durable_reference/cases/env-line-scan.mts": "0b7e75c90d368eb5df97113fdf458148eb9053cac38b93c036416fd52f585f12",
-    "scripts/durable_reference_acceptance.py": "d454f04f655623998335c0903115f3b9318fe52f395f9eac9968f617f593adb1",
-    "scripts/durable_reference_contract.py": "7ae9659989a490a50e9a5a124e8f8c16de96097c4f6d053b97b027ec81ba86c0",
+    "scripts/durable_reference_acceptance.py": "3ff9b55474c60526ebf204905c0436031892e0aa160ad8a3c6885e2a1af4120a",
+    "scripts/durable_reference_contract.py": "d67d997afa327e70f60276ac16540537440f8ad4aa5ca0d5beb03726394e5bdd",
     "src/pipy_harness/native/durable/env/__init__.py": "e1f995c35d77f403c514bcf602689ba93ff3fb25209fdfafbfb50a4edb7fdb98",
     "src/pipy_harness/native/durable/env/line_scan.py": "94c3422c5982b36d5480cfb69ff76b5de2ada1fdf00d8574af459c9155e29012",
     "tests/durable/test_env_line_scan.py": "6369635b52df2989f7ee23dc0ff76610600d9c01d18ee5a72e21a66d45d9c646",

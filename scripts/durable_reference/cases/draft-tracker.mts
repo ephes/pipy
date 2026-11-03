@@ -2,7 +2,7 @@
 // Full notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt.
 import { readFileSync } from "node:fs";
 import { registerHooks } from "node:module";
-const modules = ["json.ts", "delta/index.ts", "delta/diff.ts", "delta/tracker.ts", "delta/apply-immutable-trusted.ts", "delta/revision-validator.ts"];
+const modules = ["json.ts", "delta/index.ts", "delta/diff.ts", "delta/tracker.ts", "delta/apply-immutable-trusted.ts", "delta/revision-validator.ts", "delta/pending.ts"];
 const allowed = new Set(modules.map(p => new URL("./packages/chord/src/" + p, import.meta.url).href));
 const loaded: string[] = [];
 registerHooks({load(url, context, nextLoad) {

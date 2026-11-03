@@ -125,7 +125,8 @@ resolution-target admission, before storage reads or offline path access.
 The nineteenth source-closed oracle uses genuine pinned Harness.inspect/getTask.
 Only declared logical metadata/version fit, unchanged records and zero task-code
 observations are paired. Pi raw reports/records remain separate; Pi has no generic
-resolve API and its retryTask clears a parked restart count. Native redaction,
+resolve API, and release 1.5 removed the retryTask that cleared a parked restart
+count. The pinned driver reads Pi's inspection state `pending` (1.4 said `ready`). Native redaction,
 operator authorization, process cuts and physical OS ownership are native proof.
 
 The separate native relational fixture actually preserves an uncertain applied

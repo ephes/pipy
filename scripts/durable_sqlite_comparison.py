@@ -77,6 +77,7 @@ SOURCES = (
             "testing/storage-conformance.ts",
             "testing/storage-benchmark.ts",
             "testing/types.ts",
+            "testing/commit-writes.ts",
         )
     }
     | {
@@ -88,6 +89,7 @@ SOURCES = (
             "delta/tracker.ts",
             "delta/diff.ts",
             "delta/apply-immutable-trusted.ts",
+            "delta/pending.ts",
             "sqlite/index.ts",
             "sqlite/node.ts",
             "sqlite/schema.ts",

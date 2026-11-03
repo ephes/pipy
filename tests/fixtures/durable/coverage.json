@@ -1144,12 +1144,10 @@
       ],
       "current": {
         "kind": "bounded-native",
-        "cases": [
-          "restart-parking-v1"
-        ],
+        "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Delivered48fd: default-five/explicit-limit parking, same-task reset, healthy-close and state-progress distinctions, valid-receipt priority, numeric API/CLI and control lifecycle; six focused platforms/full suite/two25-phase chains and finite resource/CODE acceptance. No full public Pi retry-enable or live policy parity claim."
+        "observables": "Delivered48fd: default-five/explicit-limit parking, same-task reset, healthy-close and state-progress distinctions, valid-receipt priority, numeric API/CLI and control lifecycle; six focused platforms/full suite/two25-phase chains and finite resource/CODE acceptance. No full public Pi retry-enable or live policy parity claim. Its reference phase restart-parking-v1 was retired at the release 1.5 re-pin (R15-1b): 1.5 removed parking and retryTask; successor R15-2."
       },
       "inherited_reference": {
         "owners": [],
@@ -1180,12 +1178,10 @@
       ],
       "current": {
         "kind": "bounded-native",
-        "cases": [
-          "task-product-retry-enable-v1"
-        ],
+        "cases": [],
         "workloads": [],
         "oracles": [],
-        "observables": "Selected Product reset/admission and owned continuation; separate dated Core158/Broad8/Reference15+Native2/Pi2 development epochs, no final gate transfer or raw Task-state parity."
+        "observables": "Selected Product reset/admission and owned continuation; separate dated Core158/Broad8/Reference15+Native2/Pi2 development epochs, no final gate transfer or raw Task-state parity. Its reference phase task-product-retry-enable-v1 was retired at the release 1.5 re-pin (R15-1b): 1.5 removed parking and retryTask; successor R15-2."
       },
       "inherited_reference": {
         "owners": [],

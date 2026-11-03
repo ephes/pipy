@@ -1,45 +1,45 @@
 {
   "schema_version": 3,
   "reference": {
-    "commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
-    "tree": "56ea45bfd3ef589feaddfaf504cfc08d838d812b",
+    "commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
+    "tree": "b7734e15f2c1a10846284f77034a2214746a4da6",
     "package": "@earendil-works/pi-durable",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "source_sha256": {
-      "package-lock.json": "34fc1e9c534291db36d63ffb9dad6c962fdc5bc49afd6d802d381ae5844003a3",
+      "package-lock.json": "802adbf0a5e093830226723f37b8971ce42eee442181a1471e0b70b1396b244a",
       "LICENSE": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
-      "packages/durable/package.json": "c100d039aa3ca0d952f49f118d7eb22ddec04d85e5eb28193f2838e8f7584ae7",
-      "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
-      "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
+      "packages/durable/package.json": "63f2c3f3af7795aed20b6bf427917324db16129898c918fd6e7074c3df252d1b",
+      "packages/durable/src/session/session.ts": "85d360ee99864db1ed6cc23138bd6b0f2652de71ac3bb1b18abc670b4088ef11",
+      "packages/durable/src/storage/memory.ts": "f50981ee99bdf2a516dc0926a32dfaa3785ce88283d910ebad8abe2056abcd07",
       "packages/durable/src/documents.ts": "f968de48d8322f59cc6b45e7fbf769110623e68552ea3b1df7cbcdde2f9648c8",
-      "packages/durable/src/testing/storage-conformance.ts": "fa543ea2f7271ac1f23bc16eb0d1f69ba55b52d0f3a2865dd68d0ee34258392e",
+      "packages/durable/src/testing/storage-conformance.ts": "933ec774e906daed3a8e7325855ee67492190b8bf0960e3e85e9fde31e5d0c72",
       "packages/coding-agent/src/experimental/source-resolver.ts": "c584d52fb68860c0c6ae5dfbbcb6052fa104d6e34c7ef231b9e6eb7e0ec5b2a6",
-      "packages/durable/src/harness/harness.ts": "57f9236cfca96a08fb62f6243fb29798384a148b8b7200abde43daa0df989de1",
-      "packages/durable/src/harness/tool.ts": "e1417cf44bcf8c75e0978e2ed31e1e87f7c36871113eec535db16d0fc621c9a9",
-      "packages/ai/src/providers/faux.ts": "aeaa8df95399776587ad0cfccccd3b498891a20c5c5846f935e04d9d09dd84a1",
-      "packages/durable/test/harness-tools.test.ts": "fb5e0ebdb9c5d3ba167a2c8ad35fc67b1539d1d00be096f843b76094813103d7",
-      "packages/durable/src/harness/context.ts": "c392e698d7f84a1fc4909c0b40964d74625edbe7b56dc1dfea28588dde47d635",
-      "packages/durable/test/harness-context.test.ts": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5",
-      "packages/durable/docs/spec.md": "affd388e00b8404dec28fb49973e9b4fc79ba5dc7b23c646b95e15bfb6d417fd",
-      "packages/durable/test/task-support.ts": "24b8647f113ef59d8df37441754cd2c65c957889d3f561357d9d47b682ec0ac7",
-      "packages/durable/test/harness-sleep.test.ts": "39c3b3227b675b069e536451244a8236506fe328f96e643487b70114ba735ad8",
+      "packages/durable/src/harness/harness.ts": "d5c514c2cf0ab89d6411a1968ec4b14bd14b6732a19db2408166f3e52e66c149",
+      "packages/durable/src/harness/tool.ts": "4f9e3f815cc02ff377fdfff3bc1192d7563a0ccf79bada390cd8b20d2b757852",
+      "packages/ai/src/providers/faux.ts": "80ed6d9e760d1cc1bce6a894ffe1a35bd814a60762e3a8c6f3d4b09730afaf88",
+      "packages/durable/test/harness-tools.test.ts": "89d0a43dd115af1b1c7f61adb1cb350e285a3834656de7ec03efdc1c3fc01b5b",
+      "packages/durable/src/harness/context.ts": "160a047b022725ec799f4581ef7e52798632015dcd908755c3df6cd1e9f35fc8",
+      "packages/durable/test/harness-context.test.ts": "432a9684c21f3ca48fa2625c812fd2c39fa952f77b8b9042615bdda29969fca5",
+      "packages/durable/docs/spec.md": "c2423778524c1cbd70f9ab0efb8f781e13128f893b8ab7cc4254f75f64d3c3ed",
+      "packages/durable/test/task-support.ts": "e62db7f773113df23b62fa0d6c653559d7b7333de8181ffdd84709ccdf31393d",
+      "packages/durable/test/harness-sleep.test.ts": "f0bca60a45161e19eeb01c4870a6dc5c84dbedd907cbd4624800617d94819cc8",
       "packages/durable/src/timers.ts": "b267ff1239dbeb6e5fef298d984e04818328957524878aa0a883e79195d63d07",
-      "packages/chord/src/output.ts": "d2fcc2364e994a8f9cdb2d31caa15a8ca7cf2928e1c21db8a65867acdce9ceed",
+      "packages/chord/src/output.ts": "2f0ed25c6488e8cc85cf88323c5af0fdd72cee958f36f13c5926409047cd1f28",
       "packages/durable/src/testing/types.ts": "7de2ad01a01b0448215b9b1e891d01e5cb9c9197cc3b36c558223ea3917c8dab",
       "packages/durable/src/storage/sqlite/node.ts": "a71180a69e8d9225ccdba50f8eb7e908a3454b6b537657ba18a964d891f29e1c",
-      "packages/durable/src/storage/sqlite/storage.ts": "6778529dada8ac79d54328f7e8924d14a2a25bf33befc186c078482d27e8fe4a",
-      "packages/chord/src/sqlite/node.ts": "87eee26ec2cd23f0ec19fa785c4b985546d85cf791fd6454e75bbe643e6eac68",
-      "packages/durable/test/harness-tools-recovery.test.ts": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7",
-      "packages/durable/src/harness/scheduler.ts": "77e4f0f71c099308cf7ead442c9a1335b5156a1a1194315cd41f2aa06ef4a1ab",
+      "packages/durable/src/storage/sqlite/storage.ts": "19d65e13cb64a5a1be8462ad7d6ff0922501543c025945f6cc9f4148cedb206b",
+      "packages/chord/src/sqlite/node.ts": "83b24baaa127f8b24adba495491a70eaff9b70cc3ad73f99055905395b12e986",
+      "packages/durable/test/harness-tools-recovery.test.ts": "d6f9275c1ee35d36bb667a64f9e4766f12cc8ad6b494249d0321ef6fcd0e8c73",
+      "packages/durable/src/harness/scheduler.ts": "2742e3a645aed8064d8073b5a1921c4b8c39bad7b41271bf2ffb3471bfe66678",
       "packages/durable/src/tasks.ts": "08ed979b5ae25122aca620952deeb0cde4956c41869ae5a51d47fc7aaf2627d9",
-      "packages/durable/test/harness-tasks.test.ts": "1d3c0dcda8e00c0c852ebc59e85860b6eee0b02aca058100c3d16c11ae19620f",
-      "packages/durable/src/env/node.ts": "3ec850effbc184cc1b789d955f862b0c78639a29469035e124445bf168a6d56c",
-      "packages/durable/src/env/index.ts": "6601d869fb70ef0232143b1eda6a6241307b47dc0b5575a1c262e6f6f6c63eff",
-      "packages/durable/src/testing/env-conformance.ts": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e",
-      "packages/durable/src/testing/storage-benchmark.ts": "8dae25ae6eb39d5e7fccc10df0258efb89c6a6d3ff9cef134eb4cb42385f89a5",
-      "packages/durable/src/testing/index.ts": "771ad9e6f6ce2f12a86e3c089eceaf4ca4084478bfddf272908fd93a9335084f",
-      "packages/durable/test/storage.bench.ts": "cac1b9e824538f9bbf470a63c130f9cbd3841daf5477592e19b574d590faf113",
-      "packages/durable/test/storage-memory.ts": "fe3bd4560fb90efbd84d9c4110a3734c859cb071c5029acf7b3eb8b1946654a7"
+      "packages/durable/test/harness-tasks.test.ts": "2b3cc4ab1ff948675e4b5269af867008e8ee61e207743cc55b963497bb854915",
+      "packages/durable/src/env/node.ts": "93f82a28f73221b2b57dcf103161fc817a9431c11bc7254ff02e92d23fea26b1",
+      "packages/durable/src/env/index.ts": "b7a2a551648ec08f0f3a87cf9cb74df1ace2522a86c95b1a8982efd6ff60822c",
+      "packages/durable/src/testing/env-conformance.ts": "571c5cf03e4852462334077b9962687af5451b85759d3cb088c9e91885eaf924",
+      "packages/durable/src/testing/storage-benchmark.ts": "247cb9d7758e88cb2ed3c659c9399f5cdd57e2867328cf3b59015a39ce00a751",
+      "packages/durable/src/testing/index.ts": "08b00f61c6242deda4672221b7a102b4a83fd9b20a92e8af2e5e1f3c7f5ba175",
+      "packages/durable/test/storage.bench.ts": "5d22ae573eb89444815dcbf12f866770bb50ca75cc9368b4fe74eb89ce82fa6c",
+      "packages/durable/test/storage-memory.ts": "b631e461c76ededcf43c367cc2cef3272777c503bb4c8b9851b5998f38b1b366"
     }
   },
   "runtime": {
@@ -49,15 +49,15 @@
   "adapters": {
     "scripts/durable_pi_reference.mts": {
       "destination": "durable_pi_reference.mts",
-      "sha256": "11801cac1cb3199051ad50f1f880548fea90e1efec73b852ce2c6885f00158f9"
+      "sha256": "2e30a4ec223076a2e8dd4decc56d6e9bdb6725e782b4a24d1a90b8d6f408d73a"
     },
     "scripts/durable_reference/contract.mts": {
       "destination": "durable_reference/contract.mts",
-      "sha256": "7bb09d967dfbb291ba8f5bdd2184156eb725e64cc6679aae639d33d8c2a66ef7"
+      "sha256": "c243db3c87d6b5928ed8653432d56273b918b6b4e7bd3194d98eef982fa6d6a8"
     },
     "scripts/durable_reference/cases/harness-round.mts": {
       "destination": "durable_reference/cases/harness-round.mts",
-      "sha256": "b3e90af0f22897299eb5f64e54ff73f003fc3aca4c5b18371381bba3ce6f0c46"
+      "sha256": "57e152be273e3c708019569d99235ec1ba967b3d4de696c8359654ddc68c2a2b"
     },
     "scripts/durable_reference/cases/context-heads.mts": {
       "destination": "durable_reference/cases/context-heads.mts",
@@ -65,11 +65,11 @@
     },
     "scripts/durable_reference/cases/tool-recovery.mts": {
       "destination": "durable_reference/cases/tool-recovery.mts",
-      "sha256": "3dc62b49cf7a0765021455f22ba490ed5d70760f3508bec53b7abd2bcff23cfe"
+      "sha256": "fb24ec3f7c89df5cd062052d3858bf0d68dd5ecbc0fb307a7785b7253162a6be"
     },
     "scripts/durable_reference/cases/durable-abort.mts": {
       "destination": "durable_reference/cases/durable-abort.mts",
-      "sha256": "30b5b8593b4e6bb93a016c0011f780cf7e8f19827cc79d9f24a72bcac186de7f"
+      "sha256": "23436bf02ca52160d6d9bdbe67b4ab9acdc8685295c13dba86a1e9b94702fcaf"
     },
     "scripts/durable_reference/cases/env-conformance.mts": {
       "destination": "durable_reference/cases/env-conformance.mts",
@@ -77,13 +77,13 @@
     },
     "scripts/durable_reference/cases/storage-baseline.mts": {
       "destination": "durable_reference/cases/storage-baseline.mts",
-      "sha256": "a0d4ccf20ca31ef1b9d6b2c5ba4347ab7fe33f509e20117c059442ca4844c6be"
+      "sha256": "dc4d6e694dec9d615b687190ce44d74fad93311912a17e4e40dba40ce69b6840"
     }
   },
   "comparison": {
-    "scripts/durable_pi_comparison.py": "919b52d684d4b6d8c1cb8db10267b6c6b3a62900a05d63a83eb85dc9ae9ad2ba",
-    "scripts/durable_reference_acceptance.py": "d454f04f655623998335c0903115f3b9318fe52f395f9eac9968f617f593adb1",
-    "scripts/durable_reference_contract.py": "7ae9659989a490a50e9a5a124e8f8c16de96097c4f6d053b97b027ec81ba86c0"
+    "scripts/durable_pi_comparison.py": "dff7851979a327a2d8d853984923e092875a462ebbf81a65ab6940ae81fc39b7",
+    "scripts/durable_reference_acceptance.py": "3ff9b55474c60526ebf204905c0436031892e0aa160ad8a3c6885e2a1af4120a",
+    "scripts/durable_reference_contract.py": "d67d997afa327e70f60276ac16540537440f8ad4aa5ca0d5beb03726394e5bdd"
   },
   "cases": [
     {
@@ -94,7 +94,7 @@
       },
       "expected": {
         "path": "kernel-memory-v1.json",
-        "sha256": "a74321597569dbe95e2d82516e4559ebf9b839c1f9f87156157879c3d48a5ef1"
+        "sha256": "723b8128f77bad8a6cbe5b5eb52823847c772e0a7b62683aa10d9a4eb785a545"
       },
       "trace_schema": 1,
       "normalization": "finite-json-v1",
@@ -108,7 +108,7 @@
         {
           "path": "packages/durable/src/testing/storage-conformance.ts",
           "name": "source-derived atomic commit/document probe",
-          "sha256": "fa543ea2f7271ac1f23bc16eb0d1f69ba55b52d0f3a2865dd68d0ee34258392e"
+          "sha256": "933ec774e906daed3a8e7325855ee67492190b8bf0960e3e85e9fde31e5d0c72"
         }
       ]
     },
@@ -120,7 +120,7 @@
       },
       "expected": {
         "path": "harness-round-v1.json",
-        "sha256": "ec4a7562061e748e503ec696532db6268c9ca53a938a63fb94f27d6a08a9d851"
+        "sha256": "44611a354d1fa1aa22bd9c9a4a8f7b5c13ecf9cb46339b1d564dcf5e4edd4d7a"
       },
       "trace_schema": 2,
       "normalization": "harness-identity-v1",
@@ -135,12 +135,12 @@
         {
           "path": "packages/durable/test/harness-tools.test.ts",
           "name": "runs input, tool call, tool result, and answer, and settles the input",
-          "sha256": "fb5e0ebdb9c5d3ba167a2c8ad35fc67b1539d1d00be096f843b76094813103d7"
+          "sha256": "89d0a43dd115af1b1c7f61adb1cb350e285a3834656de7ec03efdc1c3fc01b5b"
         },
         {
           "path": "packages/durable/test/harness-tools.test.ts",
           "name": "uses explicit null details instead of the last reported value",
-          "sha256": "fb5e0ebdb9c5d3ba167a2c8ad35fc67b1539d1d00be096f843b76094813103d7"
+          "sha256": "89d0a43dd115af1b1c7f61adb1cb350e285a3834656de7ec03efdc1c3fc01b5b"
         }
       ]
     },
@@ -152,7 +152,7 @@
       },
       "expected": {
         "path": "context-heads-v1.json",
-        "sha256": "375cabee3a0eb93565633a5fe3c352930212018ee09f3fb4e681cc197dfb010b"
+        "sha256": "7603de1156c669f87a55776757c096e0fd2717701cb61534c1dbc381f3e5929a"
       },
       "trace_schema": 2,
       "normalization": "context-identity-v1",
@@ -166,7 +166,7 @@
         {
           "path": "packages/durable/test/harness-context.test.ts",
           "name": "resolves self heads and uses the newest head marker",
-          "sha256": "08e0b9093dc25c9b2f2fa0a9e18718e85f217782e75de1ef4bf1f14563f5f3c5"
+          "sha256": "432a9684c21f3ca48fa2625c812fd2c39fa952f77b8b9042615bdda29969fca5"
         }
       ]
     },
@@ -178,7 +178,7 @@
       },
       "expected": {
         "path": "tool-recovery-v1.json",
-        "sha256": "8d9aaaa6366451ff98557ca65138dc0366de1fffa31cb81911092fa984f68ac6"
+        "sha256": "3a20f89779e3ef73dcf1b8e03f7996178837d0cc037e80ecbac297b33f24ec67"
       },
       "trace_schema": 2,
       "normalization": "recovery-identity-v1",
@@ -195,12 +195,12 @@
         {
           "path": "packages/durable/test/harness-tools-recovery.test.ts",
           "name": "answers an unsafe tool interrupted after intent with its durable partial output",
-          "sha256": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7"
+          "sha256": "d6f9275c1ee35d36bb667a64f9e4766f12cc8ad6b494249d0321ef6fcd0e8c73"
         },
         {
           "path": "packages/durable/test/harness-tools-recovery.test.ts",
           "name": "reruns a tool only when both the stored and the current replay policy are safe",
-          "sha256": "9bb1d8354d6167c7d4fa535a97c493bded87c68cc2fb06a44b93289d1361e4e7"
+          "sha256": "d6f9275c1ee35d36bb667a64f9e4766f12cc8ad6b494249d0321ef6fcd0e8c73"
         }
       ]
     },
@@ -212,7 +212,7 @@
       },
       "expected": {
         "path": "durable-abort-v1.json",
-        "sha256": "e095e0150dd14a331f2d571969d50b1244e2277910eeb54af37f7e6c67d4dc46"
+        "sha256": "a0f3bb956aee673a0839be9bb8e7fc4354f8b83895d8e84a3600ac3a51a58d80"
       },
       "trace_schema": 2,
       "normalization": "abort-identity-v1",
@@ -228,7 +228,7 @@
         {
           "path": "packages/durable/test/harness-tasks.test.ts",
           "name": "rejects the run's commits and memo writes after the mark, and settles through a fresh abort invocation",
-          "sha256": "1d3c0dcda8e00c0c852ebc59e85860b6eee0b02aca058100c3d16c11ae19620f"
+          "sha256": "2b3cc4ab1ff948675e4b5269af867008e8ee61e207743cc55b963497bb854915"
         }
       ]
     },
@@ -240,7 +240,7 @@
       },
       "expected": {
         "path": "env-conformance-v1.json",
-        "sha256": "b4574b4c0c67e9417d00c3802b3b9cf18b9948e6bfe0bd79091e7148455601ec"
+        "sha256": "0ce606e7429bd46dfdfd58595908db4ea22aaaea5b4b4412f0e25df5e09ad7fc"
       },
       "trace_schema": 2,
       "normalization": "env-path-time-v1",
@@ -254,12 +254,12 @@
         {
           "path": "packages/durable/src/testing/env-conformance.ts",
           "name": "binary reader reads byte ranges of the opened file",
-          "sha256": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e"
+          "sha256": "571c5cf03e4852462334077b9962687af5451b85759d3cb088c9e91885eaf924"
         },
         {
           "path": "packages/durable/src/testing/env-conformance.ts",
           "name": "argv exec passes arguments to the program without shell parsing",
-          "sha256": "e4d4b2af46f2f210e44649242fc2b0edeb2125fae33ffa8e0fe3c580bb87607e"
+          "sha256": "571c5cf03e4852462334077b9962687af5451b85759d3cb088c9e91885eaf924"
         }
       ]
     }
@@ -271,8 +271,8 @@
     "scripts/durable_reference_artifacts.py": "3121dcebde8d0f1583374af31528b5ea2a9772a8d6013025356a45dfce2d516c",
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
     "tests/durable/test_pi_comparison_acceptance.py": "5e28e50d0670be6d2c89b574d725d0397bf2ae855330d4d7e667d3bb605bec35",
-    "tests/durable/test_pi_comparison_cases.py": "89f1d576c8037509b92d47f70af3a8337132955976aa12f86aec600b02d88b3f",
-    "tests/durable/test_pi_comparison_coverage.py": "afb6757af2a9cdf1c31e74bae943a15a7c7cdd4789dd749544a2c49e1a1d208c",
+    "tests/durable/test_pi_comparison_cases.py": "bc6000a7aacd509d161f885828ca10b16c3784ed325166915a84a58bc767c597",
+    "tests/durable/test_pi_comparison_coverage.py": "13241e4a63872c3d052da3d13e98d252b482ebc5bbb5b0d846fc9627614c5612",
     "tests/durable/test_reference_artifacts.py": "3df037784bdd361b5b616f79cf0332b3ecfc106eb03a79115b6f92c6a6ece6bc",
     "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
   },
@@ -331,6 +331,6 @@
   ],
   "coverage": {
     "path": "coverage.json",
-    "sha256": "0457004a50695eaa0d30008e349ca7ce3e1e78c48a37ef6439899c81e5644365"
+    "sha256": "5beac9fea5c2ec4d61ce2520a3dd1cfd69027c1ab921581381674cb4f91cdb97"
   }
 }

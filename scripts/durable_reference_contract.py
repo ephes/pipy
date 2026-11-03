@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -396,9 +398,7 @@ def observations(value: Any, case: str) -> dict[str, Any]:
         )
         view(value["first"])
         view(value["final"])
-    record(value["close"], {"reason"}, "close result")
-    if type(value["close"]["reason"]) is not str:
-        raise EvidenceError("Invalid close reason")
+    close_result(value["close"])
     for row in array(value["history"], "history"):
         entry(row)
     return value
@@ -412,9 +412,10 @@ def task_record(value: Any) -> None:
 
 
 def close_result(value: Any) -> None:
-    record(value, {"reason"}, "close result")
-    if type(value["reason"]) is not str:
-        raise EvidenceError("Invalid close reason")
+    # Release 1.5 tags the Session end by `kind` (`closed`, or `failed` with the error).
+    record(value, {"kind"}, "close result")
+    if type(value["kind"]) is not str:
+        raise EvidenceError("Invalid close kind")
 
 
 def abort_observation(value: Any) -> dict[str, Any]:
@@ -474,7 +475,10 @@ def late_operation(item: Any) -> None:
 
 
 def abort_publication(publication: Any) -> None:
-    shape(publication, {"seq", "changes"}, "publication")
+    # Release 1.5 hands host observers the Session's stored-commit record as is.
+    shape(publication, {"kind", "seq", "changes"}, "publication")
+    if publication["kind"] != "stored":
+        raise EvidenceError("Unsupported publication kind")
     if type(publication["seq"]) is not int or publication["seq"] < 0:
         raise EvidenceError("Invalid commit sequence")
     for change in array(publication["changes"], "changes"):
@@ -1258,3 +1262,105 @@ def _case_sources(case: dict[str, Any], name: str) -> None:
                 digest(item["sha256"])
                 if type(item["name"]) is not str or not item["name"]:
                     raise EvidenceError("Missing source test identity")
+
+
+# Declared release-1.5 divergences. A comparison phase that runs against Pi
+# durable release 1.5.0 before native code has caught up with a 1.5 change
+# declares each known difference instead of loosening its projection. A
+# declaration names one path into the phase's decoded comparison tree, the
+# bridge row and the slice that own it, and the SHA256 of the canonical JSON
+# value each side shows there. declared_mask() masks that path on both sides
+# only when the reference side shows exactly the declared reference value and
+# the native side exactly the declared native value; equal values compare as
+# usual, and any other value stays a mismatch, so a mutant or regression there
+# is still detected. A verdict also requires every declaration to have
+# matched (declared_require), so a declaration whose owner has landed fails
+# the run until it is removed. A declaration never closes a parity row.
+DECLARED_FIELDS = {
+    "id",
+    "owner",
+    "bridge",
+    "reason",
+    "path",
+    "reference_sha256",
+    "native_sha256",
+}
+
+
+def declared_digest(value: Any) -> str:
+    """SHA256 of the canonical JSON of one decoded comparison value."""
+    text = json.dumps(
+        value, sort_keys=True, ensure_ascii=True, separators=(",", ":"), allow_nan=False
+    )
+    return hashlib.sha256(text.encode("ascii")).hexdigest()
+
+
+def declared_validate(rows: Any) -> tuple[dict[str, Any], ...]:
+    """Closed declaration shape: unique ids, owner, bridge row and two digests."""
+    if type(rows) is not tuple:
+        raise EvidenceError("Declared divergences must be a tuple")
+    seen = set()
+    for row in rows:
+        shape(row, DECLARED_FIELDS, "declared divergence")
+        if type(row["id"]) is not str or not row["id"] or row["id"] in seen:
+            raise EvidenceError("Invalid or duplicate declared divergence id")
+        seen.add(row["id"])
+        for key in ("owner", "bridge", "reason"):
+            if type(row[key]) is not str or not row[key]:
+                raise EvidenceError("Declared divergence without " + key)
+        path = row["path"]
+        if (
+            type(path) is not tuple
+            or not path
+            or not all(type(part) in (str, int) for part in path)
+        ):
+            raise EvidenceError("Invalid declared divergence path")
+        digest(row["reference_sha256"])
+        digest(row["native_sha256"])
+        if row["reference_sha256"] == row["native_sha256"]:
+            raise EvidenceError("A declared divergence must differ")
+    return rows
+
+
+def _declared_parent(tree: Any, path: tuple[Any, ...]) -> tuple[Any, Any] | None:
+    node = tree
+    for part in path:
+        parent = node
+        if type(node) is dict and type(part) is str and part in node:
+            node = node[part]
+        elif type(node) is list and type(part) is int and 0 <= part < len(node):
+            node = node[part]
+        else:
+            return None
+    return parent, path[-1]
+
+
+def declared_mask(
+    reference: Any,
+    native: Any,
+    rows: tuple[dict[str, Any], ...],
+    used: set[str] | None = None,
+) -> tuple[Any, Any]:
+    """Copies of both trees with every exactly matching declared pair masked."""
+    reference, native = copy.deepcopy(reference), copy.deepcopy(native)
+    for row in rows:
+        left = _declared_parent(reference, row["path"])
+        right = _declared_parent(native, row["path"])
+        if left is None or right is None:
+            continue
+        if (
+            declared_digest(left[0][left[1]]) == row["reference_sha256"]
+            and declared_digest(right[0][right[1]]) == row["native_sha256"]
+        ):
+            left[0][left[1]] = {"declared_divergence": row["id"]}
+            right[0][right[1]] = {"declared_divergence": row["id"]}
+            if used is not None:
+                used.add(row["id"])
+    return reference, native
+
+
+def declared_require(rows: tuple[dict[str, Any], ...], used: set[str]) -> None:
+    """A verdict holds only when every declaration still describes the run."""
+    stale = sorted({row["id"] for row in rows} - used)
+    if stale:
+        raise EvidenceError("Stale declared divergence: " + ", ".join(stale))

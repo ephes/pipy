@@ -11,6 +11,7 @@ registerHooks({resolve(s,c,next){const result=next(s,c);if(!result.url.startsWit
 const {SessionImpl}=await import('./packages/durable/src/session/session.ts');
 const {MemoryStorage}=await import('./packages/durable/src/storage/memory.ts');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
+const {commitWrites}=await import('./packages/durable/src/testing/commit-writes.ts');
 const {defineDoc,defineDocFamily}=await import('./packages/durable/src/documents.ts');
 const {track,applyImmutable}=await import('./packages/chord/src/delta/index.ts');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
@@ -34,8 +35,8 @@ function task(terminal=false){return {id:20,conversationId:7,kind:'checkpoint.ta
 async function runtimeBoundaries(backend:string,folder:string){
  mkdirSync(folder,{mode:0o700});const db=folder+'/store.sqlite';let inner:any=backend==='memory'?new MemoryStorage():await openNodeSqliteStorage(db);
  const writes:any[]=[],events:string[]=[],children:any[]=[];
- const storage=new Proxy({}, {get(_target,key){return async(...args:any[])=>{const result=await inner[key](...args);if(key==='commit'){writes.push(args[0]);if(backend==='reopen'){await inner.close(ctx);inner=await openNodeSqliteStorage(db);}}return result;};}});
- const session=new SessionImpl(storage as any,()=>1000,()=>600000,()=>undefined);session.observeCommits(()=>events.push('publication'));
+ const storage=new Proxy({}, {get(_target,key){if(typeof inner[key]!=='function')return inner[key];return async(...args:any[])=>{const result=await inner[key](...args);if(key==='commit'){writes.push(...args[0]);if(backend==='reopen'){await inner.close(ctx);inner=await openNodeSqliteStorage(db);}}return result;};}});
+ const session=new SessionImpl(storage as any,()=>1000,()=>600000,()=>undefined);session.followCommits(()=>events.push('publication'));
  const P=defineDoc({kind:'runtime.promise',version:1,scope:'session',initial:()=>({n:0}),checkpointWhen:((_v:any,_o:any,_i:any)=>Promise.resolve(false)) as any});
  const N=defineDoc({kind:'runtime.nested',version:1,scope:'session',initial:()=>({n:0}),checkpointWhen:()=>{children.push(session.commit(()=>{events.push('child');},ctx));return false;}});
  try{
@@ -57,12 +58,12 @@ for(const backend of ['memory','sqlite','reopen']){
   const folder=out+'/case-'+serial++;mkdirSync(folder,{mode:0o700});const db=folder+'/store.sqlite';
   let inner:any=backend==='memory'?new MemoryStorage():await openNodeSqliteStorage(db);
   const reopen=async()=>{await inner.close(ctx);inner=await openNodeSqliteStorage(db);};
-  await inner.commit([{type:'conversation',value:{id:1}},{type:'conversation',value:{id:7}},{type:'task',value:task()}],ctx);
-  if(recipe.special==='terminal')await inner.commit(Array.from({length:257},(_,i)=>({type:'document.create',record:{id:1000+i,kind:'unknown.'+i,scope:{kind:'task',taskId:20}},content:{kind:'base',version:1,value:{n:0}}})),ctx);
+  await commitWrites(inner,[{type:'conversation',value:{id:1}},{type:'conversation',value:{id:7}},{type:'task',value:task()}],ctx);
+  if(recipe.special==='terminal')await commitWrites(inner,Array.from({length:257},(_,i)=>({type:'document.create',record:{id:1000+i,kind:'unknown.'+i,scope:{kind:'task',taskId:20}},content:{kind:'base',version:1,value:{n:0}}})),ctx);
   const writes:any[]=[],publications:any[]=[],callbacks:any[]=[],effects:string[]=[],reports:any[]=[];
-  const storage=new Proxy({}, {get(_target,key){return async(...args:any[])=>{if(key==='scanDocuments')effects.push('scan');if(key==='submission')effects.push('submission');const result=await inner[key](...args);if(key==='commit'){writes.push(args[0]);effects.push('commit');if(backend==='reopen')await reopen();}return result;};}});
+  const storage=new Proxy({}, {get(_target,key){if(typeof inner[key]!=='function')return inner[key];return async(...args:any[])=>{if(key==='scanDocuments')effects.push('scan');if(key==='submission')effects.push('submission');const result=await inner[key](...args);if(key==='commit'){writes.push(...args[0]);effects.push('commit');if(backend==='reopen')await reopen();}return result;};}});
   class Driver extends SessionImpl{report(e:any,info:any){reports.push({name:e.name,message:e.message,info});}}
-  const makeSession=()=>{const s=new Driver(storage as any,()=>1000,()=>600000,()=>undefined);s.observeCommits((p:any)=>{publications.push(p);effects.push('publication');});return s;};let session=makeSession();
+  const makeSession=()=>{const s=new Driver(storage as any,()=>1000,()=>600000,()=>undefined);s.followCommits((p:any)=>{publications.push(p);effects.push('publication');});return s;};let session=makeSession();
   const roots:any[]=[];let failSecond=false;const sentinel=Error('second policy');
   let base=decode(recipe.base);if(recipe.special==='root')base=Object.fromEntries(Array.from({length:4097},(_,i)=>['field'+i,0]));
   const make=(kind:string,initial:any,second=false)=>{const definition:any={kind,version:1,scope:recipe.scope,...(recipe.family?{family:true}:{}),initial:()=>structuredClone(initial),...(recipe.scope==='conversation'?{history:'latest',fork:'initial'}:{})};definition.checkpointWhen=function(value:any,ops:any,info:any){let revoked=true;for(const root of roots)try{Object.keys(root);revoked=false;}catch{}callbacks.push({value:encode(value),ops:encode(ops),count:info.deltasSinceBase,revoked,frozen:[Object.isFrozen(value),Object.isFrozen(ops),Object.isFrozen(info)]});effects.push('policy');if(second&&failSecond)throw sentinel;return recipe.policy==='true'||recipe.policy==='count>=2'&&info.deltasSinceBase>=2;};return recipe.family?defineDocFamily(definition):defineDoc(definition);};
@@ -78,9 +79,9 @@ for(const backend of ['memory','sqlite','reopen']){
    const recent=callbacks.slice(start.callback),beforeUnload=[writes.length,publications.length];
    const actualOps=recent.length?decode(recent[0].ops):write?.content.kind==='delta'?write.content.ops:doc?.ops??[];
    const storedReplay=before?applyImmutable(before.stored.value,actualOps):write?.content.value;
-   const replayBasis={value:encode(before?.stored.value),count:before?.stored.deltasSinceBase??null,ops_source:!before?'creation-base':recent.length?'checkpoint-argument':write?.content.kind==='delta'?'submitted-delta':doc?.ops.length?'publication':'empty-no-content'};
+   const replayBasis={value:encode(before?.stored.value),count:before?.stored.deltasSinceBase??null,ops_source:!before?'creation-base':recent.length?'checkpoint-argument':write?.content.kind==='delta'?'submitted-delta':doc?.ops?.length?'publication':'empty-no-content'};
    await session.unloadDocuments();const cold=await snap();assert.deepEqual(beforeUnload,[writes.length,publications.length]);
-   return {value:encode(warm),stored:encode(stored?.value),stored_replay:encode(storedReplay),replay_basis:replayBasis,cold:encode(cold),count:stored?.deltasSinceBase??null,version:stored?.version??null,same_snapshot:warm===before?.warm,admitted:writes.length-start.write,published:publications.length-start.pub,callbacks:recent,ops:encode(doc?.ops??[]),publication_value:encode(doc?.value),write_kind:write?.content.kind??null,write_value:encode(write?.content.value),write_ops:encode(write?.content.ops??[]),retired:batch.filter((w:any)=>w.type==='document.retire').length,effects:effects.slice(start.effect),working:{source:'derived-plain-mirror; not observed live Draft',value:derived.working},owner_replay:{source:before?'separate pinned Chord replay; not actual Session':'plain final creation mirror; not actual Session',value:encode(derived.value),ops:encode(derived.ops)}};
+   return {value:encode(warm),stored:encode(stored?.value),stored_replay:encode(storedReplay),replay_basis:replayBasis,cold:encode(cold),count:stored?.deltasSinceBase??null,version:stored?.version??null,same_snapshot:warm===before?.warm,admitted:writes.length-start.write,published:publications.length-start.pub,callbacks:recent,ops:encode(doc?.ops??[]),publication_value:encode(doc?.kind==='retire'?null:doc?.value),write_kind:write?.content.kind??null,write_value:encode(write?.content.value),write_ops:encode(write?.content.ops??[]),retired:batch.filter((w:any)=>w.type==='document.retire').length,effects:effects.slice(start.effect),working:{source:'derived-plain-mirror; not observed live Draft',value:derived.working},owner_replay:{source:before?'separate pinned Chord replay; not actual Session':'plain final creation mirror; not actual Session',value:encode(derived.value),ops:encode(derived.ops)}};
   };
   try{
    const creationMirror=mirror(base,recipe.creation,true);let ownerValue=creationMirror.value;

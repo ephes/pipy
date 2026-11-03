@@ -11,6 +11,7 @@ const resolutions:any[]=[];
 registerHooks({resolve(specifier,context,nextResolve){const result=nextResolve(specifier,context);if(result.url.startsWith("node:"))return result;const path=realpathSync(fileURLToPath(result.url));assert.ok(path.startsWith(root+sep));resolutions.push({specifier,path:path.slice(root.length+1)});return result;}});
 const {SessionImpl}=await import("./packages/durable/src/session/session.ts");
 const {MemoryStorage}=await import("./packages/durable/src/storage/memory.ts");
+const {commitWrites}=await import("./packages/durable/src/testing/commit-writes.ts");
 const {defineDoc,defineDocFamily}=await import("./packages/durable/src/documents.ts");
 const {BACKGROUND_CONTEXT:ctx}=await import("@earendil-works/chord/context");
 const input=JSON.parse(readFileSync(inputPath,"utf8"));
@@ -26,15 +27,16 @@ const names:any={mintId:"mint_id",findDocument:"find_document",scanDocuments:"sc
 const profiles:any[]=[],raw:any[]=[];
 for(const id of input.cases){
  const memory=new MemoryStorage(),calls:any[]=[],writes:any[]=[],initial:any[]=[],errors:any[]=[],publications:any[]=[],facts:any={},pendingSnapshots:Promise<any>[]=[];let hold:any;
- await memory.commit([{type:"conversation",value:{id:1}},{type:"conversation",value:{id:7}},{type:"task",value:task()}],ctx);
- const storage=new Proxy(memory,{get(target,key){const fn=Reflect.get(target,key);if(typeof fn!=="function")return fn;return async(...args:any[])=>{const op=names[String(key)]??String(key);calls.push({op,args:encode(args.slice(0,key==="scanDocuments"?3:key==="findDocument"||key==="document"?2:key==="close"||key==="mintId"?0:1))});if(hold?.op===op){const h=hold;hold=undefined;h.entered.resolve();await h.release.promise;}if(key==="commit")writes.push(...structuredClone(args[0]));return fn.apply(target,args);};}});
+ await commitWrites(memory,[{type:"conversation",value:{id:1}},{type:"conversation",value:{id:7}},{type:"task",value:task()}],ctx);
+ const storage=new Proxy(memory,{get(target,key){const fn=Reflect.get(target,key);if(typeof fn!=="function")return fn;return async(...args:any[])=>{const op=names[String(key)]??String(key);// A release 1.5 commit call carries batches; each batch is recorded as one commit (deviation D1 sends one per call).
+if(key==="commit")for(const batch of args[0])calls.push({op,args:encode([batch])});else calls.push({op,args:encode(args.slice(0,key==="scanDocuments"?3:key==="findDocument"||key==="document"?2:key==="close"||key==="mintId"?0:1))});if(hold?.op===op){const h=hold;hold=undefined;h.entered.resolve();await h.release.promise;}if(key==="commit")writes.push(...structuredClone(args[0].flat()));return fn.apply(target,args);};}});
  class Driver extends SessionImpl{report(e:any,info:any){errors.push({name:e.name,message:e.message,info});}}
  const session=new Driver(storage as any,()=>input.clock,()=>600000,()=>undefined);
- session.observeCommits((p:any)=>publications.push(p));
+ session.followCommits((p:any)=>publications.push(p));
  const make=(scope="session",family=false,kind="probe.single",version=1)=>{const def:any={checkpointWhen:()=>false,kind,version,scope,...(scope==="conversation"?{history:"latest",fork:"initial"}:{}),initial:(seed:any)=>{initial.push({scope,family,kind,...(family?{seed:structuredClone(seed)}:{})});return family?{seed:structuredClone(seed),hits:0}:{lines:[]};}};return family?defineDocFamily({...def,family:true}):defineDoc(def);};
  const S=make(),C=make("conversation"),T=make("task"),FS=make("session",true),FC=make("conversation",true),FT=make("task",true);
  const capture=async(label:string,fn:()=>any)=>{try{const value=await fn();facts[label]={status:"fulfilled",...(value===undefined?{}:{value})};}catch(e:any){facts[label]={status:"rejected",error:{name:e.name,message:e.message,code:e.code??null}};raw.push({id,label,name:e.name,message:e.message,code:e.code??null,stack:e.stack??null});}};
- const seed=async(...values:any[])=>memory.commit(values,ctx);
+ const seed=async(...values:any[])=>commitWrites(memory,values,ctx);
  const gate=()=>{const h={op:"find_document",entered:deferred(),release:deferred()};hold=h;return h;};
  const commit=(cb:any)=>session.commit(cb,ctx);
  const snap=async(token:any,...args:any[])=>(await session.snapshot(token,...args,ctx))??null;
@@ -56,12 +58,13 @@ for(const id of input.cases){
  case "P1":case "P2":await seed(...Array.from({length:input.retirement_count},(_,i)=>base(1000+i,"unknown."+i,20,i%3===0?undefined:i%3===1?"":"k")));await commit(async(tx:any)=>{if(id==="P2"){await tx.retireDoc(make("task",false,"unknown.0"),20);(await tx.doc(make("task",true,"unknown.1"),20,"",null)).lines.push("final");}tx.setTask(task(20,true));});facts.remaining=(await memory.scanDocuments({scope:{kind:"task",taskId:20},at:"current"},300,undefined,ctx)).items.length;break;
  case "P3":await seed({type:"task",value:task(20,true)});await capture("replacement",()=>commit((tx:any)=>tx.setTask(task(20,true))));break;
  case "C1":await commit(async(tx:any)=>{await tx.createConversation({ownership:{kind:"ownerless"}});(await tx.doc(T,20)).lines.push("owner");});facts.value=await snap(T,20);break;
- case "C2":await commit(async(tx:any)=>{for(const k of ["","a","b"])await tx.doc(FT,20,k,k);});const old=await snap(FT,20,"");facts.identity=[];session.observeCommits((p:any)=>{for(const c of p.changes)if(c.type==="document"){pendingSnapshots.push(snap(FT,20,c.record.key).then(v=>facts.identity.push(v===c.value)));}});await commit((tx:any)=>tx.setTask(task(20,true)));facts.old=old;facts.values=await Promise.all([snap(FT,20,""),snap(FT,20,"a"),snap(FT,20,"b")]);break;
+ case "C2":await commit(async(tx:any)=>{for(const k of ["","a","b"])await tx.doc(FT,20,k,k);});const old=await snap(FT,20,"");facts.identity=[];session.followCommits((p:any)=>{for(const c of p.changes)if(c.type==="document"){pendingSnapshots.push(snap(FT,20,c.record.key).then(v=>facts.identity.push(v===(c.kind==="retire"?null:c.value))));}});await commit((tx:any)=>tx.setTask(task(20,true)));facts.old=old;facts.values=await Promise.all([snap(FT,20,""),snap(FT,20,"a"),snap(FT,20,"b")]);break;
  default:throw Error("unknown recipe");
  }
  await bounded(Promise.all(pendingSnapshots));
  const counts:any={};for(const c of calls)counts[c.op]=(counts[c.op]??0)+1;
- const published=publications.flatMap((p:any)=>p.changes.filter((c:any)=>c.type==="document").map((c:any)=>{if(c.value===null)assert.deepEqual(c.ops,[]);return {record:c.record,conversationId:c.conversationId??null,version:c.version??null,value:c.value,ops:c.ops};}));
+ // Release 1.5 tags document changes; a retirement carries no value or operations, shown as 1.4 published them (null, []).
+ const published=publications.flatMap((p:any)=>p.changes.filter((c:any)=>c.type==="document").map((c:any)=>{if(c.kind==="retire"){assert.ok(!("value" in c)&&!("ops" in c));return {record:c.record,conversationId:c.conversationId??null,version:null,value:null,ops:[]};}assert.equal(c.kind,"change");return {record:c.record,conversationId:c.conversationId??null,version:c.version??null,value:c.value,ops:c.ops};}));
  profiles.push({id,profile:encode({facts,initial,writes,counts,scans:calls.filter(c=>c.op==="scan_documents").map(c=>{const args=structuredClone(c.args);if(args[1][2]?.[0]==="undefined")args[1][2]=["null"];return args;}),publications:published})});
  raw.push({id,calls,publications:encode(publications),reports:errors});
  }finally{if(hold)hold.release.resolve();await bounded(session.close(ctx));}

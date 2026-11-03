@@ -1,22 +1,98 @@
 # Pinned durable reference verification
 
-The verification tools execute Pi durable **release1.4.0**, commit
-`4a080252f06caf63a525d7873c5d94d3c23887e0`, tree
-`56ea45bfd3ef589feaddfaf504cfc08d838d812b`. DE01a introduced actual Session,
+The verification tools execute Pi durable **release1.5.0**, commit
+`f9a26365568127461c47a07a37dcb42c140a3ac5`, tree
+`b7734e15f2c1a10846284f77034a2214746a4da6`. DE01a introduced actual Session,
 MemoryStorage and document execution; landed DE01b1 added real faux-provider/tool
 and context-head scenarios. Landed DE01b2 added SQLite recovery, durable abort and two
 exported Node environment scenarios. These verify reference reproducibility and the oracle.
 The full campaign remains **OPEN**, as do all P01–P43 parent rows; bounded
 native Storage/Session and Product slices have landed. The separate DE02a1 value/record comparison below now imports native
 value DTOs; the six-family DE01 scripts remain verification-only. Product code
-never imports a reference runner. Earlier dated1.3 evidence is historical, not a release1.4 rerun. See the [release bridge](specs/2026-10-29-durable-release-1.4-bridge.md).
+never imports a reference runner. Earlier dated1.3 and1.4 evidence is historical, not a release1.5 rerun; see the [1.4 bridge](specs/2026-10-29-durable-release-1.4-bridge.md).
 
-On 2026-11-03 the owner moved the campaign target to literal release 1.5.0,
-commit `f9a26365568127461c47a07a37dcb42c140a3ac5`. Bridge sub-slice R15-1a moved
-the runtime pin from Node v26.12.0 to v26.13.0 (npm stays 11.20.0) on the same
-release 1.4.0 reference. These tools keep executing release 1.4.0 until R15-1b
-re-pins the reference, its manifests and drivers; see the
+On 2026-11-03 the owner moved the campaign target to literal release 1.5.0.
+Bridge sub-slice R15-1a moved the runtime pin from Node v26.12.0 to v26.13.0
+(npm stays 11.20.0) on the release 1.4.0 reference. R15-1b then pinned release
+1.5.0 in the runner and every manifest (the CI job fetches the runner's pin),
+moved the drivers to the 1.5 API and replaced every expected capture that 1.5
+changes with the capture of an actual 1.5 run. Each phase of the 1.4 chain has
+one recorded [disposition](#release-15-dispositions-r15-1b); see the
 [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md).
+
+## Release 1.5 dispositions (R15-1b)
+
+Expected values come only from actual release 1.5.0 runs: the six baseline
+traces, the session-checkpoint fixture and the typed-document unit capture are
+1.5 captures, and a 1.5 run reproduced the SQLite unit capture byte for byte.
+No expected value comes from native output. The chain is now the baseline
+acceptance and 31 phases.
+
+- **Passes under its declared projection.** `values-records-a1`,
+  `memory-current-base-a2b-v1`, `storage-sqlite-d2-v1`, `draft-tracker-v1`,
+  `storage-current-deltas-v1`, `delta-ops-v1`, `env-line-scan-v1`,
+  `session-checkpoints-j-v1`, `task-creation-a-v1`, `task-runtime-b-v1`,
+  `tool-execution-b-v1`, `inspection-v1`, `product-session-v1`,
+  `normal-details-v1`, `retained-tool-reporting-v1`,
+  `interrupted-tool-continuation-v1`, `task-definition-publication-idle-v1`,
+  `task-orphan-task-too-old-v1`, `task-orphan-missing-migration-v1` and
+  `task-ordinary-owned-live-v1`. The drivers use the 1.5 spellings:
+  `commitWrites()` or a receipt-recording batch proxy for direct Storage
+  commits, `observeCommits(observer)`, the `{ kind }` Session and watch ends,
+  reports tagged by `kind`, watch calls that carry the value, pi-schema tool
+  schemas instead of pi-ai `Type`, and `pending` for the inspection state. A
+  Usage cost's `totalFromProvider: false` is dropped before usage is compared,
+  because pi-ai means a catalog estimate by both absent and false. On SQLite the
+  session-checkpoint reference now starts a child commit that a checkpoint
+  callback queued before the parent's publication (group commit), while native
+  keeps it after
+  ([deviation D1](specs/2026-11-03-durable-release-1.5-bridge.md#deviation-d1-the-session-line-stays-held-through-storage)).
+- **Re-derived over a 1.5 surface.** `completed-projection-b-v1` observes
+  automatic delivery and reconnect through the conversation watch alone,
+  because 1.5 removed `watchEvents()` (bridge U32). The session-guard scenario
+  `reentrant-report` now fails the Session with a fatal read, because 1.5 no
+  longer reports a guard-only commit failure (U07, U08).
+- **Withdrawn because the upstream surface is gone (successor R15-2).** The
+  phases `restart-parking-v1` and `task-product-retry-enable-v1`; the
+  `parked-migration` case of `task-migration-cold-v1`; four of the five cases
+  of `restart-policy-live-v1` (only `same-unlimited` remains); and the
+  `sqlite-parked-control` case of `task-orphan-missing-definition-v1` and of
+  `task-orphan-failed-migration-v1`. Each relied on restart parking,
+  `retryTask()` or the `restart_limit` blocked reason (U01). The remaining cases
+  of those four phases pass, and the parked controls of
+  `task-orphan-task-too-old-v1` and `task-orphan-missing-migration-v1` still
+  pass and stay. A withdrawn phase's manifest is a closed retirement record that
+  the baseline acceptance checks, a withdrawn case is listed with its reason
+  under `retired_cases` in its phase's comparison scope, and
+  `task-migration-cold-v1` now follows `interrupted-tool-continuation-v1`. The
+  guard mutant `commit-exempt` is withdrawn as well (successor R15-3): 1.5 does
+  not report a guard-only commit failure, so an unreported one is no mutant.
+  Native tests keep all of this behavior until its successor reworks it.
+- **Declared divergences.** A phase whose native side has not caught up with a
+  1.5 change declares each difference: its path, the owning slice and bridge
+  row, and the SHA256 of the exact value each side shows. A declaration masks
+  only that exact pair, and a passing run requires every declaration to match,
+  so a declaration has to go when its owner lands.
+  - `session-guard-b1b-v1`: 14 scenarios where Pi reports `storage_failed`
+    (R15-4, U34) and 3 where Pi leaves a guard-only commit failure to the
+    writer (R15-3, U07, U08).
+  - `session-commit-b3-v1`: 56 scenario/mode pairs where Pi serves records from
+    its Session cache (DE27/DE28/DE45, U18), reports `storage_failed`
+    (R15-4, U34), publishes a commit Storage stored before its call rejected
+    (R15-3, U08) or fails the Session for a throwing own observer only after
+    the host observers (R15-4, U16).
+  - `session-documents-a-v1`: two Storage read counts that the cache lowers
+    (U18).
+  - `canonical-checkpoint-b-v1`: three result leaves that keep the negative
+    zero the cache serves (U18).
+  - `generation-b-v1`: the `pi.tool` task of the unoffered call (DE25, U46).
+  - `headless-cli-v1`: the prepared P16 case, whose attempt in flight at host
+    death 1.5 charges instead of resending (DE17, U04).
+
+A declared divergence is an open item of its owner and never closes a row. The
+`pi_anchor` fields of the session recipes name the release 1.4.0 lines each
+recipe was derived from; they are provenance, not 1.5 line numbers. All 43 P
+rows remain OPEN.
 
 ## Reproduction
 
@@ -120,12 +196,13 @@ such record fails.
 
 ## Trace versions and retained observations
 
-`kernel-memory-v1.json` remains byte-for-byte the DE01a fixture. Its envelope
-has `schema_version: 1`, `case_id`, `normalization: "finite-json-v1"` and ordered
-`steps`, each with `op`/`value`. Its ten steps retain absent read, conversation
-creation, full commit publications/Chord operations, document commit/rollback
-error, detached earlier/current history, storage read and close. IDs and commit
-sequences stay actual. Its reserved `{"$undefined": true}` marker remains a v1
+`kernel-memory-v1.json` keeps the DE01a envelope: `schema_version: 1`,
+`case_id`, `normalization: "finite-json-v1"` and ordered `steps`, each with
+`op`/`value`. Its release 1.5.0 capture has eleven steps: absent read,
+conversation creation, full commit publications (tagged `kind: "stored"`, their
+document changes `kind: "change"`) with Chord operations, document
+commit/rollback error, detached earlier/current history, storage read, the
+commit observer's end and close. IDs and commit sequences stay actual. Its reserved `{"$undefined": true}` marker remains a v1
 representation; Chord wire encoding is reference data, not Python product API.
 
 New cases use integer trace version **2**, the same envelope plus
@@ -452,9 +529,9 @@ child alone can complete DE03 or any P row.
 
 The `Durable pinned reference acceptance` job runs on every main push, pull
 request and manual CI dispatch, alongside the existing ten jobs. It anonymously
-fetches only commit `4a080252f06caf63a525d7873c5d94d3c23887e0` from
-`https://github.com/earendil-works/pi.git` into a private new Git repository and
-checks tree `56ea45bfd3ef589feaddfaf504cfc08d838d812b`. The official Linux x64
+fetches only commit `f9a26365568127461c47a07a37dcb42c140a3ac5` (the runner's
+pin) from `https://github.com/earendil-works/pi.git` into a private new Git
+repository and checks tree `b7734e15f2c1a10846284f77034a2214746a4da6`. The official Linux x64
 Node26.13.0 archive is checked against SHA256
 `d28a96af6c38596f6d9d97c0ee531c13d238d757742387d1928de822d959e997`
 (`RUNTIME_ARCHIVE_SHA256` in the reference contract, which the evidence
@@ -953,7 +1030,8 @@ variants (13 roles plus the scoped `entry` form) under request error, cancelled
 error and cancelled success stay healthy; commit and mint are never exempt
 (request error or a cancelled facade); ordinary errors are fatal on mint and on
 3 of 13 sampled read roles (b1a's native suite covers all13); Pi
-harness-storage-failure tests 121/132/156/192/267/276/291/301/358/410 anchor the
+harness-storage-failure tests 121/132/156/192/267/276/291/301/358/410 (release
+1.4.0 lines) anchor the
 late-read, paged-drain, close-failure, first-cause, invalid-request, reentrant
 report and cancelled-read cases; concurrent and cancelled closers, a direct
 `fail`, health-before-seal admission, a synchronous throw and a refused commit
@@ -989,7 +1067,7 @@ prerequisite. Only `run` writes artifacts: hash-bound `result.json` (plus
 `mismatch-report.json` on1), and nothing of either on2. `compare` returns only
 its exit code; it writes no artifact and attests no provenance. A native `unsettled` outcome or end, or a pending handle outside
 the declared blockers, is a valid Python mismatch; in a Node trace it is invalid.
-Eighteen schema-valid guard mutants (exemption flips, late success or late error
+Seventeen schema-valid guard mutants (exemption flips, late success or late error
 leaking, first-cause replacement, report twice or missing, close before drain,
 double close, admission after seal, swallowed or missing close failure, a waiter
 cancel undoing close, seal before health, an unguarded synchronous throw, an
@@ -998,6 +1076,15 @@ native negative controls, b1a's private source mutants run through `native()`:
 eight produce mismatch1, and the three that only b1a's native race and
 `BaseException` scenarios reach (split success/error settle, close error
 replacing an in-flight exception) stay equal by design.
+
+**Release 1.5.** Pi's guard leaves a commit's outcome to the Session writer, so
+a guard-only commit failure neither fails nor reports the reference Session
+(U07, U08), and Pi reports a failed Storage call as `storage_failed` (U34).
+`tests/fixtures/durable/session-guard-v1.divergences.json` declares the 17
+affected scenarios (see the [dispositions](#release-15-dispositions-r15-1b)),
+`reentrant-report` reaches the report through a fatal read, and the
+`commit-exempt` mutant is withdrawn. A reference Session that a guard-only
+failure leaves open ends `open`.
 
 `session-guard-v1.manifest.json` closes the a2b inventory plus `session.py`, its
 test file, this script, the driver, the input and the comparison tests, pins six
@@ -1109,6 +1196,12 @@ designed cells (the line hold during drain and the pending check in async mode;
 the queued-cancel cut, post-callback health check, internal-versus-host routing,
 close predicate and close-listener order in both), leave the Python-only ones
 equal and fail closed (exit2) for a close run on the event loop.
+
+**Release 1.5.** `tests/fixtures/durable/session-commit-v1.divergences.json`
+declares 56 scenario/mode pairs whose native result has not caught up with the
+Session cache, the `storage_failed` report, durable stored commits or the
+observer order (see the [dispositions](#release-15-dispositions-r15-1b)); the
+trace schema accepts the `storage_failed` report.
 
 `session-commit-v1.manifest.json` closes the b1b inventory plus `tx.py`,
 `session_core.py`, their native test files, this script, the driver, the input
@@ -1274,7 +1367,9 @@ and async; eighteen cases explicitly skip only same-Tx pending/held async
 interleavings or unawaited operations that the blocking sync facade cannot
 express. It does not invent cross-thread SyncTx authority. Full raw calls,
 errors/code/stacks and Pi publications remain external hash-bound artifacts;
-the lossless bounded compressed fixture is captured unit data, not a fresh gate.
+the lossless bounded compressed fixture is captured unit data, not a fresh gate;
+R15-1b re-captured it from an actual release 1.5.0 run, whose A1 and C2 Storage
+read counts are declared divergences (U18).
 Eleven exact recipe/error spelling pairs preserve unexpected native errors as
 mismatch1 and stale Pi declarations as invalid2. The Pi EXPECTED side must be
 raw; native conditional spelling projection is idempotent. Snapshot absence and
@@ -1372,7 +1467,10 @@ projects negative zero only in terminal/reopened common views. Raw exact native
 and Pi observations retain that difference; native committed-arena scalar types,
 missing/null/unset and sign have independent checks. Native auth-owned header/
 target reconstruction, rotations and family fake wires are separate evidence.
-This does not claim raw Pi arena/credential equality or DE07 execution. See
+At release 1.5 three result leaves are declared divergences: Pi's Session
+cache serves the negative zero of the tool details, where native reads the JSON
+zero back from Storage (U18). This does not claim raw Pi arena/credential
+equality or DE07 execution. See
 [the complete codec contract](durable-canonical-codec.md) and
 [acceptance mapping](specs/2026-10-19-durable-execution-evidence.md#de06b-canonical-checkpoint-acceptance).
 
@@ -1397,6 +1495,10 @@ close reason and explicit terminal-answer resume after reopen without another
 provider request. Native Memory/SQLite/reopen observations use actual
 product phases. Pi raw publications and native exact canonical records are kept
 separately from the finite-binary64 common projection.
+
+At release 1.5 the tool case's admission is a declared divergence: Pi gives the
+call that the request did not offer its own `pi.tool` task, version 3, which
+settles `tool_unavailable`, while native writes that result itself (DE25, U46).
 
 Native process-death, acknowledgement/adoption, retry-limit and noncooperative
 worker/finalizer proofs remain separate executable evidence. This comparison
@@ -1471,15 +1573,17 @@ after a fresh current parent acceptance, then call that module's actual
 postexecution attester gets a separate process; a shared interpreter's growing
 `sys.modules` is not a truthful native producer inventory.
 
-The pinned reference executes genuine `Harness` and `Conversation.watch`, plus
-the publicly exported `watchEvents`, with fixed synthetic provider/tool seams.
-It awaits automatic completed callbacks before refreshing final records. Native
+The pinned reference executes genuine `Harness` and `Conversation.watch` with
+fixed synthetic provider/tool seams. Release 1.5 removed `watchEvents()`, so
+automatic delivery and reconnect are observed through the conversation watch
+alone (re-derived by R15-1b). It awaits automatic completed callbacks before
+refreshing final records. Native
 Memory/SQLite/reopen exercise the actual private completed observer. Common
 facts cover completed logical role/result order, actual model ledger usage and
 sum-once validation, independent commit readback, isolated listener failure,
 same-store fresh-snapshot identity, observed stop and unchanged effect counts.
 Provider `calculateCost` and built-in task transactions/settlement remain real.
-Both raw graphs/views/events and exact native canonical outcomes remain bound.
+Both raw graphs/views and exact native canonical outcomes remain bound.
 Pi's successor task versus native same-parent fresh request is not flattened
 into a full graph-parity claim.
 
@@ -1545,7 +1649,10 @@ prepare and after request preparation, with independent committed SQL readback.
 Actual Pi getModel/streamSimple records show current model resolution at request;
 native protected prepared-target refusal is checked as an explicit policy
 difference while cutoff/model/thinking/session correlation and unprepared-current
-facts are compared. Raw exact records stay retained; no whole-P16/raw target
+facts are compared. At release 1.5 the reference charges the prepared attempt
+that was in flight at host death instead of resending it, so it sends no
+request for that case; its model API and session facts are declared
+divergences owned by DE17 (U04). Raw exact records stay retained; no whole-P16/raw target
 parity or paid exactly-once claim follows. All source, actual imported modules,
 child argv/inputs/streams/process lifecycles, immutable recipes and mutant bodies
 are bound by fresh pure API attesters; effects never run during attest. Each
@@ -1669,9 +1776,10 @@ runtime and full validation gates still apply to each final source epoch.
 
 ## Cold generic task migration (DE14b1)
 
-`task-migration-cold-v1` appends the twenty-sixth cumulative phase after
+`task-migration-cold-v1` appended the twenty-sixth cumulative phase after
 `restart-parking-v1`, preserving all earlier phase identities, members, parents
-and immutable Pi pins. Run it with
+and immutable Pi pins. Since that phase's withdrawal at release 1.5 (R15-1b) it
+follows `interrupted-tool-continuation-v1`. Run it with
 `scripts/durable_migration_comparison.py run --acceptance <fresh-parent> --output <new-output>`;
 its separate `attest(output, acceptance)` API validates retained evidence without
 repeating either producer. Compare returns 0 for equality, 1 for a valid semantic
@@ -1680,7 +1788,9 @@ difference and 2 for malformed input.
 Ten generic cases exercise equal signed-zero versions, fractional newer
 versions, version-only migration, missing definitions, stored-newer versions,
 missing migrators, cached ordinary/invalid-result failures, parked reset and a
-blocked zero-valued current definition with a negative stored version. Restore
+blocked zero-valued current definition with a negative stored version. Release
+1.5 removed parking and `retryTask()`, so the parked-reset case
+(`parked-migration`) is withdrawn with successor R15-2; nine cases remain. Restore
 selection treats only null as absent, matching Pi's nullish rule; zero remains
 the actual current version.
 Failure cases include a real later eligible task and fresh-owner restoration.
@@ -1710,7 +1820,10 @@ producers. Comparison returns 0 for bounded equality, 1 for a schema-valid
 semantic mismatch and 2 for invalid evidence.
 
 The five generic cases raise a finite limit, disable the ceiling, lower before
-admission, repeat a finite limit and repeat unlimited policy. Actual native
+admission, repeat a finite limit and repeat unlimited policy. Release 1.5 removed
+parking and the `restart_limit` blocked reason, so only the unlimited repeat
+(`same-unlimited`) remains; the four parked cases are withdrawn with successor
+R15-2. Actual native
 Session/scheduler and pinned Pi Harness owners create tasks, seed explicitly
 labelled counter controls, update host policy, resume explicitly, close and
 reopen with a fresh policy. These are controlled pending records, not physical
@@ -1742,7 +1855,9 @@ The private native API and real Pi Harness retain complete TaskRecords, ACKs,
 documents, storage batches, callback SQLite rows and backend revisions. The
 common view maps Pi's immediate `marked` ACK to native `orphaned` only when the
 actual terminal missing-task outcome is present; repeated terminal ACKs remain
-unchanged. The parked seed is a typed control, not a physical crash.
+unchanged. The parked seed is a typed control, not a physical crash. Release 1.5
+removed parking, so the parked control (`sqlite-parked-control`) is withdrawn
+with successor R15-2; four cases remain.
 
 The native strict all-page graph/incoming-waiter refusals and lifecycle/error
 surface are separate from Pi's broader abort semantics. The actual Harness
@@ -1782,7 +1897,8 @@ target on its actual line; native common success uses real retired-enabled
 admission. Native paused controls are separate, and an uncached Pi abort that
 could invoke migration is outside this projection. Keep the installed outcome
 hook, raw ACKs, records, callback/storage trajectories and backend retention
-qualifications. Map Pi `marked` to native `orphaned` only when the actual terminal
+qualifications. Its parked control (`sqlite-parked-control`) is withdrawn at
+release 1.5 with successor R15-2, because 1.5 removed parking. Map Pi `marked` to native `orphaned` only when the actual terminal
 outcome proves `migration_failed`. Terminal-repeat fixtures await the real
 successor publication drain before applying the existing native admission rule.
 
@@ -1842,8 +1958,10 @@ configuration, parent chains or the eventual final source already executed.
 
 ## Product same-task retry reference boundary
 
-The bounded `task-product-retry-enable-v1` comparison follows `ordinary_owned_live`
-as phase34 and retains real Pi FullHarness retry admission.
+Release 1.5 removed `retryTask()`, so R15-1b withdrew this phase: its manifest
+is a closed retirement record with successor R15-2, and the 1.4 receipts below
+stay historical. The bounded `task-product-retry-enable-v1` comparison followed
+`ordinary_owned_live` as phase34 and retained real Pi FullHarness retry admission.
 Pi `waitForTask` and `waitForIdle` themselves enable scheduling, so they cannot
 prove retry enablement: observe retry's void ACK and an actually held callback
 plus public task state before those waits, then use waits only after release.

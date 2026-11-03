@@ -293,7 +293,7 @@ def _reference_observations(row, case):
         f"has no migration from {values.VERSIONS['stored']}"
     )
     d.require(
-        report["info"]["type"] == "migration_failed"
+        report["info"]["kind"] == "migration_failed"
         and report["error"]["name"] == "Error"
         and report["error"]["message"] == message
         and type(report["error"]["stack"]) is str,

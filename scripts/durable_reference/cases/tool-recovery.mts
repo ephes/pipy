@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, Type } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { obj } from "@earendil-works/pi-schema";
 import { Harness } from "../../packages/durable/src/harness/harness.ts";
 import { createRegistry } from "../../packages/durable/src/harness/registry.ts";
 import { defineExtension, defineTool } from "../../packages/durable/src/harness/define.ts";
@@ -13,7 +14,7 @@ import { LiveDoc } from "../../packages/durable/src/harness/live.ts";
 import { ProviderDoc } from "../../packages/durable/src/harness/provider.ts";
 import { UsageDoc } from "../../packages/durable/src/harness/usage.ts";
 import { openNodeSqliteStorage } from "../../packages/durable/src/storage/sqlite/node.ts";
-import { deferred, aborted, errorValue, fixtureClock } from "../contract.mts";
+import { deferred, aborted, fixtureClock, reportValue } from "../contract.mts";
 export async function run(input: any, output: { directory: string }) {
   const variants: any[] = [], files: any[] = [];
   for (const policies of input.variants) {
@@ -34,7 +35,7 @@ export async function run(input: any, output: { directory: string }) {
       return {};
     };
     const extension = (replay: "safe" | "unsafe") => defineExtension({ name: "fixture.work", tools: [defineTool({
-      name: "work", description: "work", parameters: Type.Object({}), replay, execute,
+      name: "work", description: "work", parameters: obj({}), replay, execute,
     })] });
     const stored = extension(policies.stored); registry.install(stored);
     const responses = [fauxAssistantMessage([fauxToolCall("work", {}, { id: "c1" })],
@@ -45,7 +46,7 @@ export async function run(input: any, output: { directory: string }) {
         cacheRetention: options?.cacheRetention })); return response;
     }));
     const open = async () => Harness.open(await openNodeSqliteStorage(path), { models, registry,
-      now: clock.now, setTimer: clock.setTimer, onReport: error => reports.push(errorValue(error)) }, context);
+      now: clock.now, setTimer: clock.setTimer, onReport: report => reports.push(reportValue(report)) }, context);
     let harness: any = await open(), root: any, observed: any, closed: any;
     const snapshot = async () => {
       const entries = await root.entries({}, 1000, undefined, context); assert.equal(entries.next, undefined);

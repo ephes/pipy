@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "phase": "session-guard-b1b-v1",
+  "divergences": [
+    {
+      "id": "b1b-commit-request-error-fatal",
+      "owner": "R15-3",
+      "bridge": "U07, U08",
+      "reason": "Pi's guard leaves a commit's outcome to the Session writer, so a guard-only commit failure no longer fails the Session",
+      "path": [
+        "commit-request-error-fatal"
+      ],
+      "reference_sha256": "ac74e18f580af88529c5fc1bdf9ccbbed89833e8d17b29ae90d70f057cc6b0a6",
+      "native_sha256": "58c8516ceeb3e50a2ad63ac82efffb05ee9303d3b11698cce0d8b0cd1f8cf099"
+    },
+    {
+      "id": "b1b-mint-request-error-fatal",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "mint-request-error-fatal"
+      ],
+      "reference_sha256": "72496a52897e75089a08df0fdc0457dd71738fb827ab424e8cfcb8ce9ee5d1de",
+      "native_sha256": "2e6d93fdff3e13e1fea1e0d328941b336727225262a0ec802f1eea90e8b2af0f"
+    },
+    {
+      "id": "b1b-commit-cancelled-fatal",
+      "owner": "R15-3",
+      "bridge": "U07, U08",
+      "reason": "Pi's guard leaves a commit's outcome to the Session writer, so a guard-only commit failure no longer fails the Session",
+      "path": [
+        "commit-cancelled-fatal"
+      ],
+      "reference_sha256": "e3ae0892cfbe7b3500997b0e74e67eb337243e35abbba25001189293e54c0d3a",
+      "native_sha256": "fe45cab274b3e89f53a4cdc028b756cfe4d4c9331c6821f629a9660046aafc63"
+    },
+    {
+      "id": "b1b-mint-cancelled-fatal",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "mint-cancelled-fatal"
+      ],
+      "reference_sha256": "a9509ad0df16b8a99119bf4c80c87c8b1fdc1abb9103e24e28eeaa0a07366cea",
+      "native_sha256": "435a44be3ea492d91df879a636238a14b24b395a9acd1192d4a4d8598c3ed2b8"
+    },
+    {
+      "id": "b1b-read-error-fatal-scan_entries",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "read-error-fatal-scan_entries"
+      ],
+      "reference_sha256": "61dda9a4a4ab235516a1bdf92a0979b83f92e019e77a8739ef78ec91e2e87a12",
+      "native_sha256": "0e90009c78cce94b2017dc2cb67052781a1ecf82cd3d4e9153c52e5f306612a8"
+    },
+    {
+      "id": "b1b-read-error-fatal-task",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "read-error-fatal-task"
+      ],
+      "reference_sha256": "3d2646f2058bec4616aa5317087d47dd9df916f8cbbb622114272d81f7933ba1",
+      "native_sha256": "9e64dd363fe9aa29a9d07c8fbfe87b6d8fc350595e5616371deda84d06a3c150"
+    },
+    {
+      "id": "b1b-read-error-fatal-find_document",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "read-error-fatal-find_document"
+      ],
+      "reference_sha256": "08eaddf0c5ae5c47d5d65be97b2a1bf51fcacf828c36b6798379ae2a82fa3dca",
+      "native_sha256": "2a21852c88c74dfd8507ac56f9b41bcc7384cc2161f6a65d8324b59095a50999"
+    },
+    {
+      "id": "b1b-mint-error-fatal",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "mint-error-fatal"
+      ],
+      "reference_sha256": "6fc17f4a7d692ae83faa60de7f71796169ca98d5cce45d9c9a9005c5829d9580",
+      "native_sha256": "cc54c31c47f7f222cecb4eac61e530e127b377cc723d12e3a31bccac720468e2"
+    },
+    {
+      "id": "b1b-pi132-late-read-success",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "pi132-late-read-success"
+      ],
+      "reference_sha256": "9903c9a7742e22c6592a0a06b2b08cac9685f6bde0ab1969b892dc4142c7b224",
+      "native_sha256": "ab04801c609641524a495de974657ba67b8d476ce62f3e5b2a676849872794fa"
+    },
+    {
+      "id": "b1b-pi132-late-read-error",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "pi132-late-read-error"
+      ],
+      "reference_sha256": "77bddafb315755a637b6d446204c03b9e3ce3d8f4d2f552d0660862b16132341",
+      "native_sha256": "7a09e8df094515bde6c881e0d5790e9a8cc83e3aa545ac1b5d3edd43f14df883"
+    },
+    {
+      "id": "b1b-pi192-healthy-close-failure",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "pi192-healthy-close-failure"
+      ],
+      "reference_sha256": "79dab53af4cfcdf82beaca0242bf5f6db205a572cf1b89c0dc4c7c6637c82394",
+      "native_sha256": "5795f9323d929f7127f408e2d32f55e2284dc22dd704358dda3719fc18127eee"
+    },
+    {
+      "id": "b1b-pi192-failed-then-close-failure",
+      "owner": "R15-3",
+      "bridge": "U07, U08",
+      "reason": "Pi's guard leaves a commit's outcome to the Session writer, so a guard-only commit failure no longer fails the Session",
+      "path": [
+        "pi192-failed-then-close-failure"
+      ],
+      "reference_sha256": "c7aa2cd236d80bebc3d70b48cdb5276e001f2abbc1da20ca5d360e6c993e7109",
+      "native_sha256": "8d0f6194e604a0ebffcc1dfbe26c1a9c0a594afc1666e7398ac7cb0d75d27d4a"
+    },
+    {
+      "id": "b1b-two-failures-first-wins",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "two-failures-first-wins"
+      ],
+      "reference_sha256": "abdeb3db8f9e48d97e0d5d6122ea77a66f5f6c0dbcca89830b92f0437c05a791",
+      "native_sha256": "b21a33f540390201fe5dc49d5ddeb57fd8764cb82dc118bf9c243c75bba59327"
+    },
+    {
+      "id": "b1b-fail-direct",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "fail-direct"
+      ],
+      "reference_sha256": "fdf29d71526738fd868fc3c1e84427f356f365237d30661a75bd14e953af835d",
+      "native_sha256": "686d49e0acd82d67f8df513dbfcef7a1f7a81223480fdc1fe9a298b48d76cb4c"
+    },
+    {
+      "id": "b1b-admission-after-fail-vs-closed",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "admission-after-fail-vs-closed"
+      ],
+      "reference_sha256": "093e76e6a815e57d3f833477295cf795003a6881936836d55aeaa4c203366d62",
+      "native_sha256": "c7021cf2fecea7e013c306202e43da0e06a019bfaf44ccb1aa6256c72c5395be"
+    },
+    {
+      "id": "b1b-reentrant-report",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "reentrant-report"
+      ],
+      "reference_sha256": "a35a775355b91bf6c1232d3d338b1f1effa7164f517ba7c13b5b676642694d57",
+      "native_sha256": "37eaeb894ff9a8701e27ec0e11f4f562e4093f4c199a154d5f2fba3190dffd92"
+    },
+    {
+      "id": "b1b-sync-throw",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
+      "path": [
+        "sync-throw"
+      ],
+      "reference_sha256": "0a8a39bd78da7c312d7718dad64000c41d084429f28b408512cd00097c6a4def",
+      "native_sha256": "84702a9f497647181c774220b9b813a528da967e34f4ac3a3c37132339e9f435"
+    }
+  ]
+}

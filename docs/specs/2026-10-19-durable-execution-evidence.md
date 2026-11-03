@@ -9294,8 +9294,8 @@ The owner moved the target to literal Pi release 1.5.0, commit
 since release 1.4.0 and records deviation D1. Every receipt above stays bound to
 its own source, release pin and date: the dated 1.3 evidence and the 1.4
 receipts through DE16c (`d2919cc8`) are historical, and none is rebound to 1.5.
-No 1.5 comparison has run. The reference runner, manifests and fixtures pin
-release 1.4.0 until R15-1.
+At the retarget no 1.5 comparison had run, and the reference runner, manifests
+and fixtures pinned release 1.4.0 until R15-1.
 
 The bridge slices are tracked here rather than in the slice status table above,
 which holds only DE rows:
@@ -9309,10 +9309,12 @@ which holds only DE rows:
   `tests/test_native_system_prompt_pi_pinned.py::test_fixture_is_current_with_pi`,
   come from the local pi-mono checkout at `7dc38ff0e`, whose installed
   dependencies lag its sources; they are outside the durable campaign.
-- R15-1 reference re-pin: IN_PROGRESS, in two commits (see the bridge).
-  R15-1a, the runtime re-pin, is recorded
-  [below](#r15-1a-runtime-re-pin-2026-11-03); R15-1b, the release 1.5.0 pin, is
-  OPEN.
+- R15-1 reference re-pin, in two commits (see the bridge). R15-1a, the runtime
+  re-pin, was delivered at `63cd965a7da792376d77fdc1260c1ca3a715273e`, remote
+  main verified, and is recorded [below](#r15-1a-runtime-re-pin-2026-11-03).
+  R15-1b, the release 1.5.0 pin, is recorded
+  [below](#r15-1b-release-150-pin-2026-11-03); its review result and pushed
+  commit are recorded by R15-2.
 - R15-2 restart-limit endings instead of parking and retry: OPEN.
 - R15-3 batch Storage commit: OPEN.
 - R15-4 watch, report and observer shapes: OPEN.
@@ -9358,6 +9360,48 @@ code before the documentation digests of this entry: a fresh baseline acceptance
 (execution `61fcc240-9080-49cb-944f-95dc7c3d06bb`, `acceptance.json` SHA256
 `87c9f2a3038c0d7a48ca23bb5e1f2e66380e2b5eace26fb67051ef3adb721f54`, runtime
 v26.13.0/11.20.0, reference 1.4.0) and all 33 comparison phases after it exited
-0, 34 commands in 799 s. The confirming chain on the committed bytes, and this
-slice's review result and pushed commit, are recorded by R15-1b. No P row
-closes; all 43 remain OPEN.
+0, 34 commands in 799 s. No P row closes; all 43 remain OPEN.
+
+Recorded by R15-1b: a confirming chain on the committed R15-1a bytes (baseline
+execution `66d30c87-f159-4bba-b5b5-2f566ac5352a`, `acceptance.json` SHA256
+`4350edb95181510be3baaae409551821b9a7682728a3973005f92bbb1d8d32d7`) and all 33
+phases after it exited 0, 34 commands in 781 s. Codex gpt-6.1-sol HIGH round 1
+found no Critical and one Warning: the CI evidence collector and its test still
+required the v26.12.0 archive digest; the repair made the contract's
+`RUNTIME_ARCHIVE_SHA256` the one digest they check. Round 2 was CLEAN. `just
+check` on the final bytes: 21330 passed, 21 skipped and 2 failed in 3218 s, the
+same two pi-mono checkout failures as R15-0. `just docs-build` passed and the
+rendered links of every changed page resolved. R15-1a was pushed at
+`63cd965a7da792376d77fdc1260c1ca3a715273e`, remote main verified.
+
+### R15-1b release 1.5.0 pin (2026-11-03)
+
+The runner pins commit `f9a26365568127461c47a07a37dcb42c140a3ac5`, tree
+`b7734e15f2c1a10846284f77034a2214746a4da6` and package version 1.5.0; the CI job
+fetches that pin. Every manifest's `reference_commit`, `reference_sources` and
+declared `upstream_tests` come from that commit. The v1.5.0 lockfile adds
+`@earendil-works/pi-schema` and drops `typebox`; the same four extraneous lock
+records stay absent. The drivers use the 1.5 API. The six baseline traces and
+the session-checkpoint fixture are the raw captures of an actual 1.5 run, and
+the typed-document unit capture was re-captured from one (raw SHA256
+`8e3082d83bcea61ee0ac93689a6402ebc6546d1c067114b85c4a29b81fc7b3ef`); the 1.5
+run reproduced the unchanged SQLite unit capture byte for byte. The
+[reference guide](../durable-reference.md#release-15-dispositions-r15-1b) lists
+the disposition of every phase: twenty pass, the completed-projection phase and
+one session-guard scenario are re-derived over a 1.5 surface, two phases and the
+parked cases of four more are withdrawn to R15-2,
+one guard mutant is withdrawn to R15-3, and the differences that native has not
+caught up with are declared divergences, each an open item of its owner.
+
+Receipts on the development host (macOS, Python 3.15.2), on the final R15-1b
+code before the documentation digests of this entry: a fresh baseline acceptance
+(execution `7c551808-ca65-4aef-bbec-c14b06639a29`, `acceptance.json` SHA256
+`ae143f0d786b7f1f58f2d4548d2c0b58ad545383bd6fecd824f2f5d81e1df38e`, runtime
+v26.13.0/11.20.0, reference 1.5.0) and all 31 remaining comparison phases after
+it exited 0, 32 commands in 585 s. The live typed-document and SQLite
+observations of that chain equal the committed unit captures byte for byte. The
+1877 comparison, coverage, reference and documentation tests passed. The
+confirming chain on the committed bytes, `just check`, and this slice's review
+result and pushed commit are recorded by R15-2.
+
+No P row closes; all 43 remain OPEN.

@@ -15,7 +15,8 @@ const {createRegistry}=await import('./packages/durable/src/harness/registry.ts'
 const {defineExtension,defineTool}=await import('./packages/durable/src/harness/define.ts');
 const {randomUUID}=await import('node:crypto');
 const {UsageDoc}=await import('./packages/durable/src/harness/usage.ts');
-const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost,Type}=await import('@earendil-works/pi-ai');
+const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost}=await import('@earendil-works/pi-ai');
+const {obj,int,bool,opt}=await import('@earendil-works/pi-schema');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
 const input=JSON.parse(readFileSync(inputPath,'utf8'));assert.equal(input.phase,'tool-execution-b-v1');
@@ -24,6 +25,8 @@ function encode(v:any):any{if(v===null)return ['null'];if(typeof v==='boolean')r
 const cases:any[]=[],raw:any[]=[];
 mkdirSync(out+'/stores/pi',{recursive:true,mode:0o700});
 mkdirSync(out+'/pi-effects',{recursive:true,mode:0o700});
+// Release 1.5 Usage.cost may carry totalFromProvider: false and absent both mean a catalog estimate.
+function estimate(u:any){if(u?.cost?.totalFromProvider!==false)return u;const {totalFromProvider:_,...cost}=u.cost;return {...u,cost};}
 function total(values:any[]){const sum:any={};for(const value of values)for(const [key,item] of Object.entries(value)){if(key==='cost'){const target=sum.cost??={};for(const [name,amount]of Object.entries(item as any))target[name]=(target[name]??0)+(amount as number);}else sum[key]=(sum[key]??0)+(item as number);}return sum;}
 function usageMatches(values:any[],aggregate:any){return JSON.stringify(encode(total(values)))===JSON.stringify(encode(aggregate));}
 for(const recipe of input.cases){
@@ -56,7 +59,7 @@ for(const recipe of input.cases){
  }});
  function registry(policy:string,missing=false){
   const registry=createRegistry();
-  if(!missing)registry.install(defineExtension({name:'fixture.tools',tools:['keyed','later'].map(name=>defineTool({name,description:name,parameters:Type.Object({x:Type.Integer(),prepared:Type.Optional(Type.Boolean())}),replay:policy as any,
+  if(!missing)registry.install(defineExtension({name:'fixture.tools',tools:['keyed','later'].map(name=>defineTool({name,description:name,parameters:obj({x:int(),prepared:opt(bool())}),replay:policy as any,
    prepareArguments(args:any){effects.prepares.push(name);persist();return {...args,prepared:true};},
    async execute(args:any,api:any,callContext:any){
     const key=await api.memo('fixture.key','pi-tool-'+randomUUID(),callContext);
@@ -74,7 +77,7 @@ for(const recipe of input.cases){
  }
  async function open(policy:string,missing=false){
   const current=await Harness.open(await openNodeSqliteStorage(path),{models,registry:registry(policy,missing),now:()=>1000,settings:{retry:{enabled:false},compaction:{enabled:false}}},ctx);
-  current.subscribeCommits((value:any)=>publications.push(structuredClone(value)));
+  current.observeCommits({advance:(value:any)=>publications.push(structuredClone(value)),end:()=>{}});
   harness=current;return current;
  }
  harness=await open(recipe.stored);conversation=await harness.root(ctx,{agent:{model:{provider:'openai',modelId:'gpt-test'}}});
@@ -107,8 +110,8 @@ for(const recipe of input.cases){
   const messages=requests.at(-1).messages;
   const results=messages.filter((message:any)=>message.role==='toolResult');
   observed.closed={fresh_round_identity:new Set(requests.map((request:any)=>String(request.task)+":"+String(request.attempt))).size===requests.length&&requests.slice(1).every((request:any,index:number)=>request.cutoff>requests[index].cutoff),provider_calls:requests.length,result_names:results.map((message:any)=>message.toolName),result_text:results.filter((m:any)=>m.toolName!=='unavailable').map((m:any)=>m.content.filter((c:any)=>c.type==='text').map((c:any)=>c.text).join('')),
-   receipts:entries.filter((entry:any)=>entry.kind==='pi.tool-result').length,terminal:tasks.filter((task:any)=>task.kind==='pi.generation').every((task:any)=>task.state.status==='terminal'&&task.state.outcome.status==='completed'),usage:ledger.models['openai/gpt-test'],
-   usage_once:usageMatches(entries.filter((entry:any)=>entry.kind==='pi.assistant').map((entry:any)=>entry.model[0].usage),ledger.models['openai/gpt-test']),
+   receipts:entries.filter((entry:any)=>entry.kind==='pi.tool-result').length,terminal:tasks.filter((task:any)=>task.kind==='pi.generation').every((task:any)=>task.state.status==='terminal'&&task.state.outcome.status==='completed'),usage:estimate(ledger.models['openai/gpt-test']),
+   usage_once:usageMatches(entries.filter((entry:any)=>entry.kind==='pi.assistant').map((entry:any)=>estimate(entry.model[0].usage)),estimate(ledger.models['openai/gpt-test'])),
    parent_after_results:results.length===recipe.names.length,cutoff:requests.every((request:any)=>request.cutoff===request.latest),retained_terminal:lifecycle.retained_terminal};
  }
  raw.push({id:recipe.id,requestIdentities,tasks,entries,requests,effects,ledger,publications,lifecycle,profile:closed?'closed-round':'replay-prefix-only'});

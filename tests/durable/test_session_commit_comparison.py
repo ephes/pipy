@@ -58,6 +58,19 @@ def reference(traces):
     return as_node(traces)
 
 
+def test_release_15_declarations_pin_the_current_native_scenarios(traces):
+    # Each declared b3 divergence names its native scenario exactly as the native
+    # recipe projects it now, so native drift fails here before any Pi run.
+    m = module()
+    rows = m.declared()
+    assert len(rows) == 56
+    for row in rows:
+        mode, scenario = row["path"]
+        projected = {s["id"]: s for s in m.projection(traces[mode], mode)["scenarios"]}
+        digest = m.o.contract.declared_digest(projected[scenario])
+        assert digest == row["native_sha256"], row["id"]
+
+
 def test_native_recipe_is_complete_meaningful_and_deterministic(traces):
     m = module()
     again, witness = m.native(m.load(m.INPUT))
@@ -393,6 +406,7 @@ UNIT_DIAGNOSTICS = {
     "context-drift": "Session reference context drift",
     "raw-drift": "raw session error",
     "node-backend": "Reference trace backend drift",
+    "stale-declared": "Stale declared divergence: b3-",
 }
 
 
@@ -468,13 +482,25 @@ def _unit_child(m, observed, products, calls, mutation):
 
 @pytest.mark.parametrize(
     "mutation",
-    ["none", "late-read-leak", "invalid", "context-drift", "raw-drift", "node-backend"],
+    [
+        "none",
+        "late-read-leak",
+        "invalid",
+        "context-drift",
+        "raw-drift",
+        "node-backend",
+        "stale-declared",
+    ],
 )
 def test_run_controller_classifies_and_attests_0_1_2_without_host_node(
     tmp_path, monkeypatch, capsys, traces, reference, mutation
 ):
     # Unit-only bootstrap/child replacements, NOT an actual pinned execution.
     m = module()
+    if mutation != "stale-declared":
+        # The unit reference is native test data, which no 1.5 declaration
+        # describes; "stale-declared" keeps them and must be refused.
+        monkeypatch.setattr(m, "declared", lambda: ())
     parent = tmp_path / "parent"
     attestations = _unit_bootstrap(m, monkeypatch, parent)
     products = json.loads(json.dumps(traces))

@@ -93,7 +93,6 @@ SOURCES = {
     "packages/durable/src/errors.ts",
     "packages/durable/src/ids.ts",
     "packages/durable/src/session/forks.ts",
-    "packages/durable/src/session/observation.ts",
     "packages/durable/src/session/session.ts",
     "packages/durable/src/session/transaction.ts",
     "packages/durable/src/storage/memory.ts",
@@ -104,6 +103,29 @@ SOURCES = {
     "packages/telemetry/src/memory.ts",
     "packages/telemetry/src/metrics.ts",
     "packages/telemetry/src/noop.ts",
+    # Release 1.5 Session, delta, watch and schema modules the driver now loads.
+    "packages/chord/src/delta/pending.ts",
+    "packages/chord/src/watch.ts",
+    "packages/durable/src/session/cached-storage.ts",
+    "packages/durable/src/session/conversation-tails.ts",
+    "packages/durable/src/session/keys.ts",
+    "packages/durable/src/session/writer.ts",
+    "packages/durable/src/testing/commit-writes.ts",
+    *(
+        "packages/schema/src/" + name + ".ts"
+        for name in (
+            "annotations",
+            "builders",
+            "checks",
+            "coerce",
+            "compiler",
+            "explain",
+            "index",
+            "resolver",
+            "shared",
+            "validator",
+        )
+    ),
 }
 UPSTREAM_TESTS = {
     "packages/durable/test/" + s
@@ -828,7 +850,39 @@ def trace(value: Any, *, reference: bool) -> Any:
     return value
 
 
-def comparison(expected: Any, actual: Any, config: Any | None = None) -> int:
+# Release 1.5 Session record cache (bridge U18): Pi serves a record it just wrote
+# or read from memory, while native reads Storage again. Only those read counts
+# differ; every other profile field still compares exactly.
+DECLARED = o.contract.declared_validate(
+    (
+        {
+            "id": "documents-a1-cached-conversation-read",
+            "owner": "DE27/DE28/DE45",
+            "bridge": "U18",
+            "reason": "Pi reads the new conversation record from its Session cache",
+            "path": ("A1", "counts"),
+            "reference_sha256": "507441f2c78cab5e8f420c489b24204b60071af7e4843e0b5f028ccffea49298",
+            "native_sha256": "839af598c60f6cefe1bc7027184399b84d44540e762c91acd7f73094f4d8670f",
+        },
+        {
+            "id": "documents-c2-cached-task-read",
+            "owner": "DE27/DE28/DE45",
+            "bridge": "U18",
+            "reason": "Pi reads the owner task record from its Session cache",
+            "path": ("C2", "counts"),
+            "reference_sha256": "a2719ab73cee9888da8546f5e3fbb0d1461ae74a7c4bd4f26545f9afc89ceb5f",
+            "native_sha256": "e8cee3d7316696f42683155052abc16e0bd2200250b6595e477f3d8022d9cf40",
+        },
+    )
+)
+
+
+def comparison(
+    expected: Any,
+    actual: Any,
+    config: Any | None = None,
+    used: set[str] | None = None,
+) -> int:
     config = recipe() if config is None else config
     trace(expected, reference=True)
     trace(actual, reference=False)
@@ -844,7 +898,13 @@ def comparison(expected: Any, actual: Any, config: Any | None = None) -> int:
         )
     for backend in projected_native(actual, config)["backends"]:
         for row in backend["cases"]:
-            if not d.same(v.decode(row["profile"]), reference[row["id"]]):
+            left, right = o.contract.declared_mask(
+                {row["id"]: reference[row["id"]]},
+                {row["id"]: v.decode(row["profile"])},
+                DECLARED,
+                used,
+            )
+            if not d.same(right, left):
                 return 1
     return 0
 
@@ -1167,7 +1227,10 @@ def execute(acceptance: Path, sqlite: Path, output: Path) -> int:
     )
     d.require(code == 0 and not stdout and not stderr, "Native document driver failed")
     expected, actual = d.load(output / "observed.json"), d.load(output / "native.json")
-    result = comparison(expected, actual, recipes)
+    used: set[str] = set()
+    result = comparison(expected, actual, recipes, used)
+    if not result:
+        o.contract.declared_require(DECLARED, used)
     d.dump(output / "native-projected.json", projected_native(actual, recipes))
     controls = []
     if result:

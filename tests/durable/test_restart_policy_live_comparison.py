@@ -53,10 +53,21 @@ def test_actual_generic_live_policy_and_side_specific_ack(native_run):
         expected_limit = None if recipe["update"] == "Infinity" else recipe["update"]
         assert row["native_only"]["owner_after"]["restart_limit"] == expected_limit
         assert row["native_only"]["standalone_default_after"]["restart_limit"] == 5
-    lower = next(row for row in rows if row["id"] == "lower-before-admission")
-    assert lower["calls_after_resume"] == 0 and lower["after_resume"]["restarts"] == 5
-    noop = next(row for row in rows if row["id"] == "same-finite-remains-parked")
-    assert noop["calls_after_resume"] == 0 and noop["after_resume"]["restarts"] == 5
+    # Release 1.5.0 removed parking: the four parked cases are retirement records
+    # (successor R15-2), and test_restart_policy_live.py keeps the native behavior.
+    assert [row["id"] for row in rows] == ["same-unlimited"]
+    assert [
+        (row["id"], row["retired_by"], row["successor"])
+        for row in m.values.SCOPE["retired_cases"]
+    ] == [
+        (case, "R15-1b", "R15-2")
+        for case in (
+            "raise-finite",
+            "raise-unlimited",
+            "lower-before-admission",
+            "same-finite-remains-parked",
+        )
+    ]
 
 
 @pytest.mark.parametrize("name", m.values.MUTANTS)

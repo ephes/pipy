@@ -1,7 +1,8 @@
 /** DE09 completed facts observed through actual pinned public Harness watches.
  * MIT (c)2025 Mario Zechner; see tests/fixtures/durable/UPSTREAM-LICENSE.txt.
  * Only the provider stream and fixture tools are scripted. Native lifecycle,
- * task-graph shape and full experimental event/partial parity are not paired.
+ * task-graph shape and partial parity are not paired. Release 1.5 removed
+ * watchEvents(), so automatic delivery and reconnect read the conversation watch.
  */
 import assert from 'node:assert/strict';
 import {readFileSync, writeFileSync, realpathSync, mkdirSync} from 'node:fs';
@@ -19,11 +20,11 @@ registerHooks({resolve(specifier,context,next){
  return result;
 }});
 const {Harness}=await import('./packages/durable/src/harness/harness.ts');
-const {watchEvents}=await import('./packages/durable/src/harness/events.ts');
 const {createRegistry}=await import('./packages/durable/src/harness/registry.ts');
 const {defineExtension,defineTool}=await import('./packages/durable/src/harness/define.ts');
 const {UsageDoc}=await import('./packages/durable/src/harness/usage.ts');
-const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost,Type}=await import('@earendil-works/pi-ai');
+const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost}=await import('@earendil-works/pi-ai');
+const {obj,int,bool,opt}=await import('@earendil-works/pi-schema');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
 const input=JSON.parse(readFileSync(inputPath,'utf8'));assert.equal(input.phase,'completed-projection-b-v1');
@@ -37,6 +38,8 @@ function encode(v:any):any{
  return ['object',Object.keys(v).map(k=>[hex(k),encode(v[k])]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0)];
 }
 function same(a:any,b:any){return JSON.stringify(encode(a))===JSON.stringify(encode(b));}
+// Release 1.5 Usage.cost may carry totalFromProvider: false and absent both mean a catalog estimate.
+function estimate(u:any){if(u?.cost?.totalFromProvider!==false)return u;const {totalFromProvider:_,...cost}=u.cost;return {...u,cost};}
 function total(values:any[]){const result:any={};for(const value of values)for(const [key,item]of Object.entries(value)){
  if(key==='cost'){const cost=result.cost??={};for(const [name,n]of Object.entries(item as any))cost[name]=(cost[name]??0)+(n as number);}
  else result[key]=(result[key]??0)+(item as number);
@@ -46,8 +49,8 @@ mkdirSync(out+'/stores/pi',{recursive:true,mode:0o700});
 for(const recipe of input.cases){
  const path=out+'/stores/pi/'+recipe.id+'.sqlite';
  const effects:any={calls:[],applications:{},prepares:[]},requests:any[]=[],publications:any[]=[],reports:any[]=[];
- let harness:any, latest:any, automaticResolve:any, eventsResolve:any;
- const automatic=new Promise(resolve=>automaticResolve=resolve),eventCompleted=new Promise(resolve=>eventsResolve=resolve);
+ let harness:any, latest:any, automaticResolve:any;
+ const automatic=new Promise(resolve=>automaticResolve=resolve);
  const faux=fauxProvider({api:'openai-completions',provider:'openai',models:[{id:'gpt-test',cost:{input:1,output:2,cacheRead:3,cacheWrite:4}}]});
  const base=createModels();base.setProvider(faux.provider);
  const models=new Proxy(base,{get(target,property){
@@ -63,7 +66,7 @@ for(const recipe of input.cases){
  function registry(missing=false){
   const result=createRegistry();
   if(!missing)result.install(defineExtension({name:'fixture.completed',tools:['keyed','later'].map(name=>defineTool({
-   name,description:name,parameters:Type.Object({x:Type.Integer(),prepared:Type.Optional(Type.Boolean())}),replay:'safe',
+   name,description:name,parameters:obj({x:int(),prepared:opt(bool())}),replay:'safe',
    prepareArguments(args:any){effects.prepares.push(name);return {...args,prepared:true};},
    async execute(args:any,api:any,context:any){
     const key=await api.memo('fixture.key','completed-'+api.taskId,context);
@@ -73,19 +76,16 @@ for(const recipe of input.cases){
   }))}));return result;
  }
  async function open(missing=false){return Harness.open(await openNodeSqliteStorage(path),{
-  models,registry:registry(missing),now:()=>1000,onReport:(_error:any,info:any)=>reports.push({type:info.type}),
+  models,registry:registry(missing),now:()=>1000,onReport:(report:any)=>reports.push({kind:report.kind}),
   settings:{retry:{enabled:false},compaction:{enabled:false}}
  },ctx);}
- harness=await open();harness.subscribeCommits((value:any)=>publications.push(structuredClone(value)));
+ harness=await open();harness.observeCommits({advance:(value:any)=>publications.push(structuredClone(value)),end:()=>{}});
  const conversation=await harness.root(ctx,{agent:{model:{provider:'openai',modelId:'gpt-test'}}});
- const watch=await conversation.watch(ctx),bad=await conversation.watch(ctx),stream=await watchEvents(harness,conversation.id,ctx);
- const snapshots:any[]=[],events:any[]=[],independent:any[]=[];
+ const watch=await conversation.watch(ctx),bad=await conversation.watch(ctx);
+ const snapshots:any[]=[],independent:any[]=[];
  bad.start(async()=>{throw new Error('synthetic observer failure');});
- stream.start(async(batch:any)=>{
-  events.push(structuredClone(batch));
-  if(batch.some((event:any)=>event.type==='message_end'&&event.entry.model?.[0]?.role==='assistant'&&event.entry.model[0].stopReason==='stop'))eventsResolve();
- });
- watch.start(async(value:any)=>{
+ watch.start(async(call:any)=>{
+  assert.equal(call.kind,'value');const value=call.value;
   const stored=(await harness.commit((tx:any)=>tx.scanEntries({conversationId:conversation.id},100),ctx)).items;
   let ok=value.entries.every((entry:any)=>stored.some((found:any)=>found.id===entry.id&&same(found,entry)));
   if(value.entries.some((entry:any)=>entry.model?.[0]?.role==='assistant'&&entry.model[0].stopReason==='stop')){
@@ -97,17 +97,17 @@ for(const recipe of input.cases){
  });
  const submission=await conversation.submit({type:'input',content:'input'},ctx);
  // Await actual automatic public notifications before any final refresh/read.
- await automatic;await eventCompleted;
+ await automatic;
  await (await harness.submission(submission.id,ctx)).wait(ctx);await harness.waitForIdle(ctx);
  const tasks=(await harness.commit((tx:any)=>tx.scanTasks({},100),ctx)).items;
  const ledger=await harness.snapshot(UsageDoc,conversation.id,ctx);
- const badEnd=await bad.closed,stopEnd=await watch.stop();await stream.stop();
+ const badEnd=await bad.closed,stopEnd=await watch.stop();
  const before={providers:requests.length,calls:effects.calls.length,applications:Object.keys(effects.applications).length,prepares:effects.prepares.length};
  await harness.close(ctx);harness=await open(true);
- const reopened=await harness.conversation(conversation.id,ctx),fresh=await reopened.watch(ctx),freshEvents=await watchEvents(harness,conversation.id,ctx);
- const retained=fresh.value,retainedEvents=freshEvents.snapshot;
+ const reopened=await harness.conversation(conversation.id,ctx),fresh=await reopened.watch(ctx);
+ const retained=fresh.value;
  const reconnect=same(latest.entries,retained.entries);
- await fresh.stop();await freshEvents.stop();await harness.close(ctx);
+ await fresh.stop();await harness.close(ctx);
  const after={providers:requests.length,calls:effects.calls.length,applications:Object.keys(effects.applications).length,prepares:effects.prepares.length};
  const entries=retained.entries.filter((entry:any)=>entry.model?.length===1),messages=entries.map((entry:any)=>entry.model[0]);
  const assistant=messages.find((m:any)=>m.role==='assistant'&&m.content.some((c:any)=>c.type==='toolCall'));
@@ -118,14 +118,14 @@ for(const recipe of input.cases){
   completed:tasks.filter((t:any)=>t.kind==='pi.generation'||t.kind==='pi.tool').every((t:any)=>t.state.status==='terminal'&&t.state.outcome.status==='completed'),
   roles:logical.map((m:any)=>m.role),
   result_names:results.map((m:any)=>m.toolName),result_text:results.filter((m:any)=>m.toolName!=='unavailable').map((m:any)=>m.content.filter((b:any)=>b.type==='text').map((b:any)=>b.text).join('')),
-  automatic:snapshots.length>0&&events.some((batch:any)=>batch.some((e:any)=>e.type==='message_end'&&e.entry.model?.[0]?.stopReason==='stop')),
-  independent:independent.length>0&&independent.every(Boolean),isolation:badEnd.reason==='listener_error',
-  reconnect:reconnect&&same(retainedEvents.entries,retained.entries),stop:stopEnd.reason==='stopped',
+  automatic:snapshots.some((view:any)=>view.entries.some((entry:any)=>entry.model?.[0]?.role==='assistant'&&entry.model[0].stopReason==='stop')),
+  independent:independent.length>0&&independent.every(Boolean),isolation:badEnd.kind==='listener_error',
+  reconnect,stop:stopEnd.kind==='stopped',
   effects_unchanged:same(before,after),provider_calls:after.providers,tool_calls:after.calls,
-  usage:ledger.models['openai/gpt-test'],usage_once:same(total(messages.filter((m:any)=>m.role==='assistant').map((m:any)=>m.usage)),ledger.models['openai/gpt-test'])
+  usage:estimate(ledger.models['openai/gpt-test']),usage_once:same(total(messages.filter((m:any)=>m.role==='assistant').map((m:any)=>estimate(m.usage))),estimate(ledger.models['openai/gpt-test']))
  };
  cases.push({id:recipe.id,observed:encode(observed)});
- raw.push({id:recipe.id,tasks,ledger,effects,requests,publications,snapshots,events,independent,badEnd:{reason:badEnd.reason},stopEnd,retained,retainedEvents,before,after,reports});
+ raw.push({id:recipe.id,tasks,ledger,effects,requests,publications,snapshots,independent,badEnd:{kind:badEnd.kind},stopEnd,retained,before,after,reports});
 }
 writeFileSync(out+'/observed.json',JSON.stringify({schema_version:1,phase:input.phase,cases}));
 writeFileSync(out+'/resolutions.json',JSON.stringify(resolutions));

@@ -9,6 +9,7 @@ const root=realpathSync(process.cwd()), [inputPath,out]=process.argv.slice(2), r
 registerHooks({resolve(specifier,context,next){const result=next(specifier,context);if(!result.url.startsWith('node:')){const path=realpathSync(fileURLToPath(result.url));assert.ok(path.startsWith(root+sep));resolutions.push({specifier,path:path.slice(root.length+1)});}return result;}});
 const {SessionImpl}=await import('./packages/durable/src/session/session.ts');
 const {MemoryStorage}=await import('./packages/durable/src/storage/memory.ts');
+const {commitWrites}=await import('./packages/durable/src/testing/commit-writes.ts');
 const {defineTask}=await import('./packages/durable/src/tasks.ts');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const input=JSON.parse(readFileSync(inputPath,'utf8'));assert.equal(input.phase,'task-creation-a-v1');
@@ -18,12 +19,12 @@ const cases:any[]=[], raw:any[]=[];
 for(const recipe of input.cases){
  const memory=new MemoryStorage(),calls:string[]=[],writes:any[]=[],publications:any[]=[];
  const owner={id:20,conversationId:7,kind:'owner',version:1,input:null,background:false,abortRequested:false,state:{status:'pending',checkpoint:null}};
- await memory.commit([{type:'conversation',value:{id:1}},{type:'conversation',value:{id:7}},{type:'task',value:owner}],ctx);
+ await commitWrites(memory,[{type:'conversation',value:{id:1}},{type:'conversation',value:{id:7}},{type:'task',value:owner}],ctx);
  const names:any={mintId:'mint',conversation:'conversation',task:'task',commit:'commit'};
- const storage=new Proxy(memory,{get(target,key){const fn=Reflect.get(target,key);if(typeof fn!=='function')return fn;return async(...args:any[])=>{if(names[String(key)])calls.push(names[String(key)]);if(key==='commit')writes.push(...structuredClone(args[0]));return fn.apply(target,args);};}});
+ const storage=new Proxy(memory,{get(target,key){const fn=Reflect.get(target,key);if(typeof fn!=='function')return fn;return async(...args:any[])=>{if(names[String(key)])calls.push(names[String(key)]);if(key==='commit')writes.push(...structuredClone(args[0].flat()));return fn.apply(target,args);};}});
  class Driver extends SessionImpl{report(error:any){throw error;}}
  const session=new Driver(storage as any,()=>1000,()=>600000,()=>undefined);
- session.observeCommits((p:any)=>publications.push(p.changes));
+ session.followCommits((p:any)=>publications.push(p.changes));
  const failure=new Error('initial failed');let status='fulfilled',error:any=null,id:any=null;
  const caller:any={items:[1],zero:-0};
  const definition=defineTask({name:'typed.work',version:recipe.version,initial(value:any){calls.push('initial');if(recipe.id==='initializer-throw')throw failure;if(recipe.id==='initial-mutation')value.items.push(2);return recipe.id==='unregistered-phase'?null:{phase:'start',value};},phases:{start:async()=>{throw Error('must not dispatch');}},abort:async()=>{throw Error('must not dispatch');}});

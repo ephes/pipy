@@ -4885,7 +4885,8 @@ acknowledgement. Reconnect is a fresh snapshot with same-store entity dedupe;
 there is no persistent replay cursor or exactly-once callback claim. Real read
 tickets retain Session/SQLite lifetime after canceled API waiters and complete
 consumer-loop teardown. Stopping a watch does not join arbitrary callbacks.
-Actual Pi watch/watchEvents comparison covers only declared completed facts;
+Actual Pi watch comparison covers only declared completed facts (release 1.5
+removed `watchEvents`);
 full views/events, partials and context remain DE20/26/27/28. The [DE11 async factory](durable-product-session.md) supplies Python activation; [CLI activation](durable-headless.md) is opt-in through DE12; all 43 whole parity rows remain OPEN.
 
 

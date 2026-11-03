@@ -52,11 +52,12 @@ def test_actual_native_three_backends_match_pinned_session_with_closed_differenc
     )
     assert reference["producer"] == "pi" and actual["producer"] == "native"
     assert all(
-        lane["runtime"] == oracle.runtime_contract(True)
+        lane["runtime"] == oracle.runtime_contract(True, lane["backend"])
         for lane in reference["backends"]
     )
     assert all(
-        lane["runtime"] == oracle.runtime_contract(False) for lane in actual["backends"]
+        lane["runtime"] == oracle.runtime_contract(False, lane["backend"])
+        for lane in actual["backends"]
     )
 
 

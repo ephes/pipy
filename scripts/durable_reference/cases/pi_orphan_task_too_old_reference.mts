@@ -46,10 +46,10 @@ for(const c of recipe.cases){
   const registry=createRegistry();registry.install(defineExtension({name:'fixture.orphan.too-old.extension',tasks:[availableTask]}));let h:any,storage:any,taskId:any,cid:any;
   async function owner(){
    const inner=c.backend==='memory'?new MemoryStorage():await openNodeSqliteStorage(path);
-   storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key);if(typeof value!=='function')return value;return async(...args:any[])=>{const before=key==='commit'?clone(args[0]):undefined;const result=await value.apply(target,args);if(key==='commit')batches.push({seq:result,writes:before});if(key==='mintId')minted.push(result);return result;};}});
+   storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key);if(typeof value!=='function')return value;return async(...args:any[])=>{if(key==='commit'){/* Release 1.5 batches: one recorded commit per stored batch. */const [list,receive,context]=args;const before=clone(list),seqs:any[]=[];const result=await value.call(target,list,(index:number,seq:any)=>{seqs[index]=seq;receive(index,seq);},context);for(let index=0;index<result.stored;index++)batches.push({seq:seqs[index],writes:before[index]});return result;}const result=await value.apply(target,args);if(key==='mintId')minted.push(result);return result;};}});
    h=await Harness.open(storage,{models:createModels(),registry,settings:{restartLimit:5},now:()=>1000},ctx);owners.add(h);
   }
-  async function end(){await h.close(ctx);closed.push((await h.closed).reason);owners.delete(h);}
+  async function end(){await h.close(ctx);closed.push((await h.closed).kind);owners.delete(h);}
   async function snapshot(label:string,ACK:any=null){
    const row=await h.readOnLine(async()=>({label,record:clone(await storage.task(taskId,ctx)),documents:{target:await documents(storage,{kind:'task',taskId}),conversation:await documents(storage,{kind:'conversation',conversationId:cid})},counts:clone(counts),callback_rows:ledger(),backend:c.backend==='sqlite'?sqlSnapshot(path):{kind:'memory-current-only',commit_batches:clone(batches),minted:clone(minted)},batch_count:batches.length,mint_count:minted.length,ACK}));
    assert.ok(row.record);steps.push(row);return row;

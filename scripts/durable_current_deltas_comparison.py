@@ -37,6 +37,7 @@ MODULES = (
             "storage/sqlite/storage",
             "storage/sqlite/schema",
             "storage/sqlite/migrations",
+            "testing/commit-writes",
         )
     }
     | {
@@ -48,6 +49,7 @@ MODULES = (
             "delta/tracker",
             "delta/diff",
             "delta/apply-immutable-trusted",
+            "delta/pending",
             "sqlite/index",
             "sqlite/node",
             "sqlite/schema",

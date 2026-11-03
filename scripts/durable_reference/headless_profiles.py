@@ -100,26 +100,40 @@ def reference_view(value, parent):
     capture, resumed = value["capture"], value["resumed"]
     old = capture["task"]
     loaded = next(t for t in resumed["before"] if t["id"] == old["id"])
-    request = resumed["requests"][0]
     entry = capture["independent"]["observed"]["stored"]["entry"]
     prepared = value["id"] == "prepared-current"
     d.require(
         d.same(loaded["state"]["checkpoint"], old["state"]["checkpoint"]),
         "P16 reference checkpoint changed at reopen",
     )
+    if prepared:
+        # Release 1.5 (bridge U04) charges the attempt that was in flight at host
+        # death instead of resending it, so the prepared request's settings show
+        # only in the stored checkpoint, and no request carries a session.
+        d.require(not resumed["requests"], "P16 reference resent a prepared request")
+        checkpoint = old["state"]["checkpoint"]
+        model = [checkpoint["model"]["provider"], checkpoint["model"]["modelId"], None]
+        thinking, session = checkpoint.get("thinkingLevel"), None
+    else:
+        request = resumed["requests"][0]
+        model = [request["provider"], request["model"], request["api"]]
+        thinking = request["options"].get("reasoning")
+        session = (
+            bool(request["options"].get("sessionId"))
+            and resumed["provider"]["sessionId"] == request["options"]["sessionId"]
+        )
     return {
         "phase": old["state"]["checkpoint"]["phase"],
         "before_requests": len(capture["requests"]),
         "committed": d.same(old, capture["independent"]["observed"]["stored"]["task"]),
         "input": entry["model"][0]["content"],
         "loaded_phase": loaded["state"]["checkpoint"]["phase"],
-        "model": [request["provider"], request["model"], request["api"]],
-        "thinking": request["options"].get("reasoning"),
+        "model": model,
+        "thinking": thinking,
         "cutoff_consistent": old["state"]["checkpoint"]["cutoff"] == capture["entry"]
         if prepared
         else None,
-        "session_consistent": bool(request["options"].get("sessionId"))
-        and resumed["provider"]["sessionId"] == request["options"]["sessionId"],
+        "session_consistent": session,
         "unprepared_target": None
         if prepared
         else (
@@ -130,7 +144,7 @@ def reference_view(value, parent):
     }
 
 
-def policy_valid(reference, native, parent):
+def policy_valid(reference, native, parent, declared=(), used=None):
     """The prepared-target difference is checked explicitly, never called parity."""
     d = parent.d
     d.require(
@@ -138,18 +152,39 @@ def policy_valid(reference, native, parent):
         "P16 profile cases",
     )
     for pi, py in zip(reference, native, strict=True):
-        if not d.same(reference_view(pi, parent), native_view(py, parent)):
+        left, right = parent.o.contract.declared_mask(
+            {pi["id"]: reference_view(pi, parent)},
+            {py["id"]: native_view(py, parent)},
+            declared,
+            used,
+        )
+        if not d.same(left, right):
             return False
         resumed = pi["resumed"]
         generation = [t for t in resumed["after"] if t["kind"] == "pi.generation"]
-        if not generation or any(
-            t["state"]["status"] != "terminal"
-            or t["state"]["outcome"]["status"] != "completed"
-            for t in generation
-        ):
-            return False
-        if (
-            len(resumed["requests"]) != 1
+        if pi["id"] == "prepared-current":
+            # Release 1.5 (bridge U04): with retries off, the charged attempt ends
+            # the run interrupted and no request is sent on reopen.
+            if (
+                not generation
+                or resumed["requests"]
+                or any(
+                    t["state"]["status"] != "terminal"
+                    or t["state"]["outcome"]["status"] != "failed"
+                    or t["state"]["outcome"]["error"].get("detail")
+                    != {"reason": "interrupted"}
+                    for t in generation
+                )
+            ):
+                return False
+        elif (
+            not generation
+            or any(
+                t["state"]["status"] != "terminal"
+                or t["state"]["outcome"]["status"] != "completed"
+                for t in generation
+            )
+            or len(resumed["requests"]) != 1
             or resumed["requests"][0]["target"] != "https://fixture.invalid/current"
         ):
             return False

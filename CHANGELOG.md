@@ -643,6 +643,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The [pinned durable reference runner](docs/durable-reference.md) and every
+  comparison phase now execute Pi durable release 1.5.0 (`f9a26365`) instead of
+  1.4.0. The drivers use the 1.5 API, and every expected capture that 1.5
+  changes was replaced from an actual 1.5 run. Each comparison phase has a
+  recorded [disposition](docs/durable-reference.md#release-15-dispositions-r15-1b):
+  the restart parking and Product retry comparisons and the parked cases of four
+  more phases are withdrawn, because 1.5 removed parking and `retryTask()`, and
+  where native behavior has not caught up with 1.5 yet, a declared divergence
+  names the bridge slice that owns it. Native durable behavior is unchanged.
+
 - The [pinned durable reference runner](docs/durable-reference.md), its CI job
   and every comparison phase now require Node v26.13.0 with npm 11.20.0 instead
   of v26.12.0; one runtime pin in the reference contract replaces the literals

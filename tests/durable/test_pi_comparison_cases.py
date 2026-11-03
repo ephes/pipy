@@ -525,7 +525,7 @@ def test_actual_recovery_fixture_retains_policy_intersection_and_persisted_facts
         assert result["isError"] is not reruns
         assert result["details"] == {"run": 2 if reruns else 1}
         assert item["faux"]["callCount"] == 2 and len(item["requests"]) == 2
-        assert item["live"] == {} and item["close"]["reason"] == "closed"
+        assert item["live"] == {} and item["close"] == {"kind": "closed"}
         assert item["database"]["header"] == "SQLite format 3\0"
         assert any(fact["op"] == "advance" for fact in item["clock"])
         assert item["usage"]["models"]["faux/faux-1"]["cacheRead"] > 0
@@ -932,3 +932,56 @@ def test_empty_sidecar_is_outer_invalid_not_verified(tmp_path, monkeypatch, case
         == 2
     )
     assert not (output / case / "result.json").exists()
+
+
+def _declaration(**changes):
+    row = {
+        "id": "unit-divergence",
+        "owner": "R15-0",
+        "bridge": "U00",
+        "reason": "unit declaration",
+        "path": ("a", "x"),
+        "reference_sha256": contract.declared_digest(1),
+        "native_sha256": contract.declared_digest(2),
+    }
+    return row | changes
+
+
+def test_declared_divergence_masks_only_its_exact_pair():
+    rows = contract.declared_validate((_declaration(),))
+    reference = {"a": {"x": 1}, "b": [1, 2]}
+    native = {"a": {"x": 2}, "b": [1, 2]}
+    used: set[str] = set()
+    left, right = contract.declared_mask(reference, native, rows, used)
+    masked = {"declared_divergence": "unit-divergence"}
+    assert left == right == {"a": {"x": masked}, "b": [1, 2]}
+    assert used == {"unit-divergence"} and reference["a"]["x"] == 1
+    contract.declared_require(rows, used)
+    # Another value on either side stays visible and leaves the row unused.
+    for other in ({"a": {"x": 3}, "b": [1, 2]}, {"a": {"x": 2}, "b": [1, 2]}, {}):
+        used = set()
+        left, right = contract.declared_mask(other, native, rows, used)
+        assert not used and left == other and right == native
+        with pytest.raises(contract.EvidenceError, match="Stale declared divergence"):
+            contract.declared_require(rows, used)
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [_declaration()],
+        (_declaration(), _declaration()),
+        (_declaration(owner=""),),
+        (_declaration(reason=None),),
+        (_declaration(path=["a", "x"]),),
+        (_declaration(path=()),),
+        (_declaration(path=("a", True)),),
+        (_declaration(native_sha256=contract.declared_digest(1)),),
+        (_declaration(reference_sha256="0" * 63),),
+        (_declaration(extra=True),),
+        ({k: v for k, v in _declaration().items() if k != "bridge"},),
+    ],
+)
+def test_declared_divergence_rows_are_closed(rows):
+    with pytest.raises(contract.EvidenceError):
+        contract.declared_validate(rows)

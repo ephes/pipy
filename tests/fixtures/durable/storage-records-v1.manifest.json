@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "phase": "values-records-a1",
-  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
-  "baseline_manifest_sha256": "96f77150dcd438bb8096ac809b1a6a56111412e16cbab1bdbab1e29e51617b7a",
+  "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
+  "baseline_manifest_sha256": "34a8bfcc11c497be68db584d0ed8794c08fda1e7120e88dcd805789ede5373fb",
   "closure": {
-    "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
+    "scripts/durable_reference/cases/storage-records.mts": "8cadc1518c07707b4294dd40aa6a5acabc845d8cee5cfe38ab455304cb3011ff",
     "scripts/durable_storage_comparison.py": "209674ac88437d413d00945beb0f3d1e83875e65cf986e24ff70baa71e96be96",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/agent/tool_details.py": "92dc8388d8abc006d3638453e9f757bed5dab9b63f708d356d63aea6db8f4295",
@@ -19,7 +19,7 @@
   },
   "reference_sources": {
     "packages/chord/src/json.ts": "d3a115dde2afa8e79c987b0fb188ec0bdba03939192859a20198a23b2892bb60",
-    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
-    "packages/durable/src/types.ts": "eaa3a8a523bfdc00c15ec46454cbc121d9eeb1b8e176a02d9f75cc6fe982342b"
+    "packages/durable/src/storage/memory.ts": "f50981ee99bdf2a516dc0926a32dfaa3785ce88283d910ebad8abe2056abcd07",
+    "packages/durable/src/types.ts": "514bc5d2ab4acf583adb05646e448839c800c3ad9750136bd451ada0d58e3e49"
   }
 }

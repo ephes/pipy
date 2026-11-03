@@ -235,6 +235,9 @@ plus admission of an owned continuation. Active public resume joins that work;
 new-attempt authorization remains separate.
 Operational parking can delay valid receipt settlement without rewriting it.
 Product live settings and broader migration/ownership behavior remain deferred.
+Release 1.5 removed `retryTask()`, so R15-1b withdrew the pinned
+`task-product-retry-enable-v1` comparison, and bridge slice R15-2 removes
+`retry_task` (see the [restart parking](durable-restart-parking.md) page).
 The private scheduler setter is not a Product API; calling it through an internal
 scheduler is unsupported and does not change the Product constructor policy.
 

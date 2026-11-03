@@ -11,7 +11,8 @@ import {sep} from 'node:path';
 const root=realpathSync(process.cwd()),[inputPath,out]=process.argv.slice(2),resolutions:any[]=[];
 registerHooks({resolve(specifier,context,next){const result=next(specifier,context);if(!result.url.startsWith('node:')){const path=realpathSync(fileURLToPath(result.url));assert.ok(path.startsWith(root+sep));resolutions.push({specifier,path:path.slice(root.length+1)});}return result;}});
 const {Harness,createRegistry,defineExtension,defineTool}=await import('./packages/durable/src/index.ts');
-const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost,Type}=await import('@earendil-works/pi-ai');
+const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost}=await import('@earendil-works/pi-ai');
+const {obj,int,bool,opt}=await import('@earendil-works/pi-schema');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const {streamSimple:streamSimpleOpenAI}=await import('@earendil-works/pi-ai/api/openai-completions');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
@@ -43,7 +44,7 @@ for(const recipe of input.cases){
   };
   const value=Reflect.get(target,property,target);return typeof value==='function'?value.bind(target):value;
  }});
- function registry(missing=false){const registry=createRegistry();if(!missing)registry.install(defineExtension({name:'fixture.details',tools:[defineTool({name:'value',description:'value',parameters:Type.Object({x:Type.Integer(),prepared:Type.Optional(Type.Boolean())}),replay:'safe',prepareArguments(args:any){effects.prepares.push(structuredClone(args));return {...args,prepared:true};},async execute(args:any){effects.calls.push(structuredClone(args));return {output:[{type:'text',text:'actual:value'}],...(Object.hasOwn(recipe,'details')?{details:structuredClone(recipe.details)}:{})};}})]}));return registry;}
+ function registry(missing=false){const registry=createRegistry();if(!missing)registry.install(defineExtension({name:'fixture.details',tools:[defineTool({name:'value',description:'value',parameters:obj({x:int(),prepared:opt(bool())}),replay:'safe',prepareArguments(args:any){effects.prepares.push(structuredClone(args));return {...args,prepared:true};},async execute(args:any){effects.calls.push(structuredClone(args));return {output:[{type:'text',text:'actual:value'}],...(Object.hasOwn(recipe,'details')?{details:structuredClone(recipe.details)}:{})};}})]}));return registry;}
  async function open(missing=false){return Harness.open(await openNodeSqliteStorage(path),{models,registry:registry(missing),now:()=>1000,settings:{retry:{enabled:false},compaction:{enabled:false}}},ctx);}
  let harness=await open(),conversation=await harness.root(ctx,{agent:{model:{provider:'openai',modelId:'gpt-test'}}});const cid=conversation.id;
  const submission=await conversation.submit({type:'input',content:'input',whenBusy:'reject'},ctx);await submission.wait(ctx);await harness.waitForIdle(ctx);

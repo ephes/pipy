@@ -2,7 +2,8 @@
  * Pi MIT Copyright (c) 2025 Mario Zechner; see UPSTREAM-LICENSE.txt. */
 import assert from "node:assert/strict";
 import { BACKGROUND_CONTEXT as context } from "@earendil-works/chord/context";
-import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall, Type } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { obj, opt, str } from "@earendil-works/pi-schema";
 import { Harness } from "../../packages/durable/src/harness/harness.ts";
 import { createRegistry } from "../../packages/durable/src/harness/registry.ts";
 import { defineExtension, defineTool } from "../../packages/durable/src/harness/define.ts";
@@ -10,6 +11,7 @@ import { LiveDoc } from "../../packages/durable/src/harness/live.ts";
 import { ProviderDoc } from "../../packages/durable/src/harness/provider.ts";
 import { UsageDoc } from "../../packages/durable/src/harness/usage.ts";
 import { MemoryStorage } from "../../packages/durable/src/storage/memory.ts";
+import { reportValue } from "../contract.mts";
 export async function run(input: any) {
   const faux = fauxProvider({ api: input.api, tokenSize: { min: 64, max: 64 } });
   const models = createModels(); models.setProvider(faux.provider);
@@ -17,7 +19,7 @@ export async function run(input: any) {
   const invocations: unknown[] = [], requests: unknown[] = [], reports: unknown[] = [];
   registry.install(defineExtension({ name: "fixture.echo", tools: [defineTool({
     name: input.tool_name, description: input.tool_description,
-    parameters: Type.Object({ text: Type.Optional(Type.String()) }),
+    parameters: obj({ text: opt(str()) }),
     execute: async (args, api, callContext) => {
       invocations.push(structuredClone(args));
       await api.details(input.progress_details, callContext);
@@ -34,10 +36,7 @@ export async function run(input: any) {
     return response;
   }));
   const harness = await Harness.open(new MemoryStorage(), { models, registry,
-    now: () => input.clock_epoch_ms, onReport: error => {
-      reports.push(error instanceof Error ? { name: error.name, message: error.message,
-        ...(Object.hasOwn(error, "code") ? { code: (error as any).code } : {}) } : error);
-    } }, context);
+    now: () => input.clock_epoch_ms, onReport: report => { reports.push(reportValue(report)); } }, context);
   let observed: any;
   try {
     const root = await harness.root(context, { agent: { model: { provider: "faux", modelId: "faux-1" } } });
@@ -62,7 +61,7 @@ export async function run(input: any) {
     assert.deepEqual(history[3].data, { diagnostics: [] }); assert.ok(history[3].byTaskId);
     const system = history[1].model![0] as any;
     assert.deepEqual(system.toolsAdded, [{ name: input.tool_name, description: input.tool_description,
-      parameters: Type.Object({ text: Type.Optional(Type.String()) }) }]);
+      parameters: obj({ text: opt(str()) }) }]);
     assert.deepEqual(invocations, [input.tool_arguments]);
     observed = { submission, history, tasks: tasks.items, invocations, requests, provider,
       usage, sessionUsage, live, reports, faux: structuredClone(faux.state) };

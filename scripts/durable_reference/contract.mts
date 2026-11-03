@@ -54,6 +54,13 @@ export function errorValue(error: unknown): any {
     ...(Object.hasOwn(error, "cause") ? { cause: errorValue(error.cause) } : {}) };
 }
 
+/** A release 1.5 `onReport` argument: its tagged info, with the reported error as an
+ * explicit DTO when it is an Error. */
+export function reportValue(report: any): any {
+  const { error, ...about } = report;
+  return { ...about, error: error instanceof Error ? errorValue(error) : error };
+}
+
 /** harness-sleep.test.ts fakeTimers/controlled clock adapted to auto-fire queued
  * foreground callbacks only; no global clock or wall-time sleep. */
 export function fixtureClock(epoch: number) {

@@ -11,7 +11,8 @@ import {sep} from 'node:path';
 const root=realpathSync(process.cwd()),[inputPath,out]=process.argv.slice(2),resolutions:any[]=[];
 registerHooks({resolve(specifier,context,next){const result=next(specifier,context);if(!result.url.startsWith('node:')){const path=realpathSync(fileURLToPath(result.url));assert.ok(path.startsWith(root+sep));resolutions.push({specifier,path:path.slice(root.length+1)});}return result;}});
 const {Harness,createRegistry,defineExtension,defineTool,LiveDoc}=await import('./packages/durable/src/index.ts');
-const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost,Type}=await import('@earendil-works/pi-ai');
+const {createModels,fauxProvider,fauxAssistantMessage,fauxToolCall,calculateCost}=await import('@earendil-works/pi-ai');
+const {obj,int,bool,opt}=await import('@earendil-works/pi-schema');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
 const {streamSimple:streamSimpleOpenAI}=await import('@earendil-works/pi-ai/api/openai-completions');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
@@ -48,7 +49,7 @@ for(const recipe of input.cases){
   const registry=createRegistry();
   const names=mode==='missing'?['later','unused']:['later','keyed','unused'];
   if(mode!=='empty')registry.install(defineExtension({name:'fixture.interrupted',tools:names.map(name=>defineTool({
-   name,description:'fixture '+name,parameters:Type.Object({x:Type.Integer(),prepared:Type.Optional(Type.Boolean())}),replay:name==='keyed'?recipe.stored:'unsafe',
+   name,description:'fixture '+name,parameters:obj({x:int(),prepared:opt(bool())}),replay:name==='keyed'?recipe.stored:'unsafe',
    prepareArguments(args:any){effects.prepares.push(structuredClone(args));return {...args,prepared:true};},
    async execute(args:any,api:any,callContext:any){
     effects.calls.push(structuredClone(args));api.output('retained output');api.diagnostic({severity:'warn',message:'committed diagnostic',code:'fixture'});

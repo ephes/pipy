@@ -5,6 +5,12 @@ parking and `retryTask()`: a task cut off at the restart limit now ends visibly
 instead. This page describes the delivered 1.4-aligned behavior. Bridge slice
 R15-2 replaces parking, `retry_task` and `pipy durable retry-task` with those
 endings; see the [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md#r15-2-restart-limit-endings-instead-of-parking-and-retry).
+Bridge slice R15-1b withdrew the pinned comparisons of this behavior, which have
+no 1.5 reference: the phases `restart-parking-v1` and
+`task-product-retry-enable-v1` and the parked cases of the migration, live
+policy and orphan phases (see the
+[dispositions](durable-reference.md#release-15-dispositions-r15-1b)). The native
+tests keep it until R15-2.
 
 The native scheduler parks a recovered task after five consecutive restarts
 without a structurally changed task checkpoint. Parking prevents the next

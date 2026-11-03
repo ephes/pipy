@@ -158,6 +158,10 @@
                   "type": "object",
                   "entries": [
                     [
+                      "kind",
+                      "stored"
+                    ],
+                    [
                       "seq",
                       5
                     ],
@@ -259,6 +263,10 @@
                 {
                   "type": "object",
                   "entries": [
+                    [
+                      "kind",
+                      "stored"
+                    ],
                     [
                       "seq",
                       6
@@ -625,7 +633,7 @@
               "type": "object",
               "entries": [
                 [
-                  "reason",
+                  "kind",
                   "closed"
                 ]
               ]

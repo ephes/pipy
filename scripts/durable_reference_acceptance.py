@@ -119,6 +119,25 @@ MODULES = [
     "packages/durable/src/testing/storage-benchmark.ts",
     "packages/durable/src/storage/memory.ts",
 ]
+# Comparison phases retired with the release 1.5 re-pin (bridge R15-1): their
+# upstream surface is gone at the pinned release. Each phase manifest is
+# replaced by this closed record; the phase's 1.4 receipts stay historical.
+RETIRED_REASON = (
+    "Pi durable release 1.5.0 removed restart parking, Harness.retryTask() and the"
+    " restart_limit blocked reason (bridge U01)"
+)
+RETIRED = {
+    phase: {
+        "schema_version": 1,
+        "phase": phase,
+        "status": "retired",
+        "retired_by": "R15-1b",
+        "reason": RETIRED_REASON,
+        "last_reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+        "successor": "R15-2",
+    }
+    for phase in ("restart-parking-v1", "task-product-retry-enable-v1")
+}
 
 
 def require(ok: bool, label: str, c: Any) -> None:
@@ -202,6 +221,12 @@ def manifest(
         "Missing workload source provenance",
         c,
     )
+    for phase, record in RETIRED.items():
+        require(
+            load(fixtures / (phase + ".manifest.json")) == record,
+            "Retired phase record drift",
+            c,
+        )
 
 
 LEDGER = "docs/specs/2026-10-19-durable-execution-evidence.md"
@@ -461,8 +486,8 @@ def de_current(row: Any, c: Any) -> None:
         "DE13a": ["normal-details-v1"],
         "DE13b": ["retained-tool-reporting-v1"],
         "DE13c1": ["interrupted-tool-continuation-v1"],
-        "DE14a": ["restart-parking-v1"],
-        "DE14a1": ["task-product-retry-enable-v1"],
+        "DE14a": [],
+        "DE14a1": [],
         "DE14b1": ["task-migration-cold-v1"],
         "DE14b2": ["restart-policy-live-v1"],
         "DE14b3": ["task-definition-publication-idle-v1"],
@@ -711,8 +736,6 @@ def coverage(value: Any, root: Path, c: Any) -> None:
                 | ({"normal-details-v1"} if key == "DE13a" else set())
                 | ({"retained-tool-reporting-v1"} if key == "DE13b" else set())
                 | ({"interrupted-tool-continuation-v1"} if key == "DE13c1" else set())
-                | ({"restart-parking-v1"} if key == "DE14a" else set())
-                | ({"task-product-retry-enable-v1"} if key == "DE14a1" else set())
                 | ({"task-migration-cold-v1"} if key == "DE14b1" else set())
                 | ({"restart-policy-live-v1"} if key == "DE14b2" else set())
                 | (

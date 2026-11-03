@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "phase": "session-guard-b1b-v1",
-  "reference_commit": "4a080252f06caf63a525d7873c5d94d3c23887e0",
-  "baseline_manifest_sha256": "96f77150dcd438bb8096ac809b1a6a56111412e16cbab1bdbab1e29e51617b7a",
-  "a1_manifest_sha256": "e0fecf02f1a94ca7ee446250477a143a8e9552b95ee556678d79aaf33e251944",
-  "a2b_manifest_sha256": "29c2b1da1b02436cfa22326a96b5daa3f1e565ffa2d619aba4d38d68c7aa3ec1",
+  "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
+  "baseline_manifest_sha256": "34a8bfcc11c497be68db584d0ed8794c08fda1e7120e88dcd805789ede5373fb",
+  "a1_manifest_sha256": "959ff2f395546d7426853095b60e1390c266b9e0a5abf1df85d484cd3a6f184f",
+  "a2b_manifest_sha256": "83553dcfbb2e9d3c86ecdd826a50e5d8ec9306014d59725c94f370e6f73f5520",
   "scope": "Bounded guard/lifecycle comparison only: pinned SessionImpl GuardedStorage via a driver subclass (guarded getter, recorded report) versus private native SessionLifecycle/GuardedStorage, each over its real Memory backend. Not compared: the Pi window between session.close() and its later line-job guard seal (DE02b2 Session line), report versus outcome publication order for a healthy close failure, Python-only BaseException handling, non-Error JS throw values, Harness safeReport and close listeners. Node closes only through SessionImpl.close; Pi GuardedStorage.close is not close-once, so native facade close-once is the owner's role, not a Pi guard claim. No Session line, Tx, product or P closure.",
   "closure": {
     "scripts/durable_memory_comparison.py": "29e1ec8be55d79167327c5acc2fc14810de0e7c046e8cc427434c4031f1f19d8",
-    "scripts/durable_reference/cases/session-guard.mts": "2fbb91ff018d37e1459f9258cb923358bd75a2791a9eeb793e0f01b2f98ec4fc",
-    "scripts/durable_reference/cases/storage-memory.mts": "a0d6cf477c8388f8ad3f73d29e43111b4f5d07f65f2e3ba0bb5540462be878df",
-    "scripts/durable_reference/cases/storage-records.mts": "f9e6b9a23663f452b4a441cc624ed89ef9b184b7e9d355fb9c254b37b8542489",
-    "scripts/durable_session_guard_comparison.py": "4e6786a6045b999631be9e65e037d22128ddd8b4682b7b0758a5fd3cd4d7d585",
+    "scripts/durable_reference/cases/session-guard.mts": "c6ad448159d4aa3326f379174ed84cf5ca9046d0b0e837b822f3845e74c3e3d0",
+    "scripts/durable_reference/cases/storage-memory.mts": "98419e03157975c37cac3d84c91aaed11ef9bab789394e3269aba46e08a06207",
+    "scripts/durable_reference/cases/storage-records.mts": "8cadc1518c07707b4294dd40aa6a5acabc845d8cee5cfe38ab455304cb3011ff",
+    "scripts/durable_session_guard_comparison.py": "69fc07ff6565e9e505317f4a10bbfccd6dd6658c9524061387edfe2c86cdf32e",
     "scripts/durable_storage_comparison.py": "209674ac88437d413d00945beb0f3d1e83875e65cf986e24ff70baa71e96be96",
     "src/pipy_harness/native/agent/json_values.py": "0e24fc9412146d31ba9ba75585d32d164a69be49d9f9f2fd08d16b148a2958b3",
     "src/pipy_harness/native/agent/tool_details.py": "92dc8388d8abc006d3638453e9f757bed5dab9b63f708d356d63aea6db8f4295",
@@ -27,23 +27,24 @@
     "tests/durable/test_memory_comparison.py": "eaaf0f55edf809ee4cd3a494fb95b0541a9d21e211cd126d8941850988c73177",
     "tests/durable/test_memory_storage.py": "49cf0dad541a8ca28c7e5962d60226bdd12dbc69ff45e52f2c6591f0ca97b736",
     "tests/durable/test_records.py": "0bd8d39c1f97cf7287ea8a2b648d402efaf1e746fd8066d2d6292f4f8f2c7735",
-    "tests/durable/test_session_guard_comparison.py": "b0d1f0321e14f269dfb34553499ad2e7ad266639df892f9c7472a947d5279a1d",
+    "tests/durable/test_session_guard_comparison.py": "b353466d658dc61a5ea56fef60179de188574607dd24cecce1cca321becca2a3",
     "tests/durable/test_session_storage_guard.py": "19f4c7bcc826db7e8fc892c31cc36b1d519266eab5a38ff45f25d1c329ae7174",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
-    "tests/fixtures/durable/session-guard-v1.input.json": "e8c76be43003eab55b12a0982bd7d5af631e4c7f5d1087f8807663f2744f4442",
+    "tests/fixtures/durable/session-guard-v1.input.json": "6e420df9fe0508ed3156fb00022c1e6d6ca5ddb008e2e8767ac9f720c6d71b48",
     "tests/fixtures/durable/storage-memory-v1.input.json": "28c1d6342195e50c0f4df954ebe519ecbab410e4793d55cdc3fdbadf5c6e765c",
-    "tests/fixtures/durable/storage-records-v1.input.json": "ec4b33e0e105944863a75f9183fa2c117ffc6bbd762fa3ae379a5bb935ca9adc"
+    "tests/fixtures/durable/storage-records-v1.input.json": "ec4b33e0e105944863a75f9183fa2c117ffc6bbd762fa3ae379a5bb935ca9adc",
+    "tests/fixtures/durable/session-guard-v1.divergences.json": "7efee8391bdd833145febdeda30c950afe0862b40e5078c46ea98ca5bfa4e8f1"
   },
   "reference_sources": {
-    "packages/chord/src/context/index.ts": "2e0b3d7f97357c4ed836fd6b1ce0a097b87c89340801a58966c692135597e981",
-    "packages/durable/src/errors.ts": "f2212d6d097af81e87af88553e7f474d54fc88041255b7bb4b42701df178a04d",
-    "packages/durable/src/session/session.ts": "cc0e6af2159b5e746bee809c478a4f3946573b97314c9c6995e8ab3d690a9186",
-    "packages/durable/src/storage/memory.ts": "0732bf44b27d80d43dd2c6ac642e5fa029d321c63da9e3e7a9fcbc234fb35cb2",
+    "packages/chord/src/context/index.ts": "fb68a9ad4d1d894b215148eb151cd86415dde8d12fc126d2783c28143b12f126",
+    "packages/durable/src/errors.ts": "69e92283781e2cccbb0d5f567b3b2213c862a429a1ca2e9a3c991344a492b52b",
+    "packages/durable/src/session/session.ts": "85d360ee99864db1ed6cc23138bd6b0f2652de71ac3bb1b18abc670b4088ef11",
+    "packages/durable/src/storage/memory.ts": "f50981ee99bdf2a516dc0926a32dfaa3785ce88283d910ebad8abe2056abcd07",
     "packages/durable/src/storage/scan.ts": "5982cf5a390987c196d074bef35f170c7d3fb6b552b0bba056792d661eb2b881",
-    "packages/durable/src/types.ts": "eaa3a8a523bfdc00c15ec46454cbc121d9eeb1b8e176a02d9f75cc6fe982342b"
+    "packages/durable/src/types.ts": "514bc5d2ab4acf583adb05646e448839c800c3ad9750136bd451ada0d58e3e49"
   },
   "upstream_tests": {
-    "packages/durable/test/harness-storage-failure.test.ts": "3d188ed3d18367cf0b66a627072a96f2a482b50c6574fe1dfadbe53551180d2f",
-    "packages/durable/test/session-support.ts": "0cb2b3a2c139cb283a1141e164993001a43a0c9938de293951f907997b55c863"
+    "packages/durable/test/harness-storage-failure.test.ts": "cbbcb8dca65ff8fd97abd51afe8298760fe407dac9f9ef97cc8aa577e937fd2c",
+    "packages/durable/test/session-support.ts": "bfa32d6f0cf7427c94b0933fdca72cfe95cdc40b8616e913aca19e133a6e428b"
   }
 }

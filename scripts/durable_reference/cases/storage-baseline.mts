@@ -1,6 +1,7 @@
 /** Verification-only bounded workload adapter, Pi MIT (c) 2025 Mario Zechner.
  * Adapts packages/durable/{src/testing/storage-benchmark.ts,test/storage.bench.ts,
- * test/storage-memory.ts} at 2ec55d808d455b1a64a2bf7888198207a096120a.
+ * test/storage-memory.ts}, first at 2ec55d808d455b1a64a2bf7888198207a096120a and
+ * now at release 1.5.0, whose Storage.commit takes batches and a receipt callback.
  * Full notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. */
 import assert from "node:assert/strict";
 import { cpus, totalmem, platform, release, arch } from "node:os";
@@ -28,12 +29,13 @@ async function sample(scenario: typeof writes[number], id: number) {
     assert.equal(before.items.length, 100); assert.equal(before.next, undefined);
     const commits: any[] = [];
     const commit = storage.commit.bind(storage);
-    storage.commit = async (batch, ctx) => {
-      const seq = await commit(batch, ctx);
+    storage.commit = async (batches, receive, ctx) => {
       // Transparent delegate: no cloning/readback in the measured span. Its
-      // one completed-commit append is explicitly part of this adapter's cost.
-      commits.push({seq, writes: batch});
-      return seq;
+      // one append per stored batch is explicitly part of this adapter's cost.
+      return commit(batches, (index, seq) => {
+        commits.push({seq, writes: batches[index]});
+        receive(index, seq);
+      }, ctx);
     };
     const start = performance.now();
     const actual = await scenario.run(storage);
