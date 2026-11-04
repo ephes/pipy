@@ -710,6 +710,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   effort behavior are unchanged; twelve behavior-dependent differences remain
   explicitly deferred in the catalog triage.
 
+### Removed
+
+- `pipy durable retry-task`, the durable SDK's `DurableProductSession.retry_task()`
+  with its `DurableTaskRetry` acknowledgement, and the `continuation_failed`
+  error code are removed, because Pi durable release 1.5 removed same-task
+  retry. Parked durable work runs again on a later `resume` with a higher
+  `--restart-limit` (SDK `restart_limit`) or `Infinity`, which the five
+  remaining durable commands accept. New-attempt authorization with
+  `authorize-retry` is unchanged. See
+  [restart parking](docs/durable-restart-parking.md).
+
 ### Fixed
 
 - Keep durable `resume()` errors within the public SDK boundary when explicit

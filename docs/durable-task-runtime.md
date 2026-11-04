@@ -101,7 +101,7 @@ uses a fresh Session and scheduler.
 
 After open, private `set_restart_limit(value)` / `await aset_restart_limit(value)`
 publish a policy without durable writes, counter reset, wake or enable. Each
-reservation, retry and owner inspection uses one snapshot on the Session line.
+reservation and owner inspection uses one snapshot on the Session line.
 Explicit `resume()` requests a pass; see [publication and lifecycle semantics](durable-restart-parking.md#private-owner-local-publication-de14b2).
 
 A phase receives `(current_task, runtime, context)`. `await runtime.commit(change)`
@@ -165,7 +165,7 @@ observer writer, general retry/migration or graph engine is introduced.
 
 The opt-in [DE11 async product session](durable-product-session.md) now composes
 this existing native authority. It admits one input atomically, executes only
-on explicit resume or admitted same-task retry, and closes through actual Session ownership. Python
+on explicit resume, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
@@ -173,10 +173,9 @@ acceptance remain DE12. Broader parity obligations remain OPEN.
 
 ## Bounded restart parking (DE14a)
 
-[Restart parking and same-task reset](durable-restart-parking.md) add an immutable
-per-owner default-five ceiling and allowlisted inspection metadata. Public retry
-requires existing profile/selection/ownership admission and acknowledges reset
-plus admission of an owned continuation. Active public resume joins that work;
+[Restart parking](durable-restart-parking.md) adds an immutable per-owner
+default-five ceiling and allowlisted inspection metadata. Bridge slice R15-2a
+removed the public same-task reset (release 1.5 removed `retryTask()`);
 new-attempt authorization remains separate.
 Operational parking can delay valid receipt settlement without rewriting it.
 Live settings and broader migration/ownership behavior remain deferred.

@@ -154,7 +154,7 @@ revision or a cross-store capability; no Session identity or lease is bypassed.
 
 The opt-in [DE11 async product session](durable-product-session.md) now composes
 this existing native authority. It admits one input atomically, executes only
-on explicit resume or admitted same-task retry, and closes through actual Session ownership. Python
+on explicit resume, and closes through actual Session ownership. Python
 activation does not activate the CLI or change legacy defaults. Full private
 target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
@@ -176,11 +176,10 @@ resume never replaces the existing operator-new-key authorization contract.
 
 ## Bounded restart parking (DE14a)
 
-[Restart parking and same-task reset](durable-restart-parking.md) add a
-default-five host ceiling and allowlisted inspection metadata. Public retry
-requires existing profile/selection/ownership admission and acknowledges reset
-plus admission of an owned continuation. Active public resume joins that work;
-new-attempt authorization remains separate.
+[Restart parking](durable-restart-parking.md) adds a default-five host ceiling
+and allowlisted inspection metadata. Bridge slice R15-2a removed the public
+same-task reset (release 1.5 removed `retryTask()`); new-attempt authorization
+remains separate.
 Operational parking can delay valid receipt settlement without rewriting it.
 Public live settings and broader migration/ownership behavior remain deferred.
 The private DE14b2 setter publishes a new owner policy; same-owner inspection

@@ -812,19 +812,6 @@ class TaskScheduler:
                 raise SessionFailed(failure) from failure
             raise
 
-    def _retry_ready(self) -> None:
-        with self._guard:
-            closed = (
-                self._owner._line_sealed
-                or self._owner._failure is not None
-                or self._host_done
-            )
-            opened = self._opened
-        if closed:
-            raise SessionClosedError()
-        if not opened:
-            raise RuntimeError("Open the scheduler before retry")
-
     def _publish_restart_policy(self, policy: RestartPolicy) -> bool:
         def publish() -> bool:
             with self._guard:
@@ -970,50 +957,6 @@ class TaskScheduler:
         self._session._refuse_reentry("aorphan_missing_migration")
         owned_id = safe_integer(task_id)
         return await owned_call(lambda: orphan(self, owned_id, "missing_migration"))
-
-    async def aretry(self, task_id: int) -> bool:
-        """Clear a parked task's current streak, then enable after success."""
-        self._session._refuse_reentry("aretry")
-        safe_integer(task_id)
-        self._retry_ready()
-
-        async def retry_owned() -> bool:
-            async def change(tx: AsyncTx) -> bool:
-                self._retry_ready()
-                with self._guard:
-                    policy = self._restart_policy
-                record = await tx.task(task_id)
-                if record is None:
-                    raise ValueError("Unknown task")
-                cleared = policy.cleared(cast(Tree, record.to_tree()))
-                if cleared is not None:
-                    tx.set_task(cleared)
-                return cleared is not None
-
-            changed: bool = await self._session.acommit(change)
-            with self._guard:
-                if (
-                    not self._owner._line_sealed
-                    and self._owner._failure is None
-                    and not self._host_done
-                ):
-                    self._enabled = True
-            self._notify()
-            return changed
-
-        work = retry_owned()
-        try:
-            future = asyncio.run_coroutine_threadsafe(work, self._loop)
-        except BaseException:
-            work.close()
-            raise
-        waiting = asyncio.wrap_future(future)
-        waiting.add_done_callback(_observed)
-        return await asyncio.shield(waiting)
-
-    def retry(self, task_id: int) -> bool:
-        _off_loop("retry", "aretry")
-        return asyncio.run(self.aretry(task_id))
 
     def inspect(self) -> tuple[TaskRecord, ...]:
         """One immutable committed revision; record trees detach on access."""

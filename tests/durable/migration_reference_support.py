@@ -196,12 +196,10 @@ def _exercise(recipe, folder, owned):
     inspection_open = info(scheduler)
     with lock:
         calls_at_open = len(calls) + len(handlers) + len(second)
-    if recipe["parked"]:
-        assert inspection_open["restart_parked"]
-        private_retry_return = scheduler.retry(task_id)
-    else:
-        private_retry_return = None
-        scheduler.resume()
+    # Release 1.5 removed parking and retryTask; the parked case is retired (R15-1b).
+    assert not recipe["parked"]
+    private_retry_return = None
+    scheduler.resume()
     blocked = recipe["blocked"] is not None
     if blocked:
         _wait(lambda: info(scheduler)["reason"] == recipe["blocked"])

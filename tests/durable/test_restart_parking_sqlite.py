@@ -65,9 +65,7 @@ if cut == "reservation":
             stop_at("reservation")
     sqlite._after_commit = after
 action = command()
-if action == "retry":
-    say("reset", changed=scheduler.retry(tid))
-elif action == "go":
+if action == "go":
     scheduler.resume()
 else:
     assert action == "close"

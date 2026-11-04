@@ -86,8 +86,8 @@ provider/material guards or authorize replay.
 ## Output, signals and physical lifetime
 
 For start/resume, `--format text` prints the final completed assistant text;
-`--format json` emits the completed envelope. Inspect, authorize-retry,
-adjudicate-interrupted and retry-task always
+`--format json` emits the completed envelope. Inspect, authorize-retry and
+adjudicate-interrupted always
 emit their closed JSON report, including when `--format text` is supplied.
 JSON run format version2
 emits `pipy-durable-output`: committed completed messages/rounds, saved usage,
@@ -138,33 +138,18 @@ retain their no-creation contract. See [storage](session-storage.md) and
 
 ## Restart parking
 
-All six durable commands accept `--restart-limit`, defaulting to `5` for that
+All five durable commands accept `--restart-limit`, defaulting to `5` for that
 owner. Use exact `Infinity` to disable parking. A finite JSON-number argument is
 parsed as binary64 and floored when at least one; invalid numeric syntax and
 overflow refuse. This intentionally rounds `9007199254740993` to
 `9007199254740992`, whereas that nonexact raw Python integer defaults to five
 through the SDK. Limits are not persisted or changed live.
 
-```bash
-pipy durable retry-task --store ./run.sqlite --workspace . \
-  --provider openai-codex --model gpt-6.1-sol --no-tools \
-  --target-task 8 --restart-limit 5 --format json
-```
-
-The command acknowledges reset/admission internally, owns its exact continuation,
-and waits for selected terminal/held result plus physical cleanup before writing
-its report. Its version1 operator envelope includes `task_id`, `reset` and a
-version2 `run` result; `--format text` still emits this JSON envelope. A matching
-profile and any existing `--task`/`--resolution-nonce` selection remain required.
-Those options never select the reset target. A cold surviving running task first
-needs explicit resume recovery; retry does not recover it implicitly.
-
-Only `retry-task` delays its result output this way. A latched
-`continuation_failed` forbids would-be success/held output. Cleanup does not mask
-an already failing body or signal with the duplicate latch, while an actual
-native cleanup failure retains fatal priority. Other commands retain their
-existing output timing. See [restart parking](durable-restart-parking.md) and
-[Product close errors](durable-product-session.md#retry-continuation-and-close-errors).
+There is no `retry-task` command. Release 1.5 removed same-task retry, and
+bridge slice R15-2a removed the command together with the SDK `retry_task`. Run
+parked work again with a higher `--restart-limit`, or with `Infinity`, on a
+later `resume`. Bridge slice R15-2 replaces parking itself with visible
+restart-limit endings; see [restart parking](durable-restart-parking.md).
 
 ## Evidence and remaining scope
 

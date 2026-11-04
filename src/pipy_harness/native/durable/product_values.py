@@ -54,7 +54,6 @@ class DurableProductError(ValueError):
             "not_supported",
             "receipt_held_needs_repair",
             "retained_control",
-            "continuation_failed",
         }
         self.code = code if type(code) is str and code in allowed else "unavailable"
         super().__init__("Durable product unavailable: " + self.code)
@@ -77,22 +76,6 @@ class DurableAdmission:
     conversation_id: int
     entry_id: int
     generation_task_id: int
-
-
-@dataclass(frozen=True, slots=True)
-class DurableTaskRetry:
-    """Reset/admission ACK; neither a new attempt nor a completion result."""
-
-    task_id: int
-    reset: bool
-
-    def __post_init__(self) -> None:
-        product_task_id(self.task_id)
-        if type(self.reset) is not bool:
-            raise DurableProductError("invalid_request")
-
-    def to_tree(self) -> dict[str, int | bool]:
-        return {"task_id": self.task_id, "reset": self.reset}
 
 
 @dataclass(frozen=True, slots=True)

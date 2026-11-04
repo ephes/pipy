@@ -33,8 +33,8 @@ An ordinary callback/validation failure leaves that generic task unchanged and i
 remembered for the source/captured definition binding in this owner. The same transaction
 continues scanning later candidates and preserves legitimate earlier kernel
 reconciliation. No unrelated wake is required to run eligible work behind the
-failed task. Repeated resume, inspect, notifications and same-task reset do not
-retry that failed definition. Fresh owners may attempt their own definition.
+failed task. Repeated resume, inspect and notifications do not retry that
+failed definition. Fresh owners may attempt their own definition.
 
 Backend failure remains infrastructure failure. Before commit, the old task is
 authoritative; COMMIT-then-raise may leave a migrated running task with no handler

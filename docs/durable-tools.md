@@ -361,9 +361,10 @@ execute rejects an invalid present restart source before public scheduler writes
 and revalidates it at the receipt transaction. A valid saved receipt settles with
 its own counters unchanged; subsequent restart metadata cannot replace that
 first winner. The separate [restart ceiling](durable-restart-parking.md) can park
-its dispatch without invalidating it. Reset discards the current budget
-observation: a newly created interrupted receipt after reset records null for
-the now-missing restart count, never invented zero or the discarded old value. Invalid or opaque receipt/progress authority never permits
+its dispatch without invalidating it. No operation resets the current budget
+observation (bridge slice R15-2a removed same-task reset), so a newly created
+interrupted receipt records the current streak, or null when the task has none,
+never an invented zero. Invalid or opaque receipt/progress authority never permits
 synthesis. Missing historical progress yields absent details and empty output.
 
 Public resume admits changed or missing tools only for a closed noninvoking

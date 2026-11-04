@@ -376,6 +376,24 @@ every phase:
   the Product, headless and inspection guides and the release notes. P07 and P21
   remain OPEN.
 
+R15-2 lands as three reviewed commits; together they carry the whole acceptance
+above:
+
+- **R15-2a, same-task retry removal.** The Product and SDK `retry_task` with
+  `DurableTaskRetry`, its `continuation_failed` latch and error code, `pipy
+  durable retry-task` and the private scheduler retry are removed, without
+  deprecation shims. Resume keeps its run ownership and close semantics.
+  Parking itself stays until R15-2c: until then a fresh owner with a higher
+  limit, or the private DE14b2 setter, runs parked work again.
+- **R15-2b, built-in restart-limit endings.** The native `pi.tool` and
+  `pi.generation` phases check the count when they start and end themselves at
+  the limit as described above, and parking no longer applies to these kinds.
+- **R15-2c, generic restart-limit fault.** A generic task at the limit ends
+  `faulted` with detail `{ reason: "restart_limit" }` when the scheduler reserves
+  it; parking, `restart_parked` and the `restart_limit` hold reason are removed;
+  the successors of the withdrawn comparison cases are added from actual 1.5
+  runs; and the restart parking guide becomes the restart-limit guide.
+
 ### R15-3: batch Storage commit
 
 - The Storage port's `commit` takes batches and a receipt callback and returns

@@ -40,10 +40,3 @@ class RestartPolicy:
             and "restarts" in row
             and row["restarts"] >= self.limit
         )
-
-    def cleared(self, row: dict[str, Any]) -> dict[str, Any] | None:
-        if not self.parked(row):
-            return None
-        result = dict(row)
-        del result["restarts"]
-        return result

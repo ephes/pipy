@@ -1186,11 +1186,10 @@ existing lifecycle/affinity guards, without a new Storage API or second commit.
 
 [Restart parking](durable-restart-parking.md) reuses the task record's existing
 numeric `restarts` field. Its immutable per-owner ceiling is not a stored header
-or configuration field, and parking does not write a new status. Same-task reset
-removes the current field in one normal Session transaction; it creates no
-receipt, nonce or cumulative audit. A later interrupted receipt records a
-missing current streak as null/unknown. Existing receipt payloads and historical
-attempt evidence remain unchanged. Operational ceilings apply before dispatch,
+or configuration field, and parking does not write a new status. No operation
+removes the current field: bridge slice R15-2a removed same-task reset, which
+release 1.5 no longer has. Existing receipt payloads and historical attempt
+evidence remain unchanged. Operational ceilings apply before dispatch,
 including receipt settlement; decision-only C2 replay remains separately valid.
 
 

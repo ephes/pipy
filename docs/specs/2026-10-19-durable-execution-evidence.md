@@ -9312,10 +9312,13 @@ which holds only DE rows:
 - R15-1 reference re-pin, in two commits (see the bridge). R15-1a, the runtime
   re-pin, was delivered at `63cd965a7da792376d77fdc1260c1ca3a715273e`, remote
   main verified, and is recorded [below](#r15-1a-runtime-re-pin-2026-11-03).
-  R15-1b, the release 1.5.0 pin, is recorded
-  [below](#r15-1b-release-150-pin-2026-11-03); its review result and pushed
-  commit are recorded by R15-2.
-- R15-2 restart-limit endings instead of parking and retry: OPEN.
+  R15-1b, the release 1.5.0 pin, was delivered at
+  `31e1b48f7d09323b86d653e2ef79c4d31861925a`, remote main verified, and is
+  recorded [below](#r15-1b-release-150-pin-2026-11-03).
+- R15-2 restart-limit endings instead of parking and retry, in three commits
+  (see the bridge): R15-2a, same-task retry removal, is recorded
+  [below](#r15-2a-same-task-retry-removal-2026-11-04); R15-2b (built-in
+  endings) and R15-2c (generic fault and parking removal) are OPEN.
 - R15-3 batch Storage commit: OPEN.
 - R15-4 watch, report and observer shapes: OPEN.
 - The DE16 remainder resumes after R15-4; DE16 stays OPEN.
@@ -9400,8 +9403,46 @@ code before the documentation digests of this entry: a fresh baseline acceptance
 v26.13.0/11.20.0, reference 1.5.0) and all 31 remaining comparison phases after
 it exited 0, 32 commands in 585 s. The live typed-document and SQLite
 observations of that chain equal the committed unit captures byte for byte. The
-1877 comparison, coverage, reference and documentation tests passed. The
-confirming chain on the committed bytes, `just check`, and this slice's review
-result and pushed commit are recorded by R15-2.
+1877 comparison, coverage, reference and documentation tests passed.
+
+Recorded by R15-2a: Codex gpt-6.1-sol HIGH round 1 was CLEAN (scoped). `just
+check` on the final bytes: 21316 passed, 21 skipped and 2 failed in 2765 s, the
+same two pi-mono checkout failures as R15-0. A confirming chain on the committed
+bytes (baseline execution `57f3607b-b74b-4cfa-bf98-83cd4a08a73f`,
+`acceptance.json` SHA256
+`faf12388cbc5f8c0c836852ba37f2f8ef1f3a92e961937dafb089159b3e84f87`) and the 31
+phases after it exited 0, 32 commands in 552 s. R15-1b was pushed at
+`31e1b48f7d09323b86d653e2ef79c4d31861925a`, remote main verified.
 
 No P row closes; all 43 remain OPEN.
+
+### R15-2a same-task retry removal (2026-11-04)
+
+Release 1.5 removed `Harness.retryTask()`. R15-2a removes the native
+counterparts without deprecation shims: the Product and SDK `retry_task` with
+its `DurableTaskRetry` acknowledgement, the post-acknowledgement
+`continuation_failed` latch and error code, `pipy durable retry-task` with its
+`--target-task` option, the private scheduler `retry`/`aretry` and
+`RestartPolicy.cleared`. Resume keeps its run ownership, close and own-close
+semantics; the general run-ownership tests that started their runs through
+retry now start them through resume (`test_product_run_ownership`,
+`test_product_queued_authority`), and the retry-only tests are removed. The
+dead producer of the withdrawn `restart-parking-v1` phase is removed from
+`tests/durable/restart_reference_support.py`, which keeps the shared import
+attestation and recording store. The headless native producer's close hook
+wraps `close()` instead of the removed close-outcome method. Parking stays until
+R15-2c; a fresh owner with a higher limit runs parked work again, and an
+interruption it records keeps the counted streak.
+
+Receipts on the development host (macOS, Python 3.15.1), on the final R15-2a
+code before the documentation digests of this entry: a fresh baseline
+acceptance (execution `eb38dfe9-18c3-4edd-9545-4ac7d7dfb61f`, `acceptance.json`
+SHA256 `83a5de139d94baa43006b48f8919deb509d5dcf049547965b1ac9ffb28dcf483`,
+runtime v26.13.0/11.20.0, reference 1.5.0) and all 31 comparison phases after
+it exited 0, 32 commands in 618 s. `just check`: lint, format and type checks
+clean; 21274 passed, 21 skipped and 2 failed in 2772 s, the same two pi-mono
+checkout failures as R15-0. `just docs-build` passed, and the rendered links of
+the changed pages resolved. Codex gpt-6.1-sol HIGH round 1 was CLEAN. The
+review of the final delta, the confirming chain on the committed bytes and the
+pushed commit are recorded by R15-2b. No P row closes; all 43 remain OPEN.
+

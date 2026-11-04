@@ -1073,9 +1073,12 @@ preflight. C1/C2/nonce/receipt/catalog and conservative live-work fences remain
 unchanged; no general owned-task execution, public abort, completing/cascade,
 live restart-limit settings or persistent operation state is added.
 
-[Product lifetime and errors](../durable-product-session.md#retry-continuation-and-close-errors) defines the fixed `continuation_failed`
-post-ACK latch, physical close precedence and body-error preservation.
-[Same-task retry](../durable-restart-parking.md) defines unchanged ACK fields and the one-shot CLI result.
+Release 1.5 removed `retryTask()`, and bridge slice R15-2a removed this
+Product retry, its post-ACK `continuation_failed` latch and the one-shot
+`retry-task` command. Resume keeps the run ownership, physical close precedence
+and body-error preservation described under
+[Product run ownership and close errors](../durable-product-session.md#run-ownership-and-close-errors);
+[restart parking](../durable-restart-parking.md) describes what remains of DE14a.
 At the 2026-10-29 implementation checkpoint, private Core/affected checks and
 ordinary whole quality are being established on exact source epochs; independent
 Broad/reference, integrated CODE and final acceptance use separate receipts.

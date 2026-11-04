@@ -488,12 +488,11 @@ existing auxiliary operation; failed retries show only generic status and do not
 add ordinary assistant Error rows. Summary content and usage remain private.
 
 
-### Reset a parked durable task
+### Run a parked durable task again
 
-Use `pipy durable retry-task --target-task ID` with the existing store, workspace
-and matching provider/model options to clear the current restart streak without
-invocation. Follow it with explicit `pipy durable resume`. For a selected retry
-successor, retain `--task` and `--resolution-nonce` separately from the target.
-All six durable commands accept `--restart-limit` (default 5, exact `Infinity`
-disables parking for that owner). See [restart parking](durable-restart-parking.md)
-for cold-running refusal, numeric parsing and saved-receipt behavior.
+There is no `pipy durable retry-task` command: Pi durable release 1.5 removed
+same-task retry. Run `pipy durable resume` with a higher `--restart-limit`, or
+exact `Infinity`, for that owner. All five durable commands accept
+`--restart-limit` (default 5). See [restart parking](durable-restart-parking.md)
+for numeric parsing, saved-receipt behavior and the visible restart-limit endings
+that replace parking.

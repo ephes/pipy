@@ -144,7 +144,7 @@ class CommandOwner:
             notification.cancel()
             await asyncio.gather(notification, return_exceptions=True)
 
-    async def cleanup(self, *, body_failed: bool = False) -> None:
+    async def cleanup(self) -> None:
         self.stopping = True
         work = self.io_work
         if work is not None:
@@ -158,8 +158,7 @@ class CommandOwner:
                 pass
         try:
             if self.product is not None:
-                outcome = await self.product._close_outcome()
-                outcome.raise_error(body_failed=body_failed)
+                await self.product.close()
         finally:
             # Close precedes joining resume/control waiters: it seals the
             # Session and waits actual workers without taking their control lock.

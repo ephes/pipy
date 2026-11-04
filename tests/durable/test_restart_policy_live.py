@@ -166,33 +166,6 @@ def test_actual_session_ticket_order_decides_next_admission(rig, monkeypatch, fi
         assert calls == [(task_id, 5)]
 
 
-@pytest.mark.parametrize("first", ["publication", "retry"])
-def test_retry_uses_policy_at_its_actual_ticket(rig, monkeypatch, first):
-    calls = []
-    entered = threading.Event()
-    task = completing(calls, entered=entered)
-    task_id = rig.create(task)
-    seed_count(rig, task_id, 5)
-    scheduler = owner(rig, [task])
-    tickets = Tickets(rig.session, monkeypatch)
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        with held_line(rig.session, pool):
-            if first == "publication":
-                update = pool.submit(scheduler.set_restart_limit, 6)
-                tickets.wait(1)
-                retried = pool.submit(scheduler.retry, task_id)
-            else:
-                retried = pool.submit(scheduler.retry, task_id)
-                tickets.wait(1)
-                update = pool.submit(scheduler.set_restart_limit, 6)
-            tickets.wait(2)
-        assert update.result(5) is True
-        assert retried.result(5) is (first == "retry")
-        assert entered.wait(5)
-        pause(scheduler)
-    assert calls == [(task_id, None if first == "retry" else 5)]
-
-
 @pytest.mark.parametrize("first", ["publication", "inspection"])
 def test_owner_inspection_observes_one_real_policy_epoch(rig, monkeypatch, first):
     task = definition()

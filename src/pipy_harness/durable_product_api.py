@@ -1,7 +1,7 @@
 """Opt-in async native durable product session; legacy SDK remains separate.
 
 This facade owns one SQLite/Session and at most its existing scheduler host.
-Submit admits one literal input. Resume and admitted retry enable selected work.
+Submit admits one literal input. Only explicit resume enables execution.
 """
 
 from __future__ import annotations
@@ -51,12 +51,7 @@ from .native.durable.product_binding import (
     seed,
     select_run,
 )
-from .native.durable.product_operation import (
-    CloseOutcome,
-    ResumeHandoff,
-    RunOperation,
-    RunOutcome,
-)
+from .native.durable.product_operation import RunOperation
 from .native.durable.product_values import (
     DurableAdjudication,
     DurableAdmission,
@@ -64,7 +59,6 @@ from .native.durable.product_values import (
     DurableProviderProfile,
     DurableRunResult,
     DurableRunSelection,
-    DurableTaskRetry,
     UnsupportedDurableCapability,
     product_task_id,
 )
@@ -216,7 +210,7 @@ class DurableProductSession:
         self._closing = False
         self._initial_admitted = False
         self._submission_inflight = False
-        self._close_work: asyncio.Task[CloseOutcome] | None = None
+        self._close_work: asyncio.Task[None] | None = None
         self._current: RunOperation | None = None
 
     def _check(self, method: str, *, closing: bool = False) -> None:
@@ -231,13 +225,6 @@ class DurableProductSession:
             raise DurableProductError("closed")
 
     def _mutation_gate(self) -> None:
-        current = self._current
-        if (
-            current is not None
-            and current.outcome is not None
-            and current.outcome.kind == "continuation_failed"
-        ):
-            raise DurableProductError("continuation_failed")
         if self._closing:
             raise DurableProductError("closed")
 
@@ -561,10 +548,6 @@ class DurableProductSession:
             raise DurableProductError("invalid_request")
         return selection
 
-    def _pending_handoff(self, operation: RunOperation) -> ResumeHandoff | None:
-        handoff = operation.handoff
-        return handoff if handoff is not None and handoff.pending else None
-
     def _own_close_stop(self, operation: RunOperation, error: BaseException) -> bool:
         if not (
             operation.close_requested
@@ -577,22 +560,13 @@ class DurableProductSession:
             return error.reason in ("stopped", "session_closed")
         return self._product_error(error).code == "closed"
 
-    def _start_operation(
-        self, selection: DurableRunSelection | None, task_id: int | None = None
-    ) -> RunOperation:
+    def _start_operation(self, selection: DurableRunSelection | None) -> RunOperation:
         self._mutation_gate()
-        ack: asyncio.Future[DurableTaskRetry] | None = (
-            None if task_id is None else self._loop.create_future()
-        )
-        if ack is not None:
-            ack.add_done_callback(
-                lambda done: None if done.cancelled() else done.exception()
-            )
         operation: RunOperation | None = None
 
         def install(work: asyncio.Task[DurableRunResult]) -> None:
             nonlocal operation
-            operation = RunOperation(selection, work, ack)
+            operation = RunOperation(selection, work)
             self._current = operation
 
         async def serialized() -> DurableRunResult:
@@ -600,33 +574,11 @@ class DurableProductSession:
             async with self._control:
                 try:
                     self._mutation_gate()
-                    reset = (
-                        None
-                        if task_id is None
-                        else await self._reset(task_id, selection)
-                    )
-
-                    def admitted() -> None:
-                        self._mutation_gate()
-                        if self._session.failure is not None:
-                            raise DurableProductError("closed")
-                        if ack is not None:
-                            assert reset is not None
-                            ack.set_result(reset)
-
-                    result = await self._run(selection, admitted, operation)
+                    return await self._run(selection)
                 except BaseException as error:
-                    refused = self._operation_failure(operation, error)
-                    if (
-                        isinstance(error, asyncio.CancelledError)
-                        and not operation.acknowledged
-                    ):
+                    if isinstance(error, asyncio.CancelledError):
                         raise
-                    raise refused from None
-                else:
-                    operation.outcome = RunOutcome("success")
-                    return result
-                # Outcome is final AFTER cleanup and BEFORE control unlock.
+                    raise self._operation_failure(operation, error) from None
 
         self._spawn(serialized, install)
         assert operation is not None
@@ -635,72 +587,9 @@ class DurableProductSession:
     def _operation_failure(
         self, operation: RunOperation, error: BaseException
     ) -> DurableProductError:
-        refused = self._product_error(error)
-        own_close = self._own_close_stop(operation, error)
-        if own_close:
-            refused = DurableProductError("closed")
-        if operation.acknowledged and not own_close:
-            operation.outcome = RunOutcome("continuation_failed")
-            return DurableProductError("continuation_failed")
-        operation.refuse_ack(refused)
-        operation.outcome = RunOutcome(
-            "own_close" if own_close else "refused", refused.code
-        )
-        return refused
-
-    async def _handoff_target(
-        self, operation: RunOperation, handoff: ResumeHandoff
-    ) -> RunOperation:
-        assert operation.ack is not None
-        try:
-            await asyncio.shield(operation.ack)
-        except DurableProductError:  # retry-target refusal is not resume authority
-            await self._settle(operation.task)
-            self._mutation_gate()
-            target = self._start_operation(operation.selection)
-        else:
-            target = operation
-        handoff.target = target
-        handoff.pending = False
-        return target
-
-    def _resume_handoff(self, operation: RunOperation) -> ResumeHandoff:
-        if operation.handoff is not None:
-            return operation.handoff
-        handoff: ResumeHandoff | None = None
-
-        def install(work: asyncio.Task[DurableRunResult]) -> None:
-            nonlocal handoff
-            handoff = ResumeHandoff(work)
-            operation.handoff = handoff
-
-        async def run() -> DurableRunResult:
-            assert handoff is not None
-            try:
-                target = await self._handoff_target(operation, handoff)
-                return await asyncio.shield(target.task)
-            except BaseException as error:
-                # Remember error locally, but keep the same task/reservation
-                # pending until every attached owner actually retires.
-                await self._settle(operation.task)
-                if handoff.target is not None and handoff.target is not operation:
-                    await self._settle(handoff.target.task)
-                if handoff.pending:
-                    handoff.pending = False
-                    current = self._current
-                    if current is operation or current is handoff.target:
-                        if current is not None and (
-                            current.outcome is None
-                            or current.outcome.kind != "continuation_failed"
-                        ):
-                            self._current = None
-                if isinstance(error, asyncio.CancelledError):
-                    raise
-                raise self._product_error(error) from None
-
-        self._spawn(run, install)
-        assert handoff is not None
-        return handoff
+        if self._own_close_stop(operation, error):
+            return DurableProductError("closed")
+        return self._product_error(error)
 
     async def resume(
         self, selection: DurableRunSelection | None = None, **unsupported: object
@@ -710,28 +599,20 @@ class DurableProductSession:
         self._mutation_gate()
         selection = self._run_selection(selection)
         current = self._current
-        if current is not None and (
-            not current.task.done() or self._pending_handoff(current) is not None
-        ):
+        if current is not None and not current.task.done():
             if current.selection != selection:
                 raise DurableProductError("selection_required")
-            pending = self._pending_handoff(current)
-            if pending is not None:
-                work = pending.task
-            elif current.ack is not None and not current.acknowledged:
-                work = self._resume_handoff(current).task
-            else:
-                work = current.task
+            work = current.task
         else:
             work = self._start_operation(selection).task
         return await asyncio.shield(work)
 
-    async def _run(
-        self,
-        selection: DurableRunSelection | None,
-        admitted: Callable[[], None],
-        operation: RunOperation,
-    ) -> DurableRunResult:
+    def _admission_check(self) -> None:
+        self._mutation_gate()
+        if self._session.failure is not None:
+            raise DurableProductError("closed")
+
+    async def _run(self, selection: DurableRunSelection | None) -> DurableRunResult:
         if self._scheduler is not None:
             await self._scheduler.apause()
         value, root = await self._read(lambda: self._selected(selection))
@@ -755,15 +636,10 @@ class DurableProductSession:
                 catalog = await self._read(lambda: self._preflight(root, value))
                 scheduler = await self._scheduler_for_run(value, catalog)
                 await scheduler.apause()
-                self._mutation_gate()
-                if self._session.failure is not None:
-                    raise DurableProductError("closed")
+                self._admission_check()
                 scheduler.resume()
-            admitted()
+            self._admission_check()
             return await self._wait_result(root, value, watch, wake, watcher, closed)
-        except BaseException as error:
-            operation.refuse_ack(self._product_error(error))
-            raise
         finally:
             bridge.stop()
             watch.stop()
@@ -846,91 +722,6 @@ class DurableProductSession:
             finally:
                 changed.cancel()
                 await asyncio.gather(changed, return_exceptions=True)
-
-    def _reset_target(
-        self, task_id: int, selection: DurableRunSelection | None
-    ) -> Tree:
-        value, root = self._selected(selection)
-        if self._profile is None:
-            raise DurableProductError("profile_required")
-        if list(self._profile._selection) != value["selection"]:
-            raise DurableProductError("incompatible")
-        catalog = self._preflight(root, value)
-        if not catalog.unchanged or (
-            self._scheduler is not None and self._catalog != catalog
-        ):
-            raise DurableProductError("incompatible")
-        if task_id == root["id"]:
-            row = root
-        else:
-            storage = self._session._owner.storage
-            rows = tasks(storage)
-            doc, _, _, _ = round_facts(storage, root, rows)
-            if task_id not in doc["value"]["tools"]:
-                raise DurableProductError("incompatible")
-            row = next((item for item in rows if item["id"] == task_id), {})
-            if not row or row.get("owner") != root["id"]:
-                raise DurableProductError("incompatible")
-        if row["state"]["status"] == "running":
-            # A surviving reservation has not yet acquired its recovery count.
-            raise DurableProductError("unavailable")
-        return row
-
-    def _retry_operation(
-        self,
-        task_id: int,
-        selection: DurableRunSelection | None = None,
-        **unsupported: object,
-    ) -> RunOperation:
-        """Private exact-operation capture for the one-shot command owner."""
-        _options(unsupported)
-        self._check("durable_retry_task")
-        self._mutation_gate()
-        task_id = product_task_id(task_id)
-        selection = self._run_selection(selection)
-        current = self._current
-        if current is not None and (
-            not current.task.done() or self._pending_handoff(current) is not None
-        ):
-            raise DurableProductError(
-                "busy" if current.selection == selection else "selection_required"
-            )
-        return self._start_operation(selection, task_id)
-
-    async def retry_task(
-        self,
-        task_id: int,
-        *,
-        selection: DurableRunSelection | None = None,
-        **unsupported: object,
-    ) -> DurableTaskRetry:
-        """Reset and admit selected work; the owned continuation outlives this ACK."""
-        operation = self._retry_operation(task_id, selection, **unsupported)
-        assert operation.ack is not None
-        return await asyncio.shield(operation.ack)
-
-    async def _reset(
-        self, task_id: int, selection: DurableRunSelection | None
-    ) -> DurableTaskRetry:
-        from .native.durable.adjudication import metadata
-
-        def change(tx: SyncTx) -> DurableTaskRetry:
-            metadata(self._scheduler)
-            try:
-                row = self._reset_target(task_id, selection)
-            except (ValueError, TypeError, KeyError, IndexError) as error:
-                if isinstance(error, DurableProductError):
-                    raise
-                raise DurableProductError("incompatible") from None
-            cleared = self._restart_policy.cleared(row)
-            if cleared is not None:
-                tx.set_task(cleared)
-            return DurableTaskRetry(task_id, cleared is not None)
-
-        metadata(self._scheduler, drained=False)
-        if self._scheduler is not None:
-            await self._scheduler.apause()
-        return await owned_call(lambda: self._session.commit(change))
 
     async def adjudicate_interrupted(
         self, task_id: int, *, nonce: str, **unsupported: object
@@ -1079,16 +870,16 @@ class DurableProductSession:
                 raise DurableProductError("incompatible")
         self._preflight_ownership(root)
 
-    def _start_close(self) -> asyncio.Task[CloseOutcome]:
+    def _start_close(self) -> asyncio.Task[None]:
         self._check("durable_close", closing=True)
         if self._close_work is not None:
             return self._close_work
 
-        def install(work: asyncio.Task[CloseOutcome]) -> None:
+        def install(work: asyncio.Task[None]) -> None:
             self._close_work = work
             self._closing = True
 
-        async def finish() -> CloseOutcome:
+        async def finish() -> None:
             try:
                 try:
                     self._session.request_close()
@@ -1103,22 +894,12 @@ class DurableProductSession:
                 # admitted owner physically retires. Close never joins itself.
                 for work in tuple(self._operations):
                     await self._settle(work)
-            current = self._current
-            failed = (
-                current is not None
-                and current.outcome is not None
-                and current.outcome.kind == "continuation_failed"
-            )
-            return CloseOutcome(continuation_failed=failed)
 
         return self._spawn(finish, install, track=False)
 
-    async def _close_outcome(self) -> CloseOutcome:
-        return await asyncio.shield(self._start_close())
-
     async def close(self) -> None:
-        """Retire physical ownership, then report any retained continuation failure."""
-        (await self._close_outcome()).raise_error()
+        """Retire physical ownership, then report a native close failure."""
+        await asyncio.shield(self._start_close())
 
     async def __aenter__(self) -> DurableProductSession:
         self._check("durable_enter")
@@ -1132,9 +913,8 @@ class DurableProductSession:
                 await asyncio.shield(work)
             except asyncio.CancelledError:
                 interrupted = True
-        body_failed = len(args) > 1 and args[1] is not None
-        work.result().raise_error(body_failed=body_failed or interrupted)
-        if interrupted and not body_failed:
+        work.result()
+        if interrupted and not (len(args) > 1 and args[1] is not None):
             raise asyncio.CancelledError
 
     async def compact(self, *args: object, **kwargs: object) -> None:

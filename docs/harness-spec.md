@@ -4979,11 +4979,11 @@ is shared by scheduler reservation and product inspection. The default ceiling i
 parking is derived from the existing numeric task record and adds no stored
 state, header setting or audit. It also delays valid-receipt settlement without
 changing the winner. Changed task checkpoints reset the streak; acknowledged
-document-only progress does not. Public same-task reset commits on the existing
-Session line; its later Product continuation layer admits owned selected work
-after successful reset/admission. Private scheduler retry enables only after
-successful commit. Generic cold migration is supplied by DE14b1; public live
-settings and broader task parity remain DE14b work.
+document-only progress does not. The public same-task reset, its Product
+continuation layer and the private scheduler retry were removed by bridge slice
+R15-2a, because release 1.5 removed `retryTask()`. Generic cold migration is
+supplied by DE14b1; public live settings and broader task parity remain DE14b
+work.
 
 
 ## Cold task-definition migration (DE14b1)
@@ -5124,9 +5124,12 @@ preflight. C1/C2/nonce/receipt/catalog and conservative live-work fences remain
 unchanged; no general owned-task execution, public abort, completing/cascade,
 live restart-limit settings or persistent operation state is added.
 
-[Product lifetime and errors](durable-product-session.md#retry-continuation-and-close-errors) defines the fixed `continuation_failed`
-post-ACK latch, physical close precedence and body-error preservation.
-[Same-task retry](durable-restart-parking.md) defines unchanged ACK fields and the one-shot CLI result.
+Release 1.5 removed `retryTask()`, and bridge slice R15-2a removed this
+Product retry, its post-ACK `continuation_failed` latch and the one-shot
+`retry-task` command. Resume keeps the run ownership, physical close precedence
+and body-error preservation described under
+[Product run ownership and close errors](durable-product-session.md#run-ownership-and-close-errors);
+[restart parking](durable-restart-parking.md) describes what remains of DE14a.
 At the 2026-10-29 implementation checkpoint, private Core/affected checks and
 ordinary whole quality are being established on exact source epochs; independent
 Broad/reference, integrated CODE and final acceptance use separate receipts.

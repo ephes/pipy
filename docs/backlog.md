@@ -1253,6 +1253,8 @@ full-suite, six-platform, reference and resource acceptance; the [evidence ledge
 keeps intermediate checks separate from final acceptance.
 DE14b2 supplies private owner-local policy publication. Remaining DE14b owns
 public live settings, registry handover and orphan/cleanup/abort budgets. Public Pi enable parity, all parent DE/P rows and whole DE13 remain open.
+Release 1.5 removed same-task retry, and bridge slice R15-2a removed the reset
+and its Product continuation; R15-2 replaces parking with restart-limit endings.
 
 
 ## DE14b1 cold generic migration
@@ -1402,9 +1404,12 @@ preflight. C1/C2/nonce/receipt/catalog and conservative live-work fences remain
 unchanged; no general owned-task execution, public abort, completing/cascade,
 live restart-limit settings or persistent operation state is added.
 
-[Product lifetime and errors](durable-product-session.md#retry-continuation-and-close-errors) defines the fixed `continuation_failed`
-post-ACK latch, physical close precedence and body-error preservation.
-[Same-task retry](durable-restart-parking.md) defines unchanged ACK fields and the one-shot CLI result.
+Release 1.5 removed `retryTask()`, and bridge slice R15-2a removed this
+Product retry, its post-ACK `continuation_failed` latch and the one-shot
+`retry-task` command. Resume keeps the run ownership, physical close precedence
+and body-error preservation described under
+[Product run ownership and close errors](durable-product-session.md#run-ownership-and-close-errors);
+[restart parking](durable-restart-parking.md) describes what remains of DE14a.
 At the 2026-10-29 implementation checkpoint, private Core/affected checks and
 ordinary whole quality are being established on exact source epochs; independent
 Broad/reference, integrated CODE and final acceptance use separate receipts.
@@ -1573,7 +1578,9 @@ commit per slice:
    (v26.13.0, npm 11.20.0) on the 1.4 reference, and R15-1b pins release 1.5.0.
 3. R15-2: remove restart parking and same-task retry (`retry_task`,
    `pipy durable retry-task`) and end restart-limited tasks visibly with
-   `restart_limit`.
+   `restart_limit`. It lands in three commits: R15-2a removes same-task retry,
+   R15-2b ends the built-in `pi.tool` and `pi.generation` tasks at the limit,
+   and R15-2c faults generic tasks at the limit and removes parking.
 4. R15-3: batch `Storage.commit` with refusals and durability receipts on
    Memory and SQLite.
 5. R15-4: tagged watch, report and observer shapes for the delivered surfaces.
@@ -1603,4 +1610,11 @@ actual 1.5 run. Every comparison phase has a recorded
 [disposition](durable-reference.md#release-15-dispositions-r15-1b): the restart
 parking and Product retry phases and the parked cases of four more phases are
 withdrawn to R15-2, and the remaining differences are declared divergences owned
-by R15-3, R15-4, DE17, DE25 and DE27/DE28/DE45. R15-2 is next.
+by R15-3, R15-4, DE17, DE25 and DE27/DE28/DE45.
+
+R15-2a removed same-task retry: the Product and SDK `retry_task` with
+`DurableTaskRetry`, the `continuation_failed` latch and error code, `pipy
+durable retry-task` and the private scheduler retry. Resume keeps its run
+ownership and close semantics, and the general run-ownership tests that used
+retry as their entry point now start their runs with resume. Parking stays until
+R15-2c; a fresh owner with a higher limit runs parked work again. R15-2b is next.

@@ -1,4 +1,4 @@
-"""Counted public reset fixtures; numeric row changes are typed controls."""
+"""Counted public restart fixtures; numeric row changes are typed controls."""
 
 import hashlib
 import json
@@ -94,7 +94,7 @@ sys.exit(code)
 """
 
 
-def cli(root, label, action, *, target=None, extra=(), credentials=True):
+def cli(root, label, action, *, extra=(), credentials=True):
     import pipy_harness
 
     source = Path(pipy_harness.__file__).resolve().parents[2]
@@ -115,8 +115,6 @@ def cli(root, label, action, *, target=None, extra=(), credentials=True):
     ]
     if action != "inspect":
         args += ["--workspace", str(root)]
-    if target is not None:
-        args += ["--target-task", str(target)]
     if credentials:
         args += ["--provider", "openai", "--model", "gpt-test"]
     args += list(extra)

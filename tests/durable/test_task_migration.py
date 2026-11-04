@@ -433,7 +433,7 @@ def test_invalid_migration_results_are_once_only_and_durably_silent(rig, invalid
     rig.assert_silent(before)
 
 
-def test_parked_then_explicit_reset_migrates_without_inventing_old_streak(rig):
+def test_parked_task_is_neither_migrated_nor_admitted(rig):
     calls, admitted, records = [], threading.Event(), []
     task_id = rig.create(definition())
     rig.change(task_id, lambda row: row.update(restarts=5, memos={"stable": [1]}))
@@ -457,45 +457,7 @@ def test_parked_then_explicit_reset_migrates_without_inventing_old_streak(rig):
     report = scheduler.inspect_task(task_id)
     assert report.restart_parked is True and report.restart_count == 5
     assert report.reason == "migration_required"
-    assert calls == [] and not admitted.is_set()
-    rig.assert_silent(before)
-    scheduler.retry(task_id)
-    assert admitted.wait(5)
-    assert calls == [1]
-    assert "restarts" not in records[0]
-    assert records[0]["memos"] == {"stable": [1]}
-
-
-def test_counter_reset_does_not_repeat_failed_captured_definition(rig):
-    calls = []
-    task_id = rig.create(definition())
-    rig.change(task_id, lambda row: row.update(restarts=3))
-
-    def failing(*_args):
-        calls.append(True)
-        raise RuntimeError("migration cannot proceed")
-
-    scheduler = own(rig, [definition(version=2, migrate=failing)])
-    finished, _, _ = observe_reservation(scheduler)
-    scheduler.resume()
-    assert finished.wait(5)
-    pause(scheduler)
-    assert calls == [True]
-    finished.clear()
-    assert scheduler.retry(task_id) is False
-    assert finished.wait(5)
-    pause(scheduler)
-    assert calls == [True] and rig.record(task_id)["restarts"] == 3
-    # Typed counter setup, not a historical producer: now actually parked.
-    rig.change(task_id, lambda row: row.update(restarts=5))
-    finished.clear()
-    assert scheduler.retry(task_id) is True
-    assert finished.wait(5)
-    pause(scheduler)
-    assert calls == [True]
-    assert "restarts" not in rig.record(task_id)
-    before = rig.silence()
-    assert scheduler.inspect_task(task_id).reason == "migration_failed"
+    assert calls == [] and not admitted.is_set() and records == []
     rig.assert_silent(before)
 
 

@@ -96,12 +96,11 @@ The factories and `DurableProductSession`, `DurableProviderProfile`,
 | `await open_durable_product_session(path, workspace=..., profile=None, selection=None)` | Open exactly an existing current-format product store; no create/import fallback, migration, auth or dispatch. Empty created stores reopen too. |
 | `await product.submit(text_or_user_message)` | Admit one literal canonical input, actual initialized generation and both initial pointers in one commit; numeric acknowledgement only. |
 | `await product.resume(selection=None)` | Join active same-selection work or request fresh execution until selected terminal outcome or positively proven hold; disable/quiesce before releasing the control lease. |
-| `await product.retry_task(task_id, selection=None)` | Commit the bounded same-task reset, then acknowledge admitted owned continuation. `DurableTaskRetry(task_id, reset)` remains unchanged. |
 | `await product.inspect(task_id=None)` | Existing DE10 closed live metadata or one same-conversation task, with material still not_checked. |
 | `await product.observe_completed()` | Actual DE09 completed replacement watch; no accumulator or durable replay cursor. |
 | `await product.authorize_retry(task_id, nonce=...)` | A new DE10 attempt under the paused control lease. Same nonce recovers its winner; a fresh sibling generation refuses. No request override is accepted. |
 | `await product.adjudicate_interrupted(task_id, nonce=...)` | Explicit same-attempt historical decision; preserve a valid receipt or commit an uncertain interruption, then acknowledge only the decision. Resume remains separate. |
-| `await product.close()` / `async with` | Seal, stop future watch admission and await actual ownership, then report native close failure or a retained continuation failure under the rules below. |
+| `await product.close()` / `async with` | Seal, stop future watch admission and await actual ownership, then report native close failure under the rules below. |
 
 A held result can carry waiting parent metadata with a blocked child; use
 `inspect()` for that child's closed reason. When a later paged read discovers a
@@ -228,54 +227,41 @@ answer; `DurableAdjudication` never claims task completion.
 
 ## Bounded restart parking (DE14a)
 
-[Restart parking and same-task reset](durable-restart-parking.md) add an immutable
-per-owner default-five ceiling and allowlisted inspection metadata. Public retry
-requires existing profile/selection/ownership admission and acknowledges reset
-plus admission of an owned continuation. Active public resume joins that work;
-new-attempt authorization remains separate.
-Operational parking can delay valid receipt settlement without rewriting it.
-Product live settings and broader migration/ownership behavior remain deferred.
-Release 1.5 removed `retryTask()`, so R15-1b withdrew the pinned
-`task-product-retry-enable-v1` comparison, and bridge slice R15-2 removes
-`retry_task` (see the [restart parking](durable-restart-parking.md) page).
+[Restart parking](durable-restart-parking.md) adds an immutable per-owner
+default-five ceiling and allowlisted inspection metadata. Operational parking can
+delay valid receipt settlement without rewriting it; a product opened with a
+higher `restart_limit` runs parked work again on its next `resume()`.
+Release 1.5 removed `retryTask()`. R15-1b withdrew the pinned
+`task-product-retry-enable-v1` comparison, and bridge slice R15-2a removed
+`retry_task`, `DurableTaskRetry`, the `continuation_failed` error code and the
+`pipy durable retry-task` command. New-attempt authorization (`authorize_retry`)
+is a separate operation and stays. Product live settings and broader
+migration/ownership behavior remain deferred.
 The private scheduler setter is not a Product API; calling it through an internal
 scheduler is unsupported and does not change the Product constructor policy.
 
-## Retry continuation and close errors
+## Run ownership and close errors
 
 All Product mutation admission uses the acquiring caller loop and one serialized
-control lease. Run outcomes publish after cleanup and before that lease unlocks.
-Queued submit/C1/C2 calls recheck the same failure gate before callbacks or writes.
-Retry during any active same-selection resume/retry refuses `busy`, including a
-pending pre-ACK handoff; different selection refuses `selection_required`.
-Resume before successful retry ACK coalesces through one owned handoff. A failed
-ACK while cleanup is still active is not permission to join its target refusal:
-cleanup precedes a fresh resume-authority fallback. A handoff's own error cannot
-settle or release its reservation before predecessor and fallback cleanup retire.
-It is delivered to admitted callers; future calls do not read a cached refusal.
-
-Add the fixed payload-free error `continuation_failed` to the Product error
-codes. A successful retry ACK followed by any continuation or cleanup exception
-latches it, except a positively identified Product-own-close stop. Normal held
-or terminal failed results are values, not this latch. Pre-ACK refusal does not
-poison the Product, but never clears an authoritative native Session failure.
-Inspection remains passive; mutation entry points refuse the latch before work.
+control lease. Queued submit/C1/C2 calls recheck the closing gate before
+callbacks or writes. Resume during active same-selection work joins that
+operation; a different selection refuses `selection_required`. Cancelling a
+resume waiter does not cancel the owned operation, and a resume after it settled
+performs a fresh run and preflight rather than a cached result lookup.
 
 Close always retires actual native/provider/tool/watch/backend ownership first.
-Repeated close waits use the same close task and preserve its projected error;
-canceling a close waiter cannot cancel cleanup. `async with` preserves any
-original body exception or signal over the duplicate latch projection, even if
-that body never awaited the failed continuation. Later standalone close still
-reports the latch. Actual native close failure retains its existing fatal
-priority over body errors. No raw continuation exception payload enters a DTO or
-CLI report. No public operation handle, completed-result cache or persistent
-failure state is added.
+Repeated close waits use the same close task and preserve its native error;
+canceling a close waiter cannot cancel cleanup. `async with` waits for that
+close even when its own waiter is cancelled, then delivers the cancellation.
+Actual native close failure keeps its fatal priority over body errors. No raw
+exception payload enters a DTO or CLI report. No public operation handle,
+completed-result cache or persistent failure state is added.
 
 Completed-watch capture and delivery register ownership before eager task bodies
 can finish; lazy bodies avoid pre-start cancellation leaks. An in-flight drain
-stopped by the Product's actual close request is distinguished from listener,
-capture or loop failure. The latter remain continuation failures even when close
-races them, and native Session failure remains authoritative.
+stopped by the Product's actual close request ends its run with `closed`; a
+listener, capture or loop failure keeps its own refusal even when close races
+it, and native Session failure remains authoritative.
 
 The private operation's payload-free close-request marker is written only on the
 checked caller loop after the real Session close request returns and before a

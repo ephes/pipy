@@ -31,7 +31,6 @@ from pipy_harness.native.durable.product_values import (
     DurableProviderProfile,
     DurableRunResult,
     DurableRunSelection,
-    DurableTaskRetry,
     UnsupportedDurableCapability,
 )
 from pipy_harness.native.mcp.options import McpOptions
@@ -55,7 +54,6 @@ __all__ = [
     "NestedCallRecord",
     "DurableProductSession",
     "DurableAdmission",
-    "DurableTaskRetry",
     "DurableAdjudication",
     "DurableProductError",
     "DurableProviderProfile",

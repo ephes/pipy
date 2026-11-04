@@ -55,7 +55,6 @@ class DurableCommand:
     conversation_id: int | None
     nonce: str | None
     restart_limit: float = 5.0
-    target_task_id: int | None = None
 
 
 def _profile(parser: argparse.ArgumentParser, *, required: bool) -> None:
@@ -74,7 +73,6 @@ def build_parser() -> argparse.ArgumentParser:
         "inspect",
         "authorize-retry",
         "adjudicate-interrupted",
-        "retry-task",
     ):
         sub = subs.add_parser(action, allow_abbrev=False)
         sub.add_argument("--store", required=True)
@@ -91,11 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
             source = sub.add_mutually_exclusive_group(required=True)
             source.add_argument("--prompt")
             source.add_argument("--stdin", action="store_true")
-        if action in ("resume", "retry-task"):
+        if action == "resume":
             sub.add_argument("--task")
             sub.add_argument("--resolution-nonce", dest="nonce")
-        if action == "retry-task":
-            sub.add_argument("--target-task", required=True)
         if action in ("authorize-retry", "adjudicate-interrupted"):
             sub.add_argument("--task", required=True)
             sub.add_argument("--nonce", required=True)
@@ -144,9 +140,7 @@ def parse_args(argv: list[str]) -> DurableCommand:
     ):
         raise DurableCLIError
     task, nonce = _id(values.get("task")), values.get("nonce")
-    if values["action"] in ("resume", "retry-task") and (task is None) != (
-        nonce is None
-    ):
+    if values["action"] == "resume" and (task is None) != (nonce is None):
         raise DurableCLIError
     if nonce is not None:
         if task is None:
@@ -182,5 +176,4 @@ def parse_args(argv: list[str]) -> DurableCommand:
         _id(values.get("conversation")),
         nonce,
         _restart_limit(values["restart_limit"]),
-        _id(values.get("target_task")),
     )
