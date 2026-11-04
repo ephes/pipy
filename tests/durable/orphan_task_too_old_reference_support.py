@@ -249,7 +249,8 @@ def _orphan_action(scheduler, case, task, tid, before, snapshot, observations, l
     policy = RestartPolicy(5)
     policy_observation = {
         "configured_limit": policy.limit,
-        "derived_parked": policy.parked(before["record"]),
+        # Pi's (restarts ?? 0) >= 5; the name predates the 1.5 removal of parking.
+        "derived_parked": policy.reached(before["record"]),
         "inspection": info.to_tree(),
     }
     if case["parked"]:

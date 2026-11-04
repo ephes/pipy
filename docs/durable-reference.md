@@ -67,7 +67,10 @@ acceptance and 31 phases.
   `task-migration-cold-v1` now follows `interrupted-tool-continuation-v1`. The
   guard mutant `commit-exempt` is withdrawn as well (successor R15-3): 1.5 does
   not report a guard-only commit failure, so an unreported one is no mutant.
-  Native tests keep all of this behavior until its successor reworks it.
+  The successors come from actual 1.5 runs: R15-2b added the `safe_limit` case
+  of `interrupted-tool-continuation-v1`, R15-2c re-added the four
+  `restart-policy-live-v1` cases, and R15-2d owns the migration and orphan
+  cases. Native tests kept the parking behavior until R15-2c removed it.
 - **Declared divergences.** A phase whose native side has not caught up with a
   1.5 change declares each difference: its path, the owning slice and bridge
   row, and the SHA256 of the exact value each side shows. A declaration masks
@@ -1801,7 +1804,7 @@ versions, version-only migration, missing definitions, stored-newer versions,
 missing migrators, cached ordinary/invalid-result failures, parked reset and a
 blocked zero-valued current definition with a negative stored version. Release
 1.5 removed parking and `retryTask()`, so the parked-reset case
-(`parked-migration`) is withdrawn with successor R15-2; nine cases remain. Restore
+(`parked-migration`) is withdrawn with successor R15-2d; nine cases remain. Restore
 selection treats only null as absent, matching Pi's nullish rule; zero remains
 the actual current version.
 Failure cases include a real later eligible task and fresh-owner restoration.
@@ -1815,7 +1818,7 @@ only numeric task-version zero equivalence. Complete raw records preserve signed
 zero spelling, native detached callback arguments versus Pi's stored argument
 references, scheduler reservation order, private retry returns, inspection
 shapes, identifiers and times. The older generic `inspection-v1` reason now maps
-to `migration_failed`; the full native report remains 17 fields and its common
+to `migration_failed`; the full native report has 16 fields since R15-2c and its common
 Pi projection remains nine. No model/tool migration, live registry, public retry
 enable or whole DE14/P07 parity follows from this profile. See
 [cold task migration](durable-task-migration.md) for the native boundary.
@@ -1832,24 +1835,24 @@ semantic mismatch and 2 for invalid evidence.
 
 The five generic cases raise a finite limit, disable the ceiling, lower before
 admission, repeat a finite limit and repeat unlimited policy. Release 1.5 removed
-parking and the `restart_limit` blocked reason, so only the unlimited repeat
-(`same-unlimited`) remains; the four parked cases are withdrawn with successor
-R15-2. Actual native
+parking and the `restart_limit` blocked reason, so R15-1b withdrew the four
+parked cases; R15-2c re-adds them with 1.5 expectations from actual 1.5 runs, the
+repeated finite case as `same-finite-faults`. A limit that is current when the
+task is reserved and that the seeded count reaches ends the task `faulted` with
+detail `restart_limit` and the upstream message (its task ID projected
+generically); otherwise the task runs once. A fresh owner with any limit leaves
+an ended task ended. Actual native
 Session/scheduler and pinned Pi Harness owners create tasks, seed explicitly
 labelled counter controls, update host policy, resume explicitly, close and
 reopen with a fresh policy. These are controlled pending records, not physical
 SIGKILL claims. Both complete raw record streams remain available; the common
-projection compares task/counter preservation, parking, invocation counts and
-explicit-resume/fresh-owner outcomes. Thirteen schema-valid mutations distinguish
+projection compares task/counter preservation, invocation counts and the
+explicit-resume/fresh-owner outcomes. Eleven schema-valid mutations distinguish
 those observables. Invalid evidence remains a separate refusal.
 
 Pi receives a changed `HarnessOptions.settings` host object, not an invented
-setter API. A parked live task is not Pi graph-idle. For a freshly opened,
-actually paused owner, the parked branch observes the first resumed reservation
-through a later-microtask read on the same FIFO Session line. That control proves
-the reservation boundary, not global quiescence or task completion; eligible
-and final branches retain actual idle-completion waits. The raw Pi sidefacts
-name the observation used. Native boolean ACK, lack of setter notification/enable, async
+setter API. Release 1.5 has no parked branch: every case waits for actual graph
+idle after its explicit resume, which also enables scheduling. Native boolean ACK, lack of setter notification/enable, async
 transport, raw Python numeric inputs and owner-versus-standalone inspection are
 side-specific observations. This profile grants no Product live setting,
 listener/registry/handover, physical crash/resource or whole parent parity claim.
@@ -1868,7 +1871,7 @@ common view maps Pi's immediate `marked` ACK to native `orphaned` only when the
 actual terminal missing-task outcome is present; repeated terminal ACKs remain
 unchanged. The parked seed is a typed control, not a physical crash. Release 1.5
 removed parking, so the parked control (`sqlite-parked-control`) is withdrawn
-with successor R15-2; four cases remain.
+with successor R15-2d; four cases remain.
 
 The native strict all-page graph/incoming-waiter refusals and lifecycle/error
 surface are separate from Pi's broader abort semantics. The actual Harness
@@ -1909,7 +1912,7 @@ admission. Native paused controls are separate, and an uncached Pi abort that
 could invoke migration is outside this projection. Keep the installed outcome
 hook, raw ACKs, records, callback/storage trajectories and backend retention
 qualifications. Its parked control (`sqlite-parked-control`) is withdrawn at
-release 1.5 with successor R15-2, because 1.5 removed parking. Map Pi `marked` to native `orphaned` only when the actual terminal
+release 1.5 with successor R15-2d, because 1.5 removed parking. Map Pi `marked` to native `orphaned` only when the actual terminal
 outcome proves `migration_failed`. Terminal-repeat fixtures await the real
 successor publication drain before applying the existing native admission rule.
 

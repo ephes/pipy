@@ -25,7 +25,6 @@ PHASES = {
 }
 OUTCOMES = {"completed", "failed", "aborted", "orphaned", "faulted"}
 REASONS = {
-    "restart_limit",
     "abort_requested",
     "definition_missing",
     "stored_version_newer",
@@ -78,7 +77,6 @@ class TaskInspection:
     execution_material: str = "not_checked"
     restart_count: int | float | None = None
     restart_limit: int | None = 5
-    restart_parked: bool = False
 
     def __post_init__(self) -> None:
         for numeric in (self.task_id, self.conversation_id):
@@ -129,10 +127,8 @@ class TaskInspection:
                 if type(number) not in (int, float):
                     raise InspectionError("invalid_request")
                 OwnedJson(number)
-        if (
-            type(self.restart_parked) is not bool
-            or self.restart_limit is not None
-            and (type(self.restart_limit) is not int or self.restart_limit < 1)
+        if self.restart_limit is not None and (
+            type(self.restart_limit) is not int or self.restart_limit < 1
         ):
             raise InspectionError("invalid_request")
 
@@ -156,7 +152,6 @@ class TaskInspection:
             "execution_material": self.execution_material,
             "restart_count": self.restart_count,
             "restart_limit": self.restart_limit,
-            "restart_parked": self.restart_parked,
         }
 
 

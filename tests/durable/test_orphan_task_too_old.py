@@ -136,7 +136,7 @@ def test_257_loaded_and_unloaded_documents_retire_with_unrelated_history_intact(
     before, unrelated = rig.record(target), rig.record(other)
     old_inspection = scheduler.inspect_task(target)
     assert old_inspection.restart_count == old_inspection.restart_limit == 5
-    assert old_inspection.restart_parked is True
+    # The restart limit is no hold reason (release 1.5).
     assert old_inspection.reason == "stored_version_newer"
     old_tree = old_inspection.to_tree()
     initializer_before = tuple(document_calls)

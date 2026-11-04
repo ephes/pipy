@@ -4972,14 +4972,14 @@ completion. Retry remains a separate NEW-attempt operation. Unsupported historic
 authority remains held; the canonical codec, fact formats, normal runtime and
 whole parity obligations are unchanged.
 
-## Bounded restart parking (DE14a)
+## Restart limits (DE14a, R15-2)
 
 An initially captured immutable [host restart policy](durable-restart-parking.md)
-is shared by scheduler reservation and product inspection. The default ceiling is five;
-parking is derived from the existing numeric task record and adds no stored
-state, header setting or audit. Since R15-2b it applies to generic tasks only:
-the built-in tool and generation tasks end themselves at the limit, and a valid
-receipt settles unchanged. Changed task checkpoints reset the streak; acknowledged
+is shared by scheduler reservation, the built-in phases and product inspection. The
+default ceiling is five, and it adds no stored state, header setting or audit.
+Release 1.5 replaced parking with endings: the scheduler faults a generic task
+at the limit when it reserves it (R15-2c), and the built-in tool and generation
+tasks end themselves, a valid receipt settling unchanged (R15-2b). Changed task checkpoints reset the streak; acknowledged
 document-only progress does not. The public same-task reset, its Product
 continuation layer and the private scheduler retry were removed by bridge slice
 R15-2a, because release 1.5 removed `retryTask()`. Generic cold migration is
@@ -5130,7 +5130,7 @@ Product retry, its post-ACK `continuation_failed` latch and the one-shot
 `retry-task` command. Resume keeps the run ownership, physical close precedence
 and body-error preservation described under
 [Product run ownership and close errors](durable-product-session.md#run-ownership-and-close-errors);
-[restart parking](durable-restart-parking.md) describes what remains of DE14a.
+[restart limits](durable-restart-parking.md) describes what remains of DE14a.
 At the 2026-10-29 implementation checkpoint, private Core/affected checks and
 ordinary whole quality are being established on exact source epochs; independent
 Broad/reference, integrated CODE and final acceptance use separate receipts.

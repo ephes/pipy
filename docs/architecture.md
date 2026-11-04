@@ -1069,10 +1069,12 @@ reuse `session_core`'s driver and settlement; an exclusive close stage performs
 the healthy running-to-pending rewrite. `task_values` contains task-specific
 structural comparison and UTF-16 lookup, without changing document equality.
 The immutable `restart_policy` leaf supplies the same per-owner ceiling to
-reservation and inspection. Parking is derived from existing task records and
-adds no stored policy or audit. Release 1.5 removed same-task retry, and bridge
-slice R15-2a removed the public reset and the private scheduler retry. See
-[restart parking](durable-restart-parking.md) and
+reservation, the built-in phases and inspection. A task at the limit ends: the
+scheduler faults a generic task when it reserves it, and the built-in tool and
+generation phases end their own task; nothing is stored beyond the existing task
+records. Release 1.5 removed parking and same-task retry, and bridge slice R15-2
+removed both natively. See
+[restart limits](durable-restart-parking.md) and
 [the runtime contract](durable-task-runtime.md). This package remains outside
 the default AgentLoop/CLI/TUI execution path; later durable adoption owns that
 transition and there is no second product storage authority.

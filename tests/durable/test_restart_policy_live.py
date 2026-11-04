@@ -13,6 +13,7 @@ from restart_policy_live_support import (
     definition,
     held_line,
     idle,
+    limit_fault,
     opener,
     owner,
     pass_finished,
@@ -55,11 +56,10 @@ def test_paused_publication_is_write_free_and_explicit_resume_uses_new_budget(
     original = scheduler._notify
     monkeypatch.setattr(scheduler, "_notify", lambda: notifications.append(True))
     before = rig.silence()
-    assert scheduler.inspect_task(task_id).restart_parked
+    assert scheduler.inspect_task(task_id).restart_limit == 5
     assert scheduler.set_restart_limit(new_limit) is True
     assert scheduler.set_restart_limit(new_limit) is False
     report = scheduler.inspect_task(task_id)
-    assert not report.restart_parked
     assert report.restart_limit == (6 if new_limit == 6 else None)
     assert report.restart_count == 5
     assert inspect_task(rig.session, task_id).restart_limit == 5
@@ -87,6 +87,8 @@ def test_enabled_idle_owner_does_not_wake_on_setter(rig, monkeypatch):
     scheduler.resume()
     assert finished.wait(5)
     idle(scheduler)
+    # The pass faulted the task at the limit; an ended task stays ended.
+    ended = limit_fault(rig, task_id)
     notifications = []
     original = scheduler._notify
     monkeypatch.setattr(scheduler, "_notify", lambda: notifications.append(True))
@@ -102,7 +104,7 @@ def test_enabled_idle_owner_does_not_wake_on_setter(rig, monkeypatch):
     scheduler.resume()
     assert finished.wait(5)
     pause(scheduler)
-    assert calls == [(task_id, 5)]
+    assert calls == [] and limit_fault(rig, task_id) == ended
 
 
 def test_sqlite_oracle_detects_revision_only_write(tmp_path):
@@ -158,12 +160,13 @@ def test_actual_session_ticket_order_decides_next_admission(rig, monkeypatch, fi
         pause(scheduler)
     assert calls == ([(task_id, 5)] if first == "publication" else [])
     if first == "reservation":
-        assert rig.record(task_id)["state"]["status"] == "pending"
+        # The pass's own policy snapshot ended the task before the raise.
+        ended = limit_fault(rig, task_id)
         finished.clear()
         scheduler.resume()
         assert finished.wait(5)
         pause(scheduler)
-        assert calls == [(task_id, 5)]
+        assert calls == [] and limit_fault(rig, task_id) == ended
 
 
 @pytest.mark.parametrize("first", ["publication", "inspection"])
@@ -188,9 +191,7 @@ def test_owner_inspection_observes_one_real_policy_epoch(rig, monkeypatch, first
         assert update.result(5) is True
         report = read.result(5)
     assert report.restart_count == 5
-    assert (report.restart_limit, report.restart_parked) == (
-        (6, False) if first == "publication" else (5, True)
-    )
+    assert report.restart_limit == (6 if first == "publication" else 5)
     assert scheduler.inspect_task(task_id).restart_limit == 6
     rig.assert_silent(before)
 
@@ -219,14 +220,15 @@ def test_lowering_does_not_revoke_active_invocation_and_controls_next(rig, monke
     idle(scheduler)
     pause(scheduler)
     assert calls == [(one, None)]
-    assert rig.record(two)["state"]["status"] == "pending"
-    assert scheduler.inspect_task(two).restart_parked
+    # The lowered limit ended the next candidate; raising it again later does
+    # not revive it.
+    ended = limit_fault(rig, two)
     assert scheduler.set_restart_limit(4) is True
     finished.clear()
     scheduler.resume()
     assert finished.wait(5)
     pause(scheduler)
-    assert calls == [(one, None), (two, 3)]
+    assert calls == [(one, None)] and limit_fault(rig, two) == ended
 
 
 def test_policy_change_does_not_repeat_owner_failed_migration(rig, monkeypatch):
@@ -381,7 +383,7 @@ def test_fresh_sqlite_owner_uses_its_constructor_not_a_persisted_policy(tmp_path
         fresh = TaskScheduler(session, [task])
         fresh.open()
         owner_view = fresh.inspect_task(task_id)
-        assert owner_view.restart_limit == 5 and owner_view.restart_parked
+        assert owner_view.restart_limit == 5 and owner_view.restart_count == 5
         assert (
             session.read_on_line(lambda: session._owner.storage.task(task_id).to_tree())
             == original
@@ -488,9 +490,12 @@ def test_entire_multi_candidate_pass_precedes_queued_publication(rig, monkeypatc
     idle(scheduler)
     pause(scheduler)
     assert calls == []
-    assert len(visits) == 2 and visits[0][0] == visits[1][0]
-    assert {task_id for _, task_id in visits} == {first, second}
-    assert all(rig.record(task_id)["restarts"] == 5 for task_id in (first, second))
+    # One pass visited both candidates in one transaction with its own policy
+    # snapshot, so both ended at limit 5; later passes find them terminal.
+    assert visits[0][0] == visits[1][0]
+    assert {task_id for _, task_id in visits[:2]} == {first, second}
+    for task_id in (first, second):
+        limit_fault(rig, task_id)
 
 
 def test_loop_teardown_and_close_retain_real_publication_worker_and_lease(

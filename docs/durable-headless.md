@@ -97,7 +97,7 @@ receipt payloads and structured-content absence versus null. Normal [tool detail
 with an explicit details_state, and optional finite nested evidence without
 changing the original value. Historical canonical v1 unknown presence remains
 unknown; this is DE13a normal-value support, not interrupted-error continuation.
-Inspection adds allowlisted restart count, limit and derived parking fields;
+Inspection adds allowlisted restart count and limit fields;
 existing authorization reports are unchanged. Requests/settings/private auth
 material/operator audit and arbitrary error strings never appear in output.
 JSON emission adds no nesting cutoff to otherwise admitted OwnedJson values.
@@ -136,26 +136,23 @@ blanket byte-preservation or lock-bypass claim follows. Missing/pre-lock refusal
 retain their no-creation contract. See [storage](session-storage.md) and
 [inspection](durable-inspection.md).
 
-## Restart parking
+## Restart limits
 
 All five durable commands accept `--restart-limit`, defaulting to `5` for that
-owner. Use exact `Infinity` to disable parking. A finite JSON-number argument is
+owner. Use exact `Infinity` for no limit. A finite JSON-number argument is
 parsed as binary64 and floored when at least one; invalid numeric syntax and
 overflow refuse. This intentionally rounds `9007199254740993` to
 `9007199254740992`, whereas that nonexact raw Python integer defaults to five
 through the SDK. Limits are not persisted or changed live.
 
-There is no `retry-task` command. Release 1.5 removed same-task retry, and
-bridge slice R15-2a removed the command together with the SDK `retry_task`. Run
-parked work again with a higher `--restart-limit`, or with `Infinity`, on a
-later `resume`. Bridge slice R15-2 replaces parking itself with visible
-restart-limit endings; see [restart parking](durable-restart-parking.md).
-
-Since R15-2b the built-in tasks of a run never park. At the limit a tool call
-ends with a `restart_limit` error result and the run continues, so `resume`
-reports the run's outcome; a generation cut off in its prepare, request or tools
-phase ends the run `failed` (exit 1). The JSON run output shows the tool's
-`recovery` cause with reason `restart_limit`.
+There is no `retry-task` command and no parking. Release 1.5 removed both, and
+bridge slice R15-2 removed them natively; see
+[restart limits](durable-restart-parking.md). At the limit a tool call ends with
+a `restart_limit` error result and the run continues, so `resume` reports the
+run's outcome; a generation cut off in its prepare, request or tools phase ends
+the run `failed` (exit 1). The JSON run output shows the tool's `recovery` cause
+with reason `restart_limit`, and inspection no longer reports
+`restart_parked`.
 
 ## Evidence and remaining scope
 

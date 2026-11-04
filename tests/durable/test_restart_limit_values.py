@@ -79,17 +79,20 @@ def test_cut_off_count_wording():
     assert cut_off_count(7.5) == "7.5 times in a row"
 
 
-def test_built_in_kinds_end_themselves_and_never_park():
+def test_built_in_kinds_end_themselves_and_the_policy_only_counts():
+    # The built-in kinds end themselves in their phases; the scheduler faults
+    # any other kind at the limit (R15-2c). Nothing parks any more.
     assert LIMITS_RESTARTS == {"pi.generation", "pi.tool"}
+    assert not hasattr(RestartPolicy, "parked")
     policy = RestartPolicy(5)
-    for kind, parked in (("pi.tool", False), ("pi.generation", False), ("x", True)):
+    for kind in ("pi.tool", "pi.generation", "x"):
         row = {
             "kind": kind,
             "state": {"status": "pending", "checkpoint": {"phase": "run"}},
             "abortRequested": False,
             "restarts": 5,
         }
-        assert policy.reached(row) and policy.parked(row) is parked
+        assert policy.reached(row)
     assert not RestartPolicy(6).reached(row)
     assert not RestartPolicy(float("inf")).reached(row)
     assert not policy.reached({**row, "restarts": 4})

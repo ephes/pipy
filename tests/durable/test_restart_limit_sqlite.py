@@ -1,4 +1,4 @@
-"""Real repeated process loss, parked recovery and healthy owner retirement."""
+"""Real repeated process loss, the restart-limit fault and healthy owner retirement."""
 
 import hashlib
 import json
@@ -58,6 +58,16 @@ scheduler = TaskScheduler(session, [definition], restart_limit=limit)
 scheduler.open()
 row = session.read_on_line(lambda: store.task(tid).to_tree())
 say("opened", row=row, inspection=inspect_task(session, tid, restart_limit=limit).to_tree())
+passed = threading.Event()
+reserve = scheduler._reserve
+
+async def observed():
+    result = await reserve()
+    if result is None:
+        passed.set()
+    return result
+
+scheduler._reserve = observed
 if cut == "reservation":
     def after(connection):
         current = sqlite._decode(connection.execute("SELECT record FROM tasks WHERE id=?", (tid,)).fetchone()[0])
@@ -69,9 +79,11 @@ if action == "go":
     scheduler.resume()
 else:
     assert action == "close"
-if cut == "parked" and action == "go":
+if cut == "ended" and action == "go":
+    # Observe the actual reservation pass, not just the enable.
+    assert passed.wait(30)
     asyncio.run(scheduler.apause())
-    say("parked", row=session.read_on_line(lambda: store.task(tid).to_tree()))
+    say("ended", row=session.read_on_line(lambda: store.task(tid).to_tree()))
 if action != "close":
     assert command() == "close"
 session.close(timeout=10)
@@ -104,7 +116,7 @@ def closed(child):
 
 @pytest.mark.parametrize("limit", [2, 5])
 @pytest.mark.parametrize("cut", ["reservation", "effect"])
-def test_real_repeated_sigkill_parks_at_exact_limit_then_fresh_higher_owner(
+def test_real_repeated_sigkill_faults_at_exact_limit_and_stays_ended(
     tmp_path, limit, cut
 ):
     path, ledger = tmp_path / "crash.sqlite", tmp_path / "effects.txt"
@@ -119,7 +131,7 @@ def test_real_repeated_sigkill_parks_at_exact_limit_then_fresh_higher_owner(
             task_id = row["id"] if task_id is None else task_id
             assert row["id"] == task_id
             assert row.get("restarts", 0) == count
-            assert not opened["inspection"]["restart_parked"]
+            assert opened["inspection"]["reason"] is None
             assert effects(ledger) == ["effect"] * (count if cut == "effect" else 0)
             child.send("go")
             event = child.expect("cut")
@@ -130,31 +142,42 @@ def test_real_repeated_sigkill_parks_at_exact_limit_then_fresh_higher_owner(
             child.wait_stdout_eof()
             evidence.append(child.evidence())
     expected_effects = ["effect"] * (limit if cut == "effect" else 0)
-    for _ in range(2):
+    ended = None
+    # The first owner at the limit ends the task when it reserves it; a later
+    # owner, even with a higher limit, finds it ended and runs nothing.
+    for owner_limit in (limit, limit + 1):
         with Child(
-            ACTOR, str(path), str(ledger), "parked", str(limit), home=tmp_path
+            ACTOR, str(path), str(ledger), "ended", str(owner_limit), home=tmp_path
         ) as child:
             opened = child.expect("opened")
             row = opened["row"]
-            assert row["id"] == task_id and row["restarts"] == limit
-            assert row["state"]["status"] == "pending"
-            assert opened["inspection"]["restart_parked"]
+            assert row["id"] == task_id
+            if ended is None:
+                assert row["restarts"] == limit
+                assert row["state"]["status"] == "pending"
+                assert opened["inspection"]["reason"] is None
+            else:
+                assert row == ended
             child.send("go")
-            assert child.expect("parked")["row"] == row
+            after = child.expect("ended")["row"]
+            if ended is None:
+                ended = after
+                assert ended["state"] == {
+                    "status": "terminal",
+                    "outcome": {
+                        "status": "faulted",
+                        "error": {
+                            "message": f"Task {task_id} (restart-physical) was cut"
+                            f" off {limit} times without progress",
+                            "detail": {"reason": "restart_limit"},
+                        },
+                    },
+                }
+                assert "restarts" not in ended
+            assert after == ended
             assert effects(ledger) == expected_effects
             closed(child)
             evidence.append(child.evidence())
-    with Child(
-        ACTOR, str(path), str(ledger), "finish", str(limit + 1), home=tmp_path
-    ) as child:
-        opened = child.expect("opened")
-        assert opened["row"]["restarts"] == limit
-        assert not opened["inspection"]["restart_parked"]
-        child.send("go")
-        child.expect("done")
-        closed(child)
-        evidence.append(child.evidence())
-    assert effects(ledger) == expected_effects + ["effect"]
     (tmp_path / "physical-evidence.json").write_text(json.dumps(evidence, indent=2))
 
 

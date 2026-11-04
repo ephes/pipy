@@ -1,71 +1,56 @@
-# Durable restart parking (DE14a)
+# Durable restart limits (DE14a, R15-2)
 
-Pi durable release 1.5.0, the campaign target since 2026-11-03, removed restart
-parking and `retryTask()`: a task cut off at the restart limit now ends visibly
-instead. Bridge slice R15-2 ports that in sub-slices; see the
-[1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md#r15-2-restart-limit-endings-instead-of-parking-and-retry).
-R15-2a removed same-task retry: the Product and SDK `retry_task`,
-`DurableTaskRetry`, the `pipy durable retry-task` command and the private
-scheduler retry. R15-2b ends the built-in `pi.tool` and `pi.generation` tasks at
-the limit (see [below](#built-in-restart-limit-endings-r15-2b)); only generic
-tasks still park until R15-2c, so the rest of this page describes that
-remaining 1.4-aligned parking. Bridge slice R15-1b withdrew the pinned
-comparisons of this behavior,
-which have no 1.5 reference: the phases `restart-parking-v1` and
-`task-product-retry-enable-v1` and the parked cases of the migration, live
-policy and orphan phases (see the
-[dispositions](durable-reference.md#release-15-dispositions-r15-1b)).
+Pi durable release 1.5.0, the campaign target since 2026-11-03, ends a task that
+was cut off its restart limit times in a row instead of parking it, and has no
+`retryTask()`. Bridge slice R15-2 ports that in four commits (see the
+[1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md#r15-2-restart-limit-endings-instead-of-parking-and-retry)):
+R15-2a removed same-task retry (the Product and SDK `retry_task`,
+`DurableTaskRetry`, `pipy durable retry-task` and the private scheduler retry),
+R15-2b ends the built-in tasks at the limit, R15-2c ends generic tasks there
+and removes parking, and R15-2d re-adds the last withdrawn comparison cases.
+Nothing parks any more. The page keeps its old path, which
+other pages and the evidence links of DE14a, DE14a1 and DE14b2 name.
 
-The native scheduler parks a recovered generic task after five consecutive
-restarts without a structurally changed task checkpoint. Parking prevents the next
-reservation; it does not rewrite the checkpoint or produce a result. Opening a
-scheduler recovers an interrupted running row to pending and increments once,
-without dispatching. A healthy close preserves the count without incrementing.
-Reopening an already pending row does not increment again.
+## Counting restarts
 
-Changed task state clears the current streak, as do completing and terminal
-transitions. Equal checkpoints, memo writes and document-only changes do not.
-In particular, an acknowledged retained tool-output or details update preserves
-the restart count: that ACK confirms a progress-document commit, not a changed
-task checkpoint.
+Opening a scheduler recovers an interrupted running row to pending and counts
+one restart, without dispatching. A healthy close stops running work without
+counting, and reopening an already pending row does not count again. Changed
+task state starts the count over, as do completing and terminal transitions.
+Equal checkpoints, memo writes and document-only changes do not; in particular
+an acknowledged retained tool-output or details update keeps the count, because
+that acknowledgement confirms a progress-document commit, not a changed task
+checkpoint. There is no cumulative restart audit.
 
-## Owner policy and inspection
+## Generic tasks at the limit (R15-2c)
 
-`create_durable_product_session` and `open_durable_product_session` accept
-`restart_limit=5`. The private `TaskScheduler` and inspection APIs accept the
-same keyword. The policy is not stored in the header or database. A fresh owner
-can raise the limit or pass `math.inf` to disable parking; that is the only way
-to run parked work again, because no same-task reset exists. Public Product
-owners keep their constructor policy for their lifetime; they expose no live
-update. The private scheduler can publish a new immutable policy as described
-below.
+When the scheduler reserves a generic task (any kind other than `pi.tool` and
+`pi.generation`) whose count has reached the owner's limit, it ends the task
+instead of running a phase: the outcome is `faulted` with
+`Task <id> (<kind>) was cut off <count> times without progress` and error
+detail `{"reason": "restart_limit"}`, as release 1.5 writes it (bridge U01). The
+count is spelled as JavaScript spells the stored number. The check reads the
+reservation pass's policy snapshot, so a limit raised before that reservation
+lets the task run, and a lowered one ends it; a task that ended stays ended,
+whatever a later owner's limit. Only an enabled owner ends it: a pass that
+drains running work after a pause, or while the owner closes, leaves the task
+pending for its next enabled reservation. The check comes before the definition is
+resolved or migrated, so a missing definition, an older stored version or a
+pending migration does not keep an exhausted task alive. Work below an owner
+with cancellation intent still waits for its cascade instead, and an
+abandon-on-restart task stays held. While ordinary owned work of the task is
+live, the fault holds as `completing`, like any other fault, and its owned work
+then waits for the abort cascade that DE16 owns. A stored task at or past the
+limit, which release 1.4 parked, ends this way at its next reservation.
 
-Raw Python policy values must be exact builtin numbers representable as finite
-binary64. Values at least one are floored. Invalid values, bools, subclasses,
-NaN, negative infinity, values below one and nonexact/overflowing integers use
-the default five without conversion errors. Positive float infinity is the
-explicit unlimited sentinel. This is not a safe-ID bound: `2**1000` is valid,
-whereas `2**53 + 1` is not exact binary64 and defaults to five. Stored task
-records retain their existing numeric ABI; their counters are not rounded.
-
-All five durable CLI commands accept `--restart-limit`. It accepts the exact
-spelling `Infinity` or finite JSON-number syntax. Exponent forms are allowed;
-`nan`, `inf`, `+Infinity`, `-Infinity` and overflow such as `1e400` are invalid
-requests. CLI text deliberately parses as binary64: `9007199254740993` rounds
-to `9007199254740992`. The equivalent Python float selects that same limit,
-while the exact raw Python integer defaults to five.
-
-Inspection exposes `restart_count` (null when missing), `restart_limit` (null
-when unlimited), and `restart_parked`, which is never true for a built-in
-task. `restart_limit` is also a reason when no more specific hold reason
-applies. Passive store inspection describes its own
-explicit/default policy, not the configuration of an unrelated live owner.
-It performs no recovery or dispatch and exposes no task payload. Public resume
-returns held when parked work prevents continuation.
+An abort handler cut off at the limit faults the same way with
+`Abort handler of task <id> (<kind>) was cut off <count> times` (DE16a). The
+fault records its reason and count for the DE39 reports; pipy has no task report
+channel yet, so nothing reports `task_faulted`.
 
 ## Built-in restart-limit endings (R15-2b)
 
-The built-in `pi.tool` and `pi.generation` kinds never park. Their phases check
+The built-in `pi.tool` and `pi.generation` kinds end themselves. Their phases check
 the count when they start, reading the owner's current policy only for a task
 that was cut off at all, and at the limit end the task instead of running its
 work again, as Pi durable release 1.5 does (bridge U01, U05):
@@ -108,6 +93,39 @@ actual release 1.5.0 run of a safe call cut off once at limit 1 and pipy's
 SIGKILL cut and CLI resume with `--restart-limit 1` agree that the call is not
 run again, keeps its retained output and details, fails with the
 `restart_limit` cause and lets the run answer.
+
+## Owner policy and inspection
+
+`create_durable_product_session` and `open_durable_product_session` accept
+`restart_limit=5`. The private `TaskScheduler` and inspection APIs accept the
+same keyword. The policy is not stored in the header or database. A fresh owner
+can raise the limit or pass `math.inf` for no limit; it cannot revive a task
+that already ended. Public Product owners keep their constructor policy for
+their lifetime; they expose no live update. The private scheduler can publish a
+new immutable policy as described below.
+
+Raw Python policy values must be exact builtin numbers representable as finite
+binary64. Values at least one are floored. Invalid values, bools, subclasses,
+NaN, negative infinity, values below one and nonexact/overflowing integers use
+the default five without conversion errors. Positive float infinity is the
+explicit unlimited sentinel. This is not a safe-ID bound: `2**1000` is valid,
+whereas `2**53 + 1` is not exact binary64 and defaults to five. Stored task
+records retain their existing numeric ABI; their counters are not rounded.
+
+All five durable CLI commands accept `--restart-limit`. It accepts the exact
+spelling `Infinity` or finite JSON-number syntax. Exponent forms are allowed;
+`nan`, `inf`, `+Infinity`, `-Infinity` and overflow such as `1e400` are invalid
+requests. CLI text deliberately parses as binary64: `9007199254740993` rounds
+to `9007199254740992`. The equivalent Python float selects that same limit,
+while the exact raw Python integer defaults to five.
+
+Inspection exposes `restart_count` (null when missing) and `restart_limit` (null
+when unlimited). The limit is no hold reason: a pending task at the limit
+inspects as plain pending work until a reservation ends it. R15-2c removed the
+`restart_parked` field and the `restart_limit` reason. Passive store inspection
+describes its own explicit/default policy, not the configuration of an
+unrelated live owner. It performs no recovery or dispatch and exposes no task
+payload.
 
 ## Private owner-local publication (DE14b2)
 
@@ -157,7 +175,23 @@ blocked authority.
 
 The [implementation contract](specs/2026-10-28-de14a-restart-parking-plan.md)
 keeps public live settings, registry handover, orphan/cleanup and abort budgets
-for remaining DE14b and later ownership work; its reset and retry obligations
-ended with R15-2a. Generic cold migration is supplied
+for remaining DE14b and later ownership work; its parking, reset and retry
+obligations ended with R15-2. Generic cold migration is supplied
 by [DE14b1](durable-task-migration.md). General cancellation/graph behavior, provider
 attempt backoff, and whole DE14/DE13/P21 parity remain open.
+
+## Pinned comparisons
+
+Release 1.5 has no parking, so R15-1b withdrew the comparisons of it: the phases
+`restart-parking-v1` and `task-product-retry-enable-v1` and the parked cases of
+the migration, live-policy and two orphan phases (see the
+[dispositions](durable-reference.md#release-15-dispositions-r15-1b)). Their
+successors come from actual release 1.5.0 runs. `restart-policy-live-v1` again
+has five cases (R15-2c): a limit raised before the reservation lets the task run
+(`raise-finite`, `raise-unlimited`, `same-unlimited`), and a lowered or equal one
+ends it `faulted` with `restart_limit` (`lower-before-admission`,
+`same-finite-faults`), which a fresh owner with any limit leaves ended.
+`interrupted-tool-continuation-v1` has the built-in tool case `safe_limit`
+(R15-2b). The successors of the parked cases of `task-migration-cold-v1`,
+`task-orphan-missing-definition-v1` and `task-orphan-failed-migration-v1`
+belong to R15-2d.

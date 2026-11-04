@@ -53,21 +53,22 @@ def test_actual_generic_live_policy_and_side_specific_ack(native_run):
         expected_limit = None if recipe["update"] == "Infinity" else recipe["update"]
         assert row["native_only"]["owner_after"]["restart_limit"] == expected_limit
         assert row["native_only"]["standalone_default_after"]["restart_limit"] == 5
-    # Release 1.5.0 removed parking: the four parked cases are retirement records
-    # (successor R15-2), and test_restart_policy_live.py keeps the native behavior.
-    assert [row["id"] for row in rows] == ["same-unlimited"]
-    assert [
-        (row["id"], row["retired_by"], row["successor"])
-        for row in m.values.SCOPE["retired_cases"]
-    ] == [
-        (case, "R15-1b", "R15-2")
-        for case in (
-            "raise-finite",
-            "raise-unlimited",
-            "lower-before-admission",
-            "same-finite-remains-parked",
-        )
+    # Release 1.5: the four cases R15-1b retired return as restart-limit cases
+    # (R15-2c); the limit current at reservation decides run or fault.
+    assert [row["id"] for row in rows] == [
+        "raise-finite",
+        "raise-unlimited",
+        "lower-before-admission",
+        "same-finite-faults",
+        "same-unlimited",
     ]
+    assert "retired_cases" not in m.values.SCOPE
+    ended = [m.values.faulted(recipe) for recipe in m.values.CASES]
+    assert ended == [False, False, True, True, False]
+    for row, faulted in zip(rows, ended, strict=True):
+        outcome = row["after_resume"]["state"]["outcome"]
+        assert outcome["status"] == ("faulted" if faulted else "completed")
+        assert row["after_final_resume"] == row["after_resume"]
 
 
 @pytest.mark.parametrize("name", m.values.MUTANTS)

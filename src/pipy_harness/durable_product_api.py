@@ -693,9 +693,7 @@ class DurableProductSession:
             )
             if metadata is None:
                 raise DurableProductError("incompatible")
-            held = (
-                metadata.reason is not None or metadata.restart_parked
-            ) and metadata.status != "terminal"
+            held = metadata.reason is not None and metadata.status != "terminal"
             if not held and metadata.status != "terminal":
                 cursor = None
                 while True:
@@ -706,10 +704,7 @@ class DurableProductSession:
                         support=self._support(),
                         restart_limit=self._restart_policy,
                     )
-                    held = any(
-                        row.reason is not None or row.restart_parked
-                        for row in page.tasks
-                    )
+                    held = any(row.reason is not None for row in page.tasks)
                     if held or page.next is None:
                         break
                     cursor = page.next

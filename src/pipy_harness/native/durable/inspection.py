@@ -140,7 +140,6 @@ def _capture(
         len(dependencies),
         restart_count=row.get("restarts"),
         restart_limit=policy.limit,
-        restart_parked=policy.parked(row),
     )
     if state["status"] in ("terminal", "completing"):
         # Do not decode an arbitrary outcome result or consult current code.
@@ -156,12 +155,7 @@ def _capture(
     shown = phase if type(phase) is str and phase in PHASES else "unknown"
     compatibility, reason = _compatibility(row, phase, support, migration_failed)
     result = replace(result, phase=shown, compatibility=compatibility, reason=reason)
-    result = _native_details(storage, row, raw, phase, result, support)
-    return (
-        replace(result, reason="restart_limit")
-        if result.restart_parked and result.reason is None
-        else result
-    )
+    return _native_details(storage, row, raw, phase, result, support)
 
 
 def _supported_format(row: Tree, raw: object, phase: object) -> bool:

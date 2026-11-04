@@ -67,7 +67,7 @@ CLOSURE = (
         "tests/durable/test_definition_publication_live.py",
         "tests/durable/definition_publication_live_support.py",
         "tests/durable/test_restart_policy_runtime.py",
-        "tests/durable/test_restart_parking_sqlite.py",
+        "tests/durable/test_restart_limit_sqlite.py",
         "tests/durable/adjudication_sdk_support.py",
         "tests/durable/test_restart_retained_progress.py",
         "tests/durable/test_task_runtime_comparison.py",

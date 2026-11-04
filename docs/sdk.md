@@ -94,14 +94,14 @@ different authority. An existing retry selector remains required for subsequent
 resume of a successor root. Opaque or unverifiable historical records stay held.
 
 The factory keyword `restart_limit` captures an immutable host policy, defaulting
-to five surviving-process restarts. Inspection exposes `restart_count`,
-`restart_limit` and `restart_parked`; the unlimited policy reports a null limit.
-There is no same-task reset: Pi durable release 1.5 removed `retryTask()`, and
-bridge slice R15-2a removed `retry_task` and `DurableTaskRetry`. A product opened
-with a higher `restart_limit`, or `math.inf`, runs parked work again on its next
-`resume()`. See [restart parking](durable-restart-parking.md) for numeric
-admission, receipt precedence and the visible restart-limit endings that R15-2
-puts in place of parking.
+to five surviving-process restarts. Inspection exposes `restart_count` and
+`restart_limit`; the unlimited policy reports a null limit. A task at the limit
+ends instead of running again, and there is no parking or same-task reset: Pi
+durable release 1.5 removed both, and bridge slice R15-2 removed `retry_task`,
+`DurableTaskRetry` and the `restart_parked` field. A product opened with a higher
+`restart_limit`, or `math.inf`, lets a task that has not ended run again. See
+[restart limits](durable-restart-parking.md) for numeric admission, receipt
+precedence and the endings.
 
 The default request template has an empty system prompt and loads no workspace
 context or files automatically, even when the fixed native built-ins are

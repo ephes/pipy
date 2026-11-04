@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, cast
 
-from .generation_tasks import LIMITS_RESTARTS
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class RestartPolicy:
@@ -41,15 +39,6 @@ class RestartPolicy:
             self.limit is not None
             and "restarts" in row
             and row["restarts"] >= self.limit
-        )
-
-    def parked(self, row: dict[str, Any]) -> bool:
-        # Built-in phases end their task at the limit instead (R15-2b).
-        return bool(
-            row["kind"] not in LIMITS_RESTARTS
-            and row["state"]["status"] not in ("running", "completing", "terminal")
-            and not row["abortRequested"]
-            and self.reached(row)
         )
 
 

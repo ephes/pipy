@@ -191,8 +191,6 @@ def _exercise(recipe, folder, owned):
         "after_update": after_update,
         "calls_at_open": calls_at_open,
         "calls_at_update": calls_at_update,
-        "parked_before": before.restart_parked,
-        "parked_after": after.restart_parked,
         "after_resume": after_resume,
         "calls_after_resume": calls_after_resume,
         "first_close": first_close,

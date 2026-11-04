@@ -376,7 +376,7 @@ every phase:
   the Product, headless and inspection guides and the release notes. P07 and P21
   remain OPEN.
 
-R15-2 lands as three reviewed commits; together they carry the whole acceptance
+R15-2 lands as four reviewed commits; together they carry the whole acceptance
 above:
 
 - **R15-2a, same-task retry removal.** The Product and SDK `retry_task` with
@@ -395,8 +395,13 @@ above:
 - **R15-2c, generic restart-limit fault.** A generic task at the limit ends
   `faulted` with detail `{ reason: "restart_limit" }` when the scheduler reserves
   it; parking, `restart_parked` and the `restart_limit` hold reason are removed;
-  the successors of the withdrawn comparison cases are added from actual 1.5
-  runs; and the restart parking guide becomes the restart-limit guide.
+  the four withdrawn cases of `restart-policy-live-v1` come back from actual
+  1.5 runs; and the restart parking guide becomes the restart-limit guide.
+- **R15-2d, migration and orphan successors.** The successors of the withdrawn
+  `parked-migration` case of `task-migration-cold-v1` and of the parked
+  controls of `task-orphan-missing-definition-v1` and
+  `task-orphan-failed-migration-v1`, from actual 1.5 runs: a task at the limit
+  ends `restart_limit` before its definition is resolved or migrated.
 
 ### R15-3: batch Storage commit
 

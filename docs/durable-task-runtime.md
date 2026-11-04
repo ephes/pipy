@@ -133,7 +133,7 @@ reference comparison. All43 parity rows remain OPEN. The bounded scheduler scans
 all current tasks; live-graph indexing/retention and performance ownership remain
 DE27/28. The original DE05b evidence made no migration, park/retry, full task ownership,
 sleep, abort-handler, tool execution or product activation claim. Later
-[restart parking](durable-restart-parking.md) and
+[restart limits](durable-restart-parking.md) and
 [cold generic migration](durable-task-migration.md) have separate bounded contracts. DE07 supplies the bounded provider
 phase lifetime and real tool admission described in the generation contract;
 [DE08](durable-tools.md) supplies the direct owned model-tool leaf and exact
@@ -171,16 +171,16 @@ target binding still occurs at first prepare; CLI/live and pre-prepare P16
 acceptance remain DE12. Broader parity obligations remain OPEN.
 
 
-## Bounded restart parking (DE14a)
+## Restart limits (DE14a, R15-2)
 
-[Restart parking](durable-restart-parking.md) adds an immutable per-owner
-default-five ceiling and allowlisted inspection metadata. Bridge slice R15-2a
-removed the public same-task reset (release 1.5 removed `retryTask()`);
-new-attempt authorization remains separate. Since R15-2b the built-in tool and
-generation tasks never park: at the limit their phases end the task, and a valid
-receipt settles unchanged
+The [restart limit](durable-restart-parking.md) is an immutable per-owner
+default-five ceiling with allowlisted inspection metadata. Nothing parks: the
+scheduler faults a generic task at the limit when it reserves it, with detail
+`{"reason": "restart_limit"}`, and the built-in tool and generation phases end
+their own task, a valid receipt settling unchanged
 ([built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)).
-Generic parking can still delay a generic task until R15-2c.
+Bridge slice R15-2a removed the public same-task reset (release 1.5 removed
+`retryTask()`); new-attempt authorization remains separate.
 Live settings and broader migration/ownership behavior remain deferred.
 
 ## Ordinary generic execution and held completion (DE15b)

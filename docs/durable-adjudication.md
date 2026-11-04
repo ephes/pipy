@@ -108,7 +108,7 @@ export them. The existing fact1, fact2 and canonical formats remain unchanged.
 
 C1 landed at `5897353`; this bounded C2 operation landed at `06823ad`.
 Unsupported intent-less/opaque historical authority remains owned by later DE13
-repair. DE14a restart parking is a separate active increment; broader DE14
+repair. The [restart limits](durable-restart-parking.md) are a separate increment; broader DE14
 policy, P15/P16, nested DE24, ownership/retention and whole DE13/P21 parity
 remain open. The
 [implementation contract](specs/2026-10-27-de13c2-explicit-historical-adjudication-plan.md)

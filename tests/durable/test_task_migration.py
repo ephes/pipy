@@ -42,7 +42,7 @@ def report_pair(rig, task_id, definitions):
     )
     owner = rig.scheduler.inspect_task(task_id)
     assert ordinary is not None and owner is not None
-    assert len(ordinary.to_tree()) == len(owner.to_tree()) == 17
+    assert len(ordinary.to_tree()) == len(owner.to_tree()) == 16
     return ordinary, owner
 
 
@@ -433,7 +433,7 @@ def test_invalid_migration_results_are_once_only_and_durably_silent(rig, invalid
     rig.assert_silent(before)
 
 
-def test_parked_task_is_neither_migrated_nor_admitted(rig):
+def test_limit_faults_the_task_before_migration_or_admission(rig):
     calls, admitted, records = [], threading.Event(), []
     task_id = rig.create(definition())
     rig.change(task_id, lambda row: row.update(restarts=5, memos={"stable": [1]}))
@@ -454,11 +454,22 @@ def test_parked_task_is_neither_migrated_nor_admitted(rig):
     scheduler.resume()
     assert finished.wait(5)
     pause(scheduler)
-    report = scheduler.inspect_task(task_id)
-    assert report.restart_parked is True and report.restart_count == 5
-    assert report.reason == "migration_required"
+    # Release 1.5 checks the limit before it resolves or migrates the task.
+    row = rig.record(task_id)
+    assert row["state"] == {
+        "status": "terminal",
+        "outcome": {
+            "status": "faulted",
+            "error": {
+                "message": f"Task {task_id} ({row['kind']}) was cut off 5 times"
+                " without progress",
+                "detail": {"reason": "restart_limit"},
+            },
+        },
+    }
+    assert "restarts" not in row and "memos" not in row and row["version"] == 1
     assert calls == [] and not admitted.is_set() and records == []
-    rig.assert_silent(before)
+    del before
 
 
 def test_deep_unicode_owned_arguments_and_result_aliases_stay_detached(rig):

@@ -9315,13 +9315,16 @@ which holds only DE rows:
   R15-1b, the release 1.5.0 pin, was delivered at
   `31e1b48f7d09323b86d653e2ef79c4d31861925a`, remote main verified, and is
   recorded [below](#r15-1b-release-150-pin-2026-11-03).
-- R15-2 restart-limit endings instead of parking and retry, in three commits
+- R15-2 restart-limit endings instead of parking and retry, in four commits
   (see the bridge): R15-2a, same-task retry removal, was delivered at
   `88e3c778079aad5db0df85bbc8dcaf84f1ea5707`, remote main verified, and is
   recorded [below](#r15-2a-same-task-retry-removal-2026-11-04); R15-2b, the
-  built-in endings, is recorded
-  [below](#r15-2b-built-in-restart-limit-endings-2026-11-04); R15-2c (generic
-  fault and parking removal) is OPEN.
+  built-in endings, was delivered at
+  `b5446172b8969a4a2e8104902d49185d9f4ee1db`, remote main verified, and is
+  recorded [below](#r15-2b-built-in-restart-limit-endings-2026-11-04); R15-2c,
+  the generic fault and parking removal, is recorded
+  [below](#r15-2c-generic-restart-limit-fault-2026-11-04); R15-2d (the
+  migration and orphan comparison successors) is OPEN.
 - R15-3 batch Storage commit: OPEN.
 - R15-4 watch, report and observer shapes: OPEN.
 - The DE16 remainder resumes after R15-4; DE16 stays OPEN.
@@ -9498,3 +9501,56 @@ of the changed pages resolved. The review of the final delta, the confirming
 chain on the committed bytes and the pushed commit are recorded by R15-2c. No P
 row closes; all 43 remain OPEN.
 
+Recorded by R15-2c: the final delta (these receipts and the manifest digests)
+was Codex round 4, CLEAN. A confirming chain on the committed bytes (baseline
+execution `11a629fe-3d81-4eeb-8b40-c173af90da4e`, `acceptance.json` SHA256
+`0286dde38e0715dce3b878f2956f8c82ad4ae2c959dff0375c19c53c00dfa2c2`) and the 31
+phases after it exited 0, 32 commands in 591 s. R15-2b was pushed at
+`b5446172b8969a4a2e8104902d49185d9f4ee1db`, remote main verified.
+
+### R15-2c generic restart-limit fault (2026-11-04)
+
+Release 1.5 ends a generic task that was cut off its restart limit times in a
+row instead of parking it (bridge U01). When the native scheduler reserves a
+task of a kind other than `pi.tool` and `pi.generation` whose count reached the
+reservation pass's policy snapshot, it ends the task `faulted` with
+`Task <id> (<kind>) was cut off <count> times without progress` and detail
+`{"reason": "restart_limit"}`, the count spelled as JavaScript spells the
+stored number. The check comes before historical tool holds, definition
+fitting and migration, as upstream's `#reserve()` checks the limit before it
+resolves the definition; work below an owner with cancellation intent still
+waits for its cascade, and an abandon-on-restart task stays held, as before.
+While ordinary owned work of the task is live, the fault holds as
+`completing`. Only an enabled, open owner ends it, as upstream's reservation
+commit returns at once while scheduling is paused or closing. A raised limit
+lets the task run, and a task that ended stays ended. Parking is removed: `RestartPolicy.parked`, the inspection
+field `restart_parked` and the hold reason `restart_limit`; Product resume no
+longer treats a parked row as held. The ordinary abort cutoff spells its count
+the same way. `restart-policy-live-v1` has its five cases again, from actual
+1.5 runs, with `same-finite-faults` in place of the parked case, a Pi side that
+waits for graph idle after its explicit resume, the terminal outcome in the
+common projection and 11 schema-valid mutations. The SQLite restart tests are
+renamed `test_restart_limit_sqlite`, and the restart guide keeps its path as
+the restart-limit guide. Without a native task report channel, `task_faulted`
+stays with DE39. The successors of the withdrawn parked cases of the migration
+and two orphan phases belong to R15-2d.
+
+Receipts on the development host (macOS, Python 3.15.1), on the final R15-2c
+code before the documentation digests of this entry: a fresh baseline
+acceptance (execution `45e35c15-7d61-4a51-94dc-a8cf25cb481e`, `acceptance.json`
+SHA256 `3a5efa625ea95ddf60308eb82382771ba6c8d217471a7882c199ac48452ba715`,
+runtime v26.13.0/11.20.0, reference 1.5.0) and all 31 comparison phases after
+it exited 0, 32 commands in 595 s; `restart-policy-live-v1` passed its five
+cases and 11 mutants. `just check`: lint, format and type checks clean; 21321
+passed, 21 skipped and 2 failed in 2841 s, the same two pi-mono checkout
+failures as R15-0. A pre-check on an identical code snapshot had found two
+stale tests that still expected parking (a 17-field inspection count and
+`RestartPolicy.parked`); both were fixed before these runs. `just docs-build`
+passed, and the rendered links of the changed pages resolved. Codex
+gpt-6.1-sol HIGH round 1 found that the fault was staged without checking
+scheduler admission, so a pass that drained running work after a pause ended
+an exhausted pending task; the repair stages it only for an enabled, open
+owner and adds a pause-during-invocation regression test, and round 2 was
+CLEAN. The review of the final delta, the confirming chain on the committed
+bytes and the pushed commit are recorded by R15-2d. No P row closes; all 43
+remain OPEN.

@@ -120,7 +120,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   Product catalogs and active handover remain outside this private control.
 
 - Allow an opened private durable scheduler to publish its restart limit on the
-  existing Session line. Reservation, retry and owner inspection capture one
+  existing Session line. Reservation and owner inspection capture one
   immutable policy per decision. Publication writes no durable state, resets no
   counters and does not wake or enable work; explicit resume requests a pass.
   Async cancellation joins the accepted job without promising rollback. Product,
@@ -643,6 +643,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Generic durable tasks now end at the restart limit instead of parking, as Pi
+  durable release 1.5 does. When the scheduler reserves a task that was cut off
+  that many times in a row, it ends the task `faulted` with detail
+  `{"reason": "restart_limit"}` before resolving or migrating its definition. The
+  limit is read at that reservation, so a higher limit lets the task run, and a
+  task that ended stays ended whatever a later owner's limit. A store written by
+  an earlier version with a task at or past the limit ends it the same way.
+  Nothing parks any more. See
+  [restart limits](docs/durable-restart-parking.md#generic-tasks-at-the-limit-r15-2c).
+
 - Native durable tool and generation tasks now end themselves at the restart
   limit instead of parking, as Pi durable release 1.5 does. A tool call cut off
   that many times in a row, safe replay included, is not run again: it ends with
@@ -650,8 +660,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   task fails with detail `{"reason": "restart_limit"}`, and the run continues.
   A generation cut off in its prepare, request or tools phase fails the run the
   same way without another request. A committed receipt still settles unchanged
-  at the limit. Inspection never reports these tasks as parked; generic tasks
-  still park until the next bridge slice. See
+  at the limit. See
   [restart limits](docs/durable-restart-parking.md#built-in-restart-limit-endings-r15-2b).
 
 - The [pinned durable reference runner](docs/durable-reference.md) and every
@@ -726,11 +735,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - `pipy durable retry-task`, the durable SDK's `DurableProductSession.retry_task()`
   with its `DurableTaskRetry` acknowledgement, and the `continuation_failed`
   error code are removed, because Pi durable release 1.5 removed same-task
-  retry. Parked durable work runs again on a later `resume` with a higher
-  `--restart-limit` (SDK `restart_limit`) or `Infinity`, which the five
+  retry. Durable work that has not ended runs again on a later `resume` with a
+  higher `--restart-limit` (SDK `restart_limit`) or `Infinity`, which the five
   remaining durable commands accept. New-attempt authorization with
   `authorize-retry` is unchanged. See
-  [restart parking](docs/durable-restart-parking.md).
+  [restart limits](docs/durable-restart-parking.md).
+
+- Durable task inspection no longer has the `restart_parked` field (the
+  `TaskInspection` that `DurableProductSession.inspect()` returns, and the
+  `pipy durable inspect` JSON), and `restart_limit` is no longer a hold reason,
+  so `resume` no longer returns `held` for it, because nothing parks any more. A
+  pending task at the limit inspects as plain pending work until its next
+  reservation ends it; `restart_count` and `restart_limit` stay.
 
 ### Fixed
 

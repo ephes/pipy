@@ -7,6 +7,38 @@ import copy
 PHASE = "restart-policy-live-v1"
 CASES = [
     {
+        "id": "raise-finite",
+        "initial": 5,
+        "count": 5,
+        "update": 6,
+        "fresh": 5,
+        "async_setter": False,
+    },
+    {
+        "id": "raise-unlimited",
+        "initial": 5,
+        "count": 1e100,
+        "update": "Infinity",
+        "fresh": 5,
+        "async_setter": True,
+    },
+    {
+        "id": "lower-before-admission",
+        "initial": 6,
+        "count": 5,
+        "update": 5,
+        "fresh": 6,
+        "async_setter": False,
+    },
+    {
+        "id": "same-finite-faults",
+        "initial": 5,
+        "count": 5,
+        "update": 5,
+        "fresh": 6,
+        "async_setter": True,
+    },
+    {
         "id": "same-unlimited",
         "initial": "Infinity",
         "count": 1e100,
@@ -18,34 +50,9 @@ CASES = [
 IDS = tuple(row["id"] for row in CASES)
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 SCOPE = {
-    "retired_cases": [
-        {
-            "id": "raise-finite",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
-        },
-        {
-            "id": "raise-unlimited",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
-        },
-        {
-            "id": "lower-before-admission",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
-        },
-        {
-            "id": "same-finite-remains-parked",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
-        },
-    ],
-    "common": "generic-current-owner-live-budget-read-on-later-explicit-resume-no-task-counter-reset",
-    "controls": "actual-created-pending-task-explicit-counter-seed; native reservation observer; Pi parked first-resume FIFO Session-line observer, not graph idle; no physical SIGKILL",
+    "release_1_5": "a generic task cut off the restart limit faults with detail restart_limit when it is reserved, reading the current limit; R15-2c re-adds the four cases R15-1b retired, same-finite-remains-parked as same-finite-faults (bridge U01)",
+    "common": "generic-current-owner-live-limit-read-at-reservation-restart-limit-fault-no-task-counter-reset-ended-stays-ended",
+    "controls": "actual-created-pending-task-explicit-counter-seed; native reservation observer; Pi graph idle after explicit resume; no physical SIGKILL",
     "reference_update": "actual mutable HarnessOptions.settings host object, then explicit Harness.resume; no Pi setter API",
     "native_only": [
         "set/aset boolean ACK",
@@ -58,7 +65,6 @@ SCOPE = {
         "owner/standalone inspection",
         "native ACK",
         "native reserve observer",
-        "Pi parked first-resume Session-line observer",
         "IDs/timestamps",
         "actual source observations",
     ],
@@ -66,6 +72,7 @@ SCOPE = {
         "public Product live settings",
         "settings getters/listeners",
         "registry/handover",
+        "task_faulted reports (DE39)",
         "DE15/16/23",
         "physical crash/resource proof",
     ],
@@ -75,8 +82,6 @@ FIELDS = {
     "calls_at_update",
     "unchanged_record",
     "unchanged_counter",
-    "parked_before",
-    "parked_after",
     "calls_after_resume",
     "after_resume",
     "calls_before_final_resume",
@@ -92,8 +97,27 @@ def count(row):
     return {"present": "restarts" in row, "value": row.get("restarts")}
 
 
+def outcome(row):
+    """The terminal outcome, its task ID spelled generically in the message."""
+    if row["state"]["status"] != "terminal":
+        return None
+    value = row["state"]["outcome"]
+    error = value.get("error")
+    return {
+        "status": value["status"],
+        "detail": None if error is None else error.get("detail"),
+        "message": None
+        if error is None
+        else error["message"].replace(f"Task {row['id']} ", "Task <id> ", 1),
+    }
+
+
 def state(row):
-    return {"status": row["state"]["status"], "count": count(row)}
+    return {
+        "status": row["state"]["status"],
+        "count": count(row),
+        "outcome": outcome(row),
+    }
 
 
 def project(row):
@@ -114,8 +138,6 @@ def project(row):
         "calls_at_update": row["calls_at_update"],
         "unchanged_record": row["before_update"] == row["after_update"],
         "unchanged_counter": count(row["before_update"]) == count(row["after_update"]),
-        "parked_before": row["parked_before"],
-        "parked_after": row["parked_after"],
         "calls_after_resume": row["calls_after_resume"],
         "after_resume": state(row["after_resume"]),
         "calls_before_final_resume": row["calls_before_final_resume"],
@@ -154,21 +176,23 @@ def validate(value, d, v):
             d.require(
                 type(x[name]) is int and x[name] >= 0, "Live-policy actual call count"
             )
-        for name in (
-            "unchanged_record",
-            "unchanged_counter",
-            "parked_before",
-            "parked_after",
-            "same_task_input",
-        ):
+        for name in ("unchanged_record", "unchanged_counter", "same_task_input"):
             d.require(type(x[name]) is bool, "Live-policy predicate")
         for name in ("after_resume", "after_final_resume"):
-            d.shape(x[name], {"status", "count"}, "Live-policy state")
+            d.shape(x[name], {"status", "count", "outcome"}, "Live-policy state")
             d.require(
                 x[name]["status"] in {"pending", "running", "terminal"},
                 "Live-policy task state",
             )
             _count(x[name]["count"], d)
+            ended = x[name]["outcome"]
+            if ended is not None:
+                d.shape(ended, {"status", "detail", "message"}, "Live-policy outcome")
+                d.require(
+                    type(ended["status"]) is str
+                    and (ended["message"] is None or type(ended["message"]) is str),
+                    "Live-policy outcome values",
+                )
         d.require(
             type(x["phase_counts"]) is list
             and type(x["closed"]) is list
@@ -192,12 +216,16 @@ def _count(value, d):
     )
 
 
+def faulted(recipe):
+    """Release 1.5: the current limit at reservation ends the seeded task."""
+    return recipe["update"] != "Infinity" and recipe["count"] >= recipe["update"]
+
+
 def successful(value, d, v):
     validate(value, d, v)
     for row, recipe in zip(value["cases"], CASES, strict=True):
         x = v.decode(row["observed"])
-        blocked = recipe["update"] != "Infinity" and recipe["count"] >= recipe["update"]
-        prior = recipe["initial"] != "Infinity" and recipe["count"] >= recipe["initial"]
+        ended = faulted(recipe)
         d.require(
             x["calls_at_open"] == x["calls_at_update"] == 0
             and x["unchanged_record"]
@@ -206,31 +234,33 @@ def successful(value, d, v):
             "Live-policy unchanged authority/noninvocation",
         )
         d.require(
-            x["parked_before"] == prior and x["parked_after"] == blocked,
-            "Live-policy actual budget eligibility",
-        )
-        d.require(
             x["calls_after_resume"]
             == x["calls_before_final_resume"]
-            == (0 if blocked else 1),
-            "Live-policy actual first admission",
+            == (0 if ended else 1),
+            "Live-policy actual first reservation",
         )
         wanted = {
-            "status": "pending" if blocked else "terminal",
-            "count": {
-                "present": blocked,
-                "value": recipe["count"] if blocked else None,
-            },
+            "status": "terminal",
+            "count": {"present": False, "value": None},
+            "outcome": {
+                "status": "faulted",
+                "detail": {"reason": "restart_limit"},
+                "message": "Task <id> (fixture.restart.live) was cut off "
+                + str(recipe["count"])
+                + " times without progress",
+            }
+            if ended
+            else {"status": "completed", "detail": None, "message": None},
         }
-        d.require(x["after_resume"] == wanted, "Live-policy first resume state/counter")
+        d.require(x["after_resume"] == wanted, "Live-policy first resume outcome")
         d.require(
-            x["after_final_resume"]
-            == {"status": "terminal", "count": {"present": False, "value": None}},
-            "Live-policy actual final terminal",
+            x["after_final_resume"] == wanted,
+            "Live-policy ended task stays ended for a fresh owner",
         )
         d.require(
-            x["phase_counts"] == [{"present": True, "value": recipe["count"]}],
-            "Live-policy same counter reaches sole actual invocation",
+            x["phase_counts"]
+            == ([] if ended else [{"present": True, "value": recipe["count"]}]),
+            "Live-policy counter reaches only an admitted invocation",
         )
         d.require(
             x["closed"] == ["closed", "closed"], "Live-policy actual joined closes"
@@ -239,8 +269,8 @@ def successful(value, d, v):
 
 def mutate(value, name, v):
     changed = copy.deepcopy(value)
-    # The one remaining case after the release 1.5 retirement (R15-1b).
-    index = 0
+    # A run case for the run-only fields, a faulted case for the rest.
+    index = 0 if name in {"calls_after_resume", "phase_counts"} else 2
     x = v.decode(changed["cases"][index]["observed"])
     if name in {
         "calls_at_open",
@@ -249,16 +279,10 @@ def mutate(value, name, v):
         "calls_before_final_resume",
     }:
         x[name] += 1
-    elif name in {
-        "unchanged_record",
-        "unchanged_counter",
-        "parked_before",
-        "parked_after",
-        "same_task_input",
-    }:
+    elif name in {"unchanged_record", "unchanged_counter", "same_task_input"}:
         x[name] = not x[name]
     elif name in {"after_resume", "after_final_resume"}:
-        x[name]["count"] = {"present": True, "value": 0}
+        x[name]["outcome"] = {"status": "completed", "detail": None, "message": None}
     elif name == "phase_counts":
         x[name] = [{"present": True, "value": 0}]
     elif name == "closed":

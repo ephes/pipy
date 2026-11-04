@@ -32,7 +32,7 @@ def test_c2_decision_settles_unchanged_at_the_limit_and_replays_cold(tmp_path):
             await owned_call(lambda: product._session.commit(seed))
             before = counts(tmp_path)
             held = await product.inspect(target)
-            assert held.restart_count == 5 and not held.restart_parked
+            assert held.restart_count == 5 and held.reason is not None
             ack = await product.adjudicate_interrupted(target, nonce="d" * 32)
             assert ack.decision == "interrupted"
             saved = await product._read(

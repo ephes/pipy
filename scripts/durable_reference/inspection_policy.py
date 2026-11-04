@@ -92,7 +92,6 @@ REPORT_FIELDS = {
     "execution_material",
     "restart_count",
     "restart_limit",
-    "restart_parked",
 }
 MUTANTS = (
     "payload",
@@ -279,7 +278,6 @@ def _default_report(report):
         and report["restart_count"] is None
         and type(report["restart_limit"]) is int
         and report["restart_limit"] == 5
-        and report["restart_parked"] is False
     )
 
 

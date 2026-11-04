@@ -174,26 +174,27 @@ an older runtime's blocked/intent-None round trip. C2 owns migration; automatic
 resume never replaces the existing operator-new-key authorization contract.
 
 
-## Bounded restart parking (DE14a)
+## Restart limits (DE14a, R15-2)
 
-[Restart parking](durable-restart-parking.md) adds a default-five host ceiling
-and allowlisted inspection metadata. Bridge slice R15-2a removed the public
+The [restart limit](durable-restart-parking.md) is a default-five host ceiling
+with allowlisted inspection metadata, `restart_count` and `restart_limit`.
+Release 1.5 removed parking: a task at the limit ends when it next runs (the
+scheduler faults a generic task at its reservation, and the built-in phases end
+their own task), so the limit is no hold reason. R15-2c removed the
+`restart_parked` field and the `restart_limit` reason; a pending task at the
+limit inspects as plain pending work. Bridge slice R15-2a removed the public
 same-task reset (release 1.5 removed `retryTask()`); new-attempt authorization
 remains separate.
-Since R15-2b `restart_parked` is never true for a built-in `pi.tool` or
-`pi.generation` task: at the limit their phases end the task instead (see
-[built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)).
-Generic parking can still delay a generic task until R15-2c.
 Public live settings and broader migration/ownership behavior remain deferred.
 The private DE14b2 setter publishes a new owner policy; same-owner inspection
 captures it on the Session line together with definition/failure metadata.
 Standalone inspection retains its explicit/default policy and never guesses a
-live owner setting. The report still has exactly 17 fields.
+live owner setting. The report has exactly 16 fields.
 
 
 ## Cold generic migration metadata (DE14b1)
 
-[Generic migration](durable-task-migration.md) retains the exact 17-field report.
+[Generic migration](durable-task-migration.md) retains the exact 16-field report.
 For current-newer generic definitions, absent migrators report
 `unsupported/migration_failed`; present migrators report
 `unknown/migration_required` until an owner actually observes failure. The

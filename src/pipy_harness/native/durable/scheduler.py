@@ -1289,12 +1289,14 @@ class TaskScheduler:
             from .ordinary_abort import candidate
 
             return candidate(self, tx, row, ownership, policy, generation)
-        if (
-            not _execution_ready(row, ownership)
-            or row["abortRequested"]
-            or row.get("abandonOnRestart")
-            or policy.parked(row)
-        ):
+        if not _execution_ready(row, ownership) or row.get("abandonOnRestart"):
+            return None
+        if _ordinary(row):
+            assert ownership is not None
+            # Work below a foreground owner with cancellation intent waits.
+            if ownership.refuses(row["id"]):
+                return None
+        if self._cut_off(tx, row, ownership, policy):
             return None
         from .tool_values import blocked_record
 
@@ -1303,16 +1305,73 @@ class TaskScheduler:
         binding = self._fitting_definition(row, generation)
         if binding is None:
             return None
-        if _ordinary(row):
-            assert ownership is not None
-            if ownership.refuses(row["id"]):
-                return None
-        elif _model_tool(row) or _owned(row, rows, conversations):
+        if not _ordinary(row) and (
+            _model_tool(row) or _owned(row, rows, conversations)
+        ):
             from .tool_graph import model_call
 
             if await model_call(tx, row, rows, conversations, graph_entries) is None:
                 return None
         return self._fit(row, binding)
+
+    def _cut_off(
+        self,
+        tx: AsyncTx,
+        row: Tree,
+        ownership: _AsyncOwnedLive | None,
+        policy: RestartPolicy,
+    ) -> bool:
+        """Whether a generic task reached the restart limit; end it if admitted.
+
+        Release 1.5: a task cut off the limit times in a row would run forever,
+        so it ends instead of running again; the built-in kinds end themselves
+        in their phases (bridge U01). The policy is the reservation pass's
+        snapshot, so a limit raised before the reservation lets the task run.
+        Only an admitted pass ends it, as upstream's reservation commit returns
+        at once while scheduling is paused or closing: a pass that drains after
+        a pause leaves it for the next enabled reservation.
+        """
+        from .generation_tasks import LIMITS_RESTARTS
+
+        if row["kind"] in LIMITS_RESTARTS or not policy.reached(row):
+            return False
+        with self._guard:
+            admitted = not self._owner._line_sealed and self._enabled
+        if admitted:
+            self._fault_cut_off(tx, row, ownership)
+        return True
+
+    @staticmethod
+    def _fault_cut_off(
+        tx: AsyncTx, row: Tree, ownership: _AsyncOwnedLive | None
+    ) -> None:
+        """Fault a generic task at the restart limit when it is reserved.
+
+        Held ``completing`` while ordinary owned work is live, like any other
+        fault (spec section 5.5).
+        """
+        from .restart_policy import number_text
+
+        message = (
+            f"Task {row['id']} ({row['kind']}) was cut off "
+            f"{number_text(row['restarts'])} times without progress"
+        )
+        held = _ordinary(row) and ownership is not None and ownership.has(row["id"])
+        tx.set_task(
+            _state(
+                row,
+                {
+                    "status": "completing" if held else "terminal",
+                    "outcome": {
+                        "status": "faulted",
+                        "error": {
+                            "message": message,
+                            "detail": {"reason": "restart_limit"},
+                        },
+                    },
+                },
+            )
+        )
 
     def _fitting_definition(
         self, row: Tree, generation: DefinitionGeneration

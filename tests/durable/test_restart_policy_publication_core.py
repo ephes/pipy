@@ -134,8 +134,7 @@ def test_publication_is_not_a_commit_or_wake(rig, monkeypatch):
     assert scheduler.set_restart_limit(6) is True
     assert asyncio.run(scheduler.aset_restart_limit(6.9)) is False
     assert scheduler.inspect_task(task_id).restart_limit == 6
-    assert not scheduler.inspect_task(task_id).restart_parked
-    assert inspect_task(session, task_id).restart_parked
+    assert inspect_task(session, task_id).restart_limit == 5
     assert session.read_on_line(lambda: storage.task(task_id).to_tree()) == before
     assert len(storage.commits) == commits
     assert notifications == []
@@ -269,9 +268,9 @@ def test_receipt_settles_at_the_limit_and_never_repeats_old_call(tmp_path, monke
         assert saved[0]["restarts"] == 5
         assert saved[1]["value"]["version"] == 1
         assert saved[1]["value"]["intent"] is not None
-        # A built-in tool is never parked (R15-2b). At the limit its settle
-        # phase still settles the committed receipt: it runs no tool again.
-        assert not scheduler.inspect_task(task_id).restart_parked
+        # At the limit a built-in tool's settle phase still settles the
+        # committed receipt (R15-2b): it runs no tool again.
+        assert scheduler.inspect_task(task_id).reason is None
         scheduler.resume()
         assert idle.wait(5)
         rows = {row.id: row.to_tree() for row in scheduler.inspect()}

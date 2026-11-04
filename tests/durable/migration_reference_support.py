@@ -273,7 +273,9 @@ def _exercise(recipe, folder, owned):
         "inspection_cold": cold_inspection,
         "calls_at_open": calls_at_open,
         "initializers": initializers,
-        "parked_at_open": inspection_open["restart_parked"],
+        # Mirrors the pinned driver's blocked-restart_limit predicate, which no
+        # 1.5 owner reports any more (R15-2c removed the native reason too).
+        "parked_at_open": inspection_open["reason"] == "restart_limit",
         "migration_calls": actual_calls,
         "before_restore_calls": before_restore_calls,
         "repeated_calls": repeated_calls,

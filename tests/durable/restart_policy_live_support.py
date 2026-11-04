@@ -20,6 +20,19 @@ def seed_count(rig, task_id, value):
     rig.change(task_id, lambda row: row.update(restarts=value))
 
 
+def limit_fault(rig, task_id):
+    """Assert the release 1.5 restart-limit fault of a generic task."""
+    row = rig.record(task_id)
+    assert row["state"]["status"] == "terminal" and "restarts" not in row
+    outcome = row["state"]["outcome"]
+    assert outcome["status"] == "faulted"
+    assert outcome["error"]["detail"] == {"reason": "restart_limit"}
+    assert outcome["error"]["message"].startswith(
+        f"Task {task_id} ({row['kind']}) was cut off "
+    )
+    return outcome
+
+
 def completing(calls, name="live.policy", *, release=None, entered=None):
     async def phase(row, runtime, _context):
         calls.append((row["id"], row.get("restarts")))

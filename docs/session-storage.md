@@ -1184,13 +1184,15 @@ existing lifecycle/affinity guards, without a new Storage API or second commit.
 
 ## Restart streak and host policy (DE14a)
 
-[Restart parking](durable-restart-parking.md) reuses the task record's existing
+The [restart limit](durable-restart-parking.md) reuses the task record's existing
 numeric `restarts` field. Its immutable per-owner ceiling is not a stored header
-or configuration field, and parking does not write a new status. No operation
-removes the current field: bridge slice R15-2a removed same-task reset, which
-release 1.5 no longer has. Existing receipt payloads and historical attempt
-evidence remain unchanged. Operational ceilings apply before dispatch,
-including receipt settlement; decision-only C2 replay remains separately valid.
+or configuration field. At the limit the task ends with an ordinary terminal
+outcome (`faulted` for a generic task, `failed` for a built-in one), which drops
+the field; there is no parked status. No operation removes the field otherwise:
+bridge slice R15-2a removed same-task reset, which release 1.5 no longer has.
+Existing receipt payloads and historical attempt evidence remain unchanged; a
+valid receipt settles at the limit, and decision-only C2 replay remains
+separately valid.
 
 
 ## Cold generic task migration

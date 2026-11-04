@@ -21,7 +21,8 @@ Versions retain the existing finite binary64 domain, including negative/fraction
 values and signed-zero equality. Missing definitions and stored-newer versions
 remain live without invocation. Eligible generic tasks with a newer definition
 migrate during reservation, not open or inspection. Abort, ownership, historical
-hold and restart-parking fences apply before the callback.
+hold and restart-limit checks apply before the callback: a task at the limit
+faults without migrating (release 1.5).
 
 The Session line owns migration and reservation. Both validated outputs and the
 new version enter the same commit as pending-to-running. A handler starts only
@@ -50,19 +51,18 @@ Ordinary `InspectionSupport` captures only a migrator-presence boolean. Existing
 observe that owner's remembered failure, taking the Session read line before its
 metadata guard. Detached support cannot report an attempt it did not observe.
 
-The full output remains exactly 17 fields. For generic newer definitions, a
+The full output has exactly 16 fields since R15-2c removed `restart_parked`. For generic newer definitions, a
 present migrator yields `unknown/migration_required`; no migrator or an observed
 owner failure yields `unsupported/migration_failed`. Missing and stored-newer
 reasons remain unchanged. Built-in newer-definition refusals retain
 `definition_version_mismatch`, regardless of callback attachment. Terminal and
 completing metadata stays code-independent. Existing abort/receipt/graph/hold
-reason precedence remains; `restart_parked` can be true even when a stronger
-reason is displayed. No callback, exception text, input or checkpoint is exported.
+reason precedence remains. No callback, exception text, input or checkpoint is exported.
 
 The existing `inspection-v1` generic older-version observation deliberately now
 uses `migration_failed`; its pinned Pi reason mapping and exact native expectation
 change together. The nine-field common comparison remains separate from the
-17-field native report. Historical raw acceptance retains its original meaning.
+16-field native report. Historical raw acceptance retains its original meaning.
 
 ## Scope and evidence
 
@@ -70,8 +70,9 @@ See the [adopted contract](specs/2026-10-28-de14b1-cold-task-migration-plan.md) 
 [evidence ledger](specs/2026-10-19-durable-execution-evidence.md#de14b1-cold-task-migration).
 A bounded `task-migration-cold-v1` reference child followed the prior 25 phases.
 At release 1.5 it follows `interrupted-tool-continuation-v1`, and its
-parked-reset case is withdrawn with successor R15-2, because 1.5 removed parking
-and `retryTask()`.
+parked-reset case is withdrawn, because 1.5 removed parking and `retryTask()`;
+its successor, a task at the limit that faults before migrating, is owned by
+R15-2d.
 Native detached callback inputs are an explicit difference from the pinned Pi
 callsite; output ownership and committed state are compared without inventing
 public API parity. Public registry replacement, active handover, live settings, public retry
@@ -110,7 +111,7 @@ counter. Async cancellation joins accepted line work and does not promise to
 undo publication. Owner inspection and each reservation use one generation;
 previously returned support/inspection snapshots remain stable. Resolution reads
 current support inside its committing job, after saved-winner and metadata gates.
-The full native DTO remains 17 fields and the Pi common projection remains nine.
+The full native DTO has 16 fields since R15-2c and the Pi common projection remains nine.
 These controls are not exposed by Product, the public SDK or CLI. See the
 [contract](specs/de14b3-definition-publication.md) and
 [development evidence](evidence/de14b3-definition-publication.md).

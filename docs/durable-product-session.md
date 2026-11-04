@@ -230,16 +230,16 @@ A post-decision fault or abort can leave a replayable decision without a complet
 answer; `DurableAdjudication` never claims task completion.
 
 
-## Bounded restart parking (DE14a)
+## Restart limits (DE14a, R15-2)
 
-[Restart parking](durable-restart-parking.md) adds an immutable per-owner
-default-five ceiling and allowlisted inspection metadata. Since R15-2b the
-run's built-in tool and generation tasks never park: at the limit they end
-themselves ([built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)),
+The [restart limit](durable-restart-parking.md) is an immutable per-owner
+default-five ceiling with allowlisted inspection metadata. Nothing parks: at the
+limit the run's built-in tool and generation tasks end themselves
+([built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)),
 so `resume()` returns the run's terminal outcome instead of `held`, and a valid
-receipt settles unchanged. Generic parking can still hold a generic task until
-R15-2c; a product opened with a higher `restart_limit` runs parked work again on
-its next `resume()`.
+receipt settles unchanged. A generic task at the limit ends `faulted` when the
+scheduler reserves it (R15-2c). A product opened with a higher `restart_limit`
+lets a task that has not ended yet run again; it does not revive an ended one.
 Release 1.5 removed `retryTask()`. R15-1b withdrew the pinned
 `task-product-retry-enable-v1` comparison, and bridge slice R15-2a removed
 `retry_task`, `DurableTaskRetry`, the `continuation_failed` error code and the

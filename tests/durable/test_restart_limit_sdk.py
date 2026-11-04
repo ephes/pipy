@@ -98,7 +98,7 @@ def test_unsafe_execute_at_the_limit_ends_with_its_retained_output(tmp_path):
         product = await open_product(tmp_path)
         try:
             running = await product.inspect(typed["id"])
-            assert running.restart_count == 4 and not running.restart_parked
+            assert running.restart_count == 4 and running.reason is None
             result = await product.resume()
             assert (
                 result.status == "terminal" and result.inspection.outcome == "completed"
@@ -246,7 +246,7 @@ def test_saved_receipt_at_the_limit_settles_its_first_winner(tmp_path, count):
         try:
             graph = snapshot(tmp_path)
             inspection = await product.inspect(target)
-            assert inspection.restart_count == count and not inspection.restart_parked
+            assert inspection.restart_count == count and inspection.reason is None
             assert snapshot(tmp_path) == graph
             # Settle runs no tool again: the committed receipt is the result.
             result = await product.resume()
@@ -296,7 +296,7 @@ def test_cli_unlimited_inspection_then_receipt_first_resume(tmp_path):
     assert code == 0 and not error
     assert value["tasks"][0]["restart_count"] == 7.5
     assert value["tasks"][0]["restart_limit"] is None
-    assert value["tasks"][0]["restart_parked"] is False
+    assert "restart_parked" not in value["tasks"][0]
     assert snapshot(tmp_path) == graph and counts(tmp_path) == before
     code, value, _ = cli(
         tmp_path, "unlimited-resume", "resume", extra=("--restart-limit", "Infinity")

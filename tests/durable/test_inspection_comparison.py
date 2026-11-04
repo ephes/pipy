@@ -62,14 +62,14 @@ def native_policy(tmp_path_factory):
 
 def test_actual_native_only_operator_relations(native_policy):
     report = native_policy["report"]
-    assert len(report) == 17
+    assert len(report) == 16
     assert report["restart_count"] is None
     assert type(report["restart_limit"]) is int and report["restart_limit"] == 5
-    assert report["restart_parked"] is False
+    assert "restart_parked" not in report
     assert m.policy.valid(native_policy, m.canonical.canonical, m.d)
 
 
-@pytest.mark.parametrize("field", ("restart_count", "restart_limit", "restart_parked"))
+@pytest.mark.parametrize("field", ("restart_count", "restart_limit"))
 def test_native_operator_report_requires_restart_metadata(native_policy, field):
     mutant = copy.deepcopy(native_policy)
     del mutant["report"][field]
@@ -86,10 +86,7 @@ def test_native_operator_report_requires_restart_metadata(native_policy, field):
         ("restart_limit", 5.0),
         ("restart_limit", None),
         ("restart_limit", 6),
-        ("restart_parked", 0),
-        ("restart_parked", None),
-        ("restart_parked", True),
-        ("restart_parked", "false"),
+        ("restart_parked", False),
         ("private_payload", "must-not-escape"),
     ),
 )

@@ -1254,7 +1254,8 @@ keeps intermediate checks separate from final acceptance.
 DE14b2 supplies private owner-local policy publication. Remaining DE14b owns
 public live settings, registry handover and orphan/cleanup/abort budgets. Public Pi enable parity, all parent DE/P rows and whole DE13 remain open.
 Release 1.5 removed same-task retry, and bridge slice R15-2a removed the reset
-and its Product continuation; R15-2 replaces parking with restart-limit endings.
+and its Product continuation; R15-2b and R15-2c replaced parking with
+restart-limit endings.
 
 
 ## DE14b1 cold generic migration
@@ -1578,9 +1579,10 @@ commit per slice:
    (v26.13.0, npm 11.20.0) on the 1.4 reference, and R15-1b pins release 1.5.0.
 3. R15-2: remove restart parking and same-task retry (`retry_task`,
    `pipy durable retry-task`) and end restart-limited tasks visibly with
-   `restart_limit`. It lands in three commits: R15-2a removes same-task retry,
+   `restart_limit`. It lands in four commits: R15-2a removes same-task retry,
    R15-2b ends the built-in `pi.tool` and `pi.generation` tasks at the limit,
-   and R15-2c faults generic tasks at the limit and removes parking.
+   R15-2c faults generic tasks at the limit and removes parking, and R15-2d
+   re-adds the withdrawn migration and orphan comparison cases.
 4. R15-3: batch `Storage.commit` with refusals and durability receipts on
    Memory and SQLite.
 5. R15-4: tagged watch, report and observer shapes for the delivered surfaces.
@@ -1628,4 +1630,14 @@ longer applies to these kinds, and the interrupted-tool comparison gains the
 `safe_limit` case from an actual 1.5 run. Without native `pi.live`, the run
 failure and the inputs' `unanswered` settlement stay with DE19; without a task
 report channel, `task_interrupted` stays with DE39; native durable compaction
-and its `compactionFailure` ending stay with DE29. R15-2c is next.
+and its `compactionFailure` ending stay with DE29.
+
+R15-2c removed parking. A generic task at the limit ends `faulted` with detail
+`{"reason": "restart_limit"}` when the scheduler reserves it, before its
+definition is resolved or migrated; the reservation's policy snapshot decides,
+so a raised limit lets it run and an ended task stays ended, and an owner of
+live ordinary work holds the fault as `completing`. Inspection drops
+`restart_parked` and the `restart_limit` hold reason. `restart-policy-live-v1`
+has its five cases again from actual 1.5 runs, `same-finite-faults` among them.
+R15-2d is next: the successors of the parked cases of `task-migration-cold-v1`,
+`task-orphan-missing-definition-v1` and `task-orphan-failed-migration-v1`.

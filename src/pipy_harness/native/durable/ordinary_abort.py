@@ -244,9 +244,11 @@ def candidate(
         admitted = not scheduler._owner._line_sealed and scheduler._enabled
     if not admitted:
         return None
-    if policy.limit is not None and row.get("restarts", 0) >= policy.limit:
+    if policy.reached(row):
         # The actual abort-attempt cutoff precedes code resolution. It grants
         # no termination authority for non-leaves, built-ins or restart marks.
+        from .restart_policy import number_text
+
         tx.set_task(
             _state(
                 row,
@@ -255,7 +257,7 @@ def candidate(
                     "outcome": {
                         "status": "faulted",
                         "error": {
-                            "message": f"Abort handler of task {row['id']} ({row['kind']}) was cut off {row['restarts']} times",
+                            "message": f"Abort handler of task {row['id']} ({row['kind']}) was cut off {number_text(row['restarts'])} times",
                             "detail": {"reason": "restart_limit"},
                         },
                     },
