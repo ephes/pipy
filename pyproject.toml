@@ -41,7 +41,9 @@ dev = [
     { include-group = "docs" },
     "mypy>=1.18",
     "pillow>=12,<13",
-    "pytest>=8.0",
+    # 8.4 applies the `pythonpath` ini option before loading `-p` plugins from
+    # `addopts`, which the bytecode guard plugin below relies on.
+    "pytest>=8.4",
     "pyyaml>=6,<7",
     "ruff>=0.14",
     "wasmtime>=49,<50",
@@ -62,6 +64,10 @@ packages = ["src/pipy_session", "src/pipy_harness"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# tests/pytest_plugins/pipy_bytecode_guard.py keeps assertion-rewrite caching on
+# when a collected module turns off sys.dont_write_bytecode (see its docstring).
+pythonpath = ["tests/pytest_plugins"]
+addopts = ["-p", "pipy_bytecode_guard"]
 filterwarnings = [
     # Python 3.14 warns when os.forkpty() is called from a multi-threaded
     # process (the runner has background threads). The pty chrome tests exec

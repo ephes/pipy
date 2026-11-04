@@ -439,7 +439,7 @@ provides-extras = ["codemode", "images"]
 dev = [
     { name = "mypy", specifier = ">=1.18" },
     { name = "pillow", specifier = ">=12,<13" },
-    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest", specifier = ">=8.4" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "ruff", specifier = ">=0.14" },
     { name = "wasmtime", specifier = ">=49,<50" },

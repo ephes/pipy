@@ -99,7 +99,12 @@ git status --short
 ```
 
 `just check` runs lint, repository-wide format checking, Mypy over `src` and
-`tests`, and the full Pytest suite. `just docs-build` builds the Zensical site
+`tests`, and the full Pytest suite. Pytest loads
+`tests/pytest_plugins/pipy_bytecode_guard.py` through `addopts` in
+`pyproject.toml`; it keeps assertion-rewrite caching on when a collected module
+or script turns `sys.dont_write_bytecode` on. Helper scripts may still set that
+flag for their own child processes, but keep the guard rather than working
+around it in `tests/conftest.py`, which the durable manifests pin. `just docs-build` builds the Zensical site
 through `scripts/docs.py build`, with strict link and anchor validation.
 The docs build validates the site locally. Read the Docs uses
 [`.readthedocs.yaml`](.readthedocs.yaml) to install only the locked `docs`
