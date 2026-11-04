@@ -527,10 +527,14 @@ class DurableProductSession:
             raise DurableProductError("incompatible")
         catalog.next_snapshot(self._header(), root["conversationId"], snapshot)
         for row in children:
-            decision = committed(storage, row, _tool_tree(self._tool))
-            if decision.disposition == "replay":
-                raise DurableProductError("incompatible")
             frame = row["state"]["checkpoint"]
+            # At the restart limit a call ends without running again, so it
+            # needs no current capability (R15-2b); a pre-intent call too.
+            limited = self._limit_ends(row)
+            if not (limited and frame["phase"] == "call"):
+                decision = committed(storage, row, _tool_tree(self._tool))
+                if decision.disposition == "replay" and not limited:
+                    raise DurableProductError("incompatible")
             if frame["phase"] == "execute":
                 call_id = row["input"]["callId"]
                 call = next(
@@ -539,6 +543,22 @@ class DurableProductSession:
                     if c.provider_correlation_id == call_id
                 )
                 catalog.validate_intent(frame["intent"], call.tool_name)
+
+    def _limit_ends(self, row: Tree) -> bool:
+        """Whether this owner's restart limit ends the call when it next runs.
+
+        Opening the scheduler first counts the restart of a cold running row.
+        Only a count the ending can record qualifies: any other row keeps its
+        existing classification, so a valid receipt still settles first.
+        """
+        restarts = row.get("restarts", 0)
+        if row["state"]["status"] == "running" and type(restarts) is int:
+            restarts += 1
+        try:
+            counter(restarts)
+        except ValueError:
+            return False
+        return restarts > 0 and self._restart_policy.reached({"restarts": restarts})
 
     def _run_selection(
         self, selection: DurableRunSelection | None

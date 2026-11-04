@@ -14,6 +14,7 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.tools.truncate import truncate_tail
 
 from .records import safe_integer, shape
+from .restart_policy import cut_off_count
 from .tool_progress_values import (
     FAILURE_CATEGORIES,
     OUTPUT_BYTES,
@@ -31,11 +32,33 @@ def failure_text(category: object) -> str:
 INTERRUPTED_TEXT = "Tool execution interrupted; result is uncertain."
 
 
+def restart_limit_text(restarts: int) -> str:
+    return (
+        "Tool execution was interrupted "
+        + cut_off_count(restarts)
+        + "; it is not run again."
+    )
+
+
 def ending_text(tree: dict[str, Any]) -> str:
     """The same closed cause determines projection and raw terminal failure."""
     if tree["ending"] == "interrupted":
+        if tree["recovery"]["reason"] == "restart_limit":
+            return restart_limit_text(tree["recovery"]["restarts"])
         return INTERRUPTED_TEXT
     return failure_text(tree["recovery"]["category"])
+
+
+def ending_error(tree: dict[str, Any]) -> dict[str, Any]:
+    """The failed task's error for a failed or interrupted ending."""
+    error: dict[str, Any] = {"message": ending_text(tree)}
+    if (
+        tree["ending"] == "interrupted"
+        and tree["recovery"]["reason"] == "restart_limit"
+    ):
+        # Release 1.5 marks a call the restart limit ended (bridge U01).
+        error["detail"] = {"reason": "restart_limit"}
+    return error
 
 
 def check_ending(tree: dict[str, Any], outcome: ToolExecutionOutcome) -> None:
@@ -67,11 +90,17 @@ def check_ending(tree: dict[str, Any], outcome: ToolExecutionOutcome) -> None:
 
 def _interrupted(recovery: object, outcome: ToolExecutionOutcome) -> None:
     cause = shape(recovery, {"reason", "attempts", "restarts"})
-    if cause["reason"] != "interrupted" or outcome.execution_seconds is not None:
+    if (
+        cause["reason"] not in ("interrupted", "restart_limit")
+        or outcome.execution_seconds is not None
+    ):
         raise ValueError("Unsupported durable interrupted cause")
     for key in ("attempts", "restarts"):
         if cause[key] is not None and safe_integer(cause[key], positive=False) < 0:
             raise ValueError("Unsupported durable interrupted counter")
+    if cause["reason"] == "restart_limit":
+        # The limit ends a call only once it was cut off at least once.
+        safe_integer(cause["restarts"])
 
 
 def _projected_blocks(

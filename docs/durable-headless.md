@@ -151,6 +151,12 @@ parked work again with a higher `--restart-limit`, or with `Infinity`, on a
 later `resume`. Bridge slice R15-2 replaces parking itself with visible
 restart-limit endings; see [restart parking](durable-restart-parking.md).
 
+Since R15-2b the built-in tasks of a run never park. At the limit a tool call
+ends with a `restart_limit` error result and the run continues, so `resume`
+reports the run's outcome; a generation cut off in its prepare, request or tools
+phase ends the run `failed` (exit 1). The JSON run output shows the tool's
+`recovery` cause with reason `restart_limit`.
+
 ## Evidence and remaining scope
 
 Native CLI tests use real subprocess SIGKILL at admission, provider in-flight/

@@ -542,7 +542,7 @@ def origins():
     return result
 
 
-def child_main(root, action, replay, current, cut, emit):
+def child_main(root, action, replay, current, cut, emit, restart_limit=None):
     global _ROOT, _CUT, _EMIT
     root = Path(root)
     _ROOT, _CUT, _EMIT = root, cut, emit
@@ -603,6 +603,8 @@ def child_main(root, action, replay, current, cut, emit):
         ]
         if action == "cli":
             argv += ["--provider", "openai", "--model", "gpt-test"]
+        if restart_limit is not None:
+            argv += ["--restart-limit", restart_limit]
         import contextlib
         import io
 

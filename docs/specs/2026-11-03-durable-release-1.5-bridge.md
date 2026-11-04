@@ -388,6 +388,10 @@ above:
 - **R15-2b, built-in restart-limit endings.** The native `pi.tool` and
   `pi.generation` phases check the count when they start and end themselves at
   the limit as described above, and parking no longer applies to these kinds.
+  The native `settle` phases commit only what a receipt already holds, so they
+  settle it at the limit too. The successor of the tool reference test is the
+  `safe_limit` case of `interrupted-tool-continuation-v1`, from an actual 1.5
+  run.
 - **R15-2c, generic restart-limit fault.** A generic task at the limit ends
   `faulted` with detail `{ reason: "restart_limit" }` when the scheduler reserves
   it; parking, `restart_parked` and the `restart_limit` hold reason are removed;

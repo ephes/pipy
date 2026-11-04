@@ -1617,4 +1617,15 @@ R15-2a removed same-task retry: the Product and SDK `retry_task` with
 durable retry-task` and the private scheduler retry. Resume keeps its run
 ownership and close semantics, and the general run-ownership tests that used
 retry as their entry point now start their runs with resume. Parking stays until
-R15-2c; a fresh owner with a higher limit runs parked work again. R15-2b is next.
+R15-2c; a fresh owner with a higher limit runs parked work again.
+
+R15-2b ends the built-in tasks at the limit. A `pi.tool` call in its call or
+execute phase, safe replay included, ends with a `restart_limit` error result
+built from its retained progress and fails with that detail, and the run
+continues; a `pi.generation` in its prepare, request or tools phase fails with
+the same detail. The `settle` phases settle their committed receipt. Parking no
+longer applies to these kinds, and the interrupted-tool comparison gains the
+`safe_limit` case from an actual 1.5 run. Without native `pi.live`, the run
+failure and the inputs' `unanswered` settlement stay with DE19; without a task
+report channel, `task_interrupted` stays with DE39; native durable compaction
+and its `compactionFailure` ending stay with DE29. R15-2c is next.

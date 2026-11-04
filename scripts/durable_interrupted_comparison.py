@@ -34,6 +34,7 @@ SOURCES = parent.SOURCES | {
     "packages/agent/src/types.ts",
     "packages/ai/src/types.ts",
     "packages/durable/test/harness-structured-output.test.ts",
+    "packages/durable/test/harness-restart-failure.test.ts",
     "packages/ai/src/api/openai-completions.ts",
     "packages/ai/src/api/transform-messages.ts",
     "packages/chord/src/output.ts",
@@ -333,6 +334,12 @@ def native_actors(output, raw):
             recipe_row = next(x for x in recipe()["cases"] if x["id"] == case["id"])
             action = {"cut": "start", "resume": "cli", "reopen": "cli-terminal"}[label]
             current = recipe_row["current"] if label == "resume" else "same"
+            # Only the restart-limit case resumes at an explicit limit.
+            limit = (
+                [str(recipe_row["restart_limit"])]
+                if label == "resume" and "restart_limit" in recipe_row
+                else []
+            )
             d.require(
                 actor["argv"]
                 == [
@@ -345,6 +352,7 @@ def native_actors(output, raw):
                     recipe_row["stored"],
                     current,
                     "progress-after" if label == "cut" else "",
+                    *limit,
                 ],
                 "Interrupted child argv",
             )

@@ -187,10 +187,15 @@ Invalid task IDs use fixed `DurableProductError("invalid_request")` before reads
 Resume performs the closed C1 admission read before opening its scheduler. With
 an unchanged tool catalog, exact saved/current safe replay remains possible.
 Changed or missing capabilities are accepted only when every unresolved tool
-can settle without invocation from intact execute authority or a valid receipt.
+can settle without invocation from intact execute authority or a valid receipt,
+or ends at the restart limit without running again (R15-2b).
 Pre-intent children, persisted old provider requests and a safe invocation still
 needed anywhere in the round refuse before graph writes. That includes an
-unchanged safe tool when an unrelated capability was removed. Provider profile,
+unchanged safe tool when an unrelated capability was removed. The limit counts
+the restart that opening the scheduler adds to a cold running child. A count the
+ending could not record, before or after that restart, is no limit ending: such
+a child keeps its existing classification, so a valid receipt still settles
+first. Provider profile,
 material and transport compatibility remain independent requirements.
 
 The run owns one immutable saved/current catalog value and fresh bound native
@@ -228,9 +233,13 @@ answer; `DurableAdjudication` never claims task completion.
 ## Bounded restart parking (DE14a)
 
 [Restart parking](durable-restart-parking.md) adds an immutable per-owner
-default-five ceiling and allowlisted inspection metadata. Operational parking can
-delay valid receipt settlement without rewriting it; a product opened with a
-higher `restart_limit` runs parked work again on its next `resume()`.
+default-five ceiling and allowlisted inspection metadata. Since R15-2b the
+run's built-in tool and generation tasks never park: at the limit they end
+themselves ([built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)),
+so `resume()` returns the run's terminal outcome instead of `held`, and a valid
+receipt settles unchanged. Generic parking can still hold a generic task until
+R15-2c; a product opened with a higher `restart_limit` runs parked work again on
+its next `resume()`.
 Release 1.5 removed `retryTask()`. R15-1b withdrew the pinned
 `task-product-retry-enable-v1` comparison, and bridge slice R15-2a removed
 `retry_task`, `DurableTaskRetry`, the `continuation_failed` error code and the

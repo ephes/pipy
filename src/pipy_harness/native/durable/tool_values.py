@@ -208,7 +208,13 @@ def receipt(value: object) -> tuple[Tree, ToolExecutionOutcome]:
         output, outcome = read_native_tool_output(tree["nativeToolOutput"])
         if tree["version"] != output["version"]:
             refuse()
-        if output.get("ending") == "interrupted" and tree["intent"] is None:
+        # An interruption needs its intent; the restart limit can also end a
+        # call in its call phase, before any intent exists (R15-2b).
+        if (
+            output.get("ending") == "interrupted"
+            and tree["intent"] is None
+            and output["recovery"]["reason"] != "restart_limit"
+        ):
             refuse()
         return tree, outcome
     except (ValueError, TypeError, KeyError, IndexError, RecursionError, OverflowError):

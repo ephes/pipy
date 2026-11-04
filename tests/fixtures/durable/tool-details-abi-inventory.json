@@ -2077,12 +2077,12 @@
     },
     {
       "path": "src/pipy_harness/native/durable/generation.py",
-      "current_sha256": "b996ef60c080f0a10037a2e1224b127660c20003363d2d3627dbe330e77ec7ce",
+      "current_sha256": "363074dede41adc1a181f92670deb6defcbfcabab00389530b85d794af1038e7",
       "disposition": "Existing synthetic unavailable result has explicit mapping details; no change needed.; release1.4 explicit required checkpoint policy declaration, existing details ABI unchanged"
     },
     {
       "path": "src/pipy_harness/native/durable/tool_graph.py",
-      "current_sha256": "6e67fb7a24f79d9f2bd712caa0884315cd44e66d3a3697804b36adc7ee413529",
+      "current_sha256": "1b6dd2667b73fc8c3ca5d0252f7c6c79cf49b6edd2f6ea96b6f6f1c59f8617d2",
       "disposition": "Compare result using its recorded arena version, without changing raw task status/ownership/control validation."
     },
     {

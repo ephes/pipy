@@ -692,14 +692,21 @@ def test_real_reconciliation_commits_around_failed_generic_candidate(
         before_seed = rig.snapshot()
         # Explicit kernel control over the actual produced graph: not a
         # naturally outstanding reconciliation or a crash provenance claim.
-        rig.change(parent, lambda row: row.update(state=waiting_states[-1], restarts=5))
-        assert rig.record(parent) == {
-            **produced,
-            "state": waiting_states[-1],
-            "restarts": 5,
-        }
+        rig.change(parent, lambda row: row.update(state=waiting_states[-1]))
+        assert rig.record(parent) == {**produced, "state": waiting_states[-1]}
         assert_only_parent_seed(rig, before_seed, rig.snapshot(), parent)
         scheduler._reserve = original
+        # A typed reservation hold keeps the reconciled parent undispatched in
+        # this pass. It stands in for the restart parking that held it before
+        # release 1.5, which ends a built-in task at the limit instead (R15-2b).
+        candidate = scheduler._candidate
+
+        async def held_parent(tx, row, *args):
+            if row["id"] == parent:
+                return None
+            return await candidate(tx, row, *args)
+
+        scheduler._candidate = held_parent
         finished, visits, passes = observe_reservation(scheduler)
         failed = rig.create(definition(name="migration.first"))
         failed_before = rig.record(failed)
@@ -720,7 +727,7 @@ def test_real_reconciliation_commits_around_failed_generic_candidate(
         assert rig.record(failed) == failed_before
         actual_parent = rig.record(parent)
         assert actual_parent["state"]["status"] == "pending"
-        assert actual_parent["restarts"] == 5
+        assert "restarts" not in actual_parent
         assert counts(tmp_path) == effect_before
         if with_second:
             assert rig.record(second)["state"]["outcome"]["result"] == "second"

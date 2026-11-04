@@ -44,7 +44,13 @@ def typed_counter(root, count, *, pending=False):
 
 
 async def open_product(
-    root, *, current="same", with_profile=True, wrong_model=False, **options
+    root,
+    *,
+    current="same",
+    replay="unsafe",
+    with_profile=True,
+    wrong_model=False,
+    **options,
 ):
     selected_profile = profile(root) if with_profile else None
     if wrong_model:
@@ -66,7 +72,7 @@ async def open_product(
         root / "session.sqlite",
         workspace=root,
         profile=selected_profile,
-        tools=registry(root, current=current) if with_profile else {},
+        tools=registry(root, replay, current) if with_profile else {},
         **options,
     )
 

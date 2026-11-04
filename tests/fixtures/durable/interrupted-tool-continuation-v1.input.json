@@ -16,6 +16,12 @@
       "id": "safe_missing",
       "stored": "safe",
       "current": "missing"
+    },
+    {
+      "id": "safe_limit",
+      "stored": "safe",
+      "current": "same",
+      "restart_limit": 1
     }
   ]
 }

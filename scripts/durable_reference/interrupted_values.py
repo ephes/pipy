@@ -11,13 +11,15 @@ CASES = [
     {"id": "safe_same", "stored": "safe", "current": "same"},
     {"id": "unsafe_same", "stored": "unsafe", "current": "same"},
     {"id": "safe_missing", "stored": "safe", "current": "missing"},
+    # Release 1.5: a call cut off restartLimit times is not run again (R15-2b).
+    {"id": "safe_limit", "stored": "safe", "current": "same", "restart_limit": 1},
 ]
 IDS = tuple(row["id"] for row in CASES)
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 SCOPE = {
-    "common": "saved-safe-replay-or-noninvoking-interruption-retained-details-next-request-answer-reopen",
+    "common": "saved-safe-replay-or-noninvoking-interruption-or-restart-limit-ending-retained-details-next-request-answer-reopen",
     "native_cut": "SIGKILL-after-progress-COMMIT-before-details-ACK",
-    "reference_cut": "graceful-close-after-details-ACK",
+    "reference_cut": "graceful-close-after-details-ACK; restart-limit case: storage-kill-after-details-ACK",
     "raw_differences": [
         "cut-and-ACK",
         "error-text-diagnostics",
@@ -38,6 +40,7 @@ SCOPE = {
 FIELDS = {
     "completed",
     "interrupted",
+    "restart_limit",
     "details",
     "next_details",
     "reopened_details",
@@ -68,8 +71,13 @@ MUTANTS = (
     "completed",
     "reopen_unchanged",
     "wire_correlated",
+    "restart_limit",
 )
 RETAINED = {"retained": [None, False, 0]}
+
+
+def limited(name):
+    return any(c["id"] == name and "restart_limit" in c for c in CASES)
 
 
 def expected(name):
@@ -78,6 +86,7 @@ def expected(name):
     return {
         "completed": True,
         "interrupted": interrupted,
+        "restart_limit": limited(name),
         "details": detail,
         "next_details": detail,
         "reopened_details": detail,
@@ -117,6 +126,7 @@ def validate(value, d, codec):
         for key in (
             "completed",
             "interrupted",
+            "restart_limit",
             "retained_output",
             "model_error",
             "reopen_unchanged",
@@ -149,7 +159,10 @@ def validate(value, d, codec):
 
 def native(raw, codec):
     from pipy_harness.native.agent.messages import AgentToolResultMessage
-    from pipy_harness.native.durable.tool_output_values import project_tool_output
+    from pipy_harness.native.durable.tool_output_values import (
+        ending_error,
+        project_tool_output,
+    )
     from pipy_harness.native.durable.tool_values import receipt
 
     entries = raw["completed"]["entries"]
@@ -175,10 +188,11 @@ def native(raw, codec):
     )
     if interrupted:
         assert full["recovery"] == {
-            "reason": "interrupted",
+            "reason": "restart_limit" if limited(raw["id"]) else "interrupted",
             "attempts": 1,
             "restarts": 1,
         }
+        assert task["state"]["outcome"]["error"] == ending_error(full)
         assert outcome.execution_seconds is None
     prefix = raw["prefix"]["documents"]["pi.tool.progress"][-1]
     assert prefix["call"] == saved["call"] and prefix["key"] == saved["key"]
@@ -209,6 +223,7 @@ def native(raw, codec):
     return {
         "completed": raw["first"]["inspection"]["outcome"] == "completed",
         "interrupted": interrupted,
+        "restart_limit": interrupted and full["recovery"]["reason"] == "restart_limit",
         "details": fields(result, native=True),
         "next_details": {"state": "value", "value": returned.details},
         "reopened_details": fields(repeated, native=True),
@@ -244,7 +259,19 @@ def reference(raw):
         "message": "committed diagnostic",
         "code": "fixture",
     }
-    if interrupted:
+    restart_limit = interrupted and diagnostics[1:] == [
+        {
+            "severity": "error",
+            "code": "restart_limit",
+            "message": "Tool keyed was interrupted once; it is not run again",
+        }
+    ]
+    if restart_limit:
+        assert task["state"]["outcome"]["error"] == {
+            "message": diagnostics[1]["message"],
+            "detail": {"reason": "restart_limit"},
+        }
+    elif interrupted:
         assert diagnostics[1:] == [
             {
                 "severity": "error",
@@ -274,6 +301,7 @@ def reference(raw):
     return {
         "completed": raw["repeated"]["status"] == "done",
         "interrupted": interrupted,
+        "restart_limit": restart_limit,
         "details": fields(result),
         "next_details": fields(returned),
         "reopened_details": fields(repeated),

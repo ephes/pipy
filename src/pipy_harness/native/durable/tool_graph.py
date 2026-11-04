@@ -24,7 +24,7 @@ from .generation_tasks import (
 )
 from .records import EntryRecord, safe_integer
 from .session_core import AsyncTx
-from .tool_output_values import ending_text, project_tool_output
+from .tool_output_values import ending_error, project_tool_output
 from .tool_values import (
     checkpoint,
     entry_tool_output,
@@ -200,7 +200,7 @@ def _child_result_id(
             raw["version"] != 2
             or raw["ending"] not in ("failed", "interrupted")
             or set(terminal) != {"status", "error", "result"}
-            or terminal["error"] != {"message": ending_text(raw)}
+            or terminal["error"] != ending_error(raw)
             or set(output) != {"kind", "entryId"}
             or child["abortRequested"]
             or child["background"]

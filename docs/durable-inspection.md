@@ -164,11 +164,11 @@ acceptance remain DE12. Broader parity obligations remain OPEN.
 
 Inspection shares the finite noninvoking execute/receipt classifier used by
 execution and public resume. It does not invoke ports, construct providers or
-create documents. After operational restart parking admits dispatch, a valid
-receipt settles without consulting later restart metadata as new receipt
-evidence; without a receipt, actual current source counters must be exact
-nonnegative safe integers or absent. The new interrupted cause adds no inspection
-reason or waiter enum. Historical blocked records keep their existing reasons,
+create documents. A valid receipt settles without consulting later restart
+metadata as new receipt evidence, at the restart limit too; without a receipt,
+actual current source counters must be exact nonnegative safe integers or
+absent. The interrupted and restart-limit causes add no inspection reason or
+waiter enum. Historical blocked records keep their existing reasons,
 and every receipt on blocked work remains `receipt_held_needs_repair`, including
 an older runtime's blocked/intent-None round trip. C2 owns migration; automatic
 resume never replaces the existing operator-new-key authorization contract.
@@ -180,7 +180,10 @@ resume never replaces the existing operator-new-key authorization contract.
 and allowlisted inspection metadata. Bridge slice R15-2a removed the public
 same-task reset (release 1.5 removed `retryTask()`); new-attempt authorization
 remains separate.
-Operational parking can delay valid receipt settlement without rewriting it.
+Since R15-2b `restart_parked` is never true for a built-in `pi.tool` or
+`pi.generation` task: at the limit their phases end the task instead (see
+[built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)).
+Generic parking can still delay a generic task until R15-2c.
 Public live settings and broader migration/ownership behavior remain deferred.
 The private DE14b2 setter publishes a new owner policy; same-owner inspection
 captures it on the Session line together with definition/failure metadata.

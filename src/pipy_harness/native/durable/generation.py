@@ -85,6 +85,7 @@ from .provider_settings import (
     encode_pricing,
 )
 from .recovery_catalog import HEADER, RecoveryCatalog
+from .restart_policy import cut_off_count
 from .scheduler import TaskContext, TaskRuntime, TaskTx
 from .tasks import Task, define_task
 
@@ -350,6 +351,9 @@ class _Generation:
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
     ) -> None:
         frame = _read(record, "prepare", "prepare")
+        if runtime.cut_off_too_often(record):
+            await _end_cut_off(record, runtime, frame)
+            return
         initial_seed = _seed(record["input"])
         chosen: list[Any] = []
 
@@ -411,6 +415,11 @@ class _Generation:
         self, record: Tree, runtime: TaskRuntime, context: TaskContext
     ) -> None:
         frame = _read(record, "request", "request")
+        if runtime.cut_off_too_often(record):
+            # Until DE17 charges an interrupted request, a request cut off
+            # repeatedly is resent and so ends here (bridge U04).
+            await _end_cut_off(record, runtime, frame)
+            return
         snapshot = cast(AgentProviderRequestSnapshot, frame.payload)
         saved = frame.settings
         assert saved is not None
@@ -521,6 +530,9 @@ class _Generation:
         from .tool_history import ORDER_DOC, PREPARE_DOC
 
         frame = _read(record, "tools", "provider_outcome")
+        if runtime.cut_off_too_often(record):
+            await _end_cut_off(record, runtime, frame)
+            return
 
         async def closed(tx: TaskTx, current: Tree) -> Tree:
             _current(current, frame)
@@ -553,6 +565,37 @@ class _Generation:
             return {"status": "running", "checkpoint": prepared}
 
         await runtime.commit(closed)
+
+
+async def _end_cut_off(
+    record: Tree, runtime: TaskRuntime, frame: CanonicalCheckpoint
+) -> None:
+    """End a generation cut off the restart limit times in a row (Pi 1.5 endCutOff).
+
+    Native generation has no ``pi.live`` run or input records yet, so the task
+    itself fails with the reason; DE19 owns the run failure. ``settle`` only
+    commits a provider outcome its receipt already holds and never ends here.
+    """
+    phase = record["state"]["checkpoint"]["phase"]
+    text = (
+        "The generation was interrupted "
+        + cut_off_count(record["restarts"])
+        + " in its "
+        + phase
+        + " phase"
+    )
+
+    def ended(tx: TaskTx, current: Tree) -> Tree:
+        _current(current, frame)
+        return {
+            "status": "terminal",
+            "outcome": {
+                "status": "failed",
+                "error": {"message": text, "detail": {"reason": "restart_limit"}},
+            },
+        }
+
+    await runtime.commit(ended)
 
 
 async def _tool_round(

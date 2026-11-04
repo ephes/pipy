@@ -6,16 +6,18 @@ instead. Bridge slice R15-2 ports that in sub-slices; see the
 [1.5 bridge](specs/2026-11-03-durable-release-1.5-bridge.md#r15-2-restart-limit-endings-instead-of-parking-and-retry).
 R15-2a removed same-task retry: the Product and SDK `retry_task`,
 `DurableTaskRetry`, the `pipy durable retry-task` command and the private
-scheduler retry. Parking itself remains until the later R15-2 sub-slices replace
-it with restart-limit endings, so this page describes the remaining 1.4-aligned
-parking. Bridge slice R15-1b withdrew the pinned comparisons of this behavior,
+scheduler retry. R15-2b ends the built-in `pi.tool` and `pi.generation` tasks at
+the limit (see [below](#built-in-restart-limit-endings-r15-2b)); only generic
+tasks still park until R15-2c, so the rest of this page describes that
+remaining 1.4-aligned parking. Bridge slice R15-1b withdrew the pinned
+comparisons of this behavior,
 which have no 1.5 reference: the phases `restart-parking-v1` and
 `task-product-retry-enable-v1` and the parked cases of the migration, live
 policy and orphan phases (see the
 [dispositions](durable-reference.md#release-15-dispositions-r15-1b)).
 
-The native scheduler parks a recovered task after five consecutive restarts
-without a structurally changed task checkpoint. Parking prevents the next
+The native scheduler parks a recovered generic task after five consecutive
+restarts without a structurally changed task checkpoint. Parking prevents the next
 reservation; it does not rewrite the checkpoint or produce a result. Opening a
 scheduler recovers an interrupted running row to pending and increments once,
 without dispatching. A healthy close preserves the count without incrementing.
@@ -54,11 +56,58 @@ to `9007199254740992`. The equivalent Python float selects that same limit,
 while the exact raw Python integer defaults to five.
 
 Inspection exposes `restart_count` (null when missing), `restart_limit` (null
-when unlimited), and `restart_parked`. `restart_limit` is also a reason when no
-more specific hold reason applies. Passive store inspection describes its own
+when unlimited), and `restart_parked`, which is never true for a built-in
+task. `restart_limit` is also a reason when no more specific hold reason
+applies. Passive store inspection describes its own
 explicit/default policy, not the configuration of an unrelated live owner.
 It performs no recovery or dispatch and exposes no task payload. Public resume
 returns held when parked work prevents continuation.
+
+## Built-in restart-limit endings (R15-2b)
+
+The built-in `pi.tool` and `pi.generation` kinds never park. Their phases check
+the count when they start, reading the owner's current policy only for a task
+that was cut off at all, and at the limit end the task instead of running its
+work again, as Pi durable release 1.5 does (bridge U01, U05):
+
+- A tool call in its `call` or `execute` phase, a safe replay included, ends
+  with an error result built from its retained progress, as an interrupted call
+  is: the committed output, details and diagnostics. Its native receipt keeps
+  the `interrupted` ending with the recovery reason `restart_limit` (upstream's
+  diagnostic code), the attempt count and the restart count, and the model sees
+  `Tool execution was interrupted N times in a row; it is not run again.` as the
+  closing harness notice ("once" for one restart). The task fails with error
+  detail `{"reason": "restart_limit"}`, and the run continues. In the `call`
+  phase no intent or progress exists yet: the result is empty, its receipt has
+  no intent, and the tool is neither resolved nor prepared. A count outside the
+  interrupted-cause domain (not a nonnegative safe integer, which only a foreign
+  or typed record can hold) cannot be recorded in the cause: the phase refuses
+  it and the task faults, while Product resume still refuses such an
+  execute-phase call in its preflight, before scheduling. Because the ending
+  needs no current capability, Product resume admits a call at the limit under
+  a changed tool catalog, where a call that would run again still refuses; the
+  limit includes the restart that opening the scheduler adds to a cold running
+  call, and only a count the ending can record qualifies.
+- A generation in its `prepare`, `request` or `tools` phase fails with
+  `The generation was interrupted N times in a row in its <phase> phase` and the
+  same detail, without another provider request. Native generation has no
+  `pi.live` run or input records yet, so the run failure record and the inputs'
+  `unanswered` settlement belong to DE19. Until DE17 charges a request that was
+  in flight at host death, recovery resends it, so repeated host death in
+  `request` ends a run `restart_limit` where 1.5 ends it `interrupted`.
+- A `settle` phase only commits what a receipt already holds and runs no tool
+  or provider again, so it settles that first winner at the limit too, as an
+  answered 1.5 run completes. The settled outcome then decides the task.
+
+Committed task progress still starts the count over, and a terminal outcome
+drops it. The ending records its reason and restart count (in the tool receipt
+and in the error message) for the DE39 reports; pipy has no task report channel
+yet, so nothing reports `task_interrupted`. The pinned
+`interrupted-tool-continuation-v1` comparison adds the case `safe_limit`: an
+actual release 1.5.0 run of a safe call cut off once at limit 1 and pipy's
+SIGKILL cut and CLI resume with `--restart-limit 1` agree that the call is not
+run again, keeps its retained output and details, fails with the
+`restart_limit` cause and lets the run answer.
 
 ## Private owner-local publication (DE14b2)
 
@@ -92,18 +141,18 @@ keeps public live settings, listeners and registry handover separate.
 
 ## Receipts and uncertainty
 
-There is no receipt exemption from a valid finite operational ceiling. Even a
-receipt-bearing task with count `7.5`, `2**53` or `1e300` parks at the default
+A valid receipt is the call's first winner at any count. A receipt-bearing tool
+task with count `7.5`, `2**53` or `1e300` settles its receipt at the default
 limit, although those values are outside C1's narrower interrupted-cause
-counter domain. A fresh owner with a higher or unlimited limit allows the
-existing receipt-first classifier to proceed; the saved winner and its counters
-remain byte-identical. Below-limit malformed/missing-counter behavior and opaque
-receipt fences remain unchanged. C2 validated decision-only nonce replay is
-still available while work is parked.
+counter domain; the saved winner and its counters remain byte-identical.
+Below-limit malformed/missing-counter behavior and opaque receipt fences remain
+unchanged, and a held historical block stays held: the limit never dispatches
+it. A C2 decision on such a block commits its interrupted receipt, which then
+settles even at the limit, and decision-only nonce replay stays available.
 
-An interrupted receipt created by such a fresh owner records the current streak
-that the earlier owners counted. There is no cumulative restart audit, and a
-higher limit never authorizes an old unsafe invocation or repairs historical
+An interrupted or restart-limit receipt records the current streak that the
+owners counted. There is no cumulative restart audit, and neither a higher limit
+nor the limit ending authorizes an old unsafe invocation or repairs historical
 blocked authority.
 
 The [implementation contract](specs/2026-10-28-de14a-restart-parking-plan.md)

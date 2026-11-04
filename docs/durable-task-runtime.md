@@ -176,8 +176,11 @@ acceptance remain DE12. Broader parity obligations remain OPEN.
 [Restart parking](durable-restart-parking.md) adds an immutable per-owner
 default-five ceiling and allowlisted inspection metadata. Bridge slice R15-2a
 removed the public same-task reset (release 1.5 removed `retryTask()`);
-new-attempt authorization remains separate.
-Operational parking can delay valid receipt settlement without rewriting it.
+new-attempt authorization remains separate. Since R15-2b the built-in tool and
+generation tasks never park: at the limit their phases end the task, and a valid
+receipt settles unchanged
+([built-in endings](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)).
+Generic parking can still delay a generic task until R15-2c.
 Live settings and broader migration/ownership behavior remain deferred.
 
 ## Ordinary generic execution and held completion (DE15b)

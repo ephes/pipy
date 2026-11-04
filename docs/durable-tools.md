@@ -354,24 +354,32 @@ compatibility checks; public replay additionally requires the whole catalog to
 be unchanged.
 
 The interrupted cause contains exactly `reason`, `attempts` and `restarts`.
+`reason` is `interrupted`, or `restart_limit` when the restart limit ended the
+call; a restart-limit cause always has a positive restart count.
 Unknown counters are explicit null, never omitted or invented zero. Attempts
 come from validated committed progress. Restarts describe the current task's
 checkpoint-local scheduler observation, not a cumulative total. Receipt-absent
 execute rejects an invalid present restart source before public scheduler writes
 and revalidates it at the receipt transaction. A valid saved receipt settles with
 its own counters unchanged; subsequent restart metadata cannot replace that
-first winner. The separate [restart ceiling](durable-restart-parking.md) can park
-its dispatch without invalidating it. No operation resets the current budget
-observation (bridge slice R15-2a removed same-task reset), so a newly created
-interrupted receipt records the current streak, or null when the task has none,
-never an invented zero. Invalid or opaque receipt/progress authority never permits
-synthesis. Missing historical progress yields absent details and empty output.
+first winner, and the restart limit settles it unchanged too. Without such a
+receipt, a call cut off the [restart limit](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b)
+times in a row is not run again, safe replay included: it ends in this receipt2
+form with the `restart_limit` cause, its model text closes with `Tool execution
+was interrupted N times in a row; it is not run again.`, and its raw FAILED
+error carries detail `{"reason": "restart_limit"}`. No operation resets the
+current budget observation (bridge slice R15-2a removed same-task reset), so a
+newly created receipt records the current streak, or null when the task has
+none, never an invented zero. Invalid or opaque receipt/progress authority never
+permits synthesis. Missing historical progress yields absent details and empty
+output.
 
 Public resume admits changed or missing tools only for a closed noninvoking
 recovery: every unresolved child must be an eligible execute requiring no replay
-or supported receipt settlement. A pre-intent child, old provider request or any
-required safe replay refuses before scheduler/task/entry/header writes, even if
-only an unrelated tool disappeared. Restoring the original catalog remains a
+or supported receipt settlement, or a call that the owner's restart limit ends
+without running it again, a pre-intent one included. Otherwise a pre-intent
+child, old provider request or any required safe replay refuses before
+scheduler/task/entry/header writes, even if only an unrelated tool disappeared. Restoring the original catalog remains a
 control. The next request retains saved members in saved order intersected with
 unchanged supported current capabilities. New capabilities never enlarge saved
 authority. Normal same-catalog requests are not rebuilt by this binding. The

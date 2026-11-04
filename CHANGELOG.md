@@ -643,6 +643,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Native durable tool and generation tasks now end themselves at the restart
+  limit instead of parking, as Pi durable release 1.5 does. A tool call cut off
+  that many times in a row, safe replay included, is not run again: it ends with
+  an error result that keeps its retained output and details and says so, its
+  task fails with detail `{"reason": "restart_limit"}`, and the run continues.
+  A generation cut off in its prepare, request or tools phase fails the run the
+  same way without another request. A committed receipt still settles unchanged
+  at the limit. Inspection never reports these tasks as parked; generic tasks
+  still park until the next bridge slice. See
+  [restart limits](docs/durable-restart-parking.md#built-in-restart-limit-endings-r15-2b).
+
 - The [pinned durable reference runner](docs/durable-reference.md) and every
   comparison phase now execute Pi durable release 1.5.0 (`f9a26365`) instead of
   1.4.0. The drivers use the 1.5 API, and every expected capture that 1.5

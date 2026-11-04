@@ -324,6 +324,18 @@ class TaskRuntime:
     def signal(self) -> TaskSignal:
         return self._invocation.context.signal
 
+    def cut_off_too_often(self, record: Tree) -> bool:
+        """Whether a built-in phase must end its task at the current restart limit.
+
+        The owner's current policy is read only for a task that was cut off at
+        all, when the phase starts (Pi durable 1.5 ``cutOffTooOften``).
+        """
+        if "restarts" not in record:
+            return False
+        with self._scheduler._guard:
+            policy = self._scheduler._restart_policy
+        return policy.reached(record)
+
     def _reporting_preflight(self) -> None:
         """Refuse a blocking reporter on its own Session line or ended token."""
         self._scheduler._session._refuse_reentry("report_details")

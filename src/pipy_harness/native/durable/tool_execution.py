@@ -32,7 +32,7 @@ from .generation_transport import owned_call
 from .recovery_catalog import HEADER, RecoveryCatalog
 from .scheduler import TaskContext, TaskRuntime, TaskTx
 from .tasks import Task, define_task
-from .tool_output_values import ending_text, project_tool_output
+from .tool_output_values import ending_error, project_tool_output
 from .tool_progress import ProgressEnded, RetainedToolProgress
 from .tool_progress_values import (
     FailureCategory,
@@ -340,6 +340,9 @@ class _Tool:
 
         await runtime.commit(read)
         model = captured[0]
+        if runtime.cut_off_too_often(record):
+            await self.end_cut_off(record, runtime, previous, model.call)
+            return
         registration = self.registrations.get(model.call.tool_name)
         if (
             registration is None
@@ -409,6 +412,8 @@ class _Tool:
 
         previous = checkpoint(record["state"]["checkpoint"])
         replay = []
+        # Checked when the phase starts, before any replay decision (R15-2b).
+        limited = runtime.cut_off_too_often(record)
 
         async def recover(tx: TaskTx, current: Tree) -> Tree | None:
             _same(current, previous)
@@ -449,7 +454,11 @@ class _Tool:
                         "reason": "incompatible",
                     },
                 }
-            if decision.disposition == "replay":
+            # At the restart limit a call that would run again or end
+            # interrupted ends with a restart_limit error result instead; a
+            # valid receipt still wins unchanged.
+            cut_off = limited and decision.disposition in ("replay", "interrupted")
+            if decision.disposition == "replay" and not cut_off:
                 if self.catalog is not None and not self.catalog.unchanged:
                     refuse()
                 replay.append(model.call)
@@ -457,6 +466,7 @@ class _Tool:
             final = previous["intent"]
             if model.has_descendants and (
                 decision.disposition == "interrupted"
+                or cut_off
                 or decision.saved is not None
                 and cast(Tree, decision.saved.thaw())["nativeToolOutput"].get("ending")
                 == "interrupted"
@@ -470,7 +480,7 @@ class _Tool:
                         "reason": "incompatible",
                     },
                 }
-            if decision.disposition == "interrupted":
+            if decision.disposition == "interrupted" or cut_off:
                 assert decision.retained is not None
                 retained = cast(Tree, decision.retained.thaw())
                 result = ToolExecutor({}).error_result(model.call, retained["output"])
@@ -483,7 +493,7 @@ class _Tool:
                     datetime.now(timezone.utc),
                     diagnostics=retained["diagnostics"],
                     interrupted={
-                        "reason": "interrupted",
+                        "reason": "restart_limit" if cut_off else "interrupted",
                         "attempts": retained["attempts"],
                         "restarts": decision.restarts,
                     },
@@ -696,13 +706,39 @@ class _Tool:
                 },
             }
             if full["version"] == 2 and full["ending"] in ("failed", "interrupted"):
-                terminal["outcome"].update(
-                    status="failed",
-                    error={"message": ending_text(full)},
-                )
+                terminal["outcome"].update(status="failed", error=ending_error(full))
             return terminal
 
         await runtime.commit(settled)
+
+    async def end_cut_off(
+        self, record: Tree, runtime: TaskRuntime, previous: Tree, call: Any
+    ) -> None:
+        """End a call phase cut off at the restart limit with an error result.
+
+        No intent exists yet, so the result has no retained output; the tool is
+        neither resolved nor validated (Pi durable 1.5 ``endCutOff``).
+        """
+        from .tool_recovery import counter
+
+        key = await runtime.memo("pi.tool.call-key", "pipy-tool-" + uuid4().hex)
+        if type(key) is not str:
+            refuse()
+        result = ToolExecutor({}).error_result(call, "")
+        outcome = ToolExecutionOutcome(result, execution_seconds=None)
+        output = native_tool_output(
+            outcome,
+            datetime.now(timezone.utc),
+            diagnostics=[],
+            interrupted={
+                "reason": "restart_limit",
+                "attempts": None,
+                "restarts": counter(record["restarts"]),
+            },
+        )
+        await self.receive(
+            runtime, previous, None, record["input"], key, outcome, output=output
+        )
 
     async def block(
         self,

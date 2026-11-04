@@ -17,6 +17,10 @@ GENERATION_NAME = "pi.generation"
 GENERATION_VERSION = 1
 TOOL_NAME = "pi.tool"
 TOOL_VERSION = 2
+# Built-in kinds whose phases end the task themselves once it was cut off the
+# restart limit times in a row (Pi durable 1.5 LIMITS_RESTARTS); native durable
+# compaction does not exist yet.
+LIMITS_RESTARTS = frozenset({GENERATION_NAME, TOOL_NAME})
 
 
 def tool_input(value: object) -> dict[str, object]:

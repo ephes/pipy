@@ -227,9 +227,7 @@ def test_recovery_releases_line_before_open_publication(
     asyncio.run(run())
 
 
-def test_live_policy_preserves_actual_receipt_and_never_repeats_old_call(
-    tmp_path, monkeypatch
-):
+def test_receipt_settles_at_the_limit_and_never_repeats_old_call(tmp_path, monkeypatch):
     ready = receipt_cut_with_evidence(tmp_path, monkeypatch)
     generation, tool, _ = definitions(tmp_path, replay="unsafe")
     store = open_sqlite_storage(str(tmp_path / "session.sqlite"), mode="open")
@@ -271,20 +269,9 @@ def test_live_policy_preserves_actual_receipt_and_never_repeats_old_call(
         assert saved[0]["restarts"] == 5
         assert saved[1]["value"]["version"] == 1
         assert saved[1]["value"]["intent"] is not None
-        before = counts(tmp_path)
-        scheduler.resume()
-        assert idle.wait(5)
-        asyncio.run_coroutine_threadsafe(
-            scheduler._quiescent.wait(), scheduler._loop
-        ).result(5)
-        assert scheduler.inspect_task(task_id).restart_parked
-        assert session.read_on_line(captured) == saved
-        assert counts(tmp_path) == before
-        assert scheduler.set_restart_limit(6) is True
-        assert session.read_on_line(captured) == saved
-        assert counts(tmp_path) == before
+        # A built-in tool is never parked (R15-2b). At the limit its settle
+        # phase still settles the committed receipt: it runs no tool again.
         assert not scheduler.inspect_task(task_id).restart_parked
-        idle.clear()
         scheduler.resume()
         assert idle.wait(5)
         rows = {row.id: row.to_tree() for row in scheduler.inspect()}

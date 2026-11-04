@@ -60,12 +60,24 @@ for(const recipe of input.cases){
    }
   }))}));return registry;
  }
- async function open(mode='saved'){return Harness.open(await openNodeSqliteStorage(path),{models,registry:registry(mode),settings:{retry:{enabled:false},compaction:{enabled:false}}},ctx);}
+ // kill() is a crash, as in harness-restart-failure.test.ts: every later storage
+ // call of that Harness hangs, so it writes nothing more, not even close's pending records.
+ // A crash keeps only stored progress, so the cut case stores it at once and lets it reach
+ // Storage first (the test's persistWithinMs: 0 and stored() wait).
+ const crash=recipe.restart_limit!==undefined;let kill=()=>{};
+ async function open(mode='saved',restartLimit?:number){
+  const inner=await openNodeSqliteStorage(path);let dead=false;kill=()=>{dead=true;};
+  const storage=new Proxy(inner,{get(target,key){const value=Reflect.get(target,key,target);if(typeof value!=='function')return value;return(...args:any[])=>dead?new Promise(()=>{}):value.apply(target,args);}});
+  const settings:any={retry:{enabled:false},compaction:{enabled:false}};if(restartLimit!==undefined)settings.restartLimit=restartLimit;
+  if(crash)settings.progress={outputIntervalMs:0,persistWithinMs:0};
+  return Harness.open(storage as any,{models,registry:registry(mode),settings},ctx);
+ }
  let harness=await open(),conversation=await harness.root(ctx,{agent:{model:{provider:'openai',modelId:'gpt-test'}}});const cid=conversation.id;
  const submission=await conversation.submit({type:'input',content:'input',whenBusy:'reject'},ctx);
- await started;await harness.close(ctx);
+ await started;
+ if(crash){await new Promise(resolve=>setTimeout(resolve,50));kill();}else await harness.close(ctx);
  const cut={calls:effects.calls.length,prepares:effects.prepares.length,providers:requests.length,details_acknowledged:true};
- harness=await open(recipe.current==='missing'?'missing':'saved');conversation=await harness.conversation(cid,ctx);harness.resume();
+ harness=await open(recipe.current==='missing'?'missing':'saved',recipe.restart_limit);conversation=await harness.conversation(cid,ctx);harness.resume();
  const resumed=await harness.submission(submission.id,ctx);await resumed.wait(ctx);await harness.waitForIdle(ctx);
  let watch=await conversation.watch(ctx);const final=structuredClone(watch.value);await watch.stop();const tasks=(await harness.commit((tx:any)=>tx.scanTasks({},100),ctx)).items;
  const before={providers:requests.length,calls:effects.calls.length,prepares:effects.prepares.length};await harness.close(ctx);

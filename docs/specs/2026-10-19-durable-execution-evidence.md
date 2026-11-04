@@ -9316,9 +9316,12 @@ which holds only DE rows:
   `31e1b48f7d09323b86d653e2ef79c4d31861925a`, remote main verified, and is
   recorded [below](#r15-1b-release-150-pin-2026-11-03).
 - R15-2 restart-limit endings instead of parking and retry, in three commits
-  (see the bridge): R15-2a, same-task retry removal, is recorded
-  [below](#r15-2a-same-task-retry-removal-2026-11-04); R15-2b (built-in
-  endings) and R15-2c (generic fault and parking removal) are OPEN.
+  (see the bridge): R15-2a, same-task retry removal, was delivered at
+  `88e3c778079aad5db0df85bbc8dcaf84f1ea5707`, remote main verified, and is
+  recorded [below](#r15-2a-same-task-retry-removal-2026-11-04); R15-2b, the
+  built-in endings, is recorded
+  [below](#r15-2b-built-in-restart-limit-endings-2026-11-04); R15-2c (generic
+  fault and parking removal) is OPEN.
 - R15-3 batch Storage commit: OPEN.
 - R15-4 watch, report and observer shapes: OPEN.
 - The DE16 remainder resumes after R15-4; DE16 stays OPEN.
@@ -9445,4 +9448,53 @@ checkout failures as R15-0. `just docs-build` passed, and the rendered links of
 the changed pages resolved. Codex gpt-6.1-sol HIGH round 1 was CLEAN. The
 review of the final delta, the confirming chain on the committed bytes and the
 pushed commit are recorded by R15-2b. No P row closes; all 43 remain OPEN.
+
+Recorded by R15-2b: the final delta (a retry-only live-policy test that
+`just check` still found, a stale reset sentence in the tools guide and these
+receipts) was Codex round 2, CLEAN. A confirming chain on the committed bytes
+(baseline execution `6a262667-f5df-43bf-8560-b7bbbe294664`, `acceptance.json`
+SHA256 `c17e42132b204c09f70ca499b9b47b73d34fd719f2830da7d42f51a43c2de545`) and
+the 31 phases after it exited 0, 32 commands in 558 s. R15-2a was pushed at
+`88e3c778079aad5db0df85bbc8dcaf84f1ea5707`, remote main verified.
+
+### R15-2b built-in restart-limit endings (2026-11-04)
+
+The native `pi.tool` and `pi.generation` tasks end themselves at the restart
+limit, as release 1.5 ends its built-in tasks (bridge U01, U05), and parking
+no longer applies to these kinds. Their phases check the count when they
+start, reading the owner's current policy only for a task with a count. A
+tool call in its `call` or `execute` phase, a safe replay included, ends with
+an error result built from its retained progress: the receipt2 `interrupted`
+ending with the recovery reason `restart_limit`, the attempt and restart
+counts, and a model notice that it is not run again; the task fails with
+detail `{"reason": "restart_limit"}` and the run continues. In the `call`
+phase the result is empty and its receipt has no intent. A generation in its
+`prepare`, `request` or `tools` phase fails with the same detail, without
+another request. The `settle` phases commit only what a receipt already holds,
+so they settle it at the limit too. Native generation has no `pi.live` run or
+input records, so the run failure and the inputs' `unanswered` settlement stay
+with DE19; `task_interrupted` reports stay with DE39, and native compaction and
+its `compactionFailure` ending with DE29. The `interrupted-tool-continuation-v1`
+comparison gains the case `safe_limit` from an actual 1.5 run (the upstream
+test "ends a tool call with an error result instead of running it again"),
+with the new common field `restart_limit`. The SDK restart tests are renamed to
+`test_restart_limit_sdk` and `restart_limit_sdk_support`.
+
+Receipts on the development host (macOS, Python 3.15.1), on the final R15-2b
+code before the documentation digests of this entry: a fresh baseline
+acceptance (execution `883c0119-912c-436a-a310-cde1d41b25f5`, `acceptance.json`
+SHA256 `cfaae1d34f628332039a93658d3352193eea544ee98f02816f1f99d3861f7dbc`,
+runtime v26.13.0/11.20.0, reference 1.5.0) and all 31 comparison phases after
+it exited 0, 32 commands in 599 s. `just check`: lint, format and type checks
+clean; 21320 passed, 21 skipped and 3 failed in 2829 s: the same two pi-mono
+checkout failures as R15-0, and `test_every_request_of_the_transport_goes_through_its_fetch`
+of the MCP HTTP transport tests, whose fake server had not yet logged the last
+request under concurrent load from other checks; that file passed on its own
+(29 passed), and the slice changes no MCP code. Codex gpt-6.1-sol HIGH rounds 1
+and 2 found issues (Product admission under a changed catalog and the
+effective-count rule of that admission, and stale guide sentences), which were
+repaired; round 3 was CLEAN. `just docs-build` passed, and the rendered links
+of the changed pages resolved. The review of the final delta, the confirming
+chain on the committed bytes and the pushed commit are recorded by R15-2c. No P
+row closes; all 43 remain OPEN.
 

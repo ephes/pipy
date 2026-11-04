@@ -1749,6 +1749,17 @@ Both complete raw sides and a differences artifact remain bound. Native's actual
 receipt2 carries the interrupted full fact; Pi's raw result carries its own
 interrupted diagnostic and error. Historical blocked migration stays C2.
 
+Bridge slice R15-2b adds a fourth case, `safe_limit`, as the release 1.5
+successor of the built-in parking it removed (bridge U01, the upstream test
+"ends a tool call with an error result instead of running it again"). Pi cuts
+a safe call off once with the test's crash: after its progress reached Storage
+(`persistWithinMs: 0`), every later storage call of that Harness hangs; the
+reopened Harness runs at `restartLimit: 1`. Native resumes its SIGKILL cut with
+`--restart-limit 1`. Both sides run the call once, end it with its retained
+output and details and the `restart_limit` cause (Pi: diagnostic code and error
+detail; native: the receipt2 recovery reason and error detail), and answer the
+next request. The new common field `restart_limit` records that cause.
+
 Semantic mutants, malformed comparison bodies, raw receipt/receiver/prefix/wire
 corruptions and actual child source/ACK/lifecycle controls must fail. Native
 child argv, signal exit, reaping, absent process group and loaded-module hashes

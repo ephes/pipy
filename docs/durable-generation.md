@@ -116,6 +116,20 @@ crash/acknowledgement tests, not claimed as a paired Pi receipt checkpoint.
 Successful close is observed through each actual owner's close reason; held
 provider-thread/finalizer safety remains native executable evidence.
 
+## Restart-limit endings (R15-2b)
+
+A generation cut off the owner's restart limit times in a row, without
+committed progress, does not run its phase again: `prepare`, `request` and
+`tools` check the count when they start and fail the task with
+`The generation was interrupted N times in a row in its <phase> phase` and
+error detail `{"reason": "restart_limit"}`, sending no further request. This
+is the native form of release 1.5's run failure `restart_limit`; without a
+native `pi.live` run or input records, DE19 owns the run failure and the
+inputs' `unanswered` settlement. A `request` that was in flight at host death
+is still resent below the limit until DE17 charges it as a failed attempt.
+`settle` commits only what its receipt holds, so it settles that outcome even
+at the limit. See [restart limits](durable-restart-parking.md#built-in-restart-limit-endings-r15-2b).
+
 ## Request snapshot retention debt (DE27/28)
 
 Each settled assistant entry currently retains its exact request snapshot,

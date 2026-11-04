@@ -4977,8 +4977,9 @@ whole parity obligations are unchanged.
 An initially captured immutable [host restart policy](durable-restart-parking.md)
 is shared by scheduler reservation and product inspection. The default ceiling is five;
 parking is derived from the existing numeric task record and adds no stored
-state, header setting or audit. It also delays valid-receipt settlement without
-changing the winner. Changed task checkpoints reset the streak; acknowledged
+state, header setting or audit. Since R15-2b it applies to generic tasks only:
+the built-in tool and generation tasks end themselves at the limit, and a valid
+receipt settles unchanged. Changed task checkpoints reset the streak; acknowledged
 document-only progress does not. The public same-task reset, its Product
 continuation layer and the private scheduler retry were removed by bridge slice
 R15-2a, because release 1.5 removed `retryTask()`. Generic cold migration is

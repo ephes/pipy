@@ -17,7 +17,7 @@ from sqlite_child_support import Child, group_exists  # noqa: E402
 CODE = """
 from pathlib import Path
 from interrupted_cut_support import child_main
-child_main(Path(sys.argv[1]),sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5],say)
+child_main(Path(sys.argv[1]),sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5],say,*sys.argv[6:])
 """
 
 
@@ -26,8 +26,10 @@ def dump(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def actor(folder, records, label, replay, current, action, cut=""):
-    with Child(CODE, str(folder), action, replay, current, cut, home=folder) as child:
+def actor(folder, records, label, replay, current, action, cut="", limit=()):
+    with Child(
+        CODE, str(folder), action, replay, current, cut, *limit, home=folder
+    ) as child:
         events = []
         if action == "start":
             events.append(child.expect("admitted"))
@@ -63,7 +65,11 @@ def run(recipe, output):
         actor(folder, records, "cut", case["stored"], "same", "start", "progress-after")
         prefix = raw(folder)
         before = counts(folder)
-        actor(folder, records, "resume", case["stored"], case["current"], "cli")
+        # A restart-limit case resumes its one counted cut at that limit.
+        limit = (str(case["restart_limit"]),) if "restart_limit" in case else ()
+        actor(
+            folder, records, "resume", case["stored"], case["current"], "cli", "", limit
+        )
         completed = raw(folder)
         after = counts(folder)
         first = json.loads((folder / "cli.stdout").read_text())
