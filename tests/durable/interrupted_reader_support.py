@@ -645,7 +645,7 @@ def read_predicate(base, reader):
 def memory_world(base, world_name, *, waiting=False):
     """Storage-schema-qualified captured graph; no test carrier pre-parser."""
     from pipy_harness.native.durable.memory import MemoryStorage
-    from pipy_harness.native.durable.storage import StorageWrite
+    from pipy_harness.native.durable.storage import StorageWrite, commit_writes
 
     source = base[world_name]
     parent, rows, entries = source["parent"], source["rows"], source["entries"]
@@ -678,7 +678,7 @@ def memory_world(base, world_name, *, waiting=False):
             )
         )
     store = MemoryStorage()
-    store.commit(tuple(writes))
+    commit_writes(store, tuple(writes))
     return store, parent, rows, entries
 
 

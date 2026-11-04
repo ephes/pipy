@@ -239,7 +239,7 @@ def test_unload_production_mutants_fail_real_queued_witness(backend, mutation):
     changed = {
         "no-clear": '        await self._on_line_async("aunload_documents", lambda: None)',
         "eager-clear": "        self._cache.clear()\n" + old,
-        "write": '        await self._on_line_async("aunload_documents", lambda: self._owner.storage.commit(()))',
+        "write": '        await self._on_line_async("aunload_documents", lambda: self._owner.storage.commit(((StorageWrite({"type": "conversation", "value": {"id": 99}}),),), lambda index, seq: None))',
     }
     reached = []
     asyncio.run(unload_witness(Session, backend.new(), reached))

@@ -106,10 +106,10 @@ class Recording:
         self.calls.append("task")
         return self.inner.task(id)
 
-    def commit(self, writes):
+    def commit(self, batches, receive):
         self.calls.append("commit")
-        self.writes.extend(write.to_tree() for write in writes)
-        return self.inner.commit(writes)
+        self.writes.extend(write.to_tree() for batch in batches for write in batch)
+        return self.inner.commit(batches, receive)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)

@@ -35,9 +35,9 @@ class Recording:
         self.calls.append("conversation")
         return self.inner.conversation(id)
 
-    def commit(self, writes):
+    def commit(self, batches, receive):
         self.calls.append("commit")
-        return self.inner.commit(writes)
+        return self.inner.commit(batches, receive)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)

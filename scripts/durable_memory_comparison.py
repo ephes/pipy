@@ -44,6 +44,7 @@ from pipy_harness.native.durable.storage import (  # noqa: E402
     StoredDocument,
     SubmissionQuery,
     TaskQuery,
+    commit_writes,
 )
 
 PHASE = "memory-current-base-a2b-v1"
@@ -374,7 +375,7 @@ def _ownership(store: MemoryStorage, a: Any) -> Any:
     }
     writes = [{"type": "entry", "value": value}]
     before = v.encode(writes)
-    seq = store.commit(tuple(StorageWrite(w) for w in writes))
+    seq = commit_writes(store, tuple(StorageWrite(w) for w in writes))
     shared["items"].append("caller")
     lookup = store.entry(a["id"])
     assert lookup is not None
@@ -411,7 +412,7 @@ def _document_ownership(store: MemoryStorage, a: Any) -> Any:
         }
     ]
     before = v.encode(writes)
-    seq = store.commit(tuple(StorageWrite(w) for w in writes))
+    seq = commit_writes(store, tuple(StorageWrite(w) for w in writes))
     shared["items"].append("caller")
     materialized = store.document(a["id"])
     assert materialized is not None
@@ -438,7 +439,7 @@ def invoke(store: MemoryStorage, op: str, a: Any) -> Any:
     if op in {"mint", "close"}:
         return {"mint": store.mint_id, "close": store.close}[op]()
     if op == "commit":
-        return store.commit(tuple(StorageWrite(w) for w in a["writes"]))
+        return commit_writes(store, tuple(StorageWrite(w) for w in a["writes"]))
     if op in {"conversation", "task", "submission"}:
         return getattr(store, op)(a["id"])
     if op == "request":

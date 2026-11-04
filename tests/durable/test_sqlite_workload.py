@@ -479,9 +479,12 @@ def test_actual_commit_sequence_type_is_not_coerced(tmp_path, invalid_seq):
     store = w.open_sqlite_storage(str(tmp_path / "sequence.sqlite"), mode="create")
 
     class WrongReturn:
-        def commit(self, writes):
-            assert store.commit(writes) == 1
-            return invalid_seq
+        def commit(self, batches, receive):
+            result = store.commit(
+                batches, lambda index, seq: receive(index, invalid_seq)
+            )
+            assert result.stored == 1
+            return result
 
     try:
         with pytest.raises(w.Mismatch, match="sequence"):

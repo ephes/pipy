@@ -1,14 +1,22 @@
 """Synchronous Storage port and owned DTOs for detached backend ingress.
 
-Memory and SQLite implement supplied current base/delta batches. The port
+Memory and SQLite implement supplied current base/delta writes. The port
 retains copy/history roles for later implementations.
-Accepting a DTO is not a capability claim: bounded backends must refuse entire
-unsupported batches. Session admission/cancellation belongs to DE02b.
-Source: Pi types.ts:753–910,1179–1306 (MIT, copyright2025 Mario Zechner).
+Accepting a DTO is not a capability claim: a bounded backend refuses a whole
+commit call that holds an unsupported write. Session admission/cancellation
+belongs to DE02b.
+
+Release 1.5 commits batches (bridge R15-3): ``Storage.commit(batches, receive)``
+stores each batch as one atomic commit with its own seq, reports each stored
+batch to ``receive(index, seq)`` and returns a ``CommitResult``.
+``commit_writes`` commits one batch for code that writes a Storage directly.
+Source: Pi types.ts:753–910,1179–1306 (1.3.0); types.ts:1313–1360 and
+testing/commit-writes.ts at release 1.5.0 (MIT, copyright2025 Mario Zechner).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import ClassVar, Generic, Literal, Protocol, TypeAlias, TypeVar, cast
 
@@ -42,6 +50,8 @@ from .records import (
 
 ScanOrder: TypeAlias = Literal["ascending", "descending"]
 DocumentPoint: TypeAlias = Seq | Literal["current"]
+Receive: TypeAlias = Callable[[int, Seq], None]
+"""A commit call's durability receipt: ``receive(index, seq)`` per stored batch."""
 
 
 class StorageRequestError(ValueError):
@@ -287,10 +297,49 @@ class StoredDocument:
         return cast(dict[str, object], self._value.thaw())
 
 
-class Storage(Protocol):
-    """Shared synchronous port; each backend documents its supported operations."""
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    """What one ``Storage.commit()`` call stored (Pi ``CommitResult``).
 
-    def commit(self, writes: tuple[StorageWrite, ...]) -> Seq: ...
+    ``stored`` counts the durable batches. ``refused`` is the error with which
+    Durable's own checks refused the next batch, or ``None`` when every batch
+    of the call was stored.
+    """
+
+    stored: int
+    refused: Exception | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.stored) is not int or self.stored < 0:
+            raise TypeError("Expected a non-negative stored batch count")
+        if self.refused is not None and not issubclass(type(self.refused), Exception):
+            raise TypeError("Expected an Exception refusal")
+
+
+class Storage(Protocol):
+    """Shared synchronous port; each backend documents its supported operations.
+
+    ``commit(batches, receive)`` is Pi 1.5's ``commit(batches, receive,
+    context)``. ``batches`` is a non-empty tuple of non-empty write tuples. Each
+    batch is one atomic commit with its own seq, checked against the state the
+    batches before it left. The first batch that Durable's own checks refuse
+    (global IDs, document actions, sequence exhaustion) is not stored, nor any
+    batch after it; the result counts the stored batches and carries the
+    refusal. Any other failure raises, and the outcome is unknown: SQLite rolls
+    the whole call back, while Memory, which stores each batch at once, keeps
+    the batches before it. ``receive(index, seq)`` runs once per stored batch,
+    in order, on the calling thread, after the batches are durable and before
+    ``commit`` returns, outside the backend's lock; receipts made before a raise
+    stand. The Session sends one batch per call (bridge deviation D1).
+
+    ``mint_id()`` returns an ID greater than every ID minted since this storage
+    was opened and every ID stored, also across reopen. An ID minted but not
+    stored may be minted again after a reopen.
+    """
+
+    def commit(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Receive
+    ) -> CommitResult: ...
     def mint_id(self) -> int: ...
     def conversation(self, id: ConversationId) -> ConversationRecord | None: ...
     def scan_conversations(
@@ -328,3 +377,22 @@ class Storage(Protocol):
         self, query: DocumentQuery, limit: int, cursor: Cursor | None = None
     ) -> Page[DocumentRecord]: ...
     def close(self) -> None: ...
+
+
+def commit_writes(storage: Storage, writes: tuple[StorageWrite, ...]) -> Seq:
+    """Commit ``writes`` as one batch: its seq, or raise its refusal.
+
+    Pi 1.5 ``commitWrites`` (``@earendil-works/pi-durable/testing``), for tests
+    and tools that seed or write a Storage directly; the Session commits on its
+    line instead. A result that contradicts its receipts raises
+    ``RuntimeError``.
+    """
+    receipts: list[Seq] = []
+    result = storage.commit((writes,), lambda _index, seq: receipts.append(seq))
+    if result.stored == 0:
+        if result.refused is None:
+            raise RuntimeError("Storage stored nothing and refused nothing")
+        raise result.refused
+    if result.stored != 1 or len(receipts) != 1:
+        raise RuntimeError("Storage committed without adopting the batch")
+    return receipts[0]

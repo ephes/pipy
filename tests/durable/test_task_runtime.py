@@ -43,10 +43,12 @@ class CaptureClose:
     def __getattr__(self, name):
         return getattr(self.inner, name)
 
-    def commit(self, writes):
-        result = self.inner.commit(writes)
-        self.commits.append(writes)
-        return result
+    def commit(self, batches, receive):
+        def retained(index, seq):
+            self.commits.append(batches[index])
+            receive(index, seq)
+
+        return self.inner.commit(batches, retained)
 
     def close(self):
         self.latest = self.inner.scan_tasks(TaskQuery({}), 100).items
@@ -207,15 +209,16 @@ def test_close_owns_tentative_reservation_before_ack_even_with_held_listener(rig
     scheduler.open()
     real_commit = store.commit
 
-    def commit(writes):
-        seq = real_commit(writes)
+    def commit(batches, receive):
+        result = real_commit(batches, receive)
         if any(
             w.to_tree().get("value", {}).get("state", {}).get("status") == "running"
-            for w in writes
+            for batch in batches
+            for w in batch
         ):
             ack.set()
             assert release_ack.wait(5)
-        return seq
+        return result
 
     store.commit = commit
     real_retire = scheduler._retire

@@ -266,9 +266,12 @@ class Recording:
         self.inner, self.effects = inner, effects
         self.writes: list[Any] = []
 
-    def commit(self, writes: Any) -> Any:
-        result = self.inner.commit(writes)
-        self.writes.append([w.to_tree() for w in writes])
+    def commit(self, batches: Any, receive: Any) -> Any:
+        def recorded(index: int, seq: Any) -> None:
+            self.writes.append([w.to_tree() for w in batches[index]])
+            receive(index, seq)
+
+        result = self.inner.commit(batches, recorded)
         self.effects.append("commit")
         return result
 

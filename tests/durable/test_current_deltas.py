@@ -131,7 +131,7 @@ def test_late_bad_operation_rolls_back_all_tables_documents_indices_and_counters
         record.id for record in store.scan_documents(document_query(), 20).items
     ] == [2, 3]
     assert store.mint_id() == 5
-    assert store.commit(()) == 3
+    assert commit(store, entry(5)) == 3
 
 
 @ALL
@@ -506,7 +506,7 @@ def test_sigkill_delta_commit_cuts_keep_atomic_values_counts_and_private_files(
     with Child(
         """
 from pipy_harness.native.durable import sqlite as storage
-from pipy_harness.native.durable.storage import StorageWrite
+from pipy_harness.native.durable.storage import StorageWrite, commit_writes
 store = storage.open_sqlite_storage(sys.argv[1], mode="open")
 def cut(connection):
     say("cut", transaction=connection.in_transaction, modes=modes(os.path.dirname(sys.argv[1])))
@@ -525,7 +525,7 @@ else:
 writes = [{"type":"entry", "value":{"id":100,"conversationId":1,"kind":"test"}}]
 for id in [2,3]:
     writes.append({"type":"document.change","id":id,"content":{"kind":"delta","version":1,"ops":[["s",["n"],1],["s",["large"],"x"*300000]]}})
-store.commit(tuple(StorageWrite(value) for value in writes))
+commit_writes(store, tuple(StorageWrite(value) for value in writes))
 """,
         path,
         cut,
@@ -549,8 +549,9 @@ store.commit(tuple(StorageWrite(value) for value in writes))
         value = store.document(id).to_tree()
         assert value["deltasSinceBase"] == count and value["value"]["n"] == count
     assert (store.entry(100) is not None) == bool(count)
-    assert store.mint_id() == (101 if count else 4)
-    assert store.commit(()) == 3 + count
+    minted = store.mint_id()
+    assert minted == (101 if count else 4)
+    assert commit(store, entry(minted)) == 3 + count
     store.close()
     assert stat.S_IMODE(Path(path).stat().st_mode) == 0o600
     _integrity(path)
@@ -647,8 +648,9 @@ say("released")
     assert store.document(2).to_tree()["deltasSinceBase"] == count
     assert store.document(3).to_tree()["deltasSinceBase"] == count
     assert (store.entry(100) is not None) == bool(count)
-    assert store.mint_id() == (101 if count else 4)
-    assert store.commit(()) == 3 + count
+    minted = store.mint_id()
+    assert minted == (101 if count else 4)
+    assert commit(store, entry(minted)) == 3 + count
     store.close()
     _integrity(path)
 

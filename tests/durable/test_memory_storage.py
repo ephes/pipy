@@ -23,11 +23,12 @@ from pipy_harness.native.durable.storage import (
     SubmissionQuery,
     TaskQuery,
     UnsupportedStorageOperation,
+    commit_writes,
 )
 
 
 def commit(store, *writes):
-    return store.commit(tuple(StorageWrite(write) for write in writes))
+    return commit_writes(store, tuple(StorageWrite(write) for write in writes))
 
 
 def root():
@@ -86,7 +87,9 @@ def test_root_global_namespace_mint_seq_empty_and_exhaustion():
     assert store.conversation(1) is None
     assert store.mint_id() == 2
     assert commit(store, {"type": "conversation", "value": {"id": 1}}) == 1
-    assert store.commit(()) == 2
+    # Every batch has at least one write: an empty one stores nothing (Pi 1.5).
+    with pytest.raises(StorageRequestError, match="at least one write"):
+        store.commit(((),), lambda index, seq: None)
     assert store.mint_id() == 3
     commit(store, entry(100))
     assert store.mint_id() == 101
@@ -96,7 +99,7 @@ def test_root_global_namespace_mint_seq_empty_and_exhaustion():
     for _ in range(2):
         with pytest.raises(RuntimeError, match="exhausted"):
             store.mint_id()
-    assert store.entry(100).commit_seq == 3
+    assert store.entry(100).commit_seq == 2
     assert store.conversation(1).id == 1
 
 
@@ -125,7 +128,7 @@ def test_supported_last_failure_does_not_leak_any_table_index_or_counter():
     assert store.submission_by_request(1, "changed") is None
     assert store.submission_by_request(1, "x").id == 4
     assert store.mint_id() == 5
-    assert store.commit(()) == 3
+    assert commit(store, entry(5)) == 3
 
 
 def test_candidate_index_failure_is_reached_after_preparation_and_is_atomic(
@@ -149,7 +152,7 @@ def test_candidate_index_failure_is_reached_after_preparation_and_is_atomic(
     assert store.entry(100) is None and store.task(101) is None
     assert store.submission_by_request(1, "x") is None
     monkeypatch.setattr(memory, "_indexes", original)
-    assert store.mint_id() == 2 and store.commit(()) == 2
+    assert store.mint_id() == 2 and commit(store, entry(2)) == 2
 
 
 def test_replacement_and_last_write_request_winner_not_largest_id():
@@ -276,14 +279,15 @@ def test_full_retained_and_returned_ownership_and_utf16_index_identity():
     source = entry(2, data={"left": shared, "right": shared})
     write = StorageWrite(source)
     shared["items"].append("caller")
-    store.commit(
+    commit_writes(
+        store,
         (
             write,
             StorageWrite(task(3, kind="\U0001f600")),
             StorageWrite(submission(4, "\U0001f600")),
             StorageWrite(task(5, kind="\ud800")),
             StorageWrite(task(6, kind="\ud801")),
-        )
+        ),
     )
     value = store.entry(2).entry.to_tree()
     value["data"]["left"]["items"].append("read")
@@ -306,7 +310,7 @@ def _as_storage(store: MemoryStorage) -> Storage:
 def operations(store):
     return [
         lambda: store.mint_id(),
-        lambda: store.commit(()),
+        lambda: commit(store, entry(9)),
         lambda: store.conversation(1),
         lambda: store.task(2),
         lambda: store.submission(3),
@@ -411,7 +415,7 @@ def test_one_authority_linearizes_real_contended_operations(monkeypatch, contend
             assert result == 103
         else:
             with pytest.raises(StorageClosedError):
-                store.commit(())
+                commit(store, entry(104))
     finally:
         release.set()
         first.shutdown(wait=True)
@@ -424,10 +428,10 @@ def test_one_authority_linearizes_real_contended_operations(monkeypatch, contend
 def test_sequence_exhaustion_refuses_without_corrupting_state():
     store = root()
     store._state = replace(store._state, next_seq=SAFE_INTEGER)
-    assert store.commit(()) == SAFE_INTEGER
+    assert commit(store, entry(2)) == SAFE_INTEGER
     before = store._state
     with pytest.raises(RuntimeError, match="sequence"):
-        store.commit(())
+        commit(store, entry(3))
     assert store._state is before and store.conversation(1).id == 1
 
 
@@ -463,7 +467,7 @@ def test_all_table_exact_and_page_results_retain_independent_owned_snapshots(kin
         ),
     }[kind]
     write = StorageWrite(source)
-    store.commit((write,))
+    commit_writes(store, (write,))
     methods = {
         "conversation": (
             store.conversation,
@@ -785,7 +789,7 @@ def test_document_supported_failures_are_atomic_and_ordinary_errors(writes, mess
     )
     assert store.submission_by_request(1, "new") is None
     assert store.document(2) and store.find_document(address()).id == 2
-    assert store.mint_id() == 5 and store.commit(()) == 3
+    assert store.mint_id() == 5 and commit(store, entry(5)) == 3
     store.close()
 
 
@@ -864,7 +868,7 @@ def test_document_late_candidate_failure_rolls_back_tables_docs_indexes_and_coun
     assert store.document(101) is None and store.find_document(address()).id == 5
     assert ids(store.scan_documents(document_query(), 10)) == [5]
     monkeypatch.setattr(memory, "_validate_document_candidate", original)
-    assert store.mint_id() == 7 and store.commit(()) == 3
+    assert store.mint_id() == 7 and commit(store, entry(7)) == 3
     store.close()
 
 
@@ -953,7 +957,7 @@ def test_document_live_aliases_inputs_pages_records_materializations_and_old_sna
     value = {"left": shared, "right": shared, "__proto__": shared}
     write = create_document(2, value=value)
     dto = StorageWrite(write)
-    store.commit((dto,))
+    commit_writes(store, (dto,))
     shared["items"].append("caller")
     first = store.document(2)
     tree = first.to_tree()

@@ -237,7 +237,7 @@ class Rig:
             core.discard()
             return result
         try:
-            seq = self.owner.storage.commit(writes)
+            seq = self.store(writes)
         except BaseException:
             core.discard()
             raise
@@ -248,6 +248,16 @@ class Rig:
             raise
         self.publications.append(Publication(seq, writes, changes))
         return result
+
+    def store(self, writes: Any) -> Any:
+        """The Session's one-batch store: a refusal fails the owner and raises."""
+        receipts: dict[int, Any] = {}
+        result = self.owner.storage.commit((writes,), receipts.__setitem__)
+        if 0 in receipts:
+            return receipts[0]
+        error = result.refused or RuntimeError("Storage committed without the batch")
+        self.owner.fail(error)
+        raise error
 
     def start(self, name: str, fn: Callable[[], Any]) -> Worker:
         worker = Worker(name, fn)

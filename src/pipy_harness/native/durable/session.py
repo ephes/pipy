@@ -102,13 +102,13 @@ from .records import (
     DocumentRecord,
     EntryId,
     EntryRecord,
-    Seq,
     SubmissionId,
     SubmissionRecord,
     TaskId,
     TaskRecord,
 )
 from .storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     DocumentAddress,
@@ -117,6 +117,7 @@ from .storage import (
     EntryLookup,
     EntryQuery,
     Page,
+    Receive,
     Storage,
     StorageRequestError,
     StorageWrite,
@@ -943,10 +944,12 @@ class GuardedStorage:
     def _read(self, run: Callable[[], T]) -> T:
         return self._owner._call(True, self._view, run)
 
-    def commit(self, writes: tuple[StorageWrite, ...]) -> Seq:
-        """Never exempt: once admitted, whether a failed batch committed is unknown."""
+    def commit(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Receive
+    ) -> CommitResult:
+        """Never exempt: once admitted, whether a failed call stored is unknown."""
         backend = self._owner._backend
-        return self._owner._call(False, None, lambda: backend.commit(writes))
+        return self._owner._call(False, None, lambda: backend.commit(batches, receive))
 
     def mint_id(self) -> int:
         backend = self._owner._backend

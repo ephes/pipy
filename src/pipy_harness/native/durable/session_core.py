@@ -808,9 +808,9 @@ class Session:
             return result
         try:
             # Once admitted, caller cancellation does not interrupt settlement.
-            seq = self._owner.storage.commit(writes)
+            seq = self._store(writes)
         except BaseException as error:
-            core.discard()  # the guard failed the owner
+            core.discard()  # the guard or the storage result failed the owner
             self._unknown_outcome(error)
             raise
         try:
@@ -966,11 +966,11 @@ class Session:
             if not writes:
                 core.discard()
             else:
-                commit = partial(self._owner.storage.commit, writes)
+                commit = partial(self._store, writes)
                 try:
                     seq = await asyncio.get_running_loop().run_in_executor(None, commit)
                 except BaseException as error:
-                    core.discard()  # the guard failed the owner
+                    core.discard()  # the guard or the storage result failed the owner
                     self._unknown_outcome(error)
                     raise
                 try:
@@ -983,6 +983,26 @@ class Session:
             raise
         self._leave(ticket, raising=False)
         return result
+
+    def _store(self, writes: tuple[StorageWrite, ...]) -> Seq:
+        """Store ``writes`` as one batch (deviation D1); its receipt's seq.
+
+        The guard fails the owner for a raising call. A refusal, or a result
+        without the receipt of its batch, fails the owner here and raises:
+        the refusal itself, or ``RuntimeError`` (Pi's Session writer).
+        """
+        receipts: dict[int, Seq] = {}
+        result = self._owner.storage.commit((writes,), receipts.__setitem__)
+        seq = receipts.get(0)
+        if seq is not None:
+            return seq
+        error = (
+            result.refused
+            if result.stored == 0 and result.refused is not None
+            else RuntimeError("Storage committed without adopting the batch")
+        )
+        self._owner.fail(error)
+        raise error
 
     def _settle_admitted(
         self,

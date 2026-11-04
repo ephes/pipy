@@ -326,7 +326,7 @@ say("released")
                 connection.execute("PRAGMA busy_timeout = 5000")
         assert store.entry(100) is None and store.document(101) is None
         assert store.document(2).to_tree()["value"] == {"old": True}
-        assert store.mint_id() == 3 and store.commit(()) == 3
+        assert store.mint_id() == 3 and commit(store, entry(3)) == 3
         store.close()
         _integrity(path)
 
@@ -347,7 +347,7 @@ def test_after_commit_ack_loss_adopts_ids_and_is_durable(tmp_path, monkeypatch):
     monkeypatch.undo()
     store = open_sqlite_storage(path, mode="open")
     assert store.entry(100).commit_seq == 2 and store.document(101)
-    assert store.mint_id() == 102 and store.commit(()) == 3
+    assert store.mint_id() == 102 and commit(store, entry(102)) == 3
     store.close()
     _integrity(path)
 
@@ -371,7 +371,7 @@ def test_document_commit_raise_poisons_until_reopen(tmp_path):
     store.close()
     store = open_sqlite_storage(path, mode="open")
     assert store.entry(100) is None and store.document(101) is None
-    assert store.mint_id() == 2 and store.commit(()) == 2
+    assert store.mint_id() == 2 and commit(store, entry(2)) == 2
     store.close()
     _integrity(path)
 
@@ -382,9 +382,9 @@ def test_sigkill_document_commit_cuts_are_atomic_private_and_reopenable(tmp_path
     with Child(
         r"""
 from pipy_harness.native.durable import sqlite as storage
-from pipy_harness.native.durable.storage import StorageWrite
+from pipy_harness.native.durable.storage import StorageWrite, commit_writes
 store = storage.open_sqlite_storage(sys.argv[1], mode="create")
-store.commit((StorageWrite({"type":"conversation", "value":{"id":1}}),))
+commit_writes(store, (StorageWrite({"type":"conversation", "value":{"id":1}}),))
 def cut(connection):
     say("cut", in_transaction=connection.in_transaction, modes=modes(os.path.dirname(sys.argv[1])))
     assert command() == "unreachable"
@@ -405,7 +405,7 @@ writes = [
     {"type":"document.create", "record":{"id":101,"kind":"cache","scope":{"kind":"session"}}, "content":{"kind":"base","version":-0.0,"value":{"large":"x"*300000}}},
     {"type":"document.create", "record":{"id":102,"kind":"cache","key":"next","scope":{"kind":"session"}}, "content":{"kind":"base","version":1.5,"value":{}}},
 ]
-store.commit(tuple(StorageWrite(value) for value in writes))
+commit_writes(store, tuple(StorageWrite(value) for value in writes))
 """,
         path,
         cut,
@@ -426,8 +426,9 @@ store.commit(tuple(StorageWrite(value) for value in writes))
     assert (store.entry(100) is not None) == present
     assert (store.document(101) is not None) == present
     assert (store.document(102) is not None) == present
-    assert store.mint_id() == (103 if present else 2)
-    assert store.commit(()) == (3 if present else 2)
+    minted = store.mint_id()
+    assert minted == (103 if present else 2)
+    assert commit(store, entry(minted)) == (3 if present else 2)
     store.close()
     for name in (path, path + ".lock"):
         assert stat.S_IMODE(Path(name).stat().st_mode) == 0o600

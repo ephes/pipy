@@ -57,6 +57,7 @@ from pipy_harness.native.durable.storage import (  # noqa: E402
     StorageWrite,
     SubmissionQuery,
     TaskQuery,
+    commit_writes,
 )
 
 globals().update(contract.cases())
@@ -479,7 +480,7 @@ import threading, time, warnings
 from pipy_harness.native.durable import sqlite
 from pipy_harness.native.durable.storage import (
     ConversationQuery, DocumentAddress, DocumentQuery, EntryQuery, StorageWrite,
-    SubmissionQuery, TaskQuery,
+    SubmissionQuery, TaskQuery, commit_writes,
 )
 store = sqlite.open_sqlite_storage(sys.argv[1], mode="open")
 deadline = float(sys.argv[2])
@@ -495,7 +496,7 @@ committed = {}
 
 def writer():
     try:
-        committed["seq"] = int(store.commit((write,)))
+        committed["seq"] = int(commit_writes(store, (write,)))
     except BaseException as error:
         committed["error"] = repr(error)
 
@@ -504,7 +505,7 @@ thread.start()
 assert held.wait(deadline) and store._lock.locked()
 session = {"kind": "session"}
 calls = {
-    "commit": lambda: store.commit((write,)),
+    "commit": lambda: commit_writes(store, (write,)),
     "mint_id": lambda: store.mint_id(),
     "conversation": lambda: store.conversation(1),
     "entry": lambda: store.entry(2),
@@ -638,7 +639,7 @@ _READS = {
     ),
     "request-winner": lambda s: s.submission_by_request(1, "x"),
     "foreign-winner": lambda s: s.submission_by_request(1, "y"),
-    "commit-claim": lambda s: s.commit((StorageWrite(task(3)),)),
+    "commit-claim": lambda s: commit_writes(s, (StorageWrite(task(3)),)),
 }
 _CONVERSATION_READS = (
     "conversation",
@@ -1266,7 +1267,10 @@ _PAGES = {
         "submission_requests",
         lambda s: s.submission_by_request(1, "x"),
     ),
-    "commit-claims": ("record_ids", lambda s: s.commit((StorageWrite(entry(5)),))),
+    "commit-claims": (
+        "record_ids",
+        lambda s: commit_writes(s, (StorageWrite(entry(5)),)),
+    ),
 }
 
 
@@ -1349,14 +1353,18 @@ def test_a_failed_rollback_poisons_the_instance(tmp_path, monkeypatch):
     assert failed.value.rollback_error.sqlite_errorcode == sqlite3.SQLITE_AUTH
     # Still inside the failed transaction: no read may see its rows.
     assert connection.in_transaction
-    for operation in (store.mint_id, lambda: store.entry(2), lambda: store.commit(())):
+    for operation in (
+        store.mint_id,
+        lambda: store.entry(2),
+        lambda: commit(store, entry(3)),
+    ):
         with pytest.raises(StorageClosedError) as poisoned:
             operation()
         assert poisoned.value.__cause__ is failed.value
     store.close()
     monkeypatch.undo()
     store = open_sqlite_storage(path, mode="open")
-    assert store.entry(2) is None and store.commit(()) == 2
+    assert store.entry(2) is None and commit(store, entry(2)) == 2
     store.close()
     _integrity(path)
 
@@ -1372,16 +1380,115 @@ def test_a_raising_commit_poisons_the_instance(tmp_path):
     connection.set_authorizer(None)
     assert failed.value.sqlite_errorcode == sqlite3.SQLITE_AUTH
     assert not connection.in_transaction
-    for operation in (store.mint_id, lambda: store.entry(2), lambda: store.commit(())):
+    for operation in (
+        store.mint_id,
+        lambda: store.entry(2),
+        lambda: commit(store, entry(3)),
+    ):
         with pytest.raises(StorageClosedError) as poisoned:
             operation()
         assert poisoned.value.__cause__ is failed.value
     store.close()
     store.close()
     store = open_sqlite_storage(path, mode="open")  # the owner lock was released
-    assert store.entry(2) is None and store.commit(()) == 2
+    assert store.entry(2) is None and commit(store, entry(2)) == 2
     store.close()
     _integrity(path)
+
+
+# Release 1.5 batches (bridge R15-3) ----------------------------------------------
+
+
+def _received(store: SqliteStorage, *batches: Any) -> tuple[Any, list[int]]:
+    """One batch call; its result (or raised error) and the received indexes."""
+
+    receipts: list[int] = []
+    owned = tuple(tuple(StorageWrite(write) for write in batch) for batch in batches)
+    try:
+        return store.commit(owned, lambda index, seq: receipts.append(index)), receipts
+    except Exception as error:  # noqa: BLE001 - the test inspects the raised error
+        return error, receipts
+
+
+@pytest.mark.parametrize("failure", ["statement", "binding"])
+def test_a_check_read_that_fails_in_the_database_rolls_the_whole_call_back(
+    tmp_path, monkeypatch, failure
+):
+    """Pi sqlite-storage.test.ts, "SqliteStorage batches": a failed database
+    call of a later batch's checks is not a refusal; the call rejects whole,
+    the batches before it included, and Durable's own checks still refuse."""
+
+    store, path = _store(tmp_path)
+    first, second = store.mint_id(), store.mint_id()
+    claim = sqlite._claim
+    checked: list[int] = []
+
+    def failing(connection: Any, trees: Any, label: str) -> None:
+        checked.append(len(trees))
+        if len(checked) == 2:
+            if failure == "statement":
+                connection.execute("SELECT id FROM no_such_table")
+            else:  # not an SQLite error, but raised by a database call
+                connection.execute("SELECT ?", (2**70,))
+        claim(connection, trees, label)
+
+    monkeypatch.setattr(sqlite, "_claim", failing)
+    raised, receipts = _received(store, [entry(first)], [entry(second)])
+    expected = sqlite3.OperationalError if failure == "statement" else OverflowError
+    assert type(raised) is expected and receipts == [] and checked == [1, 1]
+    monkeypatch.setattr(sqlite, "_claim", claim)
+    assert store.entry(first) is None and store.entry(second) is None
+    # The instance stays usable; Durable's own check refuses, keeping the first.
+    conflict = {"type": "conversation", "value": {"id": 1}}
+    result, receipts = _received(store, [entry(first)], [conflict])
+    assert result.stored == 1 and receipts == [0]
+    assert str(result.refused) == "ID 1 already belongs to conversation"
+    assert store.entry(first).commit_seq == 2 and store.entry(second) is None
+    store.close()
+    _integrity(path)
+
+
+def test_damage_found_by_a_later_batch_check_rolls_the_whole_call_back(tmp_path):
+    store, path = _store(tmp_path)
+    commit(store, task(3))
+    store.close()
+    damage = "UPDATE record_ids SET record_type = 'nothing' WHERE id = 3"
+    _raw(path, (_UNCHECKED, ()), (damage, ()))
+    store = open_sqlite_storage(path, mode="open")
+    try:
+        raised, receipts = _received(store, [entry(5)], [task(3)])
+        assert type(raised) is StorageCorruption and receipts == []
+        assert "unreadable ID claim (3)" in str(raised)
+        assert store.entry(5) is None
+        assert commit(store, entry(5)) == 3
+    finally:
+        store.close()
+
+
+def test_a_call_refused_at_its_first_batch_writes_and_commits_nothing(
+    tmp_path, monkeypatch
+):
+    store, path = _store(tmp_path)
+    seams: list[str] = []
+    monkeypatch.setattr(sqlite, "_before_commit", lambda _: seams.append("before"))
+    monkeypatch.setattr(sqlite, "_after_commit", lambda _: seams.append("after"))
+    before = _raw_state(store)
+    conflict = {"type": "conversation", "value": {"id": 1}}
+    result, receipts = _received(store, [conflict], [entry(2)])
+    assert result.stored == 0 and receipts == [] and seams == []
+    connection = store._database.connection()
+    assert not connection.in_transaction and _raw_state(store) == before
+    assert commit(store, entry(2)) == 2 and seams == ["before", "after"]
+    store.close()
+    _integrity(path)
+
+
+def _raw_state(store: SqliteStorage) -> Any:
+    connection = store._database.connection()
+    return {
+        table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+        for table in ("durable_metadata", "record_ids", "conversations", "entries")
+    }
 
 
 # The interim and the opener -------------------------------------------------------
@@ -1399,8 +1506,7 @@ def test_a_failing_open_closes_the_database_and_frees_the_lock(tmp_path, monkeyp
         open_sqlite_storage(path, mode="open")
     monkeypatch.undo()
     store = open_sqlite_storage(path, mode="open")
-    assert (
-        store.commit((StorageWrite({"type": "conversation", "value": {"id": 1}}),)) == 1
-    )
+    conversation = StorageWrite({"type": "conversation", "value": {"id": 1}})
+    assert commit_writes(store, (conversation,)) == 1
     store.close()
     _integrity(path)

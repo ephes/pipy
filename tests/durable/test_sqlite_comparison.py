@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from pipy_harness.native.durable.storage import commit_writes
+
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/durable_sqlite_comparison.py"
 spec = importlib.util.spec_from_file_location("sqlite_comparator_tests", SCRIPT)
 assert spec and spec.loader
@@ -496,12 +498,15 @@ def test_reopen_leg_covers_helper_commits_failures_and_final_close(
     monkeypatch.setattr(d, "open_sqlite_storage", opened)
     store = d.ReopeningStorage(tmp_path / "helper.sqlite")
     try:
-        store.commit((d.m.StorageWrite({"type": "conversation", "value": {"id": 1}}),))
+        commit_writes(
+            store, (d.m.StorageWrite({"type": "conversation", "value": {"id": 1}}),)
+        )
         assert d.m._ownership(store, {"id": 2})["source_detached"]
         assert d.m._document_ownership(store, {"id": 3})["read_detached"]
         assert calls == ["create", "open", "open", "open"]
         with pytest.raises(RuntimeError):
-            store.commit(
+            commit_writes(
+                store,
                 (
                     d.m.StorageWrite(
                         {
@@ -513,13 +518,23 @@ def test_reopen_leg_covers_helper_commits_failures_and_final_close(
                             },
                         }
                     ),
-                )
+                ),
             )
         assert calls == ["create", "open", "open", "open", "open"]
         assert store.entry(2) is not None
         store.close()
         with pytest.raises(RuntimeError):
-            store.commit(())
+            commit_writes(
+                store,
+                (
+                    d.m.StorageWrite(
+                        {
+                            "type": "entry",
+                            "value": {"id": 9, "conversationId": 1, "kind": ""},
+                        }
+                    ),
+                ),
+            )
         assert len(calls) == 5
     finally:
         store.close()

@@ -422,11 +422,11 @@ class ReopeningStorage:
     def __getattr__(self, name: str) -> Any:
         return getattr(self.current, name)
 
-    def commit(self, writes: Any) -> Any:
+    def commit(self, batches: Any, receive: Any) -> Any:
         if self.closed:
-            return self.current.commit(writes)
+            return self.current.commit(batches, receive)
         try:
-            return self.current.commit(writes)
+            return self.current.commit(batches, receive)
         finally:
             self.current.close()
             self.current = open_sqlite_storage(

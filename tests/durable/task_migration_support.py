@@ -51,11 +51,13 @@ class ObservedStorage:
         self.mints.append(value)
         return value
 
-    def commit(self, writes):
+    def commit(self, batches, receive):
+        # One batch per call (deviation D1): the hooks see that batch's writes.
+        (writes,) = batches
         self.commits.append(tuple(writes))
         if self.before_commit is not None:
             self.before_commit(writes)
-        result = self.inner.commit(writes)
+        result = self.inner.commit(batches, receive)
         if self.after_commit is not None:
             self.after_commit(writes)
         return result

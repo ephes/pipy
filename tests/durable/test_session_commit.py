@@ -164,16 +164,27 @@ class Store:
             gate.hold()
         if fault is not None:
             raise fault
-        result = getattr(self.inner, name)(*args, **kwargs)
         if name == "commit":
-            with self.lock:
-                self.commits.append(args[0])
-                self.returned.append(result)
-            if self.probe is not None:
-                self.probes.append(self.probe(self.inner))
+            args = (args[0], self._recording(*args))
+        result = getattr(self.inner, name)(*args, **kwargs)
+        if name == "commit" and result.stored and self.probe is not None:
+            self.probes.append(self.probe(self.inner))
         if after is not None:
             raise after
         return result
+
+    def _recording(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Any
+    ) -> Callable[[int, int], None]:
+        """``receive``, recording each batch the real Memory stored."""
+
+        def recorded(index: int, seq: int) -> None:
+            with self.lock:
+                self.commits.append(batches[index])
+                self.returned.append(seq)
+            receive(index, seq)
+
+        return recorded
 
     def __getattr__(self, name: str) -> Any:
         if name in STORAGE_METHODS:
