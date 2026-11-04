@@ -9322,9 +9322,11 @@ which holds only DE rows:
   built-in endings, was delivered at
   `b5446172b8969a4a2e8104902d49185d9f4ee1db`, remote main verified, and is
   recorded [below](#r15-2b-built-in-restart-limit-endings-2026-11-04); R15-2c,
-  the generic fault and parking removal, is recorded
-  [below](#r15-2c-generic-restart-limit-fault-2026-11-04); R15-2d (the
-  migration and orphan comparison successors) is OPEN.
+  the generic fault and parking removal, was delivered at
+  `c5ed6cf09bad9964addadc21babc4d77b217a942`, remote main verified, and is
+  recorded [below](#r15-2c-generic-restart-limit-fault-2026-11-04); R15-2d, the
+  migration and orphan comparison successors, is recorded
+  [below](#r15-2d-migration-and-orphan-successors-2026-11-04).
 - R15-3 batch Storage commit: OPEN.
 - R15-4 watch, report and observer shapes: OPEN.
 - The DE16 remainder resumes after R15-4; DE16 stays OPEN.
@@ -9554,3 +9556,47 @@ owner and adds a pause-during-invocation regression test, and round 2 was
 CLEAN. The review of the final delta, the confirming chain on the committed
 bytes and the pushed commit are recorded by R15-2d. No P row closes; all 43
 remain OPEN.
+
+Recorded by R15-2d: the final delta (these receipts and the manifest digests)
+was Codex round 3, CLEAN. A confirming chain on the committed bytes (baseline
+execution `e2c60669-2add-425b-8386-a277e8642027`, `acceptance.json` SHA256
+`8a0e8ea104581d0d852238551425b3406587cb67922d0b5aac47fd51248efd26`) and the 31
+phases after it exited 0, 32 commands in 608 s. R15-2c was pushed at
+`c5ed6cf09bad9964addadc21babc4d77b217a942`, remote main verified.
+
+### R15-2d migration and orphan successors (2026-11-04)
+
+R15-1b withdrew three comparison cases that relied on release 1.4 parking.
+R15-2d adds their successors from actual 1.5.0 runs and changes no product
+code. `task-migration-cold-v1` has ten cases again: `limit-before-migration`
+seeds a task at the restart limit with a newer definition, and both sides end
+it `faulted` with `restart_limit` at its first reservation, without a
+migration call or handler; a fresh owner leaves it ended. The recipe key
+`parked` is now `at_limit`, and the common field `parked_at_open`, which no
+1.5 owner can set, is replaced by `final_outcome` (status, error detail and
+message with the task ID spelled generically). `task-orphan-missing-definition-v1`
+has its parked control back: the seeded control inspects as blocked
+`missing_task` instead of `restart_limit` on the Pi side, and the paused owner
+orphans it like the other cases. `task-orphan-failed-migration-v1` replaces
+its parked control with `sqlite-limit-fault`: after the observed migration
+failure, the restart/memo seed lets the enabled owner end the task `faulted`
+with `restart_limit` in one commit that retires its task documents, and the
+explicit action then reports `terminal`; the common projection checks the
+seed batch and that atomic fault batch. R15-2 is complete with this commit.
+
+Receipts on the development host (macOS, Python 3.15.1), on the final R15-2d
+code before the documentation digests of this entry: a fresh baseline
+acceptance (execution `cc882cb8-521f-4c66-ab5f-8329e6857638`, `acceptance.json`
+SHA256 `c4caaf6fdd5d8c3352e02f4ea4b5265099e33c5b5f2136f08fb626005640abc5`,
+runtime v26.13.0/11.20.0, reference 1.5.0) and all 31 comparison phases after
+it exited 0, 32 commands in 606 s; `task-migration-cold-v1` passed ten cases
+and 14 mutants, `task-orphan-missing-definition-v1` five cases and
+`task-orphan-failed-migration-v1` five cases and 15 mutants. `just check`, run
+on a worktree snapshot whose code is byte-identical to this commit (only this
+entry and the manifest digests differ): lint, format and type checks clean;
+21321 passed, 21 skipped and 2 failed in 2855 s, the same two pi-mono checkout
+failures as R15-0. `just docs-build` passed, and the rendered links of the
+changed pages resolved. Codex gpt-6.1-sol HIGH round 1 was CLEAN. The review
+of the final delta, the confirming chain on the committed bytes and the pushed
+commit are recorded by the next bridge slice. No P row closes; all 43 remain
+OPEN.

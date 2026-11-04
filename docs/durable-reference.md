@@ -69,7 +69,7 @@ acceptance and 31 phases.
   not report a guard-only commit failure, so an unreported one is no mutant.
   The successors come from actual 1.5 runs: R15-2b added the `safe_limit` case
   of `interrupted-tool-continuation-v1`, R15-2c re-added the four
-  `restart-policy-live-v1` cases, and R15-2d owns the migration and orphan
+  `restart-policy-live-v1` cases, and R15-2d re-added the migration and orphan
   cases. Native tests kept the parking behavior until R15-2c removed it.
 - **Declared divergences.** A phase whose native side has not caught up with a
   1.5 change declares each difference: its path, the owning slice and bridge
@@ -1801,10 +1801,15 @@ difference and 2 for malformed input.
 
 Ten generic cases exercise equal signed-zero versions, fractional newer
 versions, version-only migration, missing definitions, stored-newer versions,
-missing migrators, cached ordinary/invalid-result failures, parked reset and a
-blocked zero-valued current definition with a negative stored version. Release
-1.5 removed parking and `retryTask()`, so the parked-reset case
-(`parked-migration`) is withdrawn with successor R15-2d; nine cases remain. Restore
+missing migrators, cached ordinary/invalid-result failures, a task at the
+restart limit and a blocked zero-valued current definition with a negative
+stored version. Release 1.5 removed parking and `retryTask()`, so R15-1b
+withdrew the parked-reset case (`parked-migration`); R15-2d re-adds it as
+`limit-before-migration`, from actual 1.5 runs: a task seeded at the limit
+with a newer definition ends `faulted` with `restart_limit` when it is
+reserved, without a migration call or handler, and a fresh owner leaves it
+ended. The common projection compares that terminal outcome, its task ID
+spelled generically, for every case. Restore
 selection treats only null as absent, matching Pi's nullish rule; zero remains
 the actual current version.
 Failure cases include a real later eligible task and fresh-owner restoration.
@@ -1870,8 +1875,10 @@ documents, storage batches, callback SQLite rows and backend revisions. The
 common view maps Pi's immediate `marked` ACK to native `orphaned` only when the
 actual terminal missing-task outcome is present; repeated terminal ACKs remain
 unchanged. The parked seed is a typed control, not a physical crash. Release 1.5
-removed parking, so the parked control (`sqlite-parked-control`) is withdrawn
-with successor R15-2d; four cases remain.
+removed parking, so R15-1b withdrew the parked control
+(`sqlite-parked-control`); R15-2d re-adds it from actual 1.5 runs: the seeded
+control inspects as blocked `missing_task` instead of `restart_limit`, and the
+paused owner orphans it like the other cases.
 
 The native strict all-page graph/incoming-waiter refusals and lifecycle/error
 surface are separate from Pi's broader abort semantics. The actual Harness
@@ -1911,8 +1918,12 @@ target on its actual line; native common success uses real retired-enabled
 admission. Native paused controls are separate, and an uncached Pi abort that
 could invoke migration is outside this projection. Keep the installed outcome
 hook, raw ACKs, records, callback/storage trajectories and backend retention
-qualifications. Its parked control (`sqlite-parked-control`) is withdrawn at
-release 1.5 with successor R15-2d, because 1.5 removed parking. Map Pi `marked` to native `orphaned` only when the actual terminal
+qualifications. Release 1.5 removed parking, so R15-1b withdrew its parked
+control (`sqlite-parked-control`); R15-2d replaces it with `sqlite-limit-fault`,
+from actual 1.5 runs: the enabled owner ends the control, seeded at the limit
+after the observed failure, `faulted` with `restart_limit` when it next
+reserves it, in one commit that also retires its task documents, and the
+explicit action then reports `terminal`. Map Pi `marked` to native `orphaned` only when the actual terminal
 outcome proves `migration_failed`. Terminal-repeat fixtures await the real
 successor publication drain before applying the existing native admission rule.
 

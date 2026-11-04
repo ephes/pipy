@@ -653,6 +653,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   Nothing parks any more. See
   [restart limits](docs/durable-restart-parking.md#generic-tasks-at-the-limit-r15-2c).
 
+- The [durable reference comparisons](docs/durable-reference.md) have their
+  last withdrawn restart cases back, from actual Pi durable release 1.5 runs: a
+  task at the restart limit with a newer definition ends `faulted` before it is
+  migrated, a seeded control whose definition is missing inspects as blocked
+  `missing_task` and is orphaned as before, and an enabled owner ends a seeded
+  control whose migration failed `faulted` before the explicit orphan action.
+
 - Native durable tool and generation tasks now end themselves at the restart
   limit instead of parking, as Pi durable release 1.5 does. A tool call cut off
   that many times in a row, safe replay included, is not run again: it ends with

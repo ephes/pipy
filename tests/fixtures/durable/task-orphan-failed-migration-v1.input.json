@@ -24,6 +24,13 @@
       "install": false
     },
     {
+      "id": "sqlite-limit-fault",
+      "backend": "sqlite",
+      "cold": false,
+      "parked": true,
+      "install": false
+    },
+    {
       "id": "sqlite-terminal-new-definition",
       "backend": "sqlite",
       "cold": false,

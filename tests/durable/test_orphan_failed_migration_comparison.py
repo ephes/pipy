@@ -34,25 +34,40 @@ def _schema_trace_not_producer():
             "state": {"status": "pending", "checkpoint": {"phase": "run"}},
         }
         if c["parked"]:
-            before.update(restarts=5, memos={"fixture.memo": {"kept": True}})
+            # Release 1.5: the seeded control ended at the limit before the action.
+            before.update(
+                state={
+                    "status": "terminal",
+                    "outcome": {
+                        "status": "faulted",
+                        "error": {
+                            "message": f"Task @target ({m.values.TASK_NAME}) was cut"
+                            " off 5 times without progress",
+                            "detail": {"reason": "restart_limit"},
+                        },
+                    },
+                },
+                endedAt=1000,
+            )
         after = {
             k: copy.deepcopy(v)
             for k, v in before.items()
             if k not in ("memos", "restarts")
         }
-        after.update(
-            state={
-                "status": "terminal",
-                "outcome": {"status": "orphaned", "reason": "migration_failed"},
-            },
-            endedAt=1000,
-        )
+        if not c["parked"]:
+            after.update(
+                state={
+                    "status": "terminal",
+                    "outcome": {"status": "orphaned", "reason": "migration_failed"},
+                },
+                endedAt=1000,
+            )
         counts = {"initial": 1, "migrate": 1, "handler": 0, "abort": 0}
         x = {
             "labels": m.values.labels(c),
             "before": before,
             "after": after,
-            "first_ack": "orphaned",
+            "first_ack": "terminal" if c["parked"] else "orphaned",
             "repeat_acks": ["terminal"] * (2 if c["backend"] == "sqlite" else 1),
             "document_visibility": [
                 {"kind": k, "before": True, "after": False} for k in m.values.DOC_KINDS
@@ -207,8 +222,22 @@ def test_actual_native_orphan_rows_and_backend_evidence(native_run):
             for observation in row["native_only"]["action_dispatch_observations"]
         )
         after = next(s for s in row["steps"] if s["label"] == "orphan")
-        assert after["ACK"] == "orphaned" and after["documents"]["target"] == []
+        # Release 1.5: the limit control already ended faulted before the action.
+        limited = row["id"] == "sqlite-limit-fault"
+        assert after["ACK"] == ("terminal" if limited else "orphaned")
+        assert after["documents"]["target"] == []
         assert after["record"]["abortRequested"] is False
+    limited = next(r for r in rows if r["id"] == "sqlite-limit-fault")
+    fault = next(s for s in limited["steps"] if s["label"] == "limit-fault")
+    assert fault["record"]["state"]["outcome"] == {
+        "status": "faulted",
+        "error": {
+            "message": f"Task {limited['created']['id']} ({m.values.TASK_NAME}) was"
+            " cut off 5 times without progress",
+            "detail": {"reason": "restart_limit"},
+        },
+    }
+    assert fault["counts"] == {"initial": 1, "migrate": 1, "handler": 0, "abort": 0}
 
 
 @pytest.mark.parametrize("name", m.values.MUTANTS)

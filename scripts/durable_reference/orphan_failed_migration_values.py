@@ -29,6 +29,13 @@ CASES = [
         "install": False,
     },
     {
+        "id": "sqlite-limit-fault",
+        "backend": "sqlite",
+        "cold": False,
+        "parked": True,
+        "install": False,
+    },
+    {
         "id": "sqlite-terminal-new-definition",
         "backend": "sqlite",
         "cold": False,
@@ -84,16 +91,9 @@ FIELDS = {
     "task_preserved",
 }
 SCOPE = {
-    "retired_cases": [
-        {
-            "id": "sqlite-parked-control",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
-        },
-    ],
+    "release_1_5": "nothing parks: the enabled owner ends the restart/memo control at the limit faulted restart_limit when it next reserves it, before the explicit action, which then reports terminal; R15-2d re-adds sqlite-parked-control, which R15-1b retired, as sqlite-limit-fault (bridge U01)",
     "common": "generic-pending-observed-migration-failed-orphan-common-v1",
-    "controls": "real Task/Tx creation; actual resumed newer migrator fails once before action; parked metadata seeded only after that failure; Pi enabled-quiescent Session-line and native real retired-enabled admission; not a crash",
+    "controls": "real Task/Tx creation; actual resumed newer migrator fails once before action; restart/memo metadata seeded only after that failure; Pi enabled-quiescent Session-line and native real retired-enabled admission; not a crash",
     "normalization": [
         "proved immediate Pi marked ACK to orphaned only",
         "explicit target/conversation IDs only; fixture clock retained",
@@ -170,7 +170,7 @@ def labels(case):
         result.append("unmarked-reopen")
     result.append("observed-failure")
     if case["parked"]:
-        result.append("seeded-restarts")
+        result.append("limit-fault")
     result += ["before-action", "orphan"]
     if case["install"]:
         result.append("install-definition")
@@ -189,6 +189,12 @@ def _task(row, created):
         raise ValueError("Actual target identity")
     value["id"] = "@target"
     value["conversationId"] = "@conversation"
+    outcome = value["state"].get("outcome")
+    error = outcome.get("error") if type(outcome) is dict else None
+    if type(error) is dict and type(error.get("message")) is str:
+        error["message"] = error["message"].replace(
+            f"Task {created['id']} ", "Task @target ", 1
+        )
     return value
 
 
@@ -237,16 +243,35 @@ def project(raw):
         for i, step in enumerate(steps)
         if step["label"].startswith("repeat")
     )
-    target_ids = {d["record"]["id"] for d in before["documents"]["target"]}
-    new_batches = raw["commit_batches"][before["batch_count"] : after["batch_count"]]
+    seeded = True
+    if case["parked"]:
+        # Release 1.5: the enabled owner ended the seeded task at the restart
+        # limit before the explicit action; that fault is the retiring commit.
+        start = next(s for s in steps if s["label"] == "observed-failure")
+        end = next(s for s in steps if s["label"] == "limit-fault")
+        new_batches = raw["commit_batches"][start["batch_count"] : end["batch_count"]]
+        seed = new_batches[0]["writes"] if new_batches else []
+        seeded = (
+            len(seed) == 1
+            and seed[0]["type"] == "task"
+            and seed[0]["value"]["id"] == raw["created"]["id"]
+            and seed[0]["value"].get("restarts") == 5
+            and seed[0]["value"].get("memos") == {"fixture.memo": {"kept": True}}
+        )
+        new_batches = new_batches[1:]
+    else:
+        start, end = before, after
+        new_batches = raw["commit_batches"][start["batch_count"] : end["batch_count"]]
+    target_ids = {d["record"]["id"] for d in start["documents"]["target"]}
     writes = [] if len(new_batches) != 1 else new_batches[0]["writes"]
     task_writes = [w for w in writes if w["type"] == "task"]
     retired = {w["id"] for w in writes if w["type"] == "document.retire"}
     atomic = (
-        len(new_batches) == 1
+        seeded
+        and len(new_batches) == 1
         and len(task_writes) == 1
         and task_writes[0]["value"]["id"] == raw["created"]["id"]
-        and task_writes[0]["value"]["state"] == after["record"]["state"]
+        and task_writes[0]["value"]["state"] == end["record"]["state"]
         and retired == target_ids
         and len(writes) == 1 + len(target_ids)
     )
@@ -254,10 +279,10 @@ def project(raw):
         {
             "kind": kind,
             "before": any(
-                d["record"]["kind"] == kind for d in before["documents"]["target"]
+                d["record"]["kind"] == kind for d in start["documents"]["target"]
             ),
             "after": any(
-                d["record"]["kind"] == kind for d in after["documents"]["target"]
+                d["record"]["kind"] == kind for d in end["documents"]["target"]
             ),
         }
         for kind in DOC_KINDS
@@ -460,26 +485,53 @@ def successful(value, d, v):
             and x["task_preserved"] is True,
             "Actual observed failed newer definition and preserved stored task",
         )
-        d.require(
-            x["before"]["kind"] == TASK_NAME
-            and x["before"]["state"]["status"] == "pending"
-            and x["before"]["abortRequested"] is False,
-            "Actual pending unmarked generic target",
-        )
-        d.require(
-            x["after"]["state"]
-            == {
+        if case["parked"]:
+            # The seeded count reached the limit: the enabled owner faulted the
+            # task before the explicit action, which then reports terminal.
+            limited = {
                 "status": "terminal",
-                "outcome": {"status": "orphaned", "reason": "migration_failed"},
+                "outcome": {
+                    "status": "faulted",
+                    "error": {
+                        "message": f"Task @target ({TASK_NAME}) was cut off 5 times"
+                        " without progress",
+                        "detail": {"reason": "restart_limit"},
+                    },
+                },
             }
-            and x["after"]["abortRequested"] is False,
-            "Actual immediate orphan outcome without mark",
-        )
-        d.require(
-            x["first_ack"] == "orphaned"
-            and all(a == "terminal" for a in x["repeat_acks"]),
-            "Actual first/repeated ACK",
-        )
+            d.require(
+                x["before"]["kind"] == TASK_NAME
+                and x["before"]["state"] == limited
+                and x["after"]["state"] == limited
+                and x["after"]["abortRequested"] is False,
+                "Actual restart-limit fault before the explicit action",
+            )
+            d.require(
+                x["first_ack"] == "terminal"
+                and all(a == "terminal" for a in x["repeat_acks"]),
+                "Actual first/repeated ACK",
+            )
+        else:
+            d.require(
+                x["before"]["kind"] == TASK_NAME
+                and x["before"]["state"]["status"] == "pending"
+                and x["before"]["abortRequested"] is False,
+                "Actual pending unmarked generic target",
+            )
+            d.require(
+                x["after"]["state"]
+                == {
+                    "status": "terminal",
+                    "outcome": {"status": "orphaned", "reason": "migration_failed"},
+                }
+                and x["after"]["abortRequested"] is False,
+                "Actual immediate orphan outcome without mark",
+            )
+            d.require(
+                x["first_ack"] == "orphaned"
+                and all(a == "terminal" for a in x["repeat_acks"]),
+                "Actual first/repeated ACK",
+            )
         d.require(
             x["callbacks"]["before"]
             == x["callbacks"]["after"]
@@ -512,12 +564,6 @@ def successful(value, d, v):
             "memos" not in x["after"] and "restarts" not in x["after"],
             "Terminal live metadata absent",
         )
-        if case["parked"]:
-            d.require(
-                x["before"].get("restarts") == 5
-                and x["before"].get("memos") == {"fixture.memo": {"kept": True}},
-                "Explicit parked restart/memo control",
-            )
         d.require(
             x["closed"] and all(r == "closed" for r in x["closed"]),
             "Every real owner closed",

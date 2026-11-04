@@ -12,7 +12,7 @@ const {MemoryStorage}=await import('./packages/durable/src/storage/memory.ts');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
 const {createModels}=await import('@earendil-works/pi-ai');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
-const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-missing-definition-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}]});
+const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-missing-definition-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-parked-control","backend":"sqlite","cold":false,"parked":true,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}]});
 const clone=(x:any)=>structuredClone(x);
 const NOTE=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.note',version:1,scope:'task',initial:()=>({n:0})});
 const CACHED=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.cached',version:1,scope:'task',initial:()=>({n:0})});
@@ -58,10 +58,11 @@ for(const c of recipe.cases){
   await h.commit(async(tx:any)=>{(await tx.doc(OTHER,cid)).n=2;},ctx);
   await h.commit(async(tx:any)=>{(await tx.doc(OTHER,cid)).n=1;},ctx);
   const created=(await snapshot('created')).record;
-  // Release 1.5 removed parking; the parked control case is retired (R15-1b).
-  assert.equal(c.parked,false);
+  if(c.parked){await h.commit(async(tx:any)=>{const record=await tx.task(taskId);assert.ok(record);tx.setTask({...record,restarts:5,memos:{'fixture.memo':{kept:true}}});},ctx);await snapshot('seeded-restarts');}
   if(c.cold){await end();await owner();await snapshot('unmarked-reopen');}
   const before=await snapshot('before-action'),inspection=await h.inspect(ctx);assert.equal(inspection.scheduling,'paused');
+  // Release 1.5 has no restart_limit hold: the missing definition is the reason.
+  if(c.parked){const found=inspection.tasks.find((t:any)=>t.record.id===taskId);assert.equal(before.record.restarts,5);assert.deepEqual(found?.state,{kind:'blocked',reason:'missing_task'});}
   const ACK=await h.abortTask(taskId,ctx);await snapshot('orphan',ACK);
   if(c.install){registry.install(defineExtension({name:'fixture.orphan.extension',tasks:[task]}));await snapshot('install-definition');}
   await snapshot('repeat',await h.abortTask(taskId,ctx));

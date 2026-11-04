@@ -13,7 +13,7 @@ CASES = [
         "current": 0,
         "mode": "same",
         "blocked": None,
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "fractional-content",
@@ -21,7 +21,7 @@ CASES = [
         "current": 0.25,
         "mode": "change",
         "blocked": None,
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "version-only",
@@ -29,7 +29,7 @@ CASES = [
         "current": 2,
         "mode": "same",
         "blocked": None,
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "missing-definition",
@@ -37,7 +37,7 @@ CASES = [
         "current": None,
         "mode": "none",
         "blocked": "definition_missing",
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "stored-newer",
@@ -45,7 +45,7 @@ CASES = [
         "current": 1,
         "mode": "change",
         "blocked": "stored_version_newer",
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "missing-migrator",
@@ -53,7 +53,7 @@ CASES = [
         "current": 2,
         "mode": "none",
         "blocked": "migration_failed",
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "throw-once",
@@ -61,7 +61,7 @@ CASES = [
         "current": 2,
         "mode": "throw",
         "blocked": "migration_failed",
-        "parked": False,
+        "at_limit": False,
     },
     {
         "id": "invalid-once",
@@ -69,7 +69,15 @@ CASES = [
         "current": 2,
         "mode": "invalid",
         "blocked": "migration_failed",
-        "parked": False,
+        "at_limit": False,
+    },
+    {
+        "id": "limit-before-migration",
+        "stored": 1,
+        "current": 2,
+        "mode": "change",
+        "blocked": None,
+        "at_limit": True,
     },
     {
         "id": "blocked-zero-current",
@@ -77,20 +85,13 @@ CASES = [
         "current": 0,
         "mode": "none",
         "blocked": "migration_failed",
-        "parked": False,
+        "at_limit": False,
     },
 ]
 IDS = tuple(c["id"] for c in CASES)
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 SCOPE = {
-    "retired_cases": [
-        {
-            "id": "parked-migration",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and Harness.retryTask() (bridge U01)",
-        },
-    ],
+    "release_1_5": "a task cut off the restart limit ends faulted with detail restart_limit when it is reserved, before its definition is migrated; R15-2d re-adds the case R15-1b retired, parked-migration as limit-before-migration (bridge U01)",
     "common": "actual-created-generic-task-cold-owner-version-fit-migration-failure-cache-second-candidate-fresh-owner",
     "controls": "explicit-Session-task-row-checkpoint-memo-restart-seeds-in-private-SQLite; NOT physical-crash or tool-receipt authority",
     "public_difference": "native-private-fixed-catalog-retry-is-not-Pi-live-registry-or-public-global-enable; no Product migration API parity",
@@ -115,7 +116,7 @@ SCOPE = {
 FIELDS = {
     "calls_at_open",
     "initializers",
-    "parked_at_open",
+    "final_outcome",
     "migration_calls",
     "before_restore_calls",
     "repeated_calls",
@@ -144,6 +145,19 @@ def handler(record):
         "checkpoint": record["state"]["checkpoint"],
         "memos": record.get("memos"),
         "restarts": count(record),
+    }
+
+
+def outcome(record):
+    """The terminal outcome, its task ID spelled generically in the message."""
+    value = record["state"]["outcome"]
+    error = value.get("error")
+    return {
+        "status": value["status"],
+        "detail": None if error is None else error.get("detail"),
+        "message": None
+        if error is None
+        else error["message"].replace(f"Task {record['id']} ", "Task <id> ", 1),
     }
 
 
@@ -176,8 +190,19 @@ def validate(value, d, v):
             "cold_equal_calls",
         ):
             d.require(type(x[key]) is int and x[key] >= 0, "Migration count")
-        for key in ("parked_at_open", "blocked_unchanged", "identity_preserved"):
+        for key in ("blocked_unchanged", "identity_preserved"):
             d.require(type(x[key]) is bool, "Migration boolean")
+        d.shape(
+            x["final_outcome"], {"status", "detail", "message"}, "Migration outcome"
+        )
+        d.require(
+            x["final_outcome"]["status"] in {"completed", "faulted"}
+            and (
+                x["final_outcome"]["message"] is None
+                or type(x["final_outcome"]["message"]) is str
+            ),
+            "Migration outcome values",
+        )
         d.require(
             x["blocked_reason"]
             in {None, "definition_missing", "stored_version_newer", "migration_failed"},
@@ -223,8 +248,10 @@ def successful(value, d, v):
     validate(value, d, v)
     for row, case in zip(value["cases"], CASES, strict=True):
         x = v.decode(row["observed"])
-        attempted = case["mode"] in {"throw", "invalid"} or (
-            case["blocked"] is None and case["current"] != case["stored"]
+        # A task at the limit ends before its definition is resolved or migrated.
+        attempted = not case["at_limit"] and (
+            case["mode"] in {"throw", "invalid"}
+            or (case["blocked"] is None and case["current"] != case["stored"])
         )
         first_count = int(attempted)
         blocked = case["blocked"] is not None
@@ -250,10 +277,22 @@ def successful(value, d, v):
                 }
             )
         d.require(
-            x["calls_at_open"] == 0
-            and x["initializers"] == 1
-            and x["parked_at_open"] == case["parked"],
+            x["calls_at_open"] == 0 and x["initializers"] == 1,
             "Migration cold admission",
+        )
+        d.require(
+            d.same(
+                x["final_outcome"],
+                {
+                    "status": "faulted",
+                    "detail": {"reason": "restart_limit"},
+                    "message": "Task <id> (fixture.migration) was cut off 5 times"
+                    " without progress",
+                }
+                if case["at_limit"]
+                else {"status": "completed", "detail": None, "message": None},
+            ),
+            "Migration terminal outcome",
         )
         d.require(
             d.same(x["migration_calls"], expected_calls)
@@ -278,15 +317,14 @@ def successful(value, d, v):
         d.require(
             d.same(
                 x["first_handler"],
-                {
+                None
+                if case["at_limit"]
+                else {
                     "version": target,
                     "input": {**original, "migrated": True} if changed else original,
                     "checkpoint": {"phase": "run", "n": 3} if changed else checkpoint,
                     "memos": {"fixture.memo": {"kept": True}},
-                    "restarts": {
-                        "present": not case["parked"],
-                        "value": None if case["parked"] else 2,
-                    },
+                    "restarts": {"present": True, "value": 2},
                 },
             ),
             "Migration first handler reads committed values/memos/count",
@@ -299,7 +337,8 @@ def successful(value, d, v):
 
 def mutate(value, name, v):
     result = copy.deepcopy(value)
-    # Failure-cache and second-candidate mutants target their actual discriminator case.
+    # Failure-cache and second-candidate mutants target their actual discriminator
+    # case, the outcome mutant the restart-limit case.
     index = (
         6
         if name
@@ -310,6 +349,8 @@ def mutate(value, name, v):
             "blocked_reason",
             "blocked_unchanged",
         }
+        else IDS.index("limit-before-migration")
+        if name == "final_outcome"
         else 1
     )
     x = v.decode(result["cases"][index]["observed"])
@@ -322,8 +363,10 @@ def mutate(value, name, v):
         "cold_equal_calls",
     }:
         x[name] += 1
-    elif name in {"parked_at_open", "blocked_unchanged", "identity_preserved"}:
+    elif name in {"blocked_unchanged", "identity_preserved"}:
         x[name] = not x[name]
+    elif name == "final_outcome":
+        x[name] = {"status": "completed", "detail": None, "message": None}
     elif name == "migration_calls":
         x[name][0]["from_version"] += 7
     elif name == "version":

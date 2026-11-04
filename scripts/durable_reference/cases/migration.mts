@@ -16,6 +16,7 @@ const clone=(v:any)=>JSON.parse(JSON.stringify(v,(_k,x)=>x instanceof Error?{nam
 const same=(a:any,b:any):boolean=>{if(a===b)return true;if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return false;if(Array.isArray(a)!==Array.isArray(b))return false;const keys=Object.keys(a);return keys.length===Object.keys(b).length&&keys.every(k=>Object.hasOwn(b,k)&&same(a[k],b[k]));};
 const count=(r:any)=>({present:Object.hasOwn(r,'restarts'),value:r.restarts??null});
 const handler=(r:any)=>({version:r.version,input:r.input,checkpoint:r.state.checkpoint,memos:r.memos??null,restarts:count(r)});
+const outcome=(r:any)=>{const value=r.state.outcome,error=value.error;return {status:value.status,detail:error===undefined?null:(error.detail??null),message:error===undefined?null:String(error.message).replace(`Task ${r.id} `,'Task <id> ')};};
 const reasons:any={missing_task:'definition_missing',task_too_old:'stored_version_newer',migration_failed:'migration_failed'};
 async function until(predicate:()=>Promise<boolean>){const deadline=Date.now()+10000;while(!await predicate()){assert.ok(Date.now()<deadline,'Migration fixture discriminator timed out');await new Promise(r=>setTimeout(r,5));}}
 const raw:any[]=[];
@@ -46,13 +47,12 @@ for(const recipe of input.cases){
   const conversation=await h.createConversation({ownership:{kind:'ownerless'}},ctx);
   taskId=await h.commit((tx:any)=>tx.createTask(old,{fixture:recipe.id,n:1},{ownership:{kind:'conversation'},conversationId:conversation.id}),ctx);
   const created=await record(h);
-  await h.commit(async(tx:any)=>{const row=await tx.task(taskId);tx.setTask({...row,state:{status:'pending',checkpoint:{phase:'run',n:2}},memos:{'fixture.memo':{kept:true}},restarts:recipe.parked?5:2});},ctx);
+  await h.commit(async(tx:any)=>{const row=await tx.task(taskId);tx.setTask({...row,state:{status:'pending',checkpoint:{phase:'run',n:2}},memos:{'fixture.memo':{kept:true}},restarts:recipe.at_limit?5:2});},ctx);
   let secondId:any=null;if(['throw','invalid'].includes(recipe.mode))secondId=await h.commit((tx:any)=>tx.createTask(following,null,{ownership:{kind:'conversation'},conversationId:conversation.id}),ctx);
   const seeded=await record(h);await end(h);closed.length=0;
   h=await owner(recipe.current,recipe.mode,'first');const after_open=await record(h),inspection_open=await inspection(h),calls_at_open=calls.length+handlers.length+second.length;
-  const parked_at_open=inspection_open.selected?.state.kind==='blocked'&&inspection_open.selected.state.reason==='restart_limit';
-  // Release 1.5 removed parking and retryTask; the parked case is retired (R15-1b).
-  assert.equal(recipe.parked,false);h.resume();
+  // Release 1.5: a task at the restart limit ends faulted when it is reserved, before its definition is migrated.
+  h.resume();
   const blocked=recipe.blocked!==null;let after_attempt:any,inspection_attempt:any,before_restore_calls:number,repeated_calls:number,blocked_unchanged:boolean,version:any;
   if(blocked){
    await until(async()=>reason(await inspection(h))===recipe.blocked);
@@ -65,10 +65,10 @@ for(const recipe of input.cases){
    await until(async()=>(await record(h)).state.status==='terminal');after_attempt=await record(h);inspection_attempt=await inspection(h);before_restore_calls=repeated_calls=calls.length;blocked_unchanged=true;version=recipe.current;
   }
   await until(async()=>(await record(h)).state.status==='terminal');const final=await record(h),after_close=await end(h);
-  h=await owner(version,'change','restore');const after_cold_open=await record(h);h.resume();const inspection_cold=await inspection(h);await end(h);assert.equal(handlers.length,1);
+  h=await owner(version,'change','restore');const after_cold_open=await record(h);h.resume();const inspection_cold=await inspection(h);await end(h);assert.equal(handlers.length,recipe.at_limit?0:1);
   const identityKeys=['id','kind','conversationId','background','owner','links','trace','abortRequested','abortReason','abandonOnRestart'];
   const identity_preserved=identityKeys.every(k=>Object.hasOwn(final,k)===Object.hasOwn(seeded,k)&&same(final[k],seeded[k]));
-  raw.push({id:recipe.id,control:{kind:'explicit-temporary-task-row-seed',created,seeded,physical_SIGKILL:false},before_open:seeded,after_open,after_attempt,after_close,after_cold_open,final,inspection_open,inspection_attempt,inspection_cold,calls_at_open,initializers,parked_at_open,migration_calls:calls,before_restore_calls,repeated_calls,first_handler:handler(handlers[0]),handler_records:handlers,second_handlers:second.length,second_handler_records:second,blocked_reason:blocked?reason(inspection_attempt):null,blocked_unchanged,identity_preserved,closed,cold_equal_calls:calls.length,private_retry_return:null,reports,mutations:'Actual task creation, explicit typed seeds, Harness migration/reservation/terminal/reset/close commits in private SQLite; not zero-effect'});
+  raw.push({id:recipe.id,control:{kind:'explicit-temporary-task-row-seed',created,seeded,physical_SIGKILL:false},before_open:seeded,after_open,after_attempt,after_close,after_cold_open,final,inspection_open,inspection_attempt,inspection_cold,calls_at_open,initializers,final_outcome:outcome(final),migration_calls:calls,before_restore_calls,repeated_calls,first_handler:handlers.length?handler(handlers[0]):null,handler_records:handlers,second_handlers:second.length,second_handler_records:second,blocked_reason:blocked?reason(inspection_attempt):null,blocked_unchanged,identity_preserved,closed,cold_equal_calls:calls.length,private_retry_return:null,reports,mutations:'Actual task creation, explicit typed seeds, Harness migration/reservation/terminal/reset/close commits in private SQLite; not zero-effect'});
  }catch(error){originalFailure=error;throw error;}finally{const errors:any[]=[];for(const owner of owners){try{await owner.close(ctx);}catch(error){errors.push(error);}}if(errors.length)throw new AggregateError(originalFailure===null?errors:[originalFailure,...errors],'Migration fixture Harness cleanup failed');}
 }
 writeFileSync(out+'/raw-stored.json',JSON.stringify(raw));writeFileSync(out+'/resolutions.json',JSON.stringify(resolutions));

@@ -8,7 +8,7 @@
       "current": 0,
       "mode": "same",
       "blocked": null,
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "fractional-content",
@@ -16,7 +16,7 @@
       "current": 0.25,
       "mode": "change",
       "blocked": null,
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "version-only",
@@ -24,7 +24,7 @@
       "current": 2,
       "mode": "same",
       "blocked": null,
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "missing-definition",
@@ -32,7 +32,7 @@
       "current": null,
       "mode": "none",
       "blocked": "definition_missing",
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "stored-newer",
@@ -40,7 +40,7 @@
       "current": 1,
       "mode": "change",
       "blocked": "stored_version_newer",
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "missing-migrator",
@@ -48,7 +48,7 @@
       "current": 2,
       "mode": "none",
       "blocked": "migration_failed",
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "throw-once",
@@ -56,7 +56,7 @@
       "current": 2,
       "mode": "throw",
       "blocked": "migration_failed",
-      "parked": false
+      "at_limit": false
     },
     {
       "id": "invalid-once",
@@ -64,7 +64,15 @@
       "current": 2,
       "mode": "invalid",
       "blocked": "migration_failed",
-      "parked": false
+      "at_limit": false
+    },
+    {
+      "id": "limit-before-migration",
+      "stored": 1,
+      "current": 2,
+      "mode": "change",
+      "blocked": null,
+      "at_limit": true
     },
     {
       "id": "blocked-zero-current",
@@ -72,7 +80,7 @@
       "current": 0,
       "mode": "none",
       "blocked": "migration_failed",
-      "parked": false
+      "at_limit": false
     }
   ]
 }

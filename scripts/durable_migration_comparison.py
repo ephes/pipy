@@ -137,11 +137,19 @@ def projection(rows):
             "Migration actual seed source",
         )
     for row in rows:
+        handlers = row["handler_records"]
         d.require(
-            len(row["handler_records"]) == 1
-            and d.same(values.handler(row["handler_records"][0]), row["first_handler"])
+            type(handlers) is list
+            and len(handlers) <= 1
+            and d.same(
+                values.handler(handlers[0]) if handlers else None, row["first_handler"]
+            )
             and len(row["second_handler_records"]) == row["second_handlers"],
             "Migration actual handler source join",
+        )
+        d.require(
+            d.same(values.outcome(row["final"]), row["final_outcome"]),
+            "Migration actual outcome source join",
         )
         d.require(
             d.same(row["after_open"], row["before_open"])

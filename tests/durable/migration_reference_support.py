@@ -169,7 +169,7 @@ def _exercise(recipe, folder, owned):
                 **tx.task(task_id).to_tree(),
                 "state": {"status": "pending", "checkpoint": {"phase": "run", "n": 2}},
                 "memos": {"fixture.memo": {"kept": True}},
-                "restarts": 5 if recipe["parked"] else 2,
+                "restarts": 5 if recipe["at_limit"] else 2,
             }
         )
     )
@@ -196,8 +196,8 @@ def _exercise(recipe, folder, owned):
     inspection_open = info(scheduler)
     with lock:
         calls_at_open = len(calls) + len(handlers) + len(second)
-    # Release 1.5 removed parking and retryTask; the parked case is retired (R15-1b).
-    assert not recipe["parked"]
+    # Release 1.5: a task at the restart limit ends faulted when it is reserved,
+    # before its definition is migrated.
     private_retry_return = None
     scheduler.resume()
     blocked = recipe["blocked"] is not None
@@ -245,7 +245,7 @@ def _exercise(recipe, folder, owned):
     scheduler.resume()
     cold_inspection = info(scheduler)
     close(session, scheduler, store)
-    handler = import_module("durable_reference.migration_values").handler
+    values = import_module("durable_reference.migration_values")
 
     with lock:
         actual_calls, actual_handlers, actual_second = (
@@ -253,7 +253,7 @@ def _exercise(recipe, folder, owned):
             _copy(handlers),
             _copy(second),
         )
-    assert len(actual_handlers) == 1
+    assert len(actual_handlers) == (0 if recipe["at_limit"] else 1)
     return {
         "id": recipe["id"],
         "control": {
@@ -273,13 +273,13 @@ def _exercise(recipe, folder, owned):
         "inspection_cold": cold_inspection,
         "calls_at_open": calls_at_open,
         "initializers": initializers,
-        # Mirrors the pinned driver's blocked-restart_limit predicate, which no
-        # 1.5 owner reports any more (R15-2c removed the native reason too).
-        "parked_at_open": inspection_open["reason"] == "restart_limit",
+        "final_outcome": values.outcome(final),
         "migration_calls": actual_calls,
         "before_restore_calls": before_restore_calls,
         "repeated_calls": repeated_calls,
-        "first_handler": handler(actual_handlers[0]),
+        "first_handler": values.handler(actual_handlers[0])
+        if actual_handlers
+        else None,
         "handler_records": actual_handlers,
         "second_handlers": len(actual_second),
         "second_handler_records": actual_second,

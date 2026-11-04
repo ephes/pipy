@@ -248,12 +248,13 @@ def projection(rows):
                 == [False, True] + ([False] if case["backend"] == "sqlite" else []),
                 "Actual sync/async settlement and cold-repeat order",
             )
-            if case["parked"]:
-                d.require(
-                    side["policy_observation"]["configured_limit"] == 5
-                    and side["policy_observation"]["derived_parked"] is True,
-                    "Actual native policy/record parked witness; inspection reason retained raw",
-                )
+            # Release 1.5: the restart-limit fault of the seeded control ended
+            # its count before the action; inspection is retained raw.
+            d.require(
+                side["policy_observation"]["configured_limit"] == 5
+                and side["policy_observation"]["derived_parked"] is False,
+                "Actual native policy/record witness",
+            )
     return {
         "schema_version": 1,
         "phase": PHASE,

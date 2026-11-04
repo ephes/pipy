@@ -7,7 +7,7 @@ was cut off its restart limit times in a row instead of parking it, and has no
 R15-2a removed same-task retry (the Product and SDK `retry_task`,
 `DurableTaskRetry`, `pipy durable retry-task` and the private scheduler retry),
 R15-2b ends the built-in tasks at the limit, R15-2c ends generic tasks there
-and removes parking, and R15-2d re-adds the last withdrawn comparison cases.
+and removes parking, and R15-2d re-added the last withdrawn comparison cases.
 Nothing parks any more. The page keeps its old path, which
 other pages and the evidence links of DE14a, DE14a1 and DE14b2 name.
 
@@ -192,6 +192,9 @@ has five cases (R15-2c): a limit raised before the reservation lets the task run
 ends it `faulted` with `restart_limit` (`lower-before-admission`,
 `same-finite-faults`), which a fresh owner with any limit leaves ended.
 `interrupted-tool-continuation-v1` has the built-in tool case `safe_limit`
-(R15-2b). The successors of the parked cases of `task-migration-cold-v1`,
-`task-orphan-missing-definition-v1` and `task-orphan-failed-migration-v1`
-belong to R15-2d.
+(R15-2b). R15-2d re-added the rest: in `task-migration-cold-v1` a task at the
+limit with a newer definition ends `faulted` before its migration
+(`limit-before-migration`); in `task-orphan-missing-definition-v1` the seeded
+control inspects as blocked `missing_task` and is orphaned as before; and in
+`task-orphan-failed-migration-v1` the enabled owner ends the seeded control
+`faulted` before the explicit orphan action (`sqlite-limit-fault`).

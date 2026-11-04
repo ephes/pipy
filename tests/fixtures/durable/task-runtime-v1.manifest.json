@@ -6,9 +6,9 @@
     "documents": "cf59f6f586d2a412b3c7b90151f389bbcd8adace4d1cf5748e8148f95cc70d83"
   },
   "closure": {
-    "docs/durable-restart-parking.md": "562739f4b5767d13ed9b58eac9b4c2df54ee4fb4b1242771046d530cc3b66350",
+    "docs/durable-restart-parking.md": "adc078f2e55771a2a5884541565daecd9164c28dbe49ede21ba3b809c916e8ac",
     "docs/durable-session-deltas.md": "8dfe27023c169d132628fd5d054c0278e0ee6ba7a6b2480ad7000a4308949228",
-    "docs/durable-task-migration.md": "a40699dfb174f1ca6b9708874fc40ec77f11dc44d7d38260fb1c5f18a0170954",
+    "docs/durable-task-migration.md": "3004b5158f1a15dea2f0a87d64b35be40dfd26836a946fd5a7064148d7cfcbad",
     "docs/durable-task-runtime.md": "c7fae10588864c74d3cf3fc8eca2bfde45ca4eaab3586f2c6ed2fa3ffbda03a9",
     "docs/specs/2026-10-28-de14a-restart-parking-plan.md": "318fcb43e983a7f5743e7b6fcc0e1ab2ded9df7103adfc170fda13d71beb5afd",
     "docs/specs/2026-10-28-de14b1-cold-task-migration-plan.md": "5b9282111b95044922f46c37e96518bc80b2fb4218a29c9b3f75b490878bd06d",

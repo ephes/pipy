@@ -1639,5 +1639,8 @@ so a raised limit lets it run and an ended task stays ended, and an owner of
 live ordinary work holds the fault as `completing`. Inspection drops
 `restart_parked` and the `restart_limit` hold reason. `restart-policy-live-v1`
 has its five cases again from actual 1.5 runs, `same-finite-faults` among them.
-R15-2d is next: the successors of the parked cases of `task-migration-cold-v1`,
-`task-orphan-missing-definition-v1` and `task-orphan-failed-migration-v1`.
+R15-2d re-added the remaining withdrawn comparison cases from actual 1.5 runs:
+`limit-before-migration` in `task-migration-cold-v1`, the parked control of
+`task-orphan-missing-definition-v1`, and `sqlite-limit-fault` in
+`task-orphan-failed-migration-v1`, where the enabled owner faults the seeded
+control before the explicit action. R15-2 is complete; R15-3 is next.

@@ -12,7 +12,7 @@ const {MemoryStorage}=await import('./packages/durable/src/storage/memory.ts');
 const {openNodeSqliteStorage}=await import('./packages/durable/src/storage/sqlite/node.ts');
 const {createModels}=await import('@earendil-works/pi-ai');
 const {BACKGROUND_CONTEXT:ctx}=await import('@earendil-works/chord/context');
-const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-failed-migration-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}],"definition_versions":{"stored":1,"available":2}});
+const recipe=JSON.parse(readFileSync(inputPath,'utf8'));assert.deepEqual(recipe,{"schema_version":1,"phase":"task-orphan-failed-migration-v1","cases":[{"id":"memory-warm","backend":"memory","cold":false,"parked":false,"install":false},{"id":"sqlite-warm","backend":"sqlite","cold":false,"parked":false,"install":false},{"id":"sqlite-cold-unmarked","backend":"sqlite","cold":true,"parked":false,"install":false},{"id":"sqlite-limit-fault","backend":"sqlite","cold":false,"parked":true,"install":false},{"id":"sqlite-terminal-new-definition","backend":"sqlite","cold":false,"parked":false,"install":true}],"definition_versions":{"stored":1,"available":2}});
 const clone=(x:any)=>structuredClone(x);
 const NOTE=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.note',version:1,scope:'task',initial:()=>({n:0})});
 const CACHED=defineDoc({checkpointWhen:()=>false,kind:'fixture.orphan.failed-migration.cached',version:1,scope:'task',initial:()=>({n:0})});
@@ -66,8 +66,8 @@ for(const c of recipe.cases){
   // the failure pass boundary for this fresh inactive target, never whole-graph idle.
   async function reservationLine(){await new Promise<void>((resolve,reject)=>queueMicrotask(()=>{h.readOnLine(async()=>{assert.equal(counts.migrate,1);assert.equal(counts.handler,0);assert.equal(counts.abort,0);}).then(resolve,reject);}));}
   h.resume();await reservationLine();await snapshot('observed-failure');
-  // Release 1.5 removed parking; the parked control case is retired (R15-1b).
-  assert.equal(c.parked,false);
+  // Release 1.5: the enabled owner ends a task at the restart limit when it next reserves it, before the explicit action.
+  if(c.parked){await h.commit(async(tx:any)=>{const record=await tx.task(taskId);assert.ok(record);tx.setTask({...record,restarts:5,memos:{'fixture.memo':{kept:true}}});},ctx);await h.waitForTask(taskId,ctx);await snapshot('limit-fault');}
   const before=await snapshot('before-action'),inspection=await h.inspect(ctx);assert.notEqual(inspection.scheduling,'paused');
   const policy_observation={configured_limit:5,derived_parked:(before.record.restarts??0)>=5,inspection};
   const definition_observation=await h.readOnLine(async()=>{const record=await storage.task(taskId,ctx);assert.ok(record);const captured:any=registry.snapshot().task(record.kind);assert.ok(captured);assert.equal(counts.migrate,1);return {available_version:captured.definition.version,stored_version:record.version,strictly_newer:captured.definition.version>record.version};});

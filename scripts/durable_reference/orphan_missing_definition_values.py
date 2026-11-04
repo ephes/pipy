@@ -28,6 +28,13 @@ CASES = [
         "install": False,
     },
     {
+        "id": "sqlite-parked-control",
+        "backend": "sqlite",
+        "cold": False,
+        "parked": True,
+        "install": False,
+    },
+    {
         "id": "sqlite-terminal-new-definition",
         "backend": "sqlite",
         "cold": False,
@@ -69,14 +76,7 @@ FIELDS = {
     "closed",
 }
 SCOPE = {
-    "retired_cases": [
-        {
-            "id": "sqlite-parked-control",
-            "retired_by": "R15-1b",
-            "successor": "R15-2",
-            "reason": "release 1.5.0 removed restart parking and the restart_limit blocked reason (bridge U01)",
-        },
-    ],
+    "release_1_5": "nothing parks: the restart/memo control at the limit inspects as blocked missing_task, not restart_limit, and is orphaned like the other cases; R15-2d re-adds sqlite-parked-control, which R15-1b retired (bridge U01)",
     "common": "actual-generic-pending-missing-definition-root-orphan-taskdoc-retirement",
     "controls": "real Task/Tx creation; parked row is an explicit restart/memo metadata control, not a crash; no target runtime resume",
     "normalization": [

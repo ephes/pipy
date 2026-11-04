@@ -226,14 +226,16 @@ def _observed_action(scheduler, tid, asynchronous, observations, lock):
             observations.append({"async": asynchronous, "calls": dict(calls)})
 
 
-def _definition_observation(scheduler, before):
+def _definition_observation(scheduler, before, remembered):
     def read():
         with scheduler._guard:
             generation = scheduler._definition_generation
             binding = generation.bindings.get(identity(before["record"]["kind"]))
             assert binding is not None
             version = binding.captured.version
-            assert scheduler._migration_failures.get(before["record"]["id"]) is binding
+            # A task that ended retires its remembered migration failure.
+            failure = scheduler._migration_failures.get(before["record"]["id"])
+            assert (failure is binding) is remembered
             assert scheduler._enabled and not scheduler._draining
             assert scheduler._invocation is None
         stored = before["record"]["version"]
@@ -258,9 +260,9 @@ def _orphan_action(
         "derived_parked": policy.reached(before["record"]),
         "inspection": info.to_tree(),
     }
-    if case["parked"]:
-        assert policy_observation["derived_parked"] is True
-    definition = _definition_observation(scheduler, before)
+    # The restart-limit fault ended the seeded task, and its count, before.
+    assert policy_observation["derived_parked"] is False
+    definition = _definition_observation(scheduler, before, not case["parked"])
     assert definition == {
         "available_version": values.VERSIONS["available"],
         "stored_version": values.VERSIONS["stored"],
@@ -269,9 +271,10 @@ def _orphan_action(
     checkpoint = retirement.checkpoint()
     ack = _observed_action(scheduler, tid, False, observations, lock)
     snapshot("orphan", ack)
-    # Enabled terminal publication legitimately wakes a successor reservation.
-    # Observe its real retirement before the distinct terminal-repeat action.
-    retirement.wait(checkpoint)
+    if ack != "terminal":
+        # Enabled terminal publication legitimately wakes a successor reservation.
+        # Observe its real retirement before the distinct terminal-repeat action.
+        retirement.wait(checkpoint)
     if case["install"]:
         checkpoint = retirement.checkpoint()
         assert scheduler.install_definition(task) is True
@@ -380,10 +383,13 @@ def _exercise(case, folder, owners):
                 row["memos"] = {"fixture.memo": {"kept": True}}
                 tx.set_task(row)
 
+            # Release 1.5: the enabled owner ends a task at the restart limit
+            # when it next reserves it, before the explicit action.
             checkpoint = retirement.checkpoint()
             session.commit(seed)
             retirement.wait(checkpoint)
-            snapshot("seeded-restarts")
+            faulted = snapshot("limit-fault")
+            assert faulted["record"]["state"]["status"] == "terminal"
         before = snapshot("before-action")
         policy_observation, definition = _orphan_action(
             scheduler,
