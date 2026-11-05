@@ -284,13 +284,17 @@ def test_missing_base_ref_escalates_to_full(repo: routing.Repo) -> None:
     assert "no-such-ref" in selection.reasons[0]
 
 
-def _run_pytest(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_pytest(
+    root: Path, *args: str, env_extra: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     env = {
         key: value
         for key, value in os.environ.items()
-        if key not in {"PYTEST_ADDOPTS", "CI", routing.BASE_ENV}
+        if key not in {"PYTEST_ADDOPTS", "CI", routing.BASE_ENV, routing.WORKERS_ENV}
+        and not key.startswith("PYTEST_XDIST_")
     }
     env["PYTHONPATH"] = str(PLUGIN_DIR)
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", *args],
         cwd=root,
@@ -409,6 +413,126 @@ def test_tier_rejects_explicit_paths(tmp_path: Path) -> None:
 
     assert result.returncode == pytest.ExitCode.USAGE_ERROR
     assert "--pipy-tier selects test files itself" in result.stderr
+
+
+def test_small_default_selection_runs_serially(tmp_path: Path) -> None:
+    _plugin_project(tmp_path)
+    _write(tmp_path, "tests/test_kept.py", "def test_kept(): assert True\n")
+
+    result = _run_pytest(
+        tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=default", "--pipy-base=base"
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "workers: none, serial (1 whole test file(s) selected)" in output
+    assert "created:" not in output
+
+
+def test_workers_collect_the_selection_their_controller_made(tmp_path: Path) -> None:
+    _plugin_project(tmp_path)
+    _write(tmp_path, "tests/test_kept.py", "def test_kept(): assert True\n")
+    _write(tmp_path, "tests/test_kept_too.py", "def test_kept_too(): assert True\n")
+
+    result = _run_pytest(
+        tmp_path,
+        "-p",
+        "pipy_test_tiers",
+        "--pipy-tier=default",
+        "--pipy-base=base",
+        env_extra={routing.WORKERS_ENV: "2"},
+    )
+
+    output = result.stdout + result.stderr
+    # The workers never import the poisoned unselected module.
+    assert result.returncode == 0, output
+    assert "2 passed" in output
+    assert f"workers: 2 (--dist=loadfile; {routing.WORKERS_ENV}=2)" in output
+    assert "created: 2/2 workers" in output
+
+
+def test_area_tiers_run_on_bounded_workers(tmp_path: Path) -> None:
+    _plugin_project(tmp_path)
+    (tmp_path / "tests/test_unselected.py").unlink()
+
+    result = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full")
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "3 passed" in output
+    # The child inherits this process's CPU affinity, so it sees the same CPUs.
+    cpus = (
+        len(os.sched_getaffinity(0))
+        if hasattr(os, "sched_getaffinity")
+        else (os.cpu_count() or 1)
+    )
+    expected = routing.plan_workers(routing.Selection(tier="full", files=None), cpus)[0]
+    assert f"workers: {expected} (--dist=loadfile; full tier)" in output
+
+
+def test_command_line_and_environment_choose_serial_runs(tmp_path: Path) -> None:
+    _plugin_project(tmp_path)
+    (tmp_path / "tests/test_unselected.py").unlink()
+
+    by_option = _run_pytest(
+        tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full", "-n", "0"
+    )
+    by_env = _run_pytest(
+        tmp_path,
+        "-p",
+        "pipy_test_tiers",
+        "--pipy-tier=full",
+        env_extra={routing.WORKERS_ENV: "0"},
+    )
+    bad = _run_pytest(
+        tmp_path,
+        "-p",
+        "pipy_test_tiers",
+        "--pipy-tier=full",
+        env_extra={routing.WORKERS_ENV: "many"},
+    )
+
+    assert "workers: none, serial (-n 0)" in by_option.stdout, by_option.stderr
+    assert "3 passed" in by_option.stdout
+    assert f"workers: none, serial ({routing.WORKERS_ENV}=0)" in by_env.stdout
+    assert "3 passed" in by_env.stdout
+    assert bad.returncode == pytest.ExitCode.USAGE_ERROR
+    assert f"{routing.WORKERS_ENV} must be a number of workers" in bad.stderr
+
+
+def test_plan_workers_bounds_parallel_tiers_and_keeps_small_gates_serial() -> None:
+    full = routing.Selection(tier="full", files=None)
+    assert routing.plan_workers(full, 64) == (routing.DEFAULT_WORKERS, "full tier")
+    assert routing.plan_workers(full, 2) == (2, "full tier")
+    assert routing.plan_workers(full, 1) == (1, "full tier")
+    escalated = routing.Selection(tier="default", files=None, escalation="full")
+    assert routing.plan_workers(escalated, 64)[0] == routing.DEFAULT_WORKERS
+    smoke = {"tests/test_s.py": frozenset({"tests/test_s.py::test_x"})}
+    small = routing.Selection(
+        tier="default",
+        files=frozenset({"tests/test_s.py", "tests/test_a.py"}),
+        partial=smoke,
+    )
+    assert routing.plan_workers(small, 64) == (0, "1 whole test file(s) selected")
+    many = frozenset(f"tests/test_{n}.py" for n in range(routing.SERIAL_MAX_FILES + 1))
+    large = routing.Selection(tier="default", files=many)
+    assert routing.plan_workers(large, 64)[0] == routing.DEFAULT_WORKERS
+
+
+def test_selection_payload_round_trips() -> None:
+    selection = routing.Selection(
+        tier="default",
+        files=frozenset({"tests/test_a.py", "tests/test_s.py"}),
+        partial={"tests/test_s.py": frozenset({"tests/test_s.py::test_x"})},
+        escalation="durable",
+        reasons=["why"],
+        changed=("a", "b"),
+        base="base",
+    )
+    payload = json.loads(json.dumps(selection.to_payload()))
+    assert routing.Selection.from_payload(payload) == selection
+    everything = routing.Selection(tier="full", files=None)
+    assert routing.Selection.from_payload(everything.to_payload()) == everything
 
 
 def test_real_smoke_set_exists_and_includes_durable_tests() -> None:

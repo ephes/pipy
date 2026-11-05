@@ -11,7 +11,7 @@ This file is for coding agents working in this repository. It records local proj
 - Keep `pipy-native` as the product runtime direction. Codex, Claude, Pi, or other CLI wrapping may be useful for capture/reference work, but must not become the main product execution path unless the project direction explicitly changes.
 - Keep capture metadata-first by default; see Session Capture and Workflow Learning Capture below for privacy rules.
 - For nontrivial implementation slices, expect focused tests, `just check`, relevant docs updates, and an independent review pass before treating the work as complete.
-- `just check` runs the default test gate (`just test`: smoke set plus the tests the change affects, escalating visibly to the durable area or the full tier when the change reaches further). It gates commits to `main`. Run `just test-full` before durable deliveries; CI runs every test on every push. See CONTRIBUTING.md "Test tiers".
+- `just check` runs the default test gate (`just test`: smoke set plus the tests the change affects, escalating visibly to the durable area or the full tier when the change reaches further). It gates commits to `main`. Run `just test-full` before durable deliveries; CI runs every test on every push. Tier runs use up to 4 pytest-xdist workers; `PIPY_TEST_WORKERS=0` runs them serially. Never run the whole suite serially as a routine check. See CONTRIBUTING.md "Test tiers".
 - Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed. See **Review budget** below for the stopping rule and the triage rule.
 
 ## Review budget

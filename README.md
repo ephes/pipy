@@ -186,6 +186,10 @@ just docs-serve    # preview at http://localhost:8000
 just loc           # slopscope line-count summary
 ```
 
+The full and area tiers run on up to 4 pytest-xdist workers;
+`PIPY_TEST_WORKERS=0 just test-full` runs them serially (see CONTRIBUTING.md
+"Test tiers").
+
 Check formatting with `uv run ruff format --check .`; apply it with
 `uv run ruff format .` (or `just format`). `just loc` uses a frozen uv overlay
 with pre-release resolution; `SLOPSCOPE_SPEC` selects a package or local checkout.

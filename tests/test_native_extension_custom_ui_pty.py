@@ -326,6 +326,8 @@ def test_pty_extension_editor_external_editor_success(
         "Path(sys.argv[1]).write_text('edited from external\\n', encoding='utf-8')\n",
         encoding="utf-8",
     )
+    # VISUAL wins over EDITOR; a developer's exported VISUAL must not.
+    monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
         tmp_path
@@ -432,6 +434,8 @@ def test_pty_extension_editor_external_editor_failure_keeps_text(
         "raise SystemExit(7)\n",
         encoding="utf-8",
     )
+    # VISUAL wins over EDITOR; a developer's exported VISUAL must not.
+    monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
         tmp_path
@@ -473,6 +477,8 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
         "Path(sys.argv[1]).write_bytes(b'\\xff')\n",
         encoding="utf-8",
     )
+    # VISUAL wins over EDITOR; a developer's exported VISUAL must not.
+    monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
         tmp_path

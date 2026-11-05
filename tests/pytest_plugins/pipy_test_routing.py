@@ -42,6 +42,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASE = "origin/main"
@@ -52,6 +53,14 @@ TIER_DURABLE = "durable"
 TIER_CORE = "core"
 TIER_FULL = "full"
 TIERS = (TIER_DEFAULT, TIER_DURABLE, TIER_CORE, TIER_FULL)
+
+# Bounded parallelism (pytest-xdist, ``--dist=loadfile``) for tier runs; see
+# ``plan_workers``. ``PIPY_TEST_WORKERS=0`` (or ``-n 0``) runs serially.
+WORKERS_ENV = "PIPY_TEST_WORKERS"
+DEFAULT_WORKERS = 4
+# A default-tier selection of at most this many whole test files runs in the
+# pytest process itself: starting workers costs more than it saves there.
+SERIAL_MAX_FILES = 8
 
 # Always-run smoke set (about 8 s serial): cheap tests that import the runtime,
 # drive fake-provider sessions, the session recorder, the CLI, the SDK surface
@@ -188,6 +197,52 @@ class Selection:
             )
         lines.extend(f"  - {reason}" for reason in self.reasons)
         return lines
+
+    def to_payload(self) -> dict[str, object]:
+        """Plain data for an xdist worker (see ``from_payload``)."""
+
+        return {
+            "tier": self.tier,
+            "files": None if self.files is None else sorted(self.files),
+            "partial": {name: sorted(ids) for name, ids in self.partial.items()},
+            "escalation": self.escalation,
+            "reasons": list(self.reasons),
+            "changed": list(self.changed),
+            "base": self.base,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> Selection:
+        files = payload["files"]
+        return cls(
+            tier=payload["tier"],
+            files=None if files is None else frozenset(files),
+            partial={name: frozenset(ids) for name, ids in payload["partial"].items()},
+            escalation=payload["escalation"],
+            reasons=list(payload["reasons"]),
+            changed=tuple(payload["changed"]),
+            base=payload["base"],
+        )
+
+
+def plan_workers(selection: Selection, cpus: int) -> tuple[int, str]:
+    """How many xdist workers a tier run uses by default, and why.
+
+    Areas, the full tier and escalated default-tier runs use up to
+    ``DEFAULT_WORKERS`` workers, never more than ``cpus``. A default-tier
+    selection of at most ``SERIAL_MAX_FILES`` whole test files runs serially.
+    """
+
+    bounded = max(1, min(DEFAULT_WORKERS, cpus))
+    if selection.tier != TIER_DEFAULT:
+        return bounded, f"{selection.tier} tier"
+    if selection.escalation is not None:
+        return bounded, f"escalated to {selection.escalation}"
+    assert selection.files is not None
+    whole = len(selection.files - selection.smoke_only)
+    if whole <= SERIAL_MAX_FILES:
+        return 0, f"{whole} whole test file(s) selected"
+    return bounded, f"{whole} whole test files selected"
 
 
 class Repo:

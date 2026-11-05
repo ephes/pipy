@@ -105,6 +105,18 @@ All recipes pass extra arguments to Pytest (`just test-full -m "not pty"`,
 in `tests/pytest_plugins/pipy_test_tiers.py`, so unselected modules are never
 imported; combine `--pipy-tier` with `-k`/`-m`, not with path arguments.
 
+Tier runs are parallel with bounded workers (pytest-xdist, `--dist=loadfile`,
+so a file's module fixtures are set up once): `just test-full`,
+`just test-durable`, `just test-core` and an escalated or large default gate
+use up to 4 workers (never more than the available CPUs). A default gate of at
+most 8 whole test files runs in one process, because starting workers costs
+more than it saves there. The header line `workers: ...` says what was chosen
+and why. `-n <N>` or `PIPY_TEST_WORKERS=<N>` overrides the choice;
+`PIPY_TEST_WORKERS=0` (or `-n 0`) is the serial escape hatch, for example for
+`--pdb` sessions (which run serially anyway) or to rule out an interaction
+between workers. The controller computes the selection once and hands it to the
+workers, so every worker collects the same files.
+
 The default gate diffs the working tree, including untracked files, against
 the merge base with `origin/main` (override with `PIPY_TEST_BASE=<ref>`) and
 routes each changed path with the rules in
@@ -127,7 +139,7 @@ routes each changed path with the rules in
   path no rule knows run the full tier.
 
 CI's full-test jobs still call `just test`, and the default tier runs every
-test whenever `CI` is set (GitHub Actions sets `CI=true`). The workflow file is
+test, on bounded workers, whenever `CI` is set (GitHub Actions sets `CI=true`). The workflow file is
 hash-pinned by the durable reference manifest, so switching it to
 `just test-full` waits for a batched manifest update.
 

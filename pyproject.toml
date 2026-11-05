@@ -44,6 +44,7 @@ dev = [
     # 8.4 applies the `pythonpath` ini option before loading `-p` plugins from
     # `addopts`, which the bytecode guard plugin below relies on.
     "pytest>=8.4",
+    "pytest-xdist>=3.8",
     "pyyaml>=6,<7",
     "ruff>=0.14",
     "wasmtime>=49,<50",

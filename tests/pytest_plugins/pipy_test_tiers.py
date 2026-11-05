@@ -12,17 +12,28 @@ test files to collect (see ``pipy_test_routing``) and skips the rest in
   fast.
 * ``durable`` (``just test-durable``) and ``core`` (``just test-core``): areas.
 * ``full`` (``just test-full``): every test.
+
+Tier runs use bounded parallelism (pytest-xdist, ``--dist=loadfile``) as
+``pipy_test_routing.plan_workers`` decides, unless ``-n`` or
+``$PIPY_TEST_WORKERS`` says otherwise; ``0`` runs serially. The selection is
+computed once, in the controlling pytest process, and handed to the workers.
 """
 
 from __future__ import annotations
 
+import os
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pipy_test_routing as routing
 import pytest
 
 _SELECTION = pytest.StashKey[routing.Selection]()
 _REPO = pytest.StashKey[routing.Repo]()
+_WORKERS = pytest.StashKey[str]()
+# workerinput key that carries the controller's selection to xdist workers.
+_WORKER_SELECTION = "pipy_tier_selection"
 
 MARKERS = {
     "durable": "durable-area test (tests/durable/ or a test file that mentions durable)",
@@ -58,17 +69,95 @@ def _repo(config: pytest.Config) -> routing.Repo:
 def pytest_configure(config: pytest.Config) -> None:
     for name, description in MARKERS.items():
         config.addinivalue_line("markers", f"{name}: {description}")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_cmdline_main(config: pytest.Config) -> Generator[None, object, object]:
+    """Select the tier's test files and plan the workers.
+
+    A hook wrapper, so it runs before pytest-xdist's own (``tryfirst``)
+    ``pytest_cmdline_main`` turns ``-n`` into worker specs. An xdist worker
+    takes the selection its controller computed, so every worker collects the
+    same files even if the checkout changes during the run.
+    """
+
+    _select(config)
+    return (yield)
+
+
+def _select(config: pytest.Config) -> None:
     tier = config.getoption("--pipy-tier")
     if tier is None:
+        return
+    workerinput: dict[str, Any] | None = getattr(config, "workerinput", None)
+    if workerinput is not None:
+        payload = workerinput.get(_WORKER_SELECTION)
+        if payload is None:
+            raise pytest.UsageError(
+                "--pipy-tier: this xdist worker got no selection from its controller"
+            )
+        config.stash[_SELECTION] = routing.Selection.from_payload(payload)
         return
     if config.args_source != pytest.Config.ArgsSource.TESTPATHS:
         raise pytest.UsageError(
             "--pipy-tier selects test files itself; drop the path arguments "
             "(use -k/-m to narrow a tier) or run pytest on the paths without a tier"
         )
-    config.stash[_SELECTION] = routing.select(
+    selection = routing.select(
         tier, _repo(config), base=config.getoption("--pipy-base")
     )
+    config.stash[_SELECTION] = selection
+    config.stash[_WORKERS] = _plan_workers(config, selection)
+
+
+def _cpus() -> int:
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # Not on Linux.
+        return os.cpu_count() or 1
+
+
+def _plan_workers(config: pytest.Config, selection: routing.Selection) -> str:
+    """Set xdist's ``-n``/``--dist`` for a tier run; return the header line."""
+
+    if not config.pluginmanager.hasplugin("xdist"):
+        return "workers: none (pytest-xdist is not loaded)"
+    option = config.option
+    serial_hint = f"-n 0 or {routing.WORKERS_ENV}=0 runs serially"
+    if option.numprocesses is not None:
+        source = f"-n {option.numprocesses}"
+    elif os.environ.get(routing.WORKERS_ENV, "").strip():
+        raw = os.environ[routing.WORKERS_ENV].strip()
+        if not raw.isdigit():
+            raise pytest.UsageError(
+                f"{routing.WORKERS_ENV} must be a number of workers (0 = serial), "
+                f"not {raw!r}"
+            )
+        option.numprocesses = int(raw)
+        source = f"{routing.WORKERS_ENV}={raw}"
+    elif option.collectonly or option.usepdb:
+        option.numprocesses = 0
+        source = "--collect-only" if option.collectonly else "--pdb"
+    else:
+        option.numprocesses, source = routing.plan_workers(selection, _cpus())
+    if option.numprocesses == 0:
+        return f"workers: none, serial ({source})"
+    if option.dist == "no":
+        # Whole files per worker: module-scoped fixtures are set up once.
+        option.dist = "loadfile"
+    return (
+        f"workers: {option.numprocesses} (--dist={option.dist}; {source}); "
+        f"{serial_hint}"
+    )
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node: Any) -> None:
+    """Hand the controller's selection to an xdist worker."""
+
+    selection = node.config.stash.get(_SELECTION, None)
+    if selection is not None:
+        node.workerinput[_WORKER_SELECTION] = selection.to_payload()
 
 
 def _rel(config: pytest.Config, path: Path) -> str | None:
@@ -138,7 +227,13 @@ def _node_ids(rel: str, item: pytest.Item) -> set[str]:
 
 def pytest_report_header(config: pytest.Config) -> list[str] | None:
     selection = config.stash.get(_SELECTION, None)
-    return selection.summary_lines() if selection is not None else None
+    if selection is None:
+        return None
+    lines = selection.summary_lines()
+    workers = config.stash.get(_WORKERS, None)
+    if workers is not None:
+        lines.append(f"  {workers}")
+    return lines
 
 
 def pytest_terminal_summary(

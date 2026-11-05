@@ -260,11 +260,13 @@ def test_production_footer_two_lock_capture_does_not_deadlock(tmp_path: Path) ->
                 errors.append(traceback.format_exc())
         writer = threading.Thread(target=lambda: guarded(mutate), daemon=True)
         writer.start()
-        assert outer_taken.wait(1)
+        assert outer_taken.wait(15)
         reader = threading.Thread(target=lambda: guarded(footer.coding_footer_text), daemon=True)
         reader.start()
-        writer.join(1)
-        reader.join(1)
+        # Liveness guards, not ordering: a real deadlock never ends, so a
+        # load-tolerant bound still reports it (exit 2) without flaking.
+        writer.join(15)
+        reader.join(15)
         if errors:
             print('worker error (exit 3):\\n' + '\\n'.join(errors), file=sys.stderr)
             raise SystemExit(3)
@@ -279,7 +281,9 @@ def test_production_footer_two_lock_capture_does_not_deadlock(tmp_path: Path) ->
         [sys.executable, "-c", script, str(tmp_path)],
         capture_output=True,
         text=True,
-        timeout=5,
+        # Bounds interpreter start and the runtime import under load too; the
+        # child reports a deadlock itself within its join bounds.
+        timeout=120,
         check=False,
     )
     assert result.returncode == 0, (
