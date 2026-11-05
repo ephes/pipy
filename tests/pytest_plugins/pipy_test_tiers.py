@@ -13,6 +13,11 @@ test files to collect (see ``pipy_test_routing``) and skips the rest in
 * ``durable`` (``just test-durable``) and ``core`` (``just test-core``): areas.
 * ``full`` (``just test-full``): every test.
 
+The few expensive parametrized groups in ``routing.FULL_TIER_MATRICES`` run
+their full matrix only when every test file runs or when the change itself
+selects their file; other runs keep the listed representative cases and say so
+in the header and the summary.
+
 Tier runs use bounded parallelism (pytest-xdist, ``--dist=loadfile``) as
 ``pipy_test_routing.plan_workers`` decides, unless ``-n`` or
 ``$PIPY_TEST_WORKERS`` says otherwise; ``0`` runs serially. The selection is
@@ -184,9 +189,12 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool 
     return None
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(
     session: pytest.Session, config: pytest.Config, items: list[pytest.Item]
 ) -> None:
+    # tryfirst: cut matrices before -k/-m deselect, so a kept case that -k drops
+    # is not mistaken for a stale FULL_TIER_MATRICES entry.
     repo = _repo(config)
     smoke = set(routing.SMOKE_TESTS)
     selection = config.stash.get(_SELECTION, None)
@@ -210,9 +218,48 @@ def pytest_collection_modifyitems(
             dropped.append(item)
         else:
             keep.append(item)
+    if selection is not None and selection.matrices:
+        keep = _cut_matrices(config, keep, selection.matrices, dropped)
     if dropped:
         config.hook.pytest_deselected(items=dropped)
         items[:] = keep
+
+
+def _cut_matrices(
+    config: pytest.Config,
+    items: list[pytest.Item],
+    matrices: dict[str, frozenset[str]],
+    dropped: list[pytest.Item],
+) -> list[pytest.Item]:
+    """Keep only the representative cases of the cut matrices.
+
+    Appends the other cases to ``dropped``. A representative case that a
+    collected group no longer has is a stale ``FULL_TIER_MATRICES`` entry.
+    """
+
+    keep: list[pytest.Item] = []
+    seen: dict[str, set[str]] = {}
+    for item in items:
+        rel = _rel(config, item.path)
+        group = None if rel is None else _matrix_group(rel, item)
+        if group is None or group not in matrices:
+            keep.append(item)
+            continue
+        node = f"{rel}::{item.name}"
+        seen.setdefault(group, set()).add(node)
+        (keep if node in matrices[group] else dropped).append(item)
+    for group, nodes in seen.items():
+        missing = matrices[group] - nodes
+        if missing:
+            raise pytest.UsageError(
+                "FULL_TIER_MATRICES in tests/pytest_plugins/pipy_test_routing.py "
+                f"names cases {group} no longer has: {', '.join(sorted(missing))}"
+            )
+    return keep
+
+
+def _matrix_group(rel: str, item: pytest.Item) -> str:
+    return f"{rel}::{getattr(item, 'originalname', None) or item.name}"
 
 
 def _node_ids(rel: str, item: pytest.Item) -> set[str]:
@@ -240,7 +287,15 @@ def pytest_terminal_summary(
     terminalreporter: pytest.TerminalReporter, exitstatus: int, config: pytest.Config
 ) -> None:
     selection = config.stash.get(_SELECTION, None)
-    if selection is None or selection.tier != routing.TIER_DEFAULT:
+    if selection is None:
+        return
+    if selection.matrices:
+        terminalreporter.write_line(
+            f"pipy {selection.tier} tier: {len(selection.matrices)} parametrized "
+            "group(s) ran representative cases only; `just test-full` runs "
+            "their full matrices"
+        )
+    if selection.tier != routing.TIER_DEFAULT:
         return
     if selection.escalation is not None:
         terminalreporter.write_sep(

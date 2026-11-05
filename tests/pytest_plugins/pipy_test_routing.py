@@ -22,6 +22,9 @@ files or the selection escalates, visibly, to a whole area or to the full tier:
   file nobody mentions escalates to the full tier.
 * Tests that scan whole trees (``REPO_GUARDS``) run for any change inside the
   trees they scan.
+* A few expensive parametrized groups (``FULL_TIER_MATRICES``) run their full
+  matrix only in the full tier or when the change selects their file directly;
+  otherwise their representative cases run.
 * Packaging, dependency and pytest configuration (``pyproject.toml``,
   ``uv.lock``, ``conftest.py``, ``tests/pytest_plugins/``) and any path no rule
   knows escalate to the full tier.
@@ -89,6 +92,32 @@ SMOKE_TESTS = (
     "tests/durable/test_product_session.py::"
     "test_empty_created_session_reopens_exactly_without_dispatch",
 )
+
+# Expensive parametrized groups whose full matrix runs only when every test
+# file runs (``just test-full``, CI, a default gate escalated to full) or when
+# the default gate selects the group's file because of the change itself. The
+# area tiers and other default gates run the representative cases listed here,
+# chosen so that every branch of the group's expectations still runs. Keys are
+# ``file::function``; values are parameter IDs. A stale ID fails the run.
+FULL_TIER_MATRICES: dict[str, tuple[str, ...]] = {
+    # 32 cases, ~3.7 s each: three child processes per crash cut. The cut is a
+    # real process exit, so there is no cheaper layer to run it at. Kept: no
+    # effect yet (admitted), generation retry (g0.stream), tool intent and
+    # effect cuts (blocked when unsafe, retried when safe), the second tool's
+    # retry (t1.effect) and the last cut (settled.committed).
+    "tests/test_durable_loop_integration.py::test_real_loop_hard_crashes": tuple(
+        f"{point}-{scenario}"
+        for point in (
+            "admitted",
+            "g0.stream",
+            "t0.intent",
+            "t0.effect",
+            "t1.effect",
+            "settled.committed",
+        )
+        for scenario in ("safe", "unsafe")
+    ),
+}
 
 # Test-side paths whose change can affect any test.
 _FULL_TIER_PATHS = frozenset(
@@ -170,6 +199,9 @@ class Selection:
     #: file -> node IDs (``file::name``; a name without parameters covers all
     #: of its parametrizations).
     partial: dict[str, frozenset[str]] = field(default_factory=dict)
+    #: ``FULL_TIER_MATRICES`` groups this run cuts to their representative
+    #: cases: ``file::function`` -> the node IDs (``file::function[id]``) kept.
+    matrices: dict[str, frozenset[str]] = field(default_factory=dict)
 
     @property
     def smoke_only(self) -> frozenset[str]:
@@ -196,6 +228,12 @@ class Selection:
                 f"{len(self.partial)} of them for single smoke or guard tests"
             )
         lines.extend(f"  - {reason}" for reason in self.reasons)
+        if self.matrices:
+            lines.append(
+                f"  full matrices: {len(self.matrices)} parametrized group(s) run "
+                "representative cases only; `just test-full` runs all of them"
+            )
+            lines.extend(f"  - {group}" for group in sorted(self.matrices))
         return lines
 
     def to_payload(self) -> dict[str, object]:
@@ -205,6 +243,7 @@ class Selection:
             "tier": self.tier,
             "files": None if self.files is None else sorted(self.files),
             "partial": {name: sorted(ids) for name, ids in self.partial.items()},
+            "matrices": {name: sorted(ids) for name, ids in self.matrices.items()},
             "escalation": self.escalation,
             "reasons": list(self.reasons),
             "changed": list(self.changed),
@@ -218,6 +257,9 @@ class Selection:
             tier=payload["tier"],
             files=None if files is None else frozenset(files),
             partial={name: frozenset(ids) for name, ids in payload["partial"].items()},
+            matrices={
+                name: frozenset(ids) for name, ids in payload["matrices"].items()
+            },
             escalation=payload["escalation"],
             reasons=list(payload["reasons"]),
             changed=tuple(payload["changed"]),
@@ -625,24 +667,45 @@ def git_changed_paths(root: Path, base: str) -> list[str]:
     return sorted({p for p in (tracked + untracked).split("\0") if p})
 
 
+def cut_matrices(
+    files: frozenset[str], *, keep_full: Iterable[str] = ()
+) -> dict[str, frozenset[str]]:
+    """The ``FULL_TIER_MATRICES`` groups to cut for a run of ``files``.
+
+    Groups in a file of ``keep_full`` keep their full matrix.
+    """
+
+    full = set(keep_full)
+    cut: dict[str, frozenset[str]] = {}
+    for group, ids in FULL_TIER_MATRICES.items():
+        name = group.split("::", 1)[0]
+        if name in files and name not in full:
+            cut[group] = frozenset(f"{group}[{case}]" for case in ids)
+    return cut
+
+
 def _area_selection(tier: str, repo: Repo) -> Selection:
     if tier == TIER_FULL:
         return Selection(tier=tier, files=None)
     if tier == TIER_DURABLE:
+        files = repo.durable_files
         return Selection(
             tier=tier,
-            files=repo.durable_files,
+            files=files,
+            matrices=cut_matrices(files),
             reasons=[
                 "durable area: tests/durable/ and test files that use durable code"
                 " or mention durable"
             ],
         )
     if tier == TIER_CORE:
+        files = frozenset(
+            f for f in repo.test_files if not f.startswith("tests/durable/")
+        )
         return Selection(
             tier=tier,
-            files=frozenset(
-                f for f in repo.test_files if not f.startswith("tests/durable/")
-            ),
+            files=files,
+            matrices=cut_matrices(files),
             reasons=["core area: every test file outside tests/durable/"],
         )
     raise ValueError(f"unknown tier {tier!r}")
@@ -706,6 +769,8 @@ def select(
             changed=tuple(changed_list),
             base=base,
         )
+    # Files the change itself selects run their full matrices.
+    routed = {entry for entry in selected if "::" not in entry}
     if escalation == TIER_DURABLE:
         selected |= repo.durable_files
     whole = {entry for entry in selected if "::" not in entry}
@@ -720,6 +785,7 @@ def select(
         tier=tier,
         files=frozenset(whole | set(nodes)),
         partial={name: frozenset(ids) for name, ids in nodes.items()},
+        matrices=cut_matrices(frozenset(whole), keep_full=routed),
         escalation=escalation,
         reasons=reasons,
         changed=tuple(changed_list),

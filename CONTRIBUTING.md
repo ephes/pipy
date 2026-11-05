@@ -138,6 +138,21 @@ routes each changed path with the rules in
   `conftest.py`, `tests/pytest_plugins/`, a code file no test mentions, and any
   path no rule knows run the full tier.
 
+A few expensive parametrized groups, listed in `FULL_TIER_MATRICES` in
+`tests/pytest_plugins/pipy_test_routing.py`, run their full matrix only when
+every test file runs (`just test-full`, CI, a default gate escalated to full)
+or when the change itself selects their file (for example an edit to the test
+file or to a script it uses). The area tiers and other default gates run the
+representative cases listed there, chosen so that every branch of the group's
+expectations still runs; the header and the summary name the groups that were
+cut. Today that is
+`tests/test_durable_loop_integration.py::test_real_loop_hard_crashes`, the
+most expensive group in the duration profile (32 crash cuts at about 3.7 s
+each, three child processes per cut; 12 run outside the full tier). A listed
+case that the group no longer has fails the run, so rename the entry with the
+test. Add a group only with a duration profile that shows it is expensive, and
+never remove cases from the full tier this way.
+
 CI's full-test jobs still call `just test`, and the default tier runs every
 test, on bounded workers, whenever `CI` is set (GitHub Actions sets `CI=true`). The workflow file is
 hash-pinned by the durable reference manifest, so switching it to
@@ -182,7 +197,11 @@ git status --short
 `tests`, and the default test gate (see Test tiers). Pytest loads
 `tests/pytest_plugins/pipy_bytecode_guard.py` through `addopts` in
 `pyproject.toml`; it keeps assertion-rewrite caching on when a collected module
-or script turns `sys.dont_write_bytecode` on. Helper scripts may still set that
+or script turns `sys.dont_write_bytecode` on. It also loads
+`tests/pytest_plugins/pipy_tmp_numbering.py`, which keeps `tmp_path` and
+`tmp_path_factory.mktemp` from listing the whole base temporary directory on
+every call: Pytest's own numbering made each test slower than the one before
+it (6,000 `tmp_path` tests in one process took 137 s instead of 13 s). Helper scripts may still set that
 flag for their own child processes, but keep the guard rather than working
 around it in `tests/conftest.py`, which the durable manifests pin. `just docs-build` builds the Zensical site
 through `scripts/docs.py build`, with strict link and anchor validation.

@@ -69,8 +69,14 @@ testpaths = ["tests"]
 # when a collected module turns off sys.dont_write_bytecode (see its docstring).
 # tests/pytest_plugins/pipy_test_tiers.py adds the --pipy-tier selection used by
 # the justfile test recipes and the durable/pty/node/subprocess/smoke markers.
+# tests/pytest_plugins/pipy_tmp_numbering.py keeps tmp_path/mktemp from listing
+# the whole base temporary directory on every call (see its docstring).
 pythonpath = ["tests/pytest_plugins"]
-addopts = ["-p", "pipy_bytecode_guard", "-p", "pipy_test_tiers"]
+addopts = [
+    "-p", "pipy_bytecode_guard",
+    "-p", "pipy_test_tiers",
+    "-p", "pipy_tmp_numbering",
+]
 filterwarnings = [
     # Python 3.14 warns when os.forkpty() is called from a multi-threaded
     # process (the runner has background threads). The pty chrome tests exec

@@ -524,6 +524,7 @@ def test_selection_payload_round_trips() -> None:
         tier="default",
         files=frozenset({"tests/test_a.py", "tests/test_s.py"}),
         partial={"tests/test_s.py": frozenset({"tests/test_s.py::test_x"})},
+        matrices={"tests/test_a.py::test_m": frozenset({"tests/test_a.py::test_m[1]"})},
         escalation="durable",
         reasons=["why"],
         changed=("a", "b"),
@@ -628,3 +629,125 @@ def test_every_repository_tree_scanner_is_a_registered_guard() -> None:
     unregistered = candidates - guard_files - set(_NOT_TREE_SCANNERS)
     assert not unregistered
     assert set(_NOT_TREE_SCANNERS) <= candidates
+
+
+_MATRIX_GROUP = "tests/test_durable_loop_integration.py::test_real_loop_hard_crashes"
+
+
+def test_full_matrices_run_only_in_full_or_when_the_change_selects_them(
+    repo: routing.Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        routing,
+        "FULL_TIER_MATRICES",
+        {"tests/durable/test_store.py::test_store": ("a", "b")},
+    )
+    kept = {
+        "tests/durable/test_store.py::test_store": frozenset(
+            {
+                "tests/durable/test_store.py::test_store[a]",
+                "tests/durable/test_store.py::test_store[b]",
+            }
+        )
+    }
+
+    assert routing.select(routing.TIER_FULL, repo).matrices == {}
+    assert routing.select(routing.TIER_DURABLE, repo).matrices == kept
+    assert routing.select(routing.TIER_CORE, repo).matrices == {}
+    # Escalated to the durable area by a pinned doc: representative cases.
+    escalated = _route(repo, "docs/pinned.md")
+    assert escalated.escalation == routing.TIER_DURABLE
+    assert escalated.matrices == kept
+    assert any("full matrices: 1" in line for line in escalated.summary_lines())
+    # The change selects the file itself: its full matrix runs.
+    assert _route(repo, "tests/durable/test_store.py").matrices == {}
+    assert _route(repo, "tests/durable/test_store.py", "docs/pinned.md").matrices == {}
+    # Escalated to full: everything runs.
+    assert _route(repo, "src/pkg/core.py").matrices == {}
+
+
+def _matrix_project(root: Path, cases: list[str]) -> None:
+    _write(root, "pytest.ini", "[pytest]\ntestpaths = tests\n")
+    _write(
+        root,
+        "tests/test_durable_loop_integration.py",
+        "# exercises the durable loop\nimport pytest\n\n"
+        f"@pytest.mark.parametrize('case', {cases!r})\n"
+        "def test_real_loop_hard_crashes(case): pass\n\n"
+        "def test_other(): pass\n",
+    )
+    _init_git(root)
+
+
+def test_tier_runs_cut_full_matrices_and_report_it(tmp_path: Path) -> None:
+    representative = list(routing.FULL_TIER_MATRICES[_MATRIX_GROUP])
+    _matrix_project(tmp_path, [*representative, "extra-safe", "extra-unsafe"])
+
+    durable = _run_pytest(
+        tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=durable", "-n", "0"
+    )
+    full = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full", "-n", "0")
+    keyword = _run_pytest(
+        tmp_path,
+        "-p",
+        "pipy_test_tiers",
+        "--pipy-tier=durable",
+        "-n",
+        "0",
+        "-k",
+        "safe and not unsafe",
+    )
+
+    output = durable.stdout + durable.stderr
+    assert durable.returncode == 0, output
+    assert f"{len(representative) + 1} passed, 2 deselected" in output
+    assert "full matrices: 1 parametrized group(s)" in output
+    assert "ran representative cases only" in output
+    assert full.returncode == 0, full.stdout + full.stderr
+    assert f"{len(representative) + 3} passed" in full.stdout
+    assert "full matrices" not in full.stdout
+    # -k narrows after the cut; it does not trip the stale-entry check.
+    assert keyword.returncode == 0, keyword.stdout + keyword.stderr
+    assert f"{len(representative) // 2} passed" in keyword.stdout
+
+
+def test_stale_full_matrix_entry_fails_the_run(tmp_path: Path) -> None:
+    representative = list(routing.FULL_TIER_MATRICES[_MATRIX_GROUP])
+    _matrix_project(tmp_path, [*representative[1:], "renamed-safe"])
+
+    result = _run_pytest(
+        tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=durable", "-n", "0"
+    )
+
+    assert result.returncode == pytest.ExitCode.USAGE_ERROR
+    assert representative[0] in result.stderr
+    assert "FULL_TIER_MATRICES" in result.stderr
+
+
+def test_real_full_matrix_cases_exist() -> None:
+    files = sorted({group.split("::")[0] for group in routing.FULL_TIER_MATRICES})
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            *files,
+        ],
+        cwd=routing.REPO_ROOT,
+        # Inherited -q/-k would hide node IDs and fail the check falsely.
+        env={k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"},
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    collected = set(result.stdout.split())
+    for group, cases in routing.FULL_TIER_MATRICES.items():
+        matrix = {node for node in collected if node.startswith(f"{group}[")}
+        kept = {f"{group}[{case}]" for case in cases}
+        assert kept < matrix, group

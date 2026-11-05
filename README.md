@@ -174,8 +174,8 @@ Codex, Claude Code, and Pi wrapping are capture/reference workflows.
 ```sh
 uv sync --python 3.15
 just test          # default gate: smoke tests + tests affected by your changes
-just test-full     # every test (before durable deliveries; CI runs all tests)
-just test-durable  # area gate: durable tests
+just test-full     # every test, full matrices (before durable deliveries; CI runs all tests)
+just test-durable  # area gate: durable tests (representative cases of the costliest matrix)
 just test-core     # area gate: everything outside tests/durable/
 just lint          # ruff check
 just format-check  # ruff format --check across the repository
