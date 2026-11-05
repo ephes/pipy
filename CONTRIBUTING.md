@@ -151,6 +151,18 @@ everything, and the plugin marks tests `durable`, `pty`, `node`, `subprocess`
 and `smoke` for use with `-m`; a test file inherits the categories of the
 helpers, scripts and test modules it uses.
 
+The default gate does not use pytest-testmon. A pilot (pytest-testmon 2.3.0,
+coverage 7.17, Pytest 9, Python 3.15, on the 33 test files that use
+`pipy_session`) found it accurate for code that runs inside the pytest process:
+small edits selected the right tests, comment-only edits selected none, and
+unselected test files were not imported, under xdist too. It missed code that
+runs only in child processes: testmon 2.3.0 does not measure subprocesses, and
+282 of the 664 test files start child processes (the `pipy` CLI, PTY sessions,
+Node, durable children). A missed failure is then recorded as passing in the
+local testmon database, so later runs skip it too. Source changes, where testmon
+would save the most, are exactly where that matters, so they keep escalating
+visibly instead. Revisit this when testmon can measure child processes.
+
 `just check` is the gate for commits to `main`. Run `just test-full` (or rely on
 an equivalent full run) before durable deliveries and whenever a change has
 reasons to reach beyond what the routing sees, such as code run only in child
