@@ -173,11 +173,14 @@ Codex, Claude Code, and Pi wrapping are capture/reference workflows.
 
 ```sh
 uv sync --python 3.15
-just test          # pytest
+just test          # default gate: smoke tests + tests affected by your changes
+just test-full     # every test (before durable deliveries; CI runs all tests)
+just test-durable  # area gate: durable tests
+just test-core     # area gate: everything outside tests/durable/
 just lint          # ruff check
 just format-check  # ruff format --check across the repository
 just typecheck     # mypy
-just check         # lint, format-check, typecheck, then test
+just check         # lint, format-check, typecheck, then the default test gate
 just docs-build    # static documentation in site/
 just docs-serve    # preview at http://localhost:8000
 just loc           # slopscope line-count summary
@@ -186,7 +189,7 @@ just loc           # slopscope line-count summary
 Check formatting with `uv run ruff format --check .`; apply it with
 `uv run ruff format .` (or `just format`). `just loc` uses a frozen uv overlay
 with pre-release resolution; `SLOPSCOPE_SPEC` selects a package or local checkout.
-CI runs full tests on Python 3.11, 3.14, and 3.15, plus real-PTY checks on Linux
+CI runs the full test suite on Python 3.11, 3.14, and 3.15, plus real-PTY checks on Linux
 and macOS and runtime-required codemode probes on Linux. The documentation is
 built locally and in CI. [Read the Docs configuration](.readthedocs.yaml) uses
 Zensical and locked documentation dependencies to publish

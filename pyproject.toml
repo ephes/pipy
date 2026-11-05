@@ -66,8 +66,10 @@ packages = ["src/pipy_session", "src/pipy_harness"]
 testpaths = ["tests"]
 # tests/pytest_plugins/pipy_bytecode_guard.py keeps assertion-rewrite caching on
 # when a collected module turns off sys.dont_write_bytecode (see its docstring).
+# tests/pytest_plugins/pipy_test_tiers.py adds the --pipy-tier selection used by
+# the justfile test recipes and the durable/pty/node/subprocess/smoke markers.
 pythonpath = ["tests/pytest_plugins"]
-addopts = ["-p", "pipy_bytecode_guard"]
+addopts = ["-p", "pipy_bytecode_guard", "-p", "pipy_test_tiers"]
 filterwarnings = [
     # Python 3.14 warns when os.forkpty() is called from a multi-threaded
     # process (the runner has background threads). The pty chrome tests exec

@@ -88,6 +88,62 @@ links and `pyvenv.cfg` stay unchanged. Keep home isolation in place rather than
 restoring the real `HOME` to run nested checks. Ordinary `just parity-score`
 without this variable retains its existing `uv run` dispatch.
 
+## Test tiers
+
+The suite has more than 21,000 tests, so `just test` does not run all of them.
+Pick the tier that matches the change:
+
+| Recipe | Runs |
+| --- | --- |
+| `just test` (inside `just check`) | the default gate: a small smoke set plus the tests your change affects |
+| `just test-durable` | area gate: `tests/durable/` plus test files elsewhere that mention durable |
+| `just test-core` | area gate: every test file outside `tests/durable/` |
+| `just test-full` | every test; use it before durable deliveries |
+
+All recipes pass extra arguments to Pytest (`just test-full -m "not pty"`,
+`just test-durable -k sqlite`). The tiers choose test *files* before collection
+in `tests/pytest_plugins/pipy_test_tiers.py`, so unselected modules are never
+imported; combine `--pipy-tier` with `-k`/`-m`, not with path arguments.
+
+The default gate diffs the working tree, including untracked files, against
+the merge base with `origin/main` (override with `PIPY_TEST_BASE=<ref>`) and
+routes each changed path with the rules in
+`tests/pytest_plugins/pipy_test_routing.py`:
+
+- A changed test file runs itself and every test file that mentions it.
+- A test helper, fixture, script, `.mts` driver, doc or config file runs every
+  test file that mentions it by path, file name or module name, following
+  mentions through other helpers, scripts and test modules.
+- Tests that scan whole trees instead of naming files (architecture and
+  ownership guards, the docs build, the parity-loop skill checks) are listed in
+  `REPO_GUARDS` and run for any change inside the trees they scan. Register a
+  new tree-scanning test there.
+- Durable source, durable test support, and every file a durable manifest
+  hash-pins (its `closure` maps and other `path: sha256` entries, including
+  `CHANGELOG.md`, `docs/backlog.md`, `.github/workflows/ci.yml` and most of
+  `src/`) add the whole durable area.
+- Other runtime source under `src/`, `pyproject.toml`, `uv.lock`, any
+  `conftest.py`, `tests/pytest_plugins/`, a code file no test mentions, and any
+  path no rule knows run the full tier.
+
+CI's full-test jobs still call `just test`, and the default tier runs every
+test whenever `CI` is set (GitHub Actions sets `CI=true`). The workflow file is
+hash-pinned by the durable reference manifest, so switching it to
+`just test-full` waits for a batched manifest update.
+
+The selection never shrinks to meet a time budget: when a change reaches too
+far, the header and the end of the run print `ESCALATED to durable|full` with
+the paths responsible. `just test-plan [paths...]` prints the selection and the
+reasons without running tests. Pytest without `--pipy-tier` still runs
+everything, and the plugin marks tests `durable`, `pty`, `node`, `subprocess`
+and `smoke` for use with `-m`; a test file inherits the categories of the
+helpers, scripts and test modules it uses.
+
+`just check` is the gate for commits to `main`. Run `just test-full` (or rely on
+an equivalent full run) before durable deliveries and whenever a change has
+reasons to reach beyond what the routing sees, such as code run only in child
+processes that no test names.
+
 Before treating any contribution as complete, run the repository-wide gate and
 build the documentation:
 
@@ -99,7 +155,7 @@ git status --short
 ```
 
 `just check` runs lint, repository-wide format checking, Mypy over `src` and
-`tests`, and the full Pytest suite. Pytest loads
+`tests`, and the default test gate (see Test tiers). Pytest loads
 `tests/pytest_plugins/pipy_bytecode_guard.py` through `addopts` in
 `pyproject.toml`; it keeps assertion-rewrite caching on when a collected module
 or script turns `sys.dont_write_bytecode` on. Helper scripts may still set that

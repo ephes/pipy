@@ -8,9 +8,33 @@ SLOPSCOPE_SPEC := env_var_or_default("SLOPSCOPE_SPEC", "slopscope")
 PARITY_SINGLE_GAP_TIME_BUDGET := "7800"
 PARITY_SINGLE_GAP_TIMEOUT := "7200"
 
-# Run the Python test suite.
-test:
-    uv run pytest
+# Default dev gate: smoke tests plus the tests affected by changes against
+# origin/main (or $PIPY_TEST_BASE). Escalates visibly to the durable area or the
+# full tier when a change reaches further; see CONTRIBUTING.md "Test tiers".
+[positional-arguments]
+test *args:
+    uv run pytest --pipy-tier=default "$@"
+
+# Every test. Run before durable deliveries. (CI still calls `just test`, which
+# runs every test when CI is set; see CONTRIBUTING.md "Test tiers".)
+[positional-arguments]
+test-full *args:
+    uv run pytest --pipy-tier=full "$@"
+
+# Area gate: tests/durable/ plus durable coverage elsewhere.
+[positional-arguments]
+test-durable *args:
+    uv run pytest --pipy-tier=durable "$@"
+
+# Area gate: every test file outside tests/durable/.
+[positional-arguments]
+test-core *args:
+    uv run pytest --pipy-tier=core "$@"
+
+# Show what the default gate would select, and why, without running tests.
+[positional-arguments]
+test-plan *paths:
+    uv run python tests/pytest_plugins/pipy_test_routing.py "$@"
 
 # Run a bounded, cross-platform real-PTY smoke suite.
 test-pty-smoke:
@@ -32,7 +56,7 @@ format:
 typecheck:
     uv run mypy src tests
 
-# Run all local verification checks.
+# Run all local verification checks (the default test gate, not the full suite).
 check: lint format-check typecheck test
 
 # Score pipy against docs/parity-criterion.md (pi-mono parity, locked 2026-05-25).
