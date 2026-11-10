@@ -500,6 +500,48 @@ def test_excluded_databases_are_validated_and_only_size_hash_is_staged(tmp_path)
         s.exclusions(tmp_path, {"node_archive": None})
 
 
+def test_excluded_archives_have_their_own_bound_not_the_upload_limit(
+    tmp_path, monkeypatch
+):
+    case = tmp_path / "reference/tool-recovery-v1"
+    case.mkdir(parents=True)
+    sidecar = []
+    for old, new in s.o.contract.POLICIES:
+        db = case / (old + "-" + new) / "session.sqlite"
+        db.parent.mkdir()
+        db.write_bytes(b"synthetic database bytes\0")
+        sidecar.append(
+            {
+                "id": old + "-" + new,
+                "path": str(db),
+                "bytes": db.stat().st_size,
+                "sha256": s.digest(db.read_bytes()),
+                "closed": True,
+            }
+        )
+    s.o.dump(case / "database-evidence.json", sidecar)
+    s.o.dump(
+        case / "result.json",
+        {
+            "database_sha256": {
+                r["id"] + "/session.sqlite": r["sha256"] for r in sidecar
+            }
+        },
+    )
+    archive = b"an archive larger than an uploadable file\0"
+    for name in ("reference.tar", "archive.stdout"):
+        (tmp_path / "reference" / name).write_bytes(archive)
+    # The pinned source's archive outgrew the upload limit (Pi 1.5.0: 37 MB).
+    monkeypatch.setattr(s, "MAX_FILE", 1)
+    rows = s.exclusions(tmp_path, {"node_archive": None})
+    assert [(row["bytes"], row["sha256"], row["uploaded"]) for row in rows[-2:]] == [
+        (len(archive), s.digest(archive), False)
+    ] * 2
+    monkeypatch.setattr(s, "MAX_EXCLUDED_FILE", len(archive) - 1)
+    with pytest.raises(s.EvidenceError, match="byte limit"):
+        s.exclusions(tmp_path, {"node_archive": None})
+
+
 def test_changed_at_copy_boundary_leaves_only_failed_index(tmp_path, monkeypatch):
     value, roots = synthetic(tmp_path, monkeypatch)
     real = s.write_captured

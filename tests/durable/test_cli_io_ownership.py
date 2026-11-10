@@ -18,9 +18,13 @@ from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.http import JsonResponse
 from pipy_harness.sdk import DurableProviderProfile
 root=Path(sys.argv[2]);direction=sys.argv[3];mode=sys.argv[4]
-events=sys.stdout;control=sys.stdin
+stdout=sys.stdout;events=stdout.fileno();control=sys.stdin
 def say(event,**fields):
- events.write(json.dumps({'event':event,'pid':os.getpid(),**fields})+'\n');events.flush()
+ # One raw write per event: the SIGTERM handler reports from the main thread
+ # while that thread may itself be in say(); a buffered stream refuses that
+ # reentrant call and would lose the signal-recorded event.
+ line=(json.dumps({'event':event,'pid':os.getpid(),**fields})+'\n').encode()
+ while line:line=line[write(events,line):]
 entered=threading.Event();returned=threading.Event();finalizing=threading.Event()
 release_finalizer=threading.Event();release_flush=threading.Event()
 readfd,writefd=os.pipe();read,write,ready=os.read,os.write,select.select
@@ -126,7 +130,7 @@ coordinator=threading.Thread(target=commands);coordinator.start()
 args=['durable','start','--store',str(root/'run.sqlite'),'--workspace',str(root),
  '--provider','openai','--model','test','--no-tools','--format','json']
 args+=['--stdin'] if direction=='input' else ['--prompt','input']
-code=cli.main(args);sys.stdout=events;sys.stdin=control;coordinator.join()
+code=cli.main(args);sys.stdout=stdout;sys.stdin=control;coordinator.join()
 say('finished',code=code,returned=returned.is_set())
 raise SystemExit(code)
 """

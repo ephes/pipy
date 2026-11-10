@@ -3,7 +3,7 @@
   "phase": "inspection-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "completed": "7c65d6c5617c4be4365f10a2adf873485be0ff6b1adadabf898af636914c02ab"
+    "completed": "5f1ff00bbb72c91aa1dbd8f20a731ff990c696f203230e03ade2b871e36107da"
   },
   "closure": {
     "CHANGELOG.md": "7fd8bce883d1163c4f2ffac4611da2174d14481900bbee70853cdb753e262c89",
@@ -13,7 +13,7 @@
     "docs/durable-completed-projection.md": "71f66bbce144ea959c38472fc30f21311ca075819f15a5f50fcddf67decf44d6",
     "docs/durable-generation.md": "64f30ebd9ed29904a8141f104a30832da49b371b901e597be6d3fb7661b8f5a0",
     "docs/durable-inspection.md": "97393f120fc7830742d0274813fdc17062e1c95ff330140c0c0c244960852864",
-    "docs/durable-reference.md": "d07cdb8b8b04456cba9f2db118745eaf8f8208b2c2d1d380a47eb2cce7b57a1e",
+    "docs/durable-reference.md": "be6f8768a0d9cd0e7ec2f0cb3051a0ffdea6136294fd33cf6051b9b3432629ae",
     "docs/durable-restart-parking.md": "adc078f2e55771a2a5884541565daecd9164c28dbe49ede21ba3b809c916e8ac",
     "docs/durable-session-deltas.md": "8dfe27023c169d132628fd5d054c0278e0ee6ba7a6b2480ad7000a4308949228",
     "docs/durable-task-migration.md": "3004b5158f1a15dea2f0a87d64b35be40dfd26836a946fd5a7064148d7cfcbad",

@@ -20,6 +20,9 @@ _spec.loader.exec_module(o)
 EvidenceError = o.EvidenceError
 MAX_FILE = 32 * 1024 * 1024
 MAX_TOTAL = 256 * 1024 * 1024
+# The git archive of the pinned source is attested by size and hash, never
+# uploaded, so the upload limits do not apply; Pi 1.5.0's is about 37 MB.
+MAX_EXCLUDED_FILE = 256 * 1024 * 1024
 WRAPPER_COMMANDS = (
     "source-init",
     "source-fetch",
@@ -60,8 +63,11 @@ def open_leaf(path: Path) -> int:
         os.close(parent)
 
 
-def read(root: Path, name: str, *, text: bool = True) -> bytes:
+def read(
+    root: Path, name: str, *, text: bool = True, limit: int | None = None
+) -> bytes:
     """Read only a bounded regular leaf, with no lexical/resolved aliases."""
+    limit = MAX_FILE if limit is None else limit
     o.contract.safe_path(name)
     root = root.absolute()
     path = root / name
@@ -71,9 +77,9 @@ def read(root: Path, name: str, *, text: bool = True) -> bytes:
         before = os.fstat(fd)
         require(stat.S_ISREG(before.st_mode), "Artifact is not a regular file")
         require(before.st_nlink == 1, "Artifact hardlink alias")
-        require(before.st_size <= MAX_FILE, "Artifact exceeds byte limit")
+        require(before.st_size <= limit, "Artifact exceeds byte limit")
         with os.fdopen(fd, "rb", closefd=False) as stream:
-            data = stream.read(MAX_FILE + 1)
+            data = stream.read(limit + 1)
         after = os.fstat(fd)
         require(
             (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
@@ -444,7 +450,7 @@ def exclusions(output: Path, job: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     for name in ("reference.tar", "archive.stdout"):
-        data = read(output, "reference/" + name, text=False)
+        data = read(output, "reference/" + name, text=False, limit=MAX_EXCLUDED_FILE)
         rows.append(
             {
                 "path": "acceptance/reference/" + name,

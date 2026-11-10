@@ -268,12 +268,12 @@
   "parity_rows": "OPEN",
   "verification": {
     ".github/workflows/ci.yml": "388b0aa32ad709d47a322b70a62121558a483e82aa0c69638f54b671ffa63c34",
-    "scripts/durable_reference_artifacts.py": "3121dcebde8d0f1583374af31528b5ea2a9772a8d6013025356a45dfce2d516c",
+    "scripts/durable_reference_artifacts.py": "69f1a4d795f7db5aaef0b318a838ca799cedde6031346def4a832f460bdabffe",
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
     "tests/durable/test_pi_comparison_acceptance.py": "5e28e50d0670be6d2c89b574d725d0397bf2ae855330d4d7e667d3bb605bec35",
     "tests/durable/test_pi_comparison_cases.py": "bc6000a7aacd509d161f885828ca10b16c3784ed325166915a84a58bc767c597",
     "tests/durable/test_pi_comparison_coverage.py": "13241e4a63872c3d052da3d13e98d252b482ebc5bbb5b0d846fc9627614c5612",
-    "tests/durable/test_reference_artifacts.py": "3df037784bdd361b5b616f79cf0332b3ecfc106eb03a79115b6f92c6a6ece6bc",
+    "tests/durable/test_reference_artifacts.py": "3e1175fa62acfb76d68d99e0f0f37a6cc58bcd2089c8ae4c4c1fbcc682956c44",
     "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
   },
   "workload": {

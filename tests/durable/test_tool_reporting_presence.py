@@ -207,4 +207,6 @@ def test_public_retained_presence_ack_saved_request_and_auth_free_cli(
                 cursor = cursor["child"]
             assert cursor == {"leaf": "\ud83d\ude00"}
 
-    asyncio.run(asyncio.wait_for(run(), 20))
+    # A hang guard, not a speed bound: deep1500 alone takes about ten seconds
+    # on a developer machine and more than twenty on a loaded CI runner.
+    asyncio.run(asyncio.wait_for(run(), 120))

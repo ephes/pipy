@@ -3,7 +3,7 @@
   "phase": "task-definition-publication-idle-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "restart_policy_live": "d2081e4e42c9175d69cc83515ed8f1af31f65bf06af28069c9d32dcb839ac2d4"
+    "restart_policy_live": "f1c28a8ab4bc835d785b11498ce98da58719fc4e12f474e5e1ad9034dce79153"
   },
   "closure": {
     "CHANGELOG.md": "7fd8bce883d1163c4f2ffac4611da2174d14481900bbee70853cdb753e262c89",
@@ -16,7 +16,7 @@
     "docs/durable-headless.md": "91fd04fd711ffd1e644157b30bb1d1637379802249114955706f0076a912769f",
     "docs/durable-inspection.md": "97393f120fc7830742d0274813fdc17062e1c95ff330140c0c0c244960852864",
     "docs/durable-product-session.md": "f4c40b2e38afcb350b79899eb1e49a559c76ea477665ecea077520f2955b7ba4",
-    "docs/durable-reference.md": "d07cdb8b8b04456cba9f2db118745eaf8f8208b2c2d1d380a47eb2cce7b57a1e",
+    "docs/durable-reference.md": "be6f8768a0d9cd0e7ec2f0cb3051a0ffdea6136294fd33cf6051b9b3432629ae",
     "docs/durable-restart-parking.md": "adc078f2e55771a2a5884541565daecd9164c28dbe49ede21ba3b809c916e8ac",
     "docs/durable-session-deltas.md": "8dfe27023c169d132628fd5d054c0278e0ee6ba7a6b2480ad7000a4308949228",
     "docs/durable-task-migration.md": "3004b5158f1a15dea2f0a87d64b35be40dfd26836a946fd5a7064148d7cfcbad",
@@ -564,7 +564,7 @@
     "tests/durable/test_checkpoint_sqlite.py": "15d40a06328e504771468e8fb9b37c0fd0ca3fe7b86bdc622e30fe71fee2449d",
     "tests/durable/test_cli_boundary.py": "62b993e8d9b48d2c1197f29d753664e7d76ee3ca48e390266b780c416896fc20",
     "tests/durable/test_cli_documentation.py": "fa04b8813dec56c999618fdf1e204afb48e6ffd365cbf299cc74a43a340aa3d8",
-    "tests/durable/test_cli_io_ownership.py": "ebe489fa93f0c3c77886783508909147e31607c546768caca3825e226e374eac",
+    "tests/durable/test_cli_io_ownership.py": "4c2cd5b1a86c642aac120763f826afc1b8b8b78f0c3c81b2394af71628745085",
     "tests/durable/test_cli_lifecycle.py": "85ea1698d9ecdf6d802bf863256f5f03e97a0f57c0122df798cedb9656c527b4",
     "tests/durable/test_cli_output.py": "36455e3f9718d2ee28cf82fb60dde2ee761d89a3538eab6ce40106faac7466d9",
     "tests/durable/test_cli_output_lifecycle.py": "2adfbac9eac1a46d1f2398c951ae3fc8ea0c453d6b77da12b0332f44ac3a3573",
@@ -669,7 +669,7 @@
     "tests/durable/test_tool_reporting_continuation.py": "f725bb652b5b85f47ff71aa0f52ca91862ab8adec76a152a4fac86c0457fc2d7",
     "tests/durable/test_tool_reporting_cuts.py": "b53ed2e05eda0d7906e805b26ab3171dcf3e6496f6d1fde46dc8acb5a84f2724",
     "tests/durable/test_tool_reporting_failures.py": "cdff468b13333c947785303b6640c328e1122caaa29a27293966f5a4f9d2090a",
-    "tests/durable/test_tool_reporting_presence.py": "9c7dfa8008cdd0cf4e8b27b1b692c9b386aae133fa88d0ae23fac52bf020be9c",
+    "tests/durable/test_tool_reporting_presence.py": "03e1e999272e8380494b2b127a3b497806648a3b1e4ad5da3b8a813c77ef47f1",
     "tests/durable/test_tool_reporting_projection.py": "662221c4adcc0759467d15b73fbb66e5e752a2fff2b5beccbc9c00f7bc8854b2",
     "tests/durable/test_tool_reporting_reentry.py": "916a510335dab1d9330e6aced88bad6a49d14e5dc322e016f30b875cece48f40",
     "tests/durable/test_tool_retained_gate.py": "67069e7f764de554965e08492699b4cee1bae45e2da796983a332401a12fb7cf",

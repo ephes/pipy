@@ -614,6 +614,9 @@ report an earlier failure.
 
 SQLite bytes, `archive.stdout`, `reference.tar` and the Node archive are explicitly
 `uploaded:false` with observed size/hash attestations; no DB binary is uploaded.
+The two source archives are read under the same alias/identity checks but with
+their own 256MiB bound, not the 32MiB upload limit: Pi 1.5.0's archive is about
+37MB.
 Snapshot, node_modules, Git objects, private home/tmp/cache/npmrc, executables and
 unrelated files stay local. This is scripted synthetic input and observed raw
 runtime evidence: UUIDs, controlled scratch paths and mtime stay raw. Local

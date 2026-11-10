@@ -3,14 +3,14 @@
   "phase": "canonical-checkpoint-b-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "task-runtime": "8d5939609e1b03f6f64dfe5af820e516b1159df155650ee5bb9acf8a6cedb75c"
+    "task-runtime": "1d87aaf7cfd7c457de85197d69a146356d943b32334b69cc9ba10dd790cc5695"
   },
   "closure": {
     "CHANGELOG.md": "7fd8bce883d1163c4f2ffac4611da2174d14481900bbee70853cdb753e262c89",
     "docs/architecture.md": "c03307cbefdf5e64177a095221ef10030e4ceaad1d2e3e7684139bfa828a0b6f",
     "docs/backlog.md": "49b4656e1d9a733cbbec8fbfc53428e6b3ea26a179d7aaba91075647869b6bdd",
     "docs/durable-canonical-codec.md": "7314fd01a459312411babaddec592d44400b6383b36f3fe71bce9b97a968a1dd",
-    "docs/durable-reference.md": "d07cdb8b8b04456cba9f2db118745eaf8f8208b2c2d1d380a47eb2cce7b57a1e",
+    "docs/durable-reference.md": "be6f8768a0d9cd0e7ec2f0cb3051a0ffdea6136294fd33cf6051b9b3432629ae",
     "docs/durable-restart-parking.md": "adc078f2e55771a2a5884541565daecd9164c28dbe49ede21ba3b809c916e8ac",
     "docs/durable-session-deltas.md": "8dfe27023c169d132628fd5d054c0278e0ee6ba7a6b2480ad7000a4308949228",
     "docs/durable-task-migration.md": "3004b5158f1a15dea2f0a87d64b35be40dfd26836a946fd5a7064148d7cfcbad",
