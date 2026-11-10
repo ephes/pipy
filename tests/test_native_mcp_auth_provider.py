@@ -15,6 +15,7 @@ import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -811,6 +812,15 @@ def test_closing_does_not_refresh_an_expiring_token(signed_in: _SignedIn) -> Non
     server = signed_in.server
     process = signed_in.process()
     client = _connect(process)
+    # The server-to-client stream opens on a thread of its own once the
+    # session is initialized, and asks for a token too. Let it do so (the
+    # server answers its GET with 405 and the thread ends), so that only
+    # the close is left to ask for one.
+    path = urlsplit(server.url).path
+    deadline = time.monotonic() + _WAIT_SECONDS
+    while not [r for r in server.requests_to(path) if r.method == "GET"]:
+        assert time.monotonic() < deadline, "the stream thread sent no GET"
+        time.sleep(0.01)
     # Still accepted, but so close to its expiry that the next request
     # would refresh it first.
     process.expire_in(10)
