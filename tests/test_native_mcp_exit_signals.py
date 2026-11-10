@@ -372,8 +372,13 @@ def test_a_terminal_session_that_is_signalled_restores_the_terminal_and_closes_i
         assert wait_for_output(chunks, b"\x1b[?2004l", after=before, timeout=_TIMEOUT)
     finally:
         _end(pipy)
-        os.close(master)
+        # Join the reader before closing the master it reads by number: a
+        # number closed while it is between reads can be handed to the next
+        # test's pty, which the old reader would then read. A reader that is
+        # still blocked keeps the master open instead.
         reader.join(2)
+        if not reader.is_alive():
+            os.close(master)
 
 
 def test_a_signal_during_the_close_of_a_finished_run_still_ends_the_server(

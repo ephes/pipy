@@ -42,7 +42,7 @@ def _spawn_drainer(fd: int):
 
     t = threading.Thread(target=drain, daemon=True)
     t.start()
-    return chunks
+    return t, chunks
 
 
 def _wait_for(chunks, needle: str, timeout: float = 6.0) -> bool:
@@ -62,7 +62,7 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
     monkeypatch.delenv("NO_COLOR", raising=False)
     err_master, err_slave = pty.openpty()
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
-    chunks = _spawn_drainer(err_master)
+    drainer, chunks = _spawn_drainer(err_master)
     ui = TerminalUi(
         input_stream=cast(TextIO, io.StringIO()),
         terminal_stream=cast(TextIO, terminal),
@@ -95,4 +95,10 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
         assert "\x1b[" in captured, "expected SGR color in the custom row"
     finally:
         terminal.close()
-        os.close(err_master)
+        # Join the drainer before closing the master it reads by number: a
+        # number closed while it is between reads can be handed to the next
+        # test's pty, which the old drainer would then read. A drainer that
+        # is still running keeps the master open instead.
+        drainer.join(timeout=8.0)
+        if not drainer.is_alive():
+            os.close(err_master)
