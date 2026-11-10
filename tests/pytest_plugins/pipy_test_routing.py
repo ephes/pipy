@@ -69,8 +69,11 @@ WORKERS_ENV = "PIPY_TEST_WORKERS"
 MIN_WORKERS = 4
 MAX_WORKERS = 8
 # A default-tier selection of at most this many whole test files runs in the
-# pytest process itself: starting workers costs more than it saves there.
-SERIAL_MAX_FILES = 8
+# pytest process itself. Starting a worker costs about a second now that
+# collection reuses the assertion-rewrite caches, so a gate of two whole files
+# plus the smoke set and guards already finishes sooner in parallel (a typical
+# gate after a test-file change took 26 s serially and 11-15 s on workers).
+SERIAL_MAX_FILES = 1
 
 # Always-run smoke set (about 8 s serial): cheap tests that import the runtime,
 # drive fake-provider sessions, the session recorder, the CLI, the SDK surface
@@ -289,7 +292,9 @@ def plan_workers(selection: Selection, cpus: int) -> tuple[int, str]:
 
     Areas, the full tier and escalated default-tier runs use
     ``default_workers(cpus)`` workers. A default-tier selection of at most
-    ``SERIAL_MAX_FILES`` whole test files runs serially.
+    ``SERIAL_MAX_FILES`` whole test files runs serially; a larger one uses no
+    more workers than it has files, since ``--dist=loadfile`` gives each
+    worker whole files.
     """
 
     bounded = default_workers(cpus)
@@ -301,7 +306,7 @@ def plan_workers(selection: Selection, cpus: int) -> tuple[int, str]:
     whole = len(selection.files - selection.smoke_only)
     if whole <= SERIAL_MAX_FILES:
         return 0, f"{whole} whole test file(s) selected"
-    return bounded, f"{whole} whole test files selected"
+    return min(bounded, len(selection.files)), f"{whole} whole test files selected"
 
 
 class Repo:

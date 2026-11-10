@@ -112,9 +112,12 @@ use half the available CPUs as workers, at least 4 and at most 8 (never more
 than the CPUs): 8 on a 16-CPU machine, 4 on a 4-CPU CI runner. Most of the time
 goes to the durable area, whose workers keep a CPU about 80 % busy, so half the
 CPUs leaves room for other work on a shared machine; on a 16-CPU Mac 8 workers
-ran `just test-full` in about 500 s where 4 took about 720 s. A default gate of at
-most 8 whole test files runs in one process, because starting workers costs
-more than it saves there. The header line `workers: ...` says what was chosen
+ran `just test-full` in about 500 s where 4 took about 720 s. A default gate with
+a single whole test file (besides the smoke set and single guard tests) runs in
+one process; from two whole files on it runs on workers, never more workers
+than selected files, because starting a worker costs only about a second (a
+typical gate after a test-file change took 26 s serially and 11-15 s on
+workers). The header line `workers: ...` says what was chosen
 and why. `-n <N>` or `PIPY_TEST_WORKERS=<N>` overrides the choice;
 `PIPY_TEST_WORKERS=0` (or `-n 0`) is the serial escape hatch, for example for
 `--pdb` sessions (which run serially anyway) or to rule out an interaction

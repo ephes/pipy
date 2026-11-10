@@ -526,9 +526,21 @@ def test_plan_workers_bounds_parallel_tiers_and_keeps_small_gates_serial() -> No
         partial=smoke,
     )
     assert routing.plan_workers(small, 64) == (0, "1 whole test file(s) selected")
-    many = frozenset(f"tests/test_{n}.py" for n in range(routing.SERIAL_MAX_FILES + 1))
+    # Two whole files already run on workers, but never on more workers than
+    # files: --dist=loadfile hands each worker whole files.
+    two = frozenset(f"tests/test_{n}.py" for n in range(routing.SERIAL_MAX_FILES + 1))
+    assert routing.plan_workers(routing.Selection(tier="default", files=two), 64) == (
+        2,
+        "2 whole test files selected",
+    )
+    with_smoke = routing.Selection(
+        tier="default", files=two | {"tests/test_s.py"}, partial=smoke
+    )
+    assert routing.plan_workers(with_smoke, 64)[0] == 3
+    many = frozenset(f"tests/test_{n}.py" for n in range(20))
     large = routing.Selection(tier="default", files=many)
     assert routing.plan_workers(large, 64)[0] == routing.MAX_WORKERS
+    assert routing.plan_workers(large, 4)[0] == 4
 
 
 def test_selection_payload_round_trips() -> None:
