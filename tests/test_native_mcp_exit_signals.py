@@ -25,7 +25,14 @@ from mcp_fake_server_guard import end_fake_servers, fake_servers
 from pty_sync import wait_for_output
 
 _FAKE_SERVER = Path(__file__).parent / "fixtures" / "mcp_fake_server.py"
+# Waits after the signal, when pipy and its server already run. Keep it below
+# the fake provider's 30-second BLOCK turn: an RPC abort that waited for the
+# turn to end would then fail instead of passing late.
 _TIMEOUT = 20.0
+# A hang guard, not a speed bound, for waits that include a cold pipy and
+# fake-server launch: about one second on a developer machine, but more than
+# twenty on a loaded CI runner.
+_LAUNCH_TIMEOUT = 120.0
 _PIPY = [sys.executable, "-m", "pipy_harness.cli"]
 
 
@@ -85,7 +92,7 @@ class _Workspace:
     def wait_for_the_server(self, pipy: subprocess.Popen[bytes]) -> int:
         """Until the server got ``initialize``; returns its pid."""
 
-        deadline = time.monotonic() + _TIMEOUT
+        deadline = time.monotonic() + _LAUNCH_TIMEOUT
         while "initialize" not in self.events():
             assert pipy.poll() is None, "pipy ended before its server started"
             assert time.monotonic() < deadline, "the server was not started"
@@ -352,7 +359,7 @@ def test_a_terminal_session_that_is_signalled_restores_the_terminal_and_closes_i
     reader.start()
     try:
         # Bracketed paste on: the terminal UI owns the terminal.
-        assert wait_for_output(chunks, b"\x1b[?2004h", timeout=_TIMEOUT)
+        assert wait_for_output(chunks, b"\x1b[?2004h", timeout=_LAUNCH_TIMEOUT)
         server = workspace.wait_for_the_server(pipy)
         before = len(b"".join(chunks))
 
@@ -392,9 +399,13 @@ def test_a_signal_during_the_close_of_a_finished_run_still_ends_the_server(
         start_new_session=True,
     )
     try:
-        deadline = time.monotonic() + _TIMEOUT
+        deadline = time.monotonic() + _LAUNCH_TIMEOUT
         while "stdin-closed" not in workspace.events():
-            assert time.monotonic() < deadline, "the run did not close its server"
+            assert time.monotonic() < deadline, (
+                "the run did not close its server",
+                workspace.events(),
+                pipy.poll(),
+            )
             time.sleep(0.01)
         (server,) = fake_servers(tmp_path)
 
