@@ -258,13 +258,17 @@ def test_cancelled_mark_waiter_and_close_join_worker_before_lease_release(
         work = pool.submit(caller)
         try:
             assert cancelled.wait(5)
+            # Caller cancellation does not wait for accepted marking work: the
+            # cancelled caller's loop exits while the commit is still held.
+            # Join that real exit instead of racing it against close.
+            work.result(5)
+            assert exited.is_set() and not hold.retired.is_set()
             rig.session.request_close()
             assert not hold.retired.is_set() and not rig.storage.closed.is_set()
-            assert rig.session.end is None and not exited.is_set()
+            assert rig.session.end is None
             opener(rig.path, tmp_path, "abort-mark-held", "refused")
         finally:
             hold.release.set()
-        work.result(10)
     rig.session.wait_closed(timeout=10)
     assert hold.retired.is_set() and exited.is_set() and len(hold.calls) == 1
     opener(rig.path, tmp_path, "abort-mark-retired", "opened")
