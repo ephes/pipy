@@ -3,7 +3,7 @@
   "phase": "interrupted-tool-continuation-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "retained_reporting": "06933da2f62c61f3b2d53416c36bd22c0fd183721e2579a6e28dbf33811476ae"
+    "retained_reporting": "d2013d2271dcfb5a5fcfbb9e65b94ecf92f2b2f8fef655d9e19e7fbeb2cb48da"
   },
   "closure": {
     "CHANGELOG.md": "7fd8bce883d1163c4f2ffac4611da2174d14481900bbee70853cdb753e262c89",
@@ -607,7 +607,7 @@
     "tests/durable/test_sqlite_ownership.py": "5191e8f91f2868854988fb96677ada7ee18b2c37d6d05800bf4629bc4dc7e741",
     "tests/durable/test_sqlite_schema.py": "9c11dbfcf8c9d73fa2d31821d476d8e25628c48a53e3ccf4f8b02d1bb85526ee",
     "tests/durable/test_sqlite_storage.py": "324b76f7c564bc098589535bffe836eae594b3daf69dcac0b7a5a1fa71bfe659",
-    "tests/durable/test_sqlite_workload.py": "a085fc69ec73952ab63adc9bbd34170d90eb08b7571e7e1a61dfc21b84adb1f7",
+    "tests/durable/test_sqlite_workload.py": "3e5d1459b49639b5d5e372da6f44aceaa207b68b317ef1d152f78fadff8a1372",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
     "tests/durable/test_task_migration.py": "19b30817de52b92025c26f835fd34e3bbae0c7ff4b5176cdbee6a05a5e86461f",
     "tests/durable/test_task_migration_core.py": "62e920f6a7d24c1437ee4028e51cbf13784bd44c2838adab432773ab831525c6",
@@ -620,7 +620,7 @@
     "tests/durable/test_tool_adjudication_sdk_replay.py": "8d34637fc893f7c8f0c5cbd88c2423b0e9cc548c7b78411fbe1fe19a7bdd7191",
     "tests/durable/test_tool_boundaries.py": "8d56cabf1760915de673dd05588844c750f1026d82641f644b303c98ac1c8df3",
     "tests/durable/test_tool_comparison.py": "53190a68e26cdadd6a78a5860705d2b9e8a4b43e6fd20840e5c88488d144870b",
-    "tests/durable/test_tool_details_presence.py": "32f44a8e604173c1389d777794093736d2fb84469100557b3e49fe85f82537d7",
+    "tests/durable/test_tool_details_presence.py": "e93a8ffaa3164f1726f23ee7206580e0d93d4ef3a94fb3b25915cebe590c6b71",
     "tests/durable/test_tool_execution.py": "a5d8745dada46134c04de84e349a20336e05d56c4c1d474d37381c5c6ae7c1d1",
     "tests/durable/test_tool_fact2_reader_matrix.py": "be69c263d541bb5a8165f402b788aa2d783fd8657f63af8b66459456849e1ff4",
     "tests/durable/test_tool_faults.py": "c3a144fa5a1e24f3ca61f90971f13c1dafec02a6478b8cda4788d00492465a9f",

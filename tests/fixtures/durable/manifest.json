@@ -267,7 +267,7 @@
   "python_adapter": "OPEN",
   "parity_rows": "OPEN",
   "verification": {
-    ".github/workflows/ci.yml": "388b0aa32ad709d47a322b70a62121558a483e82aa0c69638f54b671ffa63c34",
+    ".github/workflows/ci.yml": "68f86bb5ae25cae479fd67c3db9a29d43a38ea0d7683ee839b1a9656773fd8b0",
     "scripts/durable_reference_artifacts.py": "69f1a4d795f7db5aaef0b318a838ca799cedde6031346def4a832f460bdabffe",
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
     "tests/durable/test_pi_comparison_acceptance.py": "5e28e50d0670be6d2c89b574d725d0397bf2ae855330d4d7e667d3bb605bec35",

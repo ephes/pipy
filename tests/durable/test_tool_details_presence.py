@@ -200,7 +200,9 @@ def test_public_sqlite_and_actual_terminal_cli_preserve_normal_details(
             await reopened.close()
         assert len(port.calls) == 1 and len(wire.calls) == 2
 
-    asyncio.run(asyncio.wait_for(scenario(), 15))
+    # A hang guard, not a speed bound: deep values take far longer on a
+    # loaded CI runner than on a developer machine.
+    asyncio.run(asyncio.wait_for(scenario(), 120))
 
 
 @pytest.mark.parametrize("kind", ["deep1500", "digits5001"])
@@ -283,7 +285,9 @@ def test_public_sqlite_tool_producer_admission_and_reopen_do_not_reissue(
         finally:
             await reopened.close()
 
-    asyncio.run(asyncio.wait_for(scenario(), 30))
+    # A hang guard, not a speed bound: deep values take far longer on a
+    # loaded CI runner than on a developer machine.
+    asyncio.run(asyncio.wait_for(scenario(), 120))
 
 
 def test_historical_deep_v1_sqlite_read_and_cli_json_writer_without_producer_gate(
@@ -382,4 +386,6 @@ def test_public_durable_sdk_refuses_nonexact_normal_integer_before_result_commit
         finally:
             await product.close()
 
-    asyncio.run(asyncio.wait_for(scenario(), 15))
+    # A hang guard, not a speed bound: deep values take far longer on a
+    # loaded CI runner than on a developer machine.
+    asyncio.run(asyncio.wait_for(scenario(), 120))

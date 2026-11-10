@@ -208,7 +208,9 @@ def test_missing_ready_event_reaps_actual_child_on_startup_failure(
 ):
     # A malformed internal command makes the real child exit before readiness;
     # the parent must record/reap even this early failure.
-    monkeypatch.setitem(w.SPEC["limits"], "child_seconds", 1)
+    # A bound, not a speed check: the child must exit before readiness, and a
+    # loaded runner can take more than a second to start Python and fail.
+    monkeypatch.setitem(w.SPEC["limits"], "child_seconds", 30)
     monkeypatch.setattr(w, "configuration", lambda: w.SPEC)
     folder = tmp_path / "failed-child"
     # Inject only the executable command's

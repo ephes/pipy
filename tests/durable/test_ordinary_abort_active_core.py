@@ -2,6 +2,7 @@
 
 import asyncio
 import dataclasses
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -574,7 +575,19 @@ def test_admitted_mark_settlement_survives_cancelled_request_waiter(active):
         active.rig.storage.before_commit = original
 
 
-@pytest.mark.parametrize("factory", ["default", "eager"])
+@pytest.mark.parametrize(
+    "factory",
+    [
+        "default",
+        pytest.param(
+            "eager",
+            marks=pytest.mark.skipif(
+                sys.version_info < (3, 12),
+                reason="asyncio.eager_task_factory is new in Python 3.12",
+            ),
+        ),
+    ],
+)
 def test_completion_exists_before_fast_callback_and_has_one_retirement(
     rig, monkeypatch, factory
 ):
