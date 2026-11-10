@@ -186,7 +186,8 @@ just docs-serve    # preview at http://localhost:8000
 just loc           # slopscope line-count summary
 ```
 
-The full and area tiers run on up to 4 pytest-xdist workers;
+The full and area tiers run on pytest-xdist workers, half the CPUs (at least 4,
+at most 8);
 `PIPY_TEST_WORKERS=0 just test-full` runs them serially (see CONTRIBUTING.md
 "Test tiers").
 

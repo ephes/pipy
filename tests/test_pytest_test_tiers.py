@@ -500,13 +500,25 @@ def test_command_line_and_environment_choose_serial_runs(tmp_path: Path) -> None
     assert f"{routing.WORKERS_ENV} must be a number of workers" in bad.stderr
 
 
+@pytest.mark.parametrize(
+    ("cpus", "workers"),
+    [(1, 1), (2, 2), (4, 4), (6, 4), (8, 4), (10, 5), (12, 6), (16, 8), (64, 8)],
+)
+def test_default_workers_use_half_the_cpus_within_bounds(
+    cpus: int, workers: int
+) -> None:
+    assert routing.default_workers(cpus) == workers
+
+
 def test_plan_workers_bounds_parallel_tiers_and_keeps_small_gates_serial() -> None:
     full = routing.Selection(tier="full", files=None)
-    assert routing.plan_workers(full, 64) == (routing.DEFAULT_WORKERS, "full tier")
+    assert routing.plan_workers(full, 64) == (routing.MAX_WORKERS, "full tier")
+    assert routing.plan_workers(full, 16) == (8, "full tier")
+    assert routing.plan_workers(full, 4) == (4, "full tier")
     assert routing.plan_workers(full, 2) == (2, "full tier")
     assert routing.plan_workers(full, 1) == (1, "full tier")
     escalated = routing.Selection(tier="default", files=None, escalation="full")
-    assert routing.plan_workers(escalated, 64)[0] == routing.DEFAULT_WORKERS
+    assert routing.plan_workers(escalated, 64)[0] == routing.MAX_WORKERS
     smoke = {"tests/test_s.py": frozenset({"tests/test_s.py::test_x"})}
     small = routing.Selection(
         tier="default",
@@ -516,7 +528,7 @@ def test_plan_workers_bounds_parallel_tiers_and_keeps_small_gates_serial() -> No
     assert routing.plan_workers(small, 64) == (0, "1 whole test file(s) selected")
     many = frozenset(f"tests/test_{n}.py" for n in range(routing.SERIAL_MAX_FILES + 1))
     large = routing.Selection(tier="default", files=many)
-    assert routing.plan_workers(large, 64)[0] == routing.DEFAULT_WORKERS
+    assert routing.plan_workers(large, 64)[0] == routing.MAX_WORKERS
 
 
 def test_selection_payload_round_trips() -> None:

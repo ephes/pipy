@@ -58,9 +58,16 @@ TIER_FULL = "full"
 TIERS = (TIER_DEFAULT, TIER_DURABLE, TIER_CORE, TIER_FULL)
 
 # Bounded parallelism (pytest-xdist, ``--dist=loadfile``) for tier runs; see
-# ``plan_workers``. ``PIPY_TEST_WORKERS=0`` (or ``-n 0``) runs serially.
+# ``default_workers`` and ``plan_workers``. ``PIPY_TEST_WORKERS=0`` (or
+# ``-n 0``) runs serially.
 WORKERS_ENV = "PIPY_TEST_WORKERS"
-DEFAULT_WORKERS = 4
+# Half the CPUs, at least MIN_WORKERS and at most MAX_WORKERS. Most of the
+# suite's time is in the durable area, which keeps a worker's CPU about 80 %
+# busy (child processes included), so half the CPUs leaves room for the other
+# work on a shared machine. On a 16-CPU machine 8 workers ran `just test-full`
+# in about 500 s where 4 took about 720 s.
+MIN_WORKERS = 4
+MAX_WORKERS = 8
 # A default-tier selection of at most this many whole test files runs in the
 # pytest process itself: starting workers costs more than it saves there.
 SERIAL_MAX_FILES = 8
@@ -267,15 +274,25 @@ class Selection:
         )
 
 
+def default_workers(cpus: int) -> int:
+    """Workers for a parallel tier run on ``cpus`` CPUs.
+
+    Half the CPUs, at least ``MIN_WORKERS`` and at most ``MAX_WORKERS``, and
+    never more than ``cpus``.
+    """
+
+    return max(1, min(cpus, max(MIN_WORKERS, min(MAX_WORKERS, cpus // 2))))
+
+
 def plan_workers(selection: Selection, cpus: int) -> tuple[int, str]:
     """How many xdist workers a tier run uses by default, and why.
 
-    Areas, the full tier and escalated default-tier runs use up to
-    ``DEFAULT_WORKERS`` workers, never more than ``cpus``. A default-tier
-    selection of at most ``SERIAL_MAX_FILES`` whole test files runs serially.
+    Areas, the full tier and escalated default-tier runs use
+    ``default_workers(cpus)`` workers. A default-tier selection of at most
+    ``SERIAL_MAX_FILES`` whole test files runs serially.
     """
 
-    bounded = max(1, min(DEFAULT_WORKERS, cpus))
+    bounded = default_workers(cpus)
     if selection.tier != TIER_DEFAULT:
         return bounded, f"{selection.tier} tier"
     if selection.escalation is not None:

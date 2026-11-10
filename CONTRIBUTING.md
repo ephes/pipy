@@ -108,7 +108,11 @@ imported; combine `--pipy-tier` with `-k`/`-m`, not with path arguments.
 Tier runs are parallel with bounded workers (pytest-xdist, `--dist=loadfile`,
 so a file's module fixtures are set up once): `just test-full`,
 `just test-durable`, `just test-core` and an escalated or large default gate
-use up to 4 workers (never more than the available CPUs). A default gate of at
+use half the available CPUs as workers, at least 4 and at most 8 (never more
+than the CPUs): 8 on a 16-CPU machine, 4 on a 4-CPU CI runner. Most of the time
+goes to the durable area, whose workers keep a CPU about 80 % busy, so half the
+CPUs leaves room for other work on a shared machine; on a 16-CPU Mac 8 workers
+ran `just test-full` in about 500 s where 4 took about 720 s. A default gate of at
 most 8 whole test files runs in one process, because starting workers costs
 more than it saves there. The header line `workers: ...` says what was chosen
 and why. `-n <N>` or `PIPY_TEST_WORKERS=<N>` overrides the choice;
