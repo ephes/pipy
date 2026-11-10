@@ -264,11 +264,16 @@ def _start_term_ignoring_descendant(
         )
 
     worker = threading.Thread(target=invoke)
+    started = time.monotonic()
     worker.start()
-    deadline = time.monotonic() + 3.0
-    while not pids.exists() and time.monotonic() < deadline:
+    # Setup waits on events, with a deadline for a loaded machine, not speed.
+    deadline = time.monotonic() + 10.0
+    child_ready = tmp_path / "child.pid"
+    while not (pids.exists() and child_ready.exists()) and time.monotonic() < deadline:
         time.sleep(0.01)
     assert pids.exists(), "parent did not publish descendant creation"
+    # The child writes its pid once it ignores TERM, so only SIGKILL ends it.
+    assert child_ready.exists(), "descendant did not start ignoring TERM"
     parent_pid, child_pid = (int(value) for value in pids.read_text().split())
     assert os.getpgid(child_pid) == parent_pid
 
@@ -282,6 +287,10 @@ def _start_term_ignoring_descendant(
         time.sleep(0.01)
     else:
         raise AssertionError("direct parent did not exit")
+    # The timeout runs from inside run_command, after ``started``: setup that
+    # ended earlier proves the parent exited on its own, not of the timeout.
+    alive, elapsed = worker.is_alive(), time.monotonic() - started
+    assert alive and elapsed < timeout_seconds, "setup outlasted the timeout"
     return worker, result_box, parent_pid, child_pid
 
 
@@ -316,7 +325,7 @@ def test_cancellation_escalates_after_parent_exit_when_descendant_holds_pipes(
             timeout_seconds=10.0,
         )
         cancelled.set()
-        worker.join(timeout=3.0)
+        worker.join(timeout=10.0)
         assert not worker.is_alive()
         result = result_box["result"]
         assert result.status is CommandStatus.CANCELLED
@@ -338,9 +347,12 @@ def test_timeout_escalates_after_parent_exit_when_descendant_holds_pipes(
         worker, result_box, group_id, child_pid = _start_term_ignoring_descendant(
             tmp_path,
             cancel_event=None,
-            timeout_seconds=0.5,
+            # Long enough for the setup above (two shell starts) to finish
+            # first under load, short enough to keep the test quick: the
+            # timeout must fire after the parent exited on its own.
+            timeout_seconds=4.0,
         )
-        worker.join(timeout=3.0)
+        worker.join(timeout=10.0)
         assert not worker.is_alive()
         result = result_box["result"]
         assert result.status is CommandStatus.TIMED_OUT

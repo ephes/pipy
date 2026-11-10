@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 BRACKETED_PASTE_READY = b"\x1b[?2004h"
+BRACKETED_PASTE_RELEASED = b"\x1b[?2004l"
 _POLL_INTERVAL = 0.02
 
 
@@ -259,3 +260,33 @@ def wait_for_input_ready_after(
         after=after,
         timeout=timeout,
     )
+
+
+def wait_for_raw_input_after(
+    chunks: Sequence[bytes],
+    observed: str | bytes,
+    *,
+    after: int = 0,
+    timeout: float = 8.0,
+) -> int | None:
+    """Wait for ``observed`` and for raw input to be held when it was seen.
+
+    A turn can leave and re-enter raw mode around output that it streams, in
+    either order. Input is safe to send once ``observed`` is out and the last
+    bracketed-paste transition at or after ``after`` is an enable: from then
+    on only a further transition could flush it. Returns the end offset of
+    that enable.
+    """
+
+    encoded = observed.encode("utf-8") if isinstance(observed, str) else observed
+    deadline = time.monotonic() + max(timeout, 0.0)
+    while True:
+        data = output_bytes(chunks)
+        if data.find(encoded, after) >= 0:
+            ready = data.rfind(BRACKETED_PASTE_READY, after)
+            if ready >= 0 and ready > data.rfind(BRACKETED_PASTE_RELEASED, after):
+                return ready + len(BRACKETED_PASTE_READY)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(_POLL_INTERVAL, remaining))

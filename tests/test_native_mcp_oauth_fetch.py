@@ -321,16 +321,20 @@ def _encoded(encoding: str, body: bytes, status: int = 200) -> Reply:
 @pytest.mark.parametrize(
     ("encoding", "body"),
     [
-        ("gzip", gzip.compress(_DOCUMENT)),
-        ("x-gzip", gzip.compress(_DOCUMENT)),
-        ("GZip", gzip.compress(_DOCUMENT)),
+        ("gzip", gzip.compress(_DOCUMENT, mtime=0)),
+        ("x-gzip", gzip.compress(_DOCUMENT, mtime=0)),
+        ("GZip", gzip.compress(_DOCUMENT, mtime=0)),
         ("deflate", zlib.compress(_DOCUMENT)),
         ("deflate", _deflate_raw(_DOCUMENT)),
         # The codings are undone from the last one to the first.
-        ("deflate, gzip", gzip.compress(zlib.compress(_DOCUMENT))),
-        (" gzip ,deflate", zlib.compress(gzip.compress(_DOCUMENT))),
+        ("deflate, gzip", gzip.compress(zlib.compress(_DOCUMENT), mtime=0)),
+        (" gzip ,deflate", zlib.compress(gzip.compress(_DOCUMENT, mtime=0))),
         # Several gzip members are one body.
-        ("gzip", gzip.compress(_DOCUMENT[:9]) + gzip.compress(_DOCUMENT[9:])),
+        (
+            "gzip",
+            gzip.compress(_DOCUMENT[:9], mtime=0)
+            + gzip.compress(_DOCUMENT[9:], mtime=0),
+        ),
     ],
 )
 def test_a_compressed_answer_is_decoded(

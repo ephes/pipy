@@ -186,7 +186,14 @@ def test_asks_oauth_servers_that_keep_rejecting_requests_for_a_new_sign_in(
     assert isinstance(failure.value.__cause__, McpAuthRequiredError)
     assert connection.state == "needs-auth"
     assert connection.error is None
-    assert harness.states == ["connecting", "needs-auth"]
+    # Two changes, connecting and needs-auth. Each is announced on the thread
+    # that made it, so the announcements may arrive in either order and after
+    # get_client() raised; each reads the state of its moment, so the one for
+    # connecting can already see needs-auth (connection.py, "Callbacks").
+    _wait_until(lambda: len(harness.states) >= 2)
+    assert len(harness.states) == 2
+    assert "needs-auth" in harness.states
+    assert set(harness.states) <= {"connecting", "needs-auth"}
     assert len(harness.opened) == 1
     connection.close()
     assert connection.state == "closed"

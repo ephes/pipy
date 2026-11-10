@@ -988,6 +988,9 @@ def test_tui_short_height_retains_startup_chrome_before_prompt(tmp_path: Path):
 def test_tui_user_message_background_matches_pi_three_row_band(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    # The snapshot below is 88 columns wide: pin that size, whatever COLUMNS,
+    # LINES or terminal the test run itself has.
+    _pin_terminal_size(monkeypatch, 88, 24)
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
@@ -1025,6 +1028,9 @@ def test_tui_user_message_background_matches_pi_three_row_band(
 def test_tui_user_message_band_fills_last_column(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    # The snapshot below is 88 columns wide: pin that size, whatever COLUMNS,
+    # LINES or terminal the test run itself has.
+    _pin_terminal_size(monkeypatch, 88, 24)
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
@@ -1063,6 +1069,9 @@ def test_tui_user_message_band_fills_last_column(
 def test_tui_input_separator_spans_full_width(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    # The snapshot below is 88 columns wide: pin that size, whatever COLUMNS,
+    # LINES or terminal the test run itself has.
+    _pin_terminal_size(monkeypatch, 88, 24)
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     ui = _ui(tmp_path)
@@ -1094,6 +1103,9 @@ def test_tui_input_separator_spans_full_width(
 def test_tui_tool_command_band_fills_last_column(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    # The snapshot below is 88 columns wide: pin that size, whatever COLUMNS,
+    # LINES or terminal the test run itself has.
+    _pin_terminal_size(monkeypatch, 88, 24)
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")

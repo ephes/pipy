@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import runpy
 import signal
@@ -207,16 +208,39 @@ def test_interrupted_first_publication_restores_absent_output(
     assert not (root / "site").exists()
 
 
-def _wait_page(url: str, text: str) -> None:
-    deadline = time.monotonic() + 20
+def _serves(url: str, text: str, seconds: float) -> bool:
+    deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen(url, timeout=1) as response:
                 if response.status == 200 and text in response.read().decode():
-                    return
+                    return True
         except (OSError, urllib.error.URLError):
             pass
         time.sleep(0.1)
+    return False
+
+
+def _wait_page(url: str, text: str) -> None:
+    if not _serves(url, text, 30):
+        raise AssertionError(f"Preview did not serve expected status/text at {url}")
+
+
+def _write_until_served(path: Path, content: str, url: str, text: str) -> None:
+    """Write ``path`` until the preview serves ``text``.
+
+    Zensical's watcher can drop a change that lands just after it finished a
+    build (seen under load: an edit made right after a rebuild was never
+    rebuilt, one made two seconds later was). The script has mirrored the
+    change by then; writing the same content again is a new change event.
+    The page must still come from this content, through the script's mirror.
+    """
+
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        path.write_text(content)
+        if _serves(url, text, 5):
+            return
     raise AssertionError(f"Preview did not serve expected status/text at {url}")
 
 
@@ -249,11 +273,19 @@ def test_preview_mirrors_changes_reloads_config_and_cleans_up_child(
             scratch = root / "docs/audit"
             scratch.mkdir()
             (scratch / "sentinel.md").write_text("# PRIVATE_PREVIEW_SENTINEL\n[bad]\n")
-            (root / "docs/index.md").write_text("# Home\nEDITED_PUBLIC_SENTINEL\n")
-            _wait_page(f"http://{address}/", "EDITED_PUBLIC_SENTINEL")
+            _write_until_served(
+                root / "docs/index.md",
+                "# Home\nEDITED_PUBLIC_SENTINEL\n",
+                f"http://{address}/",
+                "EDITED_PUBLIC_SENTINEL",
+            )
             added = root / "docs/added.md"
-            added.write_text("# Added\nADDED_PUBLIC_SENTINEL\n")
-            _wait_page(f"http://{address}/added/", "ADDED_PUBLIC_SENTINEL")
+            _write_until_served(
+                added,
+                "# Added\nADDED_PUBLIC_SENTINEL\n",
+                f"http://{address}/added/",
+                "ADDED_PUBLIC_SENTINEL",
+            )
             added.unlink()
             # Zensical's preview serves its not-found page with HTTP 200.
             _wait_page(f"http://{address}/added/", "404 - Not found")
@@ -270,13 +302,19 @@ def test_preview_mirrors_changes_reloads_config_and_cleans_up_child(
         finally:
             child.send_signal(interrupt)
             try:
-                child.wait(timeout=10)
+                # Stopping waits up to five seconds for Zensical itself.
+                child.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                child.kill()
+                os.killpg(child.pid, signal.SIGKILL)
                 child.wait()
+    try:
         assert child.returncode == 130
-    with socket.socket() as probe:
-        assert probe.connect_ex(("127.0.0.1", port)) != 0
+        with socket.socket() as probe:
+            assert probe.connect_ex(("127.0.0.1", port)) != 0
+    finally:
+        # Zensical shares the session of the script; leave no server behind.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(child.pid, signal.SIGKILL)
 
 
 def test_canonical_build_and_preview_commands_use_filtered_boundary() -> None:

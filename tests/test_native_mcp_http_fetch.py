@@ -141,6 +141,9 @@ def test_every_request_of_the_transport_goes_through_its_fetch(
     assert get.headers["Accept"] == "text/event-stream"
     assert delete.headers["Mcp-Session-Id"] == "session-1"
     assert delete.connect_timeout_ms == 1_000
+    # close() waits at most a second for the DELETE; under load the server can
+    # record it after close() returned.
+    _wait_until(lambda: len(server.requests) >= 5)
     assert [request.path for request in server.requests] == ["/mcp"] * 5
 
 

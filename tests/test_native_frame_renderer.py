@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import io
+import os
 import weakref
 from _thread import RLock
 from collections.abc import Callable
@@ -591,6 +592,14 @@ def test_failed_paint_write_keeps_preexisting_publication_behavior(
         return False
 
     monkeypatch.setattr(TerminalDriver, "write", fail_write)
+    # Resolve the size as with no terminal at all, whatever COLUMNS, LINES or
+    # terminal the test run itself has, so the default size is what paints.
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    monkeypatch.setattr(
+        "pipy_harness.native.terminal_driver.shutil.get_terminal_size",
+        lambda fallback=(80, 24): os.terminal_size(fallback),
+    )
     ui.components.screen.paint()
 
     assert len(writes) == 1

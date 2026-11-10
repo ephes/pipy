@@ -91,6 +91,10 @@ def _run_selector(
     _set_size(slave, 80, 24)
     env = os.environ.copy()
     env.update({"TERM": "xterm-256color", "NO_COLOR": "1"})
+    # COLUMNS/LINES take precedence over the winsize; the selector must follow
+    # the PTY size this test sets and resizes.
+    env.pop("COLUMNS", None)
+    env.pop("LINES", None)
     proc = subprocess.Popen(
         [sys.executable, "-c", _CHILD, str(cwd), str(result_path)],
         stdin=slave,

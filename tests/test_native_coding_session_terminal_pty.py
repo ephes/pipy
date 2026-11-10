@@ -37,6 +37,7 @@ from pty_sync import (
     wait_for_input_ready_count,
     wait_for_output,
     wait_for_output_after,
+    wait_for_raw_input_after,
 )
 
 from pipy_harness.models import HarnessStatus
@@ -2846,8 +2847,14 @@ def test_pty_slash_quit_during_model_bash_tool_output_exits(
     worker.start()
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        submit_start = len(output_bytes(err_chunks))
         os.write(in_master, b"start bash tool\n")
-        assert _wait_for(err_chunks, "tool-running"), "bash tool output never streamed"
+        # The turn re-enters raw mode (flushing typeahead) around the tool's
+        # first output, in either order: send /quit only once input is held.
+        assert (
+            wait_for_raw_input_after(err_chunks, "tool-running", after=submit_start)
+            is not None
+        ), "bash tool output never streamed with input held"
         os.write(in_master, b"/quit\n")
         worker.join(timeout=8.0)
     finally:
@@ -2967,8 +2974,14 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
     worker.start()
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        submit_start = len(output_bytes(err_chunks))
         os.write(in_master, b"start multi tool\n")
-        assert _wait_for(err_chunks, "first-tool-running"), "bash tool never streamed"
+        assert (
+            wait_for_raw_input_after(
+                err_chunks, "first-tool-running", after=submit_start
+            )
+            is not None
+        ), "bash tool never streamed with input held"
         hotkeys_start = len(output_bytes(err_chunks))
         os.write(in_master, b"/hotkeys\n")
         # Preserve the shipped post-TCSAFLUSH byte handshake, now through the

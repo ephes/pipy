@@ -458,10 +458,14 @@ def test_backend_stop_cancels_tool_without_operator_turn(
     entered = threading.Event()
     cancelled = threading.Event()
 
+    # The tool holds until it is cancelled, far longer than the run may take:
+    # an outcome within the bound below proves the stop cancelled it.
+    tool_hold = 30.0
+
     def invoke(request: ToolRequest, context: ToolContext) -> None:
         entered.set()
         assert context.cancel_event is not None
-        assert context.cancel_event.wait(5)
+        assert context.cancel_event.wait(tool_hold)
         cancelled.set()
 
     if failure == "backend":
@@ -485,14 +489,16 @@ def test_backend_stop_cancels_tool_without_operator_turn(
         tmp_path,
         "tools.bash(); text('late')",
         paths=paths,
-        wall=0.5 if failure == "deadline" else 5,
+        # The deadline must leave a loaded machine time to start the guest
+        # and reach the call; the backend case must not reach its deadline.
+        wall=3.0 if failure == "deadline" else tool_hold,
         waiter=partial(wait_for_external_tool_interrupt, threading.Event()),
         extra={"bash": _Tool("bash", invoke)},
     )
     started = time.monotonic()
     outcome = loop.run(_run_input())
-    assert time.monotonic() - started < 3
-    assert entered.is_set() and cancelled.wait(1)
+    assert time.monotonic() - started < tool_hold / 2
+    assert entered.is_set() and cancelled.wait(5)
     children = [
         event for event in events.events if isinstance(event, NestedToolCallCompleted)
     ]

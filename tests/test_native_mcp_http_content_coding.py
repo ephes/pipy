@@ -129,13 +129,17 @@ _DOCUMENT = b'{"jsonrpc": "2.0", "id": 1, "result": {}}'
 @pytest.mark.parametrize(
     ("encoding", "body"),
     [
-        ("gzip", gzip.compress(_DOCUMENT)),
-        ("X-Gzip", gzip.compress(_DOCUMENT)),
+        ("gzip", gzip.compress(_DOCUMENT, mtime=0)),
+        ("X-Gzip", gzip.compress(_DOCUMENT, mtime=0)),
         ("deflate", zlib.compress(_DOCUMENT)),
         ("deflate", _deflate_raw(_DOCUMENT)),
-        ("deflate, gzip", gzip.compress(zlib.compress(_DOCUMENT))),
-        ("gzip", gzip.compress(_DOCUMENT[:9]) + gzip.compress(_DOCUMENT[9:])),
-        ("gzip", gzip.compress(_DOCUMENT) + b"\x00garbage"),
+        ("deflate, gzip", gzip.compress(zlib.compress(_DOCUMENT), mtime=0)),
+        (
+            "gzip",
+            gzip.compress(_DOCUMENT[:9], mtime=0)
+            + gzip.compress(_DOCUMENT[9:], mtime=0),
+        ),
+        ("gzip", gzip.compress(_DOCUMENT, mtime=0) + b"\x00garbage"),
         ("deflate", zlib.compress(_DOCUMENT) + b"garbage"),
     ],
 )

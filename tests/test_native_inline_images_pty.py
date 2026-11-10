@@ -10,7 +10,11 @@ import os
 from pathlib import Path
 
 import pytest
-from pty_sync import wait_for_input_ready_after, wait_for_output
+from pty_sync import (
+    wait_for_input_ready_after,
+    wait_for_output,
+    wait_for_raw_input_after,
+)
 from test_native_mcp_readiness_pty import _TIMEOUT, _finish, _launch
 
 
@@ -30,8 +34,15 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, protocol: str) -> str:
         assert done is not None
         if protocol == "kitty":
             os.write(fd, b"\x0f")
-            assert wait_for_output(
+            deleted = wait_for_output(
                 chunks, "\x1b_Ga=d,d=I,", after=done, timeout=_TIMEOUT
+            )
+            assert deleted is not None
+            # Ctrl+O leaves raw input while it redraws: /exit waits until the
+            # image is placed again and raw input is held again, or the
+            # re-entry's flush could drop it.
+            assert wait_for_raw_input_after(
+                chunks, "\x1b_Ga=T", after=deleted, timeout=_TIMEOUT
             )
         os.write(fd, b"/exit\r")
     finally:

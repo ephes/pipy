@@ -256,11 +256,28 @@ def test_an_rpc_session_signalled_during_a_run_aborts_it_drops_the_queue_and_clo
                 stream.close()
 
 
+# A print run of the fake provider ends within a second, and nothing waits
+# for a ``deferred`` server: under load it could end before its server even
+# started. With ``direct`` tools the first prompt waits for the server, and
+# with that wait lifted to ten minutes only the signal ends the run.
+_HELD_PRINT_RUN = (
+    "import sys\n"
+    "from pipy_harness.native.mcp import readiness\n"
+    "readiness.STARTUP_WAIT_SECONDS = 600.0\n"
+    "from pipy_harness.cli import main\n"
+    "raise SystemExit(main(sys.argv[1:]))\n"
+)
+
+
 def test_a_print_run_that_is_signalled_closes_its_server(
     workspace: _Workspace,
 ) -> None:
+    config = workspace.root / "config" / "mcp.json"
+    servers = json.loads(config.read_text(encoding="utf-8"))
+    servers["mcpServers"]["slow"]["exposure"] = "direct"
+    config.write_text(json.dumps(servers), encoding="utf-8")
     pipy = subprocess.Popen(  # noqa: S603
-        [*_PIPY, "-p", "hello"],
+        [sys.executable, "-c", _HELD_PRINT_RUN, "-p", "hello"],
         cwd=workspace.cwd,
         env=workspace.env,
         stdin=subprocess.DEVNULL,
