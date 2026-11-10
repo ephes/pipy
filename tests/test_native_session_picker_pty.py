@@ -57,17 +57,27 @@ def _set_winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
 
-def _teardown(stdin, terminal, in_master: int, err_master: int) -> None:
-    """Close all pty endpoints so the drainer thread sees EOF and exits."""
+def _teardown(
+    stdin, terminal, in_master: int, err_master: int, err_thread: threading.Thread
+) -> None:
+    """Close the slaves, join the drainer, then close the masters.
 
-    for closer in (
-        lambda: stdin.close(),
-        lambda: terminal.close(),
-        lambda: os.close(in_master),
-        lambda: os.close(err_master),
-    ):
+    The drainer reads ``err_master`` by number. Closed while the drainer is
+    between reads, that number can be handed to the pty of the next test,
+    and the old drainer would then read (and keep) the next test's output.
+    Closing the slave first ends the drainer's reads with EIO or EOF.
+    """
+
+    for closer in (lambda: stdin.close(), lambda: terminal.close()):
         try:
             closer()
+        except OSError:
+            pass
+    err_thread.join(timeout=8.0)
+    assert not err_thread.is_alive(), "pty drainer did not exit"
+    for fd in (in_master, err_master):
+        try:
+            os.close(fd)
         except OSError:
             pass
 
@@ -106,7 +116,7 @@ def test_pty_picker_navigate_resize_and_select(
     _set_winsize(err_slave, 24, 80)
     stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
-    _err_thread, err_chunks = _spawn_live_drainer(err_master)
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
@@ -142,7 +152,7 @@ def test_pty_picker_navigate_resize_and_select(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "picker worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == [Path("/store/b.jsonl")]
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     assert "\x1b[?1049h" not in captured, "picker must not enter the alternate screen"
@@ -158,7 +168,7 @@ def test_pty_picker_esc_cancels(
     _set_winsize(err_slave, 24, 80)
     stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
     terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
-    _err_thread, err_chunks = _spawn_live_drainer(err_master)
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     ui = TerminalUi(
         input_stream=cast(TextIO, stdin),
@@ -183,5 +193,5 @@ def test_pty_picker_esc_cancels(
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "picker worker did not exit"
     finally:
-        _teardown(stdin, terminal, in_master, err_master)
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
     assert result == [None]
