@@ -30,6 +30,7 @@ from typing import TextIO, cast
 
 import pytest
 from pty_sync import (
+    flush_abandoned_ptys_at_exit,
     input_ready_count,
     output_bytes,
     wait_for_input_ready_after,
@@ -58,6 +59,7 @@ from pipy_harness.native.tui import TerminalUi
 
 _RETAINED_PTY_STREAMS: list[object] = []
 _ABANDONED_PTY_FDS: list[int] = []
+flush_abandoned_ptys_at_exit(_ABANDONED_PTY_FDS)
 _DRAINER_STOPS: dict[threading.Thread, threading.Event] = {}
 
 

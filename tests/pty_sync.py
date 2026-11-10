@@ -9,8 +9,11 @@ no longer be discarded.
 
 from __future__ import annotations
 
+import atexit
+import contextlib
 import os
 import select
+import termios
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -34,6 +37,25 @@ class FdInputReadyObservation:
     output: bytes
     observed_end: int | None
     ready_end: int | None
+
+
+def flush_abandoned_ptys_at_exit(fds: list[int]) -> None:
+    """Discard what is still queued on ``fds`` when the process exits.
+
+    Tests that leave PTY descriptors open for process teardown (closing them
+    while a product thread may still poll them is unsafe) pay at exit instead:
+    on macOS, closing a PTY whose input or output queue still holds a byte
+    waits about 0.6 s per descriptor, which held a pytest worker for half a
+    minute after its last test. ``fds`` is read at exit, so register the
+    module's list once and keep appending to it.
+    """
+
+    def flush() -> None:
+        for fd in fds:
+            with contextlib.suppress(OSError, termios.error):
+                termios.tcflush(fd, termios.TCIOFLUSH)
+
+    atexit.register(flush)
 
 
 def output_bytes(chunks: Sequence[bytes]) -> bytes:
