@@ -116,10 +116,12 @@ def _select(config: pytest.Config) -> None:
 
 
 def _cpus() -> int:
-    try:
-        return len(os.sched_getaffinity(0))
-    except AttributeError:  # Not on Linux.
-        return os.cpu_count() or 1
+    # getattr: macOS has no sched_getaffinity, and Mypy checks for the host
+    # platform, so a direct call fails `just typecheck` there.
+    getaffinity = getattr(os, "sched_getaffinity", None)
+    if getaffinity is not None:
+        return len(getaffinity(0))
+    return os.cpu_count() or 1
 
 
 def _plan_workers(config: pytest.Config, selection: routing.Selection) -> str:

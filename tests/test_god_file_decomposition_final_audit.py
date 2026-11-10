@@ -8,7 +8,7 @@ import importlib.util
 import json
 import sys
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Container, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -240,10 +240,26 @@ _UNRESOLVED_TYPE_ALIAS = "<unresolved-type-alias>"
 _ALIAS_FAILURES = frozenset({_CYCLIC_TYPE_ALIAS, _UNRESOLVED_TYPE_ALIAS})
 
 
+@dataclass(frozen=True)
+class _Terminals:
+    """Symbols that end alias resolution: the classes and functions known so far.
+
+    A live membership view over both maps. ``_expression_types`` runs about
+    100,000 times per audit; copying both key sets into a new frozenset on
+    every call took more than half of the audit's time.
+    """
+
+    classes: Mapping[str, object]
+    functions: Mapping[str, object]
+
+    def __contains__(self, symbol: object) -> bool:
+        return symbol in self.classes or symbol in self.functions
+
+
 def _canonical_alias_target(
     canonical: str | None,
     type_aliases: _TypeAliases,
-    terminals: frozenset[str],
+    terminals: Container[str | None],
 ) -> str | None:
     seen: set[str] = set()
     while canonical is not None:
@@ -532,7 +548,7 @@ def _expression_types(
     symbol_aliases: _SymbolAliases,
     type_aliases: _TypeAliases,
 ) -> frozenset[str]:
-    terminals = frozenset(classes) | frozenset(function_returns)
+    terminals = _Terminals(classes, function_returns)
     if isinstance(expression, ast.Await):
         return _expression_types(
             expression.value,
@@ -615,7 +631,7 @@ def _canonical_expression_symbol(
     module: _Module,
     aliases: _SymbolAliases,
     type_aliases: _TypeAliases,
-    terminals: frozenset[str],
+    terminals: Container[str | None],
 ) -> str | None:
     canonical = _resolved_symbol(expression, module, aliases)
     if canonical in terminals or not _annotation_alias_is_bound(expression, aliases):

@@ -85,18 +85,27 @@ def test_guard_restores_bytecode_writing_after_a_collected_import(
         assert not _rewrite_caches(tmp_path, "test_b_after")
 
 
-def test_guard_keeps_bytecode_writing_disabled_under_dash_b(tmp_path: Path) -> None:
+@pytest.mark.parametrize("switch", ["dash-B", "env"])
+def test_guard_writes_rewrite_caches_but_keeps_tests_on_the_callers_setting(
+    tmp_path: Path, switch: str
+) -> None:
+    # Agent harnesses export PYTHONDONTWRITEBYTECODE; without the rewrite caches
+    # every pytest process rewrites every test module again.
     _write_project(tmp_path)
     (tmp_path / "test_b_after.py").write_text(
         "import sys\n\n\ndef test_b():\n    assert sys.dont_write_bytecode is True\n",
         encoding="utf-8",
     )
     env = {key: value for key, value in os.environ.items() if key != "PYTEST_ADDOPTS"}
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
     env["PYTHONPATH"] = str(PLUGIN_DIR)
+    flags = ["-B"] if switch == "dash-B" else []
+    if switch == "env":
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
     result = subprocess.run(
         [
             sys.executable,
-            "-B",
+            *flags,
             "-m",
             "pytest",
             "-q",
@@ -114,4 +123,5 @@ def test_guard_keeps_bytecode_writing_disabled_under_dash_b(tmp_path: Path) -> N
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert not _rewrite_caches(tmp_path, "test_b_after")
+    assert _rewrite_caches(tmp_path, "test_a_imports_flag_setter")
+    assert _rewrite_caches(tmp_path, "test_b_after")

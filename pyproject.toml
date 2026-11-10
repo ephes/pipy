@@ -66,7 +66,9 @@ packages = ["src/pipy_session", "src/pipy_harness"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # tests/pytest_plugins/pipy_bytecode_guard.py keeps assertion-rewrite caching on
-# when a collected module turns off sys.dont_write_bytecode (see its docstring).
+# during collection, also when a collected module turns sys.dont_write_bytecode
+# on or the caller runs python -B or exports PYTHONDONTWRITEBYTECODE, and
+# restores the caller's setting afterwards (see its docstring).
 # tests/pytest_plugins/pipy_test_tiers.py adds the --pipy-tier selection used by
 # the justfile test recipes and the durable/pty/node/subprocess/smoke markers.
 # tests/pytest_plugins/pipy_tmp_numbering.py keeps tmp_path/mktemp from listing

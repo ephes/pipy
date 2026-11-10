@@ -196,14 +196,19 @@ git status --short
 `just check` runs lint, repository-wide format checking, Mypy over `src` and
 `tests`, and the default test gate (see Test tiers). Pytest loads
 `tests/pytest_plugins/pipy_bytecode_guard.py` through `addopts` in
-`pyproject.toml`; it keeps assertion-rewrite caching on when a collected module
-or script turns `sys.dont_write_bytecode` on. It also loads
+`pyproject.toml`; it keeps assertion-rewrite caching on during collection, even
+when a collected module or script turns `sys.dont_write_bytecode` on or the
+caller exports `PYTHONDONTWRITEBYTECODE` (as some agent harnesses do) or runs
+`python -B`. Without those caches every Pytest process, each xdist worker
+included, rewrites every test module again: full collection took 15 s instead
+of 3 s. Test bodies and the child processes they start still see the caller's
+setting. Helper scripts may still set that flag for their own child processes,
+but keep the guard rather than working around it in `tests/conftest.py`, which
+the durable manifests pin. Pytest also loads
 `tests/pytest_plugins/pipy_tmp_numbering.py`, which keeps `tmp_path` and
 `tmp_path_factory.mktemp` from listing the whole base temporary directory on
 every call: Pytest's own numbering made each test slower than the one before
-it (6,000 `tmp_path` tests in one process took 137 s instead of 13 s). Helper scripts may still set that
-flag for their own child processes, but keep the guard rather than working
-around it in `tests/conftest.py`, which the durable manifests pin. `just docs-build` builds the Zensical site
+it (6,000 `tmp_path` tests in one process took 137 s instead of 13 s). `just docs-build` builds the Zensical site
 through `scripts/docs.py build`, with strict link and anchor validation.
 The docs build validates the site locally. Read the Docs uses
 [`.readthedocs.yaml`](.readthedocs.yaml) to install only the locked `docs`
