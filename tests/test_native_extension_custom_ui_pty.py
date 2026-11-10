@@ -68,6 +68,21 @@ def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
     return thread, collected
 
 
+def _wait_for_count(
+    collected: list[bytes], needle: str, count: int, *, timeout: float = 8.0
+) -> bool:
+    """Until ``needle`` was read ``count`` times. Teardown stops the drainer
+    at once, so output written just before it must be read first."""
+
+    deadline = time.monotonic() + timeout
+    encoded = needle.encode("utf-8")
+    while time.monotonic() < deadline:
+        if b"".join(collected).count(encoded) >= count:
+            return True
+        time.sleep(0.02)
+    return False
+
+
 def _wait_for(collected: list[bytes], needle: str, *, timeout: float = 8.0) -> bool:
     deadline = time.monotonic() + timeout
     encoded = needle.encode("utf-8")
@@ -362,6 +377,9 @@ def test_pty_extension_editor_external_editor_success(
         assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
         ui.components.driver.restore_terminal_mode()
         assert termios.tcgetattr(stdin.fileno())[3] & termios.ICANON
+        assert _wait_for_count(err_chunks, "\x1b[?2004l", 2), (
+            "bracketed paste was not disabled twice"
+        )
     finally:
         ui.components.driver.force_restore_terminal_mode()
         _teardown(stdin, terminal, in_master, err_master, err_thread)
@@ -417,6 +435,9 @@ def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
         ui.components.driver.restore_terminal_mode()
         assert ui.components.driver._raw_mode_depth == 0
         assert termios.tcgetattr(stdin.fileno())[3] & termios.ICANON
+        assert _wait_for_count(err_chunks, "\x1b[?2004l", 2), (
+            "bracketed paste was not disabled twice"
+        )
     finally:
         ui.components.driver.force_restore_terminal_mode()
         _teardown(stdin, terminal, in_master, err_master, err_thread)
