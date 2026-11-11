@@ -6,6 +6,11 @@ process death**. This second experiment runs the real synchronous `AgentLoop`;
 it is still a standalone experiment, with no production entry-point, default,
 product-session migration or native runtime source change.
 
+The [canonical-loop integration design](durable-loop-integration-design.md)
+of 2026-11-11 decides how this spike's findings become product behaviour: the
+durable scheduler as the sole execution owner, a shared turn kernel, a
+committed event projection, and the P15/P16 tool-result gaps.
+
 The owner later authorized the full
 [durable execution work order](specs/2026-10-19-durable-execution-plan.md).
 DE00 imports and reproduces this spike; the
