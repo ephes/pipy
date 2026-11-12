@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any, Literal, cast
 
 from pipy_harness.native.agent.json_values import _normal_scalar
 from pipy_harness.native.agent.tool_details import (
@@ -17,7 +17,10 @@ from pipy_harness.native.agent.tool_details import (
     NO_TOOL_DETAILS,
     _forward_owned_tool_details,
 )
-from pipy_harness.native.tools.truncate import truncate_tail
+from pipy_harness.native.tools.truncate import (
+    OutputTail,
+    OutputTailRefused,
+)
 
 from .codec import OwnedJson
 from .generation_tasks import tool_input
@@ -32,6 +35,9 @@ PERIOD_BYTES_PER_SECOND = 128 * 1024
 # Reserve the error/truncation trailer independently of caller diagnostics.
 TRAILER_CHARACTERS = 1024
 DIAGNOSTIC_CHARACTERS = 64 * 1024 - OUTPUT_BYTES - TRAILER_CHARACTERS
+# Part of the trailer reserve for the Harness's own diagnostic (the P16
+# ``truncated`` one), which is not charged to the tool's diagnostics.
+HARNESS_DIAGNOSTIC_CHARACTERS = 256
 
 FailureCategory = Literal[
     "invalid_progress", "progress_capacity", "invocation_exception", "invalid_result"
@@ -293,17 +299,24 @@ class Diagnostic:
         return "[" + self.severity + code + "] " + self.message
 
 
-def diagnostics(value: object) -> tuple[Diagnostic, ...]:
+def diagnostics(value: object, *, harness: bool = False) -> tuple[Diagnostic, ...]:
+    """Validate retained diagnostics within their model-text budget.
+
+    A tool's own diagnostics get ``DIAGNOSTIC_CHARACTERS``; with ``harness``
+    (reads of retained and final facts) the list may also hold the Harness's
+    own diagnostic in the ``HARNESS_DIAGNOSTIC_CHARACTERS`` reserve.
+    """
     if type(value) is not list:
         raise ProgressRefused("invalid_progress")
     result = []
     characters = 0
+    budget = DIAGNOSTIC_CHARACTERS + (HARNESS_DIAGNOSTIC_CHARACTERS if harness else 0)
     for row in value:
         if type(row) is not dict or set(row) != {"severity", "message", "code"}:
             raise ProgressRefused("invalid_progress")
         item = Diagnostic(**row)
         characters += len(item.render()) + 1
-        if characters > DIAGNOSTIC_CHARACTERS:
+        if characters > budget:
             raise ProgressRefused("progress_capacity")
         result.append(item)
     return tuple(result)
@@ -366,7 +379,7 @@ def progress(value: object) -> OwnedJson:
     if Tail().append(tree["output"]).text != tree["output"]:
         raise ProgressRefused("invalid_progress")
     detail_value(tree["details"])
-    diagnostics(tree["diagnostics"])
+    diagnostics(tree["diagnostics"], harness=True)
     return captured.value
 
 
@@ -389,58 +402,14 @@ def initial_progress(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class Tail:
-    text: str = ""
-    dropped_bytes: int = 0
-    dropped_lines: int = 0
-    _rolling: str = field(default="", repr=False)
-    _total_bytes: int = 0
-    _completed_lines: int = 0
-    _open_line: bool = False
-    _boundary: bool = True
+class Tail(OutputTail):
+    """The durable window: the shared ``OutputTail`` that refuses invalid
+    progress as ``ProgressRefused("invalid_progress")``."""
+
+    __slots__ = ()
 
     def append(self, value: str) -> Tail:
-        """Bound temporary UTF-8/split work even for a huge caller-owned chunk."""
-        if type(value) is not str:
-            raise ProgressRefused("invalid_progress")
-        # Keep rolling input separately from the displayed tail. truncate_tail
-        # can omit a trailing newline; feeding its display back as input would
-        # concatenate the next chunk onto the wrong line.
-        rolling, total = self._rolling, self._total_bytes
-        completed, opened, boundary = (
-            self._completed_lines,
-            self._open_line,
-            self._boundary,
-        )
         try:
-            for start in range(0, len(value), 1024):
-                chunk = value[start : start + 1024]
-                total += len(chunk.encode("utf-8"))
-                completed += chunk.count("\n")
-                opened = not chunk.endswith("\n")
-                encoded = (rolling + chunk).encode("utf-8")
-                cut = max(0, len(encoded) - 2 * OUTPUT_BYTES)
-                while cut < len(encoded) and encoded[cut] & 0xC0 == 0x80:
-                    cut += 1
-                if cut:
-                    boundary = encoded[cut - 1] == 0x0A
-                rolling = encoded[cut:].decode("utf-8")
-            visible = rolling
-            if not boundary and "\n" in visible:
-                visible = visible[visible.index("\n") + 1 :]
-            result = truncate_tail(
-                visible, max_bytes=OUTPUT_BYTES, max_lines=OUTPUT_LINES
-            )
-        except UnicodeError:
+            return cast(Tail, OutputTail.append(self, value))
+        except OutputTailRefused:
             raise ProgressRefused("invalid_progress") from None
-        return Tail(
-            result.content,
-            total - result.output_bytes,
-            completed + int(opened) - result.output_lines,
-            rolling,
-            total,
-            completed,
-            opened,
-            boundary,
-        )

@@ -2047,7 +2047,7 @@
     },
     {
       "path": "src/pipy_harness/native/agent/tools.py",
-      "current_sha256": "84ef4a4a163ae6200d666cf92e48b2bdae031857185aec025fb471a069b2bbfd",
+      "current_sha256": "56d1cf34f07b9c752d55e73d7dd0196bfbb6b8f8a4c0bf132980a1a5c8f3984f",
       "disposition": "Existing executor forwards actual final details/evidence only; no retained-gate or lifecycle policy change."
     },
     {
@@ -2177,7 +2177,7 @@
     },
     {
       "path": "src/pipy_harness/native/tools/base.py",
-      "current_sha256": "f9c69be3b25584a98f68bb6af27b7f626511f4733e2f4536c8dd15191101893e",
+      "current_sha256": "366c13e0fcbf6e0aac017d1695e0b18304d908ecfa12c0283671aae973797b94",
       "disposition": "Direct ToolExecutionResult owns normal values and applies a stdlib encoding predicate; extension forwarding retains its JSON text-copy policy. Nested/history DTOs copy values only; durable ingress retains exact binary64/plain JSON validation."
     },
     {

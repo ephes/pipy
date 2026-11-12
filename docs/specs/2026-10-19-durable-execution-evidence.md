@@ -9649,3 +9649,33 @@ on the repair delta converged with one Suggestion, answered by narrowing the
 documented rule to adoption and the publication scope (own observers stay with
 R15-4, U16). `just test-full` on the final code: the only failures are the two
 pi-mono checkout tests known since R15-0. No P row closes; all 43 remain OPEN.
+
+### P16 slice S1: omitted output in both hosts (2026-11-12)
+
+Slice S1 of the [loop integration design](../durable-loop-integration-design.md)
+(§4.6, decisions in §7a): `RETAINED_OUTPUT`, `RetainedOutputSnapshot` and the
+`ToolContext` reporting API (`retained_output()`, `report_details()`,
+`report_diagnostic()`) in both hosts; the window value moved to
+`native/tools/truncate.py` as `OutputTail`, with the durable `Tail` a subclass
+that keeps its refusal, so the durable window is unchanged; a non-committing
+`RetainedOutputWindow` in the ordinary executor; the durable reporter resolves
+an omitted output to its window and reports the Harness's `truncated`
+diagnostic in a reserve beyond the tool's diagnostic budget. The five cases of
+design §6 pass on the synchronous and the interruptible ordinary executor and
+through the durable product session with the same model text.
+
+Receipts on the development host (macOS, Python 3.15.2), on the final S1 code
+before the documentation digests of this entry, with the official Node v26.13.0
+archive first on `PATH`: a fresh baseline acceptance (execution `543a398d-23c4-4941-8620-bc966110a2b3`,
+`acceptance.json` SHA256 `619647c4fe1d6e73d0cbbb2888647531e8c08a94e59d7b20f0440cd14aa63d6b`) and all 31 comparison phases after it exited
+0, 32 commands in 939 s. The comparison expectations are unchanged; S2 pairs
+the omitted-output cases. Independent review with Claude Opus 5.5 at high
+effort: round 1 found two Warnings (the ordinary diagnostic budget did not
+count rendered lines; the durable `truncated` diagnostic was charged to the
+tool's budget) and two Suggestions, all repaired; round 2 on the delta
+converged with one Suggestion, applied (the ordinary host bounds an overlong
+explicit output with the durable projection's notice). `just test-full`: the
+only failures are the two pi-mono checkout tests known since R15-0. No P row
+closes; all 43 remain OPEN, and `pipy-durable-p16-omitted-tool-output` stays
+open for S2.
+

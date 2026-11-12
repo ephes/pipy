@@ -5,13 +5,18 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import monotonic
 from typing import Any, TypeVar
 
 from pipy_harness.native.agent.content import ToolOutput, ToolPartialResult
 from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS
-from pipy_harness.native.agent.tools import _InvocationOutputGate
+from pipy_harness.native.agent.tools import _InvocationOutputGate, truncated_diagnostic
+from pipy_harness.native.tools.base import (
+    RETAINED_OUTPUT,
+    RetainedOutputSnapshot,
+    ToolExecutionResult,
+)
 
 from .codec import OwnedJson
 from .tool_progress_values import (
@@ -241,6 +246,47 @@ class RetainedToolProgress(_InvocationOutputGate):
         try:
             self._run_admitted(report)
         except Exception as error:  # noqa: BLE001 - diagnostic is a void callback
+            self._capture_failure(error)
+
+    def retained_output(self) -> RetainedOutputSnapshot:
+        """The retained window so far (Pi ``retainedOutput()``)."""
+        with self._condition:
+            tail = self._tail
+        return RetainedOutputSnapshot(tail.text, tail.dropped_bytes > 0)
+
+    def settle(self, result: ToolExecutionResult) -> ToolExecutionResult:
+        """Pi ``finalResult`` for an omitted output: the retained text, plus the
+        ``truncated`` diagnostic, reported last, when the window dropped bytes.
+        The transport applies the details fallback."""
+        if result.output_text is not RETAINED_OUTPUT:
+            return result
+        with self._condition:
+            tail = self._tail
+        if tail.dropped_bytes > 0:
+            self._report_harness(
+                Diagnostic(
+                    *truncated_diagnostic(tail.dropped_lines, tail.dropped_bytes)
+                )
+            )
+        return replace(result, output_text=tail.text)
+
+    def _report_harness(self, diagnostic: Diagnostic) -> None:
+        """The Harness's own diagnostic, in its reserve beyond the tool's budget."""
+
+        def capture() -> _PreparedProgress:
+            def change(tree: dict[str, Any], tail: Tail) -> Tail:
+                tree["diagnostics"].append(diagnostic.tree())
+                diagnostics(tree["diagnostics"], harness=True)
+                return tail
+
+            return self._capture_update(change)
+
+        def report(sink: Any) -> None:
+            self._prepare(lambda: self._install(capture()))
+
+        try:
+            self._run_admitted(report)
+        except Exception as error:  # noqa: BLE001 - a void report, as report_diagnostic
             self._capture_failure(error)
 
     def report_details(self, value: object) -> None:

@@ -1194,9 +1194,11 @@ missing ports and ceilings. DE26/33 timing/capacity and DE27/28 full storage/gra
 budgets remain open. Native tool-result text signatures are currently refused;
 `pipy-durable-p15-tool-text-signatures` owns the remaining full P15 metadata
 parity. Pi preserves this metadata even when truncating tool content; B does not
-define a later signature-removal policy. Native normal tool results require
-explicit text, whereas Pi accepts omitted output and retains reported output.
-`pipy-durable-p16-omitted-tool-output` owns that API gap. The four-case reporting
+define a later signature-removal policy. Since slice S1 of the
+[loop integration design](durable-loop-integration-design.md) a native tool may
+omit its output (`RETAINED_OUTPUT`) and gets the retained output, in the
+ordinary and the durable host; `pipy-durable-p16-omitted-tool-output` stays
+open until S2 pairs the omitted-output cases in the reporting comparison. The four-case reporting
 comparison records these different producer inputs and compares only declared
 common observables, without claiming fallback parity. All 43 P rows and parent
 DE13 remain OPEN.

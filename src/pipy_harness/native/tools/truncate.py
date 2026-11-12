@@ -12,7 +12,7 @@ results use it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
@@ -322,3 +322,71 @@ def truncate_middle(content: str, max_bytes: int) -> MiddleTruncationResult:
         total_bytes=len(buf),
         total_lines=total_lines,
     )
+
+
+class OutputTailRefused(ValueError):
+    """Output that is not text, or not encodable as UTF-8."""
+
+
+@dataclass(frozen=True, slots=True)
+class OutputTail:
+    """The last 50 KB / 2000 lines of a tool's live output, with what it dropped.
+
+    ``append`` returns the window after one more chunk. Its working memory is
+    bounded (about twice the byte limit) however much output passes through.
+    Shared by the ordinary and the durable host (P16).
+    """
+
+    text: str = ""
+    dropped_bytes: int = 0
+    dropped_lines: int = 0
+    _rolling: str = field(default="", repr=False)
+    _total_bytes: int = 0
+    _completed_lines: int = 0
+    _open_line: bool = False
+    _boundary: bool = True
+
+    def append(self, value: str) -> OutputTail:
+        """Bound temporary UTF-8/split work even for a huge caller-owned chunk."""
+        if type(value) is not str:
+            raise OutputTailRefused()
+        # Keep rolling input separately from the displayed tail. truncate_tail
+        # can omit a trailing newline; feeding its display back as input would
+        # concatenate the next chunk onto the wrong line.
+        rolling, total = self._rolling, self._total_bytes
+        completed, opened, boundary = (
+            self._completed_lines,
+            self._open_line,
+            self._boundary,
+        )
+        try:
+            for start in range(0, len(value), 1024):
+                chunk = value[start : start + 1024]
+                total += len(chunk.encode("utf-8"))
+                completed += chunk.count("\n")
+                opened = not chunk.endswith("\n")
+                encoded = (rolling + chunk).encode("utf-8")
+                cut = max(0, len(encoded) - 2 * DEFAULT_MAX_BYTES)
+                while cut < len(encoded) and encoded[cut] & 0xC0 == 0x80:
+                    cut += 1
+                if cut:
+                    boundary = encoded[cut - 1] == 0x0A
+                rolling = encoded[cut:].decode("utf-8")
+            visible = rolling
+            if not boundary and "\n" in visible:
+                visible = visible[visible.index("\n") + 1 :]
+            result = truncate_tail(
+                visible, max_bytes=DEFAULT_MAX_BYTES, max_lines=DEFAULT_MAX_LINES
+            )
+        except UnicodeError:
+            raise OutputTailRefused() from None
+        return type(self)(
+            result.content,
+            total - result.output_bytes,
+            completed + int(opened) - result.output_lines,
+            rolling,
+            total,
+            completed,
+            opened,
+            boundary,
+        )

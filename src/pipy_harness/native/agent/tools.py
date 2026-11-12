@@ -9,11 +9,19 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from math import isfinite
 from time import monotonic
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
-from pipy_harness.native.agent.content import ProductContent, ToolOutput
+from pipy_harness.native.agent.content import (
+    ProductContent,
+    TextContent,
+    ToolOutput,
+    ToolPartialResult,
+)
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
+from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS, admit_tool_details
 from pipy_harness.native.tools.base import (
+    RETAINED_OUTPUT,
+    RetainedOutputSnapshot,
     ToolArgumentError,
     ToolContext,
     ToolDefinition,
@@ -286,6 +294,201 @@ class _InvocationOutputGate(_RetainedOutputSink):
         with self._condition:
             return self._retain
 
+    def retained_output(self) -> RetainedOutputSnapshot:
+        """No retained window: the empty snapshot."""
+        return RetainedOutputSnapshot()
+
+    def report_details(self, value: object) -> None:
+        """No reporter: reported details are dropped."""
+
+    def report_diagnostic(
+        self, *, severity: Any, message: Any, code: Any = None
+    ) -> None:
+        """No reporter: reported diagnostics are dropped."""
+
+    def settle(self, result: ToolExecutionResult) -> ToolExecutionResult:
+        """The tool's final result in this gate's host (P16).
+
+        A gate without a retained window resolves an omitted output to empty
+        content; ``RetainedOutputWindow`` and the durable reporter apply the
+        retained output, details and diagnostics.
+        """
+        if result.output_text is RETAINED_OUTPUT:
+            return replace(result, output_text="")
+        return result
+
+
+DIAGNOSTIC_SEVERITIES = ("info", "warning", "error")
+# Reported diagnostics become model text; keep them within what a result holds
+# beside the 50 KB window, counted as rendered lines, exactly as the durable
+# host counts them (``tool_progress_values.DIAGNOSTIC_CHARACTERS``).
+WINDOW_BYTES = 50 * 1024
+DIAGNOSTIC_CHARACTERS = ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH - WINDOW_BYTES - 1024
+
+
+def render_diagnostic(severity: str, message: str, code: str | None) -> str:
+    """One diagnostic as model text, as the durable projection renders it."""
+    return "[" + severity + ("" if code is None else " (" + code + ")") + "] " + message
+
+
+def truncated_diagnostic(
+    dropped_lines: int, dropped_bytes: int
+) -> tuple[Literal["warning"], str, str]:
+    """Pi's ``truncated`` harness diagnostic for a window that keeps the end."""
+    return (
+        "warning",
+        f"Output truncated to its end: {dropped_lines} lines, "
+        f"{dropped_bytes} bytes dropped",
+        "truncated",
+    )
+
+
+# The durable projection's notice for an output it bounded (``project_tool_output``).
+TRUNCATED_NOTICE = "[tool output truncated]"
+
+
+def _harness(notes: Sequence[tuple[str, str, str | None]], bounded: bool) -> str:
+    """Diagnostics as the durable projection renders them after the output."""
+    lines = [render_diagnostic(*note) for note in notes]
+    if bounded:
+        lines.insert(0, TRUNCATED_NOTICE)
+    return "<harness>\n" + "\n".join(lines) + "\n</harness>"
+
+
+class RetainedOutputWindow(_InvocationOutputGate):
+    """The ordinary host's non-committing retained output of one invocation (P16).
+
+    It keeps what the durable reporter keeps, without committing it: the last
+    50 KB / 2000 lines of the live output (a ``ToolPartialResult`` replaces it,
+    a string appends to it), the details last given to ``report_details`` and
+    the reported diagnostics. Unlike the durable reporter, a partial result's
+    details are not reported details here, as in Pi's agent. Live output still reaches the context's sink, if any. The tool
+    always gets a sink, so its output is retained without a live consumer.
+    """
+
+    def __init__(self, sink: ToolOutputSink | None) -> None:
+        # Imported here so a headless import of the agent stays tool-free.
+        from pipy_harness.native.tools.truncate import OutputTail
+
+        super().__init__(sink)
+        self._tail = OutputTail()
+        self._details: Any = NO_TOOL_DETAILS
+        self._diagnostics: list[tuple[str, str, str | None]] = []
+        self._diagnostic_characters = 0
+
+    @property
+    def sink(self) -> ToolOutputSink:
+        return self
+
+    def __call__(self, output: ToolOutput) -> None:
+        self._observe(output)
+
+    def dispatch(self, capture: Callable[[], ToolOutput]) -> None:
+        with self._condition:
+            if not self._active:
+                return
+        self._observe(capture())
+
+    def _observe(self, output: ToolOutput) -> None:
+        with self._condition:
+            if not self._active:
+                return
+            try:
+                if type(output) is ToolPartialResult:
+                    # A partial result replaces the window. Its details are not
+                    # reported details: Pi's agent never falls back to them.
+                    self._tail = type(self._tail)().append(output.content)
+                elif type(output) is str:
+                    self._tail = self._tail.append(output)
+            except ValueError:
+                pass  # not retainable text; the live sink still gets it
+            sink = self._sink
+        if sink is not None:
+            sink(output)
+
+    def retained_output(self) -> RetainedOutputSnapshot:
+        with self._condition:
+            tail = self._tail
+        return RetainedOutputSnapshot(tail.text, tail.dropped_bytes > 0)
+
+    def report_details(self, value: object) -> None:
+        # Owned now, so the tool may go on mutating its own value; invalid
+        # details raise to the tool (finite JSON only).
+        details = admit_tool_details(value)
+        with self._condition:
+            if self._active:
+                self._details = details
+
+    def report_diagnostic(
+        self, *, severity: str, message: str, code: str | None = None
+    ) -> None:
+        if severity not in DIAGNOSTIC_SEVERITIES or type(message) is not str:
+            raise ValueError("Invalid tool diagnostic")
+        if code is not None and type(code) is not str:
+            raise ValueError("Invalid tool diagnostic code")
+        size = len(render_diagnostic(severity, message, code)) + 1
+        if size > DIAGNOSTIC_CHARACTERS:
+            raise ValueError("Tool diagnostics exceed their budget")
+        try:  # model text: refuse lone surrogates, as the durable host does
+            for value in (message, code or ""):
+                for start in range(0, len(value), 1024):
+                    value[start : start + 1024].encode("utf-8")
+        except UnicodeError:
+            raise ValueError("Invalid tool diagnostic") from None
+        with self._condition:
+            if not self._active:
+                return
+            if self._diagnostic_characters + size > DIAGNOSTIC_CHARACTERS:
+                raise ValueError("Tool diagnostics exceed their budget")
+            self._diagnostic_characters += size
+            self._diagnostics.append((severity, message, code))
+
+    def settle(self, result: ToolExecutionResult) -> ToolExecutionResult:
+        """Pi durable ``finalResult`` in the ordinary host.
+
+        An omitted output is the retained text (empty when nothing was
+        retained), with the ``truncated`` diagnostic when the window dropped
+        bytes; omitted details are the last reported ones; the reported
+        diagnostics come first. Diagnostics are appended to the model text as
+        the durable projection renders them.
+        """
+        with self._condition:
+            tail, details = self._tail, self._details
+            notes = list(self._diagnostics)
+        text = result.output_text
+        if text is RETAINED_OUTPUT:
+            text = tail.text
+            if tail.dropped_bytes > 0:
+                notes.append(
+                    truncated_diagnostic(tail.dropped_lines, tail.dropped_bytes)
+                )
+        changes: dict[str, Any] = {"output_text": text}
+        if result.details is NO_TOOL_DETAILS and details is not NO_TOOL_DETAILS:
+            changes["details"] = details
+        if not notes:
+            return replace(result, **changes)
+        blocks = result.blocks
+        bounded = len(text) + 1 + len(_harness(notes, False)) > (
+            ToolExecutionResult.OUTPUT_TEXT_MAX_LENGTH
+        )
+        if bounded:
+            # Only a tool that reports diagnostics gets here: its explicit
+            # output is bounded to the window's end with the notice the
+            # durable projection gives such an output, so both hosts agree.
+            from pipy_harness.native.tools.truncate import truncate_tail
+
+            text = truncate_tail(text, max_bytes=WINDOW_BYTES).content
+            if blocks:  # images first, then the bounded text
+                blocks = (
+                    *(block for block in blocks if type(block) is not TextContent),
+                    TextContent(text),
+                )
+        suffix = _harness(notes, bounded)
+        changes["output_text"] = text + ("\n" if text else "") + suffix
+        if blocks:
+            changes["blocks"] = (*blocks, TextContent(suffix))
+        return replace(result, **changes)
+
 
 class _ExecutionOrder:
     """Record the first cancellation signal relative to worker completion."""
@@ -368,8 +571,12 @@ class ToolExecutor:
             wait_for_interrupt is not None or not retained_output.retaining
         ):
             raise ValueError("Retained output requires the physically owned executor")
-        output_gate = retained_output or _InvocationOutputGate(context.output_sink)
-        invocation_context = replace(context, output_sink=output_gate.sink)
+        output_gate = retained_output or RetainedOutputWindow(context.output_sink)
+        invocation_context = replace(
+            context,
+            output_sink=output_gate.sink,
+            progress=output_gate,
+        )
         try:
             if wait_for_interrupt is None:
                 return self._execute_once(call, invocation_context, arguments)
@@ -567,6 +774,20 @@ class ToolExecutor:
             )
         return interruption
 
+    @staticmethod
+    def _settle(
+        context: ToolContext, result: ToolExecutionResult
+    ) -> ToolExecutionResult:
+        """Apply the invocation reporter's final-result rules (P16)."""
+        settle = getattr(context.progress, "settle", None)
+        if callable(settle):
+            settled = settle(result)
+            if isinstance(settled, ToolExecutionResult):
+                return settled
+        if result.output_text is RETAINED_OUTPUT:
+            return replace(result, output_text="")
+        return result
+
     def _cancellation_outcome(
         self,
         call: AgentToolCall,
@@ -613,6 +834,7 @@ class ToolExecutor:
             raise TypeError(
                 f"tool {call.tool_name!r} returned non-ToolExecutionResult value"
             )
+        execution_result = self._settle(context, execution_result)
         return ToolExecutionOutcome(
             AgentToolResultMessage(
                 tool_request_id=execution_result.tool_request_id,

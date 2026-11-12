@@ -222,7 +222,10 @@ persistence authority is lost. `NO_TOOL_DETAILS` explicitly clears the value;
 `None`, false, zero, empty containers and scalar/array/object values remain
 present. A final result inherits retained details only when its own details are
 exactly absent. Explicit final null, empty values and legacy unknown presence
-are not replaced. The shared non-durable executor keeps its existing behavior.
+are not replaced. Since P16 slice S1 the shared executor offers the same
+`report_details`, `report_diagnostic` and `retained_output()` on every
+`ToolContext`, without committing, and a tool may omit its output
+(`RETAINED_OUTPUT`) in either host; see [tool details](tool-details.md#omitted-output-and-reported-progress-p16).
 
 `report_diagnostic(severity=..., message=..., code=None)` accepts the finite
 severities `info`, `warning` and `error`. Diagnostics must fit the reserved model
@@ -325,9 +328,11 @@ failure without details. It retains raw records, committed prefix ACKs, model
 requests and fake-provider wire bodies, and checks the actual next answer and
 reopen without another effect. Only its declared common observables are paired.
 Pi's normal fixture omits final output; the native normal fixture explicitly
-returns the reported text because `ToolExecutionResult` currently requires it.
-That different input is retained, not presented as fallback parity:
-`pipy-durable-p16-omitted-tool-output` remains open. Native ordinary failures do
+returns the reported text, because `ToolExecutionResult` required it when the
+comparison was made. S1 added the omitted output (`RETAINED_OUTPUT`); pairing
+the two normal cases is slice S2, so that different input is retained, not
+presented as fallback parity, and `pipy-durable-p16-omitted-tool-output`
+remains open. Native ordinary failures do
 use their retained output. Pi's automatic error diagnostic and native's fixed
 recovery category/model suffix, warning spelling and reporting stage, graph
 shape and policy constants remain raw differences. The comparison does not

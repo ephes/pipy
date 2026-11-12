@@ -63,7 +63,7 @@ def ending_error(tree: dict[str, Any]) -> dict[str, Any]:
 
 def check_ending(tree: dict[str, Any], outcome: ToolExecutionOutcome) -> None:
     """Validate the entire cause before any projection or reader acceptance."""
-    diagnostics(tree["diagnostics"])
+    diagnostics(tree["diagnostics"], harness=True)
     ending, recovery = tree["ending"], tree["recovery"]
     if type(ending) is not str or ending not in ("completed", "failed", "interrupted"):
         raise ValueError("Unsupported durable tool ending")
@@ -144,7 +144,7 @@ def project_tool_output(
     if tree["version"] == 1:
         return outcome.result
     check_ending(tree, outcome)
-    notices = [item.render() for item in diagnostics(tree["diagnostics"])]
+    notices = [item.render() for item in diagnostics(tree["diagnostics"], harness=True)]
     tail = truncate_tail(
         outcome.result.content.value, max_bytes=OUTPUT_BYTES, max_lines=OUTPUT_LINES
     )

@@ -621,6 +621,34 @@ document merged; `pipy-durable-p15-tool-text-signatures` and
 `pipy-durable-p16-omitted-tool-output` reference sections 4.6, 4.7 and the
 slices S1–S4; `pipy-durable-feature-plan` gets a note.
 
+## 7a. Implementation record
+
+- **R15-3 first (owner default for question 1).** R15-3 landed before S1 as
+  `32fe8d2c`. It did not touch `tool_execution.py` after all (section 5 assumed
+  it did); its overlap with S1 to S4 was the manifest re-pin only.
+- **S1 decisions** (made in the slice, class A):
+  - The ordinary host renders reported diagnostics and the `truncated`
+    diagnostic as the durable projection does, in a `<harness>` block after the
+    output text, so both hosts give the same model text. The ordinary result
+    has no other diagnostics channel.
+  - A partial result's details are not reported details in the ordinary host:
+    Pi's agent does not fall back to them, and an existing test pins that. Only
+    `report_details()` fills absent final details there. The durable reporter
+    keeps taking a partial's details, as before.
+  - Item 3's bound of an explicit output applies in the durable host only, as
+    today. The ordinary host keeps an explicit result as the tool returned it,
+    so no existing tool's ordinary result changes. The one exception is a tool
+    that reported diagnostics and whose output and diagnostics together would
+    exceed a result: its output is bounded to the window's end with the
+    durable projection's `[tool output truncated]` notice, not Pi's
+    `truncated` diagnostic, so both hosts give the same text.
+  - The ordinary executor always gives a tool an output sink, so output is
+    retained without a live consumer. The window costs about 150 KB per running
+    call (owner question 3, measured with `tracemalloc`).
+  - In the durable host, the `truncated` diagnostic of an omitted output is
+    reported through the reporter after the tool returns, so it is committed
+    with the others and the projection renders it.
+
 ## 8. Open owner questions
 
 1. Soll R15-3 (Storage-Batch-Commit, unreviewter WIP auf

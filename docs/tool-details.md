@@ -72,8 +72,66 @@ cross-language numeric parity.
 The shared executor and non-durable loop preserve the final returned presence.
 An absent final result does **not** acquire details from an earlier partial.
 For example Bash can publish a partial with `{}` and finish with absent details;
-its final JSONL/SDK value stays absent. Durable retained-progress fallback belongs
-to the later DE13 continuation work and is not active in this ABI slice.
+its final JSONL/SDK value stays absent. Only details a tool reported with
+`ToolContext.report_details()` fill an absent final value (see below).
+
+## Omitted output and reported progress (P16)
+
+A tool may return `RETAINED_OUTPUT` (from `pipy_harness.native.tools.base`)
+instead of its output text, as a Pi durable tool omits `output`. It is an
+empty string whose identity marks the omission, so code that does not know
+about it reads empty content. The executor
+then uses the retained window of the call's live output: what the tool wrote
+to `context.output_sink` (a string appends, a `ToolPartialResult` replaces), the
+last 50 KB or 2000 lines of it. An explicit `""` stays empty content, and a
+result that omits its output cannot carry blocks. Both hosts behave the same:
+the ordinary executor (synchronous and interruptible) and the durable one.
+
+`ToolContext` offers the reporting API in both hosts:
+
+- `retained_output()` returns `RetainedOutputSnapshot(text, truncated)`, the
+  window so far (Pi `retainedOutput()`);
+- `report_details(value)` reports the call's details; a result whose details
+  are absent gets the last reported value. In the durable host the call waits
+  for the committed prefix (DE13b);
+- `report_diagnostic(severity=..., message=..., code=None)` reports an ordered
+  diagnostic with severity `info`, `warning` or `error`.
+
+The final result shows the reported diagnostics, then Pi's `truncated`
+diagnostic (`[warning (truncated)] Output truncated to its end: N lines, M bytes
+dropped`) when the output was omitted and the window dropped bytes, after the
+output text in a `<harness>` block, exactly as the durable projection renders
+them. A tool that reports nothing and returns its output gets the result it
+returned, so existing tools are unchanged. The window keeps the end of the
+output in both hosts; Pi keeps the beginning unless a tool declares `tail`, as
+its bash tool does. That one difference stays until per-tool output limits
+(DE33). Outside an executor the API is inert: an empty snapshot, and reports
+are dropped.
+
+Diagnostics share one budget in both hosts: about 13 K characters counted as
+rendered lines, and only text that encodes as UTF-8. A report beyond it raises
+`ValueError` to the tool in the ordinary host and is refused as
+`progress_capacity` in the durable one. The `truncated` diagnostic is the
+Harness's own and is not charged to that budget.
+
+Two points differ from the durable reporter on purpose. In the ordinary host a
+partial result's details are not reported details, so Pi's agent behavior
+above holds. And an explicit output larger than the window is kept as the tool
+returned it, unless the tool also reported diagnostics and output and
+diagnostics together would exceed the 64 K-character result: then the output is
+bounded to the window's end with the `[tool output truncated]` notice the
+durable projection gives such an output, so both hosts agree (image blocks are
+kept, before the bounded text).
+
+The ordinary executor now always gives a tool an output sink, so its output is
+retained without a live consumer. Measured with `tracemalloc`, the window holds
+about 150 KB per running call (rolling input up to twice the 50 KB bound plus
+the window), however much output passes through; a single huge chunk costs its
+own size only while it is appended. A tool that streams now does so also where
+nothing displays it: Bash builds a partial result per chunk (and may spill its
+output to the temporary file), and each partial result rebuilds the window from
+up to 50 KB of text. That is CPU and I/O the call did not spend before, the
+same work it always did under the TUI.
 
 ## Saved records and rich values
 

@@ -8,6 +8,16 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Native tools can omit their output and report progress, as Pi durable tools
+  do. A tool returns `RETAINED_OUTPUT` to use the retained window of its live
+  output (the last 50 KB or 2000 lines), and `ToolContext` offers
+  `retained_output()`, `report_details()` and `report_diagnostic()` in the
+  ordinary and the durable executor alike. Omitted details fall back to the
+  last reported ones, and reported diagnostics, plus a `truncated` one when the
+  window dropped output, follow the output text. A tool that reports nothing
+  gets the result it returned; tools now always receive an output sink.
+  See [omitted output and reported progress](docs/tool-details.md#omitted-output-and-reported-progress-p16).
+
 - Retarget the native durable execution campaign to literal Pi durable release
   1.5.0 (`f9a26365`). Only the plan changes: runtime behavior, the pinned
   reference runner and its comparison fixtures stay on release 1.4.0 until the

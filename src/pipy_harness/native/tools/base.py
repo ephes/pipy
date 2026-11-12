@@ -50,7 +50,16 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Protocol, cast, get_args, runtime_checkable
+from typing import (
+    Any,
+    ClassVar,
+    Literal,
+    Protocol,
+    cast,
+    final,
+    get_args,
+    runtime_checkable,
+)
 
 from pipy_harness.native.agent.content import (
     NO_STRUCTURED_CONTENT,
@@ -507,6 +516,63 @@ class ToolRequest:
             )
 
 
+@final
+class RetainedOutput(str):
+    """Type of ``RETAINED_OUTPUT``: a tool result that omits its output (P16).
+
+    The one instance is the empty string, so code that does not know about
+    omission reads it as empty content; only its identity marks the omission.
+    """
+
+    __slots__ = ()
+    _instance: ClassVar[RetainedOutput | None] = None
+
+    def __new__(cls) -> RetainedOutput:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls, "")
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "RETAINED_OUTPUT"
+
+    def __reduce__(self) -> str:
+        return "RETAINED_OUTPUT"
+
+
+RETAINED_OUTPUT = RetainedOutput()
+"""``ToolExecutionResult.output_text`` for a result whose output is the
+retained live output (Pi durable ``ToolExecutionResult.output`` omitted). An
+explicit ``""`` stays empty content."""
+
+
+@dataclass(frozen=True, slots=True)
+class RetainedOutputSnapshot:
+    """What ``ToolContext.retained_output()`` returns (Pi ``retainedOutput()``).
+
+    ``text`` is the retained window of the live output so far: the last
+    50 KB or 2000 lines. ``truncated`` is whether the window dropped any of it.
+    """
+
+    text: str = ""
+    truncated: bool = False
+
+
+class ToolProgressPort(Protocol):
+    """The executor's per-invocation reporter behind a ``ToolContext``."""
+
+    def retained_output(self) -> RetainedOutputSnapshot: ...
+
+    def report_details(self, value: object) -> None: ...
+
+    def report_diagnostic(
+        self,
+        *,
+        severity: Literal["info", "warning", "error"],
+        message: str,
+        code: str | None = None,
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ToolExecutionResult:
     """Provider-visible result returned by a tool to the loop.
@@ -517,6 +583,8 @@ class ToolExecutionResult:
     """
 
     tool_request_id: str
+    # ``RETAINED_OUTPUT`` omits the output: the executor uses the retained
+    # live output instead (Pi durable ``output`` omitted, P16).
     output_text: str
     is_error: bool = False
     provider_correlation_id: str | None = None
@@ -542,6 +610,22 @@ class ToolExecutionResult:
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
+    def _check_output(self) -> bool:
+        """Validate ``output_text``; whether the result omits its output."""
+        omitted = self.output_text is RETAINED_OUTPUT
+        if not isinstance(self.output_text, str):
+            raise ValueError("ToolExecutionResult.output_text must be a string")
+        if omitted and self.blocks:
+            raise ValueError(
+                "ToolExecutionResult with omitted output cannot have blocks"
+            )
+        if len(self.output_text) > self.OUTPUT_TEXT_MAX_LENGTH:
+            raise ValueError(
+                "ToolExecutionResult.output_text exceeds "
+                f"{self.OUTPUT_TEXT_MAX_LENGTH} characters"
+            )
+        return omitted
+
     def __post_init__(self) -> None:
         if not isinstance(self.tool_request_id, str) or not self.tool_request_id:
             raise ValueError("ToolExecutionResult requires a non-empty tool_request_id")
@@ -550,13 +634,7 @@ class ToolExecutionResult:
                 "ToolExecutionResult tool_request_id must be pipy-owned "
                 f"(prefix '{AGENT_TOOL_REQUEST_ID_PREFIX}')"
             )
-        if not isinstance(self.output_text, str):
-            raise ValueError("ToolExecutionResult.output_text must be a string")
-        if len(self.output_text) > self.OUTPUT_TEXT_MAX_LENGTH:
-            raise ValueError(
-                "ToolExecutionResult.output_text exceeds "
-                f"{self.OUTPUT_TEXT_MAX_LENGTH} characters"
-            )
+        omitted = self._check_output()
         if not isinstance(self.is_error, bool):
             raise ValueError("ToolExecutionResult.is_error must be a bool")
         if not isinstance(self.terminate, bool):
@@ -575,13 +653,14 @@ class ToolExecutionResult:
             self.structured_content
         ):
             raise ValueError("ToolExecutionResult.structured_content must be JSON")
-        object.__setattr__(
-            self,
-            "blocks",
-            normalized_tool_result_blocks(
-                self.blocks, self.output_text, "ToolExecutionResult"
-            ),
-        )
+        if not omitted:
+            object.__setattr__(
+                self,
+                "blocks",
+                normalized_tool_result_blocks(
+                    self.blocks, self.output_text, "ToolExecutionResult"
+                ),
+            )
 
 
 def is_json_value(value: object) -> bool:
@@ -732,6 +811,35 @@ class ToolContext:
     cancel_event: threading.Event | None = field(default=None)
     extension_generation_id: int | None = field(default=None)
     nested_tools: NestedToolCalls | None = field(default=None)
+    # The executor's reporter for this invocation (P16); None outside one.
+    progress: ToolProgressPort | None = field(default=None, kw_only=True, repr=False)
+
+    def retained_output(self) -> RetainedOutputSnapshot:
+        """The retained window of this call's live output so far (Pi
+        ``retainedOutput()``): what an omitted output resolves to."""
+        if self.progress is None:
+            return RetainedOutputSnapshot()
+        return self.progress.retained_output()
+
+    def report_details(self, value: object) -> None:
+        """Report the call's details so far (Pi ``details()``): a result that
+        omits its details gets the last reported value."""
+        if self.progress is not None:
+            self.progress.report_details(value)
+
+    def report_diagnostic(
+        self,
+        *,
+        severity: Literal["info", "warning", "error"],
+        message: str,
+        code: str | None = None,
+    ) -> None:
+        """Report an ordered diagnostic (Pi ``diagnostic()``); the result shows
+        the reported ones before its own."""
+        if self.progress is not None:
+            self.progress.report_diagnostic(
+                severity=severity, message=message, code=code
+            )
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):

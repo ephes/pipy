@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import cast
@@ -302,8 +302,11 @@ def test_no_waiter_executes_synchronously_without_injecting_cancellation(
     assert outcome.interruption is ToolExecutionInterruption.SETTLED
     assert len(tool.contexts) == 1
     assert tool.contexts[0] is not context
-    assert tool.contexts[0] == context
-    assert tool.contexts[0].cancel_event is None
+    # The executor adds only the invocation's retained-output window (P16).
+    seen = tool.contexts[0]
+    assert seen.output_sink is seen.progress is not None
+    assert replace(seen, output_sink=None, progress=None) == context
+    assert seen.cancel_event is None
 
 
 def test_settled_waiter_receives_events_and_injects_cancel_event(
