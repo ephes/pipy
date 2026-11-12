@@ -230,3 +230,47 @@ separate private audit never enters projection. Normal settlement keeps the
 existing fact1 projection or single actual receipt2 carrier; post-decision
 fault/abort replay acknowledges only the decision, without inventing an entry.
 See [historical adjudication](durable-adjudication.md).
+
+## Committed event projection (S6 skeleton)
+
+`CommittedEventProjection` (`native/durable/event_projection.py`) turns these
+snapshots into the agent loop's own `AgentEvent` vocabulary for an
+`AgentEventSink`. This is the mapping of the
+[loop integration design](durable-loop-integration-design.md), section 4.3,
+before DE26:
+
+| Committed fact (key) | Events |
+| --- | --- |
+| input entry (`entry:<id>`) | `AgentRunStarted`, `TurnStarted(0)`, `MessageStarted`/`MessageCompleted` of the input |
+| assistant entry (`entry:<id>`) | `TurnStarted(n)` after a closed round, `MessageStarted(n)` with the loop's empty assistant, `MessageCompleted(n)`; without calls also `TurnCompleted(n)`, failed for Pi's error stop; a provider-cancelled (aborted) assistant emits `RunCancelled` with the adapter's reason before its message and a cancelled turn, and the run ends cancelled |
+| tool result entry (`entry:<id>`) | `ToolCallStarted(n, call)`, `ToolCallCompleted(n, result)` with the committed execution time |
+| closed round (`round:<assistant id>`) | `TurnCompleted(n, succeeded, assistant, results)` |
+| generation terminal outcome (`outcome:<task id>`) | `AgentRunCompleted` and `AgentRunSettled`; an aborted run first emits `RunCancelled`, a failed one carries the durable cause as its failure (`durable_<status>`) |
+
+A fact's events are emitted together and once: the projection skips keys it
+has delivered, so a redelivered snapshot or a reconnect with the delivered
+keys emits nothing. The keys are the caller's cursor (`delivered`,
+`on_delivered`); like DE09's consumer ledger, a crash inside one fact's
+delivery delivers that fact again. Facts follow the snapshot's committed
+order, which is commit order except that a tool round follows its committed
+round order. Each `ProjectedEvent` carries its fact's key and commit sequence:
+the entry's own, a closed round's last committed result, and for a run outcome,
+which has no entry, the publication that made it visible (so only a lower
+bound, tied to the snapshot that showed it). The sequence is not an ordering
+key, because a round's results follow the round order. A generation that ended
+before committing an assistant (for example at the restart limit in its
+prepare phase) ends the oldest run without a generation, after the loop's
+failed `TurnCompleted(0)` for a preparation failure. The run's usage is the loop's: the raw provider samples of the
+committed provider outcomes, and the cost each assistant was priced at. An
+operator retry's new generation in a run whose generation ended, with or
+without an assistant, is refused with an error, not projected, until
+DE18/DE19's run records.
+
+The skeleton has no product wiring: it is not used by `DurableProductSession`,
+the CLI or the TUI. Queued-input, retry and provider-failure events wait for
+the run records of DE18/DE19, a terminate hold or blocked generation emits no
+run end yet (DE25), and partials and tool progress are DE26.
+`tests/durable/test_event_projection_crash.py` kills a real SQLite run after
+the generation's settle commit, after the first tool result's commit, and
+after the run settled; the reopened process emits each remaining event once
+and the two processes together emit the loop's events for the run in order.

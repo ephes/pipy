@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- A committed event projection skeleton,
+  `native/durable/event_projection.py`, turns the durable completed snapshots
+  into the agent loop's events (run start, the input, each assistant, tool
+  call and closed round, and the run's end) for an event sink, each fact's
+  events once and keyed for reconnect. It is not wired into any product
+  surface yet.
+
 - The agent loop's turn semantics live in a pure kernel,
   `native/agent/turn.py`: provider-result settlement, per-call tool admission
   and the tool policy's result transform. The loop's behaviour is unchanged.

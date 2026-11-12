@@ -88,6 +88,12 @@ assistant and admissions and names the cells where the durable path lacks the
 loop's behaviour (see the
 [loop integration design](durable-loop-integration-design.md), section 4.2).
 
+`native/durable/event_projection.py` is the other half of that design: it
+turns the durable completed snapshots into the same `AgentEvent` vocabulary
+for an `AgentEventSink`, each committed fact's events once (section 4.3 and
+[the completed projection](durable-completed-projection.md)). No product
+surface uses it before the run route of DE42/DE43.
+
 Product adapters in `native/agent_request.py`, `agent_loop_policy.py`,
 `agent_runtime.py`, `agent_adapters.py`, and `tool_capabilities.py` bind that
 core to catalog selections, extension policy, current product state, concrete

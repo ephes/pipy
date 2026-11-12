@@ -702,6 +702,36 @@ slices S1–S4; `pipy-durable-feature-plan` gets a note.
   the admitted calls with the kernel's; `EXPECTED_DELTAS` names budget
   exhaustion and the unauthorized tool (DE25) and the policy transform (DE22).
 
+- **S6 record.** `CommittedEventProjection` in
+  `native/durable/event_projection.py` follows section 4.3's table over the
+  replacement snapshots of `observe_completed()`. Decisions (class A):
+  - Idempotence is keyed by fact, not by a scalar sequence: an entry
+    (`entry:<id>`), a closed round (`round:<assistant id>`) and a generation
+    outcome (`outcome:<task id>`). A tool round's visible results follow its
+    round order and can become visible after a later-committed one, so a
+    sequence cursor would skip them. The keys are the caller's cursor
+    (`delivered` in, `on_delivered` per fact out); a crash inside one fact's
+    delivery delivers that fact again, as with DE09's consumer ledger.
+  - Every `ProjectedEvent` carries its fact's key and commit sequence (a
+    closed round: its last committed result; a run outcome: the publication
+    that made it visible, a lower bound). The sequence does not order events,
+    since a round's results follow the round order.
+  - The run's usage is computed as the loop computes it, from the committed
+    raw provider samples, not from Pi's uncached message input. An operator
+    retry's second generation in one run is refused rather than projected as
+    a second run end, also after a first generation that ended before its
+    assistant; such a generation ends its run with the loop's failed
+    `TurnCompleted(0)`.
+  - A run ends on its generation's terminal outcome: completed gives
+    `AgentRunCompleted`/`AgentRunSettled`, aborted `RunCancelled` first, and
+    anything else a failed result with the durable cause (`durable_<status>`
+    and the outcome's message). A terminate hold or blocked generation emits
+    no run end until DE25; queued input, retries and `ProviderFailed` wait for
+    DE18/DE19's run records.
+  The crash cuts are `tests/durable/test_event_projection_crash.py`. Nothing
+  in the product uses the projection yet; `DurableProductSession` is
+  unchanged.
+
 ## 8. Open owner questions
 
 1. Soll R15-3 (Storage-Batch-Commit, unreviewter WIP auf

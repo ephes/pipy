@@ -1205,7 +1205,10 @@ end-keeping one stays a declared raw difference until DE33. Slice S5 moves
 the loop's provider settlement, tool admission and result transform into the
 pure turn kernel `native/agent/turn.py`; the durable generation is not switched,
 and a kernel-equivalence test names its missing budget, unauthorized-tool
-result and transform for DE22/DE25. All 43 P rows and parent DE13 remain OPEN.
+result and transform for DE22/DE25. Slice S6 adds the committed event
+projection skeleton (`native/durable/event_projection.py`) with its crash
+cuts; it has no product wiring until DE42/DE43. All 43 P rows and parent DE13
+remain OPEN.
 
 
 ## DE13c1 recovered-execute interrupted continuation (landed `5897353`)

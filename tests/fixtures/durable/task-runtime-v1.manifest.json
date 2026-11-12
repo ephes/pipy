@@ -518,6 +518,7 @@
     "tests/durable/owned_completing_support.py": "999cb716f20a178d4c8ceb05162878250f16e2fc75651e26f03003381675ebd4",
     "docs/specs/de15b-owned-completing.md": "c6fafdcb744b218933507268cfd58c60c933875665b13ce89e9a19fb5e63fc76",
     "src/pipy_harness/native/agent/turn.py": "18878edef25f1383a08f2c2e086d88fa64400674202554a11823f595f1891df3",
+    "src/pipy_harness/native/durable/event_projection.py": "94a53d31941b1b2724f08f0c168ec16a738dc44ff5ce4164771f6f968df77cd8",
     "src/pipy_harness/native/durable/ordinary_abort.py": "519117e9e5004a14d1a95767df76330e7770fa4b54ddefe4e599c5b252ad02c8",
     "tests/fixtures/durable/session-commit-v1.divergences.json": "af60d6d6672ae2bea78f3c2c468fbe667a9c4f7586d3f0da6275ad57e2d308e8",
     "tests/fixtures/durable/session-guard-v1.divergences.json": "dabf29158a580a92ffd908f2e989e4f2b9ae5ef3a8d3c00d4ba605f0f7ec003f",
