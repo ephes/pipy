@@ -314,12 +314,15 @@ and provider wire do not export the carrier. The public full fact retains raw
 supported content; the model projection bounds text, preserves image order and
 keeps empty text blocks when they represent retained newline separators.
 
-Native tool-result DTOs currently reject signed text blocks, including during
-canonical reads. DE13b preserves that domain; it does not claim positive signed
-tool-result parity. Existing supported assistant signatures are unchanged.
-Full P15 tool metadata parity remains open under
-`pipy-durable-p15-tool-text-signatures`. Pi preserves tool text signatures even
-when bounding content; this slice establishes no later signature-removal policy.
+Since P15 slice S3 of the [loop integration design](durable-loop-integration-design.md)
+native tool results accept signed text blocks (Pi `textSignature`), as Pi's do.
+A result keeps its blocks when they carry more than its text: an image or a
+signature. The canonical codec stores the signature in the existing `blocks`
+schema, and the model projection keeps it on a bounded text slice, as Pi's
+`boundContent` spreads the item; the `<harness>` suffix block is never signed.
+Provider adapters send no tool-result text signature, as Pi's do. The oracle
+that pairs this with Pi is slice S4, so
+`pipy-durable-p15-tool-text-signatures` stays open.
 
 The cumulative `retained-tool-reporting-v1` comparison follows the existing
 22 phases with five actual public Harness/native cases: reported details with

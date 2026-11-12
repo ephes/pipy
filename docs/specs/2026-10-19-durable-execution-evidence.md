@@ -9706,3 +9706,26 @@ R15-0 failed, and `test_product_comparison` (14 setup errors) and a codemode CPU
 backstop test failed under a host load near 60; both files passed on a rerun.
 No P row closes; all 43 remain OPEN.
 
+### P15 slice S3: signed tool-result text (2026-11-12)
+
+Slice S3 of the [loop integration design](../durable-loop-integration-design.md)
+(§4.7): tool results accept signed text blocks and keep their blocks when they
+hold an image or a signature; the JSONL session tree writes and reads
+`textSignature`; the canonical codec carries the signature in its existing
+`blocks` schema at version 3; the durable projection keeps a bounded slice's
+signature and never signs the `<harness>` suffix; no adapter family sends a
+tool-result signature. The review also brought the `tool_result` hooks and the
+extension tool port along (they refused signed blocks), and the two image
+rewrites for models without image input now act only on results with images.
+The Anthropic adapter checks for images before it sends a result as blocks.
+
+Receipts on the development host (macOS, Python 3.15.2, official Node v26.13.0
+first on `PATH`), on the final S3 code before the documentation digests of this
+entry: a fresh baseline acceptance (execution `eb50c646-ef0a-4051-af7e-78804ab23069`, `acceptance.json` SHA256
+`8e679ba18bad8b163fd146c83b126135546eadedcf3763a8b27b299ed69ed11b`) and all 31 comparison phases after it exited 0, 32 commands in 978 s.
+Independent review with Claude Opus 5.5 at high effort: round 1 found one
+Warning (hooks and the extension tool port dropped signed blocks) and two
+Suggestions (stale docstrings; the image rewrites acted on signed text-only
+results), all repaired; round 2 was CLEAN. No P row closes; all 43 remain OPEN,
+and `pipy-durable-p15-tool-text-signatures` stays open for the S4 oracle.
+

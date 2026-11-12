@@ -59,6 +59,7 @@ from pipy_harness.native.agent.content import (
     REDACTED_THINKING_TEXT,
     TextContent,
     ThinkingContent,
+    tool_result_images,
 )
 from pipy_harness.native.agent.system_messages import render_system_message_update
 from pipy_harness.native.http import ProviderHTTPError, extract_anthropic_usage
@@ -366,7 +367,8 @@ def _tool_result_content(
     """Pi ``convertContentBlocks``: the text, or with an image the ordered
     text and image blocks, led by a placeholder when there is no text."""
 
-    if not envelope.blocks:
+    # Pi checks for images: a result of (signed) text only is its text (P15).
+    if not tool_result_images(envelope.blocks):
         return envelope.content.value
     content: list[dict[str, object]] = [
         {"type": "text", "text": block.text}

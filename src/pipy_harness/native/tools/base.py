@@ -597,9 +597,9 @@ class ToolExecutionResult:
     # NO_STRUCTURED_CONTENT means the tool gave none. It is never sent to a
     # provider and, as in Pi, never written to the session file.
     structured_content: Any = NO_STRUCTURED_CONTENT
-    # Pi ``AgentToolResult.content`` when the result has an image: the ordered
-    # text and image blocks the model receives. ``output_text`` is then the
-    # text blocks joined by newlines. Empty for a result that is text only.
+    # Pi ``AgentToolResult.content`` when the result has an image or a signed
+    # text block: the ordered text and image blocks. ``output_text`` is then
+    # the text blocks joined by newlines. Empty for unsigned text only.
     blocks: tuple[ToolResultBlock, ...] = ()
     # Pi ``AgentToolResult.terminate``: the tool asks the agent to stop after
     # the current tool batch. The batch ends without the automatic follow-up

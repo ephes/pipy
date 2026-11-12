@@ -2017,7 +2017,7 @@
   "files": [
     {
       "path": "src/pipy_harness/native/agent/content.py",
-      "current_sha256": "55edb949476542735eff1673e195ae69d86a06ec4033765d24d1dff2d7f5b2df",
+      "current_sha256": "b07d3963386071b31f8ce26201ef39bb14e9dac17e397f2249783c980e0273a9",
       "disposition": "ToolPartialResult owns generic finite details; absent marker is distinct from explicit null."
     },
     {
@@ -2032,7 +2032,7 @@
     },
     {
       "path": "src/pipy_harness/native/agent/messages.py",
-      "current_sha256": "abe802a4b23b60259f2db7a5f393589a1576fa2c1bd107dff8fcf79381f69658",
+      "current_sha256": "90bf36a7c4c8529945aa4412e2c0273bf459bc96217f8a68fb228f5930788f5b",
       "disposition": "AgentToolResultMessage owns generic details and one optional validated finite nested evidence field."
     },
     {
@@ -2097,7 +2097,7 @@
     },
     {
       "path": "src/pipy_harness/native/extension_hooks.py",
-      "current_sha256": "9309670c2a2a41c93578fd66d8851861960f5ff7b13b9b1f505f268d2cfda014",
+      "current_sha256": "25f7e12af367ae617455b9fe406e4c36bf635c5bcf17daf1ea356a94235a4738",
       "disposition": "Owned generic event details; explicit replacement uses established JSON text forwarding with atomic invalid-transform refusal; absent/null/unchanged and original nested evidence remain distinct."
     },
     {
@@ -2177,7 +2177,7 @@
     },
     {
       "path": "src/pipy_harness/native/tools/base.py",
-      "current_sha256": "366c13e0fcbf6e0aac017d1695e0b18304d908ecfa12c0283671aae973797b94",
+      "current_sha256": "42e1fae79e8273ab090392cf2dacc96982374b6010a0578b52f61195464e5890",
       "disposition": "Direct ToolExecutionResult owns normal values and applies a stdlib encoding predicate; extension forwarding retains its JSON text-copy policy. Nested/history DTOs copy values only; durable ingress retains exact binary64/plain JSON validation."
     },
     {

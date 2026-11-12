@@ -1191,10 +1191,10 @@ review/delivery status. Retry fixtures preserve genuine infrastructure uncertain
 after an applied effect; ordinary invalid results exercise handled failures.
 DE13c retains unsafe recovery/old blocked upgrades,
 missing ports and ceilings. DE26/33 timing/capacity and DE27/28 full storage/graph
-budgets remain open. Native tool-result text signatures are currently refused;
-`pipy-durable-p15-tool-text-signatures` owns the remaining full P15 metadata
-parity. Pi preserves this metadata even when truncating tool content; B does not
-define a later signature-removal policy. Since slice S1 of the
+budgets remain open. Since slice S3 native tool results accept and keep signed
+text blocks, also through truncation, the canonical codec and the session tree;
+`pipy-durable-p15-tool-text-signatures` stays open until the S4 oracle pairs
+that with Pi. Since slice S1 of the
 [loop integration design](durable-loop-integration-design.md) a native tool may
 omit its output (`RETAINED_OUTPUT`) and gets the retained output, in the
 ordinary and the durable host. Slice S2 pairs the omitted-output cases in the

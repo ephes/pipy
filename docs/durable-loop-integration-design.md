@@ -658,6 +658,12 @@ slices S1–S4; `pipy-durable-feature-plan` gets a note.
   difference left `differences.json`, a mutant `truncated_lost` was added, and
   `pipy-durable-p16-omitted-tool-output` closes with S1 and S2.
 
+- **S3 record.** Signed tool-result text is accepted and kept as designed.
+  One more place needed the image check the design implies: the Anthropic
+  adapter converted any result with blocks to a block list, so a signed
+  text-only result would have gone out as blocks instead of its text; it now
+  checks for images, as Pi's `convertContentBlocks` does.
+
 ## 8. Open owner questions
 
 1. Soll R15-3 (Storage-Batch-Commit, unreviewter WIP auf

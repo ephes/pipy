@@ -130,7 +130,9 @@ def _projected_blocks(
         # own text slice is empty. An entirely empty tail owns no separator.
         if retained and right >= left:
             text = block.text[left:right]
-            result.append(block if text == block.text else TextContent(text))
+            # A truncated slice keeps its block's signature, as Pi's
+            # boundContent spreads the item (P15); the suffix never has one.
+            result.append(block if text == block.text else replace(block, text=text))
         position += len(block.text)
     if suffix:
         result.append(TextContent(suffix))

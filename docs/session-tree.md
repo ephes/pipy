@@ -608,12 +608,13 @@ Minimum entry types:
   or sent again.
 
   A tool result (`"role":"tool"`) stores its text as `output_text`. When the
-  result has an image, it also stores a `blocks` list with its ordered
-  content in Pi's shape: `{"type":"text","text"}` and
+  result has an image or a signed text block, it also stores a `blocks` list
+  with its ordered content in Pi's shape: `{"type":"text","text"}` (with
+  `"textSignature"` when the block is signed) and
   `{"type":"image","data","mimeType"}`, the data base64. `output_text` is
   then the text blocks joined by newlines; an entry whose blocks say
-  otherwise, or hold anything else, is not read. A result without an image
-  has no `blocks`. The image data is stored in full, so a session with
+  otherwise, or hold anything else, is not read. A result of unsigned text
+  only has no `blocks`, so older session files read unchanged. The image data is stored in full, so a session with
   screenshots grows by their size.
 - `model_change`: provider/model selection changes.
 - `thinking_level_change`: reasoning/thinking-level selection changes, using

@@ -8,9 +8,10 @@ shape: ``{"type":"text","text","textSignature"?}``,
 ``{"type":"toolCall","index"}``, a position in ``tool_calls`` so arguments are
 stored once.
 
-A stored tool result keeps ``output_text`` (its text). When it has an image,
-``blocks`` lists its ordered content in Pi's shape: ``{"type":"text","text"}``
-and ``{"type":"image","data","mimeType"}`` with base64 data.
+A stored tool result keeps ``output_text`` (its text). When it has an image or
+a signed text block, ``blocks`` lists its ordered content in Pi's shape:
+``{"type":"text","text","textSignature"?}`` and
+``{"type":"image","data","mimeType"}`` with base64 data.
 """
 
 from __future__ import annotations
@@ -113,7 +114,10 @@ def tool_result_blocks_to_json(
     """A tool result's ordered content in Pi's shape."""
 
     return [
-        {"type": "text", "text": block.text}
+        (
+            {"type": "text", "text": block.text}
+            | ({} if block.signature is None else {"textSignature": block.signature})
+        )
         if isinstance(block, TextContent)
         else {"type": "image", "data": block.data, "mimeType": block.mime_type}
         for block in blocks
@@ -133,7 +137,11 @@ def tool_result_blocks_from_json(raw: object) -> tuple[ToolResultBlock, ...]:
             raise ValueError("tool result block must be an object")
         kind = entry.get("type")
         if kind == "text":
-            blocks.append(TextContent(_result_string(entry, "text")))
+            blocks.append(
+                TextContent(
+                    _result_string(entry, "text"), _optional(entry, "textSignature")
+                )
+            )
         elif kind == "image":
             data = _result_string(entry, "data")
             mime_type = _result_string(entry, "mimeType")

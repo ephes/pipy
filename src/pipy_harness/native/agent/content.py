@@ -186,10 +186,11 @@ def normalized_tool_result_blocks(
 ) -> tuple[ToolResultBlock, ...]:
     """Check a tool result's ``blocks`` against its text.
 
-    A result has blocks only when it has an image: its text blocks joined by
-    newlines are then its text. Blocks without an image say no more than the
-    text does and are dropped, so a result compares equal to one built from
-    that text.
+    A result keeps blocks only when they carry more than its text: at least
+    one image, or at least one signed text block (Pi ``textSignature``, P15).
+    Its text blocks joined by newlines are then its text. Blocks that are
+    unsigned text only say no more than the text does and are dropped, so a
+    result compares equal to one built from that text.
     """
 
     if type(blocks) is not tuple:
@@ -202,24 +203,26 @@ def normalized_tool_result_blocks(
         if type(block) is ImageContent:
             ImageContent.__post_init__(block)
             continue
-        if type(block) is not TextContent or block.signature is not None:
+        if type(block) is not TextContent:
             raise TypeError(
-                f"{owner}.blocks must hold unsigned TextContent or ImageContent values"
+                f"{owner}.blocks must hold TextContent or ImageContent values"
             )
         TextContent.__post_init__(block)
     if tool_result_text(blocks) != text:
         raise ValueError(f"{owner}.blocks text must equal its text")
-    if not any(type(block) is ImageContent for block in blocks):
+    if not any(
+        type(block) is ImageContent or block.signature is not None for block in blocks
+    ):
         return ()
     return blocks
 
 
 def require_tool_result_blocks(blocks: object, text: str, owner: str) -> None:
     """Require the blocks a constructed result holds: none, or its text and
-    at least one image."""
+    at least one image or signed text block."""
 
     if normalized_tool_result_blocks(blocks, text, owner) != blocks:
-        raise ValueError(f"{owner}.blocks must hold an image")
+        raise ValueError(f"{owner}.blocks must hold an image or a signed text block")
 
 
 def display_segments(blocks: Iterable[object]) -> list[tuple[bool, str]]:

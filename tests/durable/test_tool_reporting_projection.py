@@ -69,47 +69,85 @@ def test_fullfact_and_projected_image_text_remain_consistent(texts, failed):
     assert all(b.signature is None for b in projected.blocks if type(b) is TextContent)
 
 
-def test_existing_tool_result_domain_rejects_signed_text_before_fact_creation():
-    with pytest.raises(TypeError, match="unsigned TextContent"):
-        AgentToolResultMessage(
-            AGENT_TOOL_REQUEST_ID_PREFIX + "signed",
-            "tool",
-            ProductContent("text"),
-            "call:signed",
-            blocks=(
-                ImageContent("aW1hZ2U=", "image/png"),
-                TextContent("text", "private-signature"),
-            ),
-        )
-
-
-def test_saved_tool_result_cannot_introduce_a_signed_text_block():
-    from pipy_harness.native.durable.canonical_codec import (
-        CanonicalCodecError,
-        decode_canonical,
-    )
-    from pipy_harness.native.tools.base import ToolExecutionResult
-
-    blocks = (ImageContent("aW1hZ2U=", "image/png"), TextContent("text"))
-    message = AgentToolResultMessage(
-        AGENT_TOOL_REQUEST_ID_PREFIX + "stored",
+def _signed(signature="private-signature", image=True, text="text"):
+    blocks = (TextContent(text, signature),)
+    if image:
+        blocks = (ImageContent("aW1hZ2U=", "image/png"), *blocks)
+    return AgentToolResultMessage(
+        AGENT_TOOL_REQUEST_ID_PREFIX + "signed",
         "tool",
-        ProductContent("text"),
-        "call:stored",
+        ProductContent(text),
+        "call:signed",
         blocks=blocks,
     )
-    arena = encode_canonical(message)
-    text_node = next(node for node in arena["nodes"] if node["tag"] == "TextContent")
-    signature = text_node["children"][text_node["keys"].index("signature")]
-    arena["nodes"][signature] = {
-        "tag": "string",
-        "value": "private-signature".encode().hex(),
-    }
-    with pytest.raises(CanonicalCodecError):
-        decode_canonical(arena)
-    with pytest.raises(TypeError, match="unsigned TextContent"):
-        ToolExecutionResult(
-            AGENT_TOOL_REQUEST_ID_PREFIX + "producer",
-            "text",
-            blocks=(blocks[0], TextContent("text", "private-signature")),
+
+
+@pytest.mark.parametrize("image", [True, False], ids=["with-image", "text-only"])
+def test_signed_tool_result_text_is_kept_like_pi(image):
+    """P15: a signed text block is accepted and kept, also without an image."""
+    message = _signed(image=image)
+    assert message.blocks[-1] == TextContent("text", "private-signature")
+    # Unsigned text-only blocks still say no more than the text and are dropped.
+    plain = AgentToolResultMessage(
+        AGENT_TOOL_REQUEST_ID_PREFIX + "plain",
+        "tool",
+        ProductContent("text"),
+        "call:plain",
+        blocks=(TextContent("text"),),
+    )
+    assert plain.blocks == ()
+    # History equality includes the signature, as Pi's structural equality does.
+    assert message != _signed(signature=None, image=True) if image else True
+    assert message != _signed(signature="other", image=image)
+
+
+def test_tool_result_blocks_still_refuse_foreign_blocks():
+    from pipy_harness.native.agent.content import ThinkingContent
+
+    with pytest.raises(TypeError, match="TextContent or ImageContent"):
+        AgentToolResultMessage(
+            AGENT_TOOL_REQUEST_ID_PREFIX + "foreign",
+            "tool",
+            ProductContent(""),
+            "call:foreign",
+            blocks=(ThinkingContent("x"),),
         )
+
+
+@pytest.mark.parametrize("image", [True, False], ids=["with-image", "text-only"])
+def test_signed_tool_result_round_trips_through_the_canonical_codec(image):
+    """The codec's blocks schema has carried signatures since version 2; a signed
+    result reads back byte-identical at the current version, and the producer
+    DTO accepts it too."""
+    from pipy_harness.native.durable.canonical_codec import decode_canonical
+    from pipy_harness.native.tools.base import ToolExecutionResult
+
+    message = _signed(image=image)
+    for version in (None, 3):
+        arena = encode_canonical(message, codec_version=version)
+        decoded = decode_canonical(arena)
+        assert decoded == message
+        assert encode_canonical(decoded, codec_version=arena["codec_version"]) == arena
+    result = ToolExecutionResult(
+        AGENT_TOOL_REQUEST_ID_PREFIX + "producer", "text", blocks=message.blocks
+    )
+    assert result.blocks == message.blocks
+
+
+def test_truncation_keeps_the_signature_on_the_kept_slice_never_on_the_suffix():
+    """Pi's boundContent spreads each item, so a bounded signed block keeps its
+    signature; the harness suffix block is unsigned."""
+    long = "x" * 60000
+    message = _signed(text=long, image=False)
+    outcome = ToolExecutionOutcome(message, execution_seconds=0.25)
+    notice = {"severity": "warning", "message": "note", "code": "fixture"}
+    fact = native_tool_output(outcome, datetime.now(timezone.utc), diagnostics=[notice])
+    _, decoded = read_native_tool_output(fact)
+    projected = project_tool_output(fact, decoded)
+    kept, suffix = projected.blocks
+    assert kept.signature == "private-signature" and len(kept.text) < len(long)
+    assert suffix.signature is None and suffix.text.startswith("<harness>")
+    assert (
+        "\n".join(b.text for b in projected.blocks if type(b) is TextContent)
+        == projected.content.value
+    )

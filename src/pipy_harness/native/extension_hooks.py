@@ -56,6 +56,7 @@ from __future__ import annotations
 import functools
 import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -613,7 +614,9 @@ def bounded_result_blocks(
     for block in blocks:
         if type(block) is ImageContent:
             checked.append(block)
-        elif type(block) is TextContent and block.signature is None:
+        elif type(block) is TextContent:
+            # A signed text block is kept with its signature (Pi
+            # ``textSignature``, P15).
             checked.append(block)
         else:
             return None
@@ -636,7 +639,7 @@ def bounded_result_blocks(
         separator = 1 if texts else 0
         if used + separator + len(block.text) > budget:
             room = max(budget - used - separator, 0)
-            block = TextContent(block.text[:room] + marker)
+            block = replace(block, text=block.text[:room] + marker)
             cut = True
         kept.append(block)
         used += separator + len(block.text)
@@ -828,10 +831,12 @@ def _replaced_content(
         )
         if bounded is None:
             raise TypeError("blocks must be text and image blocks")
-        # Blocks without an image say no more than their text.
-        return tool_result_text(bounded), (
-            bounded if tool_result_images(bounded) else ()
+        # Blocks of unsigned text only say no more than their text.
+        keep = tool_result_images(bounded) or any(
+            type(block) is TextContent and block.signature is not None
+            for block in bounded
         )
+        return tool_result_text(bounded), (bounded if keep else ())
     if transform.content is None:
         return None
     if not isinstance(transform.content, str):

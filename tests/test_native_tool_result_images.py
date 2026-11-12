@@ -110,7 +110,6 @@ def test_a_result_keeps_blocks_only_when_it_has_an_image() -> None:
         (BLOCKS[:2], ValueError),  # the text is not the blocks' text
         (list(BLOCKS), TypeError),
         ((*BLOCKS, "text"), TypeError),
-        ((TextContent("before\nafter", "signature"), BLOCKS[1]), TypeError),
     ],
 )
 def test_blocks_must_be_the_results_text_and_images(

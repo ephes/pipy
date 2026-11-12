@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Tool results keep signed text blocks (Pi `textSignature`): a result keeps
+  its blocks when they hold an image or a signature, the session file writes
+  and reads `textSignature`, durable storage keeps it, and a truncated text
+  slice keeps its block's signature. Provider requests still send no
+  tool-result signature, and results of unsigned text are unchanged.
+
 - Native tools can omit their output and report progress, as Pi durable tools
   do. A tool returns `RETAINED_OUTPUT` to use the retained window of its live
   output (the last 50 KB or 2000 lines), and `ToolContext` offers

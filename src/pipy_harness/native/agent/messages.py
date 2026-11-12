@@ -20,6 +20,7 @@ from pipy_harness.native.agent.content import (
     ThinkingContent,
     ToolResultBlock,
     normalized_tool_result_blocks,
+    tool_result_images,
 )
 from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 from pipy_harness.native.agent.nested_record import (
@@ -291,10 +292,12 @@ class AgentToolResultMessage:
     """One provider-visible result carrying both tool identity domains.
 
     ``blocks`` is Pi's ordered ``content`` (text and image blocks) for a
-    result that has an image; ``content`` is then its text blocks joined by
-    newlines, which is what every reader that shows or measures text uses.
-    A result without an image stores no blocks. Images are sent to the
-    provider, so ``blocks`` takes part in history equality.
+    result that has an image or a signed text block (Pi ``textSignature``,
+    P15); ``content`` is then its text blocks joined by newlines, which is
+    what every reader that shows or measures text uses. A result of unsigned
+    text only stores no blocks. Images are sent to the provider and a
+    signature is kept like Pi keeps it, so ``blocks`` takes part in history
+    equality; provider adapters send no tool-result text signature.
     """
 
     tool_request_id: str
@@ -487,7 +490,8 @@ def without_tool_result_images(
 
     downgraded = tuple(
         _without_images(message)
-        if isinstance(message, AgentToolResultMessage) and message.blocks
+        if isinstance(message, AgentToolResultMessage)
+        and tool_result_images(message.blocks)
         else message
         for message in messages
     )
@@ -531,7 +535,8 @@ def without_blocked_images(
 
     blocked = tuple(
         _with_images_blocked(message)
-        if isinstance(message, AgentToolResultMessage) and message.blocks
+        if isinstance(message, AgentToolResultMessage)
+        and tool_result_images(message.blocks)
         else message
         for message in messages
     )
