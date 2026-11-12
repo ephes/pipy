@@ -85,6 +85,18 @@ and adds its spend once, including failed completed responses. This is the
 bounded generation ledger, not the full partial/tool/compaction/fork sums of
 later slices.
 
+`settle` builds the assistant the same way the loop's pure turn kernel does
+(`settle_provider_result` in `native/agent/turn.py`), but from its own copy
+until DE22/DE25 switch the generation onto the kernel. The kernel-equivalence
+test (`tests/durable/test_generation_kernel_equivalence.py`) runs real
+generations and the kernel on the same committed provider outcome and requires
+equal assistant entries and admissions for a text answer, one and two offered
+calls, and a failed provider response. It names the cells where the durable
+round lacks the loop's behaviour today: no tool budget (a call over it still
+runs; DE25), an unoffered call gets the durable `tool_unavailable` result
+instead of the loop's `Tool <name> not found` (DE25), and no tool policy result
+transform (DE22).
+
 Tool round admission records every real child in call order and each unavailable
 call's actual result entry. The runtime verifies its newly staged assistant and
 all offered call inputs, exact owner/conversation/version, complete wait list and

@@ -16,18 +16,14 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.assistant_blocks import (
     PartialAssistantContent,
     agent_blocks,
-    assistant_message,
-    failed_provider_blocks,
     stopped_assistant,
 )
 from pipy_harness.native.agent.content import (
-    NO_STRUCTURED_CONTENT,
     ProductContent,
     TextContent,
     ThinkingContent,
     ToolOutput,
     ToolPartialResult,
-    ToolResultBlock,
 )
 from pipy_harness.native.agent.events import (
     AgentRunCompleted,
@@ -57,16 +53,12 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyDecision,
     AgentToolPolicyState,
     AgentToolPolicyTransition,
-    AgentToolResultTransform,
     apply_tool_policy_decision,
-    decide_tool_admission,
-    normalize_provider_status,
     reserve_composite_parent,
     settle_tool_execution,
 )
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
-    AgentContentBlock,
     AgentMessage,
     AgentMessageUsage,
     AgentStopReason,
@@ -89,12 +81,8 @@ from pipy_harness.native.agent.nested_calls import (
 )
 from pipy_harness.native.agent.nested_record import (
     attach_nested_record,
-    retarget_nested_evidence,
 )
 from pipy_harness.native.agent.ports import AgentEventSink
-from pipy_harness.native.agent.provider_result_validation import (
-    validate_provider_result,
-)
 from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
 from pipy_harness.native.agent.request import (
     AgentProviderRequestSnapshot,
@@ -123,10 +111,6 @@ from pipy_harness.native.agent.system_messages import (
     declare_tool_changes,
     tool_declaration,
 )
-from pipy_harness.native.agent.tool_details import (
-    UNCHANGED_TOOL_DETAILS,
-    copy_tool_details,
-)
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
     ToolExecutionInterruption,
@@ -135,12 +119,16 @@ from pipy_harness.native.agent.tools import (
     ToolReadinessWaiter,
     cancelled_tool_outcome,
 )
+from pipy_harness.native.agent.turn import (
+    ProviderSettlement,
+    admit_tool_call,
+    settle_provider_result,
+    transform_tool_result,
+)
 from pipy_harness.native.agent.usage import (
-    AgentProviderUsageSample,
     AgentTokenPricing,
     AgentTokenPricingTier,
     AgentUsageAccumulator,
-    message_usage,
 )
 from pipy_harness.native.models import (
     ProviderRequest,
@@ -153,7 +141,6 @@ from pipy_harness.native.tools.base import (
     ToolExecutionMode,
     ToolOutputSink,
 )
-from pipy_harness.status import HarnessStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -783,30 +770,20 @@ class AgentLoop:
         turn_index: int,
         streamed: Sequence[TextContent | ThinkingContent] = (),
     ) -> _IterationDisposition:
-        validate_provider_result(result, snapshot)
-        self._status.provider_result_observed(result)
-        sample = self._publish_usage(state, result)
-        # Pi prices each response from the request's model (``calculateCost``)
-        # and stores the usage on the assistant message.
-        usage = message_usage(sample, state.usage.pricing)
-        provider_status = normalize_provider_status(
-            result,
-            provider_name=snapshot.request.provider_name,
+        settlement = settle_provider_result(
+            snapshot, result, state.usage.pricing, streamed
         )
+        self._status.provider_result_observed(result)
+        self._publish_usage(state, settlement)
+        provider_status = settlement.status
         state.provider_status = provider_status
         if provider_status.action is AgentProviderStatusAction.FAILED:
             return self._settle_provider_failure(
-                state,
-                provider_status,
-                turn_index,
-                failed_provider_blocks(result, streamed),
-                usage=usage,
-                request=snapshot.request,
-                provider_thinking_level=result.provider_thinking_level,
+                state, provider_status, turn_index, settlement.assistant
             )
         self._status.provider_succeeded(provider_status, state.tool_state)
         state.failure = None
-        assistant = assistant_message(result, usage, snapshot.request, streamed)
+        assistant = settlement.assistant
         self._events.emit(MessageCompleted(turn_index, assistant))
         self._append_message(state, assistant)
         if not assistant.tool_calls:
@@ -828,19 +805,15 @@ class AgentLoop:
         turn_index: int,
         streamed: Sequence[TextContent | ThinkingContent],
     ) -> None:
-        validate_provider_result(result, snapshot)
-        sample = self._publish_usage(state, result)
-        status = normalize_provider_status(
-            result, provider_name=snapshot.request.provider_name
+        settlement = settle_provider_result(
+            snapshot, result, state.usage.pricing, streamed
         )
+        self._publish_usage(state, settlement)
         self._settle_provider_failure(
             state,
-            status,
+            settlement.status,
             turn_index,
-            failed_provider_blocks(result, streamed),
-            usage=message_usage(sample, state.usage.pricing),
-            request=snapshot.request,
-            provider_thinking_level=result.provider_thinking_level,
+            settlement.assistant,
             will_retry=True,
         )
         attempt_result = replace(
@@ -851,12 +824,9 @@ class AgentLoop:
         self._events.emit(AgentRunCompleted(attempt_result))
         state.attempt_open = False
 
-    def _publish_usage(
-        self, state: _RunState, result: ProviderResult
-    ) -> AgentProviderUsageSample:
-        sample = AgentProviderUsageSample.from_mapping(result.usage)
-        # Pi takes context usage only from a successful response.
-        counts_for_context = result.status is HarnessStatus.SUCCEEDED
+    def _publish_usage(self, state: _RunState, settlement: ProviderSettlement) -> None:
+        sample = settlement.sample
+        counts_for_context = settlement.counts_for_context
         state.usage.absorb(sample, counts_for_context=counts_for_context)
         self._usage_publisher.publish(
             AgentUsagePublication(
@@ -866,32 +836,21 @@ class AgentLoop:
                 counts_for_context,
             )
         )
-        return sample
 
     def _settle_provider_failure(
         self,
         state: _RunState,
         status: AgentProviderStatusDecision,
         turn_index: int,
-        blocks: Sequence[AgentContentBlock] = (),
+        failed: AgentAssistantMessage,
         *,
-        usage: AgentMessageUsage,
-        request: ProviderRequest,
-        provider_thinking_level: str | None = None,
         will_retry: bool = False,
     ) -> _IterationDisposition:
+        """Record the kernel's failed assistant: Pi records a failed turn as
+        stopReason "error" with its message."""
         failure = status.failure
         assert failure is not None
         state.failure = failure
-        # Pi records a failed turn as stopReason "error" with its message.
-        failed = stopped_assistant(
-            blocks,
-            AgentStopReason.ERROR,
-            failure.message.value,
-            usage=usage,
-            request=request,
-            provider_thinking_level=provider_thinking_level,
-        )
         self._events.emit(ProviderFailed(failure, will_retry=will_retry))
         self._status.provider_failed(status, state.tool_state)
         self._events.emit(MessageCompleted(turn_index, failed))
@@ -1044,18 +1003,12 @@ class AgentLoop:
     ) -> _SettledToolCall:
         """Settle a call the model made, without history/results; only the
         budget publishes state early."""
-        admission = decide_tool_admission(tool_state, snapshot, call)
-        if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
-            publish_budget_state(admission.state)
-            result = self._tools.error_result(
-                call,
-                f"tool budget exhausted (limit {admission.state.tool_budget})",
-            )
-            _validate_tool_result_for_call(result, call)
-            self._emit_policy_result(call, result, turn_index)
-            return _SettledToolCall(result, admission)
-        if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
-            result = self._tools.error_result(call, f"Tool {call.tool_name} not found")
+        admitted = admit_tool_call(tool_state, snapshot, call)
+        admission = admitted.transition
+        if admitted.refusal is not None:
+            if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
+                publish_budget_state(admission.state)
+            result = self._tools.error_result(call, admitted.refusal)
             _validate_tool_result_for_call(result, call)
             self._emit_policy_result(call, result, turn_index)
             return _SettledToolCall(result, admission)
@@ -1226,17 +1179,19 @@ class AgentLoop:
         settled without running. Nested calls take no place in the tool
         budget, as Pi has no limit on the calls a tool makes."""
         mode = AgentToolInvocationMode.NESTED
-        admission = decide_tool_admission(
+        admitted = admit_tool_call(
             state.tool_state,
             snapshot,
             call,
             mode=mode,
             callable_names=eligible,
         )
-        if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
-            result = self._tools.error_result(call, f"Tool {call.tool_name} not found")
+        if admitted.refusal is not None:
+            # A nested call takes no place in the budget, so only an
+            # unauthorized tool refuses it.
+            result = self._tools.error_result(call, admitted.refusal)
             _validate_tool_result_for_call(result, call)
-            return _SettledToolCall(result, admission)
+            return _SettledToolCall(result, admitted.transition)
         assert tools is not None  # nothing is eligible without it
         prepared = self._prepare_tool_call(
             tools, call, state.tool_state, mode, _caller_id(call)
@@ -1383,7 +1338,7 @@ class AgentLoop:
         for, then the normalizer (Pi ``_afterToolCall``). Only a call that
         reached its ``tool_call`` hooks gets here, as in Pi."""
 
-        result = _transform_tool_result(
+        result = transform_tool_result(
             self._tool_policy, asked, result, arguments, parent_call_id
         )
         _validate_tool_result_for_call(result, call)
@@ -1794,70 +1749,6 @@ def _caller_id(call: AgentToolCall) -> str:
     """The id of the call that made the nested call ``call``
     (``<caller id>/<n>``)."""
     return call.provider_correlation_id.rpartition("/")[0]
-
-
-def _transform_tool_result(
-    policy: AgentToolPolicy,
-    call: AgentToolCall,
-    result: AgentToolResultMessage,
-    arguments: dict[str, Any],
-    parent_call_id: str | None,
-) -> AgentToolResultMessage:
-    """The result as the policy leaves it (Pi ``afterToolCall``)."""
-
-    transformed = policy.transform_result(call, result, arguments, parent_call_id)
-    blocks: tuple[ToolResultBlock, ...] | None = None
-    is_error: bool | None = None
-    details: Any = UNCHANGED_TOOL_DETAILS
-    if isinstance(transformed, AgentToolResultTransform):
-        content = transformed.content
-        validate_product_content(content, "AgentToolPolicy.transform_result result")
-        structured_content = transformed.structured_content
-        blocks, is_error, details = (
-            transformed.blocks,
-            transformed.is_error,
-            transformed.details,
-        )
-    else:
-        content = transformed
-        validate_product_content(content, "AgentToolPolicy.transform_result result")
-        # Pi: structured content that is not replaced along with the content
-        # may no longer match it, so replaced content alone drops it.
-        structured_content = (
-            result.structured_content
-            if content == result.content
-            else NO_STRUCTURED_CONTENT
-        )
-    if blocks is None:
-        # Pi: a handler's ``content`` replaces the whole content, images
-        # included; a policy that leaves the text as it is keeps them.
-        blocks = result.blocks if content == result.content else ()
-    new_is_error = result.is_error if is_error is None else is_error
-    new_details = (
-        result.details
-        if details is UNCHANGED_TOOL_DETAILS
-        else copy_tool_details(details)
-    )
-    if (
-        content == result.content
-        and structured_content is result.structured_content
-        and blocks == result.blocks
-        and new_is_error == result.is_error
-        and new_details is result.details
-    ):
-        return result
-    new_details, evidence = retarget_nested_evidence(
-        new_details, result.nested_call_evidence
-    )
-    return replace(
-        result,
-        content=content,
-        structured_content=structured_content,
-        blocks=blocks,
-        is_error=new_is_error,
-        details=new_details,
-        nested_call_evidence=evidence,
-    )
 
 
 def _interruption_reason(

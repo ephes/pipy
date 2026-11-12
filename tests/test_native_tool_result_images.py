@@ -27,13 +27,13 @@ from pipy_harness.native.agent.content import (
     tool_result_text,
 )
 from pipy_harness.native.agent.history import estimate_message_tokens
-from pipy_harness.native.agent.loop import _transform_tool_result
 from pipy_harness.native.agent.loop_policy import AgentToolResultTransform
 from pipy_harness.native.agent.request import (
     freeze_provider_request,
     validate_agent_tool_result_message,
 )
 from pipy_harness.native.agent.tools import ToolExecutor
+from pipy_harness.native.agent.turn import transform_tool_result
 from pipy_harness.native.automation.serialize import serialize_message
 from pipy_harness.native.coding.compaction import _summary_message
 from pipy_harness.native.coding.request_budget import estimate_request
@@ -213,15 +213,15 @@ class _Policy:
 def test_a_hook_that_replaces_the_content_replaces_the_images_too() -> None:
     call = AgentToolCall("call-1", "shot", ProductContent("{}"))
     result = _result()
-    kept = _transform_tool_result(_Policy(lambda r: r.content), call, result, {}, None)
+    kept = transform_tool_result(_Policy(lambda r: r.content), call, result, {}, None)
     assert kept is result
-    replaced = _transform_tool_result(
+    replaced = transform_tool_result(
         _Policy(lambda r: ProductContent("redacted")), call, result, {}, None
     )
     assert replaced.content == ProductContent("redacted")
     assert replaced.blocks == ()
     # A handler that only replaces the structured content keeps the images.
-    structured = _transform_tool_result(
+    structured = transform_tool_result(
         _Policy(lambda r: AgentToolResultTransform(r.content, {"ok": True})),
         call,
         result,
@@ -376,7 +376,7 @@ def test_a_policy_transform_replaces_images_the_error_flag_and_details() -> None
     call = AgentToolCall("call-1", "shot", ProductContent("{}"))
     image_only = _result((ImageContent(PNG, "image/png"),))
     assert image_only.content == ProductContent("")
-    emptied = _transform_tool_result(
+    emptied = transform_tool_result(
         _Policy(lambda r: AgentToolResultTransform(ProductContent(""), blocks=())),
         call,
         image_only,
@@ -384,7 +384,7 @@ def test_a_policy_transform_replaces_images_the_error_flag_and_details() -> None
         None,
     )
     assert emptied.blocks == () and emptied.content == ProductContent("")
-    flagged = _transform_tool_result(
+    flagged = transform_tool_result(
         _Policy(
             lambda r: AgentToolResultTransform(
                 r.content, r.structured_content, is_error=True, details={"seen": 1}
@@ -398,7 +398,7 @@ def test_a_policy_transform_replaces_images_the_error_flag_and_details() -> None
     assert flagged.is_error and flagged.details == {"seen": 1}
     assert flagged.blocks == BLOCKS and flagged.content == _result().content
     swapped_blocks = (TextContent("new"), ImageContent(PNG, "image/png"))
-    swapped = _transform_tool_result(
+    swapped = transform_tool_result(
         _Policy(
             lambda r: AgentToolResultTransform(
                 ProductContent("new"), blocks=swapped_blocks

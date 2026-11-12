@@ -2022,8 +2022,8 @@
     },
     {
       "path": "src/pipy_harness/native/agent/loop.py",
-      "current_sha256": "fdaaff6185600a847e84f527c2d91550c908c8acf2f488de1c87ebbc4d15222c",
-      "disposition": "Normal nested service attaches actual finite evidence; transformations preserve or retarget the single legacy/typed channel, never partial-to-final fallback."
+      "current_sha256": "efbf4fbda3f622068c7844900c8bf4f696496dfd8b3cd9e59466b35f45dcbfb4",
+      "disposition": "Normal nested service attaches actual finite evidence; transformations preserve or retarget the single legacy/typed channel, never partial-to-final fallback. The policy result transform (old _transform_tool_result rows) moved unchanged to native/agent/turn.py transform_tool_result, which the loop calls."
     },
     {
       "path": "src/pipy_harness/native/agent/loop_policy.py",

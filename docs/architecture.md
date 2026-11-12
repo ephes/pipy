@@ -76,6 +76,18 @@ provider-turn execution, one tool-call execution, and the single accepted-run
 terminal, product session, extension implementation, concrete transport, or
 workflow archive.
 
+`native/agent/turn.py` is the loop's pure turn kernel: what one provider result
+becomes (`settle_provider_result`: validated result, usage sample, normalized
+status, and the completed or failed assistant message), the per-call tool
+admission with its refusal text (`admit_tool_call`), and what a tool policy
+makes of one result (`transform_tool_result`). It does no I/O, emits no events
+and touches no session; `AgentLoop` emits its events around the calls. The
+durable generation keeps its own settlement until DE22/DE25 adopt the kernel;
+`tests/durable/test_generation_kernel_equivalence.py` holds the two to the same
+assistant and admissions and names the cells where the durable path lacks the
+loop's behaviour (see the
+[loop integration design](durable-loop-integration-design.md), section 4.2).
+
 Product adapters in `native/agent_request.py`, `agent_loop_policy.py`,
 `agent_runtime.py`, `agent_adapters.py`, and `tool_capabilities.py` bind that
 core to catalog selections, extension policy, current product state, concrete

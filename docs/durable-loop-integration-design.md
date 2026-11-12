@@ -676,6 +676,32 @@ slices S1–S4; `pipy-durable-feature-plan` gets a note.
   `pipy-durable-p15-tool-text-signatures`. The bound's notice and the kept end
   are owned by DE33's per-tool output limits.
 
+- **S5 record.** `native/agent/turn.py` holds `settle_provider_result`,
+  `admit_tool_call` and `transform_tool_result`; `AgentLoop` calls them,
+  including for a retried attempt's failure and for nested admission, and
+  emits its events around them. Two decisions (class A):
+  - Admission is per call, not a tuple returned by `settle_provider_result`
+    as section 4.2's signature suggests. The loop runs a call before it
+    admits the next, and a call takes its place in the budget when it
+    settles, so a round's admissions cannot be decided up front without
+    changing the loop. `admit_tool_call` wraps `decide_tool_admission` and
+    returns the refusal text (`tool budget exhausted (limit N)`,
+    `Tool <name> not found`). DE25's up-front durable admission folds it over
+    the round, counting each admitted call, as the equivalence test does.
+  - The kernel settles a failed result too: its assistant is Pi's
+    `stopReason: "error"` message, the same assistant the durable
+    `_assistant` builds from its own copy; the equivalence test holds the two
+    to each other until DE22/DE25 switch the generation. The status callback and the usage
+    publication now follow the kernel's pure computation instead of
+    interleaving with it, so only an exception raised inside that computation
+    now precedes the callback; no test observed the old order.
+  The equivalence test is `tests/durable/test_generation_kernel_equivalence.py`
+  (in the durable tier). Its admission fold settles each admitted call through
+  the loop's `settle_tool_execution`. Its shared cells (text answer, one and two offered
+  calls, failed provider response) compare the committed assistant entry and
+  the admitted calls with the kernel's; `EXPECTED_DELTAS` names budget
+  exhaustion and the unauthorized tool (DE25) and the policy transform (DE22).
+
 ## 8. Open owner questions
 
 1. Soll R15-3 (Storage-Batch-Commit, unreviewter WIP auf

@@ -13,7 +13,7 @@ from test_native_nested_record import _service
 from test_native_ui_transcript import _Harness as TranscriptHarness
 
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.loop import AgentLoop, _transform_tool_result
+from pipy_harness.native.agent.loop import AgentLoop
 from pipy_harness.native.agent.loop_policy import AgentToolResultTransform
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
@@ -27,6 +27,7 @@ from pipy_harness.native.agent.tool_details import (
     NO_TOOL_DETAILS,
     UNCHANGED_TOOL_DETAILS,
 )
+from pipy_harness.native.agent.turn import transform_tool_result
 from pipy_harness.native.automation.durable_output import message as completed_json
 from pipy_harness.native.automation.serialize import serialize_message, tool_result_json
 from pipy_harness.native.coding.compaction import file_operation_input
@@ -140,7 +141,7 @@ def test_actual_policy_transform_distinguishes_unchanged_clear_and_null(replacem
         def transform_result(self, call, original, arguments, parent):
             return AgentToolResultTransform(original.content, details=replacement)
 
-    transformed = _transform_tool_result(
+    transformed = transform_tool_result(
         Policy(),
         AgentToolCall("parent", "codemode", ProductContent("{}")),
         source,
@@ -243,7 +244,7 @@ def test_policy_replacement_keeps_one_actual_nested_record_channel(new_details):
         def transform_result(self, call, original, arguments, parent):
             return AgentToolResultTransform(original.content, details=new_details)
 
-    changed = _transform_tool_result(
+    changed = transform_tool_result(
         Policy(),
         AgentToolCall("parent", "codemode", ProductContent("{}")),
         source,

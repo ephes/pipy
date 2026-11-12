@@ -7,10 +7,10 @@ import pytest
 
 from pipy_harness.extensions import ToolResult
 from pipy_harness.native.agent.content import ProductContent, ToolPartialResult
-from pipy_harness.native.agent.loop import _transform_tool_result
 from pipy_harness.native.agent.loop_policy import AgentToolResultTransform
 from pipy_harness.native.agent.messages import AgentToolCall
 from pipy_harness.native.agent.tools import ToolExecutor
+from pipy_harness.native.agent.turn import transform_tool_result
 from pipy_harness.native.automation.serialize import (
     partial_result_json,
     serialize_message,
@@ -59,7 +59,7 @@ def test_existing_normal_details_json_domain(details, tmp_path):
     )
     transform = AgentToolResultTransform(ProductContent("changed"), details=details)
     policy = SimpleNamespace(transform_result=lambda *args: transform)
-    changed = _transform_tool_result(policy, call, result, {}, None)
+    changed = transform_tool_result(policy, call, result, {}, None)
     assert wire(tool_result_json(changed))["details"] == expected
     # Mapping details stay on execution-end and JSONL, not this event message.
     assert "details" not in serialize_message(changed)

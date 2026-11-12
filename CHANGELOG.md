@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- The agent loop's turn semantics live in a pure kernel,
+  `native/agent/turn.py`: provider-result settlement, per-call tool admission
+  and the tool policy's result transform. The loop's behaviour is unchanged.
+  A kernel-equivalence test holds the durable generation's own settlement to
+  the kernel and names what the durable round still lacks (tool budget,
+  unauthorized-tool result, result transform) for DE22/DE25.
+
 - Tool results keep signed text blocks (Pi `textSignature`): a result keeps
   its blocks when they hold an image or a signature, the session file writes
   and reads `textSignature`, durable storage keeps it, and a truncated text

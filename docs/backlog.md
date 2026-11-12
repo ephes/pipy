@@ -1201,8 +1201,11 @@ ordinary and the durable host. Slice S2 pairs the omitted-output cases in the
 reporting comparison (a window truncation case), which closes
 `pipy-durable-p16-omitted-tool-output`; the comparison still compares only
 declared common observables, and Pi's beginning-keeping window against native's
-end-keeping one stays a declared raw difference until DE33. All 43 P rows and
-parent DE13 remain OPEN.
+end-keeping one stays a declared raw difference until DE33. Slice S5 moves
+the loop's provider settlement, tool admission and result transform into the
+pure turn kernel `native/agent/turn.py`; the durable generation is not switched,
+and a kernel-equivalence test names its missing budget, unauthorized-tool
+result and transform for DE22/DE25. All 43 P rows and parent DE13 remain OPEN.
 
 
 ## DE13c1 recovered-execute interrupted continuation (landed `5897353`)
