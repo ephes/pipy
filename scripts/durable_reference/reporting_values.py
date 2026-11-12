@@ -9,18 +9,17 @@ from durable_reference.details_values import fields, wire_tools
 PHASE = "retained-tool-reporting-v1"
 SCOPE = {
     "common": "committed-details-prefix-ack-reported-diagnostics-failed-task-next-request-answer-counts-reopen",
-    "native_normal_output": "explicit-final-text-required-by-existing-DTO",
+    "native_normal_output": "omitted-final-output-uses-native-retained-output",
     "reference_normal_output": "omitted-final-output-uses-Pi-retained-output",
     "raw_differences": [
-        "input-output-presence",
         "automatic-error-diagnostics-and-text",
         "warn-versus-warning-and-final-versus-reported-diagnostic",
         "task-graph-shape",
         "timing-and-capacity-policy",
+        "head-versus-tail-retained-window-bytes-and-final-newline",
     ],
     "open_gates": [
         "pipy-durable-p15-tool-text-signatures",
-        "pipy-durable-p16-omitted-tool-output",
         "DE13c-unsafe-recovery",
         "DE26/33-timing-capacity",
         "DE27/28-storage-graph",
@@ -43,11 +42,25 @@ CASES = [
         "final": "throw",
     },
     {"id": "throw_without_details", "final": "throw"},
+    # P16 S2: an omitted output whose live output exceeds the 2000-line window.
+    {"id": "omitted_truncated_output", "final": "absent", "lines": 2100},
 ]
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 IDS = tuple(case["id"] for case in CASES)
 INFO = {"severity": "info", "message": "reported-note", "code": "fixture_report"}
 WARNING = {"severity": "warning", "message": "final-note", "code": "fixture_final"}
+# The Harness's truncation diagnostic. Pi's window keeps the beginning, native's
+# the end, until per-tool output limits (DE33): Pi keeps "l\n" * 2000 and drops
+# 200 bytes, native keeps "l\n" * 1999 + "l" and drops 201. The code, the
+# dropped lines, the order and the kept lines are common; the retained end, the
+# dropped bytes and the final newline are a declared raw difference.
+REFERENCE_TRUNCATED = "Output truncated to its beginning: 100 lines, 200 bytes dropped"
+NATIVE_TRUNCATED = "Output truncated to its end: 100 lines, 201 bytes dropped"
+TRUNCATED = {
+    "severity": "warning",
+    "message": "Output truncated: 100 lines dropped",
+    "code": "truncated",
+}
 FIELDS = {
     "completed",
     "tool_status",
@@ -85,6 +98,7 @@ MUTANTS = (
     "next_answer",
     "wire_details",
     "wire_correlation",
+    "truncated_lost",
 )
 
 
@@ -96,6 +110,19 @@ def _presence(value, key):
     return (
         {"state": "value", "value": value[key]} if key in value else {"state": "absent"}
     )
+
+
+def _body(recipe, native):
+    """The retained output text: the 2000 kept lines, or the two chunks."""
+    if "lines" not in recipe:
+        return "partial-body"
+    return "l\n" * 1999 + "l" if native else "l\n" * 2000
+
+
+def _common_text(recipe, text):
+    """The common part of the retained text: without the final newline that only
+    Pi's beginning-keeping window retains (declared raw difference)."""
+    return text.rstrip("\n") if "lines" in recipe else text
 
 
 def expected(name):
@@ -123,8 +150,10 @@ def expected(name):
         "next_result": detail,
         "reopened_result": detail,
         "prefix_ack": prefix,
-        "diagnostics": [INFO] if failed else [INFO, WARNING],
-        "result_text_prefix": "partial-body",
+        "diagnostics": [INFO]
+        if failed
+        else [INFO, WARNING, *([TRUNCATED] if "lines" in recipe else [])],
+        "result_text_prefix": _common_text(recipe, _body(recipe, True)),
         "model_error": failed,
         "next_answer": "done",
         "provider_calls": 2,
@@ -233,7 +262,7 @@ def _wire(raw, expected_text):
     }
 
 
-def native(raw, codec):
+def native(raw, codec, case_id):
     from pipy_harness.native.agent.messages import AgentToolResultMessage
     from pipy_harness.native.agent.tool_details import has_tool_details
     from pipy_harness.native.durable.tool_output_values import project_tool_output
@@ -268,17 +297,26 @@ def native(raw, codec):
     assert fact["recovery"] == (
         {"reason": "tool_error", "category": "invocation_exception"} if failed else None
     )
+    recipe = _case(case_id)
+    lines = "lines" in recipe
+    truncated = {
+        "severity": "warning",
+        "message": NATIVE_TRUNCATED,
+        "code": "truncated",
+    }
     notices = "[info (fixture_report)] reported-note\n" + (
         "Tool failed (invocation_exception)."
         if failed
         else "[warning (fixture_final)] final-note"
+        + ("\n[warning (truncated)] " + truncated["message"] if lines else "")
     )
-    model_text = "partial-body\n<harness>\n" + notices + "\n</harness>"
-    assert (
-        projected.content.value == model_text
-        and outcome.result.content.value == "partial-body"
+    body = _body(recipe, True)
+    model_text = body + "\n<harness>\n" + notices + "\n</harness>"
+    assert projected.content.value == model_text
+    assert outcome.result.content.value == body
+    assert fact["diagnostics"] == (
+        [INFO] if failed else [INFO, WARNING, *([truncated] if lines else [])]
     )
-    assert fact["diagnostics"] == ([INFO] if failed else [INFO, WARNING])
     snapshot = codec.decode_canonical(raw["next_request"])
     returned = next(
         m for m in snapshot.request.messages if isinstance(m, AgentToolResultMessage)
@@ -300,8 +338,10 @@ def native(raw, codec):
         "next_result": next_value,
         "reopened_result": fields(repeated, native=True),
         "prefix_ack": prefix,
-        "diagnostics": fact["diagnostics"],
-        "result_text_prefix": outcome.result.content.value,
+        "diagnostics": [INFO]
+        if failed
+        else [INFO, WARNING, *([TRUNCATED] if lines else [])],
+        "result_text_prefix": _common_text(recipe, outcome.result.content.value),
         "model_error": result["is_error"],
         "next_answer": messages[-1]["content"],
         "provider_calls": raw["after"]["providers"],
@@ -348,6 +388,13 @@ def reference(raw):
         "entryId": entry["id"],
     }
     failed = task["state"]["outcome"]["status"] == "failed"
+    recipe = _case(raw["id"])
+    lines = "lines" in recipe
+    truncated = {
+        "severity": "warn",
+        "code": "truncated",
+        "message": REFERENCE_TRUNCATED,
+    }
     diag = (
         [
             INFO,
@@ -358,12 +405,14 @@ def reference(raw):
             },
         ]
         if failed
-        else [INFO, {**WARNING, "severity": "warn"}]
+        else [INFO, {**WARNING, "severity": "warn"}, *([truncated] if lines else [])]
     )
     assert entry["data"]["diagnostics"] == diag
     expected_text = (
-        "partial-body\n<harness>\n[info] reported-note\n"
+        _body(recipe, False)
+        + "\n<harness>\n[info] reported-note\n"
         + ("[error] fixture-thrown-error" if failed else "[warn] final-note")
+        + ("\n[warn] " + truncated["message"] if lines and not failed else "")
         + "\n</harness>"
     )
     assert "\n".join(block["text"] for block in result["content"]) == expected_text
@@ -384,8 +433,10 @@ def reference(raw):
         "next_result": fields(returned),
         "reopened_result": fields(repeated),
         "prefix_ack": prefix,
-        "diagnostics": [INFO] if failed else [INFO, WARNING],
-        "result_text_prefix": result["content"][0]["text"],
+        "diagnostics": [INFO]
+        if failed
+        else [INFO, WARNING, *([TRUNCATED] if lines else [])],
+        "result_text_prefix": _common_text(recipe, result["content"][0]["text"]),
         "model_error": result["isError"],
         "next_answer": "\n".join(
             block["text"]
@@ -457,7 +508,9 @@ def differences(reference_rows, native_rows):
 def mutate(trace, name, codec):
     result = copy.deepcopy(trace)
     index = (
-        3
+        4
+        if name == "truncated_lost"
+        else 3
         if name == "absent_null"
         else 2
         if name in ("failed_completed", "model_error", "array_lost")
@@ -491,6 +544,8 @@ def mutate(trace, name, codec):
         actual["wire"]["fields"].append("details")
     elif name == "wire_correlation":
         actual["wire"]["correlated"] = False
+    elif name == "truncated_lost":
+        actual["diagnostics"] = actual["diagnostics"][:-1]
     else:
         raise ValueError("Unknown reporting mutant")
     result["cases"][index]["observed"] = codec.encode(actual)

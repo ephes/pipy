@@ -1078,13 +1078,15 @@ prerequisite. Only `run` writes artifacts: hash-bound `result.json` (plus
 `mismatch-report.json` on1), and nothing of either on2. `compare` returns only
 its exit code; it writes no artifact and attests no provenance. A native `unsettled` outcome or end, or a pending handle outside
 the declared blockers, is a valid Python mismatch; in a Node trace it is invalid.
-Seventeen schema-valid guard mutants (exemption flips, late success or late error
+Eighteen schema-valid guard mutants (exemption flips, late success or late error
 leaking, first-cause replacement, report twice or missing, close before drain,
 double close, admission after seal, swallowed or missing close failure, a waiter
 cancel undoing close, seal before health, an unguarded synchronous throw, an
-admitted reentrant report, a split cause) each need positive0 and negative1. As
-native negative controls, b1a's private source mutants run through `native()`:
-eight produce mismatch1, and the three that only b1a's native race and
+admitted reentrant report, a split cause and, since R15-3, a guard that fails the
+Session for a commit failure) each need positive0 and negative1. As native
+negative controls, b1a's private source mutants run through `native()`: seven
+produce mismatch1 (since R15-3 no b1b scenario reaches `first-cause-only`), and
+the three that only b1a's native race and
 `BaseException` scenarios reach (split success/error settle, close error
 replacing an in-flight exception) stay equal by design.
 
@@ -1766,19 +1768,23 @@ fresh process. Producers use actual Harness/SQLite and native CLI/SQLite paths,
 a scripted first model response, then the real OpenAI adapter with fake fetch.
 The Harness progress clock advances normally; raw timestamps remain recorded.
 
-Four cases cover reported details followed by absent/null final details and
-ordinary failure with/without reported details. Both sides retain actual prefix
+Five cases cover reported details followed by absent/null final details,
+ordinary failure with/without reported details, and an omitted output that
+exceeds the 2000-line window (P16 slice S2). Both sides retain actual prefix
 ACK snapshots, final raw tasks/results, next requests and wire bodies, next
 answers, execution/preparation/provider counters and terminal reopen. The closed
 manifest declares the finite shared projection and open boundaries; raw records
-and `differences.json` preserve the side-specific inputs and outcomes. Native
-normal returns explicitly provide text; Pi normal returns omit it. Failed
-Native invocations actually retain their reported output. P16 omitted-output
-API parity is not inferred. Pi automatic error diagnostics, native fixed
-recovery text, warning spelling/stage, graph shape and policy constants differ.
+and `differences.json` preserve the side-specific inputs and outcomes. Normal
+returns omit their output on both sides, so their output text is paired; the
+truncation case pairs the `truncated` diagnostic's code and dropped lines, the
+diagnostic order and the kept lines without the final newline. Pi's window keeps
+the beginning (200 bytes dropped) and native's the end (201 bytes dropped, no
+final newline) until DE33. Failed native invocations actually retain their
+reported output. Pi automatic error diagnostics, native fixed recovery text,
+warning spelling/stage, graph shape and policy constants differ.
 P15 tool-signature metadata remains outside the current legal native DTO domain.
 
-Seventeen semantic controls execute actual compare CLIs (positive0/negative1),
+Eighteen semantic controls execute actual compare CLIs (positive0/negative1),
 with separate malformed2 and source/lifecycle/ACK/corrupt-receiver tests. Fresh
 attestation checks exact raw-to-projection joins, next-request/CLI records,
 source/module/resolution/process/artifact identities and the retained raw delta.

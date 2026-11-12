@@ -15,6 +15,7 @@ from durable_reference import headless_native as base  # noqa: E402
 
 from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS  # noqa: E402
 from pipy_harness.native.durable.tool_execution import PROGRESS_DOC  # noqa: E402
+from pipy_harness.native.tools.base import RETAINED_OUTPUT  # noqa: E402
 
 
 def run(recipe, output):
@@ -31,8 +32,13 @@ def run(recipe, output):
         class Tool(base.parent.tools.Tool):
             def invoke(self, request, context):
                 result = super().invoke(request, context)
-                context.output_sink("partial-")
-                context.output_sink("body")
+                if "lines" in case:
+                    # P16 truncation: more lines than the 2000-line window.
+                    for _ in range(case["lines"]):
+                        context.output_sink("l\n")
+                else:
+                    context.output_sink("partial-")
+                    context.output_sink("body")
                 context.report_diagnostic(
                     severity="info", message="reported-note", code="fixture_report"
                 )
@@ -48,9 +54,11 @@ def run(recipe, output):
                 context.report_diagnostic(
                     severity="warning", message="final-note", code="fixture_final"
                 )
+                # P16: omit the output, as Pi's fixture does; the executor
+                # uses the retained "partial-body".
                 return replace(
                     result,
-                    output_text="partial-body",
+                    output_text=RETAINED_OUTPUT,
                     details=None if case["final"] == "null" else NO_TOOL_DETAILS,
                 )
 
@@ -125,7 +133,7 @@ def run(recipe, output):
                 "reports": reports,
                 "native_return_shape": "throws"
                 if case["final"] == "throw"
-                else "explicit-output-text",
+                else "omitted-output",
             }
             base.dump(records / "raw.json", raw)
             rows.append({"id": case["id"], "raw": raw})

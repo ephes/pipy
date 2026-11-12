@@ -134,7 +134,7 @@ def projection(rows, native=False):
             {
                 "id": row["id"],
                 "observed": v.encode(
-                    values.native(row["raw"], codec)
+                    values.native(row["raw"], codec, row["id"])
                     if native
                     else values.reference(row)
                 ),
@@ -377,7 +377,7 @@ def result_base(acceptance):
         "fresh_reference_bootstrap": False,
         "native_execution": "actual-cli-sqlite-next-request-reopen",
         "reference_boundary": "first-streamSimple-fixture-next-real-openai-adapter-with-fake-fetch-and-fixture-tools",
-        "raw_differences": "retained-error-text-graph-shape-required-native-final-text-and-policy",
+        "raw_differences": "retained-error-text-graph-shape-retained-window-end-and-policy",
         "unsafe_recovery": "not-exercised-or-authorized",
     }
 

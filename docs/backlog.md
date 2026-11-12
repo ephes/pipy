@@ -1197,11 +1197,12 @@ parity. Pi preserves this metadata even when truncating tool content; B does not
 define a later signature-removal policy. Since slice S1 of the
 [loop integration design](durable-loop-integration-design.md) a native tool may
 omit its output (`RETAINED_OUTPUT`) and gets the retained output, in the
-ordinary and the durable host; `pipy-durable-p16-omitted-tool-output` stays
-open until S2 pairs the omitted-output cases in the reporting comparison. The four-case reporting
-comparison records these different producer inputs and compares only declared
-common observables, without claiming fallback parity. All 43 P rows and parent
-DE13 remain OPEN.
+ordinary and the durable host. Slice S2 pairs the omitted-output cases in the
+reporting comparison, now five cases with a window truncation, which closes
+`pipy-durable-p16-omitted-tool-output`; the comparison still compares only
+declared common observables, and Pi's beginning-keeping window against native's
+end-keeping one stays a declared raw difference until DE33. All 43 P rows and
+parent DE13 remain OPEN.
 
 
 ## DE13c1 recovered-execute interrupted continuation (landed `5897353`)

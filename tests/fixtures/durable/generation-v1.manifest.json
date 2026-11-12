@@ -3,22 +3,22 @@
   "phase": "generation-b-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "canonical-checkpoint": "53a2a41e0202a11bf2bf805bc03f3465cc127ec048057232d7e107df505adb87"
+    "canonical-checkpoint": "79a9f46b4469269ec6fef5b223fb53a31a8da032c4d4e7f05a0b7770cc43d28b"
   },
   "closure": {
-    "CHANGELOG.md": "8ac51b4a47b45d7c0babfd036b9899ba043283ee01891381f456bebbdbc6d1c0",
+    "CHANGELOG.md": "33d5a5e6a294a00e706a0403b4914a5ae0aa844b46fa48736ba9d42e7123b738",
     "docs/architecture.md": "c03307cbefdf5e64177a095221ef10030e4ceaad1d2e3e7684139bfa828a0b6f",
-    "docs/backlog.md": "74a0910e0bb8b4a2a2743d1806c426615ea26e61ee039990b518dc645f1fd0da",
+    "docs/backlog.md": "aaeceea834c3abf293f5b27aea0f110adceaba833a7932c3b599779161744d0e",
     "docs/durable-canonical-codec.md": "7314fd01a459312411babaddec592d44400b6383b36f3fe71bce9b97a968a1dd",
     "docs/durable-generation.md": "64f30ebd9ed29904a8141f104a30832da49b371b901e597be6d3fb7661b8f5a0",
-    "docs/durable-reference.md": "a89a1eba0a84b25fa77c92696666d93d76b7dbf831c5a16f45e0e802f569ef3e",
+    "docs/durable-reference.md": "44f0fc390a0fa920c946c244424e4f82a3a0fe6124796b8c97744445bb4ff9ed",
     "docs/durable-restart-parking.md": "adc078f2e55771a2a5884541565daecd9164c28dbe49ede21ba3b809c916e8ac",
     "docs/durable-session-deltas.md": "8dfe27023c169d132628fd5d054c0278e0ee6ba7a6b2480ad7000a4308949228",
     "docs/durable-task-migration.md": "3004b5158f1a15dea2f0a87d64b35be40dfd26836a946fd5a7064148d7cfcbad",
     "docs/durable-task-runtime.md": "c7fae10588864c74d3cf3fc8eca2bfde45ca4eaab3586f2c6ed2fa3ffbda03a9",
     "docs/harness-spec.md": "fe4ed3f2e30ab653bc99e2e8cb30dc304bea8f83d9cc9def43625a4dc9942a1e",
     "docs/providers.md": "756e1e761090792b27a0f95b38fbc2f26cd6fde5c51e3112a708798f81eeebff",
-    "docs/specs/2026-10-19-durable-execution-evidence.md": "baca60f5b2590f5a97f5c9580b092bd851ca217ba388d50c98ed92885febe9ea",
+    "docs/specs/2026-10-19-durable-execution-evidence.md": "19b148407f4001915bec3b3be6cdf7064d8ab1baa58f0c792c2e3f8eb07c0bb4",
     "docs/specs/2026-10-19-durable-execution-plan.md": "3ef6290d103e6595e55427ed026773b7c47c3a3716d75a479c77f81a72a53b5a",
     "docs/specs/2026-10-19-durable-upstream-audit.md": "310f5e7b48bac08acd69b1d7994f5c7b7029f2fda25edac5121eaf5f84550cb7",
     "docs/specs/2026-10-28-de14a-restart-parking-plan.md": "318fcb43e983a7f5743e7b6fcc0e1ab2ded9df7103adfc170fda13d71beb5afd",

@@ -9679,3 +9679,30 @@ only failures are the two pi-mono checkout tests known since R15-0. No P row
 closes; all 43 remain OPEN, and `pipy-durable-p16-omitted-tool-output` stays
 open for S2.
 
+### P16 slice S2: the omitted-output oracle (2026-11-12)
+
+`retained-tool-reporting-v1` pairs the omitted output: the native normal fixture
+returns `RETAINED_OUTPUT` like Pi's, and a fifth case writes 2100 lines, so the
+`truncated` diagnostic is compared by code, dropped lines and order, with the
+kept lines. Pi's window keeps the beginning (200 bytes dropped) and native's the
+end (201 bytes dropped, no final newline); that is a declared raw difference
+until DE33. The producer-input difference left `differences.json`, and the
+mutant `truncated_lost` joined the controls (18). With S1, this closes
+`pipy-durable-p16-omitted-tool-output` (design §4.6); the design's §7a records
+the details. This entry also corrects the guard comparison's mutant count, which
+R15-3 raised to eighteen.
+
+Receipts on the development host (macOS, Python 3.15.2, official Node v26.13.0
+first on `PATH`), on the final S2 code before the documentation digests of this
+entry: a fresh baseline acceptance (execution `605a8245-8b80-4488-b99e-fca5c45783ec`, `acceptance.json` SHA256
+`6302a08c9236ceb4bf4972179c857d73e67be1a00da7ffbc8a83398c31f002f0`) and all 31 comparison phases after it exited 0, 32 commands in 668 s;
+a separate fresh acceptance with the reporting phase and `attest()` in a fresh
+process: PASS with 5 cases and 18 mutants. Independent review with Claude Opus
+5.5 at high effort converged in round 1 with one Suggestion, not applied:
+numbered lines instead of identical ones would make the kept end visible in the
+raw records; the exact raw message assertions already fix the end on each side.
+`just test-full` on the final code: the two pi-mono checkout tests known since
+R15-0 failed, and `test_product_comparison` (14 setup errors) and a codemode CPU
+backstop test failed under a host load near 60; both files passed on a rerun.
+No P row closes; all 43 remain OPEN.
+

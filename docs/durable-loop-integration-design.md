@@ -649,6 +649,15 @@ slices S1–S4; `pipy-durable-feature-plan` gets a note.
     reported through the reporter after the tool returns, so it is committed
     with the others and the projection renders it.
 
+- **S2 record.** The native normal fixture of `retained-tool-reporting-v1`
+  now omits its output, and a fifth case (2100 lines) pairs the `truncated`
+  diagnostic: its code, dropped lines, order and the kept lines. Pi's window
+  keeps the beginning ("l\n" * 2000, 200 bytes dropped) and native's the end
+  ("l\n" * 1999 + "l", 201 bytes dropped); the retained end, the byte count and
+  the final newline are a declared raw difference until DE33. The producer-input
+  difference left `differences.json`, a mutant `truncated_lost` was added, and
+  `pipy-durable-p16-omitted-tool-output` closes with S1 and S2.
+
 ## 8. Open owner questions
 
 1. Soll R15-3 (Storage-Batch-Commit, unreviewter WIP auf

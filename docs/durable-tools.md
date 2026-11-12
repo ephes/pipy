@@ -322,17 +322,20 @@ Full P15 tool metadata parity remains open under
 when bounding content; this slice establishes no later signature-removal policy.
 
 The cumulative `retained-tool-reporting-v1` comparison follows the existing
-22 phases with four actual public Harness/native cases: reported details with
-absent final details, explicit final null, failure after reported details and
-failure without details. It retains raw records, committed prefix ACKs, model
-requests and fake-provider wire bodies, and checks the actual next answer and
-reopen without another effect. Only its declared common observables are paired.
-Pi's normal fixture omits final output; the native normal fixture explicitly
-returns the reported text, because `ToolExecutionResult` required it when the
-comparison was made. S1 added the omitted output (`RETAINED_OUTPUT`); pairing
-the two normal cases is slice S2, so that different input is retained, not
-presented as fallback parity, and `pipy-durable-p16-omitted-tool-output`
-remains open. Native ordinary failures do
+22 phases with five actual public Harness/native cases: reported details with
+absent final details, explicit final null, failure after reported details,
+failure without details and, since P16 slice S2, an omitted output whose 2100
+lines exceed the 2000-line window. It retains raw records, committed prefix
+ACKs, model requests and fake-provider wire bodies, and checks the actual next
+answer and reopen without another effect. Only its declared common observables
+are paired. Both normal fixtures omit their final output (`RETAINED_OUTPUT` on
+the native side), so the output text of the normal cases is paired, and the
+truncation case pairs the `truncated` diagnostic's code, its dropped lines, the
+diagnostic order and the kept lines. Pi's window keeps the beginning and drops
+200 bytes; native's keeps the end and drops 201, without the final newline:
+that is a declared raw difference until per-tool output limits (DE33). With
+this pairing and the ordinary-host cases of S1,
+`pipy-durable-p16-omitted-tool-output` is closed. Native ordinary failures do
 use their retained output. Pi's automatic error diagnostic and native's fixed
 recovery category/model suffix, warning spelling and reporting stage, graph
 shape and policy constants remain raw differences. The comparison does not
