@@ -31,7 +31,10 @@ from pipy_harness.native.durable.ordinary_abort import handoff  # noqa: E402,F40
 from pipy_harness.native.durable.scheduler import TaskScheduler  # noqa: E402
 from pipy_harness.native.durable.session_core import Session  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
-from pipy_harness.native.durable.storage import StorageWrite  # noqa: E402
+from pipy_harness.native.durable.storage import (  # noqa: E402
+    StorageWrite,
+    commit_writes,
+)
 from pipy_harness.native.durable.tasks import define_task  # noqa: E402
 from pipy_harness.native.durable.tool_graph import capture_entries  # noqa: E402,F401
 
@@ -173,11 +176,12 @@ async def native_case(case, backend, folder):
     }
     if name == "recovery":
         row.update(restarts=2, memos={"stable": None}, startedAt=1000)
-    inner.commit(
+    commit_writes(
+        inner,
         (
             StorageWrite({"type": "conversation", "value": {"id": 1}}),
             StorageWrite({"type": "task", "value": row}),
-        )
+        ),
     )
     if backend == "reopen":
         inner.close()

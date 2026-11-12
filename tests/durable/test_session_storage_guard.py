@@ -23,6 +23,7 @@ from pipy_harness.native.durable import session as real_session
 from pipy_harness.native.durable.memory import MemoryStorage
 from pipy_harness.native.durable.records import RecordError
 from pipy_harness.native.durable.storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     DocumentAddress,
@@ -35,6 +36,7 @@ from pipy_harness.native.durable.storage import (
     SubmissionQuery,
     TaskQuery,
     UnsupportedStorageOperation,
+    commit_writes,
 )
 
 WAIT = 5.0
@@ -57,8 +59,10 @@ def entry(id: int, conversation: int = 1, **extra: Any) -> dict[str, Any]:
 
 def seeded() -> MemoryStorage:
     store = MemoryStorage()
-    assert store.commit(write({"type": "conversation", "value": {"id": 1}})) == 1
-    seq = store.commit(
+    root = write({"type": "conversation", "value": {"id": 1}})
+    assert commit_writes(store, root) == 1
+    seq = commit_writes(
+        store,
         write(
             entry(2, head=2),
             entry(3),
@@ -95,7 +99,7 @@ def seeded() -> MemoryStorage:
                 "type": "conversation",
                 "value": {"id": 8, "parent": {"conversationId": 1, "at": 3}},
             },
-        )
+        ),
     )
     assert seq == 2
     return store
@@ -373,10 +377,15 @@ CONV_Q = ConversationQuery({})
 TASK_Q = TaskQuery({"conversationId": 1})
 SUB_Q = SubmissionQuery({"conversationId": 1})
 CURSOR = Cursor(4, "descending")
-BATCH = note(30)
+BATCHES = (note(30),)
+
+
+def receipt(index: int, seq: int) -> None:
+    """A receipt callable the commit delegate passes on unchanged."""
+
 
 DELEGATES: list[tuple[str, Callable[[Any], Any], tuple[Any, ...], dict[str, Any]]] = [
-    ("commit", lambda g: g.commit(BATCH), ("BATCH",), {}),
+    ("commit", lambda g: g.commit(BATCHES, receipt), ("BATCHES", "receipt"), {}),
     ("mint_id", lambda g: g.mint_id(), (), {}),
     ("conversation", lambda g: g.conversation(1), (1,), {}),
     (
@@ -439,7 +448,8 @@ DELEGATES: list[tuple[str, Callable[[Any], Any], tuple[Any, ...], dict[str, Any]
     ("close", lambda g: g.close(), (), {}),
 ]
 NAMED = {
-    "BATCH": BATCH,
+    "BATCHES": BATCHES,
+    "receipt": receipt,
     "CONV_Q": CONV_Q,
     "ENTRY_Q": ENTRY_Q,
     "TASK_Q": TASK_Q,
@@ -494,13 +504,19 @@ for _index, _case in enumerate(DELEGATES):
 @scenario("delegate-commit-and-mint-real-values")
 def _commit_and_mint(S: types.ModuleType) -> None:
     with Rig(S) as rig:
-        batch = note(30)
+        batches = (note(30),)
+        receipts: list[tuple[int, int]] = []
+
+        def receive(index: int, seq: int) -> None:
+            receipts.append((index, seq))
+
         assert rig.guard.mint_id() == 9
         assert rig.store.calls[-1] == ("mint_id", (), {})
-        assert rig.guard.commit(batch) == 3
+        assert rig.guard.commit(batches, receive) == CommitResult(1)
+        assert receipts == [(0, 3)]
         committed: Any = rig.store.calls[-1]
-        assert committed[0] == "commit" and committed[1][0] is batch
-        assert committed[1:] == ((batch,), {})
+        assert committed[0] == "commit" and committed[1][0] is batches
+        assert committed[1:] == ((batches, receive), {})
         assert rig.inner.entry(30).commit_seq == 3
         page = rig.guard.scan_entries(ENTRY_Q, 1)
         assert [item.id for item in page.items] == [30]
@@ -529,7 +545,7 @@ assert len(READS) == 13
 
 def _healthy_after(rig: Rig) -> None:
     assert rig.owner.failure is None and not rig.owner.sealed
-    assert rig.guard.commit(note(40)) == 3
+    assert commit_writes(rig.guard, note(40)) == 3
     assert rig.owner.end is None and not rig.reports
 
 
@@ -624,13 +640,19 @@ def _mutation_never_exempt(method: str, cancelled: bool) -> Scenario:
                 rig.store.fault(method, error)
             facade = rig.guard.reading(latch.view())
             call = (
-                (lambda: facade.commit(note(40)))
+                (lambda: commit_writes(facade, note(40)))
                 if method == "commit"
                 else facade.mint_id
             )
             with pytest.raises(type(error)) as raised:
                 call()
             assert raised.value is error
+            if method == "commit":
+                # Release 1.5 (bridge U07): the guard leaves a commit's outcome
+                # to the Session writer, so the call fails nothing here.
+                assert rig.owner.failure is None and rig.reported() == []
+                _healthy_after(rig)
+                return
             assert rig.owner.failure is error
             assert rig.owner.end == S.SessionEnd("failed", error)
             assert rig.reported() == [error]
@@ -658,7 +680,7 @@ def _pi132(failing: str, late: str) -> Scenario:
             error = RuntimeError("disk gone")
             rig.store.fault(failing, error)
             call = (
-                (lambda: rig.guard.commit(note(40)))
+                (lambda: commit_writes(rig.guard, note(40)))
                 if failing == "commit"
                 else rig.guard.mint_id
             )
@@ -693,7 +715,9 @@ def _pi132(failing: str, late: str) -> Scenario:
     return run
 
 
-for _failing in ("mint_id", "commit"):
+# Release 1.5: only mint_id fails the Session from the guard; a commit's outcome is
+# the Session writer's (bridge U07, test_session_commit covers it).
+for _failing in ("mint_id",):
     for _late in ("success", "error"):
         scenario(f"pi132-underway-ends-failed[{_failing}-{_late}]")(
             _pi132(_failing, _late)
@@ -914,13 +938,16 @@ def _pi267(S: types.ModuleType) -> None:
 
 @scenario("pi291-request-error-from-commit")
 def _pi291(S: types.ModuleType) -> None:
+    # Release 1.5: the guard returns the error unjudged; the Session writer
+    # fails the Session for it (test_session_commit h267-h291).
     with Rig(S) as rig:
         error = StorageRequestError("bad batch")
         rig.store.fault("commit", error)
         with pytest.raises(StorageRequestError) as raised:
-            rig.guard.commit(note(40))
+            commit_writes(rig.guard, note(40))
         assert raised.value is error
-        assert rig.owner.wait_closed(timeout=WAIT) == S.SessionEnd("failed", error)
+        assert rig.owner.failure is None and rig.reported() == []
+        _healthy_after(rig)
 
 
 @scenario("pi301-invalid-requests-fail-only-the-call")
@@ -944,7 +971,7 @@ def _pi301(S: types.ModuleType) -> None:
                 request()
         with pytest.raises(UnsupportedStorageOperation):
             rig.guard.document(7, 1)
-        assert rig.guard.commit(note(40)) == 3
+        assert commit_writes(rig.guard, note(40)) == 3
         assert rig.owner.failure is None and rig.owner.end is None
         assert not rig.reports
 
@@ -963,7 +990,7 @@ def _pi410(S: types.ModuleType) -> None:
         with pytest.raises(RuntimeError) as raised:
             rig.guard.reading(latch.view()).scan_entries(ENTRY_Q, 50)
         assert raised.value is cancelled
-        assert rig.guard.commit(note(40)) == 3
+        assert commit_writes(rig.guard, note(40)) == 3
         assert rig.owner.failure is None and not rig.reports
 
 
@@ -1087,7 +1114,7 @@ def _closed_refusal(S: types.ModuleType) -> None:
             with pytest.raises(S.SessionClosedError):
                 read(rig.guard)
         with pytest.raises(S.SessionClosedError):
-            rig.guard.commit(note(40))
+            commit_writes(rig.guard, note(40))
         with pytest.raises(S.SessionClosedError):
             rig.guard.mint_id()
         assert len(rig.store.calls) == before
@@ -1377,7 +1404,6 @@ EXPECTED_FAILURES: dict[str, list[str]] = {
     ],
     "post-call-health-check": [
         "pi132-underway-ends-failed[mint_id-success]",
-        "pi132-underway-ends-failed[commit-success]",
     ],
     "late-error-health-check": [
         "pi132-underway-ends-failed[mint_id-error]",
@@ -1397,7 +1423,7 @@ EXPECTED_FAILURES: dict[str, list[str]] = {
         "close-error-never-replaces-inflight-base-exception"
     ],
     "drain-wait": [
-        "pi132-underway-ends-failed[commit-success]",
+        "pi132-underway-ends-failed[mint_id-success]",
         "cancelled-close-requester-keeps-seal-and-drain",
     ],
     "first-cause-only": [

@@ -25,11 +25,19 @@ from pipy_harness.native.durable.storage import (
     DocumentAddress,
     EntryQuery,
     StorageWrite,
+    commit_writes,
 )
 from pipy_harness.native.durable.tx import RawDocumentChange
 
 WAIT = 10
 MODES = pytest.mark.parametrize("mode", [SYNC, ASYNC], ids=["sync", "async"])
+
+
+def note(id):
+    """A one-entry probe write: the next commit's seq (the Session sends no empty batch)."""
+    return StorageWrite(
+        {"type": "entry", "value": {"id": id, "conversationId": 1, "kind": "probe"}}
+    )
 
 
 class Recording:
@@ -38,11 +46,14 @@ class Recording:
         self.calls = 0
         self.returned = []
 
-    def commit(self, writes):
+    def commit(self, batches, receive):
         self.calls += 1
-        seq = self.inner.commit(writes)
-        self.returned.append(seq)
-        return seq
+
+        def recorded(index, seq):
+            self.returned.append(seq)
+            receive(index, seq)
+
+        return self.inner.commit(batches, recorded)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -62,7 +73,9 @@ def rig(tmp_path):
 
     with contextlib.ExitStack() as stack:
         stack.callback(close_storage)
-        storage.commit((StorageWrite({"type": "conversation", "value": {"id": 1}}),))
+        commit_writes(
+            storage, (StorageWrite({"type": "conversation", "value": {"id": 1}}),)
+        )
         recording = Recording(storage)
         reports = []
         session = Session(
@@ -251,7 +264,7 @@ def test_real_commit_ack_loss_fails_session_without_adoption_publication_or_retr
                 {"conversation": 3, "entry": 4, "task": 5, "submission": 6},
                 {"ack": "lost"},
             )
-            assert reopened.mint_id() == 7 and reopened.commit(()) == 3
+            assert reopened.mint_id() == 7 and commit_writes(reopened, (note(7),)) == 3
         finally:
             reopened.close()
 
@@ -388,7 +401,7 @@ say("released")
                 reopened.scan_entries(EntryQuery({"conversationId": 1}), 10).items == ()
             )
             assert reopened.conversation(3) is None and reopened.document(2) is None
-            assert reopened.mint_id() == 2 and reopened.commit(()) == 2
+            assert reopened.mint_id() == 2 and commit_writes(reopened, (note(2),)) == 2
             assert reopened._database.connection().execute(
                 "PRAGMA integrity_check"
             ).fetchall() == [("ok",)]
@@ -426,8 +439,10 @@ def test_close_and_checkpoint_failure_release_owner_to_fresh_child(
         with Child(
             """
 from pipy_harness.native.durable.sqlite import open_sqlite_storage
+from pipy_harness.native.durable.storage import StorageWrite, commit_writes
 store = open_sqlite_storage(sys.argv[1], mode="open")
-say("opened", seq=store.commit(()))
+value = {"id": store.mint_id(), "conversationId": 1, "kind": "probe"}
+say("opened", seq=commit_writes(store, (StorageWrite({"type": "entry", "value": value}),)))
 store.close()
 say("closed")
 """,

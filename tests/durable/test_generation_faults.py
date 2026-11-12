@@ -41,18 +41,19 @@ def test_generation_storage_failure_seals_and_recovery_uses_actual_commit(
         def __getattr__(self, name):
             return getattr(inner, name)
 
-        def commit(self, writes):
+        def commit(self, batches, receive):
             target = self.armed and any(
                 value.get("type") == "task" and selected(value["value"], stage)
-                for value in (write.to_tree() for write in writes)
+                for value in (write.to_tree() for batch in batches for write in batch)
             )
             if target and failure != "adoption":
                 self.armed = False
                 if failure == "ack":
-                    inner.commit(writes)
+                    # Durable, but its receipt is lost with the acknowledgement.
+                    inner.commit(batches, lambda index, seq: None)
                 tripped.set()
                 raise OSError("Synthetic generation commit acknowledgement failure")
-            return inner.commit(writes)
+            return inner.commit(batches, receive)
 
     storage = Storage()
     session = Session(storage)

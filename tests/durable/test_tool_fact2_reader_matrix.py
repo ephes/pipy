@@ -38,6 +38,7 @@ from pipy_harness.native.durable.storage import (
     ConversationQuery,
     DocumentQuery,
     StorageWrite,
+    commit_writes,
 )
 from pipy_harness.native.durable.tool_execution import ToolRegistration
 from pipy_harness.native.durable.tool_values import entry_tool_output
@@ -524,7 +525,7 @@ def clone_memory(base, world_name, mutation="none", *, waiting=False):
             )
         )
     store = MemoryStorage()
-    store.commit(tuple(writes))
+    commit_writes(store, tuple(writes))
     return store, parent, rows, entries
 
 
@@ -855,7 +856,7 @@ def test_schema_valid_primitive_result_actual_session_consumers(
     child = next(row for row in rows if row["id"] == base["child"]["id"])
     child["state"]["status"] = status
     TaskRecord(child)
-    store.commit((StorageWrite({"type": "task", "value": child}),))
+    commit_writes(store, (StorageWrite({"type": "task", "value": child}),))
     session = Session(store)
     value, assistant = base["value"], base["assistant"]
 

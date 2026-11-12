@@ -109,6 +109,7 @@ from .session import (
     _view,
 )
 from .storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     EntryQuery,
@@ -808,16 +809,11 @@ class Session:
             return result
         try:
             # Once admitted, caller cancellation does not interrupt settlement.
-            seq = self._owner.storage.commit(writes)
-        except BaseException as error:
-            core.discard()  # the guard failed the owner
-            self._unknown_outcome(error)
+            seq, rejected = self._store(writes)
+        except BaseException:
+            core.discard()  # _store failed the owner
             raise
-        try:
-            self._settle_admitted(core, writes, seq, publish=publish)
-        except BaseException as error:
-            self._unknown_outcome(error)
-            raise
+        self._settle_stored(core, writes, seq, rejected, publish=publish)
         return result
 
     async def acommit(
@@ -966,23 +962,89 @@ class Session:
             if not writes:
                 core.discard()
             else:
-                commit = partial(self._owner.storage.commit, writes)
+                commit = partial(self._store, writes)
                 try:
-                    seq = await asyncio.get_running_loop().run_in_executor(None, commit)
-                except BaseException as error:
-                    core.discard()  # the guard failed the owner
-                    self._unknown_outcome(error)
+                    seq, rejected = await asyncio.get_running_loop().run_in_executor(
+                        None, commit
+                    )
+                except BaseException:
+                    core.discard()  # _store failed the owner
                     raise
-                try:
-                    self._settle_admitted(core, writes, seq)
-                except BaseException as error:
-                    self._unknown_outcome(error)
-                    raise
+                self._settle_stored(core, writes, seq, rejected)
         except BaseException:
             self._leave(ticket, raising=True)
             raise
         self._leave(ticket, raising=False)
         return result
+
+    def _store(
+        self, writes: tuple[StorageWrite, ...]
+    ) -> tuple[Seq, BaseException | None]:
+        """Store ``writes`` as one batch (deviation D1), judged as Pi's writer does.
+
+        Returns the batch's seq and, for a call that raised after its receipt,
+        the call's error: that commit is durable, so it is published first and
+        fails the Session after (``_settle_stored``, bridge U08). A Session that
+        failed while the call ran raises ``SessionFailed`` with its first error
+        and publishes nothing. Without a receipt the owner fails and this
+        raises: the call's error, its refusal, or ``RuntimeError`` for a result
+        that reports nothing stored and nothing refused.
+        """
+        receipts: dict[int, Seq] = {}
+        result: CommitResult | None = None
+        rejected: BaseException | None = None
+        try:
+            result = self._owner.storage.commit((writes,), receipts.__setitem__)
+        except BaseException as error:  # noqa: BLE001 - judged below, like Pi's writer
+            rejected = error
+        failed = self._owner.failure
+        if failed is not None:
+            if rejected is not None and not issubclass(type(rejected), Exception):
+                raise rejected  # a process-control exception stays itself
+            raise SessionFailed(failed) from failed
+        seq = receipts.get(0)
+        if seq is not None:
+            return seq, rejected
+        if type(rejected) is SessionClosedError:
+            raise rejected  # refused before the backend; nothing failed
+        cause: BaseException
+        if rejected is not None:
+            cause = rejected
+        elif result is not None and result.stored == 0 and result.refused is not None:
+            cause = result.refused
+        else:
+            cause = RuntimeError("Storage committed without adopting the batch")
+        self._owner.fail(cause)
+        raise cause
+
+    def _settle_stored(
+        self,
+        core: _TxCore,
+        writes: tuple[StorageWrite, ...],
+        seq: Seq,
+        rejected: BaseException | None,
+        *,
+        publish: bool = True,
+    ) -> None:
+        """Adopt and publish a stored commit; then fail for its call's error.
+
+        A commit whose storage call raised after its receipt is durable: it is
+        published, its waits resolve, and then the Session fails with the call's
+        error, which the commit raises (Pi 1.5 writer, bridge U08). Should its
+        adoption or the publication scope fail too, the Session still fails
+        with the call's error and the commit raises its own error, as Pi's
+        writer settles such a part. An own observer's failure there is R15-4's
+        (U16) and still fails the Session with its own error.
+        """
+        try:
+            self._settle_admitted(core, writes, seq, publish=publish, cause=rejected)
+        except BaseException as error:
+            if rejected is None:
+                self._unknown_outcome(error)
+            raise
+        if rejected is not None:
+            self._owner.fail(rejected)
+            raise rejected
 
     def _settle_admitted(
         self,
@@ -991,13 +1053,61 @@ class Session:
         seq: Seq,
         *,
         publish: bool = True,
+        cause: BaseException | None = None,
     ) -> None:
-        """Adopt the durable commit, then publish it (Pi #runCommit 757–766)."""
+        """Adopt the durable commit, then publish it (Pi #runCommit 757–766).
+
+        ``cause`` is the storage call's error of a stored commit (U08): a
+        failure here then fails the Session with it, not with its own error.
+
+        A backend with a publication scope (Pi 1.5 ``Storage.publishing``) runs
+        the adoption and publication inside it; it must run them exactly once
+        before it returns, since the Session line is held (deviation D1).
+        """
+        scope = self._owner.storage.publishing if publish else None
+        if scope is None:
+            self._adopt_and_publish(core, writes, seq, publish, cause)
+            return
+        ran: list[BaseException | None] = []
+
+        def publication() -> None:
+            if ran:
+                raise RuntimeError("Storage.publishing ran the publication twice")
+            try:
+                self._adopt_and_publish(core, writes, seq, publish, cause)
+            except BaseException as error:  # noqa: BLE001 - raised to the committer below
+                ran.append(error)
+            else:
+                ran.append(None)
+
+        try:
+            scope(publication)
+        except BaseException as error:
+            # A scope that raises is a Storage bug (Pi #abandon): fail the owner.
+            self._owner.fail(error if cause is None else cause)
+            raise
+        if not ran:
+            missing = RuntimeError(
+                "Storage.publishing returned without the publication"
+            )
+            self._owner.fail(missing if cause is None else cause)
+            raise missing
+        if ran[0] is not None:
+            raise ran[0]
+
+    def _adopt_and_publish(
+        self,
+        core: _TxCore,
+        writes: tuple[StorageWrite, ...],
+        seq: Seq,
+        publish: bool,
+        cause: BaseException | None = None,
+    ) -> None:
         try:
             documents = core.adopt(seq)
         except BaseException as error:
             # Storage already committed; memory would stay behind it.
-            self._owner.fail(error)
+            self._owner.fail(error if cause is None else cause)
             raise
         if publish:
             self._publish(seq, core.table_changes(writes), documents)

@@ -16,15 +16,15 @@
     },
     {
       "id": "b3-async-after-ack-applied",
-      "owner": "R15-3",
-      "bridge": "U08",
-      "reason": "Pi publishes a commit Storage stored before its call rejected; native fails the Session without publishing it",
+      "owner": "R15-4, DE27/DE28/DE45",
+      "bridge": "U34, U18",
+      "reason": "Pi reports storage_failed and serves records from its Session cache; native reports session_failed and reads Storage",
       "path": [
         "async",
         "after-ack-applied"
       ],
       "reference_sha256": "0cb4a624c5ba3b8f6f2f175cf918c4eb20338bc624f73ed91b0a63c1035d0762",
-      "native_sha256": "90b6514bd8cba1b9230dcdacd60b3663c6c4461b9e644455ddea7dbec99d147c"
+      "native_sha256": "8015704ce907e8d4f33ca5a9f15359e1e8e2b57ab2fe2cdff317cbf3128b52a8"
     },
     {
       "id": "b3-async-h291-request-error-commit",
@@ -364,15 +364,15 @@
     },
     {
       "id": "b3-sync-after-ack-applied",
-      "owner": "R15-3",
-      "bridge": "U08",
-      "reason": "Pi publishes a commit Storage stored before its call rejected; native fails the Session without publishing it",
+      "owner": "R15-4, DE27/DE28/DE45",
+      "bridge": "U34, U18",
+      "reason": "Pi reports storage_failed and serves records from its Session cache; native reports session_failed and reads Storage",
       "path": [
         "sync",
         "after-ack-applied"
       ],
       "reference_sha256": "0cb4a624c5ba3b8f6f2f175cf918c4eb20338bc624f73ed91b0a63c1035d0762",
-      "native_sha256": "90b6514bd8cba1b9230dcdacd60b3663c6c4461b9e644455ddea7dbec99d147c"
+      "native_sha256": "8015704ce907e8d4f33ca5a9f15359e1e8e2b57ab2fe2cdff317cbf3128b52a8"
     },
     {
       "id": "b3-sync-h291-request-error-commit",

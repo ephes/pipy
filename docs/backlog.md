@@ -1643,4 +1643,15 @@ R15-2d re-added the remaining withdrawn comparison cases from actual 1.5 runs:
 `limit-before-migration` in `task-migration-cold-v1`, the parked control of
 `task-orphan-missing-definition-v1`, and `sqlite-limit-fault` in
 `task-orphan-failed-migration-v1`, where the enabled owner faults the seeded
-control before the explicit action. R15-2 is complete; R15-3 is next.
+control before the explicit action. R15-2 is complete.
+
+R15-3 moved the Storage port to the 1.5 batch commit: `commit(batches, receive)`
+with `CommitResult(stored, refused)` on Memory and SQLite (one transaction per
+call), the narrowed `mint_id` contract, the `commit_writes()` helper and the
+ported conformance batch cases. The Session sends one batch per call (D1) and
+judges the call as Pi's writer does: the guard leaves a commit unjudged (U07),
+and a commit stored before its call raised is published before the Session
+fails (U08). An optional `publishing` scope runs the publication when a backend
+has one. The R15-3 declared divergences are gone; the guard and commit
+scenarios that still differ only in the report kind or the cache reads are
+owned by R15-4 and DE27/DE28/DE45. R15-3 is complete; R15-4 is next.

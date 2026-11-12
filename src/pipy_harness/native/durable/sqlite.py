@@ -1,9 +1,9 @@
 """Bounded Storage over an owned durable SQLite store (DE03c); not exported.
 
 ``open_sqlite_storage`` opens an owned schema-v2 store and wraps it in
-``SqliteStorage``. It implements MemoryStorage's sixteen signatures, atomic
-mixed table/base/delta document commits, current reads, indexed scans and
-immutable global IDs. Numeric history and copies remain unsupported
+``SqliteStorage``. It implements MemoryStorage's sixteen signatures, batches
+of atomic mixed table/base/delta document commits, current reads, indexed scans
+and immutable global IDs. Numeric history and copies remain unsupported
 (DE04/DE27). There is no product factory (DE11).
 
 Where Pi's SQLite backend differs from Pi's Memory, this backend follows
@@ -12,9 +12,9 @@ fallback (the ``submission_requests`` table), descending scans include ID
 2**53 - 1, raw page limits keep Memory's page shapes and errors (its own
 ``_page``), and a dangling parent raises ``KeyError`` at the point where
 Memory's traversal reads it. Ingress is MemoryStorage's, before any statement:
-its admission helpers ``_query``, ``_start`` and ``_page`` are reused, and its
-two inline checks (an exact tuple of owned writes, an exact ``str`` request ID)
-are repeated word for word.
+its admission helpers ``_admit``, ``_query``, ``_start`` and ``_page`` are
+reused, and its inline check of an exact ``str`` request ID is repeated word for
+word.
 
 Authority. One non-reentrant lock, held around every method including
 ``close``, serializes the single connection, and nothing caller-supplied runs
@@ -23,13 +23,20 @@ it before theirs: every method raises ``StorageForkedError`` and ``close``
 returns, so the child never waits for a lock that a thread of its parent held
 at ``fork()``. Reads that need several statements (entry ancestry, the head marker,
 entry scans and document materialization) run in one read transaction, so they see one committed state. A
-commit takes Pi's order: ``BEGIN IMMEDIATE``, the metadata row (the next
-sequence and the persisted ID counter are authoritative in the database),
-sequence exhaustion, global ID claims, grouped/materialized document actions,
-table writes, document/revision writes and the metadata update. The
-``_before_commit`` seam then runs before final address-cardinality validation,
-still inside the transaction. After ``COMMIT`` returned the minted-ID counter
-is adopted before the ``_after_commit`` acknowledgement-loss seam runs. An error before ``COMMIT`` rolls back, but only while a
+commit call is one ``BEGIN IMMEDIATE`` transaction (Pi 1.5). It reads the
+metadata row (the next sequence and the persisted ID counter are authoritative
+in the database), then takes each batch in turn: Durable's own checks first
+(sequence exhaustion, global ID claims, grouped/materialized document actions
+and the address cardinality), then its table writes, document/revision writes
+and the metadata update, so the next batch is checked against the state this
+one left. The first batch the checks refuse ends the call: the batches before
+it commit, and with none before it the empty transaction rolls back. A check
+whose database call failed (Pi's ``watchCalls``) or that found damage is not a
+refusal: it raises and rolls the whole call back. The ``_before_commit`` seam
+runs after the last stored batch, still inside the transaction. After
+``COMMIT`` returned the minted-ID counter is adopted before the
+``_after_commit`` acknowledgement-loss seam runs, and the receipts follow
+outside the lock. An error before ``COMMIT`` rolls back, but only while a
 transaction is still open (SQLite rolls some failures back itself), and leaves
 the storage usable. An error raised by ``COMMIT`` leaves the outcome unknown,
 since WAL recovery can still find a complete commit, so it poisons the instance
@@ -63,7 +70,9 @@ Source: Pi durable 1.3.0 at 2ec55d808d455b1a64a2bf7888198207a096120a,
 7dc5903828740fe278fdc692ef9f40dbf68982c7, sha256
 6778529dada8ac79d54328f7e8924d14a2a25bf33befc186c078482d27e8fe4a) and
 ``packages/durable/src/storage/scan.ts`` (blob
-ed6ec89512ce08a6ca782bac2ed251bc32ae2d08). MIT Copyright (c) 2025 Mario
+ed6ec89512ce08a6ca782bac2ed251bc32ae2d08); the batch ``commit`` and its check
+watcher follow that ``storage.ts`` at release 1.5.0
+(f9a26365568127461c47a07a37dcb42c140a3ac5). MIT Copyright (c) 2025 Mario
 Zechner; notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt.
 """
 
@@ -75,7 +84,7 @@ import re
 import sqlite3
 import threading
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from typing import TypeVar, cast
+from typing import NamedTuple, TypeVar, cast
 
 from . import memory as reference
 from .ownership import StorageForkedError
@@ -113,6 +122,7 @@ from .sqlite_schema import (
     typed_values,
 )
 from .storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     DocumentAddress,
@@ -122,6 +132,7 @@ from .storage import (
     EntryQuery,
     Page,
     Query,
+    Receive,
     ScanOrder,
     StorageClosedError,
     StorageRequestError,
@@ -129,7 +140,6 @@ from .storage import (
     StoredDocument,
     SubmissionQuery,
     TaskQuery,
-    UnsupportedStorageOperation,
 )
 
 T = TypeVar("T")
@@ -554,15 +564,79 @@ def _filter(key: str, value: object) -> object:
     return int(value) if type(value) is bool else value
 
 
-def _admit(writes: object) -> list[dict[str, object]]:
-    """Memory's exact ingress for current bases/supplied deltas; refuse copies."""
+class _Checked(NamedTuple):
+    """What one batch that passed Durable's checks writes."""
 
-    if type(writes) is not tuple or any(type(w) is not StorageWrite for w in writes):
-        raise StorageRequestError("Expected owned write tuple")
-    trees = [cast(StorageWrite, write).to_tree() for write in writes]
-    if any(value["type"] == "document.copy" for value in trees):
-        raise UnsupportedStorageOperation("Document copy requires DE27")
-    return trees
+    actions: dict[int, dict[str, object]]
+    prepared: dict[int, StoredDocument]
+
+
+class _Watched:
+    """The connection for one batch's checks, noting a failed call (Pi ``watchCalls``).
+
+    A statement or cursor read through it that raises sets ``failed``: the check
+    then failed in the database, not in one of Durable's own rules, so it must
+    not refuse the batch. The checks use only ``execute`` and cursor reads.
+    """
+
+    __slots__ = ("_connection", "failed")
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+        self.failed = False
+
+    def watch(self, call: Callable[[], T]) -> T:
+        try:
+            return call()
+        except BaseException:
+            self.failed = True
+            raise
+
+    def execute(self, sql: str, parameters: Sequence[object] = ()) -> _WatchedCursor:
+        cursor = self.watch(lambda: self._connection.execute(sql, parameters))
+        return _WatchedCursor(self, cursor)
+
+
+class _WatchedCursor:
+    __slots__ = ("_cursor", "_owner")
+
+    def __init__(self, owner: _Watched, cursor: sqlite3.Cursor) -> None:
+        self._owner = owner
+        self._cursor = cursor
+
+    def fetchone(self) -> object:
+        return self._owner.watch(self._cursor.fetchone)
+
+    def fetchall(self) -> list[object]:
+        return self._owner.watch(self._cursor.fetchall)
+
+    def __iter__(self) -> _WatchedCursor:
+        return self
+
+    def __next__(self) -> object:
+        try:
+            return next(self._cursor)
+        except StopIteration:
+            raise
+        except BaseException:
+            self._owner.failed = True
+            raise
+
+    def close(self) -> None:
+        self._owner.watch(self._cursor.close)
+
+
+def _next_id_after(trees: list[dict[str, object]]) -> int:
+    """One above the largest ID a batch's creating or replacing writes use."""
+
+    candidate = 0
+    for tree in trees:
+        if tree["type"] in {"document.change", "document.retire"}:
+            continue
+        field = "record" if tree["type"] == "document.create" else "value"
+        value = cast(dict[str, object], tree[field])
+        candidate = max(candidate, cast(int, value["id"]) + 1)
+    return candidate
 
 
 def _claimed(row: Sequence[object], id: int, label: str) -> str:
@@ -728,45 +802,36 @@ class SqliteStorage:
             raise
         return result
 
-    def commit(self, writes: tuple[StorageWrite, ...]) -> Seq:
+    def commit(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Receive
+    ) -> CommitResult:
+        """One transaction per call, each batch checked before it writes (Pi 1.5).
+
+        The receipts follow ``COMMIT`` and the adopted counter, outside the lock.
+        """
         with self._authority() as connection:
-            trees = _admit(writes)
-            candidate = self._next_id
-            for tree in trees:
-                if tree["type"] in {"document.change", "document.retire"}:
-                    continue
-                field = "record" if tree["type"] == "document.create" else "value"
-                value = cast(dict[str, object], tree[field])
-                candidate = max(candidate, cast(int, value["id"]) + 1)
+            admitted = reference._admit(batches, receive)
             with damage_as_corruption(self._label):
-                return self._commit(connection, trees, candidate)
+                seqs, refused = self._commit(connection, admitted)
+        reference._receive(receive, seqs, None)
+        return CommitResult(len(seqs), refused)
 
     def _commit(
-        self,
-        connection: sqlite3.Connection,
-        trees: list[dict[str, object]],
-        candidate: int,
-    ) -> Seq:
+        self, connection: sqlite3.Connection, admitted: list[list[dict[str, object]]]
+    ) -> tuple[list[Seq], Exception | None]:
         try:
             connection.execute("BEGIN IMMEDIATE")
-            next_id, seq = read_metadata(connection)
-            if seq > SAFE_INTEGER:
-                raise RuntimeError(f"Commit sequence {seq} does not strictly increase")
-            _claim(connection, trees, self._label)
-            actions = reference._document_actions(trees)
-            prepared, counts = self._document_candidate(connection, actions, seq)
-            for tree in trees:
-                if not cast(str, tree["type"]).startswith("document."):
-                    _write(connection, tree, seq)
-            self._write_documents(connection, prepared, actions, seq)
-            next_id = max(next_id, candidate)
-            connection.execute(_METADATA, (next_id, seq + 1))
-            _before_commit(connection)
-            if any(count > 1 for count in counts.values()):
-                raise RuntimeError("Document address already has a current incarnation")
+            seqs, refused, next_id = self._batches(connection, admitted)
+            if seqs:
+                _before_commit(connection)
         except BaseException as error:
             self._roll_back(connection, error)
             raise
+        if not seqs:
+            # Refused before anything was written: end the empty transaction.
+            assert refused is not None
+            self._roll_back(connection, refused)
+            return seqs, refused
         try:
             connection.execute("COMMIT")
         except BaseException as error:
@@ -777,7 +842,58 @@ class SqliteStorage:
         # Durable from here: adopt the persisted counter before anything else.
         self._next_id = max(self._next_id, next_id)
         _after_commit(connection)
-        return Seq(seq)
+        return seqs, refused
+
+    def _batches(
+        self, connection: sqlite3.Connection, admitted: list[list[dict[str, object]]]
+    ) -> tuple[list[Seq], Exception | None, int]:
+        """Check, then write, each batch in the open transaction; stop at a refusal.
+
+        Returns the stored seqs, the refusal and the ID counter written last.
+        """
+        next_id, seq = read_metadata(connection)
+        candidate = self._next_id
+        seqs: list[Seq] = []
+        for trees in admitted:
+            checked = self._checked(connection, trees, seq)
+            if isinstance(checked, Exception):
+                return seqs, checked, next_id
+            for tree in trees:
+                if not cast(str, tree["type"]).startswith("document."):
+                    _write(connection, tree, seq)
+            self._write_documents(connection, checked.prepared, checked.actions, seq)
+            candidate = max(candidate, _next_id_after(trees))
+            next_id = max(next_id, candidate)
+            # Per batch, so the next batch's reads see this one's bounds.
+            connection.execute(_METADATA, (next_id, seq + 1))
+            seqs.append(Seq(seq))
+            seq += 1
+        return seqs, None, next_id
+
+    def _checked(
+        self, connection: sqlite3.Connection, trees: list[dict[str, object]], seq: int
+    ) -> _Checked | Exception:
+        """Durable's own checks of one batch before it writes, or their refusal.
+
+        A failed database call (``_Watched``) or damage found while checking
+        raises instead of refusing.
+        """
+        watched = _Watched(connection)
+        # The checks need only execute and cursor reads, which the watcher keeps.
+        reads = cast(sqlite3.Connection, watched)
+        try:
+            if seq > SAFE_INTEGER:
+                raise RuntimeError(f"Commit sequence {seq} does not strictly increase")
+            _claim(reads, trees, self._label)
+            actions = reference._document_actions(trees)
+            prepared, counts = self._document_candidate(reads, actions, seq)
+            if any(count > 1 for count in counts.values()):
+                raise RuntimeError("Document address already has a current incarnation")
+        except Exception as error:  # noqa: BLE001 - only Durable's own checks refuse
+            if watched.failed or issubclass(type(error), StorageCorruption):
+                raise
+            return error
+        return _Checked(actions, prepared)
 
     def mint_id(self) -> int:
         with self._authority():

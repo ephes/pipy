@@ -55,6 +55,7 @@ from pipy_harness.native.durable.storage import (  # noqa: E402
     StorageRequestError,
     StorageWrite,
     TaskQuery,
+    commit_writes,
 )
 from pipy_harness.native.durable.tasks import define_task  # noqa: E402
 
@@ -1146,7 +1147,9 @@ def _put(node: Any, path: list[Any], value: Any) -> None:
 def _recorded(method: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
     """The argument record the Node driver writes for the same Storage call."""
     if method == "commit":
-        return {"writes": [write.to_tree() for write in args[0]]}
+        # Release 1.5 batches: one batch per call, recorded as its writes.
+        (writes,) = args[0]
+        return {"writes": [write.to_tree() for write in writes]}
     if method.startswith("scan_"):
         return g._scan_args(*args)
     if method in {"find_document", "document"}:
@@ -1227,6 +1230,18 @@ class ControlledBackend:
             gate = None if directive is None else directive.gate
             self.effects.append({"e": "call", "op": op, "gate": gate, "args": record})
         returned = {"e": "return", "op": op, "gate": gate}
+        receipts: list[Any] = []
+        if method == "commit":
+            # Release 1.5 batches. Each recipe commit is its own one-batch call
+            # (deviation D1), shown as the Node driver shows it: its receipt's
+            # seq, or its refusal as a rejection.
+            batches, receive = args
+
+            def received(index: int, seq: Any) -> None:
+                receipts.append(seq)
+                receive(index, seq)
+
+            args = (batches, received)
         try:
             self._scripted(directive, before=True)
             result = getattr(self.inner, method)(*args, **kwargs)
@@ -1235,7 +1250,15 @@ class ControlledBackend:
             rejected = {"status": "rejected", "error": self._run.ref(error)}
             self.log(returned | rejected)
             raise
-        self.log(returned | {"status": "fulfilled", "value": _wire(m._dto(result))})
+        shown = result
+        if method == "commit":
+            if result.stored == 0:
+                refused = {"status": "rejected", "error": self._run.ref(result.refused)}
+                self.log(returned | refused)
+                return result
+            require(result.stored == 1 and len(receipts) == 1, "Grouped storage call")
+            shown = receipts[0]
+        self.log(returned | {"status": "fulfilled", "value": _wire(m._dto(shown))})
         return result
 
     def _scripted(self, directive: _Directive | None, *, before: bool) -> None:
@@ -1393,7 +1416,9 @@ SYNC_STEPS: dict[str, Callable[[Any, Any], Any]] = {
     "release_close": lambda r, s: r.backend.close_directive.release.set(),
     "close_start": lambda r, s: r.close_start(s),
     "raw_commit": lambda r, s: _fulfilled(
-        v.encode(r.backend.inner.commit(tuple(StorageWrite(w) for w in s["writes"])))
+        v.encode(
+            commit_writes(r.backend.inner, tuple(StorageWrite(w) for w in s["writes"]))
+        )
     ),
     "identity": lambda r, s: _fulfilled(
         ["bool", r.binds.get(s["a"]) is r.binds.get(s["b"])]

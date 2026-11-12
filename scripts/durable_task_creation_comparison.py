@@ -23,7 +23,10 @@ d, b, o, v = a.d, a.b, a.o, a.v
 from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
 from pipy_harness.native.durable.session_core import Session  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
-from pipy_harness.native.durable.storage import StorageWrite  # noqa: E402
+from pipy_harness.native.durable.storage import (  # noqa: E402
+    StorageWrite,
+    commit_writes,
+)
 from pipy_harness.native.durable.tasks import define_task  # noqa: E402
 
 PHASE = "task-creation-a-v1"
@@ -106,10 +109,10 @@ class Recording:
         self.calls.append("task")
         return self.inner.task(id)
 
-    def commit(self, writes):
+    def commit(self, batches, receive):
         self.calls.append("commit")
-        self.writes.extend(write.to_tree() for write in writes)
-        return self.inner.commit(writes)
+        self.writes.extend(write.to_tree() for batch in batches for write in batch)
+        return self.inner.commit(batches, receive)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
@@ -132,7 +135,8 @@ async def native_case(case, backend, folder):
         "abortRequested": False,
         "state": {"status": "pending", "checkpoint": None},
     }
-    inner.commit(
+    commit_writes(
+        inner,
         tuple(
             StorageWrite(value)
             for value in (
@@ -140,7 +144,7 @@ async def native_case(case, backend, folder):
                 {"type": "conversation", "value": {"id": 7}},
                 {"type": "task", "value": owner},
             )
-        )
+        ),
     )
     store = Recording(inner)
     session = Session(store, now=lambda: 1000)

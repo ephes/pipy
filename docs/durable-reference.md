@@ -67,6 +67,8 @@ acceptance and 31 phases.
   `task-migration-cold-v1` now follows `interrupted-tool-continuation-v1`. The
   guard mutant `commit-exempt` is withdrawn as well (successor R15-3): 1.5 does
   not report a guard-only commit failure, so an unreported one is no mutant.
+  R15-3 added its successor, the mutant `commit-guard-fatal`: a guard that
+  fails and reports the Session for a commit failure, as 1.4 did.
   The successors come from actual 1.5 runs: R15-2b added the `safe_limit` case
   of `interrupted-tool-continuation-v1`, R15-2c re-added the four
   `restart-policy-live-v1` cases, and R15-2d re-added the migration and orphan
@@ -76,14 +78,17 @@ acceptance and 31 phases.
   row, and the SHA256 of the exact value each side shows. A declaration masks
   only that exact pair, and a passing run requires every declaration to match,
   so a declaration has to go when its owner lands.
-  - `session-guard-b1b-v1`: 14 scenarios where Pi reports `storage_failed`
-    (R15-4, U34) and 3 where Pi leaves a guard-only commit failure to the
-    writer (R15-3, U07, U08).
+  - `session-guard-b1b-v1`: 15 scenarios where Pi reports `storage_failed`
+    (R15-4, U34). R15-3 removed the 2 where Pi leaves a guard-only commit
+    failure to the writer (U07), and `pi192-failed-then-close-failure` now
+    differs only in the report kind.
   - `session-commit-b3-v1`: 56 scenario/mode pairs where Pi serves records from
     its Session cache (DE27/DE28/DE45, U18), reports `storage_failed`
-    (R15-4, U34), publishes a commit Storage stored before its call rejected
-    (R15-3, U08) or fails the Session for a throwing own observer only after
-    the host observers (R15-4, U16).
+    (R15-4, U34) or fails the Session for a throwing own observer only after
+    the host observers (R15-4, U16). Since R15-3, native publishes a commit
+    Storage stored before its call rejected (U08), so the two
+    `after-ack-applied` pairs differ only in the report kind and the cache
+    reads.
   - `session-documents-a-v1`: two Storage read counts that the cache lowers
     (U18).
   - `canonical-checkpoint-b-v1`: three result leaves that keep the negative
@@ -1086,11 +1091,20 @@ replacing an in-flight exception) stay equal by design.
 **Release 1.5.** Pi's guard leaves a commit's outcome to the Session writer, so
 a guard-only commit failure neither fails nor reports the reference Session
 (U07, U08), and Pi reports a failed Storage call as `storage_failed` (U34).
-`tests/fixtures/durable/session-guard-v1.divergences.json` declares the 17
-affected scenarios (see the [dispositions](#release-15-dispositions-r15-1b)),
-`reentrant-report` reaches the report through a fatal read, and the
-`commit-exempt` mutant is withdrawn. A reference Session that a guard-only
-failure leaves open ends `open`.
+Since R15-3 the native guard does the same: `GuardedStorage.commit` refuses a
+failed or closed Session before the backend and counts as underway for close,
+but returns the backend's result or error unjudged, and the Session writer
+fails the Session (see [batch commit](#batch-storage-commit-r15-3)). A Session
+that a guard-only commit failure leaves open ends `open` on both sides; the
+native driver records it at once, because nothing is pending, where the Node
+driver waits two seconds. `tests/fixtures/durable/session-guard-v1.divergences.json`
+declares the 15 scenarios that differ only in the report kind (see the
+[dispositions](#release-15-dispositions-r15-1b)), and `reentrant-report`
+reaches the report through a fatal read. The `commit-exempt` mutant is
+withdrawn and `commit-guard-fatal` is its successor. The b1a private mutant
+`first-cause-only` no longer shows in this paired recipe, because no b1b
+scenario latches a failure after a first one any more; the b1a guard tests
+still kill it.
 
 `session-guard-v1.manifest.json` closes the a2b inventory plus `session.py`, its
 test file, this script, the driver, the input and the comparison tests, pins six
@@ -1104,6 +1118,47 @@ support keeps MIT Copyright(c)2025 Mario Zechner and the full
 The [b1b admission](specs/2026-10-19-durable-execution-evidence.md#de02b1a-delivery-and-de02b1b-admission)
 and [local evidence](specs/2026-10-19-durable-execution-evidence.md#de02b1b-local-guard-oracle-evidence)
 record the gates and the two fresh chains.
+
+## Batch Storage commit (R15-3)
+
+The Storage port follows release 1.5.0's `Storage.commit(batches, receive,
+context)` in Python spelling: `commit(batches, receive) -> CommitResult`.
+`batches` is a non-empty tuple of write tuples. Each batch is one atomic commit
+with its own seq, checked against the state the batches before it left. The
+first batch that Durable's own checks refuse (global IDs, document actions,
+sequence exhaustion) is not stored, nor any batch after it, and
+`CommitResult(stored, refused)` reports both. Any other failure raises, and the
+outcome is unknown: SQLite runs the whole call in one `BEGIN IMMEDIATE`
+transaction and rolls it back, while Memory, which stores each batch at once,
+keeps the batches before it, as Pi's Memory does. A check whose database call
+failed (Pi's `watchCalls`) or that found damage raises instead of refusing.
+`receive(index, seq)` runs once per stored batch, in order, after the batches
+are durable and before `commit` returns, outside the backend's lock. A document
+copy in any batch refuses the whole call (DE27). Like Pi's backends, Memory and
+SQLite store an empty batch as a commit; the Session never sends one.
+`commit_writes(storage, writes)` is Pi's `commitWrites()` testing helper: one
+batch, its seq or its refusal raised. `mint_id()` returns an ID above every ID
+minted since the storage was opened and every stored ID, also across reopen.
+
+The Session sends one batch per call
+([deviation D1](specs/2026-11-03-durable-release-1.5-bridge.md#deviation-d1-the-session-line-stays-held-through-storage))
+and judges the call as Pi 1.5's writer does. A Session that failed while the
+call ran rejects the commit with `SessionFailed` and publishes nothing. A batch
+received before its call raised is durable: it is adopted and published, its
+waits resolve, and then the Session fails with the call's error, which the
+commit raises (U08). Should its adoption or the backend's publication scope
+fail as well, the Session still fails with the call's error and the commit
+raises its own error, as Pi's writer settles such a part. An own observer that
+fails during that publication still fails the Session with its own error; the
+observer order and its failure are R15-4's (U16). A refusal, a raise without a receipt, or a result without
+the batch's receipt (`RuntimeError("Storage committed without adopting the
+batch")`) fails the Session and publishes nothing. A backend may provide the
+optional `publishing(publish)` scope; the Session then runs the adoption and
+publication inside it and fails if the scope raises or returns without running
+them. Memory and SQLite provide none. The ports of the 1.5 conformance batch
+cases live in `tests/durable/storage_contract_cases.py`, the SQLite rollback
+cases in `tests/durable/test_sqlite_storage.py`, and the writer cases in
+`tests/durable/test_session_batch_writer.py`.
 
 ## Session commit comparison (DE02b3)
 

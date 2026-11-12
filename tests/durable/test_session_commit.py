@@ -164,16 +164,27 @@ class Store:
             gate.hold()
         if fault is not None:
             raise fault
-        result = getattr(self.inner, name)(*args, **kwargs)
         if name == "commit":
-            with self.lock:
-                self.commits.append(args[0])
-                self.returned.append(result)
-            if self.probe is not None:
-                self.probes.append(self.probe(self.inner))
+            args = (args[0], self._recording(*args))
+        result = getattr(self.inner, name)(*args, **kwargs)
+        if name == "commit" and result.stored and self.probe is not None:
+            self.probes.append(self.probe(self.inner))
         if after is not None:
             raise after
         return result
+
+    def _recording(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Any
+    ) -> Callable[[int, int], None]:
+        """``receive``, recording each batch the real Memory stored."""
+
+        def recorded(index: int, seq: int) -> None:
+            with self.lock:
+                self.commits.append(batches[index])
+                self.returned.append(seq)
+            receive(index, seq)
+
+        return recorded
 
     def __getattr__(self, name: str) -> Any:
         if name in STORAGE_METHODS:
@@ -1457,8 +1468,13 @@ def _ack_cut(after: bool, request: bool = False) -> Callable[[Mods, Mode], None]
                 assert caught.value is error  # the original error, not SessionFailed
                 assert rig.owner.failure is error
                 assert rig.store.count("commit") == calls + 1  # never retried
-                assert rig.session._cache.peek(spec, conv) in (cached, None)
-                assert len(rig.publications) == published
+                if after:
+                    # Release 1.5 (bridge U08): stored before its call raised, the
+                    # commit is durable, so it is published before the failure.
+                    assert len(rig.publications) == published + 1
+                else:
+                    assert rig.session._cache.peek(spec, conv) in (cached, None)
+                    assert len(rig.publications) == published
                 # Commit-then-throw: the captured backend state has the write.
                 assert rig.store.probes == ([["note"]] if after else [])
                 with pytest.raises(M.session.SessionFailed):
@@ -2822,7 +2838,7 @@ MUTANTS: dict[str, dict[str, list[tuple[str, str]]]] = {
         "core": [
             (
                 "            # Storage already committed; memory would stay behind it.\n"
-                "            self._owner.fail(error)\n",
+                "            self._owner.fail(error if cause is None else cause)\n",
                 "",
             )
         ]

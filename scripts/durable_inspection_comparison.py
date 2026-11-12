@@ -38,7 +38,7 @@ from pipy_harness.native.durable.memory import MemoryStorage
 from pipy_harness.native.durable.records import TaskId
 from pipy_harness.native.durable.session_core import Session
 from pipy_harness.native.durable.sqlite import open_sqlite_storage
-from pipy_harness.native.durable.storage import StorageWrite
+from pipy_harness.native.durable.storage import StorageWrite, commit_writes
 from pipy_harness.native.durable.tasks import define_task
 
 PHASE = "inspection-v1"
@@ -246,11 +246,12 @@ def native_case(case, backend, folder):
                 },
             }
         )
-    storage.commit(
+    commit_writes(
+        storage,
         (
             StorageWrite({"type": "conversation", "value": {"id": 1}}),
             *(StorageWrite({"type": "task", "value": row}) for row in rows),
-        )
+        ),
     )
     if backend == "reopen":
         storage.close()

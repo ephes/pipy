@@ -11,7 +11,7 @@
     "src/pipy_harness/native/durable/__init__.py": "1dcf6af8d570dec83b08eb60242dea08564f014cd15381fa4d2358a9579911d4",
     "src/pipy_harness/native/durable/codec.py": "6ceedbcb552b811bda5cb6956a31ad32b7a0ff1d3ca2eaf6d11fe46a3f47be24",
     "src/pipy_harness/native/durable/records.py": "4329c216e7d1c31624220fc7d43b1860a89a315cf4ac090139eb9066feeebeea",
-    "src/pipy_harness/native/durable/storage.py": "29fd5e5f5b2f784a67e623080f42ccfd5d4a3475c842a65f88170ed56abadeff",
+    "src/pipy_harness/native/durable/storage.py": "1aee41b528440946117dfc0a78dfdf2af61baeecf2a806337bdf4ef1f4d93374",
     "tests/durable/test_json_codec.py": "988762824fa53bc2c742ab3a679422d75b5c764c61e28d5f8d9334c783f88d12",
     "tests/durable/test_records.py": "0bd8d39c1f97cf7287ea8a2b648d402efaf1e746fd8066d2d6292f4f8f2c7735",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",

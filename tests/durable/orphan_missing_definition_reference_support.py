@@ -56,12 +56,15 @@ class Recording:
     def __getattr__(self, name):
         return getattr(self.inner, name)
 
-    def commit(self, writes):
-        body = [w.to_tree() for w in writes]
-        seq = self.inner.commit(writes)
-        with self.lock:
-            self.batches.append({"seq": seq, "writes": body})
-        return seq
+    def commit(self, batches, receive):
+        bodies = [[w.to_tree() for w in batch] for batch in batches]
+
+        def retained(index, seq):
+            with self.lock:
+                self.batches.append({"seq": seq, "writes": bodies[index]})
+            receive(index, seq)
+
+        return self.inner.commit(batches, retained)
 
     def mint_id(self):
         result = self.inner.mint_id()

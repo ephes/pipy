@@ -130,7 +130,7 @@ class Store:
         result = getattr(self.inner, name)(*args, **kwargs)
         if name == "commit":
             with self.lock:
-                self.commits.append(args[0])
+                self.commits.extend(args[0])
         return result
 
     def __getattr__(self, name: str) -> Any:
@@ -237,7 +237,7 @@ class Rig:
             core.discard()
             return result
         try:
-            seq = self.owner.storage.commit(writes)
+            seq = self.store_one(writes)
         except BaseException:
             core.discard()
             raise
@@ -248,6 +248,16 @@ class Rig:
             raise
         self.publications.append(Publication(seq, writes, changes))
         return result
+
+    def store_one(self, writes: Any) -> Any:
+        """The Session's one-batch store: a refusal fails the owner and raises."""
+        receipts: dict[int, Any] = {}
+        result = self.owner.storage.commit((writes,), receipts.__setitem__)
+        if 0 in receipts:
+            return receipts[0]
+        error = result.refused or RuntimeError("Storage committed without the batch")
+        self.owner.fail(error)
+        raise error
 
     def start(self, name: str, fn: Callable[[], Any]) -> Worker:
         worker = Worker(name, fn)

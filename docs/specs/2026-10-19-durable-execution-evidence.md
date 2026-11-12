@@ -9327,7 +9327,8 @@ which holds only DE rows:
   recorded [below](#r15-2c-generic-restart-limit-fault-2026-11-04); R15-2d, the
   migration and orphan comparison successors, is recorded
   [below](#r15-2d-migration-and-orphan-successors-2026-11-04).
-- R15-3 batch Storage commit: OPEN.
+- R15-3 batch Storage commit, in one commit, is recorded
+  [below](#r15-3-batch-storage-commit-2026-11-12).
 - R15-4 watch, report and observer shapes: OPEN.
 - The DE16 remainder resumes after R15-4; DE16 stays OPEN.
 
@@ -9600,3 +9601,51 @@ changed pages resolved. Codex gpt-6.1-sol HIGH round 1 was CLEAN. The review
 of the final delta, the confirming chain on the committed bytes and the pushed
 commit are recorded by the next bridge slice. No P row closes; all 43 remain
 OPEN.
+
+### R15-3 batch Storage commit (2026-11-12)
+
+Recorded for R15-2d, from its resume note of 2026-11-04: its confirming chain
+on the committed bytes (execution `463acc7c`, acceptance `e07cbd71…`; the note
+kept only these prefixes) and its push at
+`f267c4cf2a791f72cd77181f9dc344cc371c534a`, which is an ancestor of this
+commit on main. Its review of the final delta was not recorded before the
+machine move.
+
+R15-3 finishes the interrupted WIP commit `1821eac4` of branch
+`wip/durable-r15-3-20261104`, rebased onto main `acd6be0f`. The Storage port
+takes `commit(batches, receive) -> CommitResult(stored, refused)`; Memory and
+SQLite check each batch against the state the earlier batches left, stop at the
+first refusal and report each stored batch to `receive` in order, outside their
+lock; SQLite runs one transaction per call and raises, rolling back, for a
+check whose database call failed or that found damage. The narrowed `mint_id`
+contract is documented and tested, `commit_writes()` replaces direct one-batch
+commits, and the 1.5 conformance batch cases are ported. The Session sends one
+batch per call (D1); the guard leaves a commit unjudged (U07), and the writer
+publishes a commit stored before its call raised and then fails the Session
+(U08). An optional `publishing` scope runs the publication when a backend has
+one. The [bridge](2026-11-03-durable-release-1.5-bridge.md#r15-3-batch-storage-commit)
+records the details and the
+[reference guide](../durable-reference.md#batch-storage-commit-r15-3) the
+contract. Two declared divergences of `session-guard-b1b-v1` are gone; one of
+them and the two `after-ack-applied` pairs of `session-commit-b3-v1` now differ
+only in the report kind (R15-4, U34) and the cache reads (DE27/DE28/DE45, U18)
+and are declared for those owners. The guard mutant `commit-guard-fatal`
+succeeds the withdrawn `commit-exempt`.
+
+Receipts on the development host (macOS, Python 3.15.2), on the final R15-3
+code before the documentation digests of this entry. Homebrew Node moved to
+v26.13.1 during the slice, so the chain ran with the official
+`node-v26.13.0-darwin-arm64.tar.xz` (SHA256
+`6f5b3187d9df9fc007e881167905bc7d69ad26450ddc377c83d63256a2495b6e`, the entry
+in the release's `SHASUMS256.txt`) first on `PATH`: a fresh baseline
+acceptance (execution `f0d5aed9-fe9e-4f3a-b326-e1d3ce5c645e`, `acceptance.json`
+SHA256 `6862d41be2449155d2b7e8e071d0a45f795d5c3c1b5283113ce8f31009ce50b3`,
+runtime v26.13.0/11.20.0, reference 1.5.0) and all 31 comparison phases after
+it exited 0, 32 commands in 1485 s on a host under heavy foreign load.
+Independent review with Claude Opus 5.5 at high effort: round 1 found no
+Critical, one Warning (untested failed-meanwhile writer paths) and one
+Suggestion (which error wins when adoption also fails), both repaired; round 2
+on the repair delta converged with one Suggestion, answered by narrowing the
+documented rule to adoption and the publication scope (own observers stay with
+R15-4, U16). `just test-full` on the final code: the only failures are the two
+pi-mono checkout tests known since R15-0. No P row closes; all 43 remain OPEN.

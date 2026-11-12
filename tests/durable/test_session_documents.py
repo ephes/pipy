@@ -27,6 +27,7 @@ from pipy_harness.native.durable.session_core import Session
 from pipy_harness.native.durable.storage import (
     DocumentQuery,
     StorageWrite,
+    commit_writes,
 )
 from pipy_harness.native.durable.tx import DraftRevoked, RawDocumentChange
 
@@ -67,7 +68,7 @@ def base(id, kind="probe.single", *, owner=20, key=OMITTED, value=None):
 
 
 def seed(inner, *writes):
-    return inner.commit(tuple(StorageWrite(w) for w in writes))
+    return commit_writes(inner, tuple(StorageWrite(w) for w in writes))
 
 
 @pytest.fixture(params=[SYNC, ASYNC], ids=["sync", "async"])

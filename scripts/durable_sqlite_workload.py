@@ -30,6 +30,7 @@ from pipy_harness.native.durable.storage import (
     StorageWrite,
     SubmissionQuery,
     TaskQuery,
+    commit_writes,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,7 +153,7 @@ def document(ident, index, kind="benchmark.family", value=None):
 
 
 def apply(storage, writes, dataset):
-    seq = storage.commit(tuple(StorageWrite(write) for write in writes))
+    seq = commit_writes(storage, tuple(StorageWrite(write) for write in writes))
     require(
         type(seq) is int and seq == dataset["next_seq"],
         "Commit sequence discontinuity",
@@ -458,7 +459,7 @@ def child(mode, folder):
             for row in data[kind]
         ] + [row["record"]["id"] for row in data["documents"]]
         next_id = reopened.mint_id()
-        seq = reopened.commit(())
+        seq = commit_writes(reopened, ())
         require(
             next_id == max(ids) + 1 and seq == data["next_seq"],
             "Persisted counters drift",
@@ -600,7 +601,7 @@ def recover(folder):
         read_seconds = time.perf_counter() - started
         persisted = readback(storage, data)
         next_id = storage.mint_id()
-        seq = storage.commit(())
+        seq = commit_writes(storage, ())
         require(
             next_id == max(row["record"]["id"] for row in data["documents"]) + 1
             and seq == data["next_seq"],

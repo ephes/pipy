@@ -78,10 +78,13 @@ def test_native_recipe_is_complete_meaningful_and_deterministic_20x():
     assert rejected == [{"kind": "scripted", "id": "R1"}] * 14
     fulfilled = [s for s in r["roles-cancelled-success"]["steps"] if s["op"] == "call"]
     assert all(s["outcome"]["status"] == "fulfilled" for s in fulfilled)
+    # Release 1.5 (bridge U07): a guard-only commit failure leaves the Session
+    # open and unreported; the Session writer judges a commit (test_session_commit).
+    for name in ("commit-request-error-fatal", "commit-cancelled-fatal"):
+        assert not [e for e in r[name]["effects"] if e["e"] == "report"], name
+        assert r[name]["end"] == {"reason": "open"}, name
     for name in (
-        "commit-request-error-fatal",
         "mint-request-error-fatal",
-        "commit-cancelled-fatal",
         "mint-cancelled-fatal",
         "read-error-fatal-task",
         "mint-error-fatal",
@@ -125,6 +128,8 @@ def test_native_recipe_is_complete_meaningful_and_deterministic_20x():
     assert [(row["id"], row["kind"], row["successor"]) for row in m.RETIRED] == [
         ("commit-exempt", "mutant", "R15-3")
     ]
+    # Its R15-3 successor: a guard that fails the Session for a commit failure.
+    assert m.MUTANTS[-1] == "commit-guard-fatal"
     healthy = r["pi192-healthy-close-failure"]
     assert healthy["end"] == {
         "reason": "failed",
@@ -404,8 +409,9 @@ def test_release_15_declarations_pin_the_current_native_scenarios():
     raw, _ = m.native(m.load(m.INPUT))
     native = {s["id"]: s for s in m.projection(raw)["scenarios"]}
     rows = m.declared()
-    assert len(rows) == 17
-    assert {row["owner"] for row in rows} == {"R15-3", "R15-4"}
+    assert len(rows) == 15
+    # R15-3 removed its two guard-only commit divergences; what remains is U34.
+    assert {row["owner"] for row in rows} == {"R15-4"}
     for row in rows:
         (scenario,) = row["path"]
         digest = m.o.contract.declared_digest(native[scenario])
@@ -604,7 +610,11 @@ NEGATIVE_CONTROLS = {
     "admission-seal": 1,
     "registration": 1,
     "drain-wait": 1,
-    "first-cause-only": 1,
+    # Release 1.5: no b1b scenario latches a second failure after a first one any
+    # more (the guard-only commit failure that came first no longer fails the
+    # Session), so the paired recipe cannot see this mutant. The b1a guard tests
+    # still kill it (pi192-external-fail-twice-keeps-first).
+    "first-cause-only": 0,
     "close-once": 1,
     "split-success-settle": 0,
     "split-error-settle": 0,
@@ -614,7 +624,7 @@ NEGATIVE_CONTROLS = {
 
 def test_negative_control_inventory_matches_b1a_mutants():
     assert set(NEGATIVE_CONTROLS) == set(guard_tests().MUTANTS)
-    assert sum(NEGATIVE_CONTROLS.values()) == 8
+    assert sum(NEGATIVE_CONTROLS.values()) == 7
 
 
 @pytest.mark.parametrize("name", sorted(NEGATIVE_CONTROLS))

@@ -1,8 +1,9 @@
 """Internal detached tables and current base/delta documents; no product factory.
 
 Source-derived Pi durable 1.3.0 memory.ts/scan.ts, MIT (c)2025 Mario Zechner;
-notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. Copy/historical/fork
-materialization remain later capabilities; Session authority is not implemented.
+notice: tests/fixtures/durable/UPSTREAM-LICENSE.txt. The batch ``commit`` follows
+release 1.5.0 memory.ts. Copy/historical/fork materialization remain later
+capabilities; Session authority is not implemented.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from .records import (
     safe_integer,
 )
 from .storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     DocumentAddress,
@@ -41,6 +43,7 @@ from .storage import (
     EntryQuery,
     Page,
     Query,
+    Receive,
     ScanOrder,
     StorageClosedError,
     StorageRequestError,
@@ -125,12 +128,47 @@ def _request(value: dict[str, object]) -> tuple[int, bytes] | None:
     )
 
 
-def _prepare(state: _State, writes: tuple[StorageWrite, ...]) -> _State:
-    if type(writes) is not tuple or any(type(w) is not StorageWrite for w in writes):
-        raise StorageRequestError("Expected owned write tuple")
-    trees = [write.to_tree() for write in writes]
-    if any(value["type"] == "document.copy" for value in trees):
+def _admit(batches: object, receive: object) -> list[list[dict[str, object]]]:
+    """One commit call's exact ingress, for the whole call before any batch.
+
+    A non-empty tuple of tuples of owned writes and a receipt callable; a
+    document copy in any batch refuses the whole call (DE27). The Session never
+    sends an empty batch; like Pi's backends, this one stores it as a commit.
+    """
+    if type(batches) is not tuple or any(
+        type(batch) is not tuple or any(type(w) is not StorageWrite for w in batch)
+        for batch in batches
+    ):
+        raise StorageRequestError("Expected a tuple of owned write tuples")
+    if not batches:
+        raise StorageRequestError("A commit call needs at least one batch")
+    if not callable(receive):
+        raise StorageRequestError("Expected a receipt callable")
+    trees = [
+        [write.to_tree() for write in batch]
+        for batch in cast(tuple[tuple[StorageWrite, ...], ...], batches)
+    ]
+    if any(value["type"] == "document.copy" for batch in trees for value in batch):
         raise UnsupportedStorageOperation("Document copy requires DE27")
+    return trees
+
+
+def _receive(receive: Receive, seqs: list[Seq], failure: BaseException | None) -> None:
+    """Deliver the stored batches' receipts in order, then raise ``failure``."""
+    try:
+        for index, seq in enumerate(seqs):
+            receive(index, seq)
+    finally:
+        if failure is not None:
+            raise failure
+
+
+def _prepare(state: _State, trees: list[dict[str, object]]) -> _State:
+    """Durable's own checks of one admitted batch, and its complete candidate.
+
+    Nothing of ``state`` changes, so a failure refuses just this batch (Pi 1.5
+    ``prepareCommit``).
+    """
     if state.next_seq > SAFE_INTEGER:
         raise RuntimeError(
             f"Commit sequence {state.next_seq} does not strictly increase"
@@ -368,13 +406,35 @@ class MemoryStorage:
         if self._closed:
             raise StorageClosedError("MemoryStorage is closed")
 
-    def commit(self, writes: tuple[StorageWrite, ...]) -> Seq:
+    def commit(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Receive
+    ) -> CommitResult:
+        """Store each batch at once, checked against the earlier ones (Pi 1.5).
+
+        A batch's preparation is the whole of Durable's checks and changes
+        nothing, so any ``Exception`` from it refuses that batch and the call
+        stops there. The receipts follow the last stored batch, outside the
+        lock; a process-control exception is raised after them.
+        """
+        seqs: list[Seq] = []
+        refused: Exception | None = None
+        failure: BaseException | None = None
         with self._lock:
             self._open()
-            candidate = _prepare(self._state, writes)
-            seq = Seq(self._state.next_seq)
-            self._state = candidate
-            return seq
+            admitted = _admit(batches, receive)
+            try:
+                for trees in admitted:
+                    try:
+                        candidate = _prepare(self._state, trees)
+                    except Exception as error:  # noqa: BLE001 - Durable's own checks refuse the batch
+                        refused = error
+                        break
+                    seqs.append(Seq(self._state.next_seq))
+                    self._state = candidate
+            except BaseException as error:  # noqa: BLE001 - raised after the stored batches' receipts
+                failure = error
+        _receive(receive, seqs, failure)
+        return CommitResult(len(seqs), refused)
 
     def mint_id(self) -> int:
         with self._lock:

@@ -56,6 +56,7 @@ from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
 from pipy_harness.native.durable.storage import (  # noqa: E402
     DocumentAddress,
     StorageWrite,
+    commit_writes,
 )
 from pipy_harness.native.durable.tx import DraftRevoked, RawDocumentChange  # noqa: E402
 
@@ -266,9 +267,12 @@ class Recording:
         self.inner, self.effects = inner, effects
         self.writes: list[Any] = []
 
-    def commit(self, writes: Any) -> Any:
-        result = self.inner.commit(writes)
-        self.writes.append([w.to_tree() for w in writes])
+    def commit(self, batches: Any, receive: Any) -> Any:
+        def recorded(index: int, seq: Any) -> None:
+            self.writes.append([w.to_tree() for w in batches[index]])
+            receive(index, seq)
+
+        result = self.inner.commit(batches, recorded)
         self.effects.append("commit")
         return result
 
@@ -293,7 +297,8 @@ def frozen_info(info: Any) -> bool:
 
 
 async def native_case(row: Any, inner: Any, path: Path, backend: str) -> Any:  # noqa: C901 - closed recipe execution
-    inner.commit(
+    commit_writes(
+        inner,
         tuple(
             StorageWrite(w)
             for w in (
@@ -301,10 +306,11 @@ async def native_case(row: Any, inner: Any, path: Path, backend: str) -> Any:  #
                 {"type": "conversation", "value": {"id": 7}},
                 {"type": "task", "value": task()},
             )
-        )
+        ),
     )
     if row["special"] == "terminal":
-        inner.commit(
+        commit_writes(
+            inner,
             tuple(
                 StorageWrite(
                     {
@@ -318,7 +324,7 @@ async def native_case(row: Any, inner: Any, path: Path, backend: str) -> Any:  #
                     }
                 )
                 for i in range(257)
-            )
+            ),
         )
     effects: list[str] = []
     storage = Recording(inner, effects)

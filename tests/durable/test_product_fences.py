@@ -293,7 +293,7 @@ def test_terminal_fast_path_retains_live_child_refusal_without_current_credentia
 ):
     from pipy_harness.native.durable.generation_tasks import TOOL_NAME, TOOL_VERSION
     from pipy_harness.native.durable.sqlite import open_sqlite_storage
-    from pipy_harness.native.durable.storage import StorageWrite
+    from pipy_harness.native.durable.storage import StorageWrite, commit_writes
 
     path = tmp_path / "product.sqlite"
 
@@ -310,7 +310,8 @@ def test_terminal_fast_path_retains_live_child_refusal_without_current_credentia
     # this row is never claimed as an admitted product/tool operation.
     backend = open_sqlite_storage(str(path), mode="open")
     try:
-        backend.commit(
+        commit_writes(
+            backend,
             (
                 StorageWrite(
                     {
@@ -335,7 +336,7 @@ def test_terminal_fast_path_retains_live_child_refusal_without_current_credentia
                         },
                     }
                 ),
-            )
+            ),
         )
     finally:
         backend.close()

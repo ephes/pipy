@@ -430,6 +430,29 @@ above:
 - Re-derive the storage and Session comparison phases on the batch API. P01 and
   P03 remain OPEN.
 
+R15-3 landed as one commit with the whole acceptance above, with these
+recorded details:
+
+- The guard leaves a commit unjudged (U07): `GuardedStorage.commit` refuses a
+  failed or closed Session before the backend and counts as underway for
+  close, and the writer judges the result. The native guard tests now assert
+  that, and the b1a guard tests keep the private mutants that only a mint or a
+  read can reach.
+- A raise is an unknown outcome. SQLite rolls the whole call back; Memory keeps
+  the batches it stored before the raise and their receipts stand, as Pi's
+  Memory does.
+- Memory and SQLite store an empty batch as a commit, as Pi's backends do; the
+  "at least one write" rule binds the Session, which never sends one.
+- Document copies stay unsupported until DE27: a copy in any batch refuses the
+  whole call, so the conformance case for copies against earlier batches moves
+  to DE27 with copy support.
+- The R15-3 declared divergences are gone. `commit-request-error-fatal` and
+  `commit-cancelled-fatal` of `session-guard-b1b-v1` now match;
+  `pi192-failed-then-close-failure` and the two `after-ack-applied` pairs of
+  `session-commit-b3-v1` differ only in the report kind (R15-4, U34) and, for
+  the latter, the cache reads (DE27/DE28/DE45, U18), and are declared for those
+  owners. The guard mutant `commit-guard-fatal` succeeds `commit-exempt`.
+
 ### R15-4: watch, report and observer shapes
 
 - The Session reporter emits a report tagged `storage_failed` that carries the

@@ -20,7 +20,10 @@ spec.loader.exec_module(d)
 o = d.o
 from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
-from pipy_harness.native.durable.storage import StorageWrite  # noqa: E402
+from pipy_harness.native.durable.storage import (  # noqa: E402
+    StorageWrite,
+    commit_writes,
+)
 
 INPUT = ROOT / "tests/fixtures/durable/storage-current-deltas-v1.input.json"
 MANIFEST = ROOT / "tests/fixtures/durable/storage-current-deltas-v1.manifest.json"
@@ -130,7 +133,9 @@ def native(inputs: list[dict[str, Any]], output: Path) -> list[dict[str, Any]]:
             steps = []
             try:
                 for writes in case["writes"]:
-                    seq = store.commit(tuple(StorageWrite(write) for write in writes))
+                    seq = commit_writes(
+                        store, tuple(StorageWrite(write) for write in writes)
+                    )
                     if backend == "reopen":
                         store.close()
                         store = open_sqlite_storage(path, mode="open")

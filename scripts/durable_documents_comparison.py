@@ -39,7 +39,10 @@ from pipy_harness.native.durable.documents import (  # noqa: E402
 from pipy_harness.native.durable.memory import MemoryStorage  # noqa: E402
 from pipy_harness.native.durable.session_core import Session  # noqa: E402
 from pipy_harness.native.durable.sqlite import open_sqlite_storage  # noqa: E402
-from pipy_harness.native.durable.storage import StorageWrite  # noqa: E402
+from pipy_harness.native.durable.storage import (  # noqa: E402
+    StorageWrite,
+    commit_writes,
+)
 from pipy_harness.native.durable.tasks import define_task  # noqa: E402
 from pipy_harness.native.durable.tx import RawDocumentChange  # noqa: E402
 
@@ -242,6 +245,10 @@ class Recording:
         self.lock = threading.Lock()
 
     def __getattr__(self, name: str) -> Any:
+        # Only the inner Storage's methods, as the Node driver's proxy: an
+        # optional method the backend lacks (``publishing``) stays absent.
+        if not callable(getattr(self.inner, name, None)):
+            raise AttributeError(name)
         return partial(self.call, name)
 
     def call(self, name: str, *args: Any) -> Any:
@@ -255,14 +262,20 @@ class Recording:
             else 1
         )
         with self.lock:
-            self.calls.append({"op": name, "args": v.encode(dto(args[:count]))})
+            if name == "commit":
+                # A release 1.5 commit call carries batches: one record per
+                # batch, as the Node driver records them.
+                for batch in args[0]:
+                    self.calls.append({"op": name, "args": v.encode(dto((batch,)))})
+            else:
+                self.calls.append({"op": name, "args": v.encode(dto(args[:count]))})
             gate = (
                 self.hold if self.hold is not None and self.hold["op"] == name else None
             )
             if gate is not None:
                 self.hold = None
             if name == "commit":
-                self.writes.extend(dto(args[0]))
+                self.writes.extend(w for batch in args[0] for w in dto(batch))
         if gate is not None:
             gate["entered"].set()
             if not gate["release"].wait(10):
@@ -281,7 +294,7 @@ class Recording:
 
 async def native_case(id: str, inner: Any, config: Any) -> Any:  # noqa: C901 - closed recipe interpreter
     def seed(*values: Any) -> Any:
-        return inner.commit(tuple(StorageWrite(x) for x in values))
+        return commit_writes(inner, tuple(StorageWrite(x) for x in values))
 
     seed(
         {"type": "conversation", "value": {"id": 1}},

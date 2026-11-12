@@ -429,7 +429,8 @@ def _matrix_snapshot(
 
 def _matrix_commit(
     self,
-    writes,
+    batches,
+    receive,
     *,
     store,
     armed,
@@ -461,11 +462,13 @@ def _matrix_commit(
         cut_once.set()
         assert processes[0].poll() is None
         if fault == "backend_ambiguous":
-            seq = original_commit(self, writes)
+            seqs = []
+            original_commit(self, batches, lambda _index, seq: seqs.append(seq))
+            (seq,) = seqs
             observations.append({"actual_committed_seq": seq})
         reached.set()
         raise OSError("synthetic private backend acknowledgement failure")
-    return original_commit(self, writes)
+    return original_commit(self, batches, receive)
 
 
 async def _matrix_observe_idle(*, reserve, scheduler, completed, parent):

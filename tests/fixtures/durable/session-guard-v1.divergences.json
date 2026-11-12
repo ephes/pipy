@@ -3,17 +3,6 @@
   "phase": "session-guard-b1b-v1",
   "divergences": [
     {
-      "id": "b1b-commit-request-error-fatal",
-      "owner": "R15-3",
-      "bridge": "U07, U08",
-      "reason": "Pi's guard leaves a commit's outcome to the Session writer, so a guard-only commit failure no longer fails the Session",
-      "path": [
-        "commit-request-error-fatal"
-      ],
-      "reference_sha256": "ac74e18f580af88529c5fc1bdf9ccbbed89833e8d17b29ae90d70f057cc6b0a6",
-      "native_sha256": "58c8516ceeb3e50a2ad63ac82efffb05ee9303d3b11698cce0d8b0cd1f8cf099"
-    },
-    {
       "id": "b1b-mint-request-error-fatal",
       "owner": "R15-4",
       "bridge": "U34",
@@ -23,17 +12,6 @@
       ],
       "reference_sha256": "72496a52897e75089a08df0fdc0457dd71738fb827ab424e8cfcb8ce9ee5d1de",
       "native_sha256": "2e6d93fdff3e13e1fea1e0d328941b336727225262a0ec802f1eea90e8b2af0f"
-    },
-    {
-      "id": "b1b-commit-cancelled-fatal",
-      "owner": "R15-3",
-      "bridge": "U07, U08",
-      "reason": "Pi's guard leaves a commit's outcome to the Session writer, so a guard-only commit failure no longer fails the Session",
-      "path": [
-        "commit-cancelled-fatal"
-      ],
-      "reference_sha256": "e3ae0892cfbe7b3500997b0e74e67eb337243e35abbba25001189293e54c0d3a",
-      "native_sha256": "fe45cab274b3e89f53a4cdc028b756cfe4d4c9331c6821f629a9660046aafc63"
     },
     {
       "id": "b1b-mint-cancelled-fatal",
@@ -125,14 +103,14 @@
     },
     {
       "id": "b1b-pi192-failed-then-close-failure",
-      "owner": "R15-3",
-      "bridge": "U07, U08",
-      "reason": "Pi's guard leaves a commit's outcome to the Session writer, so a guard-only commit failure no longer fails the Session",
+      "owner": "R15-4",
+      "bridge": "U34",
+      "reason": "Pi reports a failed Storage call as storage_failed; native still reports session_failed",
       "path": [
         "pi192-failed-then-close-failure"
       ],
       "reference_sha256": "c7aa2cd236d80bebc3d70b48cdb5276e001f2abbc1da20ca5d360e6c993e7109",
-      "native_sha256": "8d0f6194e604a0ebffcc1dfbe26c1a9c0a594afc1666e7398ac7cb0d75d27d4a"
+      "native_sha256": "15f4d93a9ba4231aeba8a3151fc87742ed1da6c684a8823272482f7942eeb8c7"
     },
     {
       "id": "b1b-two-failures-first-wins",

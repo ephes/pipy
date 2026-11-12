@@ -102,13 +102,13 @@ from .records import (
     DocumentRecord,
     EntryId,
     EntryRecord,
-    Seq,
     SubmissionId,
     SubmissionRecord,
     TaskId,
     TaskRecord,
 )
 from .storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     DocumentAddress,
@@ -117,6 +117,7 @@ from .storage import (
     EntryLookup,
     EntryQuery,
     Page,
+    Receive,
     Storage,
     StorageRequestError,
     StorageWrite,
@@ -469,6 +470,30 @@ class SessionLifecycle:
                 with self._cond:
                     self._underway -= 1
                 self._finish(None, raising=True)
+
+    def _call_unjudged(self, run: Callable[[], T]) -> T:
+        """A guarded call whose outcome its caller judges (Pi ``commit``).
+
+        Admission and close bookkeeping match ``_call``; neither an error nor a
+        failure latched meanwhile is classified here.
+        """
+        with self._cond:
+            refused, closed = self._admit()
+        if refused is not None:
+            raise SessionFailed(refused) from refused
+        if closed:
+            raise SessionClosedError()
+        try:
+            result = run()
+        except BaseException:
+            with self._cond:
+                self._underway -= 1
+            self._finish(None, raising=True)
+            raise
+        with self._cond:
+            self._underway -= 1
+        self._finish(None, raising=False)
+        return result
 
     def _admit(self) -> tuple[BaseException | None, bool]:
         # Caller holds the lock. Health first, then the guard seal (Pi #call);
@@ -943,10 +968,28 @@ class GuardedStorage:
     def _read(self, run: Callable[[], T]) -> T:
         return self._owner._call(True, self._view, run)
 
-    def commit(self, writes: tuple[StorageWrite, ...]) -> Seq:
-        """Never exempt: once admitted, whether a failed batch committed is unknown."""
+    def commit(
+        self, batches: tuple[tuple[StorageWrite, ...], ...], receive: Receive
+    ) -> CommitResult:
+        """Guarded like every call, but its outcome is the Session writer's to judge.
+
+        Pi 1.5: a failed or closed Session refuses the call before the backend,
+        the call counts as underway for close, and its result or error returns
+        unchanged. The writer publishes the batches received first and then
+        fails the Session for a refusal or a raise (bridge U07, U08).
+        """
         backend = self._owner._backend
-        return self._owner._call(False, None, lambda: backend.commit(writes))
+        return self._owner._call_unjudged(lambda: backend.commit(batches, receive))
+
+    @property
+    def publishing(self) -> Callable[[Callable[[], None]], None] | None:
+        """The backend's optional publication scope (Pi ``Storage.publishing``).
+
+        Not a guarded call. ``None`` when the backend has none, as Memory and
+        SQLite do.
+        """
+        scope = getattr(self._owner._backend, "publishing", None)
+        return scope if callable(scope) else None
 
     def mint_id(self) -> int:
         backend = self._owner._backend

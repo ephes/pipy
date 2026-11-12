@@ -63,6 +63,7 @@ from pipy_harness.native.durable.memory import MemoryStorage
 from pipy_harness.native.durable.records import SAFE_INTEGER, RecordError
 from pipy_harness.native.durable.sqlite import open_sqlite_storage
 from pipy_harness.native.durable.storage import (
+    CommitResult,
     ConversationQuery,
     Cursor,
     EntryQuery,
@@ -203,11 +204,11 @@ class Reopening:
         self._closed = False
         self.current = open_sqlite_storage(path, mode="open")
 
-    def commit(self, writes: Any) -> Any:
+    def commit(self, batches: Any, receive: Any) -> Any:
         if self._closed:
-            return self.current.commit(writes)
+            return self.current.commit(batches, receive)
         try:
-            return self.current.commit(writes)
+            return self.current.commit(batches, receive)
         finally:
             self.current.close()
             self.current = open_sqlite_storage(self._path, mode="open")
@@ -506,7 +507,7 @@ def test_supported_last_failure_does_not_leak_any_table_index_or_counter(backend
     assert store.submission_by_request(1, "changed") is None
     assert store.submission_by_request(1, "x").id == 4
     assert store.mint_id() == 5
-    assert store.commit(()) == 3
+    assert commit(store, entry(5)) == 3
 
 
 @ALL
@@ -528,7 +529,7 @@ def test_late_candidate_failure_is_reached_after_preparation_and_is_atomic(backe
     assert store.entry(100) is None and store.task(101) is None
     assert store.submission_by_request(1, "x") is None
     backend.at_commit(None)
-    assert store.mint_id() == 2 and store.commit(()) == 2
+    assert store.mint_id() == 2 and commit(store, entry(2)) == 2
 
 
 @ALL
@@ -636,7 +637,7 @@ def test_one_authority_linearizes_real_contended_operations(backend, contender):
             assert result == 103
         else:
             with pytest.raises(StorageClosedError):
-                store.commit(())
+                commit(store, entry(104))
 
     writes = (entry(100), entry(101), task(102))
     _run_contended(backend, store, writes, check, choices[contender], verify)
@@ -646,10 +647,10 @@ def test_one_authority_linearizes_real_contended_operations(backend, contender):
 def test_sequence_exhaustion_refuses_without_corrupting_state(backend):
     store = root(backend)
     backend.set_next_seq(store, SAFE_INTEGER)
-    assert store.commit(()) == SAFE_INTEGER
+    assert commit(store, entry(2)) == SAFE_INTEGER
     before = backend.state(store)
     with pytest.raises(RuntimeError, match="sequence"):
-        store.commit(())
+        commit(store, entry(3))
     assert backend.state(store) == before and store.conversation(1).id == 1
 
 
@@ -829,13 +830,21 @@ def test_table_arguments_are_admitted_as_owned_values_before_any_hook(backend):
     write = StorageWrite(entry(5))
     calls.clear()
     before = backend.state(store)
+
+    def receipt(index: int, seq: int) -> None:
+        calls.append("receipt")
+
     refusals = {
         "Expected request ID string": [lambda: store.submission_by_request(1, text)],
-        "Expected owned write tuple": [
-            lambda: store.commit([write]),
-            lambda: store.commit((write, foreign)),
-            lambda: store.commit(foreign),
+        "Expected a tuple of owned write tuples": [
+            lambda: store.commit([(write,)], receipt),
+            lambda: store.commit(([write],), receipt),
+            lambda: store.commit(((write, foreign),), receipt),
+            lambda: store.commit(((write,), foreign), receipt),
+            lambda: store.commit(foreign, receipt),
         ],
+        "A commit call needs at least one batch": [lambda: store.commit((), receipt)],
+        "Expected a receipt callable": [lambda: store.commit(((write,),), foreign)],
         "Expected typed query and integer page size": [
             lambda: store.scan_tasks(foreign, 1),
             lambda: store.scan_tasks(SubmissionQuery({}), 1),
@@ -951,7 +960,7 @@ def test_document_supported_failures_are_atomic_and_ordinary_errors(
     )
     assert store.submission_by_request(1, "new") is None
     assert store.document(2) and store.find_document(address()).id == 2
-    assert store.mint_id() == 5 and store.commit(()) == 3
+    assert store.mint_id() == 5 and commit(store, entry(5)) == 3
     store.close()
 
 
@@ -1042,7 +1051,10 @@ def test_document_late_candidate_failure_rolls_back_tables_docs_indexes_and_coun
         match="allocation|current incarnation",
     ):
         commit(store, *writes)
-    assert witnessed == [True] and backend.state(store) == before
+    # SQLite checks the address before the batch writes (Pi 1.5), so a conflict
+    # never reaches its commit seam; Memory checks it last in preparation.
+    reached = fault == "allocation" or backend.name == "memory"
+    assert witnessed == ([True] if reached else []) and backend.state(store) == before
     assert store.conversation(99) is None
     assert (
         store.scan_conversations(ConversationQuery({"ownerTaskId": 3}), 10).items == ()
@@ -1057,8 +1069,9 @@ def test_document_late_candidate_failure_rolls_back_tables_docs_indexes_and_coun
     assert store.find_document(address()).id == 5
     assert store.submission_by_request(1, "x").id == 4
     backend.at_commit(None)
-    assert store.mint_id() == (6 if isinstance(store, Reopening) else 7)
-    assert store.commit(()) == 3
+    minted = store.mint_id()
+    assert minted == (6 if isinstance(store, Reopening) else 7)
+    assert commit(store, entry(minted)) == 3
 
 
 @ONE_INSTANCE
@@ -1187,3 +1200,224 @@ def test_raw_document_signed_zero_and_version_follow_memory(backend, version):
     assert (
         OwnedJson({key: materialized[key] for key in ("version", "value")}) == expected
     )
+
+
+# Release 1.5 batch commits (bridge R15-3) ---------------------------------------
+# Ports of the batch cases of Pi 1.5.0 testing/storage-conformance.ts; its copy
+# case belongs to DE27, which adds copies.
+
+
+def _batches(*batches: Any) -> tuple[tuple[StorageWrite, ...], ...]:
+    return tuple(tuple(StorageWrite(write) for write in batch) for batch in batches)
+
+
+class _Receipts:
+    """Pi's ``checkReceipts``: one receipt per stored batch, in order, before return."""
+
+    def __init__(self, observe: Any = None) -> None:
+        self.seqs: list[int] = []
+        self.settled = False
+        self._observe = observe
+
+    def __call__(self, index: int, seq: int) -> None:
+        assert not self.settled, "Storage.commit() received a batch after it returned"
+        assert index == len(self.seqs)
+        assert not self.seqs or seq > self.seqs[-1]
+        self.seqs.append(seq)
+        if self._observe is not None:
+            self._observe(index, seq)
+
+
+def _commit_batches(
+    store: Any, batches: Any, observe: Any = None
+) -> tuple[CommitResult, list[int]]:
+    receipts = _Receipts(observe)
+    try:
+        result = store.commit(batches, receipts)
+    finally:
+        receipts.settled = True
+    assert type(result) is CommitResult and result.stored == len(receipts.seqs)
+    return result, receipts.seqs
+
+
+def _delta(id: int, ops: Any) -> dict[str, Any]:
+    return {
+        "type": "document.change",
+        "id": id,
+        "content": {"kind": "delta", "version": 1, "ops": ops},
+    }
+
+
+@ALL
+def test_batch_receipt_comes_once_when_durable_and_never_for_a_refusal(backend):
+    """Pi: "receives a durable commit once before resolving, and never a refused one"."""
+
+    store = root(backend)
+    events: list[tuple[str, int]] = []
+    id = store.mint_id()
+
+    def observe(index: int, seq: int) -> None:
+        events.append(("receive", seq))
+        # Durable when received: a read now observes it.
+        events.append(("read", store.entry(id).commit_seq))
+
+    result, seqs = _commit_batches(store, _batches([entry(id)]), observe)
+    assert result == CommitResult(1) and events == [("receive", 2), ("read", 2)]
+    events.clear()
+    conflict = {"type": "conversation", "value": {"id": 1}}
+    refused, none = _commit_batches(store, _batches([conflict]), observe)
+    assert refused.stored == 0 and none == [] and events == []
+    assert type(refused.refused) is RuntimeError
+    assert str(refused.refused) == "ID 1 already belongs to conversation"
+    assert commit(store, entry(store.mint_id())) == 3
+
+
+@ALL
+def test_batches_commit_in_order_each_checked_against_the_earlier_ones(backend):
+    """Pi: "commits batches in order, each with its seq, checked against the earlier ones"."""
+
+    store = root(backend)
+    first, last, document = store.mint_id(), store.mint_id(), store.mint_id()
+    created = create_document(document, kind="batch.doc", value={"count": 1})
+    reads: list[Any] = []
+
+    def observe(index: int, seq: int) -> None:
+        if index == 0:
+            # The receipts follow the last stored batch: a read at the first sees it.
+            reads.append(store.entry(last))
+
+    result, seqs = _commit_batches(
+        store,
+        _batches(
+            [entry(first), created],
+            # A delta on the document the batch before created.
+            [_delta(document, [["s", ["count"], 2]])],
+            [entry(last)],
+        ),
+        observe,
+    )
+    assert result == CommitResult(3) and seqs == [2, 3, 4]
+    assert reads[0].commit_seq == 4 and store.entry(first).commit_seq == 2
+    materialized = store.document(document).to_tree()
+    assert (
+        materialized["value"] == {"count": 2} and materialized["deltasSinceBase"] == 1
+    )
+    assert commit(store, entry(store.mint_id())) == 5
+
+
+@ALL
+def test_a_refused_batch_keeps_the_ones_before_it_and_stores_none_after(backend):
+    """Pi: "stores the batches before the first one refused, and none after it"."""
+
+    store = root(backend)
+    first, after, taken = store.mint_id(), store.mint_id(), store.mint_id()
+    result, seqs = _commit_batches(
+        store,
+        _batches(
+            [entry(first)],
+            # Refused against the state the first batch left: the ID is taken now.
+            [task(taken), entry(first)],
+            [entry(after)],
+        ),
+    )
+    assert result.stored == 1 and seqs == [2]
+    assert type(result.refused) is RuntimeError
+    assert str(result.refused) == f"ID {first} already belongs to entry"
+    assert store.entry(first).commit_seq == 2 and store.entry(after) is None
+    assert ids(store.scan_tasks(TaskQuery({}), 10)) == []
+    # A refused first batch stores nothing; the storage goes on.
+    conflict = {"type": "conversation", "value": {"id": 1}}
+    refused, none = _commit_batches(store, _batches([conflict]))
+    assert refused.stored == 0 and none == []
+    assert str(refused.refused) == "ID 1 already belongs to conversation"
+    assert commit(store, entry(after)) == 3 and store.entry(after)
+
+
+@ALL
+def test_a_later_malformed_batch_is_refused_keeping_the_ones_before_it(backend):
+    """Pi: "refuses a later batch its own malformed actions fail, keeping the batches before it"."""
+
+    store = root(backend)
+    document = store.mint_id()
+    commit(store, create_document(document, kind="staged", value={"n": 1}))
+    first, second, after = store.mint_id(), store.mint_id(), store.mint_id()
+    retire = {"type": "document.retire", "id": document}
+    result, seqs = _commit_batches(
+        store,
+        _batches(
+            [entry(first)],
+            # Malformed in itself, whatever is stored: one document retired twice.
+            [entry(second), retire, retire],
+            [entry(after)],
+        ),
+    )
+    assert result.stored == 1 and seqs == [3]
+    assert str(result.refused) == f"Document {document} is retired more than once"
+    assert store.entry(first) and store.entry(second) is None
+    assert store.entry(after) is None
+    assert store.document(document).to_tree()["value"] == {"n": 1}
+
+
+@ALL
+def test_a_copy_in_any_batch_refuses_the_whole_call_before_any_check(backend):
+    store = root(backend)
+    id = store.mint_id()
+    copy = {
+        "type": "document.copy",
+        "record": {"id": 99, "kind": "copy", "scope": SESSION},
+        "source": {"id": 4, "at": "current"},
+    }
+    receipts = _Receipts()
+    with pytest.raises(UnsupportedStorageOperation, match="DE27"):
+        store.commit(_batches([entry(id)], [copy]), receipts)
+    assert receipts.seqs == [] and store.entry(id) is None
+    assert commit(store, entry(id)) == 2
+
+
+@ALL
+def test_process_control_in_a_later_batch_raises_after_the_stored_receipts(
+    backend, monkeypatch
+):
+    """Not a refusal. Memory keeps what it stored, and the receipts stand (Pi 1.5
+    memory.ts); SQLite rolls the call back, so nothing is received or stored."""
+
+    store = root(backend)
+    first, second = store.mint_id(), store.mint_id()
+    grouped = memory._document_actions
+    calls: list[int] = []
+
+    def interrupt(trees: Any) -> Any:
+        calls.append(len(trees))
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return grouped(trees)
+
+    monkeypatch.setattr(memory, "_document_actions", interrupt)
+    receipts = _Receipts()
+    with pytest.raises(KeyboardInterrupt):
+        store.commit(_batches([entry(first)], [entry(second)]), receipts)
+    monkeypatch.setattr(memory, "_document_actions", grouped)
+    kept = backend.name == "memory"
+    assert receipts.seqs == ([2] if kept else [])
+    assert (store.entry(first) is not None) is kept and store.entry(second) is None
+    assert commit(store, entry(second)) == (3 if kept else 2)
+
+
+@ALL
+def test_minted_ids_exceed_every_id_minted_since_open_and_every_stored_id(backend):
+    """The 1.5 ``mintId`` contract; an unstored mint may come back after a reopen."""
+
+    store = root(backend)
+    minted = store.mint_id()
+    assert minted == 2 and store.mint_id() == 3
+    commit(store, entry(10))
+    above = store.mint_id()
+    assert above == 11 and store.mint_id() == 12
+    if backend.name != "memory":
+        inner = store.current if isinstance(store, Reopening) else store
+        path = inner._database.path.database
+        store.close()
+        store = open_sqlite_storage(path, mode="open")
+        # Above every stored ID; the unstored 11 and 12 may be minted again.
+        assert store.mint_id() == 11
+        store.close()

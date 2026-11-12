@@ -643,6 +643,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- The native durable Storage port commits batches, as Pi durable release 1.5
+  does: `commit(batches, receive)` stores each batch as one atomic commit with
+  its own seq, checked against the batches before it, stops at the first batch
+  that Durable's own checks refuse, reports each stored batch to `receive`, and
+  returns `CommitResult(stored, refused)`. SQLite stores a call in one
+  transaction. `commit_writes()` commits one batch for code that writes a
+  Storage directly. The durable Session still sends one batch per call, and a
+  commit's outcome is now the Session writer's to judge, not the storage
+  guard's: a commit stored before its storage call failed is published before
+  the Session fails, and a backend's optional `publishing` scope runs each
+  publication. See [batch Storage commit](docs/durable-reference.md#batch-storage-commit-r15-3).
+
 - Generic durable tasks now end at the restart limit instead of parking, as Pi
   durable release 1.5 does. When the scheduler reserves a task that was cut off
   that many times in a row, it ends the task `faulted` with detail

@@ -261,7 +261,7 @@ def test_ack_failure_seals_original_owner_and_reuses_persisted_envelope(
         def __getattr__(self, name):
             return getattr(inner, name)
 
-        def commit(self, writes):
+        def commit(self, batches, receive):
             selected = self.armed and any(
                 write.to_tree()
                 .get("value", {})
@@ -269,14 +269,16 @@ def test_ack_failure_seals_original_owner_and_reuses_persisted_envelope(
                 .get("checkpoint", {})
                 .get("role")
                 == "request"
-                for write in writes
+                for batch in batches
+                for write in batch
             )
             if selected:
                 self.armed = False
                 if after:
-                    inner.commit(writes)
+                    # Durable, but its receipt is lost with the acknowledgement.
+                    inner.commit(batches, lambda index, seq: None)
                 raise OSError("Synthetic lost checkpoint acknowledgement")
-            return inner.commit(writes)
+            return inner.commit(batches, receive)
 
     storage = Ack()
     session = Session(storage)

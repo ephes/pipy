@@ -120,10 +120,12 @@ MUTANTS = (
     "sync-throw-unguarded",
     "reentrant-report-admitted",
     "cause-split",
+    "commit-guard-fatal",
 )
 # Withdrawn at release 1.5.0 (bridge R15-1b): a guard-only commit failure no
 # longer reports the reference Session (U07, U08), so an unreported commit failure
-# is no mutant. Successor R15-3; the native guard tests keep the behavior.
+# is no mutant. Its successor (R15-3) is the mutant commit-guard-fatal: the guard
+# failing and reporting the Session for a commit failure, as 1.4 did.
 RETIRED = ({"id": "commit-exempt", "kind": "mutant", "successor": "R15-3"},)
 assert not {row["id"] for row in RETIRED} & {*SCENARIOS, *MUTANTS}
 READS = {
@@ -497,11 +499,10 @@ def _end(value: Any, kinds: dict[str, str], python: bool) -> None:
         _ref(value["error"], kinds)
     else:
         shape(value, {"reason"}, "end")
-        # "open": a release 1.5 reference Session that a guard-only failure leaves open.
+        # "open": a release 1.5 Session that a guard-only commit failure leaves open.
         require(
-            value["reason"] == "closed"
-            or (python and value["reason"] == "unsettled")
-            or (not python and value["reason"] == "open"),
+            value["reason"] in {"closed", "open"}
+            or (python and value["reason"] == "unsettled"),
             "Unknown end reason",
         )
 
@@ -781,9 +782,12 @@ class ControlledBackend:
         self.log({"e": "return", "h": handle, "status": "fulfilled"})
         return result
 
-    def commit(self, writes: Any) -> Any:
-        args = {"writes": [w.to_tree() for w in writes]}
-        return self._call("commit", args, lambda: self.inner.commit(writes))
+    def commit(self, batches: Any, receive: Any) -> Any:
+        # Release 1.5 batches: every recipe commit is one batch, recorded as its
+        # writes (the Node driver's record of the same call).
+        require(len(batches) == 1, "Expected one batch per commit call")
+        args = {"writes": [w.to_tree() for w in batches[0]]}
+        return self._call("commit", args, lambda: self.inner.commit(batches, receive))
 
     def mint_id(self) -> Any:
         return self._call("mint", {}, self.inner.mint_id)
@@ -1173,10 +1177,16 @@ def native(
         try:
             for step in scenario["steps"]:
                 if step["op"] == "await_end":
-                    try:
-                        end = run.end(run.owner.wait_closed(timeout=run.wait))
-                    except TimeoutError:
-                        end = {"reason": "unsettled"}
+                    owner = run.owner
+                    if owner.failure is None and not owner.sealed:
+                        # Release 1.5: a guard-only commit failure leaves the
+                        # Session open, as the Node driver records it.
+                        end = {"reason": "open"}
+                    else:
+                        try:
+                            end = run.end(owner.wait_closed(timeout=run.wait))
+                        except TimeoutError:
+                            end = {"reason": "unsettled"}
                     effects = run.backend.snapshot()
                     steps.append({"id": step["id"], "op": step["op"]})
                     continue
@@ -1383,6 +1393,7 @@ MUTATIONS = {
     "sync-throw-unguarded": _unreported("sync-throw"),
     "reentrant-report-admitted": _reentrant_report_admitted,
     "cause-split": _cause_split,
+    "commit-guard-fatal": _add_report("commit-request-error-fatal", "bad", "R1"),
 }
 assert tuple(MUTATIONS) == MUTANTS
 
