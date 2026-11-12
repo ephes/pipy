@@ -23,9 +23,9 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.session_search import (
-    match_session_text,
+    SessionSearchFields,
+    match_session,
     parse_search_query,
-    session_search_text,
 )
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
@@ -1060,8 +1060,8 @@ def build_session_picker_rows(
     ``scope`` chooses the current-project list or the all-projects list (Pi
     ``Tab``). ``named_only`` keeps only named sessions (Pi ``Ctrl+N``).
     ``query`` is Pi's session search (``session_search.py``: fuzzy tokens,
-    quoted phrases, ``re:``) over ``id name cwd``; Pi also searches the message
-    text (backlog DF1-F7b). ``sort`` is ``recent`` (mtime, newest first) or
+    quoted phrases, ``re:``) over the id, name and cwd, each field matched
+    separately; Pi also searches the message text (backlog DF1-F7b). ``sort`` is ``recent`` (mtime, newest first) or
     ``name`` (alphabetical, unnamed sessions last) (Pi ``Ctrl+S``). The session
     at ``current_path`` is marked ``is_current``.
     """
@@ -1078,8 +1078,8 @@ def build_session_picker_rows(
     for entry in source:
         if named_only and not entry.name:
             continue
-        matches, _score = match_session_text(
-            session_search_text(entry.session_id, entry.name, "", entry.cwd), parsed
+        matches, _score = match_session(
+            SessionSearchFields(entry.session_id, entry.name, "", entry.cwd), parsed
         )
         if not matches:
             continue

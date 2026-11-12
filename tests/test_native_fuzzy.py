@@ -1,7 +1,8 @@
 """Pi ``fuzzy.ts`` port: pinned results from Pi's code, plus a live Node diff.
 
 The pinned values were produced by running ``packages/tui/src/fuzzy.ts`` at
-pi-mono ``1b347794e`` under Node. ``test_matches_pi_under_node`` repeats the
+pi-mono ``8c03fef4d`` under Node (the contiguous-occurrence scoring of Pi
+#11220; the earlier pins did not change). ``test_matches_pi_under_node`` repeats the
 comparison over a random corpus when Node and a pi-mono checkout are present
 (``PI_MONO_DIR``, default ``/Users/jochen/src/pi-mono`` like
 ``scripts/parity_checks/_pi_reference.py``) and is skipped otherwise.
@@ -44,6 +45,15 @@ _PINNED_MATCHES = [
     ("high", "high Deep reasoning (~16k tokens)", True, -59.4),
     ("4o", "openai gpt4o", True, -2.9),
     ("o4", "openai gpt4o", True, 4),
+    # Pi #11220: the contiguous "opus" beats the greedy o, p, u of "openrouter".
+    ("opus", "openrouter openrouter/anthropic/claude-opus-4.1", True, -23.8),
+    ("opus", "openrouter openrouter/anthropic/claude-sonnet-4.5", True, 41.6),
+    ("opus", "openrouter openrouter/openai/gpt-oss-120b", True, 41.1),
+    # The best contiguous occurrence, not the first.
+    ("opus", "xxopus opus", True, -36.6),
+    ("opus", "xxxxxx opus", True, -36.6),
+    # Occurrences are found in UTF-16 code units.
+    ("😀a", "😀b 😀a", True, -23.5),
 ]
 
 # (items, query, result) from Pi's fuzzyFilter with an identity getText.
@@ -69,6 +79,22 @@ _PINNED_FILTERS = [
     ),
     (["alpha beta", "beta alpha", "gamma"], "beta alpha", ["alpha beta", "beta alpha"]),
     (["a b", "abc", "xbc"], "bc", ["abc", "xbc"]),
+    # Pi #11220: "radius radius/gpt" holds a, s, t, r, a in order.
+    (
+        [
+            "radius radius/gpt-5.4 radius gpt-5.4 GPT 5.4",
+            "radius radius/agentic radius agentic Agentic",
+            "radius radius/gpt-6-sol radius gpt-6-sol GPT 6 Sol",
+            "radius radius/gpt-6-astra radius gpt-6-astra GPT 6 Astra",
+        ],
+        "astra",
+        [
+            "radius radius/gpt-6-astra radius gpt-6-astra GPT 6 Astra",
+            "radius radius/gpt-5.4 radius gpt-5.4 GPT 5.4",
+            "radius radius/agentic radius agentic Agentic",
+            "radius radius/gpt-6-sol radius gpt-6-sol GPT 6 Sol",
+        ],
+    ),
 ]
 
 

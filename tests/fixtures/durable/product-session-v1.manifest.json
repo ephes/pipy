@@ -3,10 +3,10 @@
   "phase": "product-session-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "inspection": "ffc74ce9454bc992415b062344cf8550c496d38f14d9f24f6a92f10a10efbce0"
+    "inspection": "6093eb1d983dd465fd20c2d4a539f3a145f551480acc8fa7fcbb17839d3017bd"
   },
   "closure": {
-    "CHANGELOG.md": "c02d0d87a6d929c5a584b50e2622dd97b041f1872b48cd4d27e309173be1b6de",
+    "CHANGELOG.md": "f02d412d0be8b1634ab2477a2bcef982b402da91945a74b450cee1f812f840e3",
     "docs/architecture.md": "c806ea7a69b611e74ad72b2833b48652a0e500ba229180685e349e1330fc762b",
     "docs/backlog.md": "c601f16f1225738c68c1b93765d2c44fe142fdb1287a14c2358f0ea275b64694",
     "docs/durable-adjudication.md": "f4ae53527b88dba2fa330a06a8269cdee85f1bc2758c313b2e7afc7343bce594",
@@ -259,7 +259,7 @@
     "src/pipy_harness/native/fake.py": "f6ba8e8d55f16ce81d77945b5704db729c2abcdb02411da3cd09e789ba842f0b",
     "src/pipy_harness/native/file_references.py": "6dc7e89f3b10347a3bdcbcf1daa50028fc8d45566decc6d74af57c5d442e7874",
     "src/pipy_harness/native/frame_renderer.py": "39764e041ff76b4b870909371acb5686ad928fb066e9c3f355275e8a0534ec5a",
-    "src/pipy_harness/native/fuzzy.py": "254bd5e9df0fbebb2ce840755f78e9d730bf9ca4ba9cb026a0dbcfa9159d55c5",
+    "src/pipy_harness/native/fuzzy.py": "812b73092995acf5a0630d9a4eecf27a05a331ae2e7cff4f141d8fa84ba87f64",
     "src/pipy_harness/native/glob_segment.py": "725e73218df91ac7fdefca5b37642f726e307bd1e469e15132a27f8ab0b96747",
     "src/pipy_harness/native/http.py": "950546161ae7e8c17c534e07f348a1a0ef137b95c1449270aa6e6f5b38261242",
     "src/pipy_harness/native/ignore_rules.py": "3f2fcfbac811296853331aaeb73294aba5c86301d41761e11cb6521bd3716153",
@@ -385,11 +385,11 @@
     "src/pipy_harness/native/session_builtins.py": "54c1dae072c7e444ede89ecad45292bc0d207591169ee7c10426e3faa55a3962",
     "src/pipy_harness/native/session_generation.py": "19f38b772619a1af67015f6762b88fd6dc43479fdd88c5b9bace24685f4a78e9",
     "src/pipy_harness/native/session_resume.py": "208a5c8b7ae2af3db83d1ed5d30a527f6869d1e756d32f7d193d7e73533c2efb",
-    "src/pipy_harness/native/session_search.py": "3efee6dbef9bb4cd000f9f22fbffb4b52db2de5dedd2d0cc9bd193dd62044bdb",
+    "src/pipy_harness/native/session_search.py": "6498a8c91d56b0fea8e068642188a63dbe244ad61cc98490729dcdc7c35fa7ed",
     "src/pipy_harness/native/session_settings.py": "2454df5f7812bea95b0473f7ace1c995fa2dcf03a5f0050d2f1ce541d54973db",
     "src/pipy_harness/native/session_state_lock.py": "9b83f8c79915133cd017f80e0ae62be33d477f6f5ea791b9c2bc9122d151edd0",
     "src/pipy_harness/native/session_tree.py": "edd3b9cd5d2d55b747dc95c7377ff56ceb91240c3b3da42b1cf62355127f01ee",
-    "src/pipy_harness/native/session_tree_commands.py": "7d2e291174be33b1e91d85fb59b81d9b1dba3340c3888556c6ef03c316310aa3",
+    "src/pipy_harness/native/session_tree_commands.py": "af6093041c565311b49089470434c0226f7fe9fe7e2a9b2853deccbe5d1fb1ab",
     "src/pipy_harness/native/session_usage.py": "3d71bd5fba0a9bb3a77f4d4e6f9d52bb30c0a82e0ceb97b17e809d8d48593bc9",
     "src/pipy_harness/native/settings.py": "699cc72a5c383323f0e84f22573bb455e653a65ab578f16f7c9353e6e1b7e748",
     "src/pipy_harness/native/skills.py": "a6399c59e8d39b95b066c7f7c47ad3a5a6ee7a32b985c823982bbe6a1fd3b5fc",

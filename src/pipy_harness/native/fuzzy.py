@@ -1,7 +1,10 @@
-"""Pi's fuzzy matching (``packages/tui/src/fuzzy.ts`` at pi-mono ``1b347794e``).
+"""Pi's fuzzy matching (``packages/tui/src/fuzzy.ts`` at pi-mono ``8c03fef4d``).
 
 A query matches when all of its characters appear in the text in order; a
-lower score is a better match. The port is literal, including JavaScript's
+lower score is a better match. The score is the best of the greedy leftmost
+alignment and every contiguous occurrence of the query, so a query is not
+ranked by a scattered match over an earlier, unrelated part of the text
+("opus" in ``openrouter openrouter/anthropic/claude-opus``). The port is literal, including JavaScript's
 string model: indices, lengths and the ``i * 0.1`` position penalty count
 UTF-16 code units, ``\\s`` and ``trim()`` use the ECMAScript whitespace set,
 and the score is built with the same float operations in the same order, so
@@ -74,24 +77,27 @@ def _index_of(units: array[int], unit: int, start: int) -> int:
     return -1
 
 
-def _match_query(query: array[int], text: array[int], exact: bool) -> FuzzyMatch:
-    if len(query) == 0:
-        return FuzzyMatch(True, 0)
-    if len(query) > len(text):
-        return FuzzyMatch(False, 0)
+def _index_of_units(units: array[int], query: array[int], start: int) -> int:
+    """``String.prototype.indexOf`` of a non-empty unit sequence from ``start``."""
 
-    query_index = 0
+    haystack = units.tobytes()
+    needle = query.tobytes()
+    position = 2 * max(0, start)
+    while True:
+        found = haystack.find(needle, position)
+        if found == -1:
+            return -1
+        if found % 2 == 0:
+            return found // 2
+        position = found + 1
+
+
+def _score_positions(text: array[int], positions: Sequence[int]) -> float:
     score: float = 0
     last_match_index = -1
     consecutive_matches = 0
 
-    while query_index < len(query):
-        i = _index_of(text, query[query_index], last_match_index + 1)
-        if i == -1:
-            break
-
-        is_word_boundary = i == 0 or text[i - 1] in _BOUNDARY_UNITS
-
+    for i in positions:
         # Reward consecutive matches
         if last_match_index == i - 1:
             consecutive_matches += 1
@@ -103,17 +109,43 @@ def _match_query(query: array[int], text: array[int], exact: bool) -> FuzzyMatch
                 score += (i - last_match_index - 1) * 2
 
         # Reward word boundary matches
-        if is_word_boundary:
+        if i == 0 or text[i - 1] in _BOUNDARY_UNITS:
             score -= 10
 
         # Slight penalty for later matches
         score += i * 0.1
 
         last_match_index = i
-        query_index += 1
 
-    if query_index < len(query):
+    return score
+
+
+def _match_query(query: array[int], text: array[int], exact: bool) -> FuzzyMatch:
+    if len(query) == 0:
+        return FuzzyMatch(True, 0)
+    if len(query) > len(text):
         return FuzzyMatch(False, 0)
+
+    # Greedy alignment: each query unit at its first occurrence after the
+    # previous one.
+    positions: list[int] = []
+    last_match_index = -1
+    for unit in query:
+        i = _index_of(text, unit, last_match_index + 1)
+        if i == -1:
+            return FuzzyMatch(False, 0)
+        positions.append(i)
+        last_match_index = i
+
+    score = _score_positions(text, positions)
+
+    # The greedy alignment can scatter the query over an earlier, unrelated
+    # part of the text; also score every contiguous occurrence and keep the
+    # best alignment.
+    start = _index_of_units(text, query, 0)
+    while start != -1:
+        score = min(score, _score_positions(text, range(start, start + len(query))))
+        start = _index_of_units(text, query, start + 1)
 
     if exact:
         score -= 100

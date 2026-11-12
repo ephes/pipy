@@ -1,5 +1,5 @@
 // Render Pi's ThinkingSelectorComponent and ModelSelectorComponent with stubs
-// (pi-mono 1b347794e). Regenerate renders.json from ~/src/pi-mono with:
+// (pi-mono ab74d4624). Regenerate renders.json from ~/src/pi-mono with:
 //   node --import ./packages/coding-agent/src/experimental/source-resolver.ts \
 //     <pipy>/tests/fixtures/pi_selectors/render.mts > <pipy>/tests/fixtures/pi_selectors/renders.json
 // The stub runtime's catalog refresh never settles, so Pi shows its

@@ -525,8 +525,10 @@ text; Pi styles its headings.
 pipy ports Pi's fuzzy matcher (`packages/tui/src/fuzzy.ts`, as
 `native/fuzzy.py`): every query character must appear in order, consecutive
 and word-boundary matches score better, and `fuzzyFilter` splits the query at
-whitespace and `/` and keeps items matching every token, best first. A
-differential test compares it with Pi's own code under Node.
+whitespace and `/` and keeps items matching every token, best first. A query
+that appears as contiguous text scores by its best occurrence, not only by the
+first scattered alignment (Pi `8c03fef4d`). Differential tests compare the
+matcher and the session search with Pi's own code under Node.
 
 - `/model <ref>` switches when `<ref>` names exactly one model (Pi
   `findExactModelReferenceMatch`: `provider/id`, then a unique id,
@@ -554,7 +556,10 @@ differential test compares it with Pi's own code under Node.
   the editor without sending it.
 - The `/resume` search uses Pi's session search: fuzzy tokens, `"quoted
   phrases"`, and `re:<pattern>` (case-insensitive) over the session id, name
-  and working directory. pipy keeps its `recent`/`name` sorts.
+  and working directory, each field matched separately (Pi `8c03fef4d`): the
+  id matches only as text, the name and working directory also as a scattered
+  fuzzy match, and no token matches across two fields. pipy keeps its
+  `recent`/`name` sorts.
 - A slash command is not drawn as a user message. A prompt template or skill
   run draws its expanded text, as a resumed session does. The plain REPL
   (no TUI) still echoes every line.

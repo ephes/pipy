@@ -682,6 +682,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Fuzzy search ranks like Pi again (Pi `8c03fef4d`, #11220): a query that
+  appears as contiguous text scores by its best occurrence instead of only by
+  the first scattered match, so `opus` finds `claude-opus` before models whose
+  provider prefix happens to hold o, p, u in order. This orders the `/model`
+  and `/thinking` selectors and the slash menu. The `/resume` search matches
+  each session field separately, as Pi's does: a token found as text in the
+  name ranks first, then text in the id or working directory, then a
+  scattered match in the name or working directory; ids match only as text,
+  and no token matches across two fields. pipy still does not search message
+  text and keeps its own sorts.
+
 - The native durable Storage port commits batches, as Pi durable release 1.5
   does: `commit(batches, receive)` stores each batch as one atomic commit with
   its own seq, checked against the batches before it, stops at the first batch
