@@ -259,12 +259,25 @@ which has no entry, the publication that made it visible (so only a lower
 bound, tied to the snapshot that showed it). The sequence is not an ordering
 key, because a round's results follow the round order. A generation that ended
 before committing an assistant (for example at the restart limit in its
-prepare phase) ends the oldest run without a generation, after the loop's
-failed `TurnCompleted(0)` for a preparation failure. The run's usage is the loop's: the raw provider samples of the
+prepare phase) belongs to the last input before it (entries and tasks share
+one global id sequence, and a generation is created after its input) and
+ends that run, after the loop's failed `TurnCompleted(0)` for a preparation
+failure. When an earlier run has a failed, faulted or aborted generation, any
+later run's generation, with or without an assistant, may instead be an
+operator retry of it (a retry is allowed after a later input, and the
+snapshot does not record what it retries), so it is refused instead of being
+projected into a run it may not belong to; so is an assistant of a generation
+created before its run's input. A refusal raises before anything is emitted
+and blocks the whole conversation's projection, earlier completed runs
+included; even a cancelled run 1 followed by a second message triggers it.
+Multi-input conversations are not reachable through the product yet
+(`DurableProductSession` admits one input): DE18/DE19's run records must
+replace this refusal before multi-input product wiring (DE42/DE43). The run's usage is the loop's: the raw provider samples of the
 committed provider outcomes, and the cost each assistant was priced at. An
 operator retry's new generation in a run whose generation ended, with or
-without an assistant, is refused with an error, not projected, until
-DE18/DE19's run records.
+without an assistant and whichever of the two committed one, is refused with
+an error, not projected, until DE18/DE19's run records; so is a generation
+older than every input.
 
 The skeleton has no product wiring: it is not used by `DurableProductSession`,
 the CLI or the TUI. Queued-input, retry and provider-failure events wait for

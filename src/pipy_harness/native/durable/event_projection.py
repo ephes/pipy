@@ -101,6 +101,7 @@ class _Run:
     assistant: AgentAssistantMessage | None = None
     samples: list[CompletedMessage] | None = None
     cancelled: AgentCancellationReason | None = None
+    input_id: int = 0
 
 
 class CommittedEventProjection:
@@ -182,12 +183,35 @@ class _Facts:
             for m in snapshot.messages
             if m.provider_outcome is not None and m.by_task_id is not None
         }
+        self.values = {m.entry_id: m.decode() for m in snapshot.messages}
+        inputs = [
+            m.entry_id
+            for m in snapshot.messages
+            if type(self.values[m.entry_id]) is AgentUserMessage
+        ]
+        # A generation belongs to the last input before it: entries and tasks
+        # share one global id sequence and a generation is created after the
+        # input it answers. An operator retry of an earlier run's retryable
+        # (failed, faulted or aborted) generation may be created after a
+        # later input, and the snapshot does not say what a generation
+        # retries, so no generation is attributed to a run after such an
+        # earlier generation: it is refused until DE18/DE19's run records.
+        self.retryable = [
+            task_id
+            for task_id, outcome in self.outcomes.items()
+            if _status(outcome) in _RETRYABLE
+        ]
         # Generations that ended before committing an assistant (for example
-        # at the restart limit in their prepare phase), oldest first. Each
-        # ends the oldest run that has no generation of its own.
-        self.unclaimed = sorted(
-            task_id for task_id in self.outcomes if task_id not in claimed
-        )
+        # at the restart limit in their prepare phase), by run.
+        self.unclaimed: dict[int, list[int]] = {}
+        for task_id in sorted(self.outcomes):
+            if task_id in claimed:
+                continue
+            owner = max((i for i in inputs if i < task_id), default=None)
+            if owner is None:
+                raise ValueError("a generation before any input is not projected")
+            self.attributable(owner)
+            self.unclaimed.setdefault(owner, []).append(task_id)
         latest = max((m.commit_seq for m in snapshot.messages), default=0)
         self.derived = (
             latest if snapshot.publication_seq is None else snapshot.publication_seq
@@ -198,13 +222,25 @@ class _Facts:
         self.results: list[AgentToolResultMessage] = []
         self.round_seq = 0
 
+    def attributable(self, input_id: int) -> None:
+        if any(earlier < input_id for earlier in self.retryable):
+            raise ValueError(
+                "a generation that may retry an earlier run is not projected"
+            )
+
+    def first_answer(self, run: _Run, task_id: int) -> None:
+        if task_id < run.input_id:
+            # Created before this run's input: an earlier run's generation.
+            raise ValueError("an earlier run's generation is not projected")
+        self.attributable(run.input_id)
+
     def add(self, message: CompletedMessage) -> None:
-        value = message.decode()
+        value = self.values[message.entry_id]
         key = f"entry:{message.entry_id}"
         if type(value) is AgentUserMessage:
             if self.run is not None:
                 self.settle(self.run)
-            self.run = _Run(value, [value], turn=0)
+            self.run = _Run(value, [value], turn=0, input_id=message.entry_id)
             events: tuple[AgentEvent, ...] = (
                 AgentRunStarted(),
                 TurnStarted(0),
@@ -218,18 +254,15 @@ class _Facts:
             raise ValueError("committed facts start with an input")
         if type(value) is AgentAssistantMessage and (
             (run.task_id is not None and message.by_task_id != run.task_id)
-            or (
-                run.task_id is None
-                and any(
-                    task_id < (message.by_task_id or 0) for task_id in self.unclaimed
-                )
-            )
+            or self.unclaimed.get(run.input_id)
         ):
             # An operator retry's new generation continues a run whose
-            # generation ended (with or without an assistant); its events
-            # wait for DE18/DE19's run records.
+            # generation ended (with or without an assistant, before or after
+            # this one); its events wait for DE18/DE19's run records.
             raise ValueError("a second generation in one run is not projected")
         if type(value) is AgentAssistantMessage:
+            if run.task_id is None:
+                self.first_answer(run, message.by_task_id or 0)
             run.messages.append(value)
             run.samples = [*(run.samples or ()), message]
             self.facts.append(
@@ -264,9 +297,12 @@ class _Facts:
 
     def settle(self, run: _Run) -> None:
         events: tuple[AgentEvent, ...] = ()
-        if run.task_id is None and self.unclaimed:
+        ended = self.unclaimed.pop(run.input_id, [])
+        if len(ended) > 1 or (ended and run.task_id is not None):
+            raise ValueError("a second generation in one run is not projected")
+        if ended:
             # The loop's preparation failure: a failed turn without a message.
-            run.task_id = self.unclaimed.pop(0)
+            run.task_id = ended[0]
             empty = AgentAssistantMessage(ProductContent(""))
             events = (TurnCompleted(0, AgentTurnOutcome.FAILED, empty),)
         if run.task_id is None or run.task_id not in self.outcomes:
@@ -347,9 +383,19 @@ def _durations(message: CompletedMessage) -> tuple[float | None, float | None]:
     return outcome.execution_seconds, outcome.execution_seconds
 
 
+# The generation outcomes an operator retry accepts
+# (``resolution_policy.generation_retry``).
+_RETRYABLE = frozenset({"failed", "faulted", "aborted"})
+
+
+def _status(outcome: TerminalOutcome) -> object:
+    tree = outcome.outcome.thaw()
+    return tree.get("status") if type(tree) is dict else None
+
+
 def _run_end(run: _Run, outcome: TerminalOutcome) -> tuple[AgentEvent, ...]:
     tree = outcome.outcome.thaw()
-    status = tree.get("status") if type(tree) is dict else None
+    status = _status(outcome)
     messages = tuple(run.messages)
     usage = _usage(messages, run.samples or ())
     if run.cancelled is not None:

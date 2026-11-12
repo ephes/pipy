@@ -12,8 +12,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `native/durable/event_projection.py`, turns the durable completed snapshots
   into the agent loop's events (run start, the input, each assistant, tool
   call and closed round, and the run's end) for an event sink, each fact's
-  events once and keyed for reconnect. It is not wired into any product
-  surface yet.
+  events once and keyed for reconnect. A generation that ended before its
+  assistant ends the run of the last input before it; an operator retry's
+  second generation in one run, and any later run's generation after an
+  earlier run's failed, faulted or aborted one (it may be a retry), is
+  refused, not projected; a refusal blocks the conversation's whole
+  projection until DE18/DE19's run records. It is not wired
+  into any product surface yet.
 
 - The agent loop's turn semantics live in a pure kernel,
   `native/agent/turn.py`: provider-result settlement, per-call tool admission

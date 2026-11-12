@@ -330,7 +330,7 @@ def test_a_generation_that_ends_before_its_assistant_fails_the_turn(
         },
     }
     early = replace(
-        final, messages=final.messages[:1], outcomes=(_ended(final, 1, failed),)
+        final, messages=final.messages[:1], outcomes=(_ended(final, parent, failed),)
     )
     sink = Sink()
     CommittedEventProjection(cid, sink).apply(early)
@@ -350,11 +350,182 @@ def test_a_generation_that_ends_before_its_assistant_fails_the_turn(
         "The generation was interrupted in its prepare phase"
     )
     # A retried generation after it is refused, not projected as a second
-    # run in the same run (DE18/DE19).
-    retried = replace(final, outcomes=(_ended(final, 1, failed), *final.outcomes))
-    assert min(o.task_id for o in final.outcomes) > 1
+    # run in the same run (DE18/DE19): the failed generation was created
+    # after the input (ids are global), the retry after the failed one.
+    retry = 50
+    relabelled = tuple(
+        replace(m, by_task_id=retry) if m.by_task_id == parent else m
+        for m in final.messages
+    )
+    retried = replace(
+        final,
+        messages=relabelled,
+        outcomes=(
+            _ended(final, parent, failed),
+            _ended(final, retry, {"status": "completed"}),
+        ),
+    )
     with pytest.raises(ValueError, match="second generation"):
         CommittedEventProjection(cid, Sink()).apply(retried)
+
+
+def _second_input(final, entry_id):
+    first = final.messages[0]
+    return replace(
+        first,
+        entry_id=entry_id,
+        commit_seq=max(m.commit_seq for m in final.messages) + 1,
+    )
+
+
+_PREPARE_FAILED = {
+    "status": "failed",
+    "error": {"message": "The generation was interrupted in its prepare phase"},
+}
+
+
+@pytest.mark.parametrize("next_input", [None, 30])
+def test_a_retry_that_ends_before_its_assistant_is_refused(
+    tmp_path, monkeypatch, next_input
+):
+    # The first generation committed its answer and ended; an operator retry
+    # of the same run then died in its prepare phase (no assistant). It is a
+    # second generation of the first run, with or without a later input, and
+    # never ends the next run.
+    cid, parent, final = _finished_tool_run(tmp_path, monkeypatch)
+    messages = final.messages
+    retry = max(m.entry_id for m in messages) + 4
+    if next_input is not None:
+        messages = (*messages, _second_input(final, retry + 10))
+    snapshot = replace(
+        final,
+        messages=messages,
+        outcomes=(*final.outcomes, _ended(final, retry, _PREPARE_FAILED)),
+    )
+    with pytest.raises(ValueError, match="second generation"):
+        CommittedEventProjection(cid, Sink()).apply(snapshot)
+
+
+def test_the_next_runs_generation_that_ends_before_its_assistant_ends_that_run(
+    tmp_path, monkeypatch
+):
+    cid, parent, final = _finished_tool_run(tmp_path, monkeypatch)
+    second = _second_input(final, max(m.entry_id for m in final.messages) + 4)
+    generation = second.entry_id + 1
+    snapshot = replace(
+        final,
+        messages=(*final.messages, second),
+        outcomes=(*final.outcomes, _ended(final, generation, _PREPARE_FAILED)),
+    )
+    sink = Sink()
+    emitted = CommittedEventProjection(cid, sink).apply(snapshot)
+    assert names(sink.events) == [
+        *TOOL_RUN,
+        *TOOL_RUN[:4],
+        "TurnCompleted",
+        "AgentRunCompleted",
+        "AgentRunSettled",
+    ]
+    assert list(dict.fromkeys(item.key for item in emitted))[-2:] == [
+        f"entry:{second.entry_id}",
+        f"outcome:{generation}",
+    ]
+    assert sink.events[-1].result.outcome is AgentRunOutcome.FAILED
+    # The first run keeps its own completed end.
+    first_end = sink.events[len(TOOL_RUN) - 1]
+    assert first_end.result.outcome is AgentRunOutcome.SUCCEEDED
+
+
+def test_a_generation_after_a_later_input_that_may_retry_is_refused(
+    tmp_path, monkeypatch
+):
+    # Run 1's generation failed after its answer; input 2 is appended, and a
+    # generation created after it then dies in its prepare phase. It may be
+    # input 2's own generation or an operator retry of run 1 (a retry is
+    # allowed after a later input), so it is refused rather than ending run 2.
+    cid, parent, final = _finished_tool_run(tmp_path, monkeypatch)
+    second = _second_input(final, max(m.entry_id for m in final.messages) + 4)
+    generation = second.entry_id + 1
+    snapshot = replace(
+        final,
+        messages=(*final.messages, second),
+        outcomes=(
+            *(o for o in final.outcomes if o.task_id != parent),
+            _ended(final, parent, _PREPARE_FAILED),
+            _ended(final, generation, _PREPARE_FAILED),
+        ),
+    )
+    sink = Sink()
+    with pytest.raises(ValueError, match="may retry an earlier run"):
+        CommittedEventProjection(cid, sink).apply(snapshot)
+    assert sink.events == []
+
+
+def test_a_generation_with_an_answer_after_a_later_input_that_may_retry_is_refused(
+    tmp_path, monkeypatch
+):
+    # The same ambiguity when the generation after input 2 commits an
+    # answer: it may be an operator retry of run 1's failed generation.
+    cid, parent, final = _finished_tool_run(tmp_path, monkeypatch)
+    second = _second_input(final, max(m.entry_id for m in final.messages) + 4)
+    generation = second.entry_id + 1
+    answer = replace(
+        final.messages[-1],
+        entry_id=generation + 1,
+        commit_seq=second.commit_seq + 1,
+        by_task_id=generation,
+    )
+    snapshot = replace(
+        final,
+        messages=(*final.messages, second, answer),
+        outcomes=(
+            *(o for o in final.outcomes if o.task_id != parent),
+            _ended(final, parent, _PREPARE_FAILED),
+            _ended(final, generation, {"status": "completed"}),
+        ),
+    )
+    sink = Sink()
+    with pytest.raises(ValueError, match="may retry an earlier run"):
+        CommittedEventProjection(cid, sink).apply(snapshot)
+    assert sink.events == []
+    # After a completed run 1 the same generation ends run 2.
+    settled = replace(
+        snapshot,
+        outcomes=(*final.outcomes, _ended(final, generation, {"status": "completed"})),
+    )
+    sink = Sink()
+    CommittedEventProjection(cid, sink).apply(settled)
+    assert names(sink.events)[-2:] == ["AgentRunCompleted", "AgentRunSettled"]
+    assert sink.events[-1].result.outcome is AgentRunOutcome.SUCCEEDED
+
+
+def test_an_earlier_runs_answer_after_a_later_input_is_refused(tmp_path, monkeypatch):
+    # Run 1's generation commits its answer after input 2: it belongs to
+    # run 1, not to run 2's first turn.
+    cid, parent, final = _finished_tool_run(tmp_path, monkeypatch)
+    second = _second_input(final, max(m.entry_id for m in final.messages) + 4)
+    late = replace(
+        final.messages[-1],
+        entry_id=second.entry_id + 1,
+        commit_seq=second.commit_seq + 1,
+    )
+    assert late.by_task_id == parent < second.entry_id
+    snapshot = replace(final, messages=(*final.messages[:-1], second, late))
+    sink = Sink()
+    with pytest.raises(ValueError, match="earlier run's generation"):
+        CommittedEventProjection(cid, sink).apply(snapshot)
+    assert sink.events == []
+
+
+def test_a_generation_before_any_input_is_refused(tmp_path, monkeypatch):
+    cid, parent, final = _finished_tool_run(tmp_path, monkeypatch)
+    snapshot = replace(
+        final,
+        messages=final.messages[:1],
+        outcomes=(_ended(final, final.messages[0].entry_id - 1, _PREPARE_FAILED),),
+    )
+    with pytest.raises(ValueError, match="before any input"):
+        CommittedEventProjection(cid, Sink()).apply(snapshot)
 
 
 def test_a_provider_cancelled_generation_cancels_the_turn_and_the_run(

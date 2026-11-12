@@ -719,9 +719,11 @@ slices S1–S4; `pipy-durable-feature-plan` gets a note.
   - The run's usage is computed as the loop computes it, from the committed
     raw provider samples, not from Pi's uncached message input. An operator
     retry's second generation in one run is refused rather than projected as
-    a second run end, also after a first generation that ended before its
-    assistant; such a generation ends its run with the loop's failed
-    `TurnCompleted(0)`.
+    a second run end, also when one of the two ended before its assistant;
+    such a generation belongs to the last input before it (global ids) and
+    ends that run with the loop's failed `TurnCompleted(0)`. After an earlier
+    run's retryable (failed, faulted, aborted) generation, every later run's
+    generation is refused, since it may be a retry of it.
   - A run ends on its generation's terminal outcome: completed gives
     `AgentRunCompleted`/`AgentRunSettled`, aborted `RunCancelled` first, and
     anything else a failed result with the durable cause (`durable_<status>`
