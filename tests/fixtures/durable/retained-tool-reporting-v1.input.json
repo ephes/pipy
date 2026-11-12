@@ -36,6 +36,11 @@
       "id": "omitted_truncated_output",
       "final": "absent",
       "lines": 2100
+    },
+    {
+      "id": "signed_bounded_output",
+      "final": "absent",
+      "signed": 2100
     }
   ]
 }

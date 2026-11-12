@@ -1768,9 +1768,10 @@ fresh process. Producers use actual Harness/SQLite and native CLI/SQLite paths,
 a scripted first model response, then the real OpenAI adapter with fake fetch.
 The Harness progress clock advances normally; raw timestamps remain recorded.
 
-Five cases cover reported details followed by absent/null final details,
-ordinary failure with/without reported details, and an omitted output that
-exceeds the 2000-line window (P16 slice S2). Both sides retain actual prefix
+Six cases cover reported details followed by absent/null final details,
+ordinary failure with/without reported details, an omitted output that exceeds
+the 2000-line window (P16 slice S2), and an explicit image plus signed text
+above the bound (P15 slice S4). Both sides retain actual prefix
 ACK snapshots, final raw tasks/results, next requests and wire bodies, next
 answers, execution/preparation/provider counters and terminal reopen. The closed
 manifest declares the finite shared projection and open boundaries; raw records
@@ -1779,12 +1780,18 @@ returns omit their output on both sides, so their output text is paired; the
 truncation case pairs the `truncated` diagnostic's code and dropped lines, the
 diagnostic order and the kept lines without the final newline. Pi's window keeps
 the beginning (200 bytes dropped) and native's the end (201 bytes dropped, no
-final newline) until DE33. Failed native invocations actually retain their
-reported output. Pi automatic error diagnostics, native fixed recovery text,
+final newline) until DE33. The signed case pairs the content order, the
+signature on the bounded text block, the unsigned harness block, the next
+request's content, the signature after reopen and its absence from the wire;
+the bound's notice (Pi's `truncated` diagnostic against native's `[tool output
+truncated]`) is a declared raw difference that DE33's per-tool output limits
+own, like the retained end. Failed native invocations actually
+retain their reported output. Pi automatic error diagnostics, native fixed recovery text,
 warning spelling/stage, graph shape and policy constants differ.
-P15 tool-signature metadata remains outside the current legal native DTO domain.
+Only the tool-result text-signature part of P15 is paired; the rest of row P15
+stays with DE06–08, DE24 and DE33.
 
-Eighteen semantic controls execute actual compare CLIs (positive0/negative1),
+Twenty-one semantic controls execute actual compare CLIs (positive0/negative1),
 with separate malformed2 and source/lifecycle/ACK/corrupt-receiver tests. Fresh
 attestation checks exact raw-to-projection joins, next-request/CLI records,
 source/module/resolution/process/artifact identities and the retained raw delta.

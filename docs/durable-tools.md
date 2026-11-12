@@ -320,15 +320,17 @@ A result keeps its blocks when they carry more than its text: an image or a
 signature. The canonical codec stores the signature in the existing `blocks`
 schema, and the model projection keeps it on a bounded text slice, as Pi's
 `boundContent` spreads the item; the `<harness>` suffix block is never signed.
-Provider adapters send no tool-result text signature, as Pi's do. The oracle
-that pairs this with Pi is slice S4, so
-`pipy-durable-p15-tool-text-signatures` stays open.
+Provider adapters send no tool-result text signature, as Pi's do. Slice S4
+pairs this with Pi in `retained-tool-reporting-v1` (below), which closes
+`pipy-durable-p15-tool-text-signatures`; plan row P15 itself stays with
+DE06–08, DE24 and DE33.
 
 The cumulative `retained-tool-reporting-v1` comparison follows the existing
-22 phases with five actual public Harness/native cases: reported details with
+22 phases with six actual public Harness/native cases: reported details with
 absent final details, explicit final null, failure after reported details,
-failure without details and, since P16 slice S2, an omitted output whose 2100
-lines exceed the 2000-line window. It retains raw records, committed prefix
+failure without details, since P16 slice S2 an omitted output whose 2100
+lines exceed the 2000-line window, and since P15 slice S4 an image with a signed
+text above the bound. It retains raw records, committed prefix
 ACKs, model requests and fake-provider wire bodies, and checks the actual next
 answer and reopen without another effect. Only its declared common observables
 are paired. Both normal fixtures omit their final output (`RETAINED_OUTPUT` on
@@ -338,8 +340,15 @@ diagnostic order and the kept lines. Pi's window keeps the beginning and drops
 200 bytes; native's keeps the end and drops 201, without the final newline:
 that is a declared raw difference until per-tool output limits (DE33). With
 this pairing and the ordinary-host cases of S1,
-`pipy-durable-p16-omitted-tool-output` is closed. Native ordinary failures do
-use their retained output. Pi's automatic error diagnostic and native's fixed
+`pipy-durable-p16-omitted-tool-output` is closed. A sixth case (P15 slice S4)
+returns an image and a signed text of 2100 lines: both sides keep the image,
+the signature on the bounded text block and an unsigned harness block, send the
+same content in the next request without the signature on the wire, and keep
+the signature after reopen; Pi's 1.5.0 `boundContent` spread is re-confirmed
+there. The bound's notice differs (Pi's `truncated` diagnostic, native's
+`[tool output truncated]`), a declared raw difference that DE33's per-tool
+output limits own. Native ordinary failures
+do use their retained output. Pi's automatic error diagnostic and native's fixed
 recovery category/model suffix, warning spelling and reporting stage, graph
 shape and policy constants remain raw differences. The comparison does not
 measure timing/capacity or establish whole-feature parity.

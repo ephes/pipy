@@ -9729,3 +9729,33 @@ Suggestions (stale docstrings; the image rewrites acted on signed text-only
 results), all repaired; round 2 was CLEAN. No P row closes; all 43 remain OPEN,
 and `pipy-durable-p15-tool-text-signatures` stays open for the S4 oracle.
 
+### P15 slice S4: the signed tool-result oracle (2026-11-12)
+
+`retained-tool-reporting-v1` gains a sixth case, `signed_bounded_output`: the
+fixture tool returns an image and a signed text of 2100 lines. Release 1.5.0's
+`boundContent` keeps the signature on the bounded text block (`"s\n" * 2000`,
+head), as native's projection does (`"s\n" * 1999 + "s"`, tail); both keep the
+image and an unsigned harness block, send the same content in the next request
+without the signature on the wire, and keep the signature after reopen. The
+common observable pins the content order, the image, the kept signature and
+lines, the unsigned suffix, the next request, reopen and the wire; the kept
+end and the bound's notice (Pi's `truncated` diagnostic against native's
+`[tool output truncated]`) are declared raw differences that DE33's per-tool
+output limits own. Three mutants were added (21 in all). With S3 this closes
+`pipy-durable-p15-tool-text-signatures`; the rest of row P15 stays with
+DE06–08, DE24 and DE33.
+
+Receipts on the development host (macOS, Python 3.15.2, official Node v26.13.0
+first on `PATH`), on the final S4 code before the documentation digests of this
+entry: a fresh baseline acceptance (execution `bff55a44-99dc-4003-b038-3a8c5cf90666`, `acceptance.json` SHA256
+`ba60e4b83616af9860ab92b31f1e8e07a4b6d38a856c5452b7d3456c22aa55ab`) and all 31 comparison phases after it exited 0, 32 commands in 1025 s;
+a separate fresh acceptance with the reporting phase and `attest()` in a fresh
+process: PASS with 6 cases and 21 mutants. Independent review with Claude Opus
+5.5 at high effort: round 1 found two Warnings (a stale P15 sentence in the
+reference guide; this entry was missing) and three Suggestions (case counts,
+the owner of the notice difference, comparing the image and adding wire and
+reopen mutants), all applied; round 2 converged with one Suggestion, applied to
+the design record. `just test-full` on the S4 code before the review repairs,
+which touched only the comparison values and docs: the two pi-mono checkout
+tests known since R15-0 failed. No P row closes; all 43 remain OPEN.
+

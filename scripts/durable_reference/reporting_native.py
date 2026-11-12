@@ -13,9 +13,13 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 from durable_reference import headless_native as base  # noqa: E402
 
+from pipy_harness.native.agent.content import ImageContent, TextContent  # noqa: E402
 from pipy_harness.native.agent.tool_details import NO_TOOL_DETAILS  # noqa: E402
 from pipy_harness.native.durable.tool_execution import PROGRESS_DOC  # noqa: E402
 from pipy_harness.native.tools.base import RETAINED_OUTPUT  # noqa: E402
+
+# The one-pixel PNG of the Node driver's signed case.
+SIGNED_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 
 def run(recipe, output):
@@ -32,7 +36,9 @@ def run(recipe, output):
         class Tool(base.parent.tools.Tool):
             def invoke(self, request, context):
                 result = super().invoke(request, context)
-                if "lines" in case:
+                if "signed" in case:
+                    pass  # P15 S4: the result carries its own signed content
+                elif "lines" in case:
                     # P16 truncation: more lines than the 2000-line window.
                     for _ in range(case["lines"]):
                         context.output_sink("l\n")
@@ -54,6 +60,18 @@ def run(recipe, output):
                 context.report_diagnostic(
                     severity="warning", message="final-note", code="fixture_final"
                 )
+                if "signed" in case:
+                    # P15 S4: an image and a signed text above the window.
+                    text = "s\n" * case["signed"]
+                    return replace(
+                        result,
+                        output_text=text,
+                        blocks=(
+                            ImageContent(SIGNED_IMAGE, "image/png"),
+                            TextContent(text, "fixture-signature"),
+                        ),
+                        details=NO_TOOL_DETAILS,
+                    )
                 # P16: omit the output, as Pi's fixture does; the executor
                 # uses the retained "partial-body".
                 return replace(
@@ -133,6 +151,8 @@ def run(recipe, output):
                 "reports": reports,
                 "native_return_shape": "throws"
                 if case["final"] == "throw"
+                else "explicit-signed-output"
+                if "signed" in case
                 else "omitted-output",
             }
             base.dump(records / "raw.json", raw)

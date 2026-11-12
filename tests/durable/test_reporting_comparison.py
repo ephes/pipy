@@ -40,7 +40,11 @@ def test_actual_cli_reporting_failed_child_next_answer_and_reopen(native_run):
     m.successful(actual)
     for case in raw:
         assert case["raw"]["native_return_shape"] == (
-            "throws" if case["id"].startswith("throw_") else "omitted-output"
+            "throws"
+            if case["id"].startswith("throw_")
+            else "explicit-signed-output"
+            if case["id"] == "signed_bounded_output"
+            else "omitted-output"
         )
 
 

@@ -17,9 +17,9 @@ SCOPE = {
         "task-graph-shape",
         "timing-and-capacity-policy",
         "head-versus-tail-retained-window-bytes-and-final-newline",
+        "explicit-output-bound-notice-versus-truncated-diagnostic",
     ],
     "open_gates": [
-        "pipy-durable-p15-tool-text-signatures",
         "DE13c-unsafe-recovery",
         "DE26/33-timing-capacity",
         "DE27/28-storage-graph",
@@ -44,6 +44,8 @@ CASES = [
     {"id": "throw_without_details", "final": "throw"},
     # P16 S2: an omitted output whose live output exceeds the 2000-line window.
     {"id": "omitted_truncated_output", "final": "absent", "lines": 2100},
+    # P15 S4: an explicit image and signed text above the 2000-line bound.
+    {"id": "signed_bounded_output", "final": "absent", "signed": 2100},
 ]
 RECIPE = {"schema_version": 1, "phase": PHASE, "cases": CASES}
 IDS = tuple(case["id"] for case in CASES)
@@ -61,7 +63,26 @@ TRUNCATED = {
     "message": "Output truncated: 100 lines dropped",
     "code": "truncated",
 }
+# P15 S4: both sides keep the image, the signed text's signature on its kept
+# slice and an unsigned harness block; no wire body carries the signature.
+SIGNATURE = "fixture-signature"
+# The one-pixel PNG both drivers return with the signed text.
+SIGNED_IMAGE = {
+    "mimeType": "image/png",
+    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+}
+SIGNED = {
+    "order": ["image", "text", "text"],
+    "image": SIGNED_IMAGE,
+    "kept_signature": SIGNATURE,
+    "kept_lines": 2000,
+    "suffix_signed": False,
+    "next_request_equal": True,
+    "reopened_signature": SIGNATURE,
+    "wire_signature": False,
+}
 FIELDS = {
+    "signed",
     "completed",
     "tool_status",
     "roles",
@@ -99,6 +120,9 @@ MUTANTS = (
     "wire_details",
     "wire_correlation",
     "truncated_lost",
+    "signature_lost",
+    "signature_on_wire",
+    "signature_lost_on_reopen",
 )
 
 
@@ -122,7 +146,29 @@ def _body(recipe, native):
 def _common_text(recipe, text):
     """The common part of the retained text: without the final newline that only
     Pi's beginning-keeping window retains (declared raw difference)."""
-    return text.rstrip("\n") if "lines" in recipe else text
+    return text.rstrip("\n") if "lines" in recipe or "signed" in recipe else text
+
+
+def _signed_observed(blocks, next_blocks, reopened_blocks, wire_text):
+    """The common P15 observation of a result's Pi-shaped content blocks."""
+    kept = blocks[1] if len(blocks) > 1 else {}
+    image = blocks[0] if blocks and blocks[0]["type"] == "image" else {}
+    return {
+        "order": [block["type"] for block in blocks],
+        "image": {"mimeType": image.get("mimeType"), "data": image.get("data")},
+        "kept_signature": kept.get("textSignature"),
+        "kept_lines": len(kept.get("text", "").rstrip("\n").split("\n")),
+        "suffix_signed": "textSignature" in blocks[-1],
+        "next_request_equal": next_blocks == blocks,
+        # Pi's session content spells it textSignature; native's completed
+        # message JSON keeps its own established "signature" key.
+        "reopened_signature": (
+            reopened_blocks[1].get("textSignature", reopened_blocks[1].get("signature"))
+            if len(reopened_blocks) > 1
+            else None
+        ),
+        "wire_signature": SIGNATURE in wire_text,
+    }
 
 
 def expected(name):
@@ -143,6 +189,7 @@ def expected(name):
         }
     )
     return {
+        "signed": SIGNED if "signed" in recipe else None,
         "completed": True,
         "tool_status": "failed" if failed else "completed",
         "roles": ["user", "assistant", "toolResult", "assistant"],
@@ -153,7 +200,9 @@ def expected(name):
         "diagnostics": [INFO]
         if failed
         else [INFO, WARNING, *([TRUNCATED] if "lines" in recipe else [])],
-        "result_text_prefix": _common_text(recipe, _body(recipe, True)),
+        "result_text_prefix": "s\n" * 1999 + "s"
+        if "signed" in recipe
+        else _common_text(recipe, _body(recipe, True)),
         "model_error": failed,
         "next_answer": "done",
         "provider_calls": 2,
@@ -218,6 +267,8 @@ def validate(raw, d, codec):
             "Reporting wire types",
         )
         _check_diagnostics(value["diagnostics"], d)
+        if value["signed"] is not None:
+            d.shape(value["signed"], set(SIGNED), "Reporting signed content")
         if value["prefix_ack"] is not None:
             d.shape(
                 value["prefix_ack"],
@@ -312,8 +363,18 @@ def native(raw, codec, case_id):
     )
     body = _body(recipe, True)
     model_text = body + "\n<harness>\n" + notices + "\n</harness>"
+    signed = None
+    if "signed" in recipe:
+        # P15 S4: the explicit output is bounded by the projection, whose
+        # notice differs from Pi's truncated diagnostic (declared).
+        body = "s\n" * 1999 + "s"
+        model_text = (
+            body + "\n<harness>\n[tool output truncated]\n" + notices + "\n</harness>"
+        )
+        assert outcome.result.content.value == "s\n" * recipe["signed"]
+    else:
+        assert outcome.result.content.value == body
     assert projected.content.value == model_text
-    assert outcome.result.content.value == body
     assert fact["diagnostics"] == (
         [INFO] if failed else [INFO, WARNING, *([truncated] if lines else [])]
     )
@@ -322,6 +383,22 @@ def native(raw, codec, case_id):
         m for m in snapshot.request.messages if isinstance(m, AgentToolResultMessage)
     )
     assert returned.content.value == model_text
+    if "signed" in recipe:
+        from pipy_harness.native.assistant_blocks_json import (
+            tool_result_blocks_to_json,
+        )
+
+        stored = [
+            row["message"]
+            for row in raw["repeated"]["completed"]["messages"]
+            if row["message"]["role"] == "tool_result"
+        ][0]
+        signed = _signed_observed(
+            tool_result_blocks_to_json(projected.blocks),
+            tool_result_blocks_to_json(returned.blocks),
+            stored.get("blocks", []),
+            __import__("json").dumps(raw["wire"]),
+        )
     next_value = (
         {"state": "value", "value": returned.details}
         if has_tool_details(returned.details)
@@ -329,6 +406,7 @@ def native(raw, codec, case_id):
     )
     prefix = _native_prefix(raw["reports"], carrier)
     return {
+        "signed": signed,
         "completed": raw["first"]["inspection"]["outcome"] == "completed",
         "tool_status": task["state"]["outcome"]["status"],
         "roles": [
@@ -341,7 +419,9 @@ def native(raw, codec, case_id):
         "diagnostics": [INFO]
         if failed
         else [INFO, WARNING, *([TRUNCATED] if lines else [])],
-        "result_text_prefix": _common_text(recipe, outcome.result.content.value),
+        "result_text_prefix": _common_text(
+            recipe, body if "signed" in recipe else outcome.result.content.value
+        ),
         "model_error": result["is_error"],
         "next_answer": messages[-1]["content"],
         "provider_calls": raw["after"]["providers"],
@@ -405,17 +485,27 @@ def reference(raw):
             },
         ]
         if failed
-        else [INFO, {**WARNING, "severity": "warn"}, *([truncated] if lines else [])]
+        else [
+            INFO,
+            {**WARNING, "severity": "warn"},
+            *([truncated] if lines or "signed" in recipe else []),
+        ]
     )
     assert entry["data"]["diagnostics"] == diag
+    body = "s\n" * 2000 if "signed" in recipe else _body(recipe, False)
     expected_text = (
-        _body(recipe, False)
+        body
         + "\n<harness>\n[info] reported-note\n"
         + ("[error] fixture-thrown-error" if failed else "[warn] final-note")
-        + ("\n[warn] " + truncated["message"] if lines and not failed else "")
+        + (
+            "\n[warn] " + truncated["message"]
+            if (lines or "signed" in recipe) and not failed
+            else ""
+        )
         + "\n</harness>"
     )
-    assert "\n".join(block["text"] for block in result["content"]) == expected_text
+    texts = [block["text"] for block in result["content"] if block["type"] == "text"]
+    assert "\n".join(texts) == expected_text
     returned = next(m for m in raw["requests"][1] if m["role"] == "toolResult")
     assert returned["content"] == result["content"]
     repeated = next(
@@ -425,7 +515,18 @@ def reference(raw):
         and entry["model"][0]["role"] == "toolResult"
     )
     prefix = _reference_prefix(raw["reports"], result, task)
+    signed = (
+        _signed_observed(
+            result["content"],
+            returned["content"],
+            repeated["content"],
+            "".join(raw["wireText"]),
+        )
+        if "signed" in recipe
+        else None
+    )
     return {
+        "signed": signed,
         "completed": raw["repeated"]["status"] == "done",
         "tool_status": task["state"]["outcome"]["status"],
         "roles": [m["role"] for m in messages],
@@ -436,7 +537,7 @@ def reference(raw):
         "diagnostics": [INFO]
         if failed
         else [INFO, WARNING, *([TRUNCATED] if lines else [])],
-        "result_text_prefix": _common_text(recipe, result["content"][0]["text"]),
+        "result_text_prefix": _common_text(recipe, texts[0]),
         "model_error": result["isError"],
         "next_answer": "\n".join(
             block["text"]
@@ -508,7 +609,9 @@ def differences(reference_rows, native_rows):
 def mutate(trace, name, codec):
     result = copy.deepcopy(trace)
     index = (
-        4
+        5
+        if name in ("signature_lost", "signature_on_wire", "signature_lost_on_reopen")
+        else 4
         if name == "truncated_lost"
         else 3
         if name == "absent_null"
@@ -546,6 +649,12 @@ def mutate(trace, name, codec):
         actual["wire"]["correlated"] = False
     elif name == "truncated_lost":
         actual["diagnostics"] = actual["diagnostics"][:-1]
+    elif name == "signature_lost":
+        actual["signed"]["kept_signature"] = None
+    elif name == "signature_on_wire":
+        actual["signed"]["wire_signature"] = True
+    elif name == "signature_lost_on_reopen":
+        actual["signed"]["reopened_signature"] = None
     else:
         raise ValueError("Unknown reporting mutant")
     result["cases"][index]["observed"] = codec.encode(actual)

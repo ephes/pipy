@@ -664,6 +664,18 @@ slices S1–S4; `pipy-durable-feature-plan` gets a note.
   text-only result would have gone out as blocks instead of its text; it now
   checks for images, as Pi's `convertContentBlocks` does.
 
+- **S4 record.** The oracle is a sixth case of `retained-tool-reporting-v1`
+  rather than a new phase: the tool returns an image and a 2100-line signed
+  text. Pi 1.5.0 keeps the signature on the bounded block (`boundContent`
+  spreads the item), as native does; both send the same content in the next
+  request and no signature on the wire, and keep it after reopen. Raw
+  differences: the kept end (head against tail) and the bound's notice.
+  The common observable also pins the image (MIME type and data); three
+  mutants were added (`signature_lost`, `signature_on_wire`,
+  `signature_lost_on_reopen`), and with S3 this closes
+  `pipy-durable-p15-tool-text-signatures`. The bound's notice and the kept end
+  are owned by DE33's per-tool output limits.
+
 ## 8. Open owner questions
 
 1. Soll R15-3 (Storage-Batch-Commit, unreviewter WIP auf

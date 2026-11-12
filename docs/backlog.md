@@ -1192,13 +1192,13 @@ after an applied effect; ordinary invalid results exercise handled failures.
 DE13c retains unsafe recovery/old blocked upgrades,
 missing ports and ceilings. DE26/33 timing/capacity and DE27/28 full storage/graph
 budgets remain open. Since slice S3 native tool results accept and keep signed
-text blocks, also through truncation, the canonical codec and the session tree;
-`pipy-durable-p15-tool-text-signatures` stays open until the S4 oracle pairs
-that with Pi. Since slice S1 of the
+text blocks, also through truncation, the canonical codec and the session tree,
+and slice S4 pairs that with Pi in the reporting comparison, which closes
+`pipy-durable-p15-tool-text-signatures`. Since slice S1 of the
 [loop integration design](durable-loop-integration-design.md) a native tool may
 omit its output (`RETAINED_OUTPUT`) and gets the retained output, in the
 ordinary and the durable host. Slice S2 pairs the omitted-output cases in the
-reporting comparison, now five cases with a window truncation, which closes
+reporting comparison (a window truncation case), which closes
 `pipy-durable-p16-omitted-tool-output`; the comparison still compares only
 declared common observables, and Pi's beginning-keeping window against native's
 end-keeping one stays a declared raw difference until DE33. All 43 P rows and
