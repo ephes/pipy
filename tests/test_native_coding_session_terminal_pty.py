@@ -718,7 +718,11 @@ def _run_editor_pty(
     )
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        # Entering raw mode flushes typeahead, around the chrome's first paint
+        # in either order: drive only once input is held.
+        assert wait_for_raw_input_after(err_chunks, "escape interrupt") is not None, (
+            "startup chrome never painted with input held"
+        )
         drive(in_master, err_chunks)
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
@@ -2754,8 +2758,14 @@ def test_pty_slash_quit_during_local_shell_output_exits(
     worker.start()
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        submit_start = len(output_bytes(err_chunks))
         os.write(in_master, b'!printf "running-tests\\n"; sleep 30\n')
-        assert _wait_for(err_chunks, "running-tests"), "shell output never streamed"
+        # The shell command re-enters raw mode (flushing typeahead) around its
+        # first output, in either order: send /quit only once input is held.
+        assert (
+            wait_for_raw_input_after(err_chunks, "running-tests", after=submit_start)
+            is not None
+        ), "shell output never streamed with input held"
         os.write(in_master, b"/quit\n")
         worker.join(timeout=8.0)
     finally:

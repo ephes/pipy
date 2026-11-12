@@ -93,12 +93,20 @@ def test_every_request_of_the_transport_goes_through_its_fetch(
     # Pi: `options.fetch ?? globalThis.fetch` sends every request, the GET
     # of the stream and the DELETE of the session too.
     sent: list[McpHttpRequest] = []
+    answered: list[str] = []
+    delete_settled = threading.Event()
     default = create_default_fetch()
 
     def proxying(request: McpHttpRequest) -> McpHttpResponse:
         sent.append(request)
-        # As a proxy would: the request goes somewhere else than its URL.
-        return default(dataclasses.replace(request, url=server.url))
+        try:
+            # As a proxy would: the request goes somewhere else than its URL.
+            response = default(dataclasses.replace(request, url=server.url))
+            answered.append(request.method)
+            return response
+        finally:
+            if request.method == "DELETE":
+                delete_settled.set()
 
     transport = StreamableHttpTransport(
         StreamableHttpTransportOptions(
@@ -141,10 +149,15 @@ def test_every_request_of_the_transport_goes_through_its_fetch(
     assert get.headers["Accept"] == "text/event-stream"
     assert delete.headers["Mcp-Session-Id"] == "session-1"
     assert delete.connect_timeout_ms == 1_000
-    # close() waits at most a second for the DELETE; under load the server can
-    # record it after close() returned.
-    _wait_until(lambda: len(server.requests) >= 5)
-    assert [request.path for request in server.requests] == ["/mcp"] * 5
+    # close() waits at most a second for the DELETE, so under load it can
+    # return before the DELETE settles, and a DELETE it gave up on may never
+    # reach the server. Every request that got an answer reached the server.
+    assert delete_settled.wait(_WAIT_SECONDS)
+    _wait_until(lambda: len(server.requests) >= len(answered))
+    assert len(answered) >= 4
+    assert [request.path for request in server.requests] == ["/mcp"] * len(
+        server.requests
+    )
 
 
 class _Canned:
