@@ -3,7 +3,7 @@
   "phase": "generation-b-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "canonical-checkpoint": "4b0773cb5b1ea4278772dc8cdd7d0f60f6a0e5ca5d22f40612f4dfe3ac27ad78"
+    "canonical-checkpoint": "52c762c65b9133e556f7d27fff487ce27b394bf99bbe06ee17d3ac14b6029de6"
   },
   "closure": {
     "CHANGELOG.md": "f02d412d0be8b1634ab2477a2bcef982b402da91945a74b450cee1f812f840e3",

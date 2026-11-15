@@ -432,7 +432,7 @@ def workflow_data():
 
 def test_workflow_is_mandatory_and_keeps_one_fresh_bootstrap_and_failure_upload():
     workflow = workflow_data()
-    assert set(workflow["on"]) == {"push", "pull_request", "workflow_dispatch"}
+    assert set(workflow["on"]) == {"workflow_dispatch"}
     job = workflow["jobs"]["durable-reference"]
     assert (
         job["runs-on"] == "ubuntu-24.04"

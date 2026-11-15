@@ -3,7 +3,7 @@
   "phase": "product-session-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "inspection": "6093eb1d983dd465fd20c2d4a539f3a145f551480acc8fa7fcbb17839d3017bd"
+    "inspection": "35f85ec39f32fc19725de03a84813be463146089059e0173b93e00676a70f705"
   },
   "closure": {
     "CHANGELOG.md": "f02d412d0be8b1634ab2477a2bcef982b402da91945a74b450cee1f812f840e3",

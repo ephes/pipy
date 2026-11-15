@@ -267,13 +267,13 @@
   "python_adapter": "OPEN",
   "parity_rows": "OPEN",
   "verification": {
-    ".github/workflows/ci.yml": "68f86bb5ae25cae479fd67c3db9a29d43a38ea0d7683ee839b1a9656773fd8b0",
+    ".github/workflows/ci.yml": "724652f61ca490e8ecb43e81041159ddd3dc0bf21f7b73a3b12ae80442ef6cb4",
     "scripts/durable_reference_artifacts.py": "69f1a4d795f7db5aaef0b318a838ca799cedde6031346def4a832f460bdabffe",
     "tests/durable/test_pi_comparison.py": "dcd2b33c4833e02275fd36f8a8f4baed6824f91ca54c4558567521fcb9623b87",
     "tests/durable/test_pi_comparison_acceptance.py": "5e28e50d0670be6d2c89b574d725d0397bf2ae855330d4d7e667d3bb605bec35",
     "tests/durable/test_pi_comparison_cases.py": "bc6000a7aacd509d161f885828ca10b16c3784ed325166915a84a58bc767c597",
     "tests/durable/test_pi_comparison_coverage.py": "13241e4a63872c3d052da3d13e98d252b482ebc5bbb5b0d846fc9627614c5612",
-    "tests/durable/test_reference_artifacts.py": "3e1175fa62acfb76d68d99e0f0f37a6cc58bcd2089c8ae4c4c1fbcc682956c44",
+    "tests/durable/test_reference_artifacts.py": "d3226de0c2326a56e60679895c846a3f4e99da96cdfb361a3666e67b280cb71f",
     "tests/durable/test_reference_codec.mts": "f95709b6badd941eedcd87b7ed940c2042b42ff7cd3729c12bb33cd148c2c871"
   },
   "workload": {

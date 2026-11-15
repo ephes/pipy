@@ -3,7 +3,7 @@
   "phase": "task-migration-cold-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "interrupted": "18ecd85154dd9711215423ef1f3b9427c84850bc549a876eafcefb47c9e1ed38"
+    "interrupted": "4080786822b0b766be68fdf8f19addac0f21ec24c62f2495ce084d8a61d2b37c"
   },
   "closure": {
     "CHANGELOG.md": "f02d412d0be8b1634ab2477a2bcef982b402da91945a74b450cee1f812f840e3",
