@@ -3,10 +3,10 @@
   "phase": "restart-policy-live-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "migration": "a50afb2e37f986facb917d0feba0e4318075514a9167af1deda27f49b24a37a0"
+    "migration": "f631034ffd551dfcd642388daa50ba5824ff099886b6d5e2889928225aaacaea"
   },
   "closure": {
-    "CHANGELOG.md": "f02d412d0be8b1634ab2477a2bcef982b402da91945a74b450cee1f812f840e3",
+    "CHANGELOG.md": "d92c46ce8a27e978eb30da20812b6fa6bf8cc1c97bef958dc055dd0f7a35dfc7",
     "docs/architecture.md": "c806ea7a69b611e74ad72b2833b48652a0e500ba229180685e349e1330fc762b",
     "docs/backlog.md": "c601f16f1225738c68c1b93765d2c44fe142fdb1287a14c2358f0ea275b64694",
     "docs/durable-adjudication.md": "f4ae53527b88dba2fa330a06a8269cdee85f1bc2758c313b2e7afc7343bce594",
@@ -627,10 +627,10 @@
     "tests/durable/test_sqlite_storage.py": "cf1716e05ee604050a6b2cdb673b5118234d52ecd5081641188c2b94a36f882e",
     "tests/durable/test_sqlite_workload.py": "5f0b29b49efd44e361a412f64dbceab77446a195515101f2e87acfae6855865b",
     "tests/durable/test_storage_contract.py": "f3bc323bd3bc40d92ed6f1d457c3416473edea4cb65d92724847bd7138a65f2b",
-    "tests/durable/test_task_migration.py": "19b30817de52b92025c26f835fd34e3bbae0c7ff4b5176cdbee6a05a5e86461f",
+    "tests/durable/test_task_migration.py": "a5ac4aba34ba41c0e2a8509b6745410b0eb871c20dfc645c8592d66af553884e",
     "tests/durable/test_task_migration_core.py": "62e920f6a7d24c1437ee4028e51cbf13784bd44c2838adab432773ab831525c6",
     "tests/durable/test_task_runtime.py": "b4520abe3cff26ebb18538c7ab38ddaa85920c37809f0bd2472fedae390815c8",
-    "tests/durable/test_task_runtime_comparison.py": "bd03858cc20c3e1d150936d8bc42a8229d6db142af9efe5b10c5f4cc5a585c34",
+    "tests/durable/test_task_runtime_comparison.py": "0a911b064923beedc915fe516993ef163b3138edc5f1dffe592ad6b21dfd6446",
     "tests/durable/test_task_runtime_sqlite.py": "65e2c5605b3cdc1a486fb034dcf8a76d594f458c59f082bda2af4385a68e5880",
     "tests/durable/test_tool_adjudication.py": "517353a485e0706cf6173d6db5ddb94515dc076608dab39182773f4bfb70092d",
     "tests/durable/test_tool_adjudication_atomic.py": "bc483104bf14db8c6571f8a01ae6a4cd6dc1b970ba2d5e5a3ef20958068fab1d",
@@ -719,7 +719,7 @@
     "docs/specs/de14b3-definition-publication.md": "48e41f17f1851c1c93fad592af347a3758a8ddbdd9145b93e93cad69bb06a695",
     "src/pipy_harness/native/durable/definition_generation.py": "09a7a734e361a26062c5af9564b1eee19af190e13da9af8b9e8194ebc1cd769e",
     "src/pipy_harness/native/durable/definition_publication.py": "8de253f9edeb7610c8f9d28a0561643adb55438df3984d12cd05b79073799131",
-    "tests/durable/definition_publication_live_support.py": "7be230a34d36ad3fbad6f36a07924fc0ce0480ab0b24e4e59395b83ad4cca5f6",
+    "tests/durable/definition_publication_live_support.py": "1c79f5e7f9b13e7b0eba8303abe55da79529f844f35fc6854f1d2d891a0028c3",
     "tests/durable/test_definition_publication_core.py": "4db738cc2231545f063213fdc996ad629157a76f2ceb1c7d41499646c61a236e",
     "tests/durable/test_definition_publication_live.py": "3d64d21e492daa5c99d2d06b48c9ccf691fc6519795cc8e6b2dcc9bf9dc6631c",
     "src/pipy_harness/native/durable/orphan_control.py": "6a8f076fe01a2da05a65c9f39cb22ee75765191ccb138fe95f0e47329d178d0f",

@@ -19,9 +19,10 @@ just --list
 
 `uv sync` installs the development tools declared in `pyproject.toml`, including
 Pytest, Ruff, Mypy, and Zensical. Run all commands below from the repository
-root. Full-suite CI covers Python 3.11, 3.14, and 3.15; real-PTY jobs cover
-Linux and macOS on 3.14 and 3.15, and runtime-required codemode probes cover Linux
-on both versions. Lint, formatting, types, and docs run on Python 3.14.
+root. GitHub Actions workflows are manual-only; pushes do not run checks.
+Local `just check` and `just test-full` are the gates. The manual workflow
+offers full suites on Python 3.11, 3.14, and 3.15, Linux/macOS real-PTY jobs,
+and Linux codemode probes; it is supplementary to local verification.
 
 To check a second interpreter without replacing the normal `.venv`:
 
@@ -105,15 +106,39 @@ All recipes pass extra arguments to Pytest (`just test-full -m "not pty"`,
 in `tests/pytest_plugins/pipy_test_tiers.py`, so unselected modules are never
 imported; combine `--pipy-tier` with `-k`/`-m`, not with path arguments.
 
-Tier runs are parallel with bounded workers (pytest-xdist, `--dist=loadfile`,
-so a file's module fixtures are set up once): `just test-full`,
+Tier runs use bounded pytest-xdist workers: `just test-full`,
 `just test-durable`, `just test-core` and an escalated or large default gate
-use half the available CPUs as workers, at least 4 and at most 8 (never more
-than the CPUs): 8 on a 16-CPU machine, 4 on a 4-CPU CI runner. Most of the time
-goes to the durable area, whose workers keep a CPU about 80 % busy, so half the
-CPUs leaves room for other work on a shared machine; on a 16-CPU Mac 8 workers
-ran `just test-full` in about 500 s where 4 took about 720 s. A default gate with
-a single whole test file (besides the smoke set and single guard tests) runs in
+use half the available CPUs, at least 4 and at most 8 (never more than the
+CPUs): 8 on a 16-CPU machine, 4 on a 4-CPU machine. Full runs, including a
+default gate escalated to full, use `--dist=worksteal`: workers can share a long
+file's tail. Smaller and area gates keep `--dist=loadfile` so a file's module
+fixtures are set up once. `--dist=loadfile` explicitly restores that scheduling
+for a full run; `-n` and the worker environment variable still control worker
+count independently.
+
+On a 16-CPU Mac with Python 3.15.2 and eight workers (2026-11-15), two baseline
+full runs took 436.40 s / 428.77 s; changing only scheduling to `worksteal` took
+378.32 s (12–13 % faster); the final full run with all changes took 391.81 s
+(9–10 % below the baselines), still above the 300 s target. The actual branch
+`just check`, correctly escalated to full, took 489.07 s, so the improvement
+is not a stable timing guarantee. These are **restricted-environment measurements, not
+green full gates**: the baseline already had 27 failed tests plus 679 teardown
+errors, chiefly because the sandbox denies `ps`. Work stealing repeats some
+module fixtures, so that blocked teardown ran 711 times. The full case inventory
+was unchanged in that experiment; the final run adds two routing checks.
+Per-file path caching also removes repeated collection work;
+Scheduler tests now witness actual admission/retirement events instead of waiting
+five seconds on conditions that do not notify, and JSON mutant cases reuse a
+module-scoped three-backend capture with independent copies. No assertions, crash cuts,
+backend cases or full-tier matrices were removed. See the
+[duration profile](docs/test-gate-performance.md) for the measurements, remaining
+costs and verification limits. A clean-checkout `just check` took 2.77 s warm
+(55.29 s with a cold Mypy cache); after the change,
+`PIPY_TEST_BASE=HEAD just check` on the committed, clean branch took 2.37 s.
+That override models a clean checkout after landing; it does not validate the
+branch diff. Both narrow runs were blocked by the process guard.
+
+A default gate with a single whole test file (besides the smoke set and single guard tests) runs in
 one process; from two whole files on it runs on workers, never more workers
 than selected files, because starting a worker costs only about a second (a
 typical gate after a test-file change took 26 s serially and 11-15 s on
@@ -147,8 +172,8 @@ routes each changed path with the rules in
 
 A few expensive parametrized groups, listed in `FULL_TIER_MATRICES` in
 `tests/pytest_plugins/pipy_test_routing.py`, run their full matrix only when
-every test file runs (`just test-full`, CI, a default gate escalated to full)
-or when the change itself selects their file (for example an edit to the test
+every test file runs (`just test-full`, a manual CI run, a default gate escalated
+to full) or when the change itself selects their file (for example an edit to the test
 file or to a script it uses). The area tiers and other default gates run the
 representative cases listed there, chosen so that every branch of the group's
 expectations still runs; the header and the summary name the groups that were
@@ -160,10 +185,9 @@ case that the group no longer has fails the run, so rename the entry with the
 test. Add a group only with a duration profile that shows it is expensive, and
 never remove cases from the full tier this way.
 
-CI's full-test jobs still call `just test`, and the default tier runs every
-test, on bounded workers, whenever `CI` is set (GitHub Actions sets `CI=true`). The workflow file is
-hash-pinned by the durable reference manifest, so switching it to
-`just test-full` waits for a batched manifest update.
+The manual workflow's full-test jobs call `just test`; setting `CI=true`
+still makes the default tier run every test. No workflow runs automatically on
+push or pull request. Do not rely on Actions to complete a local gate.
 
 The selection never shrinks to meet a time budget: when a change reaches too
 far, the header and the end of the run print `ESCALATED to durable|full` with
@@ -185,9 +209,8 @@ local testmon database, so later runs skip it too. Source changes, where testmon
 would save the most, are exactly where that matters, so they keep escalating
 visibly instead. Revisit this when testmon can measure child processes.
 
-`just check` is the gate for commits to `main`. Run `just test-full` (or rely on
-an equivalent full run) before durable deliveries and whenever a change has
-reasons to reach beyond what the routing sees, such as code run only in child
+`just check` is the gate for commits to `main`. Run the local `just test-full`
+before durable deliveries and whenever a change has reasons to reach beyond what the routing sees, such as code run only in child
 processes that no test names.
 
 Before treating any contribution as complete, run the repository-wide gate and

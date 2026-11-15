@@ -18,7 +18,8 @@ their full matrix only when every test file runs or when the change itself
 selects their file; other runs keep the listed representative cases and say so
 in the header and the summary.
 
-Tier runs use bounded parallelism (pytest-xdist, ``--dist=loadfile``) as
+Tier runs use bounded parallelism (pytest-xdist, ``worksteal`` for full runs,
+``loadfile`` otherwise) as
 ``pipy_test_routing.plan_workers`` decides, unless ``-n`` or
 ``$PIPY_TEST_WORKERS`` says otherwise; ``0`` runs serially. The selection is
 computed once, in the controlling pytest process, and handed to the workers.
@@ -150,8 +151,9 @@ def _plan_workers(config: pytest.Config, selection: routing.Selection) -> str:
     if option.numprocesses == 0:
         return f"workers: none, serial ({source})"
     if option.dist == "no":
-        # Whole files per worker: module-scoped fixtures are set up once.
-        option.dist = "loadfile"
+        # Full runs can share a long file's tail between workers. Smaller gates
+        # keep whole files together so module-scoped fixtures are set up once.
+        option.dist = "worksteal" if selection.files is None else "loadfile"
     return (
         f"workers: {option.numprocesses} (--dist={option.dist}; {source}); "
         f"{serial_hint}"
@@ -202,10 +204,13 @@ def pytest_collection_modifyitems(
     selection = config.stash.get(_SELECTION, None)
     partial = selection.partial if selection is not None else {}
     markers_by_file: dict[str, set[str]] = {}
+    relative_by_path: dict[Path, str | None] = {}
     keep: list[pytest.Item] = []
     dropped: list[pytest.Item] = []
     for item in items:
-        rel = _rel(config, item.path)
+        if item.path not in relative_by_path:
+            relative_by_path[item.path] = _rel(config, item.path)
+        rel = relative_by_path[item.path]
         if rel is None:
             keep.append(item)
             continue

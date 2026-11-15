@@ -11,6 +11,7 @@ from definition_publication_live_support import (
     CallbackProbe,
     Passes,
     Wakes,
+    drain_started,
     generation,
     held_real_drain,
     owner,
@@ -228,6 +229,7 @@ def test_actual_drain_with_free_line_is_busy_and_does_not_write(rig, monkeypatch
 def test_service_admitted_during_real_scan_wins_final_activity_gate(rig, monkeypatch):
     target = rig.create(definition("orphan.scan.race"))
     scheduler = owner(rig, [])
+    admitted = drain_started(scheduler, monkeypatch)
     entered, release = threading.Event(), threading.Event()
     original = rig.storage.scan_tasks
 
@@ -244,8 +246,9 @@ def test_service_admitted_during_real_scan_wins_final_activity_gate(rig, monkeyp
         try:
             assert entered.wait(5)
             scheduler.resume()
+            assert admitted.wait(5)
             with scheduler._guard:
-                assert scheduler._guard.wait_for(lambda: scheduler._draining, 5)
+                assert scheduler._draining
         finally:
             release.set()
         with pytest.raises(RuntimeError, match="Task scheduler is busy"):

@@ -133,6 +133,19 @@ class DefinitionHold:
         monkeypatch.setattr(type(session), "_on_line_sync", on_line)
 
 
+def drain_started(scheduler, monkeypatch):
+    """Witness real service admission before it waits for the Session line."""
+    entered = threading.Event()
+    original = scheduler._drain
+
+    async def observed():
+        entered.set()
+        return await original()
+
+    monkeypatch.setattr(scheduler, "_drain", observed)
+    return entered
+
+
 @contextmanager
 def held_real_drain(scheduler, monkeypatch):
     """The service admits draining; the real continuation leaves the line free."""

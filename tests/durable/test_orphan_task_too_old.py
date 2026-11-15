@@ -8,6 +8,7 @@ import pytest
 from definition_publication_live_support import (
     Passes,
     Wakes,
+    drain_started,
     generation,
     held_real_drain,
     owner,
@@ -293,6 +294,7 @@ def test_real_drain_refuses_even_when_the_session_line_is_available(rig, monkeyp
 def test_real_service_admission_during_scan_wins_the_final_gate(rig, monkeypatch):
     target, older, calls = created_target(rig, "too-old.final-admission")
     scheduler = owner(rig, [older])
+    admitted = drain_started(scheduler, monkeypatch)
     entered, release = threading.Event(), threading.Event()
     inner = rig.storage.inner
     original = type(inner).scan_tasks
@@ -311,8 +313,9 @@ def test_real_service_admission_during_scan_wins_the_final_gate(rig, monkeypatch
         try:
             assert entered.wait(5)
             scheduler.resume()
+            assert admitted.wait(5)
             with scheduler._guard:
-                assert scheduler._guard.wait_for(lambda: scheduler._draining, 5)
+                assert scheduler._draining
         finally:
             release.set()
         with pytest.raises(RuntimeError, match="Task scheduler is busy"):

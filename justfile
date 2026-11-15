@@ -15,8 +15,7 @@ PARITY_SINGLE_GAP_TIMEOUT := "7200"
 test *args:
     uv run pytest --pipy-tier=default "$@"
 
-# Every test. Run before durable deliveries. (CI still calls `just test`, which
-# runs every test when CI is set; see CONTRIBUTING.md "Test tiers".)
+# Every test. Local full gate before durable deliveries; Actions is manual-only.
 [positional-arguments]
 test-full *args:
     uv run pytest --pipy-tier=full "$@"

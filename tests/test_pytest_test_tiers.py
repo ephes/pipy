@@ -451,11 +451,13 @@ def test_workers_collect_the_selection_their_controller_made(tmp_path: Path) -> 
     assert "created: 2/2 workers" in output
 
 
-def test_area_tiers_run_on_bounded_workers(tmp_path: Path) -> None:
+@pytest.mark.parametrize("dist", ["worksteal", "loadfile"])
+def test_full_tier_uses_worksteal_unless_overridden(tmp_path: Path, dist: str) -> None:
     _plugin_project(tmp_path)
     (tmp_path / "tests/test_unselected.py").unlink()
 
-    result = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full")
+    args = ["--dist=loadfile"] if dist == "loadfile" else []
+    result = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full", *args)
 
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
@@ -467,7 +469,50 @@ def test_area_tiers_run_on_bounded_workers(tmp_path: Path) -> None:
         else (os.cpu_count() or 1)
     )
     expected = routing.plan_workers(routing.Selection(tier="full", files=None), cpus)[0]
-    assert f"workers: {expected} (--dist=loadfile; full tier)" in output
+    assert f"workers: {expected} (--dist={dist}; full tier)" in output
+
+
+def test_collection_resolves_paths_once_per_file(tmp_path: Path) -> None:
+    _write(tmp_path, "pytest.ini", "[pytest]\ntestpaths = tests\n")
+    _write(
+        tmp_path,
+        "tests/test_cases.py",
+        "import pytest\nimport subprocess\n"
+        "@pytest.mark.parametrize('case', range(100))\n"
+        "def test_case(case): pass\n",
+    )
+    _write(tmp_path, "tests/test_plain.py", "def test_plain(): pass\n")
+    _write(
+        tmp_path,
+        "conftest.py",
+        textwrap.dedent("""\
+            import pytest
+            import pipy_test_tiers as tiers
+
+            @pytest.hookimpl(wrapper=True)
+            def pytest_collection_modifyitems(items):
+                original = tiers._rel
+                resolved = []
+                def observed(config, path):
+                    resolved.append(path)
+                    return original(config, path)
+                tiers._rel = observed
+                try:
+                    result = yield
+                finally:
+                    tiers._rel = original
+                assert len(items) == 101
+                assert len(resolved) == len(set(resolved)) == 2
+                for item in items:
+                    marked = item.get_closest_marker('subprocess') is not None
+                    assert marked == (item.path.name == 'test_cases.py')
+                return result
+            """),
+    )
+
+    result = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--collect-only", "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "101 tests collected" in result.stdout
 
 
 def test_command_line_and_environment_choose_serial_runs(tmp_path: Path) -> None:

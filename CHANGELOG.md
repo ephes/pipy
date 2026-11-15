@@ -682,6 +682,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Speed up local test gates without reducing the case inventory: full runs use
+  bounded xdist work stealing, collection resolves each test file once, and
+  Scheduler race tests use real admission/barrier events. JSON-only task-runtime
+  mutants reuse a module-scoped three-backend capture with per-case copies.
+  Local `just check` and `just test-full` are the gates; Actions is manual-only.
+
 - Fuzzy search ranks like Pi again (Pi `8c03fef4d`, #11220): a query that
   appears as contiguous text scores by its best occurrence instead of only by
   the first scattered match, so `opus` finds `claude-opus` before models whose

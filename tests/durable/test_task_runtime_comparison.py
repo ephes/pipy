@@ -1,5 +1,7 @@
 """Closed runtime trace schema and semantic negatives; real producer is a gate."""
 
+import asyncio
+import copy
 import importlib.util
 from pathlib import Path
 
@@ -21,12 +23,18 @@ def test_manifest_closes_actual_runtime_and_implementation():
 
 
 @pytest.mark.parametrize("name", m.MUTANTS)
-def test_each_schema_valid_runtime_mutant_changes_observation(name, tmp_path):
-    import asyncio
+def test_each_schema_valid_runtime_mutant_changes_observation(name, native_trace):
+    # Mutants change only the captured JSON, never the producer or its stores.
+    # Keep an independent value for each case while sharing the real capture.
+    actual = copy.deepcopy(native_trace)
 
-    actual = asyncio.run(m.native(tmp_path / "stores"))
     assert m.compare(actual, actual) == 0
     assert m.compare(actual, m.mutate(actual, name)) == 1
+
+
+@pytest.fixture(scope="module")
+def native_trace(tmp_path_factory):
+    return asyncio.run(m.native(tmp_path_factory.mktemp("task-runtime") / "stores"))
 
 
 def test_invalid_trace_does_not_become_a_mismatch():

@@ -36,6 +36,19 @@ def own(rig, definitions):
     return scheduler
 
 
+def pause_wait_started(scheduler, monkeypatch):
+    """Witness apause's real retirement barrier after dispatch was disabled."""
+    waiting = threading.Event()
+    original = scheduler._quiescent.wait
+
+    async def observed():
+        waiting.set()
+        return await original()
+
+    monkeypatch.setattr(scheduler._quiescent, "wait", observed)
+    return waiting
+
+
 def report_pair(rig, task_id, definitions):
     ordinary = inspect_task(
         rig.session, task_id, support=InspectionSupport(tuple(definitions))
@@ -622,7 +635,7 @@ def test_actual_sigkill_reservation_recovery_and_explicit_resume(rig, tmp_path, 
 
 @pytest.mark.parametrize("with_second", [False, True])
 def test_real_reconciliation_commits_around_failed_generic_candidate(
-    rig, tmp_path, with_second
+    rig, tmp_path, monkeypatch, with_second
 ):
     from generation_support import admit
     from tool_support import counts, definitions
@@ -689,11 +702,18 @@ def test_real_reconciliation_commits_around_failed_generic_candidate(
         from task_migration_support import assert_only_parent_seed
 
         assert rig.record(parent)["state"]["status"] == "pending"
-        with ThreadPoolExecutor() as pool:
+        # apause disables dispatch before waiting for this held reservation to
+        # retire. The scheduler's guard does not notify on that state change.
+        # Witness its actual barrier wait instead of waiting out five seconds.
+        with monkeypatch.context() as patch, ThreadPoolExecutor() as pool:
+            waiting = pause_wait_started(scheduler, patch)
             paused = pool.submit(pause, scheduler)
-            with scheduler._guard:
-                assert scheduler._guard.wait_for(lambda: not scheduler._enabled, 5)
-            release.set()
+            try:
+                assert waiting.wait(5)
+                with scheduler._guard:
+                    assert not scheduler._enabled
+            finally:
+                release.set()
             paused.result(5)
         with scheduler._guard:
             assert scheduler._invocation is None and not scheduler._draining
