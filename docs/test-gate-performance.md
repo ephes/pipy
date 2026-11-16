@@ -274,14 +274,18 @@ and separate CLI comparator controls dominate the remaining profile; replacing
 those boundaries with fakes would change what is covered. These timings alone
 do not prove that every remaining cost is irreducible.
 
-Clean-checkout `just check`: 55.29 s cold Mypy cache, 2.77 s warm; both had
+Sandbox, work-stealing state: clean-checkout `just check` took 55.29 s with a
+cold Mypy cache and 2.77 s warm; both had
 13 passed test bodies and 11 blocked process-guard teardowns. A plugin change
 escalates the actual branch gate to full by design; the narrow timing must not
 be presented as validation of this branch. After committing the changes,
 `PIPY_TEST_BASE=HEAD /usr/bin/time -p just check` took 2.37 s: 13 test bodies
 passed, 1,439 were deselected, and the same 11 process-guard teardowns failed.
-The override models the no-change gate after landing; the actual branch diff
-was checked separately in the 489.07 s full escalation.
+The override models the no-change gate after landing; that branch diff was
+checked separately in the 489.07 s sandboxed full escalation. For the merged
+`loadfile` state, the evidence is the outside-sandbox verification above
+(425.10 s, and a `just check` escalated to full that took 499.05 s with only
+the environmental Pi-reference failure).
 
 The sandbox blocked the process inspection commands `ps -axww -o pid=,command=`
 and `ps -o stat= -p <pid>`. The verification above reran the full gate where
