@@ -42,6 +42,11 @@ work divided by eight, not one worker's tail.
 
 ## Sandbox measurements (2026-11-15)
 
+Everything from here to "Remaining costs" was measured in a sandbox that
+denied `ps`, on the earlier branch state that used `--dist=worksteal` for full
+runs. "Final" below means that rejected work-stealing state, not what was
+merged; the merged state keeps `loadfile`.
+
 | Run | Wall | Result |
 | --- | ---: | --- |
 | Baseline 1, loadfile | 436.40 s | 27 failed, 679 errors |
@@ -209,7 +214,7 @@ blocked waits. It excludes collection and controller overhead.
 | final / gw7 | 3.639 | 372.813 |
 | final: longest / mean | — | 1.0189× |
 
-## Final focused savings and remaining files
+## Sandbox focused savings and remaining files (work-stealing state)
 
 Seconds below are summed setup/call/teardown costs in the eight-worker full
 profiles, not additive wall savings. Worker contention varies; the actual
@@ -229,13 +234,13 @@ The changed five test files were rerun five times with `pytest -n 2`:
 Ruff, repository format checking, Mypy (1,167 files) and `just docs-build`
 passed. No cross-family review was run, as instructed.
 
-The final profile contains 21,536 cases: the only old node removed is the
-renamed bounded-worker routing test, now expanded into default/explicit
-scheduling cases, plus a new collection-cost regression. All original product
-and crash/recovery cases remain. The final 27 failed call IDs equal the baseline
-set exactly; no new call failure was introduced.
+That work-stealing profile contained 21,536 cases. The merged state has
+21,535: the baseline's 21,534 plus the new collection-cost regression; the
+bounded-worker routing test is unchanged. All original product and
+crash/recovery cases remain. The sandbox's 27 failed call IDs equalled the
+baseline set exactly; no new call failure was introduced.
 
-| Final top 15 files | Total seconds |
+| Work-stealing top 15 files | Total seconds |
 | --- | ---: |
 | `tests/durable/test_session_guard_comparison.py` | 128.069 |
 | `tests/test_docs_build.py` | 126.733 |
@@ -255,11 +260,15 @@ set exactly; no new call failure was introduced.
 
 ## Remaining costs and gate status
 
-The final 391.81 s full run misses the 300 s target by 91.81 s and is not
-a green gate. It is 36.96–44.59 s (9–10 %) below the two full baselines.
+The sandboxed work-stealing run (391.81 s, 9–10 % below its baselines) did not
+hold up outside the sandbox. The merged `loadfile` state measured 425.10 s
+against 421.99–438.81 s for `main` on the same shared machine: the event waits
+and the shared capture remove about 50 summed test seconds, roughly 6 s of wall
+time with eight workers, which is within the run-to-run noise. The 300 s target
+is missed.
 The 77 s registration negative control deliberately prevents progress in real
 guard scenarios and hits bounded non-progress waits. The two 61 s docs-preview
-timeouts are failures to diagnose, not an inherent cost or passing coverage.
+timeouts were sandbox failures; outside the sandbox those tests pass in about 2 s.
 Real crash/cold-recovery cuts, child interpreter startup, fsynced SQLite commits
 and separate CLI comparator controls dominate the remaining profile; replacing
 those boundaries with fakes would change what is covered. These timings alone
