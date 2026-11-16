@@ -40,6 +40,34 @@ run spent 3,317 summed test seconds (call 2,766 s, setup 425 s, teardown
 127 s) with a longest/mean worker ratio of 1.005: the wall time is the total
 work divided by eight, not one worker's tail.
 
+## Follow-up experiments not adopted (2026-11-16)
+
+Measured after the merge, on the same shared machine; load averages ranged
+from 15 to over 300 while other agents built Rust and Xcode projects, so
+single full-run timings varied by more than the effects below.
+
+- **Per-test isolation directories.** The autouse `_isolated_user_home` and
+  `_isolated_chrome_theme` fixtures call `tmp_path_factory.mktemp` for every
+  test, and `mktemp` lists the whole base temporary directory to pick the next
+  number. Replacing both calls with counter-numbered paths below one per-worker
+  parent changed nothing measurable: 2,217 fast tests run serially three times
+  in alternation took 26.55 / 27.87 / 32.19 s (old) against 27.13 / 32.73 /
+  22.84 s (new). The profile's 120 summed fixture seconds are ordinary
+  per-test overhead under load rather than the directory scan. Not adopted; it would
+  also have needed a re-pin, since durable manifests pin `tests/conftest.py`.
+- **More workers.** On `main` `b97630d2`, `PIPY_TEST_WORKERS=12` took 404.81 s
+  and the default eight workers 446.02 s in back-to-back runs (load average
+  about 25–40). Twelve workers is about 10 % faster on this machine but
+  leaves less room for other work; the default stays at half the CPUs.
+- **Remaining single costs.** The 77 s registration negative control and the
+  other long comparison tests sit inside per-file totals that `loadfile`
+  already balances (longest/mean worker 1.005), so shortening one of them saves
+  at most its share divided by eight. Lowering the negative control's bounded
+  waits would let timeouts, not the mutant, produce the expected mismatch, and
+  could turn the zero-mismatch mutants flaky; it was left unchanged. Only
+  isolated tests end just above a 5 s bound (nine phases in the profile), far
+  from the roughly 1,000 summed seconds a 300 s wall time would need.
+
 ## Sandbox measurements (2026-11-15)
 
 Everything from here to "Remaining costs" was measured in a sandbox that
