@@ -451,13 +451,11 @@ def test_workers_collect_the_selection_their_controller_made(tmp_path: Path) -> 
     assert "created: 2/2 workers" in output
 
 
-@pytest.mark.parametrize("dist", ["worksteal", "loadfile"])
-def test_full_tier_uses_worksteal_unless_overridden(tmp_path: Path, dist: str) -> None:
+def test_area_tiers_run_on_bounded_workers(tmp_path: Path) -> None:
     _plugin_project(tmp_path)
     (tmp_path / "tests/test_unselected.py").unlink()
 
-    args = ["--dist=loadfile"] if dist == "loadfile" else []
-    result = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full", *args)
+    result = _run_pytest(tmp_path, "-p", "pipy_test_tiers", "--pipy-tier=full")
 
     output = result.stdout + result.stderr
     assert result.returncode == 0, output
@@ -469,7 +467,7 @@ def test_full_tier_uses_worksteal_unless_overridden(tmp_path: Path, dist: str) -
         else (os.cpu_count() or 1)
     )
     expected = routing.plan_workers(routing.Selection(tier="full", files=None), cpus)[0]
-    assert f"workers: {expected} (--dist={dist}; full tier)" in output
+    assert f"workers: {expected} (--dist=loadfile; full tier)" in output
 
 
 def test_collection_resolves_paths_once_per_file(tmp_path: Path) -> None:

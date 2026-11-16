@@ -3,10 +3,10 @@
   "phase": "generation-b-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "canonical-checkpoint": "17a71284939390001ce76db832133496d993e6c78e9c5ed45ef0f42571da1f7e"
+    "canonical-checkpoint": "6c30c1a9d6bb2dbb12a05d3100fdac04c441b289e90f52d99664e147e8a949b0"
   },
   "closure": {
-    "CHANGELOG.md": "d92c46ce8a27e978eb30da20812b6fa6bf8cc1c97bef958dc055dd0f7a35dfc7",
+    "CHANGELOG.md": "7e41801d92cc2a7176898fd5bdd19ee93a10c1db34b61d4d9481539ee8748096",
     "docs/architecture.md": "c806ea7a69b611e74ad72b2833b48652a0e500ba229180685e349e1330fc762b",
     "docs/backlog.md": "c601f16f1225738c68c1b93765d2c44fe142fdb1287a14c2358f0ea275b64694",
     "docs/durable-canonical-codec.md": "7314fd01a459312411babaddec592d44400b6383b36f3fe71bce9b97a968a1dd",

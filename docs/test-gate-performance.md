@@ -11,7 +11,36 @@ the MCP leak guard and zombie/process cleanup tests. Other baseline failures
 include two docs-preview refresh timeouts, the legacy parity score (47/49),
 and a local Pi system-prompt reference mismatch. None is skipped or waived here.
 
-## Measurements
+## Verification outside the sandbox (2026-11-16)
+
+Fresh clone, same Mac (16 CPUs, eight workers), with other agents' builds and
+test runs sharing the machine (load average 10–14), so single timings vary by
+about ±20 s. Runs alternated between `main` and the branch:
+
+| Run | Wall (`/usr/bin/time -p`) | Result |
+| --- | ---: | --- |
+| `main` `e31dc2d2`, run 1 | 438.81 s | 1 failed |
+| branch `c9f4179b` (worksteal), run 1 | 464.24 s | 1 failed |
+| `main`, run 2 | 421.99 s | 2 failed |
+| branch (worksteal), run 2 | 472.88 s | 1 failed |
+| branch with `--dist=loadfile` | 425.10 s | 1 failed |
+
+With `ps` allowed, none of the 27 failures or ~700 teardown errors above
+recur. Every run failed only
+`tests/test_native_system_prompt_pi_pinned.py::test_fixture_is_current_with_pi`
+(the local Pi checkout no longer matches the pinned prompts; it fails on
+`main` too). `main` run 2 also hit a one-off `PermissionError` from
+`os.killpg` in the teardown of
+`tests/test_command_sandbox.py::test_cancellation_escalates_after_parent_exit_when_descendant_holds_pipes`.
+The docs-preview tests passed (they were sandbox timeouts).
+
+Work stealing was consistently slower on the shared machine, so full runs keep
+`--dist=loadfile`; the other changes below are kept. The profiled `loadfile`
+run spent 3,317 summed test seconds (call 2,766 s, setup 425 s, teardown
+127 s) with a longest/mean worker ratio of 1.005: the wall time is the total
+work divided by eight, not one worker's tail.
+
+## Sandbox measurements (2026-11-15)
 
 | Run | Wall | Result |
 | --- | ---: | --- |
@@ -23,7 +52,7 @@ and a local Pi system-prompt reference mismatch. None is skipped or waived here.
 
 Commands: `/usr/bin/time -p just test-full --durations=60`, repeated once,
 and then the same command with `--dist=worksteal`. The final full run uses
-the new default scheduling, without a `--dist` override. A temporary read-only Pytest
+the branch's then-default `worksteal` scheduling, without a `--dist` override. A temporary read-only Pytest
 plugin recorded all setup/call/teardown reports, per-worker collection/elapsed
 clocks and `pytest_fixture_setup` costs. The profile tables aggregate every
 report, including durations below the terminal top-60 cutoff. Wall includes
@@ -32,12 +61,12 @@ and test totals include all three phases. Parallel totals are not wall savings.
 
 `worksteal` preserves the full item list but can run a module fixture on more
 than one worker. This explains the additional blocked module-teardown errors.
-Area and narrow default gates retain `loadfile`; explicit `--dist` wins.
+It was not adopted; see the verification above.
 
 ## Changes and coverage
 
-- Full runs use the existing xdist work-stealing scheduler at the same worker
-  count: 50.45–58.08 s wall saved in the scheduling-only experiment.
+- Work stealing saved 50.45–58.08 s wall in the sandboxed scheduling-only
+  experiment but was slower outside the sandbox; it is not used.
 - Collection resolves a test path once per file. cProfile measured 21,534
   `_rel` calls / 1.338 s cumulative in the old collection hook. A synthetic
   101-case/two-file regression requires two resolutions and unchanged markers.
@@ -245,7 +274,7 @@ passed, 1,439 were deselected, and the same 11 process-guard teardowns failed.
 The override models the no-change gate after landing; the actual branch diff
 was checked separately in the 489.07 s full escalation.
 
-Local checks must be rerun in an environment allowing the process inspection
-commands `ps -axww -o pid=,command=` and `ps -o stat= -p <pid>`. The pre-existing
-docs-preview, score and Pi-reference failures also need resolution. No Actions
-run or cross-family review is claimed; this work is parked for external review.
+The sandbox blocked the process inspection commands `ps -axww -o pid=,command=`
+and `ps -o stat= -p <pid>`. The verification above reran the full gate where
+they are allowed: the docs-preview and score failures did not recur, and the
+Pi-reference failure is environmental and also fails on `main`.

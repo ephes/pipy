@@ -3,10 +3,10 @@
   "phase": "headless-cli-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "product": "c9b7fa28b14e0dfb7c2e01d2397bcd062ce690fd5057b3d5c54f00eb858dd5aa"
+    "product": "0dbeba4a2e77e2c4752e04762196e96c84052930f0697b2b226957554892adf5"
   },
   "closure": {
-    "CHANGELOG.md": "d92c46ce8a27e978eb30da20812b6fa6bf8cc1c97bef958dc055dd0f7a35dfc7",
+    "CHANGELOG.md": "7e41801d92cc2a7176898fd5bdd19ee93a10c1db34b61d4d9481539ee8748096",
     "docs/architecture.md": "c806ea7a69b611e74ad72b2833b48652a0e500ba229180685e349e1330fc762b",
     "docs/backlog.md": "c601f16f1225738c68c1b93765d2c44fe142fdb1287a14c2358f0ea275b64694",
     "docs/durable-adjudication.md": "f4ae53527b88dba2fa330a06a8269cdee85f1bc2758c313b2e7afc7343bce594",

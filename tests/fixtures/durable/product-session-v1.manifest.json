@@ -3,10 +3,10 @@
   "phase": "product-session-v1",
   "reference_commit": "f9a26365568127461c47a07a37dcb42c140a3ac5",
   "parents": {
-    "inspection": "4e120a2bb54e296f3bd210af557c1da3c8a2addd2c0063d6b50f407924ed9bec"
+    "inspection": "fb50d672741e919ff0d611a3c6877d5d17b38b476704da39e147edb4f299ad9c"
   },
   "closure": {
-    "CHANGELOG.md": "d92c46ce8a27e978eb30da20812b6fa6bf8cc1c97bef958dc055dd0f7a35dfc7",
+    "CHANGELOG.md": "7e41801d92cc2a7176898fd5bdd19ee93a10c1db34b61d4d9481539ee8748096",
     "docs/architecture.md": "c806ea7a69b611e74ad72b2833b48652a0e500ba229180685e349e1330fc762b",
     "docs/backlog.md": "c601f16f1225738c68c1b93765d2c44fe142fdb1287a14c2358f0ea275b64694",
     "docs/durable-adjudication.md": "f4ae53527b88dba2fa330a06a8269cdee85f1bc2758c313b2e7afc7343bce594",

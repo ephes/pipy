@@ -106,37 +106,25 @@ All recipes pass extra arguments to Pytest (`just test-full -m "not pty"`,
 in `tests/pytest_plugins/pipy_test_tiers.py`, so unselected modules are never
 imported; combine `--pipy-tier` with `-k`/`-m`, not with path arguments.
 
-Tier runs use bounded pytest-xdist workers: `just test-full`,
+Tier runs are parallel with bounded workers (pytest-xdist, `--dist=loadfile`,
+so a file's module fixtures are set up once): `just test-full`,
 `just test-durable`, `just test-core` and an escalated or large default gate
-use half the available CPUs, at least 4 and at most 8 (never more than the
-CPUs): 8 on a 16-CPU machine, 4 on a 4-CPU machine. Full runs, including a
-default gate escalated to full, use `--dist=worksteal`: workers can share a long
-file's tail. Smaller and area gates keep `--dist=loadfile` so a file's module
-fixtures are set up once. `--dist=loadfile` explicitly restores that scheduling
-for a full run; `-n` and the worker environment variable still control worker
-count independently.
-
-On a 16-CPU Mac with Python 3.15.2 and eight workers (2026-11-15), two baseline
-full runs took 436.40 s / 428.77 s; changing only scheduling to `worksteal` took
-378.32 s (12–13 % faster); the final full run with all changes took 391.81 s
-(9–10 % below the baselines), still above the 300 s target. The actual branch
-`just check`, correctly escalated to full, took 489.07 s, so the improvement
-is not a stable timing guarantee. These are **restricted-environment measurements, not
-green full gates**: the baseline already had 27 failed tests plus 679 teardown
-errors, chiefly because the sandbox denies `ps`. Work stealing repeats some
-module fixtures, so that blocked teardown ran 711 times. The full case inventory
-was unchanged in that experiment; the final run adds two routing checks.
-Per-file path caching also removes repeated collection work;
-Scheduler tests now witness actual admission/retirement events instead of waiting
-five seconds on conditions that do not notify, and JSON mutant cases reuse a
-module-scoped three-backend capture with independent copies. No assertions, crash cuts,
-backend cases or full-tier matrices were removed. See the
-[duration profile](docs/test-gate-performance.md) for the measurements, remaining
-costs and verification limits. A clean-checkout `just check` took 2.77 s warm
-(55.29 s with a cold Mypy cache); after the change,
-`PIPY_TEST_BASE=HEAD just check` on the committed, clean branch took 2.37 s.
-That override models a clean checkout after landing; it does not validate the
-branch diff. Both narrow runs were blocked by the process guard.
+use half the available CPUs as workers, at least 4 and at most 8 (never more
+than the CPUs): 8 on a 16-CPU machine, 4 on a 4-CPU machine. Most of the time
+goes to the durable area, whose workers keep a CPU about 80 % busy, so half the
+CPUs leaves room for other work on a shared machine. On a 16-CPU Mac with
+Python 3.15.2, eight workers and other agents' work running alongside
+(2026-11-16), `just test-full` took 422–439 s; four workers took about 720 s
+in an earlier profile. `--dist=worksteal` was tried and rejected: it balanced
+workers better in a sandbox but took 464–473 s against 422–439 s for
+`loadfile` on the same shared machine, probably because it repeats module
+fixtures on several workers. Collection resolves each test path once per file; Scheduler
+tests witness actual admission/retirement events instead of waiting five
+seconds on conditions that do not notify; JSON mutant cases reuse a
+module-scoped three-backend capture with independent copies. No assertions,
+crash cuts, backend cases or full-tier matrices were removed. See the
+[duration profile](docs/test-gate-performance.md) for the measurements and the
+remaining costs.
 
 A default gate with a single whole test file (besides the smoke set and single guard tests) runs in
 one process; from two whole files on it runs on workers, never more workers

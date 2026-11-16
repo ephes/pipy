@@ -18,8 +18,7 @@ their full matrix only when every test file runs or when the change itself
 selects their file; other runs keep the listed representative cases and say so
 in the header and the summary.
 
-Tier runs use bounded parallelism (pytest-xdist, ``worksteal`` for full runs,
-``loadfile`` otherwise) as
+Tier runs use bounded parallelism (pytest-xdist, ``--dist=loadfile``) as
 ``pipy_test_routing.plan_workers`` decides, unless ``-n`` or
 ``$PIPY_TEST_WORKERS`` says otherwise; ``0`` runs serially. The selection is
 computed once, in the controlling pytest process, and handed to the workers.
@@ -151,9 +150,8 @@ def _plan_workers(config: pytest.Config, selection: routing.Selection) -> str:
     if option.numprocesses == 0:
         return f"workers: none, serial ({source})"
     if option.dist == "no":
-        # Full runs can share a long file's tail between workers. Smaller gates
-        # keep whole files together so module-scoped fixtures are set up once.
-        option.dist = "worksteal" if selection.files is None else "loadfile"
+        # Whole files per worker: module-scoped fixtures are set up once.
+        option.dist = "loadfile"
     return (
         f"workers: {option.numprocesses} (--dist={option.dist}; {source}); "
         f"{serial_hint}"
